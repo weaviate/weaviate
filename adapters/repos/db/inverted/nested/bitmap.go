@@ -137,7 +137,7 @@ func (o *BitmapOps) AndAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar
 	if len(raws) == 0 {
 		return sroar.NewBitmap(), func() {}
 	}
-	raw, release = o.pool.CloneToBuf(raws[0])
+	raw, release = o.pool.Clone(raws[0])
 	for _, bm := range raws[1:] {
 		raw.AndConc(bm, maxConcurrency)
 		if raw.IsEmpty() {
@@ -152,7 +152,7 @@ func (o *BitmapOps) AndAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar
 // the positive bitmap for NotEqual (universe AND-NOT denylist) without
 // mutating the source universe bitmap.
 func (o *BitmapOps) AndNot(base, subtract *sroar.Bitmap, maxConcurrency int) (raw *sroar.Bitmap, release func()) {
-	raw, release = o.pool.CloneToBuf(base)
+	raw, release = o.pool.Clone(base)
 	raw.AndNotConc(subtract, maxConcurrency)
 	return raw, release
 }
@@ -223,7 +223,7 @@ func (o *BitmapOps) OrAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar.
 			largestIdx = i
 		}
 	}
-	raw, release = o.pool.CloneToBuf(raws[largestIdx])
+	raw, release = o.pool.Clone(raws[largestIdx])
 	for i, bm := range raws {
 		if i == largestIdx {
 			continue

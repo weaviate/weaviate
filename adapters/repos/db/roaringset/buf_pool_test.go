@@ -899,14 +899,14 @@ func TestBitmapBufPoolTrackingForTests_Get(t *testing.T) {
 	})
 }
 
-func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
-	t.Run("outstanding increments on CloneToBuf and decrements on release", func(t *testing.T) {
+func TestBitmapBufPoolTrackingForTests_Clone(t *testing.T) {
+	t.Run("outstanding increments on Clone and decrements on release", func(t *testing.T) {
 		pool := NewBitmapBufPoolTrackingForTests()
 
 		bm := sroar.NewBitmap()
 		bm.SetMany([]uint64{1, 2, 3})
 
-		cloned, release := pool.CloneToBuf(bm)
+		cloned, release := pool.Clone(bm)
 		assert.Equal(t, int64(1), pool.Outstanding())
 		assert.Equal(t, bm.ToArray(), cloned.ToArray())
 
@@ -918,7 +918,7 @@ func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
 		pool := NewBitmapBufPoolTrackingForTests()
 		bm := sroar.NewBitmap()
 		bm.Set(1)
-		_, release := pool.CloneToBuf(bm)
+		_, release := pool.Clone(bm)
 		release()
 		assert.PanicsWithValue(t, "bitmap released twice", release)
 	})
@@ -929,7 +929,7 @@ func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
 		bm := sroar.NewBitmap()
 		bm.SetMany([]uint64{10, 20, 30})
 
-		cloned, release := pool.CloneToBuf(bm)
+		cloned, release := pool.Clone(bm)
 		assert.False(t, cloned.IsEmpty())
 
 		// ToBuffer returns a view into the backing memory while the bitmap is
@@ -961,9 +961,9 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 
 	t.Run("a held struct is not handed out again", func(t *testing.T) {
 		pool := newRanged()
-		bm1, put1 := pool.CloneBytesToBuf(serialized)
-		bm2, put2 := pool.CloneToBuf(src)
-		bm3, put3 := pool.AccumulatorToBuf(sroar.NewAccumulator())
+		bm1, put1 := pool.CloneBytes(serialized)
+		bm2, put2 := pool.Clone(src)
+		bm3, put3 := pool.FromAccumulator(sroar.NewAccumulator())
 		defer put1()
 		defer put2()
 		defer put3()
@@ -976,12 +976,12 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 
 	t.Run("growth past the buffer cannot corrupt the next checkout", func(t *testing.T) {
 		pool := newRanged()
-		bm1, put1 := pool.CloneBytesToBuf(serialized)
+		bm1, put1 := pool.CloneBytes(serialized)
 		for i := uint64(0); i < 100_000; i += 7 {
 			bm1.Set(i)
 		}
 		put1()
-		bm2, put2 := pool.CloneBytesToBuf(serialized)
+		bm2, put2 := pool.CloneBytes(serialized)
 		defer put2()
 		require.Equal(t, src.ToArray(), bm2.ToArray(),
 			"reused entry must reflect only the new clone, not the grown bitmap")
@@ -1000,7 +1000,7 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 		}
 		for _, tc := range pools {
 			t.Run(tc.name, func(t *testing.T) {
-				bm, put := tc.pool.CloneBytesToBuf(serialized)
+				bm, put := tc.pool.CloneBytes(serialized)
 				for i := uint64(0); i < 100_000; i += 7 {
 					bm.Set(i)
 				}
@@ -1035,11 +1035,11 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 
 	t.Run("clone allocates nothing steady-state", func(t *testing.T) {
 		pool := newRanged()
-		_, put := pool.CloneBytesToBuf(serialized)
+		_, put := pool.CloneBytes(serialized)
 		put()
 		// A sync.Pool miss allocates a struct, but never on every run.
 		allocs := testing.AllocsPerRun(100, func() {
-			bm, put := pool.CloneBytesToBuf(serialized)
+			bm, put := pool.CloneBytes(serialized)
 			_ = bm.GetCardinality()
 			put()
 		})
@@ -1064,16 +1064,16 @@ func (p *dirtyTrackingPool) Get(minCap int) ([]byte, func()) {
 	return buf, put
 }
 
-func (p *dirtyTrackingPool) CloneToBuf(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
-	return cloneToBuf(p, bm)
+func (p *dirtyTrackingPool) Clone(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	return clone(p, bm)
 }
 
-func (p *dirtyTrackingPool) CloneBytesToBuf(src []byte) (*sroar.Bitmap, func()) {
-	return cloneBytesToBuf(p, src)
+func (p *dirtyTrackingPool) CloneBytes(src []byte) (*sroar.Bitmap, func()) {
+	return cloneBytes(p, src)
 }
 
-func (p *dirtyTrackingPool) AccumulatorToBuf(acc *sroar.Accumulator) (*sroar.Bitmap, func()) {
-	return accumulatorToBuf(p, acc)
+func (p *dirtyTrackingPool) FromAccumulator(acc *sroar.Accumulator) (*sroar.Bitmap, func()) {
+	return fromAccumulator(p, acc)
 }
 
 // TestPooledBitmapGrowsThroughThePool pins that growth takes dirty buffers from
@@ -1094,14 +1094,14 @@ func TestPooledBitmapGrowsThroughThePool(t *testing.T) {
 		name string
 		get  func(BitmapBufPool) (*sroar.Bitmap, func())
 	}{
-		{"CloneToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.CloneToBuf(baseBM()) }},
-		{"CloneBytesToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
-			return p.CloneBytesToBuf(slices.Clone(baseBM().ToBuffer()))
+		{"Clone", func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.Clone(baseBM()) }},
+		{"CloneBytes", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+			return p.CloneBytes(slices.Clone(baseBM().ToBuffer()))
 		}},
-		{"AccumulatorToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+		{"FromAccumulator", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
 			acc := sroar.NewAccumulator()
 			acc.Or(baseBM())
-			return p.AccumulatorToBuf(acc)
+			return p.FromAccumulator(acc)
 		}},
 	}
 	ops := []struct {
@@ -1153,7 +1153,7 @@ func TestPooledBitmapGrowthAllocatesNothing(t *testing.T) {
 
 	// One value per key grows the buffer with every new container.
 	grow := func() {
-		bm, put := pool.CloneToBuf(src)
+		bm, put := pool.Clone(src)
 		for i := uint64(1); i < 4000; i++ {
 			bm.Set(i << 16)
 		}
@@ -1169,7 +1169,7 @@ type countingDisposableMetrics struct{ created int }
 
 func (m *countingDisposableMetrics) bufCreated(int) { m.created++ }
 
-func TestAccumulatorToBuf(t *testing.T) {
+func TestFromAccumulator(t *testing.T) {
 	ids := []uint64{1, 2, 3, 70_000, 200_000}
 	newAcc := func() *sroar.Accumulator {
 		acc := sroar.NewAccumulator()
@@ -1191,7 +1191,7 @@ func TestAccumulatorToBuf(t *testing.T) {
 	for _, tc := range pools {
 		t.Run(tc.name, func(t *testing.T) {
 			acc := newAcc()
-			bm, put := tc.pool.AccumulatorToBuf(acc)
+			bm, put := tc.pool.FromAccumulator(acc)
 			require.NotNil(t, put, "put must always be callable")
 			require.Equal(t, acc.Bitmap().ToArray(), bm.ToArray())
 			put()
@@ -1200,7 +1200,7 @@ func TestAccumulatorToBuf(t *testing.T) {
 
 	t.Run("empty accumulator yields an empty bitmap", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
-		bm, put := pool.AccumulatorToBuf(sroar.NewAccumulator())
+		bm, put := pool.FromAccumulator(sroar.NewAccumulator())
 		require.NotNil(t, put, "put must always be callable")
 		defer put()
 		require.NotNil(t, bm)
@@ -1209,17 +1209,17 @@ func TestAccumulatorToBuf(t *testing.T) {
 
 	t.Run("nil accumulator panics, as documented", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
-		require.Panics(t, func() { pool.AccumulatorToBuf(nil) })
+		require.Panics(t, func() { pool.FromAccumulator(nil) })
 	})
 
 	t.Run("allocates nothing warm", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
 		acc := newAcc()
-		_, put := pool.AccumulatorToBuf(acc)
+		_, put := pool.FromAccumulator(acc)
 		put()
 
 		allocs := testing.AllocsPerRun(100, func() {
-			bm, put := pool.AccumulatorToBuf(acc)
+			bm, put := pool.FromAccumulator(acc)
 			_ = bm.GetCardinality()
 			put()
 		})
@@ -1229,12 +1229,12 @@ func TestAccumulatorToBuf(t *testing.T) {
 	t.Run("growth past the buffer cannot corrupt the next checkout", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
 		acc := newAcc()
-		bm1, put1 := pool.AccumulatorToBuf(acc)
+		bm1, put1 := pool.FromAccumulator(acc)
 		for i := uint64(0); i < 100_000; i += 7 {
 			bm1.Set(i)
 		}
 		put1()
-		bm2, put2 := pool.AccumulatorToBuf(acc)
+		bm2, put2 := pool.FromAccumulator(acc)
 		defer put2()
 		require.Equal(t, ids, bm2.ToArray(),
 			"reused entry must reflect only the fresh union, not the grown bitmap")
@@ -1251,14 +1251,14 @@ func TestPooledBuildsKeepSpareAsTailRoom(t *testing.T) {
 		name string
 		get  func(BitmapBufPool) (*sroar.Bitmap, func())
 	}{
-		{"CloneToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.CloneToBuf(src) }},
-		{"CloneBytesToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
-			return p.CloneBytesToBuf(src.ToBuffer())
+		{"Clone", func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.Clone(src) }},
+		{"CloneBytes", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+			return p.CloneBytes(src.ToBuffer())
 		}},
-		{"AccumulatorToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+		{"FromAccumulator", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
 			acc := sroar.NewAccumulator()
 			acc.Or(src)
-			return p.AccumulatorToBuf(acc)
+			return p.FromAccumulator(acc)
 		}},
 	}
 	for _, b := range builds {
@@ -1276,7 +1276,7 @@ func TestPooledBuildsKeepSpareAsTailRoom(t *testing.T) {
 	}
 }
 
-func TestCloneBytesToBuf(t *testing.T) {
+func TestCloneBytes(t *testing.T) {
 	newPool := func() *dirtyTrackingPool {
 		return &dirtyTrackingPool{BitmapBufPoolTrackingForTests: NewBitmapBufPoolTrackingForTests()}
 	}
@@ -1287,7 +1287,7 @@ func TestCloneBytesToBuf(t *testing.T) {
 		src := slices.Clone(NewBitmap(want...).ToBuffer())
 		original := slices.Clone(src)
 
-		bm, put := pool.CloneBytesToBuf(src)
+		bm, put := pool.CloneBytes(src)
 		require.Equal(t, 1, pool.gets)
 		bm.Remove(2)
 		require.Equal(t, original, src, "writing the clone must not touch src")
@@ -1303,7 +1303,7 @@ func TestCloneBytesToBuf(t *testing.T) {
 	for _, src := range [][]byte{nil, {}, make([]byte, 2), make([]byte, 4), make([]byte, 6)} {
 		t.Run(fmt.Sprintf("src of %d bytes, nil %t, gives an empty bitmap", len(src), src == nil), func(t *testing.T) {
 			pool := newPool()
-			bm, put := pool.CloneBytesToBuf(src)
+			bm, put := pool.CloneBytes(src)
 			require.Equal(t, 1, pool.gets)
 			require.True(t, bm.IsEmpty())
 			bm.Set(5)
@@ -1314,9 +1314,9 @@ func TestCloneBytesToBuf(t *testing.T) {
 	}
 }
 
-// TestCloneBytesToBuf_CorruptHeaderPanics pins that a corrupt even-length src
+// TestCloneBytes_CorruptHeaderPanics pins that a corrupt even-length src
 // panics recoverably before a buffer is taken, so none leaks.
-func TestCloneBytesToBuf_CorruptHeaderPanics(t *testing.T) {
+func TestCloneBytes_CorruptHeaderPanics(t *testing.T) {
 	// Offsets into the keys node sroar serializes first, as uint64s.
 	const nodeSizeAt, firstContainerAt = 0, 3 * 8
 	serialized := NewBitmap(1, 2, 3, 70_000).ToBuffer()
@@ -1349,23 +1349,23 @@ func TestCloneBytesToBuf_CorruptHeaderPanics(t *testing.T) {
 				tc.corrupt(src)
 			}
 			pool := NewBitmapBufPoolTrackingForTests()
-			require.Panics(t, func() { pool.CloneBytesToBuf(src) })
+			require.Panics(t, func() { pool.CloneBytes(src) })
 			require.Zero(t, pool.Outstanding())
 		})
 	}
 }
 
-// TestCloneBytesToBuf_OddLengthPanics pins the corrupt-input guard: an
+// TestCloneBytes_OddLengthPanics pins the corrupt-input guard: an
 // odd-length src — always corruption, sroar serializations are []uint16-based
 // — must fail with a recoverable panic naming the length. Without the guard
 // the input reaches sroar's even-length assert, a log.Fatal that kills the
 // whole process over one corrupt segment region.
-func TestCloneBytesToBuf_OddLengthPanics(t *testing.T) {
+func TestCloneBytes_OddLengthPanics(t *testing.T) {
 	pool := NewBitmapBufPoolNoop()
 
 	// call through a variable: the deliberately corrupt argument would
 	// otherwise trip staticcheck's serialized-bitmap length analysis
-	clone := pool.CloneBytesToBuf
+	clone := pool.CloneBytes
 	require.PanicsWithValue(t,
 		"roaringset: corrupt serialized bitmap: odd length 9",
 		func() { clone(make([]byte, 9)) })

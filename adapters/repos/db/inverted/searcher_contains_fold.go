@@ -466,7 +466,7 @@ func (f containsFoldRunner) accumulator(ctx context.Context) (*sroar.Bitmap, fun
 		release()
 	}
 
-	result, release := f.pool.AccumulatorToBuf(acc)
+	result, release := f.pool.FromAccumulator(acc)
 	return result, release, nil
 }
 
@@ -628,7 +628,7 @@ func (f containsFoldRunner) accumulatorParallel(ctx context.Context) (*sroar.Bit
 		// incremental fold's partials, it is simply dropped.
 		return nil, nil, err
 	}
-	result, release := f.pool.AccumulatorToBuf(merged)
+	result, release := f.pool.FromAccumulator(merged)
 	return result, release, nil
 }
 

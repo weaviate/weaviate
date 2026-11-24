@@ -89,7 +89,7 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 
 		// No need to expand, the whole range is covered
 		if count <= prefilledMaxId {
-			return bmf.bufPool.CloneToBuf(bmf.prefilled)
+			return bmf.bufPool.Clone(bmf.prefilled)
 		}
 		return nil, nil
 	}()
@@ -105,14 +105,14 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 			// 2nd check to ensure bitmap wasn't expanded by
 			// concurrent request white waiting for write lock
 			if count <= prefilledMaxId {
-				return bmf.bufPool.CloneToBuf(bmf.prefilled)
+				return bmf.bufPool.Clone(bmf.prefilled)
 			}
 
 			// expand bitmap with additional ids
 			prefilledMaxId = count + defaultIdIncrement
 			bmf.prefilled.FillUp(prefilledMaxId)
 			bmf.prefilledMaxId = prefilledMaxId
-			return bmf.bufPool.CloneToBuf(bmf.prefilled)
+			return bmf.bufPool.Clone(bmf.prefilled)
 		}()
 	}
 	cloned.RemoveRange(count, prefilledMaxId+1)

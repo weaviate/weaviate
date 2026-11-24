@@ -83,9 +83,9 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 
 // AdditionsCloneToBuf clones the node's additions bitmap straight into a
 // buffer taken from pool, skipping the intermediate bitmap over the node's
-// memory. The clone is safe to use and mutate beyond the node's lifetime, up
-// to the pooled buffer's capacity. It returns (nil, nil) when the node holds
-// no additions — the release is non-nil exactly when the bitmap is.
+// memory. The clone is safe to use and mutate beyond the node's lifetime. It
+// returns (nil, nil) when the node holds no additions — the release is non-nil
+// exactly when the bitmap is.
 func (sn *SegmentNode) AdditionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, func()) {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
@@ -93,7 +93,7 @@ func (sn *SegmentNode) AdditionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, f
 	if len(buf) == 0 {
 		return nil, nil
 	}
-	return pool.CloneBytesToBuf(buf)
+	return pool.CloneBytes(buf)
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It

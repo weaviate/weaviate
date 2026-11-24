@@ -898,7 +898,7 @@ func TestDocBitmapContainsBatch_ParallelMatchesSequential(t *testing.T) {
 			wantDocIDs:   parallelFixtureUnion(), wantDenyList: true,
 		},
 		{
-			// the deny flag on the arm that stages through AccumulatorToBuf: the
+			// the deny flag on the arm that stages through FromAccumulator: the
 			// incremental leg above adopts a fetched row, this one never does
 			name: "ContainsNone, accumulator", operator: filters.ContainsNone, gate: 2,
 			wantStrategy: foldStrategyUnionAccumulator,
@@ -1226,7 +1226,7 @@ type panicAfterReadsReader struct {
 
 func (r *panicAfterReadsReader) Next(mergeConc int) (*sroar.Bitmap, func(), error) {
 	// Before delegating, where the real panic fires: roaringset's
-	// requireEvenLength runs inside cloneBytesToBuf ahead of the pool fetch.
+	// requireEvenLength runs inside cloneBytes ahead of the pool fetch.
 	if r.reads >= r.afterReads {
 		panic("injected read panic")
 	}

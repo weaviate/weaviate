@@ -68,16 +68,16 @@ func (p *BitmapBufPoolTrackingForTests) GetBitmapStruct() (dst *sroar.Bitmap, pu
 	}
 }
 
-func (p *BitmapBufPoolTrackingForTests) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
+func (p *BitmapBufPoolTrackingForTests) Clone(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return clone(p, bm)
 }
 
-func (p *BitmapBufPoolTrackingForTests) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
-	return cloneBytesToBuf(p, src)
+func (p *BitmapBufPoolTrackingForTests) CloneBytes(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytes(p, src)
 }
 
-func (p *BitmapBufPoolTrackingForTests) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return accumulatorToBuf(p, acc)
+func (p *BitmapBufPoolTrackingForTests) FromAccumulator(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulator(p, acc)
 }
 
 // Outstanding returns the number of buffers that have been allocated but not

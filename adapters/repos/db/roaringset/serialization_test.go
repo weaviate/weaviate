@@ -128,7 +128,7 @@ func TestSerialization_EmptyBitmapsReturnNil(t *testing.T) {
 	})
 }
 
-func TestSerialization_CloneToBuf(t *testing.T) {
+func TestSerialization_AdditionsCloneToBuf(t *testing.T) {
 	key := []byte("my-key")
 
 	t.Run("clones match the plain accessors and are independent of the node", func(t *testing.T) {

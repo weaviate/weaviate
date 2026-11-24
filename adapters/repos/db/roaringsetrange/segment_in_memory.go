@@ -244,7 +244,7 @@ func (r *segmentInMemoryReader) readNotEqual(value uint64, conc int) (roaringset
 	eq, eqRelease := r.mergeBetween(value, value+1, conc)
 	defer eqRelease()
 
-	neq, neqRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
+	neq, neqRelease := r.bufPool.Clone(r.bitmaps[0])
 	neq.AndNotConc(eq, conc)
 	return roaringset.BitmapLayer{Additions: neq}, neqRelease
 }
@@ -258,14 +258,14 @@ func (r *segmentInMemoryReader) readLessThan(value uint64, conc int) (roaringset
 	gte, gteRelease := r.mergeGreaterThanEqual(value, conc)
 	defer gteRelease()
 
-	lt, ltRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
+	lt, ltRelease := r.bufPool.Clone(r.bitmaps[0])
 	lt.AndNotConc(gte, conc)
 	return roaringset.BitmapLayer{Additions: lt}, ltRelease
 }
 
 func (r *segmentInMemoryReader) readLessThanEqual(value uint64, conc int) (roaringset.BitmapLayer, func()) {
 	if value == math.MaxUint64 {
-		all, allRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
+		all, allRelease := r.bufPool.Clone(r.bitmaps[0])
 		// all values are <= max uint64
 		return roaringset.BitmapLayer{Additions: all}, allRelease
 	}
@@ -273,7 +273,7 @@ func (r *segmentInMemoryReader) readLessThanEqual(value uint64, conc int) (roari
 	gte1, gte1Release := r.mergeGreaterThanEqual(value+1, conc)
 	defer gte1Release()
 
-	lte, lteRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
+	lte, lteRelease := r.bufPool.Clone(r.bitmaps[0])
 	lte.AndNotConc(gte1, conc)
 	return roaringset.BitmapLayer{Additions: lte}, lteRelease
 }
@@ -290,7 +290,7 @@ func (r *segmentInMemoryReader) readGreaterThan(value uint64, conc int) (roaring
 
 func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (roaringset.BitmapLayer, func()) {
 	if value == 0 {
-		all, allRelease := r.bufPool.CloneToBuf(r.bitmaps[0])
+		all, allRelease := r.bufPool.Clone(r.bitmaps[0])
 		// all values are >= 0
 		return roaringset.BitmapLayer{Additions: all}, allRelease
 	}
@@ -300,7 +300,7 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 }
 
 func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
-	result, release := r.bufPool.CloneToBuf(r.bitmaps[0])
+	result, release := r.bufPool.Clone(r.bitmaps[0])
 	ANDed := false
 
 	for bit := 1; bit < len(r.bitmaps); bit++ {
@@ -315,8 +315,8 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*
 }
 
 func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
-	resultMin, releaseMin := r.bufPool.CloneToBuf(r.bitmaps[0])
-	resultMax, releaseMax := r.bufPool.CloneToBuf(r.bitmaps[0])
+	resultMin, releaseMin := r.bufPool.Clone(r.bitmaps[0])
+	resultMax, releaseMax := r.bufPool.Clone(r.bitmaps[0])
 	defer releaseMax()
 	ANDedMin := false
 	ANDedMax := false

@@ -35,29 +35,28 @@ type BitmapBufPool interface {
 	// To method. put releases the buffer the bitmap holds by then and recycles
 	// the struct, so neither may be used after it.
 	GetBitmapStruct() (dst *sroar.Bitmap, put func())
-	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
-	// CloneBytesToBuf clones an already-serialized bitmap into a pooled
-	// buffer. src must be a valid, non-empty sroar serialization. Like
-	// CloneToBuf, the clone owns the buffer's full capacity and grows through
-	// the pool past it.
-	CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func())
-	// AccumulatorToBuf materializes the accumulator's union into a pooled
+	Clone(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
+	// CloneBytes clones an already-serialized bitmap into a pooled buffer. src
+	// must be a valid, non-empty sroar serialization. Like Clone, the clone owns
+	// the buffer's full capacity and grows through the pool past it.
+	CloneBytes(src []byte) (cloned *sroar.Bitmap, put func())
+	// FromAccumulator materializes the accumulator's union into a pooled
 	// buffer, so a warm accumulator building into pooled memory allocates
 	// nothing. The returned bitmap owns the buffer's full capacity and grows
-	// through the pool past it (same contract as CloneToBuf). Release via put;
-	// the accumulator stays reusable. acc must be non-nil (unlike CloneToBuf's
+	// through the pool past it (same contract as Clone). Release via put;
+	// the accumulator stays reusable. acc must be non-nil (unlike Clone's
 	// nil tolerance, it panics).
-	AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func())
+	FromAccumulator(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func())
 }
 
-func cloneToBuf(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+func clone(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	dst, put := pool.GetBitmapStruct()
 	return src.CloneTo(dst, sroar.BuildOpts{Pool: pool, SpareTailOnly: true}), put
 }
 
 // src must be a non-empty sroar serialization of at least 8 bytes, or the clone
 // is empty. Odd-length src is corrupt and panics.
-func cloneBytesToBuf(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put func()) {
+func cloneBytes(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put func()) {
 	requireEvenLength(src)
 	dst, put := pool.GetBitmapStruct()
 	return sroar.FromBufferWithCopyTo(dst, src, sroar.BuildOpts{Pool: pool, SpareTailOnly: true}), put
@@ -80,7 +79,7 @@ func requireEvenLength(src []byte) {
 	}
 }
 
-func accumulatorToBuf(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+func fromAccumulator(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
 	dst, put := pool.GetBitmapStruct()
 	return acc.BitmapTo(dst, sroar.BuildOpts{Pool: pool, SpareTailOnly: true}), put
 }
@@ -170,16 +169,16 @@ func (p *bitmapBufPoolNoop) GetBitmapStruct() (dst *sroar.Bitmap, put func()) {
 	return dst, dst.ReleaseBuf
 }
 
-func (p *bitmapBufPoolNoop) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
+func (p *bitmapBufPoolNoop) Clone(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return clone(p, bm)
 }
 
-func (p *bitmapBufPoolNoop) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
-	return cloneBytesToBuf(p, src)
+func (p *bitmapBufPoolNoop) CloneBytes(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytes(p, src)
 }
 
-func (p *bitmapBufPoolNoop) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return accumulatorToBuf(p, acc)
+func (p *bitmapBufPoolNoop) FromAccumulator(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulator(p, acc)
 }
 
 // -----------------------------------------------------------------------------
@@ -260,16 +259,16 @@ func (p *bitmapBufPoolRanged) GetBitmapStruct() (dst *sroar.Bitmap, put func()) 
 	return p.structs.Get()
 }
 
-func (p *bitmapBufPoolRanged) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
+func (p *bitmapBufPoolRanged) Clone(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return clone(p, bm)
 }
 
-func (p *bitmapBufPoolRanged) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
-	return cloneBytesToBuf(p, src)
+func (p *bitmapBufPoolRanged) CloneBytes(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytes(p, src)
 }
 
-func (p *bitmapBufPoolRanged) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return accumulatorToBuf(p, acc)
+func (p *bitmapBufPoolRanged) FromAccumulator(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulator(p, acc)
 }
 
 func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {
