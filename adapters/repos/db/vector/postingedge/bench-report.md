@@ -499,9 +499,36 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **El nuestro por el índice va más lento en la ronda 2:** en caliente en 12 de sus 13 filtros, del 2.0 al 11.7 %, y en frío en 11, del 2.6 al 8.1 %. Los que no son los anticorrelados más pequeños, los más lentos. La plana se mueve en los dos sentidos, y HNSW no se mueve: como mucho un 3.5 % en caliente. No es la máquina, que habría movido a HNSW también. Antes de cada lote en frío la medida cierra y abre otra vez el índice y su store, unas 1 900 veces en la noche. Si algo quedara vivo de cada apertura, el índice iría cada vez más lento.
 - **Eso no es (03:55 del 24).** Abrí y cerré 200 veces el índice de la medida, con el binario de `723bb60c53` y el arnés que usa la medida (`openFilteredIndex`), y medí 300 queries en caliente cada 50 aperturas:
   - **No cambia nada de lo que podría frenar la búsqueda:** 3 goroutines y 35 ficheros abiertos de principio a fin, y la pasada de 300 queries entre 42.9 y 43.0 s en los cinco momentos. Las queries son al azar, lejos de los datos, así que cargan mucho más que las de dbpedia.
-  - **El heap sí crece algo:** de 209.8 a 213.9 MB en 200 aperturas, unos 20 KB por apertura. Miro con un perfil de heap si eso es del índice o del arnés.
+  - **El heap en uso crece algo, pero el índice no retiene nada.** Sube de 209.8 a 213.9 MB en 200 aperturas, unos 20 KB por apertura. Lo comprobé con 400 aperturas más, sin búsquedas, y perfiles de heap cada 100 (04:00 del 24):
+    - Lo vivo que crece entre la primera y la última son unos 0.5 MB, y es el logger de test. Su hook guarda cada entrada de log (`logrus/hooks/test`), y cada apertura escribe unas pocas.
+    - Lo del índice (`keepPending` y sus `slices.Clone`) sube y baja de un perfil a otro: es el estado del índice abierto en ese momento, no se acumula.
+    - El resto de lo que crece en uso, unos 7 MB en 400 aperturas frente a 1 MB vivo, es fragmentación de spans.
   - **Cada apertura cuesta 3.2 s.** Es casi todo lo que cuesta cada vaciado de la caché en la medida, unos 4.4 s.
 - **La lentitud de la ronda 2 queda sin explicar.** La repetición de los cinco puntos marcados, en un proceso nuevo, dirá si la ronda 2 vuelve a ir más lenta.
+
+**La repetición de los cinco puntos marcados (24 de noviembre, de 04:01 a 04:34).** La hizo la sesión de integración: datos en `67cb7df780` y lectura en su plan (`8eb400fef4`). Usó el mismo protocolo y el mismo índice, y el código del índice es el de la noche; solo cambia el arnés, que con `-bench.filters.points` mide solo esos puntos (`ea25e176a1`). El ef y el recall son los de la noche, y ningún resultado salió de su filtro.
+
+| punto | medida | noche, rondas 1 / 2 | repetición, rondas 1 / 2 |
+|---|---|---:|---:|
+| nuestro por el índice, al azar 1 % | caliente | 23.82 / 26.60 ms | 24.08 / 23.79 ms |
+| nuestro por la plana, al azar 10 % | caliente | 23.70 / 26.26 ms | 5.82 / 5.80 ms |
+| nuestro por la plana, correlado 10 % | caliente | 26.68 / 23.71 ms | 5.76 / 5.81 ms |
+| nuestro por la plana, al azar 10 % | frío | 32.07 / 32.23 ms | 13.78 / 13.78 ms |
+| `acorn`, correlado 0.1 % | frío | 1.51 / 1.36 ms | 1.52 / 1.38 ms |
+| `acorn`, anticorrelado 0.1 % | frío | 2.93 / 2.36 ms | 2.89 / 2.35 ms |
+
+- **El índice al azar al 1 % no va más lento en la ronda 2 de un proceso nuevo:** da lo que la ronda 1 de la noche. La que se separa es la ronda 2 de la noche.
+- **En un proceso nuevo, la plana cuesta unas cuatro veces menos en caliente:** 5.8 ms con 99 000 permitidos, unos 50 ns por permitido, lo que esperaba la enmienda 2. En la noche costaba entre 230 y 250 ns.
+  - **En frío suma lo mismo en las dos sesiones,** unos 8 ms por las 507 lecturas de vector, así que la diferencia es de cómputo.
+  - **En la noche, la plana llegó después del índice en sus trece filtros,** con unas 650 reaperturas y filtros de miles de cargas por query. En la repetición llegó después de un solo filtro.
+  - **Algo se acumula en un proceso largo,** y lo nota sobre todo la plana. No son goroutines, ficheros ni heap vivo que crezca con las reaperturas (lo de arriba), pero eso no midió la plana. Queda por reproducir en un solo proceso, con la traza del GC y un perfil de CPU.
+- **Quedan en duda hasta reproducirlo:**
+  - el coste de la plana por permitido;
+  - el punto de cruce hacia el 3.5 %;
+  - cada comparación de la plana con el índice y con `acorn`.
+
+  Con la plana de la repetición, al azar al 10 % el índice sigue siendo más barato en frío, pero 1.5 veces (9.30 ms frente a 13.78) y no 3.5. **El veredicto del criterio no cambia:** la primera parte va por cargas y la segunda por recall.
+- **`acorn` anticorrelado al 0.1 % en frío vuelve a derivar con los mismos valores,** un 22.8 % entre rondas en la repetición y un 24.0 % en la noche. Es un efecto de ronda de HNSW, no ruido. La regla no dice qué hacer con una repetición que vuelve a derivar. La sesión de integración no la vuelve a encolar (decisión suya), y yo daría las cuatro medidas.
 
 **Lo esperado frente a lo medido** (lo esperado es *mío*, de este pre-registro y de sus enmiendas):
 
