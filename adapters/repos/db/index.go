@@ -416,9 +416,7 @@ func (i *Index) debugLoggingEnabled() bool {
 // the shards that are local to a node
 // NewIndex builds an index and every shard it owns. db is the owning DB, wired
 // in here rather than by the caller because the shards built below read state
-// off it while they come up (e.g. the resource-pressure read-only flag, see
-// [Shard.inheritResourcePressureReadOnly]) - assigning it after this returns
-// would leave those reads racing the assignment.
+// off it while they come up ([Shard.NotifyReady]); assigning it after this returns races those reads.
 func NewIndex(
 	ctx context.Context,
 	db *DB,
@@ -1856,6 +1854,9 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
+	if err := i.refuseUserReadOnly(targetShard.Shard); err != nil {
+		return err
+	}
 	if i.shardHasMultipleReplicasWrite(tenantName, targetShard.Shard) {
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, targetShard.Shard, object, cl, schemaVersion); err != nil {
@@ -2492,7 +2493,9 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			// Therefore, we can safely use the tenant from any object in the group.
 			tenantName := group.objects[0].Object.Tenant
 			var errs []error
-			if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
+			if err := i.refuseUserReadOnly(shardName); err != nil {
+				errs = duplicateErr(err, len(group.objects))
+			} else if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
@@ -2612,7 +2615,9 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		// Therefore, we can safely use the tenant from any reference in the group.
 		tenantName := group.refs[0].Tenant
 		var errs []error
-		if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
+		if err := i.refuseUserReadOnly(shardName); err != nil {
+			errs = duplicateErr(err, len(group.refs))
+		} else if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
 			err := i.withShardOrRemote(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion,
@@ -3553,6 +3558,9 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		}
 	}
 
+	if err := i.refuseUserReadOnly(shardName); err != nil {
+		return err
+	}
 	if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
@@ -3979,6 +3987,9 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 // owns the pin lifetime, so a caller cannot leak one and leave inUseCounter
 // non-zero, blocking the shard from unloading.
 func (i *Index) withShardForWrite(ctx context.Context, shardName string, f func(shard shardWriter) error) error {
+	if err := i.refuseUserReadOnly(shardName); err != nil {
+		return err
+	}
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	defer release()
 	if err != nil {
@@ -4119,6 +4130,9 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		}
 	}
 
+	if err := i.refuseUserReadOnly(shardName); err != nil {
+		return err
+	}
 	if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
@@ -4799,15 +4813,15 @@ func shardQueueSize(shard ShardLike) int64 {
 // getShardsStorageStatus returns the status of the collection's shards on each of its
 // replica nodes. Example:
 //
-//	map[string]map[string]string{
-//		"shard-0": { "node-0": "READY", "node-1": "READONLY" },
-//		"shard-1": { "node-1": "READY", "node-2": "READONLY" },
+//	map[string]map[string]storagestate.Report{
+//		"shard-0": { "node-0": {Status: "READY"}, "node-1": {Status: "READONLY"} },
+//		"shard-1": { "node-1": {Status: "READY"}, "node-2": {Status: "READONLY"} },
 //	}
 //
 // The second return value are shard statuses mirroring the legacy implementation,
 // where the status is returned based on the first replica to contain the shard,
 // preferably local.
-func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
+func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]storagestate.Report, map[string]string, error) {
 	if err := i.refuseIfClosed(); err != nil {
 		return nil, nil, err
 	}
@@ -4823,7 +4837,7 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 	}
 
 	var mu sync.Mutex // guards shardsStatus and legacyStatus
-	shardsStatus := make(map[string]map[string]string, len(shardNames))
+	shardsStatus := make(map[string]map[string]storagestate.Report, len(shardNames))
 	legacyStatus := make(map[string]string, len(shardNames))
 	timedOut := remote.TimedOutPeersFrom(ctx)
 
@@ -4846,27 +4860,26 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 
 			var (
 				oneNodeStatus atomic.Value
-				perNodeStatus = make(map[string]string, len(replicas))
+				perNodeStatus = make(map[string]storagestate.Report, len(replicas))
 			)
 
 			for _, nodeName := range replicas {
-				perNodeStatus[nodeName] = storagestate.StatusUnavailable.String()
+				perNodeStatus[nodeName] = storagestate.Report{Status: storagestate.StatusUnavailable.String()}
 				var err error
+				var report storagestate.Report
 				if nodeName == thisNode {
-					var status string
-					if status, err = i.localShardStatus(ctx, shardName); err == nil && status != "" {
-						oneNodeStatus.Store(status)
-						perNodeStatus[nodeName] = status
+					if report, err = i.localShardStatus(ctx, shardName); err == nil && report.Status != "" {
+						oneNodeStatus.Store(report.Status)
+						perNodeStatus[nodeName] = report
 					} else {
 						oneNodeStatus.Store(storagestate.StatusUnavailable.String())
 					}
 				} else if timedOut.Has(nodeName) {
 					oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 				} else {
-					var status string
-					if status, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
-						oneNodeStatus.CompareAndSwap(nil, status)
-						perNodeStatus[nodeName] = status
+					if report, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
+						oneNodeStatus.CompareAndSwap(nil, report.Status)
+						perNodeStatus[nodeName] = report
 					} else {
 						timedOut.Record(ctx, nodeName, err)
 						oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
@@ -4890,79 +4903,54 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 	return shardsStatus, legacyStatus, nil
 }
 
-// localShardStatus returns "" when the local shard can't serve reads. A cold
+// localShardStatus returns an empty status when the local shard can't serve reads. A cold
 // shard reports its status without being loaded.
-func (i *Index) localShardStatus(ctx context.Context, shardName string) (string, error) {
+func (i *Index) localShardStatus(ctx context.Context, shardName string) (storagestate.Report, error) {
 	shard, cold, release, err := i.shardForStatusRead(shardName)
 	defer release()
 	if enterrors.IsShardRecovering(err) {
-		return storagestate.StatusRecovering.String(), nil
+		return i.nodeOverlay().Report(i.Config.ClassName.String(), shardName, nil, storagestate.StatusRecovering), nil
 	}
 	if err != nil {
-		return "", err
+		return storagestate.Report{}, err
 	}
 	if cold {
-		return storagestate.StatusLazyLoading.String(), nil
+		return i.reportedStatus(shardName, nil), nil
 	}
 	// Only a tenant's copy is checked for read eligibility, a single-tenant copy reports its storage status.
 	if r := i.getReplicationFSMReader(); r != nil && i.partitioningEnabled {
 		node := i.Config.NodeName
 		if !slices.Contains(r.FilterOneShardReplicasRead(i.Config.ClassName.String(), shardName, []string{node}), node) {
-			return "", nil
+			return storagestate.Report{}, nil
 		}
 	}
 	if shard == nil {
-		return "", nil
+		return storagestate.Report{}, nil
 	}
-	return shard.GetStatus().String(), nil
+	return i.reportedStatus(shardName, shard), nil
 }
 
-func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
+func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (storagestate.Report, error) {
 	shard, cold, release, err := i.shardForStatusRead(shardName)
 	if enterrors.IsShardRecovering(err) {
-		return storagestate.StatusRecovering.String(), nil
+		return i.nodeOverlay().Report(i.Config.ClassName.String(), shardName, nil, storagestate.StatusRecovering), nil
 	}
 	if err != nil {
-		return "", err
+		return storagestate.Report{}, err
 	}
 	defer release()
 	if cold {
-		return storagestate.StatusLazyLoading.String(), nil
+		return i.reportedStatus(shardName, nil), nil
 	}
 
 	if shard == nil {
-		return "", fmt.Errorf("local %s shard not found", shardName)
+		return storagestate.Report{}, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
-		return "", err
+		return storagestate.Report{}, err
 	}
-	return shard.GetStatus().String(), nil
-}
-
-func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
-	isOwner := false
-	if err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
-		if state != nil {
-			isOwner = state.IsLocalShard(shardName)
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if !isOwner {
-		return nil
-	}
-
-	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
-		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
-	})
-}
-
-func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
-		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
-	})
+	return i.reportedStatus(shardName, shard), nil
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
@@ -5070,7 +5058,9 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 			defer wg.Done()
 
 			var objs objects.BatchSimpleObjects
-			if i.shardHasMultipleReplicasWrite(tenant, shardName) {
+			if err := i.refuseUserReadOnly(shardName); err != nil {
+				objs = objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+			} else if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
 					dryRun, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {

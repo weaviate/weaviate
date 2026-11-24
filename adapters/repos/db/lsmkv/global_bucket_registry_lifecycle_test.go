@@ -21,7 +21,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // A bucket registers its on-disk path with the process-global
@@ -46,7 +45,7 @@ func TestRegistryLifecycle_ShutdownDeregistersRegisteredPath(t *testing.T) {
 				require.NoError(t, store.CreateOrLoadBucket(ctx, name, WithStrategy(StrategyReplace)))
 				registeredPath := filepath.Join(dir, name)
 				// RenameBucket requires the bucket to be read-only.
-				store.Bucket(name).UpdateStatus(storagestate.StatusReadOnly)
+				store.Bucket(name).PauseBackgroundIO(true)
 				require.NoError(t, store.RenameBucket(ctx, name, "property_name_renamed"))
 				return registeredPath
 			},

@@ -41,6 +41,7 @@ import (
 	"github.com/stretchr/testify/require"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
@@ -108,38 +109,6 @@ func TestRemoteIndexCreateShard(t *testing.T) {
 	})
 }
 
-func TestRemoteIndexUpdateShardStatus(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	path := "/indices/C1/shards/S1/status"
-	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
-	ts := fs.server(t)
-	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
-	t.Run("ConnectionError", func(t *testing.T) {
-		err := client.UpdateShardStatus(ctx, "", "C1", "S1", "NewStatus", 0)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "connect")
-	})
-	n := 0
-	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		switch n {
-		case 0:
-			w.WriteHeader(http.StatusInternalServerError)
-		case 1:
-			w.WriteHeader(http.StatusTooManyRequests)
-		default:
-			// do nothing
-		}
-		n++
-	}
-	t.Run("Success", func(t *testing.T) {
-		err := client.UpdateShardStatus(ctx, fs.host, "C1", "S1", "NewStatus", 0)
-		assert.Nil(t, err)
-	})
-}
-
 func TestRemoteIndexShardStatus(t *testing.T) {
 	t.Parallel()
 	var (
@@ -182,7 +151,7 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		st, err := client.GetShardStatus(ctx, fs.host, "C1", "S1")
 		assert.Nil(t, err)
-		assert.Equal(t, "READONLY", st)
+		assert.Equal(t, storagestate.Report{Status: "READONLY"}, st)
 	})
 }
 

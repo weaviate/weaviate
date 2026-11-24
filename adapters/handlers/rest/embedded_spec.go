@@ -6807,7 +6807,7 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Updates the status of a specific shard within a collection (e.g., sets it to ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Sets a shard to ` + "`" + `READONLY` + "`" + ` or back to ` + "`" + `READY` + "`" + ` on every node. ` + "`" + `READY` + "`" + ` lifts only a ` + "`" + `READONLY` + "`" + ` set this way: a shard stays read-only while its node is under resource pressure or reindexing it. The flag is kept in memory, so a node that restarts or installs a snapshot comes back ` + "`" + `READY` + "`" + `; ` + "`" + `per_node_conditions` + "`" + ` in ` + "`" + `GET /schema/{className}/shards` + "`" + ` shows which replicas hold it. A client write fails while a replica holds it, unless the replicas without it reach the consistency level first: the write then commits, and read repair may copy it onto a replica that still holds the flag. There is also a convenience function in each client to set the status of all shards of a collection.",
         "tags": [
           "schema"
         ],
@@ -6861,7 +6861,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid update attempt",
+            "description": "Invalid update: the status is not ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `, the collection name is invalid, or the collection's namespace refuses the change.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12505,7 +12505,7 @@ func init() {
       "description": "The status of a single shard",
       "properties": {
         "status": {
-          "description": "Status of the shard",
+          "description": "Status of the shard. An update accepts ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `.",
           "type": "string"
         }
       }
@@ -12516,6 +12516,16 @@ func init() {
         "name": {
           "description": "Name of the shard",
           "type": "string"
+        },
+        "per_node_conditions": {
+          "description": "Lists why each replica refuses writes, if it does. ` + "`" + `USER_READONLY` + "`" + ` is set through ` + "`" + `PUT /schema/{className}/shards/{shardName}` + "`" + `. ` + "`" + `RESOURCE_PRESSURE` + "`" + ` means disk or memory use on that node is over its read-only limit. ` + "`" + `REINDEXING` + "`" + ` means an inverted index of the shard is being rebuilt. A node that did not report is missing.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "per_node_status": {
           "description": "Status of the shard on each of its replicas",
@@ -20207,7 +20217,7 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Updates the status of a specific shard within a collection (e.g., sets it to ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Sets a shard to ` + "`" + `READONLY` + "`" + ` or back to ` + "`" + `READY` + "`" + ` on every node. ` + "`" + `READY` + "`" + ` lifts only a ` + "`" + `READONLY` + "`" + ` set this way: a shard stays read-only while its node is under resource pressure or reindexing it. The flag is kept in memory, so a node that restarts or installs a snapshot comes back ` + "`" + `READY` + "`" + `; ` + "`" + `per_node_conditions` + "`" + ` in ` + "`" + `GET /schema/{className}/shards` + "`" + ` shows which replicas hold it. A client write fails while a replica holds it, unless the replicas without it reach the consistency level first: the write then commits, and read repair may copy it onto a replica that still holds the flag. There is also a convenience function in each client to set the status of all shards of a collection.",
         "tags": [
           "schema"
         ],
@@ -20261,7 +20271,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid update attempt",
+            "description": "Invalid update: the status is not ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `, the collection name is invalid, or the collection's namespace refuses the change.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -26252,7 +26262,7 @@ func init() {
       "description": "The status of a single shard",
       "properties": {
         "status": {
-          "description": "Status of the shard",
+          "description": "Status of the shard. An update accepts ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `.",
           "type": "string"
         }
       }
@@ -26263,6 +26273,16 @@ func init() {
         "name": {
           "description": "Name of the shard",
           "type": "string"
+        },
+        "per_node_conditions": {
+          "description": "Lists why each replica refuses writes, if it does. ` + "`" + `USER_READONLY` + "`" + ` is set through ` + "`" + `PUT /schema/{className}/shards/{shardName}` + "`" + `. ` + "`" + `RESOURCE_PRESSURE` + "`" + ` means disk or memory use on that node is over its read-only limit. ` + "`" + `REINDEXING` + "`" + ` means an inverted index of the shard is being rebuilt. A node that did not report is missing.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "per_node_status": {
           "description": "Status of the shard on each of its replicas",

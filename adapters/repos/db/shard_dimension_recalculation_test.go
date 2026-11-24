@@ -41,7 +41,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -294,9 +293,9 @@ func TestShard_RecalculateDimensions_FailedSwitch(t *testing.T) {
 				require.NoError(t, os.Mkdir(bucketPath+"___del", 0o700))
 				require.NoError(t, os.WriteFile(filepath.Join(bucketPath+"___del", "in-the-way"), []byte("x"), 0o600))
 				t.Cleanup(func() { _ = os.RemoveAll(bucketPath + "___del") })
-				require.NoError(t, shard.SetStatusReadonly("test"))
+				require.NoError(t, shard.setReindexing(true))
 				err := shard.switchToDimensionsReplacement(ctx, name, bucketPath)
-				require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), "test"))
+				require.NoError(t, shard.setReindexing(false))
 				return 5, err
 			},
 			expectErr: true,

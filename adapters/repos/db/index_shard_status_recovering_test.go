@@ -13,10 +13,12 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -29,28 +31,35 @@ func requireStillRecovering(t *testing.T, idx *Index) {
 	require.True(t, rec.IsRecovering(), "a status read loaded the recovering shard")
 }
 
-// A recovering shard reads RECOVERING, never an error, and stays unloaded.
+// A recovering shard reads RECOVERING with its conditions, never an error, and stays unloaded.
 func TestShardStatusOfARecoveringShardReadsRecovering(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		read func(ctx context.Context, idx *Index) (string, error)
-	}{
-		{"local", func(ctx context.Context, idx *Index) (string, error) {
+	reads := map[string]func(ctx context.Context, idx *Index) (storagestate.Report, error){
+		"local": func(ctx context.Context, idx *Index) (storagestate.Report, error) {
 			return idx.localShardStatus(ctx, recoveringSearchShard)
-		}},
-		{"incoming", func(ctx context.Context, idx *Index) (string, error) {
+		},
+		"incoming": func(ctx context.Context, idx *Index) (storagestate.Report, error) {
 			return idx.IncomingGetShardStatus(ctx, recoveringSearchShard)
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			idx := recoveringSearchIndex(t, recoveringSearchLocal)
+		},
+	}
+	for name, read := range reads {
+		for _, userReadOnly := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/user_read_only=%t", name, userReadOnly), func(t *testing.T) {
+				idx := recoveringSearchIndex(t, recoveringSearchLocal)
+				overlay := &clusterschema.NodeOverlay{}
+				idx.db = &DB{nodeOverlay: overlay}
+				overlay.SetReadOnly(recoveringSearchClass, recoveringSearchShard, userReadOnly)
+				want := storagestate.Report{Status: storagestate.StatusRecovering.String(), Conditions: []string{}}
+				if userReadOnly {
+					want.Conditions = []string{storagestate.ConditionUserReadOnly}
+				}
 
-			got, err := tc.read(t.Context(), idx)
+				got, err := read(t.Context(), idx)
 
-			require.NoError(t, err)
-			require.Equal(t, storagestate.StatusRecovering.String(), got)
-			requireStillRecovering(t, idx)
-		})
+				require.NoError(t, err)
+				require.Equal(t, want, got)
+				requireStillRecovering(t, idx)
+			})
+		}
 	}
 }
 
@@ -83,7 +92,11 @@ func TestShardsStorageStatusShowsARecoveringReplicaAsRecovering(t *testing.T) {
 			perNode, legacy, err := idx.getShardsStorageStatus(t.Context(), "")
 
 			require.NoError(t, err)
-			require.Equal(t, map[string]map[string]string{recoveringSearchShard: wantPerNode}, perNode)
+			statuses := map[string]string{}
+			for node, report := range perNode[recoveringSearchShard] {
+				statuses[node] = report.Status
+			}
+			require.Equal(t, wantPerNode, statuses)
 			require.Equal(t, map[string]string{recoveringSearchShard: wantPerNode[recoveringSearchLocal]}, legacy)
 		})
 	}

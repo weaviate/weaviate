@@ -100,11 +100,11 @@ func (p *recoveringSearchPeers) Aggregate(ctx context.Context, host, _, shard st
 	return &aggregation.Result{Groups: []aggregation.Group{{Count: 1}}}, nil
 }
 
-func (p *recoveringSearchPeers) GetShardStatus(ctx context.Context, host, _, shard string) (string, error) {
+func (p *recoveringSearchPeers) GetShardStatus(ctx context.Context, host, _, shard string) (storagestate.Report, error) {
 	if idx, ok := p.servedBy[host]; ok {
 		return idx.IncomingGetShardStatus(ctx, shard)
 	}
-	return storagestate.StatusReady.String(), nil
+	return storagestate.Report{Status: storagestate.StatusReady.String()}, nil
 }
 
 // recoveringSearchReplicas is the replica read client: the local host is served in-process, a peer over gRPC.

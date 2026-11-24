@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -509,14 +510,8 @@ func (f *fakeRemoteClient) GetShardQueueSize(ctx context.Context,
 
 func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
-) (string, error) {
-	return "", nil
-}
-
-func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string, schemaVersion uint64,
-) error {
-	return nil
+) (storagestate.Report, error) {
+	return storagestate.Report{}, nil
 }
 
 func (f *fakeRemoteClient) DigestObjects(ctx context.Context,

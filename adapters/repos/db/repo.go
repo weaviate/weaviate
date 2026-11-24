@@ -60,6 +60,7 @@ import (
 )
 
 type DB struct {
+	nodeOverlay               *clusterSchema.NodeOverlay
 	logger                    logrus.FieldLogger
 	localNodeName             string
 	schemaGetter              schemaUC.SchemaGetter
@@ -401,6 +402,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}),
 	}
 
+	db.SetNodeOverlay(&clusterSchema.NodeOverlay{})
+
 	// Serve replication calls targeting the local node in-process instead of
 	// over a loopback round-trip.
 	db.replicaClient = newRoutingReplicationClient(replicaClient, db, nodeResolver, localNodeName)
@@ -527,6 +530,24 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+}
+
+func (db *DB) SetNodeOverlay(overlay *clusterSchema.NodeOverlay) {
+	db.nodeOverlay = overlay
+	overlay.OnReadOnlyChange(db.syncUserReadOnly)
+}
+
+// syncUserReadOnly runs off the RAFT apply path: a loading lazy shard holds syncStorePause's lock.
+func (db *DB) syncUserReadOnly(class, shard string) {
+	enterrors.GoWrapper(func() {
+		index := db.registeredIndex(schema.ClassName(class))
+		if index == nil {
+			return
+		}
+		if loaded := index.shards.Load(shard); loaded != nil {
+			_ = loaded.syncStorePause()
+		}
+	}, db.logger)
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
