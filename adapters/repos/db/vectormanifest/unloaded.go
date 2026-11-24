@@ -36,19 +36,28 @@ func DropUnloaded(shardDir, name string, siblings []string) error {
 	if err != nil {
 		return err
 	}
+	tasks, err := readUnloadedTasks(shardDir, append([]string{name}, siblings...))
+	if shardmeta.IsLocked(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	c := contents{records: records, tasks: tasks}
 
 	var artifacts helpers.VectorIndexArtifacts
-	var id string
-	rec, recorded := records[name]
+	ids := c.storageIDs(name)
 	switch {
 	case !initialized:
-		id = helpers.VectorIndexIDForTarget(name)
+		if len(tasks) > 0 {
+			return errors.New("rebuild tasks without a vector index mapping")
+		}
+		ids = []string{helpers.VectorIndexIDForTarget(name)}
 		artifacts = helpers.VectorIndexArtifactsFor(name, siblings)
-	case !recorded:
+	case len(ids) == 0:
 		return nil // nothing recorded, nothing owned
 	default:
-		id = rec.storageID()
-		artifacts, err = dropArtifacts(records, name)
+		artifacts, err = dropArtifacts(c, name)
 		if err != nil {
 			return err
 		}
@@ -67,12 +76,21 @@ func DropUnloaded(shardDir, name string, siblings []string) error {
 		}
 	}
 	// Whatever the index type: the drop discarded it with the vector's config.
-	err = dynamic.RemoveStateKeyForID(shardDir, id)
-	if err != nil {
-		return fmt.Errorf("remove dynamic state for %q: %w", name, err)
+	for _, id := range ids {
+		err = dynamic.RemoveStateKeyForID(shardDir, id)
+		if err != nil {
+			return fmt.Errorf("remove dynamic state for %q: %w", name, err)
+		}
 	}
 	// the record goes last, so a failed drop keeps it for the retry
-	err = shardmeta.DeleteOffline(shardDir, namespace, []byte(recordKey(name)))
+	key := []byte(recordKey(name))
+	if _, ok := tasks[name]; ok {
+		err = shardmeta.DeleteOffline(shardDir, tasksNamespace, key)
+		if err != nil {
+			return fmt.Errorf("remove rebuild task for %q: %w", name, err)
+		}
+	}
+	err = shardmeta.DeleteOffline(shardDir, namespace, key)
 	if err != nil {
 		return fmt.Errorf("remove mapping record for %q: %w", name, err)
 	}
