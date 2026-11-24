@@ -97,7 +97,7 @@ const minCachedPostingMembers = 256
 const maxPooledRejectedPostings = 4096
 
 var rejectedPostingsPool = sync.Pool{
-	New: func() any { return make(map[*PostingMetadata]int) },
+	New: func() any { return make(map[*PostingMetadata][5]byte) },
 }
 
 type allowList struct {
@@ -108,9 +108,9 @@ type allowList struct {
 	// skip the member scan)
 	allowedPostings *visited.SparseSet
 
-	// A miss is valid only for this metadata and its current length: appends
-	// grow it in place, while rewrites replace the metadata pointer.
-	rejectedPostings map[*PostingMetadata]int
+	// A miss is valid only for this metadata and its packed header: appends
+	// change the count or encoding, while rewrites replace the metadata pointer.
+	rejectedPostings map[*PostingMetadata][5]byte
 	// Flat centroid search makes one iterator pass, with no random probes.
 	// Only start memoizing misses when Contains is used.
 	cacheRejected bool
@@ -145,8 +145,10 @@ func (a *allowList) containsAllowedMember(id uint64, p *PostingMetadata) bool {
 	}
 	count := binary.LittleEndian.Uint32(data[1:5])
 	cacheRejected := a.cacheRejected && count >= minCachedPostingMembers
-	if cacheRejected && a.rejectedPostings != nil {
-		if size, ok := a.rejectedPostings[p]; ok && size == len(data) {
+	var header [5]byte
+	if cacheRejected {
+		header = [5]byte(data)
+		if cached, ok := a.rejectedPostings[p]; ok && cached == header {
 			return false
 		}
 	}
@@ -176,9 +178,9 @@ func (a *allowList) containsAllowedMember(id uint64, p *PostingMetadata) bool {
 	}
 	if cacheRejected {
 		if a.rejectedPostings == nil {
-			a.rejectedPostings = rejectedPostingsPool.Get().(map[*PostingMetadata]int)
+			a.rejectedPostings = rejectedPostingsPool.Get().(map[*PostingMetadata][5]byte)
 		}
-		a.rejectedPostings[p] = len(p.PackedPostingMetadata)
+		a.rejectedPostings[p] = header
 	}
 	return false
 }

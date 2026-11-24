@@ -404,10 +404,37 @@ func TestAllowListSkipsSmallRejectedPostings(t *testing.T) {
 	require.Len(t, a.rejectedPostings, 1)
 	// A large query may exceed the pooling cap, but must still release references.
 	for range maxPooledRejectedPostings {
-		a.rejectedPostings[&PostingMetadata{}] = 0
+		a.rejectedPostings[&PostingMetadata{}] = [5]byte{}
 	}
 	cached := a.rejectedPostings
 	a.Close()
 	require.Empty(t, cached)
 	require.Nil(t, a.rejectedPostings)
+}
+
+func TestAllowListRechecksAppendToPaddedMetadata(t *testing.T) {
+	h := newPostingAllowList(t)
+	ids := make([]uint64, minCachedPostingMembers)
+	for i := range ids {
+		ids[i] = uint64(i)
+	}
+	// Restore accepts a non-legacy suffix after the counted IDs. The next
+	// append widens the encoding, so the header changes but the length does not.
+	metadata := NewPackedPostingMetadata(ids)
+	grown := NewPackedPostingMetadata(append(ids, 65536))
+	metadata = append(metadata, make([]byte, len(grown)-len(metadata))...)
+	require.NoError(t, h.PostingMap.bucket.Set(t.Context(), 1, metadata))
+	require.NoError(t, h.PostingMap.Restore(t.Context()))
+	inner := helpers.NewAllowList(65536)
+	defer inner.Close()
+	a := h.wrapAllowList(t.Context(), inner)
+	defer a.Close()
+	require.False(t, a.Contains(1))
+	before, err := h.PostingMap.Get(t.Context(), 1)
+	require.NoError(t, err)
+	size := len(before.PackedPostingMetadata)
+	_, err = h.PostingMap.FastAddVectorID(t.Context(), 1, 65536)
+	require.NoError(t, err)
+	require.Len(t, before.PackedPostingMetadata, size)
+	require.True(t, a.Contains(1), "an appended allowed member must be visible even when packed length is unchanged")
 }
