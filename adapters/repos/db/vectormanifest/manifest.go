@@ -18,8 +18,10 @@ package vectormanifest
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -87,6 +89,131 @@ func entryOf(name string, rec record, cfg schemaConfig.VectorIndexConfig) Entry 
 	}
 }
 
+// Create records that name's index is about to be built under the naming rule
+// and returns where. It refuses a vector whose files another one owns; a retry
+// of an interrupted creation is not refused.
+func (m *Manifest) Create(name string, cfg schemaConfig.VectorIndexConfig) (Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	records, _, err := m.records.Load()
+	if err != nil {
+		return Entry{}, err
+	}
+	rec := recordFor(name, cfg, stateCreating)
+	if shared := collisionsWith(ownersOf(records), name, ownerOf(rec)); len(shared) > 0 {
+		return Entry{}, collisionError(name, shared)
+	}
+	err = m.records.Put(name, rec)
+	if err != nil {
+		return Entry{}, err
+	}
+	return entryOf(name, rec, cfg), nil
+}
+
+// Ready records that the indexes of built are complete, each with the config
+// it was built with, after making their directories durable. The call after a
+// first Open takes every vector and writes all the records at once.
+//
+// The schema decides the config at load, so a ready record whose config
+// differs is rewritten: a shard that was cold during a config change picks it
+// up here, and a record from before the config and queue ID fields existed
+// gets them.
+func (m *Manifest) Ready(built map[string]schemaConfig.VectorIndexConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.firstLoad {
+		return m.initialize(built)
+	}
+	for _, name := range slices.Sorted(maps.Keys(built)) {
+		rec, ok := m.opened[name]
+		if !ok {
+			var err error
+			rec, ok, err = m.records.Get(name)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("vector %q has no mapping record", name)
+			}
+		}
+		adopted, changed := rec.adopted(built[name])
+		if rec.State != stateReady {
+			err := m.syncStorage(name, adopted)
+			if err != nil {
+				return err
+			}
+			adopted.State = stateReady
+			changed = true
+		}
+		if changed {
+			err := m.records.Put(name, adopted)
+			if err != nil {
+				return err
+			}
+		}
+		delete(m.opened, name)
+	}
+	return nil
+}
+
+// initialize writes the records of a first load.
+func (m *Manifest) initialize(built map[string]schemaConfig.VectorIndexConfig) error {
+	records := make(map[string]record, len(m.opened))
+	for name, rec := range m.opened {
+		cfg, ok := built[name]
+		if !ok {
+			return fmt.Errorf("vector %q was opened but not built", name)
+		}
+		rec, _ = rec.adopted(cfg)
+		err := m.syncStorage(name, rec)
+		if err != nil {
+			return err
+		}
+		rec.State = stateReady
+		records[name] = rec
+	}
+	err := m.records.Initialize(records)
+	if err != nil {
+		return err
+	}
+	m.firstLoad = false
+	m.opened = nil
+	return nil
+}
+
+// Reset records that name's index is about to be emptied and built again in
+// place: a crash from here on leaves a record the next load resumes.
+func (m *Manifest) Reset(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	rec, ok, err := m.records.Get(name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("vector %q has no mapping record", name)
+	}
+	rec.State = stateCreating
+	return m.records.Put(name, rec)
+}
+
+// RemoveIndexFiles deletes the files of name's index and keeps its queue and
+// its record.
+func (m *Manifest) RemoveIndexFiles(ctx context.Context, name string) error {
+	records, _, err := m.records.Load()
+	if err != nil {
+		return err
+	}
+	rec, ok := records[name]
+	if !ok {
+		return nil
+	}
+	return m.removeArtifacts(ctx, helpers.VectorIndexArtifactsForID(rec.storageID(), otherStorageIDs(records, name)))
+}
+
 // BeginDrop records that name is being dropped, so a crash before its files go
 // is finished at the next load. found is false for a vector without a record,
 // which owns nothing: a skipped vector, or a drop that already completed.
@@ -140,6 +267,19 @@ func (m *Manifest) Get(name string) (Entry, bool, error) {
 		return Entry{}, false, err
 	}
 	return entryOf(name, rec, rec.Config), true, nil
+}
+
+// syncStorage makes rec's directories durable before the record says ready.
+func (m *Manifest) syncStorage(name string, rec record) error {
+	dirs, err := storageDirs(m.shardDir, m.state, rec.IndexType, rec.storageID())
+	if err != nil {
+		return fmt.Errorf("vector %q: %w", name, err)
+	}
+	err = syncStorage(dirs)
+	if err != nil {
+		return fmt.Errorf("vector %q: %w", name, err)
+	}
+	return nil
 }
 
 func (m *Manifest) removeArtifacts(ctx context.Context, artifacts helpers.VectorIndexArtifacts) error {
