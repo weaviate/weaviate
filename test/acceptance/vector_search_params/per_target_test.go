@@ -197,7 +197,7 @@ func TestVectorSearchParamsPerTarget_Validation(t *testing.T) {
 		{"duplicate target", nearVec(nil, forTarget(graphTarget, ef), forTarget(graphTarget, ef)), `target "graph" given more than once`},
 		{"empty target", nearVec(nil, forTarget("", ef)), "vector_search_params_for_targets[0]: target must be set"},
 		{"nil params", nearVec(nil, forTarget(graphTarget, nil)), "vector_search_params_for_targets[graph]: params must be set"},
-		{"unknown filter strategy", nearVec(&pb.VectorSearchParams{FilterStrategy: &badEnum}), "vector_search_params.filter_strategy 42 is not one of sweeping, acorn, pathseer"},
+		{"unknown filter strategy", nearVec(&pb.VectorSearchParams{FilterStrategy: &badEnum}), "vector_search_params.filter_strategy must be one of sweeping, acorn, pathseer, got 42"},
 		{"unknown per-target filter strategy", nearVec(nil, forTarget(graphTarget, &pb.VectorSearchParams{FilterStrategy: &badEnum})), "vector_search_params_for_targets[graph].filter_strategy 42"},
 		{"search_probe over cap", nearVec(&pb.VectorSearchParams{SearchProbe: u32(10001)}), "vector_search_params.search_probe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)"},
 		{"per-target search_probe over cap", nearVec(nil, forTarget(ivfTarget, &pb.VectorSearchParams{SearchProbe: u32(10001)})), "vector_search_params_for_targets[ivf].search_probe 10001 exceeds HFRESH_MAX_SEARCH_PROBE"},

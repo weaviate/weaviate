@@ -566,12 +566,18 @@ func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.Vector
 }
 
 // validateVectorSearchParams validates and converts one VectorSearchParams
-// message (request-wide or a per-target entry). A nil message yields the zero
-// value. prefix is prepended to the field name in error messages.
+// message; prefix names it in error messages. A nil message is the zero value.
+// Caps that were never resolved (<= 0) fall back to QUERY_MAXIMUM_RESULTS.
 func validateVectorSearchParams(in *pb.VectorSearchParams, maxEF, maxProbe int64, prefix string) (searchparams.VectorSearchParams, error) {
 	var out searchparams.VectorSearchParams
 	if in == nil {
 		return out, nil
+	}
+	if maxEF <= 0 {
+		maxEF = config.DefaultQueryMaximumResults
+	}
+	if maxProbe <= 0 {
+		maxProbe = config.DefaultQueryMaximumResults
 	}
 	if ef := in.GetEf(); int64(ef) > maxEF {
 		return out, status.Errorf(codes.InvalidArgument, "%sef %d exceeds HNSW_MAX_SEARCH_EF (%d)", prefix, ef, maxEF)
@@ -591,7 +597,7 @@ func validateVectorSearchParams(in *pb.VectorSearchParams, maxEF, maxProbe int64
 	case pb.FilterStrategy_FILTER_STRATEGY_PATHSEER:
 		out.FilterStrategy = searchparams.FilterStrategyPathseer
 	default:
-		return out, status.Errorf(codes.InvalidArgument, "%sfilter_strategy %d is not one of sweeping, acorn, pathseer", prefix, int32(fs))
+		return out, status.Errorf(codes.InvalidArgument, "%sfilter_strategy must be one of sweeping, acorn, pathseer, got %d", prefix, int32(fs))
 	}
 	return out, nil
 }

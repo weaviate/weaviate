@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -90,12 +91,8 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 }
 
 // parseVectorSearchParamsEntry validates one vectorSearchParams object, the
-// request-wide one or a targetVectorSearchParams entry; prefix names it in
-// the error messages ("vectorSearchParams." or
-// "targetVectorSearchParams[<name>]."). An absent object or field, ef 0 and
-// searchProbe 0 all mean "use the collection's configured value" and leave
-// the field zero. ef is bounded by HNSW_MAX_SEARCH_EF and searchProbe by
-// HFRESH_MAX_SEARCH_PROBE, both inclusive.
+// request-wide one or a targetVectorSearchParams entry named by prefix. An
+// absent field or 0 means the collection's configured value.
 func (h *Handler) parseVectorSearchParamsEntry(in *models.SearchVectorSearchParams, prefix string) (searchparams.VectorSearchParams, *APIError) {
 	var out searchparams.VectorSearchParams
 	if in == nil {
@@ -103,27 +100,25 @@ func (h *Handler) parseVectorSearchParamsEntry(in *models.SearchVectorSearchPara
 	}
 
 	if in.Ef != nil {
-		ef := *in.Ef
+		ef, maxEF := *in.Ef, searchCap(h.maxSearchEF)
 		if ef < 0 {
-			return out, newAPIError(http.StatusUnprocessableEntity,
-				"%sef must not be negative, got %d", prefix, ef)
+			return out, newAPIError(http.StatusUnprocessableEntity, "%sef must be >= 0, got %d", prefix, ef)
 		}
-		if ef > h.maxSearchEF {
+		if ef > maxEF {
 			return out, newAPIError(http.StatusUnprocessableEntity,
-				"%sef must not exceed HNSW_MAX_SEARCH_EF (%d), got %d", prefix, h.maxSearchEF, ef)
+				"%sef %d exceeds HNSW_MAX_SEARCH_EF (%d)", prefix, ef, maxEF)
 		}
 		out.EF = int(ef)
 	}
 
 	if in.SearchProbe != nil {
-		probe := *in.SearchProbe
+		probe, maxProbe := *in.SearchProbe, searchCap(h.maxSearchProbe)
 		if probe < 0 {
-			return out, newAPIError(http.StatusUnprocessableEntity,
-				"%ssearchProbe must not be negative, got %d", prefix, probe)
+			return out, newAPIError(http.StatusUnprocessableEntity, "%ssearchProbe must be >= 0, got %d", prefix, probe)
 		}
-		if probe > h.maxSearchProbe {
+		if probe > maxProbe {
 			return out, newAPIError(http.StatusUnprocessableEntity,
-				"%ssearchProbe must not exceed HFRESH_MAX_SEARCH_PROBE (%d), got %d", prefix, h.maxSearchProbe, probe)
+				"%ssearchProbe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", prefix, probe, maxProbe)
 		}
 		out.SearchProbe = int(probe)
 	}
@@ -132,12 +127,21 @@ func (h *Handler) parseVectorSearchParamsEntry(in *models.SearchVectorSearchPara
 	case "", searchparams.FilterStrategySweeping, searchparams.FilterStrategyAcorn, searchparams.FilterStrategyPathseer:
 		out.FilterStrategy = in.FilterStrategy
 	default:
-		// enum-validated at bind time; fallback for the direct-call path
+		// the spec enum rejects this at bind time; kept for direct callers
 		return searchparams.VectorSearchParams{}, newAPIError(http.StatusUnprocessableEntity,
 			"%sfilterStrategy must be one of sweeping, acorn, pathseer, got %q", prefix, in.FilterStrategy)
 	}
 
 	return out, nil
+}
+
+// searchCap returns a resolved HNSW_MAX_SEARCH_EF / HFRESH_MAX_SEARCH_PROBE,
+// falling back to the default QUERY_MAXIMUM_RESULTS when it was never set.
+func searchCap(v int64) int64 {
+	if v <= 0 {
+		return config.DefaultQueryMaximumResults
+	}
+	return v
 }
 
 // applyTargetVectorSearchParams validates targetVectorSearchParams against
@@ -577,7 +581,7 @@ const errVectorXorVectorPerTarget = "exactly one of vector and vectorPerTarget m
 // vector as is.
 func parseNearVectorVectors(body *models.SearchNearVectorRequest, targetVectors []string) ([]models.Vector, *APIError) {
 	if (body.Vector == nil) == (body.VectorPerTarget == nil) {
-		return nil, newAPIError(http.StatusBadRequest, errVectorXorVectorPerTarget)
+		return nil, newAPIError(http.StatusUnprocessableEntity, errVectorXorVectorPerTarget)
 	}
 
 	if body.Vector != nil {

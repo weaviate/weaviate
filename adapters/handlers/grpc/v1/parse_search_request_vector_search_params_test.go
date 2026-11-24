@@ -209,7 +209,7 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 				Collection: classname, NearVector: nearVector(),
 				VectorSearchParams: strategy(pb.FilterStrategy(42)),
 			},
-			wantErr: "vector_search_params.filter_strategy 42 is not one of sweeping, acorn, pathseer",
+			wantErr: "vector_search_params.filter_strategy must be one of sweeping, acorn, pathseer, got 42",
 		},
 		{
 			name: "all fields set",
@@ -371,7 +371,7 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 					forTarget("first", strategy(pb.FilterStrategy(7))),
 				},
 			},
-			wantErr: "vector_search_params_for_targets[first].filter_strategy 7 is not one of sweeping, acorn, pathseer",
+			wantErr: "vector_search_params_for_targets[first].filter_strategy must be one of sweeping, acorn, pathseer, got 7",
 		},
 		{
 			name: "per target on legacy class",
@@ -443,4 +443,15 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 			require.Equal(t, tt.want, out.VectorSearchParams)
 		})
 	}
+}
+
+func TestValidateVectorSearchParamsUnsetCaps(t *testing.T) {
+	// unresolved caps (0) fall back to the default QUERY_MAXIMUM_RESULTS
+	// instead of rejecting every ef and search_probe
+	got, err := validateVectorSearchParams(&pb.VectorSearchParams{Ef: ptr(uint32(500)), SearchProbe: ptr(uint32(64))}, 0, 0, "vector_search_params.")
+	require.NoError(t, err)
+	require.Equal(t, searchparams.VectorSearchParams{EF: 500, SearchProbe: 64}, got)
+
+	_, err = validateVectorSearchParams(&pb.VectorSearchParams{Ef: ptr(uint32(10001))}, 0, 0, "vector_search_params.")
+	require.ErrorContains(t, err, "vector_search_params.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)")
 }

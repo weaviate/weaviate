@@ -1477,8 +1477,8 @@ func TestNearVectorParams(t *testing.T) {
 
 // TestNearVectorShape: the spec leaves `vector` untyped (a vector and a
 // multi-vector share the field), so the handler checks the shape. `vector` is
-// not required by the spec (vectorPerTarget is its alternative), so an absent
-// or null vector is the handler's 400, live too.
+// not required by the spec (vectorPerTarget is its alternative), so the
+// handler rejects an absent or null vector with the 422 v1.41.0 returned.
 func TestNearVectorShape(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -1486,8 +1486,8 @@ func TestNearVectorShape(t *testing.T) {
 		wantStatus int
 		want       string
 	}{
-		{"missing", `{}`, http.StatusBadRequest, errVectorXorVectorPerTarget},
-		{"null", `{"vector":null}`, http.StatusBadRequest, errVectorXorVectorPerTarget},
+		{"missing", `{}`, http.StatusUnprocessableEntity, errVectorXorVectorPerTarget},
+		{"null", `{"vector":null}`, http.StatusUnprocessableEntity, errVectorXorVectorPerTarget},
 		{"empty array", `{"vector":[]}`, http.StatusBadRequest, errVectorNotNumbers},
 		{"string entry", `{"vector":["0.1"]}`, http.StatusBadRequest, errVectorNotNumbers},
 		{"null entry", `{"vector":[0.1,null]}`, http.StatusBadRequest, errVectorNotNumbers},
@@ -1657,7 +1657,7 @@ func TestNearVectorPerTarget(t *testing.T) {
 	}{
 		{
 			name: "both vector and vectorPerTarget", body: `{"vector":[0.1],"vectorPerTarget":{"title_vec":[0.1]},"targetVector":"title_vec"}`,
-			status: http.StatusBadRequest, want: errVectorXorVectorPerTarget,
+			status: http.StatusUnprocessableEntity, want: errVectorXorVectorPerTarget,
 		},
 		{
 			name: "missing target", body: `{"vectorPerTarget":{"title_vec":[0.1]},"targetVectors":["title_vec","plot_vec"]}`,
@@ -2227,13 +2227,13 @@ func TestParseVectorSearchParams(t *testing.T) {
 			"ef above cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10001)},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			"vectorSearchParams.ef must not exceed HNSW_MAX_SEARCH_EF (10000), got 10001",
+			"vectorSearchParams.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
 		},
 		{
 			"ef negative", &models.SearchVectorSearchParams{Ef: ptrInt64(-1)},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			"vectorSearchParams.ef must not be negative, got -1",
+			"vectorSearchParams.ef must be >= 0, got -1",
 		},
 		{"searchProbe zero", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(0)}, vsp{}, 0, ""},
 		{"searchProbe 64", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(64)}, vsp{SearchProbe: 64}, 0, ""},
@@ -2242,13 +2242,13 @@ func TestParseVectorSearchParams(t *testing.T) {
 			"searchProbe above cap", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(501)},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			"vectorSearchParams.searchProbe must not exceed HFRESH_MAX_SEARCH_PROBE (500), got 501",
+			"vectorSearchParams.searchProbe 501 exceeds HFRESH_MAX_SEARCH_PROBE (500)",
 		},
 		{
 			"searchProbe negative", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(-3)},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			"vectorSearchParams.searchProbe must not be negative, got -3",
+			"vectorSearchParams.searchProbe must be >= 0, got -3",
 		},
 		{"filterStrategy sweeping", &models.SearchVectorSearchParams{FilterStrategy: "sweeping"}, vsp{FilterStrategy: "sweeping"}, 0, ""},
 		{"filterStrategy acorn", &models.SearchVectorSearchParams{FilterStrategy: "acorn"}, vsp{FilterStrategy: "acorn"}, 0, ""},
@@ -2393,22 +2393,22 @@ func TestTargetVectorSearchParams(t *testing.T) {
 		{
 			name: "negative ef", class: class(),
 			fields: twoTargets + `,"targetVectorSearchParams":{"plot_vec":{"ef":-1}}`,
-			want:   "targetVectorSearchParams[plot_vec].ef must not be negative, got -1",
+			want:   "targetVectorSearchParams[plot_vec].ef must be >= 0, got -1",
 		},
 		{
 			name: "ef above cap", class: class(),
 			fields: twoTargets + `,"targetVectorSearchParams":{"plot_vec":{"ef":10001}}`,
-			want:   "targetVectorSearchParams[plot_vec].ef must not exceed HNSW_MAX_SEARCH_EF (10000), got 10001",
+			want:   "targetVectorSearchParams[plot_vec].ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
 		},
 		{
 			name: "negative searchProbe", class: class(),
 			fields: twoTargets + `,"targetVectorSearchParams":{"title_vec":{"searchProbe":-2}}`,
-			want:   "targetVectorSearchParams[title_vec].searchProbe must not be negative, got -2",
+			want:   "targetVectorSearchParams[title_vec].searchProbe must be >= 0, got -2",
 		},
 		{
 			name: "searchProbe above cap", class: class(),
 			fields: twoTargets + `,"targetVectorSearchParams":{"title_vec":{"searchProbe":10001}}`,
-			want:   "targetVectorSearchParams[title_vec].searchProbe must not exceed HFRESH_MAX_SEARCH_PROBE (10000), got 10001",
+			want:   "targetVectorSearchParams[title_vec].searchProbe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)",
 		},
 		{
 			name: "unknown filterStrategy", class: class(),
@@ -2456,4 +2456,19 @@ func TestTargetVectorSearchParams(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestParseVectorSearchParamsUnsetCaps(t *testing.T) {
+	// a handler built without resolved caps falls back to the default
+	// QUERY_MAXIMUM_RESULTS instead of rejecting every ef and searchProbe
+	h := &Handler{}
+	got, apiErr := h.parseVectorSearchParamsEntry(&models.SearchVectorSearchParams{
+		Ef: ptrInt64(500), SearchProbe: ptrInt64(64),
+	}, "vectorSearchParams.")
+	require.Nil(t, apiErr)
+	assert.Equal(t, searchparams.VectorSearchParams{EF: 500, SearchProbe: 64}, got)
+
+	_, apiErr = h.parseVectorSearchParamsEntry(&models.SearchVectorSearchParams{Ef: ptrInt64(10001)}, "vectorSearchParams.")
+	require.NotNil(t, apiErr)
+	assert.Equal(t, "vectorSearchParams.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)", apiErr.Err.Error())
 }

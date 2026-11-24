@@ -265,15 +265,14 @@ func TestRESTSearchNearVector(t *testing.T) {
 	})
 
 	t.Run("absent vector is rejected", func(t *testing.T) {
-		// vector is no longer schema-required since vectorPerTarget is an
-		// alternative for multi-target searches, so the check runs in the
-		// handler (400) rather than at bind time (422).
+		// vectorPerTarget is the alternative, so the handler checks this, with
+		// the same 422 v1.41.0 returned from request validation.
 		for name, body := range map[string]map[string]any{
 			"omitted": {"limit": 1},
 			"null":    {"vector": nil},
 		} {
 			status, out := postNearVector(t, "Verse", body)
-			require.Equal(t, http.StatusBadRequest, status, "%s: %v", name, out)
+			require.Equal(t, http.StatusUnprocessableEntity, status, "%s: %v", name, out)
 			assert.Contains(t, errMessage(t, out), "exactly one of vector and vectorPerTarget must be set", "%s: %v", name, out)
 			assert.Contains(t, out, "error", "errors must be ErrorResponse-shaped: %v", out)
 		}
