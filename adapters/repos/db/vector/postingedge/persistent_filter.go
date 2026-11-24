@@ -13,6 +13,8 @@ package postingedge
 
 import (
 	"context"
+	"math"
+	"slices"
 
 	"github.com/pkg/errors"
 
@@ -53,7 +55,7 @@ func (p *Persistent) searchIndex(ctx context.Context, vector []float32, k int, a
 	stats *diskSearchStats,
 ) ([]uint64, []float32, error) {
 	if allow != nil && allow.Len() < p.flatCutoff() {
-		return p.g.flatSearch(ctx, vector, k, p.flatRescore(k, routingBitsOf(&p.g.meta)), allow, stats)
+		return p.g.flatSearch(ctx, vector, k, p.flatRescore(k, p.g.flatBits()), allow, stats)
 	}
 	search := p.g.searcher()
 	search.allow = allow
@@ -86,13 +88,24 @@ func routingBitsOf(meta *growMeta) int {
 	return scanBitsOf(meta)
 }
 
+// flatBits is the width of the code the flat search ranks the allowed
+// vectors by: the routing code, which is in memory, or with no codes in
+// memory the full code the postings hold (integration-plan.md, section 8,
+// amendment 3).
+func (g *growIndex) flatBits() int {
+	if g.noCodes {
+		return scanBitsOf(&g.meta)
+	}
+	return routingBitsOf(&g.meta)
+}
+
 // flatSearch is the flat search of a filter: every allowed doc id the index
-// holds and has not marked deleted is ranked by its routing code, which is in
-// memory; the best rescore of them are rescored with their exact vectors, all
-// of them where there are no more than that; and the best k of those are the
-// answer. It loads no posting. An index with no codes in memory has no flat
-// search yet: it refuses, and reads no code from anywhere else
-// (integration-plan.md, section 8, amendment 3).
+// holds and has not marked deleted is ranked by a code; the best rescore of
+// them are rescored with their exact vectors, all of them where there are no
+// more than that; and the best k of those are the answer. With the routing
+// codes in memory it ranks by them and loads no posting. With no codes in
+// memory it ranks by the full codes of the postings that hold the allowed
+// vectors, each loaded once (flatRankByPostings).
 func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore int, allow helpers.AllowList,
 	stats *diskSearchStats,
 ) ([]uint64, []float32, error) {
@@ -105,11 +118,6 @@ func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore
 	}
 	if err := checkValues(vector); err != nil {
 		return nil, nil, errors.Wrap(err, "query")
-	}
-	if g.noCodes {
-		return nil, nil, errors.Wrapf(ErrNotSupported,
-			"a filter that allows %d vectors, under the cutoff of the flat search, with no codes in memory (rq.cacheMode %q)",
-			allow.Len(), ent.CacheModeNone)
 	}
 	if stats == nil {
 		stats = &diskSearchStats{}
@@ -131,12 +139,18 @@ func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore
 	}
 
 	var candidates []scored
-	if len(ids) <= rescore {
+	switch {
+	case len(ids) <= rescore:
 		candidates = make([]scored, len(ids))
 		for i, id := range ids {
 			candidates[i] = scored{id: uint64(id)}
 		}
-	} else {
+	case g.noCodes:
+		var err error
+		if candidates, err = g.flatRankByPostings(ctx, query, ids, rescore, stats); err != nil {
+			return nil, nil, err
+		}
+	default:
 		estimator := g.st.quantizer.NewEstimator(query)
 		var best topK
 		best.reset(rescore)
@@ -163,4 +177,77 @@ func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore
 		result.push(cand.id, cand.dist)
 	}
 	return topResults(result.sorted(), k)
+}
+
+// flatRankByPostings ranks the given allowed doc ids, which the index holds
+// and has not marked deleted, with no codes in memory, and returns the best
+// rescore of them by code (integration-plan.md, section 8, amendment 3). The
+// posting map, which is in memory either way, gives the posting of each.
+// Every posting that holds one of them is loaded once, its row of members
+// alone, and only its members among the ids given are scored, by the full
+// code the row holds. Nothing in it is quick yet: the postings are read one
+// after another, as the user asked of a first version.
+func (g *growIndex) flatRankByPostings(ctx context.Context, query []float32, ids []uint32, rescore int,
+	stats *diskSearchStats,
+) ([]scored, error) {
+	postingOf := g.st.side.postingOf
+	wanted := make(map[uint32]struct{}, len(ids))
+	var postings []uint32
+	seen := map[uint32]struct{}{}
+	for _, id := range ids {
+		p := postingOf[id]
+		if p == unplaced || int(p) >= len(g.size) {
+			return nil, errors.Errorf("doc %d is held and the posting map puts it in no posting", id)
+		}
+		wanted[id] = struct{}{}
+		if _, ok := seen[p]; !ok {
+			seen[p] = struct{}{}
+			postings = append(postings, p)
+		}
+	}
+	slices.Sort(postings)
+
+	quantizer := g.st.quantizer
+	if g.st.scanQuantizer != nil {
+		quantizer = g.st.scanQuantizer
+	}
+	estimator := quantizer.NewEstimator(query)
+	words := g.meta.ScanCodeWords
+	var best topK
+	best.reset(rescore)
+	var dp diskPosting
+	scoredMembers := 0
+	for _, p := range postings {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := g.fetchMembers(p, &dp); err != nil {
+			return nil, err
+		}
+		stats.Postings++
+		stats.Members += len(dp.docIDs)
+		stats.MemberBytes += dp.bytes[diskBlockMembers]
+		for i, docID := range dp.docIDs {
+			if docID > math.MaxUint32 {
+				continue
+			}
+			if _, ok := wanted[uint32(docID)]; !ok || postingOf[docID] != p {
+				// Not allowed, not held there, or scored already.
+				continue
+			}
+			delete(wanted, uint32(docID))
+			dist, err := estimator.Distance(dp.codes[i*words : (i+1)*words])
+			if err != nil {
+				return nil, errors.Wrapf(err, "estimate distance to doc %d", docID)
+			}
+			best.push(docID, dist)
+			scoredMembers++
+		}
+	}
+	if len(wanted) > 0 {
+		return nil, errors.Errorf("%d of %d allowed vectors are not in the postings the posting map puts them in",
+			len(wanted), len(ids))
+	}
+	stats.Scored = scoredMembers
+	return best.sorted(), nil
 }
