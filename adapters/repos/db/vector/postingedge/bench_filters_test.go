@@ -84,7 +84,46 @@ var (
 		"when empty")
 	benchFiltersOnly = flag.String("bench.filters.only", "", "TestIntegrationFilters: the filters to measure, by "+
 		"kind (none, random, near, far), comma separated; empty for all")
+	benchFiltersPoints = flag.String("bench.filters.points", "", "TestIntegrationFilters: the only points to "+
+		"measure, each a searcher and a filter by name separated by a colon, comma separated, as in "+
+		"\"ours graph:random 1 %,hnsw acorn:far 0.1 %\": the repeat of the points the drift detector marks. "+
+		"Empty for every searcher on every filter")
 )
+
+// filterSearcherNames are the searchers of the measure, by index and path.
+var filterSearcherNames = []string{"ours graph", "ours flat", "hnsw acorn", "hnsw sweeping"}
+
+// filterPoint is one point of -bench.filters.points: a searcher, by index and
+// path, on a filter, by name.
+type filterPoint struct{ searcher, filter string }
+
+// parseFilterPoints reads -bench.filters.points against the names of the
+// searchers and of the filters, and refuses a name that is neither, so that a
+// misspelt point is not left out of a measure without a word.
+func parseFilterPoints(spec string, searchers, filters []string) ([]filterPoint, error) {
+	if strings.TrimSpace(spec) == "" {
+		return nil, nil
+	}
+	var points []filterPoint
+	for _, item := range strings.Split(spec, ",") {
+		searcher, filter, ok := strings.Cut(item, ":")
+		searcher, filter = strings.TrimSpace(searcher), strings.TrimSpace(filter)
+		if !ok || searcher == "" || filter == "" {
+			return nil, fmt.Errorf("point %q is not a searcher and a filter separated by a colon", item)
+		}
+		if !slices.Contains(searchers, searcher) {
+			return nil, fmt.Errorf("point %q: no searcher is named %q, they are %q", item, searcher, searchers)
+		}
+		if !slices.Contains(filters, filter) {
+			return nil, fmt.Errorf("point %q: no filter is named %q, they are %q", item, filter, filters)
+		}
+		if slices.Contains(points, filterPoint{searcher, filter}) {
+			return nil, fmt.Errorf("point %q is named twice", item)
+		}
+		points = append(points, filterPoint{searcher, filter})
+	}
+	return points, nil
+}
 
 // The shares and the kinds of filter of the measure.
 var (
@@ -511,6 +550,25 @@ func TestIntegrationFilters(t *testing.T) {
 		}
 		filters = slices.DeleteFunc(filters, func(f *benchFilter) bool { return !wanted[f.Kind] })
 	}
+	names := make([]string, len(filters))
+	for i, f := range filters {
+		names[i] = f.Name
+	}
+	points, err := parseFilterPoints(*benchFiltersPoints, filterSearcherNames, names)
+	require.NoError(t, err, "-bench.filters.points")
+	// pointed tells whether a searcher, by index and path, measures a filter,
+	// by name: always, unless -bench.filters.points names the points.
+	pointed := func(searcher, filter string) bool {
+		if points == nil {
+			return true
+		}
+		return slices.ContainsFunc(points, func(p filterPoint) bool {
+			return p.searcher == searcher && (filter == "" || p.filter == filter)
+		})
+	}
+	filters = slices.DeleteFunc(filters, func(f *benchFilter) bool {
+		return points != nil && !slices.ContainsFunc(points, func(p filterPoint) bool { return p.filter == f.Name })
+	})
 	for _, f := range filters {
 		result.Filters, result.Allowed = append(result.Filters, f.Name), append(result.Allowed, f.Allowed)
 		require.Len(t, f.Truth, len(queries), f.Name)
@@ -555,6 +613,11 @@ func TestIntegrationFilters(t *testing.T) {
 		}
 		searchers = slices.DeleteFunc(searchers, func(s *filterSearcher) bool { return !wanted[s.index+" "+s.path] })
 		require.NotEmpty(t, searchers, "no searcher is named %q", *benchFiltersSearchers)
+	}
+	searchers = slices.DeleteFunc(searchers, func(s *filterSearcher) bool { return !pointed(s.index+" "+s.path, "") })
+	for _, p := range points {
+		require.True(t, slices.ContainsFunc(searchers, func(s *filterSearcher) bool { return s.index+" "+s.path == p.searcher }),
+			"point %s on %s: the searcher is not measured (no HNSW, or left out by another flag)", p.searcher, p.filter)
 	}
 	write()
 
@@ -631,7 +694,7 @@ func TestIntegrationFilters(t *testing.T) {
 	for _, s := range searchers {
 		s.prepare()
 		for _, f := range filters {
-			if f.Kind == "none" && s.path == "flat" {
+			if f.Kind == "none" && s.path == "flat" || !pointed(s.index+" "+s.path, f.Name) {
 				continue
 			}
 			curve := &filterCurve{Index: s.index, Path: s.path, Filter: f.Name, Kind: f.Kind, Share: f.Share, Allowed: f.Allowed}
@@ -1209,6 +1272,57 @@ func TestAcornChecked(t *testing.T) {
 			ran, notRan := acornChecked([]*benchFilter{f}, curves, key)
 			require.Equal(t, tt.wantRan, ran)
 			require.Equal(t, tt.wantNotRan, notRan)
+		})
+	}
+}
+
+// The points of a repeat are named as the drift detector marks them, and a
+// name that is no searcher or no filter fails the measure before it starts.
+func TestParseFilterPoints(t *testing.T) {
+	filters := []string{"none", "random 10 %", "random 1 %", "near 10 %", "near 0.1 %", "far 0.1 %"}
+	tests := []struct {
+		name    string
+		spec    string
+		want    []filterPoint
+		wantErr string
+	}{
+		{name: "empty: every point", spec: ""},
+		{name: "blank: every point", spec: "  "},
+		{
+			name: "the five the detector marked on the night of the 23rd",
+			spec: "ours graph:random 1 %,ours flat:random 10 %,ours flat:near 10 %,hnsw acorn:near 0.1 %,hnsw acorn:far 0.1 %",
+			want: []filterPoint{
+				{"ours graph", "random 1 %"},
+				{"ours flat", "random 10 %"},
+				{"ours flat", "near 10 %"},
+				{"hnsw acorn", "near 0.1 %"},
+				{"hnsw acorn", "far 0.1 %"},
+			},
+		},
+		{
+			name: "spaces around the names",
+			spec: " hnsw sweeping : none , ours graph:none",
+			want: []filterPoint{{"hnsw sweeping", "none"}, {"ours graph", "none"}},
+		},
+		{name: "no colon", spec: "ours graph random 1 %", wantErr: "separated by a colon"},
+		{name: "no filter", spec: "ours graph:", wantErr: "separated by a colon"},
+		{name: "no searcher", spec: ":random 1 %", wantErr: "separated by a colon"},
+		{name: "an unknown searcher", spec: "ours scan:random 1 %", wantErr: `no searcher is named "ours scan"`},
+		{name: "an unknown filter", spec: "ours graph:random 2 %", wantErr: `no filter is named "random 2 %"`},
+		{name: "a filter left out by its kind", spec: "ours graph:far 10 %", wantErr: `no filter is named "far 10 %"`},
+		{name: "a point twice", spec: "ours flat:near 10 %,ours flat:near 10 %", wantErr: "named twice"},
+		{name: "a trailing comma", spec: "ours flat:near 10 %,", wantErr: "separated by a colon"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			points, err := parseFilterPoints(tt.spec, filterSearcherNames, filters)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.Nil(t, points)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, points)
 		})
 	}
 }
