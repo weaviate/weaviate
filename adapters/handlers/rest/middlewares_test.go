@@ -27,6 +27,9 @@ import (
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -135,12 +138,16 @@ func instrumented(next http.Handler) http.Handler {
 
 func TestMakeAddMonitoring(t *testing.T) {
 	const body = `{"objects":[]}`
+	routes := routableContext(t)
+	monitored := func(metrics *monitoring.PrometheusMetrics, next http.Handler) http.Handler {
+		return addMatchedRoute(routes, makeAddMonitoring(metrics)(next))
+	}
 
 	t.Run("content length is observed with the handler's namespace", func(t *testing.T) {
 		metrics := newBatchMetrics(false)
 		r := httptest.NewRequest(http.MethodPost, "/v1/batch/objects", strings.NewReader(body))
 
-		makeAddMonitoring(metrics)(drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
+		monitored(metrics, drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
 
 		count, sum := batchSizeSamples(t, metrics, "ns_a")
 		assert.Equal(t, uint64(1), count)
@@ -155,7 +162,7 @@ func TestMakeAddMonitoring(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/v1/batch/objects", strings.NewReader(body))
 		r.ContentLength = -1
 
-		instrumented(makeAddMonitoring(metrics)(drainingHandler(t, "ns_a"))).
+		instrumented(monitored(metrics, drainingHandler(t, "ns_a"))).
 			ServeHTTP(httptest.NewRecorder(), r)
 
 		count, sum := batchSizeSamples(t, metrics, "ns_a")
@@ -168,7 +175,7 @@ func TestMakeAddMonitoring(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/v1/batch/objects", strings.NewReader(body))
 		r.ContentLength = -1
 
-		makeAddMonitoring(metrics)(drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
+		monitored(metrics, drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
 
 		count, _ := batchSizeSamples(t, metrics, "ns_a")
 		assert.Zero(t, count, "skipping beats recording -1")
@@ -178,7 +185,7 @@ func TestMakeAddMonitoring(t *testing.T) {
 		metrics := newBatchMetrics(false)
 		r := httptest.NewRequest(http.MethodPost, "/v1/batch/objects", strings.NewReader(body))
 
-		makeAddMonitoring(metrics)(drainingHandler(t, "")).ServeHTTP(httptest.NewRecorder(), r)
+		monitored(metrics, drainingHandler(t, "")).ServeHTTP(httptest.NewRecorder(), r)
 
 		count, _ := batchSizeSamples(t, metrics, "")
 		assert.Equal(t, uint64(1), count)
@@ -188,7 +195,7 @@ func TestMakeAddMonitoring(t *testing.T) {
 		metrics := newBatchMetrics(true)
 		r := httptest.NewRequest(http.MethodPost, "/v1/batch/objects", strings.NewReader(body))
 
-		makeAddMonitoring(metrics)(drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
+		monitored(metrics, drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
 
 		count, _ := batchSizeSamples(t, metrics, "ns_a")
 		assert.Equal(t, uint64(1), count, "grouping collapses classes, never principals")
@@ -202,21 +209,74 @@ func TestMakeAddMonitoring(t *testing.T) {
 			method string
 			path   string
 		}{
+			// GET matches no route, so the DELETE row is the one that tests
+			// the method check
 			{name: "GET on the batch route", method: http.MethodGet, path: "/v1/batch/objects"},
+			{name: "DELETE on the batch route", method: http.MethodDelete, path: "/v1/batch/objects"},
 			{name: "POST on another route", method: http.MethodPost, path: "/v1/objects"},
 			{name: "POST on batch references", method: http.MethodPost, path: "/v1/batch/references"},
+			{name: "unmatched batch-prefixed path", method: http.MethodPost, path: "/v1/batch/objectsX"},
+			{name: "unmatched path below the batch route", method: http.MethodPost, path: "/v1/batch/objects/x"},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				metrics := newBatchMetrics(false)
 				r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(body))
 
-				makeAddMonitoring(metrics)(drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
+				monitored(metrics, drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
 
 				count, _ := batchSizeSamples(t, metrics, "ns_a")
 				assert.Zero(t, count)
 				count, _ = batchSizeSamples(t, metrics, "")
 				assert.Zero(t, count)
+			})
+		}
+	})
+
+	t.Run("batch spellings are counted exactly once", func(t *testing.T) {
+		for _, target := range []string{"/v1/batch/objects", "//v1/batch/objects", "/./v1/batch/objects"} {
+			t.Run(target, func(t *testing.T) {
+				metrics := newBatchMetrics(false)
+				r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+
+				monitored(metrics, drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
+
+				count, _ := batchSizeSamples(t, metrics, "ns_a")
+				assert.Equal(t, uint64(1), count)
+			})
+		}
+	})
+}
+
+func TestMakeSetupMiddlewares(t *testing.T) {
+	routes := routableContext(t)
+	appState := &state.State{AnonymousAccess: anonymous.New(config.Config{})}
+
+	t.Run("anonymous bypass follows the matched route", func(t *testing.T) {
+		tests := []struct {
+			target   string
+			wantNext bool
+		}{
+			{"/v1", true},
+			{"//v1", true},
+			{"/v1?x=y", true},
+			{"/v1/.well-known/openid-configuration", true},
+			{"//v1/.well-known/openid-configuration", true},
+			{"/v1/objects", false},
+		}
+		for _, tc := range tests {
+			t.Run(tc.target, func(t *testing.T) {
+				_, routed, ok := routes.RouteInfo(httptest.NewRequest(http.MethodGet, tc.target, nil))
+				require.True(t, ok, "route must match")
+				next := &nextRecorder{}
+				rec := httptest.NewRecorder()
+
+				makeSetupMiddlewares(appState)(next).ServeHTTP(rec, routed)
+
+				assert.Equal(t, tc.wantNext, next.called)
+				if !tc.wantNext {
+					assert.Equal(t, http.StatusUnauthorized, rec.Code)
+				}
 			})
 		}
 	})

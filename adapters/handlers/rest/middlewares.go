@@ -43,7 +43,8 @@ import (
 func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		return addConsistencyLevelMetric(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.String() == "/v1/.well-known/openid-configuration" || r.URL.String() == "/v1" {
+			if route := middleware.MatchedRouteFrom(r); route != nil &&
+				(route.PathPattern == "/v1/.well-known/openid-configuration" || route.PathPattern == "/v1") {
 				handler.ServeHTTP(w, r)
 				return
 			}
@@ -135,6 +136,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addClientIdentifierToContext(handler)
 		handler = addOperationalMode(appState, handler)
 		handler = addSearchBodyLimit(handler)
+		handler = addMatchedRoute(context, handler)
 		// Add OpenTelemetry tracing middleware (only has an effect if tracing is enabled)
 		handler = monitoring.AddTracingToHTTPMiddleware(handler, appState.Logger)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -198,9 +200,8 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			before := time.Now()
-			method := r.Method
-			path := r.URL.Path
-			isBatch := strings.HasPrefix(path, "/v1/batch/objects") && method == http.MethodPost
+			route := middleware.MatchedRouteFrom(r)
+			isBatch := r.Method == http.MethodPost && route != nil && route.PathPattern == "/v1/batch/objects"
 
 			var batchNamespace *restCtx.BatchNamespace
 			if isBatch {
@@ -318,12 +319,28 @@ func nodeReady(state *state.State) bool {
 // readyPollInterval paces the readiness polling; GetMeta may call module sidecars.
 const readyPollInterval = time.Second
 
+// addMatchedRoute stores the route the router will dispatch to in the request
+// context. The operational-mode gate, the search body cap, the batch metrics
+// and the anonymous-access bypass classify the request by that route's
+// PathPattern. The router reuses a route it finds in the context. An
+// unmatched request passes through unchanged.
+func addMatchedRoute(context *middleware.Context, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, routed, ok := context.RouteInfo(r); ok {
+			r = routed
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // addSearchBodyLimit caps search and aggregate request bodies: an announced
 // oversize body is refused here, a streamed one is cut off by MaxBytesReader
-// and surfaces as a bind error that ServeError maps to 413.
+// and surfaces as a bind error that ServeError maps to 413. A request with no
+// matched route is not capped.
 func addSearchBodyLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path) {
+		if route := middleware.MatchedRouteFrom(r); route != nil &&
+			(restsearch.IsSearchRoute(route.PathPattern) || restsearch.IsAggregateRoute(route.PathPattern)) {
 			if r.ContentLength > restsearch.MaxBodyBytes {
 				resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
 					Message: fmt.Sprintf("request body exceeds the %d byte limit", restsearch.MaxBodyBytes),
@@ -342,22 +359,30 @@ func addSearchBodyLimit(next http.Handler) http.Handler {
 
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// no matched route: pass the request on. The router, or a handler
+		// between this gate and the router, answers it.
+		route := middleware.MatchedRouteFrom(r)
+		if route == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		pattern := route.PathPattern
 		// search and aggregate requests are POSTs (an HTTP write method) but
 		// are semantically reads
-		isSearch := restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)
+		isSearch := restsearch.IsSearchRoute(pattern) || restsearch.IsAggregateRoute(pattern)
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !isSearch {
+			if config.IsHTTPWrite(r.Method) && !whitelist(pattern, config.ReadOnlyWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}
 		case config.SCALE_OUT:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) && !isSearch {
+			if config.IsHTTPWrite(r.Method) && !whitelist(pattern, config.ScaleOutWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
 				return
 			}
 		case config.WRITE_ONLY:
-			if (config.IsHTTPRead(r.Method) && !whitelist(r.URL.Path, config.WriteOnlyWhitelist)) || isSearch {
+			if (config.IsHTTPRead(r.Method) && !whitelist(pattern, config.WriteOnlyWhitelist)) || isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
 				return
 			}
@@ -380,8 +405,12 @@ func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
 	w.Write(data)
 }
 
+// whitelist allows a path with no namespace segment, such as the root /v1.
 func whitelist(path string, whitelist map[string]struct{}) bool {
 	split := strings.Split(path, "/")
+	if len(split) < 3 {
+		return true
+	}
 	root := split[1]
 	if root != "v1" {
 		return true
