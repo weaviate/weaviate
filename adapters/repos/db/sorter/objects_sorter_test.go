@@ -12,11 +12,16 @@
 package sorter
 
 import (
+	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -413,4 +418,57 @@ func extractCityNames(in []*storobj.Object) []string {
 		}
 	}
 	return out
+}
+
+// A merge fed in a fixed order must keep ties in it, or a page boundary inside a
+// run of equal values moves between offsets.
+func TestObjectsSorterKeepsTiesInInputOrder(t *testing.T) {
+	var in []*storobj.Object
+	for i := range 64 {
+		in = append(in, &storobj.Object{Object: models.Object{
+			Class:      "City",
+			ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i)),
+			Properties: map[string]interface{}{"name": "Same", "population": float64(i % 2)},
+		}})
+	}
+
+	for _, tc := range []struct {
+		name string
+		sort []filters.Sort
+		want func() []*storobj.Object
+	}{
+		{"every value ties", sort1("name", "asc"), func() []*storobj.Object { return in }},
+		{"ties within each value", sort1("population", "asc"), func() []*storobj.Object {
+			var even, odd []*storobj.Object
+			for i, o := range in {
+				if i%2 == 0 {
+					even = append(even, o)
+				} else {
+					odd = append(odd, o)
+				}
+			}
+			return append(even, odd...)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _, err := NewObjectsSorter(sorterCitySchema().GetClass).Sort(slices.Clone(in), nil, 0, tc.sort)
+			require.NoError(t, err)
+			require.Equal(t, extractIDs(tc.want()), extractIDs(got))
+		})
+	}
+}
+
+// A delete removes the class from the schema before it drops the index.
+func TestObjectsSorterWithoutClass(t *testing.T) {
+	noClass := func(string) *models.Class { return nil }
+	_, _, err := NewObjectsSorter(noClass).Sort([]*storobj.Object{cityNil, cityNil2}, nil, 0, sort1("name", "asc"))
+	require.ErrorContains(t, err, "class City not found")
+}
+
+func extractIDs(in []*storobj.Object) []strfmt.UUID {
+	ids := make([]strfmt.UUID, len(in))
+	for i, o := range in {
+		ids[i] = o.ID()
+	}
+	return ids
 }
