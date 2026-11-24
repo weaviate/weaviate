@@ -478,9 +478,9 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 		valueBucketOpts := makeBucketOptions(lsmkv.StrategyRoaringSet)
 		// A column is requested only where the query path reads one, since a declined
-		// column holds memory nobody uses. reportKeyDocColumnConfig applies the same check.
+		// column holds memory nobody uses. A migrated bucket's tokenization can precede the schema's.
 		if s.keyDocColumnConfigured(prop.Name) &&
-			inverted.WhyNotBatchable(prop, prop.Tokenization) == "" {
+			inverted.WhyNotBatchable(prop, s.TokenizationFor(prop.Name, prop.Tokenization)) == "" {
 			valueBucketOpts = append(valueBucketOpts,
 				lsmkv.WithKeyDocColumn(s.index.Config.ClassName.String()+"."+prop.Name, s.counter.Get))
 		}
