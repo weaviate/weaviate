@@ -12,7 +12,9 @@
 package sorter
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -76,10 +78,10 @@ func TestInvertedSorter(t *testing.T) {
 		)
 
 		t.Run(fmt.Sprintf("object count %d", objectCount), func(t *testing.T) {
-			store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
+			store, ids := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
 			defer store.Shutdown(ctx)
 
-			props := generateRandomProps(objectCount)
+			props := generateRandomProps(ids)
 			dummyInvertedIndex(t, ctx, store, props)
 
 			for _, flush := range forceFlush {
@@ -155,10 +157,10 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 				ctx       = context.Background()
 			)
 
-			store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
+			store, ids := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
 			defer store.Shutdown(ctx)
 
-			props := generateRandomProps(objectCount)
+			props := generateRandomProps(ids)
 			dummyInvertedIndex(t, ctx, store, props)
 
 			for _, flush := range forceFlush {
@@ -197,23 +199,26 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 	}
 }
 
+// createStoreAndInitWithObjects keys objects by UUID with a docID secondary
+// key, as a shard does, and returns each docID's UUID.
 func createStoreAndInitWithObjects(t *testing.T, ctx context.Context, objectCount int,
 	dirName string, logger logrus.FieldLogger,
-) *lsmkv.Store {
+) (*lsmkv.Store, []uuid.UUID) {
 	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1), lsmkv.WithCalcCountNetAdditions(true))
 	require.Nil(t, err)
 
 	objectsB := store.Bucket(helpers.ObjectsBucketLSM)
-	for i := 0; i < objectCount; i++ {
-		objBytes, docID := createDummyObject(t, i)
-		objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes)
-		require.Nil(t, err)
+	ids := make([]uuid.UUID, objectCount)
+	for i := range ids {
+		ids[i] = uuid.New()
+		putDummyObject(t, objectsB, uint64(i), ids[i])
 	}
 
 	for _, propName := range []string{"int", "int2", "number", "date"} {
@@ -222,7 +227,17 @@ func createStoreAndInitWithObjects(t *testing.T, ctx context.Context, objectCoun
 		require.Nil(t, err)
 	}
 
-	return store
+	return store, ids
+}
+
+func putDummyObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, id uuid.UUID) {
+	obj := storobj.New(docID)
+	obj.SetID(strfmt.UUID(id.String()))
+	objBytes, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	require.NoError(t, bucket.Put(id[:], objBytes, lsmkv.WithSecondaryKey(0, docIDBytes)))
 }
 
 func assertSorting(t *testing.T, ctx context.Context, store *lsmkv.Store,
@@ -264,17 +279,19 @@ func createDummyObject(t *testing.T, i int) ([]byte, uint64) {
 
 type dummyProps struct {
 	docID  uint64
+	id     uuid.UUID
 	int    int64
 	int2   int64
 	number float64
 	date   time.Time
 }
 
-func generateRandomProps(count int) []dummyProps {
-	props := make([]dummyProps, count)
-	for i := 0; i < count; i++ {
+func generateRandomProps(ids []uuid.UUID) []dummyProps {
+	props := make([]dummyProps, len(ids))
+	for i := range ids {
 		props[i] = dummyProps{
 			docID:  uint64(i),
+			id:     ids[i],
 			int:    rand.Int63n(10),                              // few values, many collisions
 			int2:   rand.Int63n(100),                             // still some collisions, but not as many
 			number: rand.Float64() * 100,                         // many values, few collisions
@@ -358,8 +375,8 @@ func dummyClass() *models.Class {
 func filterAndSortControl(t *testing.T, input []dummyProps, bm helpers.AllowList,
 	sortParams []filters.Sort,
 ) []dummyProps {
-	// sort props as control, always first by doc id, then by the prop,
-	// this way we have a consistent tie breaker
+	// sort props as control, first by UUID, then stably by each clause, so
+	// ties end in UUID order
 	sortedProps := make([]dummyProps, 0, len(input))
 	for _, p := range input {
 		if bm == nil || bm.Contains(p.docID) {
@@ -368,7 +385,7 @@ func filterAndSortControl(t *testing.T, input []dummyProps, bm helpers.AllowList
 	}
 
 	sort.Slice(sortedProps, func(i, j int) bool {
-		return sortedProps[i].docID < sortedProps[j].docID
+		return bytes.Compare(sortedProps[i].id[:], sortedProps[j].id[:]) < 0
 	})
 
 	for sortIndex := len(sortParams) - 1; sortIndex >= 0; sortIndex-- {

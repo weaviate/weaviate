@@ -28,6 +28,7 @@ import (
 
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -679,4 +680,86 @@ func (s probedSearchShard) ObjectSearch(ctx context.Context, limit int, filters 
 	s.probe.mu.Unlock()
 	time.Sleep(20 * time.Millisecond) // overlap concurrent searches
 	return s.ShardLike.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addl, properties)
+}
+
+// delayedSearchShard answers after its shard's delay, to choose which shard
+// answers first.
+type delayedSearchShard struct {
+	ShardLike
+	delays *atomic.Pointer[map[string]time.Duration]
+}
+
+func (s delayedSearchShard) ObjectSearch(ctx context.Context, limit int, f *filters.LocalFilter,
+	kr *searchparams.KeywordRanking, sort []filters.Sort, c *filters.Cursor,
+	addl additional.Properties, props []string,
+) ([]*storobj.Object, []float32, error) {
+	time.Sleep((*s.delays.Load())[s.Name()])
+	return s.ShardLike.ObjectSearch(ctx, limit, f, kr, sort, c, addl, props)
+}
+
+// Ties in a multi-shard collection page by UUID, whichever shard answers first
+// and whichever strategy each shard sorts with.
+func TestObjectSearchSortPagesThroughTiesAcrossShards(t *testing.T) {
+	const n, pageSize = 12, 4
+	class := listClass("A", schema.DataTypeText)
+	filterable := true
+	class.Properties = append(class.Properties, &models.Property{
+		Name: "rank", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &filterable,
+	})
+	db := openTestDatabase(t, t.TempDir(), multiShardState(), monitoring.GetMetrics(), nil, nil, class)
+	t.Cleanup(func() { require.NoError(t, db.Shutdown(context.Background())) })
+	idx := db.GetIndex("A")
+	want := make([]strfmt.UUID, 0, n)
+	for i := range n {
+		id := (i*7)%n + 1 // docIDs follow insertion, not UUID order
+		require.NoError(t, db.PutObject(t.Context(), &models.Object{
+			Class: "A", ID: listID(id), Properties: map[string]any{"name": "same", "rank": float64(1)},
+		}, []float32{1, 2, 3}, nil, nil, nil, 0))
+		want = append(want, listID(i+1))
+		if i == n/2 {
+			require.NoError(t, idx.ForEachShard(func(_ string, shard ShardLike) error {
+				return shard.Store().FlushMemtables(t.Context())
+			}))
+		}
+	}
+	var shards []string
+	require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+		shards = append(shards, name)
+		return nil
+	}))
+	require.Greater(t, len(shards), 1)
+	slices.Sort(shards)
+	var delays atomic.Pointer[map[string]time.Duration]
+	wrapShards(t, idx, func(shard ShardLike) ShardLike { return delayedSearchShard{ShardLike: shard, delays: &delays} })
+
+	for _, prop := range []string{"name", "rank"} { // the objects bucket and the inverted index
+		by := []filters.Sort{{Path: []string{prop}, Order: "asc"}}
+		for name, page := range map[string]func(offset int) ([]strfmt.UUID, error){
+			"without a class": func(offset int) ([]strfmt.UUID, error) {
+				res, err := db.ObjectSearch(t.Context(), offset, pageSize, nil, by, additional.Properties{}, "")
+				return listedIDs(res), err
+			},
+			"with a class": func(offset int) ([]strfmt.UUID, error) {
+				res, err := db.Search(t.Context(), dto.GetParams{
+					ClassName: "A", Pagination: &filters.Pagination{Offset: offset, Limit: pageSize}, Sort: by,
+				})
+				return listedIDs(res), err
+			},
+		} {
+			t.Run(prop+"/"+name, func(t *testing.T) {
+				var got []strfmt.UUID
+				for p := 0; p*pageSize < n; p++ {
+					d := map[string]time.Duration{}
+					for i, s := range shards {
+						d[s] = time.Duration((i+p)%len(shards)) * 30 * time.Millisecond // a different shard first on every page
+					}
+					delays.Store(&d)
+					ids, err := page(p * pageSize)
+					require.NoError(t, err)
+					got = append(got, ids...)
+				}
+				assert.Equal(t, want, got)
+			})
+		}
+	}
 }

@@ -395,8 +395,8 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 		}
 		merger := sorter.NewObjectsSorter(func(name string) *models.Class { return classes[name] })
 		// any collection can hold the global top, so search them all; merging per
-		// batch holds one batch beyond the page, and the stable merge of results
-		// fed in name order breaks ties by collection
+		// batch holds one batch beyond the page. Ties break by UUID, and the same
+		// UUID in two collections by collection name, as results are fed in name order
 		for start := 0; start < len(listed); start += listSortedConcurrency {
 			end := min(start+listSortedConcurrency, len(listed))
 			res, errs := db.searchCollections(ctx, listed[start:end], totalLimit, filters, sort, additional, tenant)

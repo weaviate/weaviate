@@ -11,10 +11,16 @@
 
 package sorter
 
-import "github.com/weaviate/weaviate/entities/storobj"
+import (
+	"github.com/google/uuid"
+
+	"github.com/weaviate/weaviate/entities/storobj"
+)
 
 type comparable struct {
 	docID uint64
+	// id breaks ties: docIDs differ between replicas, so they cannot
+	id uuid.UUID
 	// all property values that will be used for comparison
 	// most important 1st, least important last
 	values []interface{}
@@ -40,7 +46,8 @@ func (c *comparableCreator) createFromBytesWithPayload(docID uint64, objData []b
 	for level, propName := range c.propNames {
 		values[level] = c.extractor.extractFromBytes(objData, propName)
 	}
-	return &comparable{docID, values, payload}
+	id, _ := storobj.UUIDFromBinary(objData)
+	return &comparable{docID: docID, id: id, values: values, payload: payload}
 }
 
 func (c *comparableCreator) createFromObjectWithPayload(object *storobj.Object, payload interface{}) *comparable {
@@ -48,7 +55,8 @@ func (c *comparableCreator) createFromObjectWithPayload(object *storobj.Object, 
 	for level, propName := range c.propNames {
 		values[level] = c.extractor.extractFromObject(object, propName)
 	}
-	return &comparable{object.DocID, values, payload}
+	id, _ := uuid.Parse(object.ID().String())
+	return &comparable{docID: object.DocID, id: id, values: values, payload: payload}
 }
 
 func (c *comparableCreator) extractDocIDs(comparables []*comparable) []uint64 {

@@ -14,19 +14,35 @@ package sorter
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/weaviate/sroar"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type invertedSorter struct {
 	store           *lsmkv.Store
 	dataTypesHelper *dataTypesHelper
+
+	// objects is pinned by the first tie that needs UUIDs, until the sort returns
+	objects *pinnedObjects
+}
+
+type pinnedObjects struct {
+	bucket        *lsmkv.Bucket
+	count         int
+	lookup        func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error)
+	releaseView   func()
+	releaseBucket func()
 }
 
 // NewInvertedSorter constructs the specialised sorter that walks an
@@ -60,14 +76,14 @@ func NewInvertedSorter(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *in
 // ## Fast path vs. Slow path
 //
 //   - **Fast path (ASC)** – a forward cursor walk on the roaring-set bucket of
-//     the first sort key. Because the inverted index is already ordered
-//     `(value, docID)`, the first *limit* matches are immediately correct.
+//     the first sort key, stopping once *limit* matches are found.
 //
 //   - **Slow path (DESC)** – instead of a full reverse scan we probe the key
 //     space at coarse quantiles (see `quantileKeysForDescSort`) and walk only the
-//     tail window that can contain the last *limit* rows. Each chunk is reversed
-//     locally so ties remain docID-ascending; the whole result slice is reversed
-//     once at the end.
+//     tail window that can contain the last *limit* rows.
+//
+// IDs that tie on every clause are ordered by UUID, never by docID: docIDs
+// differ between replicas, so pages would differ by the replica read.
 //
 // ## Handling multi-column ORDER BY
 //
@@ -97,7 +113,44 @@ func (is *invertedSorter) SortDocIDs(
 	sort []filters.Sort,
 	ids helpers.AllowList,
 ) ([]uint64, error) {
+	defer is.releaseObjects()
 	return is.sortDocIDsWithNesting(ctx, limit, sort, ids, 0)
+}
+
+func (is *invertedSorter) pinObjects() (*pinnedObjects, error) {
+	if is.objects != nil {
+		return is.objects, nil
+	}
+	bucket, release := is.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return nil, fmt.Errorf("bucket %q: %w", helpers.ObjectsBucketLSM, lsmkv.ErrBucketNotFound)
+	}
+	count, err := bucket.CountApproximate()
+	if err != nil {
+		release()
+		return nil, fmt.Errorf("count objects: %w", err)
+	}
+	is.objects = &pinnedObjects{bucket: bucket, count: count, releaseBucket: release}
+	return is.objects, nil
+}
+
+func (is *invertedSorter) releaseObjects() {
+	if is.objects == nil {
+		return
+	}
+	if is.objects.releaseView != nil {
+		is.objects.releaseView()
+	}
+	is.objects.releaseBucket()
+	is.objects = nil
+}
+
+// get reads an object by docID; all lookups of a sort share one view.
+func (p *pinnedObjects) get(ctx context.Context, docID []byte, buf []byte) ([]byte, []byte, error) {
+	if p.lookup == nil {
+		p.lookup, p.releaseView = p.bucket.SecondaryViewLookup()
+	}
+	return p.lookup(ctx, 0, docID, buf)
 }
 
 // sortDocIDsWithNesting is the entrypoint into a (potentially recursive) sort,
@@ -149,16 +202,12 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 }
 
 // sortRoaringSetASC walks the roaring set bucket in ascending order, i.e. the
-// fast path.
-//
-// If only a single clause is provided, it will exist as soon as the limit is
-// reached. If a second clause is provided, it will make sure to finish reading
-// each row, then start a nested tie-breaker sort, to sort the duplicate IDs.
+// fast path. It stops after the row that reaches the limit; that row is read
+// in full, because its ties are cut by UUID.
 func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.Bucket,
 	limit int, sort []filters.Sort, ids helpers.AllowList, nesting int,
 ) ([]uint64, error) {
 	startTime := time.Now()
-	hasMoreNesting := len(sort) > 1
 	cursor := bucket.CursorRoaringSetCtx(ctx)
 	defer cursor.Close()
 
@@ -168,23 +217,19 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		rowsEvaluated++
-
-		forbidEarlyExit := hasMoreNesting
-		idsFoundInRow, earlyExit := is.extractDocIDsFromBitmap(ctx, limit, ids, v, len(foundIDs), forbidEarlyExit)
-		if earlyExit {
-			foundIDs = append(foundIDs, idsFoundInRow...)
-			return foundIDs, nil
+		remaining := limit - len(foundIDs)
+		var row []uint64
+		var err error
+		if ids == nil && len(sort) == 1 && v.GetCardinality() > remaining {
+			// the row the limit cuts: pick from its bitmap without copying it
+			row, err = is.firstByUUID(ctx, bitmapTieGroup(v), remaining)
+		} else {
+			row, err = is.orderRow(ctx, is.extractDocIDsFromBitmap(ids, v), sort, remaining, nesting)
 		}
-
-		if len(idsFoundInRow) > 1 && hasMoreNesting {
-			var err error
-			idsFoundInRow, err = is.startNestedSort(ctx, idsFoundInRow, sort[1:], nesting)
-			if err != nil {
-				return nil, err
-			}
+		if err != nil {
+			return nil, err
 		}
-
-		foundIDs = append(foundIDs, idsFoundInRow...)
+		foundIDs = append(foundIDs, row...)
 		if len(foundIDs) >= limit {
 			foundIDs = foundIDs[:limit]
 			break
@@ -207,8 +252,8 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 // quantile keys to estimate good windows and should not use more than 1 or 2
 // windows in most cases.
 //
-// If more than one sort clause is provided, it will start a secondary (nested)
-// sort for all IDs that share the same value.
+// Rows are ordered (nested clauses, then UUID) only once they are known to
+// reach the result, so rows of a window beyond the limit cost no reads.
 func (is *invertedSorter) sortRoaringSetDESC(
 	ctx context.Context,
 	bucket *lsmkv.Bucket,
@@ -218,10 +263,9 @@ func (is *invertedSorter) sortRoaringSetDESC(
 	nesting int,
 ) ([]uint64, error) {
 	startTime := time.Now()
-	hasMoreNesting := len(sort) > 1
 	qks := is.quantileKeysForDescSort(ctx, limit, ids, bucket, nesting)
 
-	foundIDs := make([]uint64, 0, limit)
+	var rows [][]uint64 // highest value first
 	seeksRequired := 0
 	idCountBeforeCutoff := 0
 	rowsEvaluated := 0
@@ -232,28 +276,29 @@ func (is *invertedSorter) sortRoaringSetDESC(
 		seeksRequired++
 		startKey, endKey := cursorKeysForDESCWindow(qks, qkIndex)
 
-		idsInWindow, rowsInWindow, err := is.processDESCWindow(ctx, bucket,
-			startKey, endKey, ids, limit, nesting, hasMoreNesting, sort)
-		if err != nil {
-			return nil, fmt.Errorf("process descending window: %w", err)
-		}
-
+		windowRows, rowsInWindow := is.processDESCWindow(ctx, bucket, startKey, endKey, ids)
 		rowsEvaluated += rowsInWindow
-
-		// prepend ids from window, the full list will be reversed at the end
-		foundIDs = append(idsInWindow, foundIDs...)
-		if len(foundIDs) >= limit {
+		// the index is in ASC order, so the window's best rows are at its end
+		for j := len(windowRows) - 1; j >= 0; j-- {
+			rows = append(rows, windowRows[j])
+			idCountBeforeCutoff += len(windowRows[j])
+		}
+		if idCountBeforeCutoff >= limit {
 			// we have enough ids, no need to continue
 			break
 		}
 	}
 
-	// the inverted index is in ASC order meaning our best matches are at the
-	// very end of the slice, we need to reverse it before applying the cut-off
-	slices.Reverse(foundIDs)
-	idCountBeforeCutoff = len(foundIDs)
-	if len(foundIDs) > limit {
-		foundIDs = foundIDs[:limit]
+	foundIDs := make([]uint64, 0, min(limit, idCountBeforeCutoff))
+	for _, row := range rows {
+		if len(foundIDs) >= limit {
+			break
+		}
+		row, err := is.orderRow(ctx, row, sort, limit-len(foundIDs), nesting)
+		if err != nil {
+			return nil, err
+		}
+		foundIDs = append(foundIDs, row[:min(len(row), limit-len(foundIDs))]...)
 	}
 	return foundIDs, nil
 }
@@ -269,22 +314,17 @@ func cursorKeysForDESCWindow(qks [][]byte, qkIndex int) ([]byte, []byte) {
 	return startKey, endKey
 }
 
-// within a single window the logic is almost the same as the ASC case, except
-// that there can never be an early exit (the best matches are at the end of
-// the window)
+// processDESCWindow returns the matching rows of one window in ASC order.
+// Unlike ASC it can never exit early: the best matches are at the window's end.
 func (is *invertedSorter) processDESCWindow(
 	ctx context.Context,
 	bucket *lsmkv.Bucket,
 	startKey []byte,
 	endKey []byte,
 	ids helpers.AllowList,
-	limit int,
-	nesting int,
-	hasMoreNesting bool,
-	sort []filters.Sort,
-) ([]uint64, int, error) {
+) ([][]uint64, int) {
 	rowsEvaluated := 0
-	idsFoundInWindow := make([]uint64, 0, limit)
+	var rows [][]uint64
 	cursor := bucket.CursorRoaringSetCtx(ctx)
 	defer cursor.Close()
 
@@ -294,64 +334,161 @@ func (is *invertedSorter) processDESCWindow(
 		}
 
 		rowsEvaluated++
-
-		forbidEarlyExit := true // early exit is never possible on DESC order
-		idsFoundInRow, _ := is.extractDocIDsFromBitmap(ctx, limit, ids, v, 0, forbidEarlyExit)
-		if len(idsFoundInRow) > 1 && hasMoreNesting {
-			var err error
-			idsFoundInRow, err = is.startNestedSort(ctx, idsFoundInRow, sort[1:], nesting)
-			if err != nil {
-				return nil, rowsEvaluated, err
-			}
+		if row := is.extractDocIDsFromBitmap(ids, v); len(row) > 0 {
+			rows = append(rows, row)
 		}
-
-		// we need to reverse the ids found in this chunk, because the inverted
-		// index is in ASC order, so we will reverse the full list at the end.
-		// However, for tie-breaker reasons we need to make sure that IDs with
-		// identical values appear in docID-ASC order. If we don't reverse them
-		// right now, they would end up in DESC order in the final list
-		slices.Reverse(idsFoundInRow)
-		idsFoundInWindow = append(idsFoundInWindow, idsFoundInRow...)
 	}
 
-	return idsFoundInWindow, rowsEvaluated, nil
+	return rows, rowsEvaluated
 }
 
-// extractDocIDsFromBitmap extracts all the docIDs from the current row's
-// bitmap that match the specified (pre-filtered) allow-list bitmap. If no
-// allow-list is provided, an unfiltered sort is assumed and every bitmap entry
-// is considered a match.
-func (is *invertedSorter) extractDocIDsFromBitmap(
-	ctx context.Context,
-	limit int,
-	ids helpers.AllowList,
-	bm *sroar.Bitmap,
-	totalCountBefore int,
-	forbidEarlyExit bool,
-) (found []uint64, earlyExit bool) {
-	found = make([]uint64, 0, bm.GetCardinality())
+// extractDocIDsFromBitmap returns the row's docIDs, in ascending order, that
+// match the (pre-filtered) allow-list. Without an allow-list every docID
+// matches.
+func (is *invertedSorter) extractDocIDsFromBitmap(ids helpers.AllowList, bm *sroar.Bitmap) []uint64 {
+	found := make([]uint64, 0, bm.GetCardinality())
 	it := bm.NewIterator()
 	for i := 0; i < bm.GetCardinality(); i++ {
-		id := it.Next()
-		if ids == nil || ids.Contains(id) {
+		if id := it.Next(); ids == nil || ids.Contains(id) {
 			found = append(found, id)
-			// we can early exit if the search generally permits it (e.g. ASC) where
-			// the natural order is already doc_id ASC *and* there is no secondary
-			// sort clause. However, if there is a secondary clause we need to make
-			// sure we have read the full row. The same is true on DESC where we can
-			// never perform an early exit
-			//
-			// If an early exit is allowed the exit condition is exceeding the limit
-			// through the ids found in this row as well as the starting offset
-			if !forbidEarlyExit && totalCountBefore+len(found) >= limit {
-				earlyExit = true
-				return found, earlyExit
+		}
+	}
+	return found
+}
+
+// orderRow orders the docIDs that share one value of the current clause: by
+// the remaining clauses, then by UUID. Only the first keep are needed.
+func (is *invertedSorter) orderRow(ctx context.Context, row []uint64, sort []filters.Sort,
+	keep, nesting int,
+) ([]uint64, error) {
+	if len(row) < 2 {
+		return row, nil
+	}
+	if len(sort) > 1 {
+		return is.startNestedSort(ctx, row, sort[1:], nesting)
+	}
+	return is.firstByUUID(ctx, sliceTieGroup(row), keep)
+}
+
+// tieGroup is the docIDs that tie on every clause.
+type tieGroup struct {
+	n        int
+	contains func(docID uint64) bool
+	docIDs   func() []uint64
+}
+
+func bitmapTieGroup(bm *sroar.Bitmap) tieGroup {
+	return tieGroup{n: bm.GetCardinality(), contains: bm.Contains, docIDs: bm.ToArray}
+}
+
+func sliceTieGroup(docIDs []uint64) tieGroup {
+	var members *sroar.Bitmap
+	return tieGroup{
+		n: len(docIDs),
+		contains: func(docID uint64) bool {
+			if members == nil {
+				members = roaringset.NewBitmap(docIDs...)
+			}
+			return members.Contains(docID)
+		},
+		docIDs: func() []uint64 { return docIDs },
+	}
+}
+
+// uuidScanStepsPerLookup is how many objects a scan in UUID order passes in
+// the time one object lookup by docID takes.
+const uuidScanStepsPerLookup = 8
+
+// firstByUUID returns the keep docIDs of the group with the smallest UUIDs, in
+// UUID order. A docID whose object is gone is left out.
+//
+// Looking up every docID costs g.n lookups. Scanning the objects bucket, which
+// is keyed by UUID, passes about keep*count/g.n objects when the group's UUIDs
+// are spread evenly, so a large group scans. UUIDs that follow the sort value
+// (time-ordered ids) can push the group to the end of the bucket, so the scan
+// stops at what the lookups cost and falls back to them.
+func (is *invertedSorter) firstByUUID(ctx context.Context, g tieGroup, keep int) ([]uint64, error) {
+	objects, err := is.pinObjects()
+	if err != nil {
+		return nil, err
+	}
+	keep = min(keep, g.n)
+	if g.n*g.n*uuidScanStepsPerLookup > keep*objects.count {
+		out, complete, err := firstByUUIDScan(ctx, objects.bucket, g.contains, keep, g.n*uuidScanStepsPerLookup)
+		if err != nil || complete {
+			return out, err
+		}
+	}
+	return firstByUUIDLookups(ctx, objects, g.docIDs(), keep)
+}
+
+func firstByUUIDLookups(ctx context.Context, objects *pinnedObjects, docIDs []uint64, keep int) ([]uint64, error) {
+	type tied struct {
+		id    uuid.UUID
+		docID uint64
+	}
+	found := make([]tied, 0, len(docIDs))
+	key := make([]byte, 8)
+	var buf []byte
+	for _, docID := range docIDs {
+		binary.LittleEndian.PutUint64(key, docID)
+		data, newBuf, err := objects.get(ctx, key, buf)
+		if err != nil {
+			return nil, fmt.Errorf("read doc id %d: %w", docID, err)
+		}
+		buf = newBuf
+		if data == nil {
+			continue
+		}
+		id, err := storobj.UUIDFromBinary(data)
+		if err != nil {
+			return nil, fmt.Errorf("read uuid of doc id %d: %w", docID, err)
+		}
+		found = append(found, tied{id: id, docID: docID})
+	}
+	slices.SortFunc(found, func(a, b tied) int { return bytes.Compare(a.id[:], b.id[:]) })
+
+	out := docIDs[:0]
+	for _, f := range found[:min(keep, len(found))] {
+		out = append(out, f.docID)
+	}
+	return out, nil
+}
+
+// firstByUUIDScan walks the objects bucket in UUID order and collects the
+// first keep members. It gives up after budget objects; complete reports
+// whether it finished.
+func firstByUUIDScan(ctx context.Context, objects *lsmkv.Bucket, contains func(uint64) bool,
+	keep, budget int,
+) (out []uint64, complete bool, err error) {
+	out = make([]uint64, 0, keep)
+	if keep == 0 {
+		return out, true, nil
+	}
+	cursor := objects.CursorReplaceDigestReusable(9) // version and docID
+	defer cursor.Close()
+
+	steps := 0
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		if steps == budget {
+			return nil, false, nil
+		}
+		if steps++; steps%4096 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, false, err
+			}
+		}
+		docID, err := storobj.DocIDFromBinary(v)
+		if err != nil {
+			return nil, false, fmt.Errorf("read doc id of %x: %w", k, err)
+		}
+		if contains(docID) {
+			if out = append(out, docID); len(out) == keep {
+				return out, true, nil
 			}
 		}
 	}
-
-	earlyExit = false
-	return found, earlyExit
+	return out, true, nil
 }
 
 func (is *invertedSorter) startNestedSort(

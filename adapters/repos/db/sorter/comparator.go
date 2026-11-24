@@ -11,6 +11,8 @@
 
 package sorter
 
+import "bytes"
+
 type comparator struct {
 	comparators []basicComparator
 }
@@ -25,11 +27,13 @@ func newComparator(dataTypesHelper *dataTypesHelper, propNames []string, orders 
 	return &comparator{comparators}
 }
 
+// compare orders by the sort values, then by id in either direction, so every
+// shard and replica agrees on the order of ties.
 func (c *comparator) compare(a, b *comparable) int {
 	for level, comparator := range c.comparators {
 		if res := comparator.compare(a.values[level], b.values[level]); res != 0 {
 			return res
 		}
 	}
-	return 0
+	return bytes.Compare(a.id[:], b.id[:])
 }

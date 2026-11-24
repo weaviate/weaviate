@@ -969,6 +969,17 @@ func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
 	return docID, updateTime, nil
 }
 
+// UUIDFromBinary reads the object's id from a marshalled object without parsing it.
+func UUIDFromBinary(in []byte) (uuid.UUID, error) {
+	if len(in) < marshallerV1UUIDOffset+16 {
+		return uuid.UUID{}, errors.Errorf("binary data too short")
+	}
+	if in[0] != 1 {
+		return uuid.UUID{}, errors.Errorf("unsupported binary marshaller version %d", in[0])
+	}
+	return uuid.UUID(in[marshallerV1UUIDOffset : marshallerV1UUIDOffset+16]), nil
+}
+
 // MarshalBinary creates the binary representation of a kind object. Regardless
 // of the marshaller version the first byte is a uint8 indicating the version
 // followed by the payload which depends on the specific version
@@ -1007,6 +1018,7 @@ func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
 const (
 	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8 // 42
 	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8     // 34
+	marshallerV1UUIDOffset       = 1 + 8 + 1              // 10
 )
 
 // MarshallerV1HeaderLen bounds the value prefix a digest-only scan must retain:

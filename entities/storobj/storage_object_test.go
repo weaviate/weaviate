@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math/rand"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -2219,6 +2220,37 @@ func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported binary marshaller version 0")
 	})
+}
+
+func TestUUIDFromBinary(t *testing.T) {
+	obj := New(7)
+	obj.SetID("73f2eb5f-5abf-447a-81ca-74b1dd168247")
+	valid, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	wrongVersion := slices.Clone(valid)
+	wrongVersion[0] = 2
+
+	for _, tc := range []struct {
+		name    string
+		in      []byte
+		want    string
+		wantErr string
+	}{
+		{name: "an object", in: valid, want: "73f2eb5f-5abf-447a-81ca-74b1dd168247"},
+		{name: "the header only", in: valid[:26], want: "73f2eb5f-5abf-447a-81ca-74b1dd168247"},
+		{name: "too short", in: valid[:25], wantErr: "binary data too short"},
+		{name: "an unsupported version", in: wrongVersion, wantErr: "unsupported binary marshaller version 2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id, err := UUIDFromBinary(tc.in)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, id.String())
+		})
+	}
 }
 
 func TestPatchDocID(t *testing.T) {
