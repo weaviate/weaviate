@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"slices"
 	"strings"
 	"sync"
@@ -88,6 +89,15 @@ var (
 		"measure, each a searcher and a filter by name separated by a colon, comma separated, as in "+
 		"\"ours graph:random 1 %,hnsw acorn:far 0.1 %\": the repeat of the points the drift detector marks. "+
 		"Empty for every searcher on every filter")
+	benchFiltersProbe = flag.String("bench.filters.probe", "", "TestIntegrationFilters: a diagnostic, never a "+
+		"measure: one point, named as in -bench.filters.points, searched warm and alone before the curves, after "+
+		"them, after every timed point and at the end, with the memory and the GC of the process and a CPU profile "+
+		"each time, to see whether the process gets slower as it works. Empty for none")
+	benchFiltersProbeEF      = flag.Int("bench.filters.probeef", 10, "TestIntegrationFilters: the ef of the probe")
+	benchFiltersProbeQueries = flag.Int("bench.filters.probequeries", 300, "TestIntegrationFilters: the queries of "+
+		"the probe, the first of the set")
+	benchFiltersProbeProfiles = flag.String("bench.filters.probeprofiles", "", "TestIntegrationFilters: the "+
+		"directory of the CPU profiles of the probe, one a probe; empty for none")
 )
 
 // filterSearcherNames are the searchers of the measure, by index and path.
@@ -687,6 +697,101 @@ func TestIntegrationFilters(t *testing.T) {
 		return point
 	}
 
+	// probe is a diagnostic, never a measure (-bench.filters.probe): one
+	// searcher on one filter, searched warm and alone with the budget of a
+	// node, then the allow lists of its queries iterated alone, with the
+	// memory and the GC of the process at that moment and a CPU profile of
+	// the searches. It tells whether the process gets slower as it works,
+	// and where. The caller has the index of the probe open.
+	var probeSearcher *filterSearcher
+	var probeFilter *benchFilter
+	if *benchFiltersProbe != "" {
+		named, err := parseFilterPoints(*benchFiltersProbe, filterSearcherNames, names)
+		require.NoError(t, err, "-bench.filters.probe")
+		require.Len(t, named, 1, "-bench.filters.probe names one point")
+		for _, s := range searchers {
+			if s.index+" "+s.path == named[0].searcher {
+				probeSearcher = s
+			}
+		}
+		for _, f := range filters {
+			if f.Name == named[0].filter {
+				probeFilter = f
+			}
+		}
+		require.NotNil(t, probeSearcher, "-bench.filters.probe: %s is not measured", named[0].searcher)
+		require.NotNil(t, probeFilter, "-bench.filters.probe: %s is not measured", named[0].filter)
+	}
+	probes, gcsBefore := 0, uint32(0)
+	probe := func(label string) {
+		if probeSearcher == nil {
+			return
+		}
+		probes++
+		s, f, n := probeSearcher, probeFilter, min(*benchFiltersProbeQueries, len(queries))
+		s.prepare()
+		s.setEF(*benchFiltersProbeEF)
+		search := func() []time.Duration {
+			latencies := make([]time.Duration, n)
+			for q := range n {
+				searchCtx, release, err := budgeted()
+				require.NoError(t, err)
+				clock := time.Now()
+				ids, _, err := s.search(searchCtx, q, f.of(q))
+				latencies[q] = time.Since(clock)
+				release()
+				require.NoError(t, err)
+				check(s, f, q, ids)
+			}
+			return latencies
+		}
+		search()
+		profile := "none"
+		var file *os.File
+		if *benchFiltersProbeProfiles != "" {
+			profile = filepath.Join(*benchFiltersProbeProfiles, fmt.Sprintf("probe-%02d.pprof", probes))
+			var err error
+			file, err = os.Create(profile)
+			require.NoError(t, err)
+			require.NoError(t, pprof.StartCPUProfile(file))
+		}
+		latencies := search()
+		if file != nil {
+			pprof.StopCPUProfile()
+			require.NoError(t, file.Close())
+		}
+		var iterate time.Duration
+		members := 0
+		for q := range n {
+			allow := f.of(q)
+			if allow == nil {
+				continue
+			}
+			clock := time.Now()
+			it := allow.Iterator()
+			for _, ok := it.Next(); ok; _, ok = it.Next() {
+				members++
+			}
+			it.Stop()
+			iterate += time.Since(clock)
+		}
+		var total time.Duration
+		for _, l := range latencies {
+			total += l
+		}
+		slices.Sort(latencies)
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		t.Logf("probe %d, %s: %s %s, %s (ef %d), %d queries alone, untimed: p50 %.3f ms, mean %.3f | iterating the "+
+			"allow lists alone %.1f ns a member | heap in use %.0f MB, %d objects, %d GCs (%d since the last probe), GC "+
+			"CPU fraction %.4f, %d goroutines | profile %s", probes, label, s.index, s.path, f.Name,
+			*benchFiltersProbeEF, n, ms(latencies[n/2]), ms(total)/float64(n),
+			float64(iterate.Nanoseconds())/float64(max(members, 1)), float64(mem.HeapInuse)/(1<<20), mem.HeapObjects,
+			mem.NumGC, mem.NumGC-gcsBefore, mem.GCCPUFraction, runtime.NumGoroutine(), profile)
+		gcsBefore = mem.NumGC
+	}
+	probe("at open, before the curves")
+
 	// The curves: the grid, and the points of the targets between two of
 	// its values. A curve stops once its recall is 0.999 or more.
 	curves := map[string]*filterCurve{}
@@ -755,6 +860,7 @@ func TestIntegrationFilters(t *testing.T) {
 		}
 	}
 	acornRan(t, filters, curves, key)
+	probe("after the curves")
 
 	if *benchFiltersRounds == 0 {
 		return
@@ -945,6 +1051,12 @@ func TestIntegrationFilters(t *testing.T) {
 				result.Rounds = slices.DeleteFunc(result.Rounds, func(r filterRound) bool { return r.Round == round })
 				result.Rounds = append(result.Rounds, timedRound)
 				write()
+				if probeSearcher != nil {
+					if opened == nil || opened.index != probeSearcher.index {
+						openOnly(probeSearcher)
+					}
+					probe(fmt.Sprintf("after round %d, %s %s, %s", round, s.index, s.path, f.Name))
+				}
 			}
 		}
 		timedRound.End = time.Now().Format("2006-01-02 15:04:05")
@@ -953,6 +1065,10 @@ func TestIntegrationFilters(t *testing.T) {
 		write()
 	}
 	openOnly(searchers[0])
+	if probeSearcher != nil {
+		openOnly(probeSearcher)
+		probe("at the end")
+	}
 }
 
 // filteredIndex is the integrated index the measure opens: the store and the
