@@ -203,6 +203,41 @@ func TestGetOfflineMulti(t *testing.T) {
 	assert.Nil(t, vals)
 }
 
+// Every key of one namespace comes back from one open, in order.
+func TestForEachOffline(t *testing.T) {
+	dir := t.TempDir()
+	db := openTestDB(t, dir)
+	require.NoError(t, db.Namespace("mapping").Put([]byte("b"), []byte{2}))
+	require.NoError(t, db.Namespace("mapping").Put([]byte("a"), []byte{1}))
+	require.NoError(t, db.Namespace("other").Put([]byte("c"), []byte{3}))
+
+	err := ForEachOffline(dir, "mapping", func(_, _ []byte) error { return nil })
+	require.Error(t, err)
+	assert.True(t, IsLocked(err), "a loaded shard holds the file")
+	require.NoError(t, db.Close())
+
+	var keys []string
+	var values [][]byte
+	collect := func(k, v []byte) error {
+		keys = append(keys, string(k))
+		values = append(values, v)
+		return nil
+	}
+	require.NoError(t, ForEachOffline(dir, "mapping", collect))
+	assert.Equal(t, []string{"a", "b"}, keys)
+	assert.Equal(t, [][]byte{{1}, {2}}, values)
+
+	boom := errors.New("boom")
+	require.ErrorIs(t, ForEachOffline(dir, "mapping", func(_, _ []byte) error { return boom }), boom)
+
+	keys = nil
+	require.NoError(t, ForEachOffline(dir, "never written", collect))
+	absent := t.TempDir()
+	require.NoError(t, ForEachOffline(absent, "mapping", collect))
+	assert.Empty(t, keys)
+	assert.NoFileExists(t, filepath.Join(absent, FileName))
+}
+
 func TestDeleteOffline(t *testing.T) {
 	t.Run("missing file is success and stays missing", func(t *testing.T) {
 		dir := t.TempDir()
