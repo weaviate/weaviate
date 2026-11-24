@@ -611,7 +611,7 @@ func (g *growIndex) endStep() error {
 			j.crash("after a write", i+1)
 		}
 	}
-	if j.size > growJournalLimit {
+	if j.size > growJournalLimit && !g.keepJournal {
 		return g.sync()
 	}
 	return nil

@@ -47,9 +47,18 @@ func persistentBackupRestoresTheIndexItTook(t *testing.T, cacheMode string) {
 		deleted []uint64
 		// laidOut has a pass over the vectors due when the backup begins.
 		laidOut bool
+		// window is how many vectors come on each side of the flush, 100
+		// when 0; split has postings split meanwhile, which changes the
+		// centroid graph.
+		window int
+		split  bool
 	}{
 		{name: "gathering", added: 300, deleted: []uint64{7}},
 		{name: "the base", added: persistentBase + 50, deleted: []uint64{3, 640, 700}},
+		{
+			name: "the base, split during the backup", added: persistentBase + 50, deleted: []uint64{3, 640, 1000},
+			window: 300, split: true,
+		},
 		{name: "a pass over the vectors due", added: 2*persistentBase + 50, deleted: []uint64{11, 1210, 1260}, laidOut: true},
 	}
 	for _, tt := range tests {
@@ -72,12 +81,21 @@ func persistentBackupRestoresTheIndexItTook(t *testing.T, cacheMode string) {
 				}
 				require.NoError(t, f.index.Delete(gone...))
 			}
-			cut := f.backup(t, k, func() { write(100) }, func() { write(100) })
+			window := max(tt.window, 100)
+			postings := 0
+			if f.index.g != nil {
+				postings = f.index.g.meta.Postings
+			}
+			cut := f.backup(t, k, func() { write(window) }, func() { write(window) })
+			if tt.split {
+				require.Greater(t, f.index.g.meta.Postings, postings, "postings split during the backup")
+				require.True(t, cut.marked, "the centroid graph changed during the backup")
+			}
 
 			// The index goes on after the backup: it grows, deletes and
 			// lays its vectors out, which removes the files of the
 			// generation the backup linked.
-			f.add(t, at, total-200)
+			f.add(t, at, max(at, total-200))
 			require.NoError(t, f.index.Delete(1, 2))
 			require.NoError(t, f.index.Settle(ctx))
 			if f.index.g != nil && cut.generation > 0 {
@@ -94,6 +112,13 @@ func persistentBackupRestoresTheIndexItTook(t *testing.T, cacheMode string) {
 			assert.Equal(t, wantHolds, c.holds(), "the vectors the index held")
 			assert.Equal(t, want, c.searched(t, k), "the same answers")
 			if c.index.g != nil {
+				// The writes after the flush are in the backup by the journal
+				// alone.
+				require.Positive(t, c.index.g.recovered.Records, "the journal of the backup is applied again")
+				t.Logf("restored: %d records of the journal applied again, centroid graph built again: %t",
+					c.index.g.recovered.Records, c.index.g.recovered.GraphRebuilt)
+				require.Equal(t, cut.marked, c.index.g.recovered.GraphRebuilt,
+					"the centroid graph is built again where it changed during the backup")
 				c.covered(t, "restored")
 				c.vectorsIntact(t, "restored")
 			}

@@ -100,8 +100,7 @@ func (p *Persistent) wakeMaintenance() {
 func (p *Persistent) Settle(ctx context.Context) error {
 	for {
 		p.mu.RLock()
-		due := !p.closed && p.failed == nil && p.g != nil &&
-			p.g.layoutDue() && int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
+		due, _ := p.layoutDueLocked()
 		p.mu.RUnlock()
 		if !due && !p.cleanOn() && !p.refreshOn() && !p.baseOn() {
 			return nil
@@ -135,12 +134,7 @@ func (p *Persistent) maintain(ctx context.Context) error {
 	}
 
 	p.mu.RLock()
-	due := !p.closed && p.failed == nil && p.g != nil && p.g.layoutDue() &&
-		int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
-	slots := int64(0)
-	if due {
-		slots = int64(p.g.nextSlot)
-	}
+	due, slots := p.layoutDueLocked()
 	p.mu.RUnlock()
 	if !due {
 		return nil
@@ -153,6 +147,17 @@ func (p *Persistent) maintain(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// layoutDueLocked tells whether a pass over the vectors is due, and how many
+// slots the file of vectors has then. None is while a backup holds the index.
+// The caller holds mu.
+func (p *Persistent) layoutDueLocked() (bool, int64) {
+	if p.closed || p.failed != nil || p.g == nil || p.backupHeld || !p.g.layoutDue() ||
+		int64(p.g.nextSlot) < p.layoutNotBefore.Load() {
+		return false, 0
+	}
+	return true, int64(p.g.nextSlot)
 }
 
 // layOut writes the exact vectors again in the order of their postings
@@ -189,6 +194,19 @@ func (p *Persistent) layOut(ctx context.Context) error {
 			pass.abort()
 			return nil
 		}
+		if p.backupHeld {
+			// A backup links the files of the generation the pass would
+			// remove: the pass waits for it to let go.
+			resumed := p.resumed
+			p.mu.RUnlock()
+			select {
+			case <-resumed:
+				continue
+			case <-ctx.Done():
+				pass.abort()
+				return ctx.Err()
+			}
+		}
 		done, err = pass.step(layoutStep)
 		p.mu.RUnlock()
 		if err != nil {
@@ -202,9 +220,11 @@ func (p *Persistent) layOut(ctx context.Context) error {
 		return err
 	}
 
-	p.writeMu.Lock()
+	if err := p.lockOutsideBackup(ctx); err != nil {
+		pass.abort()
+		return err
+	}
 	defer p.writeMu.Unlock()
-	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed || p.failed != nil || ctx.Err() != nil {
 		pass.abort()

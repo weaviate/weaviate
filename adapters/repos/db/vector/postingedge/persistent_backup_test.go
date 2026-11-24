@@ -56,10 +56,10 @@ type backupCut struct {
 	listed, staged []string
 	// answers and holds are those of the index when its files were copied,
 	// and atFlush those when the memtables of the store were flushed.
-	answers, atFlush         [][]uint64
-	holds, holdsAtFlush      []bool
-	marked                   bool
-	generation               int
+	answers, atFlush    [][]uint64
+	holds, holdsAtFlush []bool
+	marked              bool
+	generation          int
 }
 
 // backup takes a backup of the index and of its store as a shard takes one

@@ -389,9 +389,12 @@ type growIndex struct {
 	// journal, when the index keeps one, takes every write of the index
 	// before its buckets and its files do (grow_journal.go). graphMarked
 	// tells that the mark of a graph that changed is on disk, and recovered
-	// what the index found of its journal when it was opened.
+	// what the index found of its journal when it was opened. keepJournal,
+	// while a backup holds the index, has a sync neither empty the journal
+	// nor take the mark away (persistent_backup.go).
 	journal     *growJournal
 	graphMarked bool
+	keepJournal bool
 	recovered   growRecovered
 	// The buckets of the index, as its writes see them (growBucket): what a
 	// step writes waits in the journal until the step ends.
@@ -1525,6 +1528,11 @@ func (g *growIndex) sync() error {
 	}
 	if err := g.writeMeta(); err != nil {
 		return err
+	}
+	if g.keepJournal {
+		// A backup holds the index: its copy of the journal tells what the
+		// buckets it holds may be missing.
+		return nil
 	}
 	// Everything the journal tells is now in the system by its own way.
 	if err := g.emptyJournal(); err != nil {

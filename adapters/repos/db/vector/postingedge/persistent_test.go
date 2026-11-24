@@ -658,15 +658,6 @@ func TestPersistentUnsupported(t *testing.T) {
 			_, _, err := f.index.SearchByVectorDistance(ctx, query, 0.2, 100, allow)
 			return err
 		}},
-		{"a backup", func() error { return f.index.PrepareForBackup(ctx) }},
-		{"the files of a backup", func() error {
-			_, err := f.index.ListFiles(ctx, f.root)
-			return err
-		}},
-		{"the snapshot of a backup", func() error {
-			_, err := f.index.SnapshotMutableFiles(ctx, f.root, t.TempDir())
-			return err
-		}},
 	}
 	stages := []struct {
 		name string

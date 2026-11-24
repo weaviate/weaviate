@@ -68,7 +68,7 @@ import (
 // opens as what it is and stays so.
 //
 // What it does not do says so with an error: a filtered search, a search by
-// distance, a backup. Multi-vectors and distances other than cosine are
+// distance. Multi-vectors and distances other than cosine are
 // refused before an index exists, where a class is parsed.
 type Persistent struct {
 	cfg      PersistentConfig
@@ -150,6 +150,11 @@ type Persistent struct {
 	// plans has the plans of the inserts, which every caller takes for the
 	// vectors it is adding and gives back.
 	plans sync.Pool
+	// backupHeld tells that a backup holds the index (persistent_backup.go),
+	// and resumed is closed when it lets go. Whoever holds writeMu and mu
+	// changes them, and either lock is enough to read them.
+	backupHeld bool
+	resumed    chan struct{}
 }
 
 const (
@@ -1398,27 +1403,6 @@ func (p *Persistent) Flush() error {
 	return nil
 }
 
-// ListFiles is of a backup, which the index does not take part in.
-func (p *Persistent) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	return nil, errors.Wrap(ErrNotSupported, "backup")
-}
-
-// PrepareForBackup fails rather than let a backup complete without the files
-// of the index in it.
-func (p *Persistent) PrepareForBackup(ctx context.Context) error {
-	return errors.Wrap(ErrNotSupported, "backup")
-}
-
-// ResumeAfterBackup has nothing to resume, PrepareForBackup never succeeds.
-func (p *Persistent) ResumeAfterBackup(ctx context.Context) error {
-	return nil
-}
-
-// SnapshotMutableFiles fails for the same reason PrepareForBackup does.
-func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
-	return nil, errors.Wrap(ErrNotSupported, "backup")
-}
-
 // Shutdown writes what the index has not written yet and releases it. Its
 // buckets leave the store: the index that opens them next gives them to it
 // again.
@@ -1465,6 +1449,8 @@ func (p *Persistent) teardown(ctx context.Context) error {
 		return nil
 	}
 	p.closed = true
+	// A pass that waits for a backup to let go ends: the index is closed.
+	p.releaseBackup()
 	var first error
 	keep := func(err error) {
 		if first == nil {
