@@ -1003,9 +1003,13 @@ func (i *Index) closeRequestedCause() error {
 	return i.closeCause()
 }
 
-// beingDropped reports whether a delete of this collection has begun.
+// beingDropped reports whether a delete of this collection has begun: the
+// delete takes its class out of the local schema before it signals the drop.
 func (i *Index) beingDropped() bool {
-	return errors.Is(i.closeRequestedCause(), errIndexDropped)
+	if errors.Is(i.closeRequestedCause(), errIndexDropped) {
+		return true
+	}
+	return i.getSchema != nil && i.getSchema.ReadOnlyClass(i.Config.ClassName.String()) == nil
 }
 
 // forEachShardStrict is [Index.ForEachShard] for callers that must not

@@ -26,10 +26,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Repeats because Go map order varies per walk.
@@ -43,6 +45,7 @@ func TestExistsWithoutClass(t *testing.T) {
 		holds       strfmt.UUID
 		unreadable  bool  // its shards are shut down
 		closeCause  error // signalled as the index's close request
+		schemaGone  bool  // its class left the local schema, as a delete does first
 		cancels     bool  // a read cancels the lookup, then misses
 	}
 	cases := []struct {
@@ -97,6 +100,13 @@ func TestExistsWithoutClass(t *testing.T) {
 			name: "a collection being deleted is left out",
 			collections: []collection{
 				{class: "Dropping", holds: id, unreadable: true, closeCause: errIndexDropped},
+				{class: "Plain", holds: otherID},
+			},
+		},
+		{
+			name: "a collection whose class left the schema is left out",
+			collections: []collection{
+				{class: "Dropping", holds: id, unreadable: true, schemaGone: true},
 				{class: "Plain", holds: otherID},
 			},
 		},
@@ -159,6 +169,9 @@ func TestExistsWithoutClass(t *testing.T) {
 				}
 				if c.closeCause != nil {
 					idx.signalCloseRequested(c.closeCause)
+				}
+				if c.schemaGone {
+					idx.getSchema = withoutClass{idx.getSchema}
 				}
 				db.indices[indexID(schema.ClassName(c.class))] = idx
 			}
@@ -437,6 +450,7 @@ func TestMultiGet(t *testing.T) {
 		name       string
 		unreadable bool
 		closeCause error
+		schemaGone bool
 		cancelled  bool
 		wantFound  bool
 		wantErr    error
@@ -445,6 +459,7 @@ func TestMultiGet(t *testing.T) {
 		{name: "a cancelled lookup fails rather than report a miss", cancelled: true, wantErr: context.Canceled},
 		{name: "a collection that cannot be read fails the lookup", unreadable: true, wantErr: errAlreadyShutdown},
 		{name: "a collection being deleted is left out", unreadable: true, closeCause: errIndexDropped},
+		{name: "a collection whose class left the schema is left out", unreadable: true, schemaGone: true},
 		{name: "a collection shutting down fails the lookup", unreadable: true, closeCause: errIndexShutdown, wantErr: errAlreadyShutdown},
 	}
 	for _, tc := range cases {
@@ -459,6 +474,9 @@ func TestMultiGet(t *testing.T) {
 			}
 			if tc.closeCause != nil {
 				idx.signalCloseRequested(tc.closeCause)
+			}
+			if tc.schemaGone {
+				idx.getSchema = withoutClass{idx.getSchema}
 			}
 			db.indices[indexID("Target")] = idx
 			ctx, cancel := context.WithCancel(t.Context())
@@ -479,3 +497,8 @@ func TestMultiGet(t *testing.T) {
 		})
 	}
 }
+
+// withoutClass is the local schema after a delete took the class out, before the drop.
+type withoutClass struct{ schemaUC.SchemaGetter }
+
+func (withoutClass) ReadOnlyClass(string) *models.Class { return nil }

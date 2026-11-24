@@ -47,10 +47,11 @@ func TestObjectsByID(t *testing.T) {
 		{class: "ns5:Dropping"},
 		{class: "ns5:Plain"},
 		{class: "ns6:Closing"},
+		{class: "ns7:Gone"},
 	} {
 		db.indices[indexID(schema.ClassName(c.class))] = objectsByIDTestIndex(t, c.class, c.multiTenant, id)
 	}
-	for class, cause := range map[string]error{"ns4:Closed": nil, "ns5:Dropping": errIndexDropped, "ns6:Closing": errIndexShutdown} {
+	for class, cause := range map[string]error{"ns4:Closed": nil, "ns5:Dropping": errIndexDropped, "ns6:Closing": errIndexShutdown, "ns7:Gone": nil} {
 		idx := db.indices[indexID(schema.ClassName(class))]
 		require.NoError(t, idx.ForEachShard(func(_ string, shard ShardLike) error {
 			return shard.Shutdown(t.Context())
@@ -59,6 +60,7 @@ func TestObjectsByID(t *testing.T) {
 			idx.signalCloseRequested(cause)
 		}
 	}
+	db.indices[indexID("ns7:Gone")].getSchema = withoutClass{db.indices[indexID("ns7:Gone")].getSchema}
 
 	cases := []struct {
 		name      string
@@ -94,6 +96,10 @@ func TestObjectsByID(t *testing.T) {
 			name:      "a collection being deleted is left out",
 			namespace: "ns5",
 			want:      []string{"ns5:Plain"},
+		},
+		{
+			name:      "a collection whose class left the schema is left out",
+			namespace: "ns7",
 		},
 		{
 			name:      "a collection shutting down fails the lookup",
