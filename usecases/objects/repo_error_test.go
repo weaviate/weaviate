@@ -811,6 +811,89 @@ func TestInlineRefTargetAuthorizationFailureIsInternal(t *testing.T) {
 	}
 }
 
+func TestDedicatedRefTargetAuthorizationFailureIsInternal(t *testing.T) {
+	const class, target, tenant = "Zoo", "Animal", "tenantA"
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	principal := &models.Principal{Username: "writer"}
+	authorizationFailed := errors.New("authorization service unavailable")
+
+	ops := []struct {
+		name    string
+		arrange func(*fakeObjectFinder)
+		call    func(*Manager) *Error
+	}{
+		{
+			name: "add reference",
+			call: func(m *Manager) *Error {
+				return m.AddObjectReference(context.Background(), principal, &AddReferenceInput{
+					Class: class, ID: id, Property: "hasAnimals",
+					Ref: models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + target + "/" + string(refID))},
+				}, nil, tenant)
+			},
+		},
+		{
+			name: "replace references",
+			arrange: func(repo *fakeObjectFinder) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, tenant).
+					Return(&search.Result{ID: id, ClassName: class, Tenant: tenant}, nil).Once()
+			},
+			call: func(m *Manager) *Error {
+				return m.UpdateObjectReferences(context.Background(), principal, &PutReferenceInput{
+					Class: class, ID: id, Property: "hasAnimals",
+					Refs: models.MultipleRef{{Beacon: strfmt.URI("weaviate://localhost/" + target + "/" + string(refID))}},
+				}, nil, tenant)
+			},
+		},
+	}
+	scenarios := []struct {
+		name               string
+		precedingAuthCalls int
+		targetResources    []string
+		retry              bool
+	}{
+		{
+			name:               "initial target check",
+			precedingAuthCalls: 1,
+			targetResources:    authorization.ShardsData(target, tenant),
+		},
+		{
+			name:               "tenantless retry check",
+			precedingAuthCalls: 2,
+			targetResources:    authorization.ShardsData(target, ""),
+			retry:              true,
+		},
+	}
+
+	for _, scenario := range scenarios {
+		for _, op := range ops {
+			t.Run(scenario.name+"/"+op.name, func(t *testing.T) {
+				m, _, repo, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
+				if op.arrange != nil {
+					op.arrange(repo)
+				}
+				if scenario.retry {
+					repo.On("Exists", target, refID).Return(false, errors.New("target is not multi-tenant")).Once()
+				}
+				authz.SetErrAfter(scenario.precedingAuthCalls, authorizationFailed)
+
+				err := op.call(m)
+				require.Error(t, err)
+				require.Equal(t, StatusInternalServerError, err.Code)
+				require.ErrorIs(t, err, authorizationFailed)
+				require.NotErrorAs(t, err, &authzerrs.Forbidden{})
+
+				calls := authz.Calls()
+				require.Len(t, calls, scenario.precedingAuthCalls+1)
+				targetCall := calls[len(calls)-1]
+				require.Equal(t, authorization.READ, targetCall.Verb)
+				require.Equal(t, scenario.targetResources, targetCall.Resources)
+				repo.AssertExpectations(t)
+			})
+		}
+	}
+}
+
 func TestAutoSchemaClasslessRefLookupSkipsUnreadableCollections(t *testing.T) {
 	const class, target = "Source", "Target"
 	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
@@ -878,6 +961,7 @@ func TestAutoSchemaClasslessRefLookupSkipsUnreadableCollections(t *testing.T) {
 				for _, call := range authz.Calls() {
 					if call.Verb == authorization.READ && len(call.Resources) == len(targetResources) {
 						require.Equal(t, targetResources, call.Resources)
+						require.True(t, call.Silent)
 						lookupCalls++
 					}
 				}
