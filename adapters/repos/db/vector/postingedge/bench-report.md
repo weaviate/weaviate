@@ -303,6 +303,18 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - **Si la plana sale lenta también en A, sin HNSW,** se dice, y su plana no se compara hasta saber por qué.
   - **Si la reproducción no da la plana lenta,** A se lee como otra medida de la plana en un proceso propio, junto a la repetición. La duda sobre la plana de la noche del 23 sigue abierta.
 
+### Enmienda 2 (de la tarde del 24, *mía*, antes de ningún dato): la reproducción se para después de la plana
+
+**Motivo.** La cadena tiene que caber entre las 18:00 y las 08:00. En la noche del 23, `acorn` iba detrás de la plana en cada ronda, y `sweeping` en las rondas 3 y 4. En una reproducción de una sola ronda, ninguno de los dos va antes de la plana, así que cronometrarlos no cambia sus condiciones y cuesta unas dos horas.
+
+- **La reproducción cronometra solo los 13 filtros del índice y después los 13 de la plana.** Lo demás no cambia:
+  - HNSW se construye y queda vivo en el proceso hasta el final;
+  - las curvas sin cronometrar de todos los buscadores van antes de la espera, como en la noche;
+  - la espera es de al menos 60 minutos sin teclado ni trackpad;
+  - 500 queries en frío;
+  - los contadores alrededor de cada medida de la plana.
+- **Las dos horas pasan a A, B y C.**
+
 ## La búsqueda plana: ¿pide R = 507 por ordenar con el código recortado? (pre-registro, 2026-11-24 a las 07:10)
 
 **Estado: pre-registrado antes de compilar nada.** La hipótesis y las dos dimensiones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*. Sin cronometrar.
