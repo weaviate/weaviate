@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -165,6 +166,13 @@ func TestInternalShardWorkDoesNotCountAsAccess(t *testing.T) {
 				return w.Close()
 			},
 		},
+		{
+			name: "backup",
+			read: func(t *testing.T, f *unloadFixture) error {
+				backupShard(t, f)
+				return nil
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -302,6 +310,15 @@ func (h *schemaReadHook) ReadOnlyClass(name string) *models.Class {
 	return h.SchemaGetter.ReadOnlyClass(name)
 }
 
+func backupShard(t *testing.T, f *unloadFixture) {
+	t.Helper()
+	var desc backup.ClassDescriptor
+	require.NoError(t, f.index.descriptor(testCtx(), "bak", &desc, nil, nil, newReindexGate(f.index.db, reindexGateMaxAge)))
+	require.Len(t, desc.Shards, 1)
+	require.NotEmpty(t, desc.Shards[0].Files)
+	require.NoError(t, f.index.ReleaseBackup(testCtx(), "bak"))
+}
+
 func TestBackgroundLoadsDoNotCountAsAccess(t *testing.T) {
 	bg := func() context.Context { return withBackgroundShardAccess(testCtx()) }
 	pin := func(t *testing.T, f *unloadFixture, ctx context.Context) {
@@ -334,11 +351,13 @@ func TestBackgroundLoadsDoNotCountAsAccess(t *testing.T) {
 		}
 	}
 	tests := []struct {
-		name        string
-		collecting  bool
-		load        func(t *testing.T, f *unloadFixture)
-		wantStamped bool
+		name          string
+		collecting    bool
+		staysUnloaded bool
+		load          func(t *testing.T, f *unloadFixture)
+		wantStamped   bool
 	}{
+		{name: "backup", staysUnloaded: true, load: backupShard},
 		{name: "background pin", load: func(t *testing.T, f *unloadFixture) { pin(t, f, bg()) }},
 		{name: "background write pin", load: func(t *testing.T, f *unloadFixture) { writePin(t, f, bg()) }},
 		{name: "background write pin initializing an absent shard", load: func(t *testing.T, f *unloadFixture) {
@@ -418,9 +437,16 @@ func TestBackgroundLoadsDoNotCountAsAccess(t *testing.T) {
 			require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 			f.unloader.idle.Store(!tt.collecting)
 			f.lazy.lastAccess.Store(0)
+			loadsBefore := f.unloader.beforeLoads.Load()
 
 			tt.load(t, f)
 
+			if tt.staysUnloaded {
+				f.requireUnloaded(t)
+				require.Equal(t, loadsBefore, f.unloader.beforeLoads.Load())
+				require.Zero(t, f.lazy.LastAccess())
+				return
+			}
 			lazy, ok := f.index.shards.Load(f.name).(*LazyLoadShard)
 			require.True(t, ok)
 			require.True(t, lazy.isLoaded())
