@@ -1771,3 +1771,66 @@ Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce q
 - **Para el trabajo de backup:**
   - **Hoy `ListFiles` se niega.** Cuando exista, la copia tiene que llevar el directorio del build con su lista. Sin ella, el índice restaurado no abre, aunque tampoco borra nada.
   - **Una copia con meta tomada fichero a fichero mientras el build escribe** no es consistente, y eso no lo arregla el índice. Lo tiene que resolver el backup, por ejemplo esperando al build en `PrepareForBackup`.
+
+## 10. Backup (24 de noviembre)
+
+*Encargo del usuario del 24: implementar la propuesta de «Backup (revisado el 23)», con TDD, en la rama `feat/posting-edge-backup`.*
+
+**Lo hecho** (`persistent_backup.go`):
+
+- **`PrepareForBackup`:**
+  - Rechaza mientras se construye la base, con `ErrShardBusyStructuralOp`, el error con el que el shard dice «inténtalo más tarde».
+  - La primera llamada sincroniza el índice, así que el diario empieza vacío.
+  - Cada llamada prepara el grafo de centroides como un HNSW: cambia de fichero de commit log.
+  - Pone la retención hasta `ResumeAfterBackup`. Es idempotente.
+- **La retención:**
+  - Un sync ni vacía el diario ni quita la marca del grafo, tampoco al pasar de 64 MB.
+  - No empieza ningún build de la base.
+  - La reorganización en marcha espera en su paso siguiente y no empieza ninguna.
+- **`ListFiles`:** `mean.f32`, el `vectors` de la generación del meta, los ficheros cerrados del commit log del grafo y, si existe, el directorio del build con su `list.json` y `sources.u32` (sección 9).
+- **`SnapshotMutableFiles`:** entre dos escrituras y después de un sync que conserva el diario, copia el meta, el diario, `slots`, `built.u32`, `centroids.f32` y la marca si la hay. Falla sin retención.
+- **`ResumeAfterBackup`:** quita la retención, hace que el flush siguiente vacíe el diario y despierta el mantenimiento. El cierre del índice también quita la retención.
+
+**El corte.** Los buckets del índice están en el store del shard, y el backup los tiene como los dejó su volcado. El diario copiado tiene todo lo escrito desde el `PrepareForBackup` hasta la copia, y el índice que abre lo aplica otra vez. El índice restaurado es el del momento de la copia. Los vectores apartados antes de tener base solo están en un bucket: de ellos, el backup tiene lo que escribió el volcado, como cualquier bucket del shard.
+
+**Lo que difiere de la propuesta** (*mío*):
+
+- **`PrepareForBackup` sincroniza la primera vez** para que el diario empiece vacío.
+- **La reorganización espera en vez de abortar.** Si se cierra el índice mientras espera, aborta.
+- **`ListFiles` y `SnapshotMutableFiles` exigen la retención.** Un índice de la primera versión, con los vectores en su doc id, copia también `vectors.f32`, que se escribe en su sitio.
+- **El movimiento de réplicas llama a `SnapshotMutableFiles` en los dos modos**, con hardlinks y parado durante la transferencia, y no enlaza lo copiado. Las copias se sirven desde el staging, que ya iba primero. HNSW, flat, dynamic y HFresh no copian nada.
+- **Arreglo adyacente: el backup sin hardlinks.** Es el camino obsoleto de los sistemas de ficheros sin hardlinks. Sube los ficheros del shard vivo desde su sitio y nunca llama a `SnapshotMutableFiles`, así que habría dado un índice sin meta, que no abre. Antes de esta rama fallaba en `PrepareForBackup`. Ahora rechaza el shard antes de parar nada (`inPlaceFilesIndex`).
+
+**Tests** (cada uno en rojo en su commit antes del arreglo):
+
+- **Del índice:**
+  - `TestPersistentBackupWhileItsBaseIsBuilt`
+  - `TestPersistentBackupHoldsTheJournal`
+  - `TestPersistentBackupHoldsTheLayout`
+  - `TestPersistentBackupListsItsFiles`
+  - `TestPersistentBackupCopiesWhatChangesInPlace`
+- **El ciclo completo, `TestPersistentBackupRestoresTheIndexItTook`:**
+  - Es un backup como el del shard con hardlinks, con escrituras a los dos lados del volcado. Restaurado, da las mismas respuestas y los mismos vectores, en los dos modos de caché.
+  - Casos: reuniendo, con base, con postings partidos durante el backup (el grafo se reconstruye al abrir, con las mismas respuestas), y con una reorganización pendiente que corre después y borra lo enlazado.
+  - Con el diario vaciado durante la retención fallan el test del diario y los cuatro casos con base.
+- **Del shard:**
+  - `TestPostingEdge_ReplicaSnapshotCopiesWhatChangesInPlace`
+  - `TestPostingEdge_BackupWithoutHardlinksIsRefused`
+  - Los 51 tests de backup y réplicas del paquete `db` (HNSW, dynamic, geo, HFresh) siguen en verde.
+
+**En rojo, escalado: `TestPostingEdge_TransferSnapshotRestoresTheIndex`.** Es el ciclo a través del shard: backup, réplica con hardlinks y réplica parada durante la transferencia.
+
+- **Lo que pasa:**
+  - Un objeto escrito entre nuestro `PrepareForBackup` y el volcado, la ventana de #14003, llega con su vector: el índice no lo pierde, al contrario que HNSW.
+  - Las demás respuestas son las del shard en el momento de la copia.
+- **Lo que falla:** un objeto escrito después de listar y antes de nuestra copia.
+  - No está en el snapshot, porque su memtable no se volcó, pero su vector sí, por el diario.
+  - El shard lee el contador de doc ids antes de listar y vuelve a dar ese doc id. El put siguiente falla con «id 401 was already added».
+- **Por qué el índice no puede arreglarlo solo:** un corte anterior al volcado no es el de sus buckets, y cualquiera posterior llega después de leer el contador.
+- **Lo que arregla:** el orden del shard, que es la decisión de equipo de #14003. Aquí no se cambia nada.
+
+**Lo que no está probado:**
+
+- el offload de tenants;
+- el backup de un shard inactivo (recorre su directorio; un índice cerrado lo ha sincronizado todo);
+- el diario de más de 64 MB durante un backup largo.
