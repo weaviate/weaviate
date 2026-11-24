@@ -285,6 +285,24 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - Al 1 % los dos van por su búsqueda plana y empatan.
 - **El nuestro frente al centrado:** al azar al 10 % pierde por más que frente al de por defecto (1.10 veces en frío).
 
+### Enmienda 1 (08:40 del 24, del usuario, antes de ningún dato): esta noche, detrás de la reproducción
+
+**Motivo.** El usuario ordena la reproducción de la plana lenta y este cronometraje para esta noche, con la ventana de siempre, sin esperar a leer la reproducción. El diagnóstico de esta mañana no la reprodujo: la plana costó unos 48 ns por permitido con HNSW vivo en el proceso.
+
+- **El orden de la noche:**
+  1. **La reproducción** (`run-slowflat.sh` de la sesión de integración).
+     - Condiciones de la noche del 23: HNSW vivo en el proceso, el orden de los puntos de entonces, 500 queries en frío y una ronda.
+     - Registra los contadores de memoria y de CPU alrededor de cada medida de la plana.
+     - Su espera es de al menos 60 minutos sin teclado ni trackpad.
+  2. **A, B y C de este pre-registro,** uno detrás de otro, cada uno con su espera de 15 minutos.
+- **La ventana, la de siempre:** la cadena arranca a las 18:00 con el marcador puesto y espera a que la máquina esté quieta. Ningún punto empieza después de las 08:00.
+  - Lo que no quepa se dice, y no pasa a otra noche sin el usuario.
+  - *Mío, estimado:* la reproducción con su espera, 4 o 5 horas; A, unas 5; B y C, una cada uno. Si nadie toca el Mac desde las 18:00, todo acaba entre las 06:00 y las 07:00. Si no cabe, el corte cae primero en C y después en B.
+- **Esto se lee después de la reproducción:**
+  - **Si la reproducción da la plana lenta y los contadores la explican por el entorno,** se lee como está pre-registrado.
+  - **Si la plana sale lenta también en A, sin HNSW,** se dice, y su plana no se compara hasta saber por qué.
+  - **Si la reproducción no da la plana lenta,** A se lee como otra medida de la plana en un proceso propio, junto a la repetición. La duda sobre la plana de la noche del 23 sigue abierta.
+
 ## La búsqueda plana: ¿pide R = 507 por ordenar con el código recortado? (pre-registro, 2026-11-24 a las 07:10)
 
 **Estado: pre-registrado antes de compilar nada.** La hipótesis y las dos dimensiones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*. Sin cronometrar.
