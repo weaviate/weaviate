@@ -183,7 +183,10 @@ func TestReadUnloadedTasks(t *testing.T) {
 		wantErr string
 	}{
 		{name: "unsupported format version", version: "2", task: "{}", wantErr: "format version"},
-		{name: "task without format version", task: `{"task_id":"t"}`, wantErr: "format version"},
+		{
+			name: "task without format version", wantErr: "format version",
+			task: `{"task_id":"t","source":{"physical_id":"main","index_type":"hnsw"},"candidate":{"physical_id":"a-b","index_type":"flat"}}`,
+		},
 		{name: "invalid task", version: "1", task: `{"task_id":"t"}`, wantErr: `task "title": source`},
 	}
 	for _, tt := range tests {
