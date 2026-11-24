@@ -439,67 +439,13 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 	return index.Drop(ctx)
 }
 
-// removeVectorIndexArtifacts deletes every file name's index owns at
-// rec's physical ID, the queue at its queue ID, its dynamic state key and
-// last its record. Siblings protect what their records map them to; a
-// sibling without a record owns nothing.
-// Idempotent: a retry after a partial run finds less to do.
-func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec vectorIndexRecord) error {
-	physicalID := rec.storageID()
-	others := otherTargetVectors(s.class, name)
-	otherIDs := make([]string, 0, len(others))
-	for _, other := range others {
-		rec, ok, err := s.mapping.Get(other)
-		if err != nil {
-			return fmt.Errorf("vector %q: %w", other, err)
-		}
-		if ok {
-			otherIDs = append(otherIDs, rec.storageID())
-		}
-	}
-	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
-	for _, bucket := range artifacts.LSMBuckets {
-		err := s.removeBucket(ctx, bucket)
-		if err != nil {
-			return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, name, err)
-		}
-	}
-	for _, dir := range artifacts.ShardDirs {
-		err := removeDirIfExists(s.path(), dir)
-		if err != nil {
-			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
-		}
-	}
-	queueDir := helpers.QueueDirName(rec.queueIDOrDefault())
-	err := removeDirIfExists(s.path(), queueDir)
-	if err != nil {
-		return fmt.Errorf("drop directory %q for vector %q: %w", queueDir, name, err)
-	}
-	err = dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
-	if err != nil {
-		return fmt.Errorf("vector %q: %w", name, err)
-	}
-	// the record goes last, so a failed drop keeps it for the retry
-	err = s.mapping.Delete(name)
-	if err != nil {
-		return fmt.Errorf("drop mapping record for vector %q: %w", name, err)
-	}
-	return nil
-}
-
 // DropVectorIndex removes the named vector's index and queue from this shard
-// and deletes what its record says it owns. No record, nothing owned: a
-// skipped vector, or a drop that already completed.
+// and deletes what the manifest says it owns. A vector the manifest does not
+// know owns nothing: a skipped vector, or a drop that already completed.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	rec, recorded, err := s.mapping.Get(targetVector)
+	recorded, err := s.manifest.BeginDrop(targetVector)
 	if err != nil {
 		return fmt.Errorf("drop vector %q: %w", targetVector, err)
-	}
-	if recorded {
-		err = s.markVectorIndexDropping(targetVector, rec)
-		if err != nil {
-			return fmt.Errorf("mark vector index %q dropping: %w", targetVector, err)
-		}
 	}
 	err = s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
 		if queue != nil {
@@ -517,5 +463,5 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil || !recorded {
 		return err
 	}
-	return s.removeVectorIndexArtifacts(ctx, targetVector, rec)
+	return s.manifest.FinishDrop(ctx, targetVector)
 }

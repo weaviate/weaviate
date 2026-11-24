@@ -87,13 +87,6 @@ func (s *Shard) markVectorIndexReady(name string, rec vectorIndexRecord) error {
 	return s.mapping.Put(name, rec)
 }
 
-// markVectorIndexDropping records the index as dropping before the
-// teardown, so a crash before the files go is finished at the next load.
-func (s *Shard) markVectorIndexDropping(name string, rec vectorIndexRecord) error {
-	rec.State = vectorIndexStateDropping
-	return s.mapping.Put(name, rec)
-}
-
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one
 // under the empty name, into those that own storage and the skipped ones.
 func vectorIndexConfigsByStorage(legacy schemaConfig.VectorIndexConfig,
