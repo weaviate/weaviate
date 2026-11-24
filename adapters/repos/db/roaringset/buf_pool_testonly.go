@@ -68,16 +68,28 @@ func (p *BitmapBufPoolTrackingForTests) GetBitmapStruct() (dst *sroar.Bitmap, pu
 	}
 }
 
-func (p *BitmapBufPoolTrackingForTests) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
+func (p *BitmapBufPoolTrackingForTests) Clone(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return clone(p, bm)
 }
 
-func (p *BitmapBufPoolTrackingForTests) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
-	return cloneBytesToBuf(p, src)
+func (p *BitmapBufPoolTrackingForTests) CloneWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (cloned *sroar.Bitmap, put func()) {
+	return cloneWithHeadroom(p, bm, spareRatio)
 }
 
-func (p *BitmapBufPoolTrackingForTests) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return accumulatorToBuf(p, acc)
+func (p *BitmapBufPoolTrackingForTests) ZeroedLayout(bm *sroar.Bitmap) (zeroed *sroar.Bitmap, put func()) {
+	return zeroedLayout(p, bm)
+}
+
+func (p *BitmapBufPoolTrackingForTests) ZeroedLayoutWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (zeroed *sroar.Bitmap, put func()) {
+	return zeroedLayoutWithHeadroom(p, bm, spareRatio)
+}
+
+func (p *BitmapBufPoolTrackingForTests) CloneBytes(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytes(p, src)
+}
+
+func (p *BitmapBufPoolTrackingForTests) FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulatorWithHeadroom(p, acc, spareRatio)
 }
 
 // Outstanding returns the number of buffers that have been allocated but not

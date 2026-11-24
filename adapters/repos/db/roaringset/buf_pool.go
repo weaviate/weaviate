@@ -35,29 +35,49 @@ type BitmapBufPool interface {
 	// To method. put releases the buffer the bitmap holds by then and recycles
 	// the struct, so neither may be used after it.
 	GetBitmapStruct() (dst *sroar.Bitmap, put func())
-	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
-	// CloneBytesToBuf clones an already-serialized bitmap into a pooled
-	// buffer. src must be a valid, non-empty sroar serialization. Like
-	// CloneToBuf, the clone owns the buffer's full capacity and grows through
-	// the pool past it.
-	CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func())
-	// AccumulatorToBuf materializes the accumulator's union into a pooled
-	// buffer, so a warm accumulator building into pooled memory allocates
-	// nothing. The returned bitmap owns the buffer's full capacity and grows
-	// through the pool past it (same contract as CloneToBuf). Release via put;
-	// the accumulator stays reusable. acc must be non-nil (unlike CloneToBuf's
-	// nil tolerance, it panics).
-	AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func())
+	Clone(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
+	// CloneWithHeadroom is Clone for a bitmap about to take new values. It splits
+	// spare capacity between key slots and tail room, in a first buffer of
+	// (1+spareRatio) times bm's size. A negative or NaN spareRatio panics.
+	CloneWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (cloned *sroar.Bitmap, put func())
+	// ZeroedLayout returns an empty bitmap with bm's keys and containers, which a
+	// subset of bm's values fills without growing.
+	ZeroedLayout(bm *sroar.Bitmap) (zeroed *sroar.Bitmap, put func())
+	// ZeroedLayoutWithHeadroom is to ZeroedLayout what CloneWithHeadroom is to Clone.
+	ZeroedLayoutWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (zeroed *sroar.Bitmap, put func())
+	// CloneBytes clones an already-serialized bitmap into a pooled buffer. src
+	// must be a valid, non-empty sroar serialization. Like Clone, the clone owns
+	// the buffer's full capacity and grows through the pool past it.
+	CloneBytes(src []byte) (cloned *sroar.Bitmap, put func())
+	// FromAccumulatorWithHeadroom builds the accumulator's union on
+	// CloneWithHeadroom's terms, allocating nothing once the pool is warm. acc
+	// stays reusable and must not be nil, unlike CloneWithHeadroom's bm.
+	FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func())
 }
 
-func cloneToBuf(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+func clone(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	dst, put := pool.GetBitmapStruct()
 	return src.CloneTo(dst, sroar.BuildOpts{Pool: pool, SpareTailOnly: true}), put
 }
 
+func cloneWithHeadroom(pool BitmapBufPool, src *sroar.Bitmap, spareRatio float64) (cloned *sroar.Bitmap, put func()) {
+	dst, put := pool.GetBitmapStruct()
+	return src.CloneTo(dst, sroar.BuildOpts{Pool: pool, InitialSpareRatio: spareRatio}), put
+}
+
+func zeroedLayout(pool BitmapBufPool, src *sroar.Bitmap) (zeroed *sroar.Bitmap, put func()) {
+	dst, put := pool.GetBitmapStruct()
+	return src.ZeroedLayoutTo(dst, sroar.BuildOpts{Pool: pool, SpareTailOnly: true}), put
+}
+
+func zeroedLayoutWithHeadroom(pool BitmapBufPool, src *sroar.Bitmap, spareRatio float64) (zeroed *sroar.Bitmap, put func()) {
+	dst, put := pool.GetBitmapStruct()
+	return src.ZeroedLayoutTo(dst, sroar.BuildOpts{Pool: pool, InitialSpareRatio: spareRatio}), put
+}
+
 // src must be a non-empty sroar serialization of at least 8 bytes, or the clone
 // is empty. Odd-length src is corrupt and panics.
-func cloneBytesToBuf(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put func()) {
+func cloneBytes(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put func()) {
 	requireEvenLength(src)
 	dst, put := pool.GetBitmapStruct()
 	return sroar.FromBufferWithCopyTo(dst, src, sroar.BuildOpts{Pool: pool, SpareTailOnly: true}), put
@@ -80,9 +100,9 @@ func requireEvenLength(src []byte) {
 	}
 }
 
-func accumulatorToBuf(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+func fromAccumulatorWithHeadroom(pool BitmapBufPool, acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func()) {
 	dst, put := pool.GetBitmapStruct()
-	return acc.BitmapTo(dst, sroar.BuildOpts{Pool: pool, SpareTailOnly: true}), put
+	return acc.BitmapTo(dst, sroar.BuildOpts{Pool: pool, InitialSpareRatio: spareRatio}), put
 }
 
 // bitmapStructPool recycles the result structs sroar To methods build into.
@@ -170,16 +190,28 @@ func (p *bitmapBufPoolNoop) GetBitmapStruct() (dst *sroar.Bitmap, put func()) {
 	return dst, dst.ReleaseBuf
 }
 
-func (p *bitmapBufPoolNoop) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
+func (p *bitmapBufPoolNoop) Clone(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return clone(p, bm)
 }
 
-func (p *bitmapBufPoolNoop) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
-	return cloneBytesToBuf(p, src)
+func (p *bitmapBufPoolNoop) CloneWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (cloned *sroar.Bitmap, put func()) {
+	return cloneWithHeadroom(p, bm, spareRatio)
 }
 
-func (p *bitmapBufPoolNoop) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return accumulatorToBuf(p, acc)
+func (p *bitmapBufPoolNoop) ZeroedLayout(bm *sroar.Bitmap) (zeroed *sroar.Bitmap, put func()) {
+	return zeroedLayout(p, bm)
+}
+
+func (p *bitmapBufPoolNoop) ZeroedLayoutWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (zeroed *sroar.Bitmap, put func()) {
+	return zeroedLayoutWithHeadroom(p, bm, spareRatio)
+}
+
+func (p *bitmapBufPoolNoop) CloneBytes(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytes(p, src)
+}
+
+func (p *bitmapBufPoolNoop) FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulatorWithHeadroom(p, acc, spareRatio)
 }
 
 // -----------------------------------------------------------------------------
@@ -260,16 +292,28 @@ func (p *bitmapBufPoolRanged) GetBitmapStruct() (dst *sroar.Bitmap, put func()) 
 	return p.structs.Get()
 }
 
-func (p *bitmapBufPoolRanged) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
+func (p *bitmapBufPoolRanged) Clone(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return clone(p, bm)
 }
 
-func (p *bitmapBufPoolRanged) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
-	return cloneBytesToBuf(p, src)
+func (p *bitmapBufPoolRanged) CloneWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (cloned *sroar.Bitmap, put func()) {
+	return cloneWithHeadroom(p, bm, spareRatio)
 }
 
-func (p *bitmapBufPoolRanged) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
-	return accumulatorToBuf(p, acc)
+func (p *bitmapBufPoolRanged) ZeroedLayout(bm *sroar.Bitmap) (zeroed *sroar.Bitmap, put func()) {
+	return zeroedLayout(p, bm)
+}
+
+func (p *bitmapBufPoolRanged) ZeroedLayoutWithHeadroom(bm *sroar.Bitmap, spareRatio float64) (zeroed *sroar.Bitmap, put func()) {
+	return zeroedLayoutWithHeadroom(p, bm, spareRatio)
+}
+
+func (p *bitmapBufPoolRanged) CloneBytes(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytes(p, src)
+}
+
+func (p *bitmapBufPoolRanged) FromAccumulatorWithHeadroom(acc *sroar.Accumulator, spareRatio float64) (bm *sroar.Bitmap, put func()) {
+	return fromAccumulatorWithHeadroom(p, acc, spareRatio)
 }
 
 func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {

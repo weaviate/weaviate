@@ -443,7 +443,8 @@ func (f containsFoldRunner) incremental(ctx context.Context, op filters.Operator
 
 // accumulator unions the rows of all keys through a sroar.Accumulator: each
 // fetched row is deposited into its dense per-64K-range staging and released
-// immediately, and the final bitmap is assembled once, exactly sized.
+// immediately, and the final bitmap is assembled once, in a buffer requested at
+// its exact size.
 func (f containsFoldRunner) accumulator(ctx context.Context) (*sroar.Bitmap, func(), error) {
 	reader, err := f.source.newContainsBatchReader(f.keys)
 	if err != nil {
@@ -466,7 +467,8 @@ func (f containsFoldRunner) accumulator(ctx context.Context) (*sroar.Bitmap, fun
 		release()
 	}
 
-	result, release := f.pool.AccumulatorToBuf(acc)
+	// mergeBitmapsAndOrWithDenyList can OR another filter's bitmap into the result.
+	result, release := f.pool.FromAccumulatorWithHeadroom(acc, 0)
 	return result, release, nil
 }
 
@@ -628,7 +630,8 @@ func (f containsFoldRunner) accumulatorParallel(ctx context.Context) (*sroar.Bit
 		// incremental fold's partials, it is simply dropped.
 		return nil, nil, err
 	}
-	result, release := f.pool.AccumulatorToBuf(merged)
+	// mergeBitmapsAndOrWithDenyList can OR another filter's bitmap into the result.
+	result, release := f.pool.FromAccumulatorWithHeadroom(merged, 0)
 	return result, release, nil
 }
 

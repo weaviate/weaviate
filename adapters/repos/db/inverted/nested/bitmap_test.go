@@ -12,6 +12,7 @@
 package nested
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -608,8 +609,37 @@ func TestBitmapOps_OrAll(t *testing.T) {
 	})
 }
 
-// TestBitmapOps_SpareBecomesTailRoom pins that each build lives in the pool's
-// buffer and lays out the same however much larger that buffer is.
+// TestBitmapOps_OrAllHeadroom pins that the buffer OrAll ORs into has spare key
+// slots, so values at new keys do not move its containers.
+func TestBitmapOps_OrAllHeadroom(t *testing.T) {
+	keysNodeSize := func(bm *sroar.Bitmap) uint64 { return binary.LittleEndian.Uint64(bm.ToBuffer()) }
+	a, b, newKeys := sroar.NewBitmap(), sroar.NewBitmap(), sroar.NewBitmap()
+	a.SetMany([]uint64{Encode(1, 1, 5), Encode(1, 2, 5), Encode(2, 1, 5)})
+	b.SetMany([]uint64{Encode(1, 1, 6), Encode(1, 2, 7)}) // a's keys only, so the fold widens nothing
+	for leaf := uint16(1); leaf <= 100; leaf++ {
+		newKeys.Set(Encode(3, leaf, 5))
+	}
+
+	const bufSize = 1 << 16
+	ops := NewBitmapOps(roaringset.NewBitmapBufPoolRanged(nil, 0, nil, bufSize))
+	result, release := ops.OrAll([]*sroar.Bitmap{a, b}, 1)
+	defer release()
+	want := sroar.Or(a, b)
+	require.Equal(t, want.ToArray(), result.ToArray())
+
+	keysBefore := keysNodeSize(result)
+	result.Or(newKeys)
+	require.Equal(t, keysBefore, keysNodeSize(result), "keys node moved")
+	require.Equal(t, bufSize, result.CapInBytes(), "buffer grew")
+	require.Equal(t, want.Or(newKeys).ToArray(), result.ToArray())
+
+	exact, releaseExact := NewBitmapOps(roaringset.NewBitmapBufPoolNoop()).OrAll([]*sroar.Bitmap{a, b}, 1)
+	defer releaseExact()
+	require.Equal(t, exact.LenInBytes(), exact.CapInBytes(), "headroom must not ask for a larger buffer")
+}
+
+// TestBitmapOps_SpareBecomesTailRoom pins that each build without headroom lives
+// in the pool's buffer and lays out the same however much larger that buffer is.
 func TestBitmapOps_SpareBecomesTailRoom(t *testing.T) {
 	a, b := sroar.NewBitmap(), sroar.NewBitmap()
 	for doc := uint64(1); doc < 200_000; doc += 40_000 {
@@ -622,6 +652,9 @@ func TestBitmapOps_SpareBecomesTailRoom(t *testing.T) {
 		get  func(*BitmapOps) (*sroar.Bitmap, func())
 	}{
 		{"NewEmpty", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.NewEmpty() }},
+		{"AndAll", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.AndAll([]*sroar.Bitmap{a, b}, 1) }},
+		{"AndNot", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.AndNot(a, b, 1) }},
+		{"OrAll of one input", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.OrAll([]*sroar.Bitmap{a}, 1) }},
 		{"MaskLeaf", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.MaskLeaf(a) }},
 		{"MaskRootLeaf", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.MaskRootLeaf(a) }},
 		{"AndAllMaskLeaf", func(o *BitmapOps) (*sroar.Bitmap, func()) {

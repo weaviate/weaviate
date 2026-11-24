@@ -240,6 +240,22 @@ func TestBitmapFactoryUniverse(t *testing.T) {
 		assert.Equal(t, []uint64{0}, universe(t, bmf))
 	})
 
+	t.Run("a roomy buffer adds no key slots, nothing is ORed into the universe", func(t *testing.T) {
+		const bufSize = 1 << 17
+		count := uint64(200_000)
+		bmf := NewBitmapFactory(NewBitmapBufPoolRanged(nil, 0, nil, bufSize), func() uint64 { return count })
+		requirePlain := func(t *testing.T) {
+			bm, release := bmf.GetBitmap()
+			defer release()
+			require.Equal(t, bufSize, bm.CapInBytes())
+			require.Equal(t, keysNodeSize(bmf.prefilled), keysNodeSize(bm))
+		}
+
+		requirePlain(t)
+		count += 2 * defaultIdIncrement // GetBitmap expands the prefilled bitmap
+		requirePlain(t)
+	})
+
 	t.Run("the first object survives a query against the empty shard", func(t *testing.T) {
 		count := uint64(0)
 		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return count })
