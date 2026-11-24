@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"regexp/syntax"
 	"slices"
 	"strconv"
@@ -530,12 +531,13 @@ func makeNamespaceAwareMatcherFunc(namespacesEnabled bool) func(args ...any) (an
 // of each "*" segment in reqObj. Request builders write a literal "*" for
 // "every name", which KeyMatch5 matches as text, so a pattern such as "(A|.)"
 // that merely matches the character '*' would pass. Stored targets carry no
-// '/', so a policy's segments line up with the request's.
+// '/', so a policy's segments line up with the request's, unless a "\Q" quotes
+// past its own target.
 func wildcardsCovered(reqObj, polObj string) bool {
 	if polObj == "*" {
 		return true
 	}
-	aligned := strings.Count(reqObj, "/") == strings.Count(polObj, "/")
+	aligned := strings.Count(reqObj, "/") == strings.Count(polObj, "/") && !strings.Contains(polObj, `\Q`)
 	for req, pol := reqObj, polObj; ; {
 		reqSeg, reqRest, more := strings.Cut(req, "/")
 		polSeg, polRest, _ := strings.Cut(pol, "/")
@@ -549,6 +551,9 @@ func wildcardsCovered(reqObj, polObj string) bool {
 	}
 }
 
+// keyMatch5Brace is the "{...}" token KeyMatch5 rewrites to "[^/]+".
+var keyMatch5Brace = regexp.MustCompile(`\{[^/]+\}`)
+
 // universalSegment reports whether a policy segment, as KeyMatch5 compiles it,
 // matches every name.
 func universalSegment(seg string) bool {
@@ -558,7 +563,7 @@ func universalSegment(seg string) bool {
 	if seg == ".*" {
 		return true
 	}
-	re, err := syntax.Parse(seg, syntax.Perl)
+	re, err := syntax.Parse(keyMatch5Brace.ReplaceAllString(seg, "[^/]+"), syntax.Perl)
 	return err == nil && matchesEveryString(re.Simplify(), true)
 }
 

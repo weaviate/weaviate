@@ -160,6 +160,10 @@ func TestWildcardRequestNeedsWildcardGrant(t *testing.T) {
 		{".", false},
 		{".?", false},
 		{"[*]", false},
+		// KeyMatch5 rewrites "{...}" to "[^/]+": these keep '*' but lose every
+		// one-letter name, or every name not starting with "a".
+		{`\x2a|(.{1})+`, false},
+		{`\x2a|a{1}|*|b{1}`, false},
 	}
 	for _, tt := range tests {
 		for _, p := range patterns {
@@ -177,6 +181,19 @@ func TestWildcardRequestNeedsWildcardGrant(t *testing.T) {
 	}
 }
 
+// TestWildcardRequestQuotedTargets: a "\Q" in one target quotes the group
+// conv wraps around it and spills into the next target, so the stored text no
+// longer splits where the enforced regex does. This grant names no tenant.
+func TestWildcardRequestQuotedTargets(t *testing.T) {
+	m, u := newWildcardManager(t, &models.Permission{
+		Action:  authorization.String(authorization.ReadTenants),
+		Tenants: &models.PermissionTenants{Collection: authorization.String(`X.shards.[*]|\Q`), Tenant: authorization.String(`A|\Q\E*`)},
+	})
+	var forbidden errors.Forbidden
+	require.ErrorAs(t, m.AuthorizeSilent(context.Background(), u, authorization.READ, authorization.ShardsMetadata("X")...), &forbidden)
+	require.ErrorAs(t, m.AuthorizeSilent(context.Background(), u, authorization.READ, authorization.ShardsMetadata("X", "tenant1")...), &forbidden)
+}
+
 // TestWildcardRequestFilter: a list filter first tries the whole parent with a
 // "*" request, which must not hand out every item to a narrow grant.
 func TestWildcardRequestFilter(t *testing.T) {
@@ -191,6 +208,7 @@ func TestWildcardRequestFilter(t *testing.T) {
 }
 
 func TestWildcardsCoveredMatcher(t *testing.T) {
+	quoted := `schema/collections/(X.shards.[.*]|\Q)/shards/(A|\Q\E.*)`
 	tests := []struct {
 		name              string
 		namespacesEnabled bool
@@ -222,6 +240,15 @@ func TestWildcardsCoveredMatcher(t *testing.T) {
 			name: "confined caller, one-letter tenants", namespacesEnabled: true, ns: "c1",
 			request: "schema/collections/c1:Movies/shards/*", policy: "schema/collections/Movies/shards/(A|.)", want: false,
 		},
+		{name: "a quoted group spilling into the next segment", request: "schema/collections/X/shards/*", policy: quoted, want: false},
+		{
+			name: "global caller, a quoted group spilling into the next segment", namespacesEnabled: true,
+			request: "schema/collections/c1:X/shards/*", policy: quoted, want: false,
+		},
+		{
+			name: "confined caller, a quoted group spilling into the next segment", namespacesEnabled: true, ns: "c1",
+			request: "schema/collections/c1:X/shards/*", policy: quoted, want: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -234,29 +261,32 @@ func TestWildcardsCoveredMatcher(t *testing.T) {
 
 func TestUniversalSegment(t *testing.T) {
 	for seg, want := range map[string]bool{
-		"*":      true,
-		".*":     true,
-		"..*":    true,
-		".+":     true,
-		".*?":    true,
-		"(.*)":   true,
-		"(.)*":   true,
-		"(.+)?":  true,
-		".*.*":   true,
-		"(?s).*": true,
-		"(A|.*)": true,
-		"(.*|A)": true,
-		".":      false,
-		"..":     false,
-		".?":     false,
-		"(A|.)":  false,
-		"[*]":    false,
-		`\*`:     false,
-		"A.*":    false,
-		".*A":    false,
-		"[^/]+":  false,
-		"#":      false,
-		"(":      false,
+		"*":                   true,
+		".*":                  true,
+		"..*":                 true,
+		".+":                  true,
+		".*?":                 true,
+		"(.*)":                true,
+		"(.)*":                true,
+		"(.+)?":               true,
+		".*.*":                true,
+		"(?s).*":              true,
+		"(A|.*)":              true,
+		"(.*|A)":              true,
+		".":                   false,
+		"..":                  false,
+		".?":                  false,
+		"(A|.)":               false,
+		"[*]":                 false,
+		`\*`:                  false,
+		"A.*":                 false,
+		".*A":                 false,
+		"[^/]+":               false,
+		"#":                   false,
+		"(":                   false,
+		`(\x2a|(.{1})+)`:      false,
+		`(\x2a|a{1}|.*|b{1})`: false,
+		".{0,}":               false,
 	} {
 		require.Equal(t, want, universalSegment(seg), seg)
 	}

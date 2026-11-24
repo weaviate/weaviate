@@ -49,6 +49,15 @@ func TestPatternCheckedAsStored(t *testing.T) {
 			perm:    &models.Permission{Action: String(authorization.ReadData), Data: &models.PermissionData{Collection: String(`X|\Q`)}},
 			wantErr: "is not a valid pattern: error parsing regexp: missing closing )",
 		},
+		{
+			// A later target's \E closes that quote and the group, so it compiles,
+			// but the stored segments no longer line up with the enforced regex.
+			name: "quote closed in the next target",
+			perm: &models.Permission{Action: String(authorization.ReadTenants), Tenants: &models.PermissionTenants{
+				Collection: String(`X.shards.[*]|\Q`), Tenant: String(`A|\Q\E*`),
+			}},
+			wantErr: `must not contain \Q`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
