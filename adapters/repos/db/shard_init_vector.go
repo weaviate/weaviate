@@ -15,6 +15,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -108,6 +109,34 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
 	return nil
+}
+
+// vectorIndexConfigsByStorage splits the schema's vectors, the legacy one
+// under the empty name, into those that own storage and the skipped ones.
+func vectorIndexConfigsByStorage(legacy schemaConfig.VectorIndexConfig,
+	targets map[string]schemaConfig.VectorIndexConfig,
+) (active, skipped map[string]schemaConfig.VectorIndexConfig) {
+	active = make(map[string]schemaConfig.VectorIndexConfig, len(targets)+1)
+	skipped = make(map[string]schemaConfig.VectorIndexConfig)
+	if legacy != nil {
+		targets = maps.Clone(targets)
+		targets[""] = legacy
+	}
+	for name, cfg := range targets {
+		if vectorIndexHasStorage(cfg) {
+			active[name] = cfg
+		} else {
+			skipped[name] = cfg
+		}
+	}
+	return active, skipped
+}
+
+// vectorIndexHasStorage is false for a skipped hnsw config: a no-op index
+// owns no files, so the mapping does not record it.
+func vectorIndexHasStorage(cfg schemaConfig.VectorIndexConfig) bool {
+	hnswCfg, ok := cfg.(hnswent.UserConfig)
+	return !ok || !hnswCfg.Skip
 }
 
 // vectorIndexLogger identifies every log line under one vector index: the

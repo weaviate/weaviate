@@ -152,7 +152,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err != nil {
 		return nil, fmt.Errorf("open metadata db for shard %q: %w", s.ID(), err)
 	}
-	s.mapping = newVectorIndexMapping(s.metadataDB)
 	s.manifest = vectormanifest.New(vectormanifest.Config{
 		DB:           s.metadataDB,
 		ShardDir:     s.path(),
