@@ -315,6 +315,24 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
+	t.Run("list objects without a class maps errors", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			err  error
+			want middleware.Responder
+		}{
+			{"an invalid user input is unprocessable", uco.NewErrInternal("list objects: %w", uco.NewErrInvalidUserInput("bad sort")), &objects.ObjectsListUnprocessableEntity{}},
+			{"a multi-tenancy error is unprocessable", uco.NewErrMultiTenancy(stderrors.New("mt")), &objects.ObjectsListUnprocessableEntity{}},
+			{"an internal error is a server error", uco.NewErrInternal("list objects: boom"), &objects.ObjectsListInternalServerError{}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := &objectHandlers{manager: &fakeManager{getObjectsErr: tc.err}, metricRequestsTotal: &fakeMetricRequestsTotal{}}
+				res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
+				assert.IsType(t, tc.want, res)
+			})
+		}
+	})
+
 	t.Run("update object deprecated", func(t *testing.T) {
 		type test struct {
 			name           string
@@ -1172,6 +1190,7 @@ type fakeManager struct {
 	addObjectErr       error
 	queryResult        []*models.Object
 	queryErr           *uco.Error
+	getObjectsErr      error
 	updateObjectReturn *models.Object
 	updateObjectErr    error
 	deleteObjectReturn error
@@ -1231,7 +1250,7 @@ func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *mod
 }
 
 func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenant string) ([]*models.Object, error) {
-	return f.queryResult, nil
+	return f.queryResult, f.getObjectsErr
 }
 
 func (f *fakeManager) Query(_ context.Context,
