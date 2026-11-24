@@ -14,6 +14,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -22,10 +23,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/resolver"
+	"google.golang.org/grpc/test/bufconn"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/entities/sentry"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -169,4 +178,66 @@ func TestMakeMetricsInterceptor(t *testing.T) {
 		assert.Zero(t, grpcBatchCount(t, metrics, "ns_a"))
 		assert.Zero(t, grpcBatchCount(t, metrics, ""))
 	})
+}
+
+// Test operational mode interceptor.
+func TestInterceptors(t *testing.T) {
+	const bufSize = 1024 * 1024
+
+	// Start gRPC server.
+	defaultScheme := resolver.GetDefaultScheme()
+	t.Cleanup(func() { resolver.SetDefaultScheme(defaultScheme) })
+
+	// grpc.Client defaults to "dns" scheme, but we want to effectively
+	// disable this altogether and use our custom dialer instead.
+	resolver.SetDefaultScheme("passthrough")
+
+	// Run gRPC Server.
+	logger, _ := test.NewNullLogger()
+	s := state.State{
+		ServerConfig: &config.WeaviateConfig{
+			Config: config.Config{
+				GRPC: config.GRPC{
+					MaxMsgSize: bufSize,
+				},
+				Sentry: &sentry.ConfigOpts{
+					Enabled: false,
+				},
+				Authentication: config.Authentication{
+					AnonymousAccess: config.AnonymousAccess{
+						Enabled: true,
+					},
+				},
+				OperationalMode: runtime.NewDynamicValue[string](config.READ_ONLY),
+			},
+		},
+		Cluster: &cluster.State{},
+		Logger:  logger,
+	}
+
+	srv, stop := CreateGRPCServer(&s, nil, nil)
+	t.Cleanup(stop)
+
+	// bufconn Listener mocks network connections using an in-memory buffer.
+	lis := bufconn.Listen(bufSize)
+	go func() {
+		defer lis.Close()
+		require.NoError(t, srv.Serve(lis), "server exited with an error")
+	}()
+
+	// Create gRPC client.
+	conn, err := grpc.NewClient("in-memory",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+	)
+	require.NoError(t, err, "create gRPC client")
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := pbv1.NewWeaviateClient(conn)
+
+	// Run unary RPC.
+	_, err = client.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
+	require.ErrorContains(t, err, config.ErrReadOnlyModeEnabled.Error(), "interceptor error")
 }
