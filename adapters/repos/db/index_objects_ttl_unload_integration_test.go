@@ -86,8 +86,10 @@ func TestTTLSweepCountsAsShardAccessOnlyWhenItDeletes(t *testing.T) {
 		{name: "single tenant, expired objects", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, wantDeleted: 3, wantLoaded: true},
 		{name: "single tenant, unloaded", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, unload: true},
 		{name: "single tenant, unloaded, collector idle", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, unload: true, collectorIdle: true, wantDeleted: 3, wantLoaded: true},
+		{name: "single tenant, unloaded, collector idle, nothing expired", shardState: singleShardState(), class: batchDeleteTTLClass(), unload: true, collectorIdle: true, wantLoaded: true},
 		{name: "multi tenant, nothing expired", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, wantLoaded: true},
 		{name: "multi tenant, expired objects", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, expiredCount: 3, wantDeleted: 3, wantLoaded: true},
+		{name: "multi tenant, unloaded, collector idle", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, expiredCount: 3, unload: true, collectorIdle: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -155,7 +157,7 @@ func TestIncomingFindUUIDsFromBackgroundWork(t *testing.T) {
 		{name: "request, unloaded", unload: true, wantLoaded: true, wantFound: 3, wantAccess: true},
 		{name: "background, loaded", background: true, wantLoaded: true, wantFound: 3},
 		{name: "background, unloaded", background: true, unload: true},
-		{name: "background, unloaded, collector idle", background: true, unload: true, collectorIdle: true, wantLoaded: true, wantFound: 3, wantAccess: true},
+		{name: "background, unloaded, collector idle", background: true, unload: true, collectorIdle: true, wantLoaded: true, wantFound: 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

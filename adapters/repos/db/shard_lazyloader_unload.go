@@ -70,10 +70,12 @@ func (l *LazyLoadShard) stampAccess(tick uint32) {
 	raiseUint32(&l.lastAccess, tick)
 }
 
-// markLoaded registers a load that just published shard; callers hold l.mutex.
-func (l *LazyLoadShard) markLoaded(u ShardUnloader, shard *Shard) {
+// markLoaded registers a load that just published shard, stamping access unless it ran for background work; callers hold l.mutex.
+func (l *LazyLoadShard) markLoaded(u ShardUnloader, shard *Shard, access bool) {
 	l.unloadedAt.Store(0)
-	l.recordAccess()
+	if access {
+		l.recordAccess()
+	}
 	u.Registry().add(l, shard)
 }
 

@@ -233,6 +233,8 @@ type loadOpts struct {
 	skipMemoryCheck bool
 	// warmup skips the unloader's BeforeLoad.
 	warmup bool
+	// noAccess keeps the load from stamping lastAccess, for background work.
+	noAccess bool
 }
 
 func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, error) {
@@ -313,7 +315,7 @@ func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, 
 
 	l.shard.Store(shard)
 	if u != nil {
-		l.markLoaded(u, shard)
+		l.markLoaded(u, shard, !opts.noAccess)
 	}
 
 	return shard, true, nil
@@ -1040,7 +1042,17 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 }
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
-	shard, _, err := l.loadIfCold(context.Background())
+	return l.pin(loadOpts{})
+}
+
+// preventShutdownWithoutAccess is preventShutdown for background work: a load it performs does not count as access.
+func (l *LazyLoadShard) preventShutdownWithoutAccess() (release func(), err error) {
+	return l.pin(loadOpts{noAccess: true})
+}
+
+// pin loads with context.Background(), so a cancelled caller cannot abort a load others wait on.
+func (l *LazyLoadShard) pin(opts loadOpts) (release func(), err error) {
+	shard, _, err := l.load(context.Background(), opts)
 	if err != nil {
 		return func() {}, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
 	}

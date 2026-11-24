@@ -1115,7 +1115,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool, implicitShardLoading bool,
 ) (ShardLike, error) {
 	if disableLazyLoad && i.Config.lazyShardUnloading() {
-		lazy, err := i.initLoadedLazyShard(ctx, shardName, class, promMetrics, loadOpts{})
+		lazy, err := i.initLoadedLazyShard(ctx, shardName, class, promMetrics, loadOpts{noAccess: isBackgroundShardAccess(ctx)})
 		if err != nil {
 			return nil, err
 		}
@@ -4051,7 +4051,8 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// it, and a teardown landing between the two would rebuild it on a wrapper
 	// that already left the map — an orphan nothing can shut down, holding the
 	// directory's file locks. Same reasoning as getLoadedShard.
-	shard, release, err = i.pinResidentShard(shardName, ensureInit, loadedShardsOnly(ctx))
+	background := i.Config.ShardUnloader != nil && isBackgroundShardAccess(ctx)
+	shard, release, err = i.pinResidentShard(shardName, ensureInit, loadedShardsOnly(ctx), background)
 	if err != nil || shard != nil {
 		if err == nil {
 			i.recordShardAccess(ctx, shard)
@@ -4086,7 +4087,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	}
 
 	// Still under the write lock, so a lazy shard's load inside the pin cannot race a teardown.
-	release, err = shard.preventShutdown()
+	release, err = pinShard(shard, background)
 	if err != nil {
 		return nil, func() {}, recoveringAsUnprocessable(fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err))
 	}
@@ -4124,7 +4125,7 @@ func (i *Index) recordDeletions(shard ShardLike, objs objects.BatchSimpleObjects
 	}
 }
 
-// backgroundLeavesUnloaded: background work leaves an unloaded shard unloaded while the collector runs; otherwise it loads as before.
+// backgroundLeavesUnloaded: background work leaves an unloaded shard unloaded while the collector runs; otherwise it loads it without counting as access.
 func (i *Index) backgroundLeavesUnloaded(ctx context.Context) bool {
 	u := i.Config.ShardUnloader
 	return u != nil && isBackgroundShardAccess(ctx) && u.Collecting()
@@ -4147,7 +4148,7 @@ func recoveringAsUnprocessable(err error) error {
 // caller re-checks and initializes under the write lock. Read-only callers keep
 // surfacing errAlreadyShutdown from the pin — the eventual-shutdown contract
 // pins GetShard to it.
-func (i *Index) pinResidentShard(shardName string, ensureInit, loadedOnly bool) (shard ShardLike, release func(), err error) {
+func (i *Index) pinResidentShard(shardName string, ensureInit, loadedOnly, background bool) (shard ShardLike, release func(), err error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
 
@@ -4175,11 +4176,24 @@ func (i *Index) pinResidentShard(shardName string, ensureInit, loadedOnly bool) 
 		}
 	}
 
-	release, err = shard.preventShutdown()
+	release, err = pinShard(shard, background)
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
 	}
 	return shard, release, nil
+}
+
+// backgroundPinner is a lazy shard, bare or embedded in a RecoveringShard.
+type backgroundPinner interface {
+	preventShutdownWithoutAccess() (release func(), err error)
+}
+
+// pinShard is preventShutdown; for background work a lazy shard's load does not count as access.
+func pinShard(shard ShardLike, background bool) (release func(), err error) {
+	if p, ok := shard.(backgroundPinner); ok && background {
+		return p.preventShutdownWithoutAccess()
+	}
+	return shard.preventShutdown()
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,

@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestInternalShardWorkDoesNotCountAsAccess(t *testing.T) {
@@ -284,6 +285,148 @@ func TestBackgroundReadsNeverReloadAShardUnloadedBeforeTheirPin(t *testing.T) {
 			require.True(t, outcome)
 			f.requireUnloaded(t)
 			require.Equal(t, loadsBefore, f.unloader.beforeLoads.Load())
+		})
+	}
+}
+
+type schemaReadHook struct {
+	schemaUC.SchemaGetter
+	fired  atomic.Bool
+	onRead func()
+}
+
+func (h *schemaReadHook) ReadOnlyClass(name string) *models.Class {
+	if h.fired.CompareAndSwap(false, true) {
+		h.onRead()
+	}
+	return h.SchemaGetter.ReadOnlyClass(name)
+}
+
+func TestBackgroundLoadsDoNotCountAsAccess(t *testing.T) {
+	bg := func() context.Context { return withBackgroundShardAccess(testCtx()) }
+	pin := func(t *testing.T, f *unloadFixture, ctx context.Context) {
+		_, release, err := f.index.GetShard(ctx, f.name)
+		require.NoError(t, err)
+		release()
+	}
+	writePin := func(t *testing.T, f *unloadFixture, ctx context.Context) {
+		_, release, err := f.index.getOrInitShard(ctx, f.name)
+		require.NoError(t, err)
+		release()
+	}
+	evict := func(t *testing.T, f *unloadFixture) {
+		_, ok := f.index.shards.LoadAndDelete(f.name)
+		require.True(t, ok)
+	}
+	republishBeforeInit := func(t *testing.T, f *unloadFixture) {
+		evict(t, f)
+		prev := f.index.getSchema
+		f.index.getSchema = &schemaReadHook{SchemaGetter: prev, onRead: func() { f.index.shards.Store(f.name, f.lazy) }}
+		t.Cleanup(func() { f.index.getSchema = prev })
+	}
+	override := func(f *unloadFixture) additional.AsyncReplicationTargetNodeOverride {
+		return additional.AsyncReplicationTargetNodeOverride{
+			CollectionID:   f.index.Config.ClassName.String(),
+			ShardID:        f.name,
+			SourceNode:     f.index.Config.NodeName,
+			TargetNode:     "other-node",
+			UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+		}
+	}
+	tests := []struct {
+		name        string
+		collecting  bool
+		load        func(t *testing.T, f *unloadFixture)
+		wantStamped bool
+	}{
+		{name: "background pin", load: func(t *testing.T, f *unloadFixture) { pin(t, f, bg()) }},
+		{name: "background write pin", load: func(t *testing.T, f *unloadFixture) { writePin(t, f, bg()) }},
+		{name: "background write pin initializing an absent shard", load: func(t *testing.T, f *unloadFixture) {
+			evict(t, f)
+			writePin(t, f, bg())
+		}},
+		{name: "background write pin loading a shard published after its lookup", load: func(t *testing.T, f *unloadFixture) {
+			republishBeforeInit(t, f)
+			writePin(t, f, bg())
+		}},
+		{name: "movement enables async replication", collecting: true, load: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, f.index.InitAsyncReplicationOnShard(testCtx(), f.name))
+		}},
+		{name: "movement reverts async replication", collecting: true, load: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, f.index.RevertAsyncReplicationOnShard(testCtx(), f.name))
+		}},
+		{name: "movement adds a target node override", collecting: true, load: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, f.index.IncomingAddAsyncReplicationTargetNode(testCtx(), f.name, override(f)))
+		}},
+		{name: "movement removes a target node override", collecting: true, load: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, f.index.IncomingRemoveAsyncReplicationTargetNode(testCtx(), f.name, override(f)))
+		}},
+		{name: "movement removes every target node override", collecting: true, load: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, f.index.IncomingRemoveAllAsyncReplicationTargetNodes(testCtx(), f.name))
+		}},
+		{name: "copy puts a file", collecting: true, load: func(t *testing.T, f *unloadFixture) {
+			w, err := f.index.IncomingFilePutter(testCtx(), f.name, "copied.tmp")
+			require.NoError(t, err)
+			require.NoError(t, w.Close())
+		}},
+		{name: "request pin", wantStamped: true, load: func(t *testing.T, f *unloadFixture) { pin(t, f, testCtx()) }},
+		{name: "write pin initializing an absent shard", wantStamped: true, load: func(t *testing.T, f *unloadFixture) {
+			evict(t, f)
+			writePin(t, f, testCtx())
+		}},
+		{name: "write pin loading a shard published after its lookup", wantStamped: true, load: func(t *testing.T, f *unloadFixture) {
+			republishBeforeInit(t, f)
+			writePin(t, f, testCtx())
+		}},
+		{name: "request pin after a background load", wantStamped: true, load: func(t *testing.T, f *unloadFixture) {
+			pin(t, f, bg())
+			require.Zero(t, f.lazy.LastAccess())
+			pin(t, f, testCtx())
+		}},
+		{name: "write pin after a background load", wantStamped: true, load: func(t *testing.T, f *unloadFixture) {
+			pin(t, f, bg())
+			require.Zero(t, f.lazy.LastAccess())
+			writePin(t, f, testCtx())
+		}},
+		{name: "request pin waiting on a background load", wantStamped: true, load: func(t *testing.T, f *unloadFixture) {
+			var fired atomic.Bool
+			done := make(chan error, 1)
+			hook := func(*LazyLoadShard) {
+				if fired.CompareAndSwap(false, true) {
+					go func() {
+						_, release, err := f.index.GetShard(testCtx(), f.name)
+						release()
+						done <- err
+					}()
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			f.unloader.onBeforeLoad.Store(&hook)
+			defer f.unloader.onBeforeLoad.Store(nil)
+			pin(t, f, bg())
+			require.NoError(t, <-done)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			epoch, prev := accessClockEpoch, accessClock.Load()
+			t.Cleanup(func() { accessClockEpoch = epoch; accessClock.Store(prev) })
+			accessClockEpoch = epoch.Add(-2000 * time.Second)
+			advanceAccessClock()
+			f := newUnloadFixture(t)
+			f.put(t)
+			require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+			f.unloader.idle.Store(!tt.collecting)
+			f.lazy.lastAccess.Store(0)
+
+			tt.load(t, f)
+
+			lazy, ok := f.index.shards.Load(f.name).(*LazyLoadShard)
+			require.True(t, ok)
+			require.True(t, lazy.isLoaded())
+			require.Equal(t, tt.wantStamped, lazy.LastAccess() != 0)
+			f.unloader.idle.Store(false)
+			require.Equal(t, !tt.wantStamped, lazy.TryUnload(testCtx(), UnloadRequest{IdleTTL: 1000 * time.Second}))
 		})
 	}
 }

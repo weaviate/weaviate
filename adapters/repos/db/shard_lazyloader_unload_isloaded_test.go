@@ -95,7 +95,7 @@ func TestLazyLoadShard_TryUnloadNeverHoldsTheCreateLockAcrossItsTeardown(t *test
 	f.index.shardCreateLocks.Unlock(victim)
 	pinned := make(chan error, 1)
 	go func() {
-		_, rel, err := f.index.pinResidentShard(other, true, false)
+		_, rel, err := f.index.pinResidentShard(other, true, false, false)
 		rel()
 		pinned <- err
 	}()
