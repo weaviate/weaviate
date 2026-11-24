@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"fmt"
 	"iter"
 	"testing"
 
@@ -203,4 +204,82 @@ func TestAllowListIteratorReturnsAcceptedPostingWithSingleAllowedVector(t *testi
 	id, ok := iterator.Next()
 	require.True(t, ok)
 	require.EqualValues(t, 0, id)
+}
+
+// Each probe is uncached, including successful probes, which normally memoize
+// the posting for the rest of the query.
+func TestAllowListContainsAllowedMemberZeroAlloc(t *testing.T) {
+	for _, maxID := range []uint64{1<<16 - 1, 1<<24 - 1, 1<<32 - 1, 1<<40 - 1, ^uint64(0)} {
+		t.Run(fmt.Sprint(schemeFor(maxID).BytesPerValue()), func(t *testing.T) {
+			h := &HFresh{PostingMap: NewPostingMap(bucketRef{}), visitedPool: visited.NewPool(10)}
+			middle := maxID & 0x0102030405060708
+			h.PostingMap.setSlot(1, NewPackedPostingMetadata([]uint64{0, middle, maxID}))
+			for _, allowedID := range []uint64{1, 0, middle, maxID} {
+				t.Run(fmt.Sprint(allowedID), func(t *testing.T) {
+					match := allowedID != 1
+					allowed := helpers.NewAllowList(allowedID)
+					defer allowed.Close()
+					a := h.wrapAllowList(t.Context(), allowed).(*allowList)
+					defer a.Close()
+					allocs := testing.AllocsPerRun(100, func() {
+						a.allowedPostings.Reset()
+						if got := a.Contains(1); got != match {
+							t.Fatalf("membership = %v, want %v", got, match)
+						}
+					})
+					require.Zero(t, allocs, "uncached posting probe must not allocate")
+				})
+			}
+		})
+	}
+}
+
+func BenchmarkAllowListContains(b *testing.B) {
+	for _, maxID := range []uint64{1<<16 - 1, 1<<24 - 1, 1<<32 - 1, 1<<40 - 1, ^uint64(0)} {
+		b.Run(fmt.Sprint(schemeFor(maxID).BytesPerValue()), func(b *testing.B) {
+			ids := make([]uint64, 200)
+			for i := range ids {
+				ids[i] = maxID - uint64(len(ids)-i-1)
+			}
+			h := &HFresh{PostingMap: NewPostingMap(bucketRef{}), visitedPool: visited.NewPool(10)}
+			h.PostingMap.setSlot(1, NewPackedPostingMetadata(ids))
+			for _, match := range []bool{false, true} {
+				b.Run(fmt.Sprint(match), func(b *testing.B) {
+					allowed := helpers.NewAllowList(0)
+					defer allowed.Close()
+					if match {
+						allowed.Insert(maxID)
+					}
+					a := h.wrapAllowList(b.Context(), allowed).(*allowList)
+					defer a.Close()
+					b.ReportAllocs()
+					for b.Loop() {
+						a.allowedPostings.Reset()
+						if a.Contains(1) != match {
+							b.Fatal("unexpected membership")
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestAllowListPackedMetadata(t *testing.T) {
+	h := &HFresh{PostingMap: NewPostingMap(bucketRef{}), visitedPool: visited.NewPool(10)}
+	allowed := helpers.NewAllowList(0, 10)
+	defer allowed.Close()
+	a := h.wrapAllowList(t.Context(), allowed).(*allowList)
+	defer a.Close()
+	for n := range 6 {
+		t.Run(fmt.Sprintf("short/%d", n), func(t *testing.T) {
+			h.PostingMap.setSlot(1, make(PackedPostingMetadata, n))
+			require.False(t, a.Contains(1))
+		})
+	}
+	// Unknown schemes retain the same eight-byte interpretation as Iter.
+	data := NewPackedPostingMetadata([]uint64{^uint64(0), 10})
+	data[0] = 255
+	h.PostingMap.setSlot(1, data)
+	require.True(t, a.Contains(1))
 }
