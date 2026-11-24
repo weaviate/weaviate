@@ -157,12 +157,12 @@ func TestReadUnloaded(t *testing.T) {
 
 func TestReadUnloadedTasks(t *testing.T) {
 	t.Run("a shard without a metadata db has no tasks", func(t *testing.T) {
-		got, err := readUnloadedTasks(t.TempDir(), []string{"title"})
+		got, err := readUnloadedTasks(t.TempDir())
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
 
-	t.Run("reads the named tasks only", func(t *testing.T) {
+	t.Run("reads every task", func(t *testing.T) {
 		dir := t.TempDir()
 		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
@@ -171,9 +171,9 @@ func TestReadUnloadedTasks(t *testing.T) {
 		require.NoError(t, tasks.Put("body", testTask("vectors_body")))
 		require.NoError(t, db.Close())
 
-		got, err := readUnloadedTasks(dir, []string{"title", "summary"})
+		got, err := readUnloadedTasks(dir)
 		require.NoError(t, err)
-		assert.Equal(t, map[string]rebuildTask{"title": testTask("vectors_title")}, got)
+		assert.Equal(t, map[string]rebuildTask{"title": testTask("vectors_title"), "body": testTask("vectors_body")}, got)
 	})
 
 	tests := []struct {
@@ -198,7 +198,7 @@ func TestReadUnloadedTasks(t *testing.T) {
 			require.NoError(t, ns.Put([]byte("title"), []byte(tt.task)))
 			require.NoError(t, db.Close())
 
-			_, err = readUnloadedTasks(dir, []string{"title"})
+			_, err = readUnloadedTasks(dir)
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
@@ -232,7 +232,7 @@ func TestDropUnloaded_DuringARebuild(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, records, "body")
 			assert.NotContains(t, records, "title")
-			tasks, err := readUnloadedTasks(dir, []string{"title"})
+			tasks, err := readUnloadedTasks(dir)
 			require.NoError(t, err)
 			assert.Empty(t, tasks)
 		})
@@ -247,7 +247,10 @@ func TestDropUnloaded_RefusesATaskNamingASibling(t *testing.T) {
 	require.NoError(t, db.Close())
 	plant(t, files(dir, "vectors_body")...)
 
-	require.ErrorContains(t, DropUnloaded(dir, "title", []string{"body"}), `an index of vector "body"`)
+	// listed as a sibling or not
+	for _, siblings := range [][]string{{"body"}, nil} {
+		require.ErrorContains(t, DropUnloaded(dir, "title", siblings), `an index of vector "body"`)
+	}
 	for _, path := range files(dir, "vectors_body") {
 		assert.DirExists(t, path)
 	}
