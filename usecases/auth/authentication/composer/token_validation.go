@@ -62,6 +62,8 @@ func selectScheme(config config.Authentication,
 		return oidc.ValidateAndExtract
 	}
 
+	// FIXME(dyma): this is misleading, because the error is returned even if
+	// n Authorization header is provided.
 	return func(token string, scopes []string) (*models.Principal, error) {
 		return nil, openapi.New(401, "no authentication scheme is configured (API Key or OIDC), "+
 			"but an 'Authorization' header was provided. Please configure an auth scheme "+
