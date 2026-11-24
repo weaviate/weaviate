@@ -16,8 +16,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/replication/rebalanceplanner"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/wl/rebalance/rebalanceplanner"
 )
 
 func TestBalanced(t *testing.T) {

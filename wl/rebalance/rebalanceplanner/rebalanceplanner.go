@@ -11,6 +11,7 @@
 
 // Package rebalanceplanner searches for the direct moves of a rebalance plan
 // that balance disk utilisation across nodes.
+// It is Weaviate-licensed (wl/LICENSE-WEAVIATE), unlike the BSD-3-Clause code outside wl/.
 package rebalanceplanner
 
 import (

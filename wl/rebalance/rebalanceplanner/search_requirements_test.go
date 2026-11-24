@@ -21,8 +21,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	rp "github.com/weaviate/weaviate/cluster/replication/rebalanceplanner"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	rp "github.com/weaviate/weaviate/wl/rebalance/rebalanceplanner"
 )
 
 // The tests in this file state what Search must achieve. They call only

@@ -19,8 +19,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	rp "github.com/weaviate/weaviate/cluster/replication/rebalanceplanner"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	rp "github.com/weaviate/weaviate/wl/rebalance/rebalanceplanner"
 )
 
 // Unless a case says otherwise, every node has 16 usable bytes and one
