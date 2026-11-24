@@ -76,13 +76,12 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 		o = append(o, grpc.Creds(c))
 	}
 
-	var interceptors []grpc.UnaryServerInterceptor
-
-	interceptors = append(interceptors, makeAuthInterceptor())
+	var unaryInterceptors []grpc.UnaryServerInterceptor
+	unaryInterceptors = append(unaryInterceptors, makeAuthInterceptor())
 
 	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
-		interceptors = append(interceptors,
+		unaryInterceptors = append(unaryInterceptors,
 			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password))
 
 		o = append(o, grpc.StreamInterceptor(
@@ -92,32 +91,34 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 
 	// If sentry is enabled add automatic spans on gRPC requests
 	if state.ServerConfig.Config.Sentry.Enabled {
-		interceptors = append(interceptors, grpc_middleware.ChainUnaryServer(
+		unaryInterceptors = append(unaryInterceptors, grpc_middleware.ChainUnaryServer(
 			grpc_sentry.UnaryServerInterceptor(),
 		))
 	}
 
 	if state.Metrics != nil {
-		interceptors = append(interceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
+		unaryInterceptors = append(unaryInterceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
 	}
 
-	interceptors = append(interceptors, makeIPInterceptor())
+	unaryInterceptors = append(unaryInterceptors, makeIPInterceptor())
 	if clientTracker != nil {
 		// ClientTrackingUnaryInterceptor both tracks usage and sets "clientIdentifier" in context,
 		// so no need for a separate makeClientIdentifierInterceptor.
-		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker, integrationTracker))
+		unaryInterceptors = append(unaryInterceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker, integrationTracker))
 	} else {
-		interceptors = append(interceptors, makeClientIdentifierInterceptor())
+		unaryInterceptors = append(unaryInterceptors, makeClientIdentifierInterceptor())
 	}
-	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
-	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
+	operationalModeInterceptor := newOperationalModeInterceptor(state)
+	unaryInterceptors = append(unaryInterceptors, operationalModeInterceptor.unary)
+	unaryInterceptors = append(unaryInterceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
 
 	// Add OpenTelemetry tracing interceptors
-	interceptors = append(interceptors, monitoring.GRPCTracingInterceptor())
-	interceptors = append(interceptors, makeDocsLinkUnaryInterceptor())
+	unaryInterceptors = append(unaryInterceptors, monitoring.GRPCTracingInterceptor())
+	unaryInterceptors = append(unaryInterceptors, makeDocsLinkUnaryInterceptor())
 
-	if len(interceptors) > 0 {
-		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
+	// TODO(dyma): redundant check, ChainUnaryInterceptor/ChainServerInterceptor already do that
+	if len(unaryInterceptors) > 0 {
+		o = append(o, grpc.ChainUnaryInterceptor(unaryInterceptors...))
 	}
 
 	allowAnonymous := state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled
@@ -130,6 +131,7 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	)
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
+	o = append(o, grpc.ChainStreamInterceptor(operationalModeInterceptor.stream))
 	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
 	o = append(o, grpc.ChainStreamInterceptor(makeDocsLinkStreamInterceptor()))
 
@@ -219,6 +221,8 @@ func restrictionViolationToGrpcError(v *restrictions.ViolationError) error {
 	return withDetails.Err()
 }
 
+// FIXME(dyma): this shouldn't be called "auth interceptor", because it maps error types,
+// and not just those related to auth.
 func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
@@ -264,6 +268,9 @@ func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor 
 		}
 		// Mirror makeAuthInterceptor so streams get the same wire contract.
 		err := handler(srv, ss)
+		// FIXME(dyma): this doesn't need to return nil "so callers can fallthrough".
+		// That's nonsence, it should just return the original error if it cannot be
+		// mapped.
 		if translated := translateTypedError(err); translated != nil {
 			return translated
 		}
@@ -293,36 +300,55 @@ func makeClientIdentifierInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
-	) (any, error) {
-		if config.IsGPRCHealthCheck(info.FullMethod) {
-			return handler(ctx, req)
-		}
-		var err error
-		switch state.ServerConfig.Config.OperationalMode.Get() {
-		case config.READ_ONLY:
-			if config.IsGRPCWrite(info.FullMethod) {
-				err = config.ErrReadOnlyModeEnabled
-			}
-		case config.SCALE_OUT:
-			if config.IsGRPCWrite(info.FullMethod) {
-				err = config.ErrScaleOutModeEnabled
-			}
-		case config.WRITE_ONLY:
-			if config.IsGRPCRead(info.FullMethod) {
-				err = config.ErrWriteOnlyModeEnabled
-			}
-		default:
-			// all good
-		}
-		if err != nil {
-			st := status.New(codes.Unavailable, err.Error())
-			return nil, st.Err()
-		}
-		return handler(ctx, req)
+func newOperationalModeInterceptor(s *state.State) *operationalModeInterceptor {
+	return &operationalModeInterceptor{state: s}
+}
+
+type operationalModeInterceptor struct {
+	// TODO(dyma): pass OperationalMode runtime.DynamicValue instead of the entire state object
+	state *state.State
+}
+
+// admit returns a non-nil error if the server cannot process the request in the current state.
+func (omi *operationalModeInterceptor) admit(fullMethod string) error {
+	if config.IsGPRCHealthCheck(fullMethod) {
+		return nil
 	}
+	var err error
+	switch omi.state.ServerConfig.Config.OperationalMode.Get() {
+	case config.READ_ONLY:
+		if config.IsGRPCWrite(fullMethod) {
+			err = config.ErrReadOnlyModeEnabled
+		}
+	case config.SCALE_OUT:
+		if config.IsGRPCWrite(fullMethod) {
+			err = config.ErrScaleOutModeEnabled
+		}
+	case config.WRITE_ONLY:
+		if config.IsGRPCRead(fullMethod) {
+			err = config.ErrWriteOnlyModeEnabled
+		}
+	default:
+		// all good
+	}
+	return err
+}
+
+// unary implements [grpc.UnaryServerInterceptor].
+func (omi *operationalModeInterceptor) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if err := omi.admit(info.FullMethod); err != nil {
+		// TODO(dyma): replace with status.Error() for brevity
+		return nil, status.New(codes.Unavailable, err.Error()).Err()
+	}
+	return handler(ctx, req)
+}
+
+// stream implements [grpc.StreamServerInterceptor].
+func (omi *operationalModeInterceptor) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if err := omi.admit(info.FullMethod); err != nil {
+		return status.New(codes.Unavailable, err.Error()).Err()
+	}
+	return handler(srv, ss)
 }
 
 func basicAuthUnaryInterceptor(servicePrefix, expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {

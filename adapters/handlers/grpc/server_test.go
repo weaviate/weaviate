@@ -14,6 +14,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"testing"
 
@@ -236,40 +237,61 @@ func TestInterceptors(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 
 	client := pbv1.NewWeaviateClient(conn)
-
-	for _, tt := range []struct {
-		mode string // Server's operational mode.
-		err  error  // Expected RPC error.
+	for _, rpc := range []struct {
+		method string                                      // Method name.
+		fn     func(*testing.T, pbv1.WeaviateClient) error // Request function.
 	}{
-		{
-			mode: config.READ_WRITE,
-			err:  nil,
-		},
-		{
-			mode: config.WRITE_ONLY,
-			err:  nil,
-		},
-		{
-			mode: config.READ_ONLY,
-			err:  config.ErrReadOnlyModeEnabled,
-		},
-		{
-			mode: config.SCALE_OUT,
-			err:  config.ErrScaleOutModeEnabled,
-		},
+		{method: "BatchObjects", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
+			_, err := c.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
+			return err
+		}},
+		{method: "BatchStream", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
+			// The stream handle is returned as long as all configuration is valid.
+			// The server might've rejected any number of requests in the meantime,
+			// but we need to read them from s.Recv().
+			s, err := c.BatchStream(t.Context())
+			require.NoError(t, err, "create batch stream")
+			require.NotNil(t, s, "nil batch stream")
+
+			require.NoError(t, s.Send(&pbv1.BatchStreamRequest{
+				Message: &pbv1.BatchStreamRequest_Start_{},
+			}), "send Start message")
+
+			// Closing the batch stream means Recv() won't block
+			// in cases where we expect the request to succeed,
+			// because then it can return at least return io.EOF.
+			require.NoError(t, s.CloseSend(), "close batch stream")
+
+			if _, err = s.Recv(); err == io.EOF {
+				err = nil
+			}
+			return err
+		}},
 	} {
-		t.Run("operational mode="+tt.mode, func(t *testing.T) {
-			mode := s.ServerConfig.Config.OperationalMode.Get()
-			s.ServerConfig.Config.OperationalMode.SetValue(tt.mode)
-			t.Cleanup(func() { s.ServerConfig.Config.OperationalMode.SetValue(mode) })
+		t.Run(rpc.method, func(t *testing.T) {
+			for _, tt := range []struct {
+				mode string // Server's operational mode.
+				err  error  // Expected RPC error.
+			}{
+				{mode: config.READ_WRITE, err: nil},
+				{mode: config.WRITE_ONLY, err: nil},
+				{mode: config.READ_ONLY, err: config.ErrReadOnlyModeEnabled},
+				{mode: config.SCALE_OUT, err: config.ErrScaleOutModeEnabled},
+			} {
+				t.Run("mode="+tt.mode, func(t *testing.T) {
+					// Put server in the expected mode.
+					mode := s.ServerConfig.Config.OperationalMode.Get()
+					t.Cleanup(func() { s.ServerConfig.Config.OperationalMode.SetValue(mode) })
+					s.ServerConfig.Config.OperationalMode.SetValue(tt.mode)
 
-			// Run unary RPC.
-			_, err = client.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
+					err := rpc.fn(t, client)
 
-			if tt.err != nil {
-				require.ErrorContains(t, err, tt.err.Error(), "interceptor error")
-			} else {
-				require.NoError(t, err, "interceptor error")
+					if tt.err != nil {
+						require.ErrorContains(t, err, tt.err.Error(), "interceptor error")
+					} else {
+						require.NoError(t, err, "interceptor error")
+					}
+				})
 			}
 		})
 	}
