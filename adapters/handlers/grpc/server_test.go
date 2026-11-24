@@ -231,7 +231,6 @@ func TestMaintenanceModeInterceptor(t *testing.T) {
 			},
 		},
 	}
-
 	conn := startTestServer(t, &serverState)
 	client := pbv1.NewWeaviateClient(conn)
 
@@ -269,54 +268,26 @@ func TestOperationalModeInterceptor(t *testing.T) {
 	conn := startTestServer(t, &serverState)
 	client := pbv1.NewWeaviateClient(conn)
 
-	for _, rpc := range []struct {
-		method string                                      // Method name.
-		fn     func(*testing.T, pbv1.WeaviateClient) error // Request function.
+	for _, tt := range []struct {
+		mode string // Server's operational mode.
+		err  error  // Expected RPC error.
 	}{
-		// TODO(dyma): add BatchDelete
-		{method: "BatchObjects", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
-			_, err := c.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
-			return err
-		}},
-		{method: "BatchStream", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
-			// The stream handle is returned as long as all configuration is valid.
-			// The server might've rejected any number of requests in the meantime,
-			// but we need to read them from s.Recv().
-			s, err := c.BatchStream(t.Context())
-			require.NoError(t, err, "create batch stream")
-			require.NotNil(t, s, "nil batch stream")
-
-			require.NoError(t, s.Send(&pbv1.BatchStreamRequest{
-				Message: &pbv1.BatchStreamRequest_Start_{},
-			}), "send Start message")
-
-			// Closing the batch stream means Recv() won't block
-			// in cases where we expect the request to succeed,
-			// because then it can return at least return io.EOF.
-			require.NoError(t, s.CloseSend(), "close batch stream")
-
-			if _, err = s.Recv(); err == io.EOF {
-				err = nil
-			}
-			return err
-		}},
+		{mode: config.READ_WRITE, err: nil},
+		{mode: config.WRITE_ONLY, err: nil},
+		{mode: config.READ_ONLY, err: config.ErrReadOnlyModeEnabled},
+		{mode: config.SCALE_OUT, err: config.ErrScaleOutModeEnabled},
 	} {
-		t.Run(rpc.method, func(t *testing.T) {
-			for _, tt := range []struct {
-				mode string // Server's operational mode.
-				err  error  // Expected RPC error.
-			}{
-				{mode: config.READ_WRITE, err: nil},
-				{mode: config.WRITE_ONLY, err: nil},
-				{mode: config.READ_ONLY, err: config.ErrReadOnlyModeEnabled},
-				{mode: config.SCALE_OUT, err: config.ErrScaleOutModeEnabled},
-			} {
-				t.Run("mode="+tt.mode, func(t *testing.T) {
-					// Put server in the expected mode.
-					mode := serverState.ServerConfig.Config.OperationalMode.Get()
-					serverState.ServerConfig.Config.OperationalMode.SetValue(tt.mode)
-					t.Cleanup(func() { serverState.ServerConfig.Config.OperationalMode.SetValue(mode) })
+		t.Run("mode="+tt.mode, func(t *testing.T) {
+			// Put server in the expected mode.
+			mode := serverState.ServerConfig.Config.OperationalMode.Get()
+			serverState.ServerConfig.Config.OperationalMode.SetValue(tt.mode)
+			t.Cleanup(func() { serverState.ServerConfig.Config.OperationalMode.SetValue(mode) })
 
+			for _, rpc := range []rpcDesc{
+				batchObjects,
+				batchStream,
+			} {
+				t.Run(rpc.method, func(t *testing.T) {
 					err := rpc.fn(t, client)
 
 					if tt.err != nil {
@@ -339,7 +310,7 @@ func startTestServer(t *testing.T, s *state.State) grpc.ClientConnInterface {
 	t.Helper()
 
 	// Size of the underlying request buffer.
-	bufSize := max(s.ServerConfig.Config.GRPC.MaxMsgSize, 8)
+	bufSize := max(s.ServerConfig.Config.GRPC.MaxMsgSize, 256)
 
 	// grpc.Client defaults to "dns" scheme, but we want to effectively
 	// disable this altogether and use our custom dialer instead.
