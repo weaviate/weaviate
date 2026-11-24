@@ -1437,7 +1437,132 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **ACORN frente a `sweeping`, «mejor al 10 % y en el anticorrelado, parecido al 50 %»:** al 50 % es el mismo, por el ratio. Al 10 % necesita más ef en los tres, y por lecturas sale peor.
 - **El punto de cruce entre el 2 % y el 5 %:** sin tiempos todavía. Por lecturas, al azar, el índice al 1 % hace unas 580 por query (258.5 cargas de dos lecturas, más 64 vectores) y la plana 507, así que por lecturas el cruce estaría cerca del 1 %.
 
-**Lo que falta, cronometrado:** cada filtro en su punto de 0.95, en caliente y en frío, dos rondas. El nuestro va por los dos caminos y HNSW con `acorn`; `sweeping` después, si cabe en la noche. Después, el punto de cruce por p50 en frío.
+**Lo que faltaba, cronometrado:** cada filtro en su punto de 0.95, en caliente y en frío, dos rondas. El nuestro va por los dos caminos y HNSW con `acorn`; `sweeping` después, si cabe en la noche. Después, el punto de cruce por p50 en frío. Se midió en la noche del 23 al 24, con `sweeping` también: está en el apartado siguiente.
+
+### Resultados cronometrados (noche del 23 al 24 de noviembre)
+
+*El binario es de `ada98eba8e`, con el mismo índice crecido de `2e58f5c2e1`, y el resultado está en `filters-timed-dbpedia-1m.json`. La máquina quedó quieta a las 19:09, tras la espera de 15 minutos con el marcador puesto. Las rondas 1 y 2 midieron el nuestro por sus dos caminos y HNSW con `acorn`, de 19:09 a 02:32. Las rondas 3 y 4 midieron HNSW con `sweeping`, de 02:32 a 03:04. No se saltó ningún punto.*
+
+*Todo va con 1 thread. En caliente se toma la pasada del medio de tres, sobre 1 000 queries. En frío son 500 queries, en lotes de 10, con el volumen desmontado antes de cada lote. Cada p50 de las tablas es la media de las dos rondas.*
+
+*HNSW se construye otra vez en el proceso en cada sesión, así que sus puntos de 0.95 difieren en algún ef de los de la tarde: `acorn` al azar al 10 % pasa de 125 a 130 y anticorrelado al 10 % de 1 362 a 1 479. Cada uno se cronometra en el suyo. Los nuestros son los mismos.*
+
+**La parada se cumple también aquí:** el arnés comprueba cada query cronometrada, en caliente y en frío, y no salió ningún resultado fuera de su filtro.
+
+**Las dos rondas coinciden.**
+- **El p50 cambia de una ronda a otra** como mucho un 11 % en el nuestro y un 5 % con `sweeping`. Con `acorn` cambia un 21 % en el anticorrelado al 0.1 % en frío: 2.93 ms y 2.36 ms.
+- **Las dos mitades de cada medida en frío** van por lotes alternos, así que comparan grupos de queries y no momentos de la noche. Difieren hasta un 21 %, en el nuestro por el índice al azar al 10 %: 8.0 ms y 9.9 ms.
+
+**El criterio, con tiempos:**
+- **Primera parte:** el veredicto no cambia, porque el criterio se mide en cargas. Los tiempos, por el índice frente a sin filtro a 0.95:
+
+  | filtro | cargas | p50 caliente | p50 frío | veredicto |
+  |---|---:|---:|---:|---|
+  | al azar 50 % | 1.30 veces (24.4 frente a 18.8) | 1.29 veces (1.96 ms frente a 1.52) | 1.17 veces (5.64 ms frente a 4.81) | se cumple |
+  | al azar 10 % | 2.69 veces (50.6) | 2.51 veces (3.80 ms) | 1.93 veces (9.30 ms) | no se cumple |
+
+  En frío, el 10 % queda por debajo del doble en latencia, pero eso no cambia el veredicto, que va por cargas.
+- **Segunda parte: se cumple,** como sin cronometrar. La primera tabla da cada filtro por su camino en su punto de 0.95.
+
+**Cada filtro, el nuestro por el camino que le da el corte, frente a HNSW, a 0.95** (p50 en caliente / en frío):
+
+| filtro | permitidos | camino | nuestro: ef · cargas · p50 caliente / frío | acorn: ef · p50 caliente / frío | sweeping: ef · p50 caliente / frío |
+|---|---:|---|---|---|---|
+| sin filtro | 990 000 | índice | ef 21 · 18.8 cargas · 1.52 / 4.81 ms | ef 78 · 78 vectores · 0.85 / 2.65 ms | ef 78 · 78 vectores · 0.86 / 2.56 ms |
+| al azar 50 % | 495 000 | índice | ef 16 · 24.4 cargas · 1.96 / 5.64 ms | ef 61 · 61 vectores · 1.10 / 2.80 ms | ef 61 · 61 vectores · 1.09 / 2.77 ms |
+| al azar 10 % | 99 000 | índice | ef 10 · 50.6 cargas · 3.80 / 9.30 ms | ef 130 · 130 vectores · 4.27 / 8.44 ms | ef 43 · 43 vectores · 2.59 / 4.75 ms |
+| al azar 1 % | 9 900 | plano | ef 10 · 507 vectores · 3.11 / 9.99 ms | ef 37 · 37 vectores · 2.96 / 4.54 ms | ef 37 · 37 vectores · 2.96 / 4.55 ms |
+| al azar 0.1 % | 990 | plano | ef 10 · 507 vectores · 0.94 / 1.56 ms | ef 33 · 33 vectores · 0.25 / 1.00 ms | ef 33 · 33 vectores · 0.25 / 0.97 ms |
+| correlado 50 % | 495 000 | índice | ef 21 · 18.9 cargas · 1.63 / 5.02 ms | ef 78 · 78 vectores · 0.88 / 2.65 ms | ef 78 · 78 vectores · 0.89 / 2.61 ms |
+| correlado 10 % | 99 000 | índice | ef 18 · 18.5 cargas · 1.62 / 4.89 ms | ef 71 · 71 vectores · 0.84 / 2.55 ms | ef 69 · 69 vectores · 0.83 / 2.42 ms |
+| correlado 1 % | 9 900 | plano | ef 10 · 507 vectores · 3.25 / 10.80 ms | ef 41 · 41 vectores · 4.44 / 5.60 ms | ef 41 · 41 vectores · 4.43 / 5.55 ms |
+| correlado 0.1 % | 990 | plano | ef 10 · 507 vectores · 1.02 / 8.39 ms | ef 39 · 39 vectores · 0.64 / 1.44 ms | ef 39 · 39 vectores · 0.63 / 1.37 ms |
+| anticorrelado 50 % | 495 000 | índice | ef 14 · 84.7 cargas · 6.14 / 14.51 ms | ef 92 · 92 vectores · 3.74 / 7.18 ms | ef 92 · 92 vectores · 3.76 / 7.07 ms |
+| anticorrelado 10 % | 99 000 | índice | ef 12 · 698.1 cargas · 61.42 / 104.67 ms | ef 1479 · 512 vectores · 30.92 / 40.83 ms | ef 119 · 119 vectores · 49.30 / 54.90 ms |
+| anticorrelado 1 % | 9 900 | plano | ef 10 · 507 vectores · 3.16 / 11.31 ms | ef 146 · 146 vectores · 4.62 / 7.39 ms | ef 146 · 146 vectores · 4.59 / 7.36 ms |
+| anticorrelado 0.1 % | 990 | plano | ef 10 · 507 vectores · 1.01 / 8.67 ms | ef 120 · 120 vectores · 0.78 / 2.64 ms | ef 120 · 120 vectores · 0.77 / 2.32 ms |
+
+**El punto de cruce, lo que pide el encargo.** Son los dos caminos del nuestro forzados, a 0.95, con el p50 en ms:
+
+| filtro | índice caliente | plano caliente | índice frío | plano frío | más barato en frío |
+|---|---:|---:|---:|---:|---|
+| al azar 50 % | 1.96 | 116.29 | 5.64 | 121.26 | índice (21.5x) |
+| al azar 10 % | 3.80 | 24.98 | 9.30 | 32.15 | índice (3.5x) |
+| al azar 1 % | 25.21 | 3.11 | 48.62 | 9.99 | plano (4.9x) |
+| al azar 0.1 % | 133.38 | 0.94 | 194.38 | 1.56 | plano (124.7x) |
+| correlado 50 % | 1.63 | 114.29 | 5.02 | 121.57 | índice (24.2x) |
+| correlado 10 % | 1.62 | 25.20 | 4.89 | 31.69 | índice (6.5x) |
+| correlado 1 % | 1.58 | 3.25 | 4.85 | 10.80 | índice (2.2x) |
+| correlado 0.1 % | 2.33 | 1.02 | 5.95 | 8.39 | índice (1.4x) |
+| anticorrelado 50 % | 6.14 | 112.77 | 14.51 | 122.11 | índice (8.4x) |
+| anticorrelado 10 % | 61.42 | 23.84 | 104.67 | 32.26 | plano (3.2x) |
+| anticorrelado 1 % | 353.04 | 3.16 | 403.05 | 11.31 | plano (35.6x) |
+| anticorrelado 0.1 % | 438.05 | 1.01 | 447.72 | 8.67 | plano (51.6x) |
+
+**Lo que dice el punto de cruce:**
+- **Al azar, la plana pasa a ser más barata entre el 10 % y el 1 %.**
+  - Al 10 % el índice cuesta 3.5 veces menos en frío (9.30 ms frente a 32.15), y al 1 % la plana cuesta 4.9 veces menos (9.99 ms frente a 48.62).
+  - Entre los dos puntos no hay medida. Una recta en escala logarítmica por ellos (*mía*) cruza hacia el 3.5 %, en caliente y en frío: unos 35 000 permitidos a 1M. El corte de 40 000 cae ahí.
+- **Correlado, el índice es más barato en las cuatro selectividades.** Al 1 % cuesta 4.85 ms en frío frente a 10.80, y al 0.1 % 5.95 frente a 8.39. El corte manda esas dos a la plana, que en frío cuesta 2.2 y 1.4 veces lo que costaría el índice.
+- **Anticorrelado, la plana ya es más barata al 10 %:** 32.3 ms en frío frente a 104.7, 3.2 veces menos. El cruce está entre el 10 % y el 50 %.
+- **Un corte que solo cuenta permitidos acierta con el filtro al azar.** Con el correlado se queda corto y con el anticorrelado largo, porque no ve dónde caen los permitidos. Cambiarlo se decide más adelante, como pidió el usuario; aquí solo lo reporto.
+- **Por lecturas el cruce sale cerca del 1 %, y por tiempo hacia el 3.5 %.** Al azar al 1 %, el índice hace unas 581 lecturas por query (258.5 cargas de dos lecturas, más 64 vectores) y la plana 507. La plana cuesta más de lo que dicen sus lecturas, porque puntúa en CPU cada código permitido.
+
+**Lo que cuesta la plana:**
+- **En caliente cuesta entre 230 y 250 ns por permitido:**
+  - 113 ms con 495 000 permitidos;
+  - 24 ms con 99 000;
+  - 3.1 ms con 9 900;
+  - 0.94 ms con 990, que es sobre todo el rescore de 507.
+- **La enmienda 2 esperaba unos 2 ms para 40 000 códigos, unos 50 ns cada uno.** Con lo medido serían unos 10 ms en caliente; es una extrapolación, no está medido a 40 000.
+- **La plana de HNSW cuesta del mismo orden por permitido,** unos 300 ns: 2.96 ms con 9 900 permitidos y 37 vectores.
+- **Dónde se van esos ns no está medido:** no hay perfil.
+- **En frío, la plana suma unos 7 ms por las 507 lecturas de vector** con filtros que cambian con la query: 8.4 ms el correlado al 0.1 % y 8.7 ms el anticorrelado, frente a 1.0 ms en caliente.
+- **El filtro al azar es el mismo conjunto para todas las queries.** En un lote de 10 en frío, las queries de después encuentran en caché los vectores que leyeron las de antes. Al 0.1 % (990 permitidos, 507 leídos por query) los encuentran casi todos, y por eso la plana al azar al 0.1 % da 1.56 ms en frío, no 8.4. A HNSW le pasa lo mismo: 1.00 ms al azar al 0.1 %, frente a 1.44 correlado y 2.64 anticorrelado.
+  - Es lo que pasa con un filtro compartido, como una categoría, pero no es el frío de una query sola.
+  - Al 1 % el efecto es menor. Según mi cuenta (*mía*), en un lote de 10 se repite como mucho una de cada cinco lecturas.
+
+**Frente a HNSW con `acorn`, la comparación principal:**
+- **Por el camino del corte, el nuestro es más lento que `acorn` a 0.95 en casi todo.** En frío cuesta entre 1.5 y 2.2 veces más en ocho de los doce filtros, 1.10 veces al azar al 10 %, y sin filtro 1.81 veces (4.81 ms frente a 2.65).
+- **Lo peor son los filtros pequeños que no son al azar:** el correlado al 0.1 % cuesta 5.8 veces más en frío (8.39 ms frente a 1.44) y el anticorrelado al 0.1 % 3.3 veces más (8.67 frente a 2.64). Es el frío de las 507 lecturas de la plana frente a las 39 y 120 de HNSW.
+- **Donde gana el nuestro:**
+  - **En caliente:** al azar al 10 % (3.80 ms frente a 4.27), y por la plana el correlado al 1 % (3.25 frente a 4.44) y el anticorrelado al 1 % (3.16 frente a 4.62). En frío pierde en los tres.
+  - **Con el mejor de sus dos caminos, en frío:** el correlado al 1 % por el índice (4.85 ms frente a 5.60, 0.87 veces) y el anticorrelado al 10 % por la plana (32.3 frente a 40.8, 0.79 veces).
+- **El anticorrelado frente a `acorn`, sin umbral, en frío:**
+
+  | anticorrelado | nuestro | `acorn` | veces |
+  |---|---:|---:|---:|
+  | 50 % (índice) | 14.5 ms | 7.2 ms | 2.0 |
+  | 10 % (índice) | 104.7 ms | 40.8 ms | 2.6 |
+  | 10 % (plana forzada) | 32.3 ms | 40.8 ms | 0.79 |
+  | 1 % (plana) | 11.3 ms | 7.4 ms | 1.5 |
+  | 0.1 % (plana) | 8.7 ms | 2.6 ms | 3.3 |
+
+- **La memoria de cada índice no entra en esta medida.** HNSW tiene el grafo y sus códigos de 1 536 bits en memoria. En frío solo pierde la caché de sus vectores, como en la medida de 10M.
+
+**`acorn` frente a `sweeping`, la segunda referencia,** cronometrada entera:
+- **Al 50 %, al 1 % y al 0.1 % son lo mismo:** al 50 % `acorn` corre `sweeping` por el ratio, y al 1 % y al 0.1 % los dos van por la plana.
+- **Al 10 % en frío:**
+  - al azar, `sweeping` es 1.78 veces más rápido (4.75 ms frente a 8.44);
+  - correlado, casi igual (2.42 frente a 2.55);
+  - anticorrelado, `acorn` es más rápido (40.8 frente a 54.9, 0.74 veces), aunque use un ef de 1 479 frente a 119.
+
+**Lo esperado frente a lo medido, con tiempos:**
+- **El punto de cruce, «entre el 2 % y el 5 %»:** se cumple al azar, hacia el 3.5 %, que sale de interpolar. Como número único no sirve: correlado no cruza en lo medido, y anticorrelado cruza por encima del 10 %.
+- **El coste de la plana, «unos 2 ms en caliente para 40 000»:** no se cumple. Son unos 240 ns por permitido, unos 10 ms a 40 000 extrapolando.
+- **`acorn`, «mejor que `sweeping` al 10 % y en el anticorrelado»:** solo en el anticorrelado.
+
+**Lo que no está verificado:**
+- el cruce entre dos puntos medidos, que es una interpolación;
+- dónde se va el tiempo de la plana por permitido, porque no hay perfil;
+- la memoria de los dos índices.
+
+**Queda para decidir:**
+- el valor del corte, y si tiene que ver dónde caen los permitidos;
+- si la plana debe costar menos por permitido;
+- las 507 lecturas en frío de la plana con filtros pequeños.
+
+No he tocado nada de esto.
 
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
