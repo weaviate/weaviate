@@ -241,11 +241,11 @@ func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 	}))
 	require.Len(t, owned, 1, "the index whose teardown failed must stay reachable for cleanup")
 	assert.Same(t, failing, owned[0])
-	records, _, err := shard.mapping.Load()
+	records, _, err := recordsOf(shard).Load()
 	require.NoError(t, err)
 	dropping := named
-	dropping.State = vectorIndexStateDropping
-	assert.Equal(t, map[string]vectorIndexRecord{"named": dropping}, records,
+	dropping.State = "dropping"
+	assert.Equal(t, map[string]manifestRecord{"named": dropping}, records,
 		"the record outlives a failed teardown, marked dropping: the retry needs it")
 
 	require.NoError(t, shard.DropVectorIndex(ctx, "named"), "a retried drop tears the same index down")
@@ -255,7 +255,7 @@ func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 		return nil
 	}))
 	assert.Empty(t, owned)
-	records, _, err = shard.mapping.Load()
+	records, _, err = recordsOf(shard).Load()
 	require.NoError(t, err)
 	assert.Empty(t, records, "the retried drop deleted the record")
 }

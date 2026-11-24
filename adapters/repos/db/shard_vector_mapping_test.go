@@ -21,7 +21,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
@@ -42,42 +41,6 @@ func newTestVectorIndexMapping(t *testing.T) (*vectorIndexMapping, *shardmeta.DB
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	return newVectorIndexMapping(db), db
-}
-
-// recorded is name's record as the shard writes it today: built at
-// physicalID with its queue beside it, holding the schema's config.
-func recorded(shard *Shard, name, physicalID, state string) vectorIndexRecord {
-	cfg := shard.index.GetVectorIndexConfig(name)
-	return vectorIndexRecord{PhysicalID: physicalID, IndexType: cfg.IndexType(), State: state, QueueID: physicalID, Config: cfg}
-}
-
-// seedGeneratedVectorIndexRecords initializes the mapping of the shard at
-// shardDir before its first load, every vector in configs (the legacy one
-// under the empty name) recorded creating at a generated physical and queue
-// ID, as a rebuild names them. The first load builds each index there.
-func seedGeneratedVectorIndexRecords(t *testing.T, shardDir string,
-	configs map[string]schemaConfig.VectorIndexConfig,
-) map[string]vectorIndexRecord {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(shardDir, 0o755))
-	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
-	require.NoError(t, err)
-	defer db.Close()
-	records := make(map[string]vectorIndexRecord, len(configs))
-	for name, cfg := range configs {
-		if !vectorIndexHasStorage(cfg) {
-			continue
-		}
-		records[name] = vectorIndexRecord{
-			PhysicalID: uuid.NewString(),
-			IndexType:  cfg.IndexType(),
-			State:      vectorIndexStateCreating,
-			QueueID:    uuid.NewString(),
-			Config:     cfg,
-		}
-	}
-	require.NoError(t, newVectorIndexMapping(db).Initialize(records))
-	return records
 }
 
 // TestVectorIndexMapping_KeyLayout pins the on-disk keys. They are read by

@@ -299,7 +299,7 @@ func TestUnloadedShardUsageReportedWhenMappingUnreadable(t *testing.T) {
 
 	metadata, err := shardmeta.Open(shardPath(index.path(), tenantName), entlsmkv.BoltFlockTimeout)
 	require.NoError(t, err)
-	require.NoError(t, metadata.Namespace(vectorIndexMappingNamespace).Put([]byte(vectorIndexMappingFormatVersionKey), []byte("99")))
+	require.NoError(t, metadata.Namespace(manifestNamespace).Put([]byte(manifestFormatVersionKey), []byte("99")))
 	require.NoError(t, metadata.Close())
 
 	usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)

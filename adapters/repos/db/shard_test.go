@@ -289,7 +289,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	// the reset rebuilt at the recorded ID: record ready, storage present
 	s := underlyingShard(t, shd)
-	rec, ok, err := s.mapping.Get("")
+	rec, ok, err := recordsOf(s).Get("")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, recorded(s, "", "main", "ready"), rec)
@@ -311,13 +311,13 @@ func TestShard_DebugResetVectorIndex_AddedVector(t *testing.T) {
 
 	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"added": hnsw.UserConfig{}}))
 	s := underlyingShard(t, shd)
-	before, ok, err := s.mapping.Get("added")
+	before, ok, err := recordsOf(s).Get("added")
 	require.NoError(t, err)
 	require.True(t, ok)
 
 	require.NoError(t, shd.DebugResetVectorIndex(ctx, "added"))
 
-	after, ok, err := s.mapping.Get("added")
+	after, ok, err := recordsOf(s).Get("added")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, before, after)
