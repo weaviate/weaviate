@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -468,4 +469,143 @@ func walBytesForShardTest(t *testing.T, id uint64) []byte {
 	var buf bytes.Buffer
 	require.NoError(t, compact.NewWALWriter(&buf).WriteAddNode(id, 0))
 	return buf.Bytes()
+}
+
+// A failed drain leaves a worker's bucket and metadata handles alive. Other
+// teardown failures still perform the usual best-effort resource cleanup.
+func TestShardTeardownKeepsResourcesForUndrainedWorkers(t *testing.T) {
+	for _, drop := range []bool{false, true} {
+		for _, cause := range []error{context.Canceled, context.DeadlineExceeded, errors.New("flush failed")} {
+			t.Run(fmt.Sprintf("drop=%t/%v", drop, cause), func(t *testing.T) {
+				ctx := context.Background()
+				sl, _ := testShard(t, ctx, "DrainFailure")
+				s := sl.(*Shard)
+				vi, releaseIndex, ok := s.AcquireVectorIndex("")
+				require.True(t, ok)
+				releaseIndex()
+				held, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+				require.NotNil(t, held)
+				release()
+				ns := s.metadataDB.Namespace("shutdown-test")
+				require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+				wrapped := &undrainedVectorIndex{VectorIndex: vi, err: cause}
+				require.True(t, s.vectors.Replace("", wrapped))
+				t.Cleanup(func() { s.vectors.Replace("", vi); s.drop() })
+				var err error
+				if drop {
+					err = s.drop()
+				} else {
+					err = s.performShutdown(ctx)
+				}
+				require.ErrorIs(t, err, cause)
+				if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+					bucket, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+					require.NotNil(t, bucket, "a failed drain must keep the worker's store open")
+					require.Same(t, held, bucket, "a worker must retain the same bucket, not a reopened replacement")
+					release()
+					value, err := ns.Get([]byte("key"))
+					require.NoError(t, err, "a failed drain must keep the worker's metadata open")
+					require.Equal(t, []byte("value"), value)
+				} else {
+					bucket, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+					release()
+					require.Nil(t, bucket, "ordinary teardown errors still close the store")
+					_, err = ns.Get([]byte("key"))
+					require.Error(t, err, "ordinary teardown errors still close metadata")
+				}
+			})
+		}
+	}
+}
+
+type undrainedVectorIndex struct {
+	VectorIndex
+	err error
+}
+
+func (v *undrainedVectorIndex) Shutdown(ctx context.Context) error {
+	if errors.Is(v.err, context.Canceled) || errors.Is(v.err, context.DeadlineExceeded) {
+		return v.err
+	}
+	return errors.Join(v.err, v.VectorIndex.Shutdown(ctx))
+}
+
+func (v *undrainedVectorIndex) Drop(ctx context.Context) error {
+	if errors.Is(v.err, context.Canceled) || errors.Is(v.err, context.DeadlineExceeded) {
+		return v.err
+	}
+	return errors.Join(v.err, v.VectorIndex.Drop(ctx))
+}
+
+func TestShardTeardownKeepsResourcesForUndrainedQueues(t *testing.T) {
+	for _, drop := range []bool{false, true} {
+		for _, geo := range []bool{false, true} {
+			t.Run(fmt.Sprintf("drop=%t/geo=%t", drop, geo), func(t *testing.T) {
+				ctx := context.Background()
+				sl, _ := testShard(t, ctx, "QueueDrainFailure")
+				s := sl.(*Shard)
+				started, releaseWorker := make(chan struct{}), make(chan struct{})
+				var once sync.Once
+				unblock := func() { once.Do(func() { close(releaseWorker) }) }
+				q, err := queue.NewDiskQueue(queue.DiskQueueOptions{
+					ID: "held-shutdown-queue", Dir: t.TempDir(), Logger: s.index.logger, Scheduler: s.scheduler,
+					TaskDecoder: heldShutdownTask{started: started, release: releaseWorker},
+				})
+				require.NoError(t, err)
+				require.NoError(t, q.Init())
+				s.scheduler.RegisterQueue(q)
+				iq, release, ok := s.AcquireVectorIndexQueue("")
+				require.True(t, ok)
+				release()
+				oldQueue, oldAsync := iq.DiskQueue, iq.asyncEnabled
+				if geo {
+					s.geoQueues["location"] = &VectorIndexQueue{DiskQueue: q, asyncEnabled: true}
+				} else {
+					iq.DiskQueue, iq.asyncEnabled = q, true
+				}
+				t.Cleanup(func() {
+					unblock()
+					q.Close(context.Background())
+					iq.DiskQueue, iq.asyncEnabled = oldQueue, oldAsync
+					delete(s.geoQueues, "location")
+					s.drop()
+				})
+				require.NoError(t, q.Push([]byte{1}))
+				require.NoError(t, q.Flush())
+				<-started
+				held, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+				release()
+				ns := s.metadataDB.Namespace("held-queue")
+				require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+				if drop {
+					err = s.drop()
+				} else {
+					ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+					defer cancel()
+					err = s.performShutdown(ctx)
+				}
+				require.ErrorIs(t, err, context.DeadlineExceeded, "shard teardown must report an undrained queue")
+				bucket, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+				release()
+				require.Same(t, held, bucket, "an undrained queue must keep the worker's store open")
+				value, err := ns.Get([]byte("key"))
+				require.NoError(t, err, "an undrained queue must keep the worker's metadata open")
+				require.Equal(t, []byte("value"), value)
+			})
+		}
+	}
+}
+
+type heldShutdownTask struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (d heldShutdownTask) DecodeTask([]byte) (queue.Task, error) { return d, nil }
+func (d heldShutdownTask) Op() uint8                             { return 1 }
+func (d heldShutdownTask) Key() uint64                           { return 0 }
+func (d heldShutdownTask) Execute(ctx context.Context) error {
+	close(d.started)
+	<-d.release
+	return ctx.Err()
 }

@@ -952,3 +952,60 @@ func TestMarkAsScheduled_SkipsAPausedQueue(t *testing.T) {
 	require.True(t, state.MarkAsScheduled())
 	state.MarkAsUnscheduled()
 }
+
+func TestQueueCloseFailureRetainsRunningBatch(t *testing.T) {
+	for _, drop := range []bool{false, true} {
+		for _, deadline := range []bool{false, true} {
+			t.Run(fmt.Sprintf("drop=%t/deadline=%t", drop, deadline), func(t *testing.T) {
+				s := makeScheduler(t, 1)
+				s.Start()
+				defer s.Close(context.Background())
+				started, release := make(chan struct{}), make(chan struct{})
+				var once sync.Once
+				unblock := func() { once.Do(func() { close(release) }) }
+				defer unblock()
+				q := makeQueue(t, s, &mockTaskDecoder{execFn: func(ctx context.Context, _ *mockTask) error {
+					close(started)
+					<-release
+					return ctx.Err()
+				}})
+				defer func() { unblock(); q.Close(context.Background()) }()
+				pushMany(t, q, 1, 10)
+				sealChunk(t, q)
+				<-started
+				ctx, cancel := context.WithCancel(context.Background())
+				want := context.Canceled
+				if deadline {
+					cancel()
+					ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+					want = context.DeadlineExceeded
+				} else {
+					cancel()
+				}
+				defer cancel()
+				closeQueue := q.Close
+				if drop {
+					closeQueue = q.Drop
+				}
+				require.ErrorIs(t, closeQueue(ctx), want, "closing must report the worker that has not drained")
+				require.Equal(t, 1, s.QueueCount(), "a running batch must keep its registration")
+				require.NoError(t, q.Push(makeRecord(1, 20)), "a failed close must leave the writer usable")
+				// Retry a second time while the same worker still holds the batch.
+				require.ErrorIs(t, closeQueue(ctx), want)
+				unblock()
+				require.NoError(t, q.Close(context.Background()))
+				require.Zero(t, s.QueueCount())
+
+				// Cancellation must preserve the old chunk as well as the later append.
+				ch, decoder := streamExecutor()
+				reopened := makeQueueWith(t, s, decoder, 0, q.dir)
+				defer reopened.Close(context.Background())
+				require.EqualValues(t, 10, recvWithin(t, ch, 10*time.Second))
+				require.EqualValues(t, 20, recvWithin(t, ch, 10*time.Second))
+				require.NoError(t, reopened.Wait(context.Background()))
+				require.NoError(t, reopened.Drop(context.Background()))
+				require.NoError(t, reopened.Drop(context.Background()), "repeated drop stays idempotent")
+			})
+		}
+	}
+}

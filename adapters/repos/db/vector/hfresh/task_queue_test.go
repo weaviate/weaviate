@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -345,3 +346,90 @@ func BenchmarkTaskQueueEnqueue(b *testing.B) {
 		})
 	}
 }
+
+// A maintenance task may hand work to any of the other queues, or to itself.
+// Pausing scheduling must not close the writers while such tasks are running.
+func TestTaskQueueCloseDrainsAllWorkersBeforeClosingWriters(t *testing.T) {
+	logger := logrus.New()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 4, ScheduleInterval: time.Millisecond})
+	scheduler.Start()
+	t.Cleanup(func() { require.NoError(t, scheduler.Close(context.Background())) })
+
+	started := make(chan struct{}, 4)
+	var release [4]chan struct{}
+	var once [4]sync.Once
+	unblock := func(i int) { once[i].Do(func() { close(release[i]) }) }
+	results := make(chan error, 4)
+	queues := make([]*queue.DiskQueue, 4)
+	// analyze -> split, split -> split, reassign -> analyze, merge -> reassign
+	targets := []int{1, 1, 0, 2}
+	for i := range queues {
+		release[i] = make(chan struct{})
+		t.Cleanup(func() { unblock(i) })
+		decoder := shutdownTaskDecoder{execute: func(context.Context) error {
+			started <- struct{}{}
+			<-release[i]
+			err := queues[targets[i]].Push([]byte{1})
+			results <- err
+			return err
+		}}
+		var err error
+		queues[i], err = queue.NewDiskQueue(queue.DiskQueueOptions{
+			ID: fmt.Sprint(i), Dir: filepath.Join(t.TempDir(), "queue"), Logger: logger,
+			Scheduler: scheduler, TaskDecoder: decoder,
+		})
+		require.NoError(t, err)
+		require.NoError(t, queues[i].Init())
+		require.NoError(t, queues[i].Push([]byte{1}))
+		require.NoError(t, queues[i].Flush())
+	}
+	tq := TaskQueue{analyzeQueue: &analyzeQueue{DiskQueue: queues[0]}, splitQueue: queues[1], reassignQueue: queues[2], mergeQueue: queues[3], scheduler: scheduler}
+	for _, q := range queues {
+		scheduler.RegisterQueue(q)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for range queues {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("maintenance worker did not start")
+		}
+	}
+	done := make(chan error, 1)
+	enterrors.GoWrapper(func() { done <- tq.Close(ctx) }, logger)
+	// Keep each worker active until its own drain starts, including the last
+	// queue, when an omitted drain would have closed its downstream writer.
+	var released [4]bool
+	require.Eventually(t, func() bool {
+		all := true
+		for i, q := range queues {
+			if !released[i] && scheduler.IsQueuePaused(q.ID()) {
+				released[i] = true
+				unblock(i)
+			}
+			all = all && released[i]
+		}
+		return all
+	}, 5*time.Second, time.Millisecond)
+	for range queues {
+		select {
+		case err := <-results:
+			require.NoError(t, err, "in-flight maintenance must be able to enqueue follow-up work")
+		case <-ctx.Done():
+			t.Fatal("maintenance worker did not finish")
+		}
+	}
+	require.NoError(t, <-done)
+	require.Zero(t, scheduler.QueueCount())
+}
+
+type shutdownTaskDecoder struct{ execute func(context.Context) error }
+
+func (d shutdownTaskDecoder) DecodeTask([]byte) (queue.Task, error) { return shutdownQueueTask(d), nil }
+
+type shutdownQueueTask shutdownTaskDecoder
+
+func (t shutdownQueueTask) Op() uint8                         { return 1 }
+func (t shutdownQueueTask) Key() uint64                       { return 0 }
+func (t shutdownQueueTask) Execute(ctx context.Context) error { return t.execute(ctx) }
