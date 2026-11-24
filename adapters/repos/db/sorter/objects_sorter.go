@@ -12,6 +12,8 @@
 package sorter
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -45,6 +47,10 @@ func (s objectsSorter) Sort(objects []*storobj.Object,
 	}
 
 	class := s.readOnlyClass(objects[0].Class().String())
+	if class == nil {
+		// a delete removes the class from the schema before the index
+		return nil, nil, fmt.Errorf("objects sorter - class %s not found", objects[0].Class())
+	}
 	dataTypesHelper := newDataTypesHelper(class)
 	valueExtractor := newComparableValueExtractor(dataTypesHelper)
 	comparator := newComparator(dataTypesHelper, propNames, orders)

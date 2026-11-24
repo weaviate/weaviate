@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
+	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -374,37 +375,47 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
-	listed := listableCollections(db.copyIndices())
+	if offset < 0 || limit < 0 {
+		return nil, objects.NewErrInvalidUserInput("offset and limit must not be negative")
+	}
+	totalLimit := offset + limit
+	if totalLimit == 0 {
+		return nil, nil // a limit of 0 means "all" to the sorters
+	}
+	listed := listableCollections(db.copyIndices(), tenant)
 	if err := validateSort(listed, sort); err != nil {
 		return nil, errors.Wrap(err, "search")
 	}
 
-	totalLimit := offset + limit
 	var found []*storobj.Object
 	if len(sort) > 0 {
-		// any collection can hold the global top, so search them all and merge
-		res, errs := db.searchCollections(ctx, listed, totalLimit, filters, sort, additional, tenant)
-		for i := range listed {
-			if errs[i] != nil {
-				return nil, errs[i]
-			}
-			found = append(found, res[i]...)
-		}
 		classes := make(map[string]*models.Class, len(listed))
 		for _, c := range listed {
 			classes[c.class.Class] = c.class
 		}
-		var err error
-		found, _, err = sorter.NewObjectsSorter(func(name string) *models.Class { return classes[name] }).
-			Sort(found, nil, totalLimit, sort)
-		if err != nil {
-			return nil, errors.Wrap(err, "sort")
+		merger := sorter.NewObjectsSorter(func(name string) *models.Class { return classes[name] })
+		// any collection can hold the global top, so search them all; merging per
+		// batch holds one batch beyond the page, and the stable merge of results
+		// fed in name order breaks ties by collection
+		for start := 0; start < len(listed); start += listSortedConcurrency {
+			end := min(start+listSortedConcurrency, len(listed))
+			res, errs := db.searchCollections(ctx, listed[start:end], totalLimit, filters, sort, additional, tenant)
+			for i := range res {
+				if errs[i] != nil {
+					return nil, errs[i]
+				}
+				found = append(found, res[i]...)
+			}
+			var err error
+			if found, _, err = merger.Sort(found, nil, totalLimit, sort); err != nil {
+				return nil, errors.Wrap(err, "sort")
+			}
 		}
 	} else {
 		// name order pages stably; growing batches keep a full first collection to one search
-		for start, batch := 0, 1; start < len(listed) && len(found) < totalLimit; batch = min(2*batch, _NUMCPU) {
+		for start, batch := 0, 1; start < len(listed) && len(found) < totalLimit; batch = min(2*batch, listBatchLimit) {
 			end := min(start+batch, len(listed))
-			res, errs := db.searchCollections(ctx, listed[start:end], totalLimit, filters, nil, additional, tenant)
+			res, errs := db.searchCollections(ctx, listed[start:end], totalLimit-len(found), filters, nil, additional, tenant)
 			for i := range res {
 				if len(found) >= totalLimit {
 					break // a sequential walk would not have reached the rest
@@ -417,6 +428,9 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 			start = end
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err // a search cut short by cancellation can leave even a full page wrong
+	}
 
 	return db.getSearchResults(storobj.SearchResults(found, additional, tenant), offset, limit), nil
 }
@@ -426,14 +440,25 @@ type listedCollection struct {
 	class *models.Class
 }
 
-// listableCollections returns the collections still in the schema, by name.
-func listableCollections(indices map[string]*Index) []listedCollection {
+const (
+	// listSortedConcurrency bounds a sorted list to twice the memory of searching
+	// one collection at a time: each search holds shards × (offset+limit) objects.
+	listSortedConcurrency = 2
+	// listBatchLimit caps an unsorted batch; each search in it fetches only what the page still needs.
+	listBatchLimit = 4
+)
+
+// listableCollections returns the collections still in the schema that the
+// request's tenant reaches, by name.
+func listableCollections(indices map[string]*Index, tenant string) []listedCollection {
 	listed := make([]listedCollection, 0, len(indices))
 	for _, index := range indices {
 		// gone from the schema: its drop is underway
-		if class := index.getSchema.ReadOnlyClass(index.Config.ClassName.String()); class != nil {
-			listed = append(listed, listedCollection{index: index, class: class})
+		class := index.getSchema.ReadOnlyClass(index.Config.ClassName.String())
+		if class == nil || !reachedBy(index, tenant) {
+			continue
 		}
+		listed = append(listed, listedCollection{index: index, class: class})
 	}
 	slices.SortFunc(listed, func(a, b listedCollection) int { return strings.Compare(a.class.Class, b.class.Class) })
 	return listed
@@ -449,11 +474,7 @@ func (db *DB) searchCollections(ctx context.Context, listed []listedCollection, 
 	eg.SetLimit(_NUMCPU)
 	for i, c := range listed {
 		eg.Go(func() error {
-			errs[i] = enterrors.RunRecovered(db.logger, func() error {
-				var err error
-				res[i], err = searchCollection(ctx, c, limit, filters, sort, additional, tenant)
-				return err
-			})
+			res[i], errs[i] = db.searchCollection(ctx, c, limit, filters, sort, additional, tenant)
 			return nil
 		}, c.class.Class)
 	}
@@ -461,7 +482,7 @@ func (db *DB) searchCollections(ctx context.Context, listed []listedCollection, 
 	return res, errs
 }
 
-func searchCollection(ctx context.Context, c listedCollection, limit int,
+func (db *DB) searchCollection(ctx context.Context, c listedCollection, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort, additional additional.Properties, tenant string,
 ) ([]*storobj.Object, error) {
 	// TODO support all additional props
@@ -469,7 +490,13 @@ func searchCollection(ctx context.Context, c listedCollection, limit int,
 	for i, prop := range c.class.Properties {
 		propsNames[i] = prop.Name
 	}
-	res, _, err := c.index.objectSearch(ctx, limit, filters, nil, sort, nil, additional, nil, tenant, 0, propsNames)
+	var res []*storobj.Object
+	// recovered here, so a panic from a collection being dropped is left out too
+	err := enterrors.RunRecovered(db.logger, func() error {
+		var err error
+		res, _, err = c.index.objectSearch(ctx, limit, filters, nil, sort, nil, additional, nil, tenant, 0, propsNames)
+		return err
+	})
 	if err == nil {
 		return res, nil
 	}
@@ -477,6 +504,22 @@ func searchCollection(ctx context.Context, c listedCollection, limit int,
 		return nil, nil
 	}
 	return nil, errors.Wrapf(err, "search index %s", c.index.ID())
+}
+
+// reachedBy decides from the local schema whether a request with tenant reads
+// the collection: the tenant validator asks the RAFT leader, and can activate.
+func reachedBy(index *Index, tenant string) bool {
+	if !index.partitioningEnabled || tenant == "" {
+		return !index.partitioningEnabled && tenant == ""
+	}
+	held := false
+	_ = index.schemaReader.Read(index.Config.ClassName.String(), false, func(_ *models.Class, state *sharding.State) error {
+		if state != nil {
+			_, held = state.Physical[tenant]
+		}
+		return nil
+	})
+	return held
 }
 
 // outsideRequestTenancy reports a collection the request's tenant setting does not reach.
@@ -531,6 +574,19 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	return res, nil
 }
 
+// sortedAs is the data type the merge compares by: int and number both as float64.
+func sortedAs(dataType []string) string {
+	t := strings.Join(dataType, ",")
+	switch schema.DataType(t) {
+	case schema.DataTypeInt:
+		return string(schema.DataTypeNumber)
+	case schema.DataTypeIntArray:
+		return string(schema.DataTypeNumberArray)
+	default:
+		return t
+	}
+}
+
 // validateSort also requires one data type per sorted property: merging compares values.
 func validateSort(listed []listedCollection, sort []filters.Sort) error {
 	if len(sort) == 0 {
@@ -561,7 +617,7 @@ func validateSort(listed []listedCollection, sort []filters.Sort) error {
 			}
 			if dataType == nil {
 				dataType = prop.DataType
-			} else if !slices.Equal(dataType, prop.DataType) {
+			} else if sortedAs(dataType) != sortedAs(prop.DataType) {
 				return objects.NewErrInvalidUserInput("sort property %q has data type %v in one collection "+
 					"and %v in another; set a class to sort by it", clause.Path[0], dataType, prop.DataType)
 			}

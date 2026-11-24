@@ -93,8 +93,10 @@ func (ds *defaultSorter) addComparable(el *comparable) bool {
 	return true
 }
 
+// getSorted keeps ties in insertion order, so merging results fed in a fixed
+// order pages stably.
 func (ds *defaultSorter) getSorted() []*comparable {
-	sort.Sort(ds)
+	sort.Stable(ds)
 	return ds.comparables
 }
 
