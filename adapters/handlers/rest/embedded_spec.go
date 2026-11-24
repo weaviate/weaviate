@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.41.0-rc.0"
+    "version": "1.42.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -2200,7 +2200,7 @@ func init() {
                   }
                 },
                 "objects": {
-                  "description": "Array of objects to be created.",
+                  "description": "Array of objects to be created. Each object needs a ` + "`" + `class` + "`" + `; an object without one fails on its own and the rest of the batch is still imported.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -3592,7 +3592,7 @@ func init() {
     },
     "/objects": {
       "get": {
-        "description": "Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (` + "`" + `class` + "`" + `) parameter to specify which collection's objects to list, otherwise, returns an empty list.",
+        "description": "Retrieves a list of data objects from the collection named in the ` + "`" + `class` + "`" + ` parameter. By default, objects are returned in reverse order of creation. \u003cbr/\u003e\u003cbr/\u003e**Note**: Calling this endpoint without ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, it lists objects across all collections. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
         "tags": [
           "objects"
         ],
@@ -3626,7 +3626,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful response containing the list of objects. If the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+            "description": "Successful response containing the list of objects.",
             "schema": {
               "$ref": "#/definitions/ObjectsListResponse"
             }
@@ -3683,7 +3683,7 @@ func init() {
         "operationId": "objects.create",
         "parameters": [
           {
-            "description": "The object to be created.",
+            "description": "The object to be created. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3753,7 +3753,7 @@ func init() {
         "operationId": "objects.validate",
         "parameters": [
           {
-            "description": "The object definition to validate.",
+            "description": "The object definition to validate. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -8989,16 +8989,16 @@ func init() {
           "default": false
         },
         "match": {
-          "description": "Outlines how to find the objects to be deleted.",
+          "description": "Outlines how to find the objects to be deleted. Required.",
           "type": "object",
           "properties": {
             "class": {
-              "description": "The name of the collection (class) from which to delete objects.",
+              "description": "The name of the collection (class) from which to delete objects. Required.",
               "type": "string",
               "example": "City"
             },
             "where": {
-              "description": "Filter to limit the objects to be deleted.",
+              "description": "Filter to limit the objects to be deleted. Required.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
@@ -13193,7 +13193,7 @@ func init() {
     },
     "CommonClassParameterQuery": {
       "type": "string",
-      "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+      "description": "The collection from which to list objects. \u003cbr/\u003e\u003cbr/\u003e**Note**: Omitting ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, the endpoint lists objects across all collections and does not support the ` + "`" + `after` + "`" + ` cursor. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
       "name": "class",
       "in": "query"
     },
@@ -13350,7 +13350,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.41.0-rc.0"
+    "version": "1.42.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -15478,7 +15478,7 @@ func init() {
                   }
                 },
                 "objects": {
-                  "description": "Array of objects to be created.",
+                  "description": "Array of objects to be created. Each object needs a ` + "`" + `class` + "`" + `; an object without one fails on its own and the rest of the batch is still imported.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -16890,7 +16890,7 @@ func init() {
     },
     "/objects": {
       "get": {
-        "description": "Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (` + "`" + `class` + "`" + `) parameter to specify which collection's objects to list, otherwise, returns an empty list.",
+        "description": "Retrieves a list of data objects from the collection named in the ` + "`" + `class` + "`" + ` parameter. By default, objects are returned in reverse order of creation. \u003cbr/\u003e\u003cbr/\u003e**Note**: Calling this endpoint without ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, it lists objects across all collections. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
         "tags": [
           "objects"
         ],
@@ -16938,7 +16938,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+            "description": "The collection from which to list objects. \u003cbr/\u003e\u003cbr/\u003e**Note**: Omitting ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, the endpoint lists objects across all collections and does not support the ` + "`" + `after` + "`" + ` cursor. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
             "name": "class",
             "in": "query"
           },
@@ -16951,7 +16951,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful response containing the list of objects. If the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+            "description": "Successful response containing the list of objects.",
             "schema": {
               "$ref": "#/definitions/ObjectsListResponse"
             }
@@ -17008,7 +17008,7 @@ func init() {
         "operationId": "objects.create",
         "parameters": [
           {
-            "description": "The object to be created.",
+            "description": "The object to be created. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -17081,7 +17081,7 @@ func init() {
         "operationId": "objects.validate",
         "parameters": [
           {
-            "description": "The object definition to validate.",
+            "description": "The object definition to validate. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -22392,16 +22392,16 @@ func init() {
           "default": false
         },
         "match": {
-          "description": "Outlines how to find the objects to be deleted.",
+          "description": "Outlines how to find the objects to be deleted. Required.",
           "type": "object",
           "properties": {
             "class": {
-              "description": "The name of the collection (class) from which to delete objects.",
+              "description": "The name of the collection (class) from which to delete objects. Required.",
               "type": "string",
               "example": "City"
             },
             "where": {
-              "description": "Filter to limit the objects to be deleted.",
+              "description": "Filter to limit the objects to be deleted. Required.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
@@ -22415,16 +22415,16 @@ func init() {
       }
     },
     "BatchDeleteMatch": {
-      "description": "Outlines how to find the objects to be deleted.",
+      "description": "Outlines how to find the objects to be deleted. Required.",
       "type": "object",
       "properties": {
         "class": {
-          "description": "The name of the collection (class) from which to delete objects.",
+          "description": "The name of the collection (class) from which to delete objects. Required.",
           "type": "string",
           "example": "City"
         },
         "where": {
-          "description": "Filter to limit the objects to be deleted.",
+          "description": "Filter to limit the objects to be deleted. Required.",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
         }
@@ -26952,7 +26952,7 @@ func init() {
     },
     "CommonClassParameterQuery": {
       "type": "string",
-      "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+      "description": "The collection from which to list objects. \u003cbr/\u003e\u003cbr/\u003e**Note**: Omitting ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, the endpoint lists objects across all collections and does not support the ` + "`" + `after` + "`" + ` cursor. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
       "name": "class",
       "in": "query"
     },

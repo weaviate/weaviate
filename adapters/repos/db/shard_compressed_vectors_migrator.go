@@ -20,7 +20,9 @@ import (
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vectormanifest"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -65,27 +67,25 @@ func (m compressedVectorsMigrator) removeVectorsCompressedLink(lsmDir string) er
 	return nil
 }
 
-// do runs the compressed-vectors layout migration. records say where each
+// do runs the compressed-vectors layout migration. entries say where each
 // vector's files live: the vector at "main" owns vectors_compressed, every
-// other vector is a target. configs are the vectors' configs, the legacy one
-// under the empty name.
-func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRecord,
-	configs map[string]schemaConfig.VectorIndexConfig,
-) error {
+// other vector is a target.
+func (m compressedVectorsMigrator) do(s *Shard, entries []vectormanifest.Entry) error {
 	lsmDir := s.store.GetDir()
 	if m.isMigrationDone(lsmDir) {
 		// migration was performed, nothing to do
 		return nil
 	}
 
-	owner, hasOwner := "", false
-	targets := make(map[string]vectorIndexRecord, len(records))
-	for name, rec := range records {
-		if rec.storageID() == vectorIndexID("") {
-			owner, hasOwner = name, true
+	var owner vectormanifest.Entry
+	hasOwner := false
+	targets := make([]vectormanifest.Entry, 0, len(entries))
+	for _, e := range entries {
+		if e.StorageID == vectorIndexID("") {
+			owner, hasOwner = e, true
 			continue
 		}
-		targets[name] = rec
+		targets = append(targets, e)
 	}
 
 	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
@@ -98,11 +98,11 @@ func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRe
 		if err != nil {
 			return err
 		}
-		if hasOwner && records[owner].IndexType == vectorindex.VectorIndexTypeHFresh {
+		if hasOwner && owner.IndexType == vectorindex.VectorIndexTypeHFresh {
 			targets = nil
 		}
 		switch {
-		case len(records) == 0:
+		case len(entries) == 0:
 			// do nothing
 		case len(targets) == 0:
 			// nothing to move: the bucket stays with its owner, or unattributed
@@ -110,10 +110,10 @@ func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRe
 				return fmt.Errorf("failed to mark migration as done: %w", err)
 			}
 		case !hasOwner && len(targets) == 1:
-			for name, rec := range targets {
+			for _, e := range targets {
 				// rename old bucket to new target vector bucket
-				if err := m.migrate(name, rec, configs[name], lsmDir, true); err != nil {
-					return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", name, err)
+				if err := m.migrate(e, lsmDir, true); err != nil {
+					return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", e.Name, err)
 				}
 			}
 			if err := m.markMigrationDone(lsmDir); err != nil {
@@ -121,9 +121,9 @@ func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRe
 			}
 		default:
 			// copy old buckets to new target vector buckets
-			for name, rec := range targets {
-				if err := m.migrate(name, rec, configs[name], lsmDir, false); err != nil {
-					return fmt.Errorf("failed to copy from old compressed vector bucket to new bucket for target vector: %s: %w", name, err)
+			for _, e := range targets {
+				if err := m.migrate(e, lsmDir, false); err != nil {
+					return fmt.Errorf("failed to copy from old compressed vector bucket to new bucket for target vector: %s: %w", e.Name, err)
 				}
 			}
 			if !hasOwner {
@@ -139,7 +139,7 @@ func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRe
 				}
 			}
 		}
-	} else if hasOwner && m.isQuantizationEnabled(configs[owner]) {
+	} else if hasOwner && m.isQuantizationEnabled(owner.Config) {
 		// a new legacy vector config was created, quantization is enabled but we didn't create the vectors_compressed
 		// folder yet but we need to mark that the migration was done in order for it to not be trigered on healthy vector indexes
 		if err := m.markMigrationDone(lsmDir); err != nil {
@@ -150,38 +150,31 @@ func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRe
 }
 
 // targetsWithStorage keeps the targets whose index already has its files.
-func (m compressedVectorsMigrator) targetsWithStorage(s *Shard, targets map[string]vectorIndexRecord,
-) (map[string]vectorIndexRecord, error) {
-	kept := make(map[string]vectorIndexRecord, len(targets))
-	for name, rec := range targets {
-		dirs, err := s.vectorIndexStorageDirsFor(rec)
+func (m compressedVectorsMigrator) targetsWithStorage(s *Shard, targets []vectormanifest.Entry,
+) ([]vectormanifest.Entry, error) {
+	kept := make([]vectormanifest.Entry, 0, len(targets))
+	for _, e := range targets {
+		exists, err := s.manifest.HasStorage(e)
 		if err != nil {
-			return nil, fmt.Errorf("vector %q: %w", name, err)
-		}
-		exists, err := vectorIndexStorageExists(dirs)
-		if err != nil {
-			return nil, fmt.Errorf("vector %q: %w", name, err)
+			return nil, err
 		}
 		if !exists {
-			m.logger.Infof("skipping migration, target vector %s has no index of its own yet", name)
+			m.logger.Infof("skipping migration, target vector %s has no index of its own yet", e.Name)
 			continue
 		}
-		kept[name] = rec
+		kept = append(kept, e)
 	}
 	return kept, nil
 }
 
-func (m compressedVectorsMigrator) migrate(targetVector string, rec vectorIndexRecord,
-	vectorIndexConfig schemaConfig.VectorIndexConfig,
-	lsmDir string,
-	renameBucket bool,
-) error {
-	if !m.isQuantizationEnabled(vectorIndexConfig) {
+func (m compressedVectorsMigrator) migrate(e vectormanifest.Entry, lsmDir string, renameBucket bool) error {
+	targetVector := e.Name
+	if !m.isQuantizationEnabled(e.Config) {
 		m.logger.Infof("skipping migration, quantization not enabled for target vector: %s", targetVector)
 		return nil
 	}
 
-	targetVectorBucket := helpers.CompressedBucketNameForID(rec.storageID())
+	targetVectorBucket := helpers.CompressedBucketNameForID(e.StorageID)
 	targetVectorBucketPath := filepath.Join(lsmDir, targetVectorBucket)
 
 	// Skip if the proper bucket name already exists

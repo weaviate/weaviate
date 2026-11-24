@@ -88,6 +88,30 @@ func jitterUpTo(d time.Duration) time.Duration {
 	return time.Duration(rand.Int63n(int64(d)))
 }
 
+// RebalancePlanner is the planning loop of cluster rebalancing. Run blocks
+// until ctx ends. Wake never blocks.
+type RebalancePlanner interface {
+	Run(ctx context.Context) error
+	Wake()
+}
+
+// RebalancePlannerDeps are the planner dependencies that only this package
+// can supply. Every field is set.
+type RebalancePlannerDeps struct {
+	Logger *logrus.Logger
+	FSM    *replication.ShardReplicationFSM
+	// Raft proposes the planning outcome, manages the draft tasks and reads
+	// the schema.
+	Raft *Raft
+	// CurrentTerm is the Raft term the run records; the FSM refuses a completion
+	// whose log entry has another term.
+	CurrentTerm func() uint64
+	// ReadyToPlan is IsLeader() && Ready() && FSMHasCaughtUp().
+	ReadyToPlan func() bool
+	// Enabled is true when both replica movement and rebalancing are enabled.
+	Enabled func() bool
+}
+
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
 type Service struct {
@@ -95,7 +119,7 @@ type Service struct {
 
 	replicationEngine *replication.ShardReplicationEngine
 	opCleaner         *replication.OpCleaner
-	rebalancePlanner  *replication.RebalancePlanner
+	rebalancePlanner  RebalancePlanner
 	raftAddr          string
 	config            *Config
 
@@ -181,33 +205,35 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 
 	movementEnabled := boolGetter(cfg.Logger, cfg.ReplicaMovementEnabled, "REPLICA_MOVEMENT_ENABLED", false)
 	rebalanceEnabled := boolGetter(cfg.Logger, cfg.ReplicaRebalanceEnabled, "REPLICA_REBALANCE_ENABLED", false)
-	rebalancePlanner, err := replication.NewRebalancePlanner(replication.RebalancePlannerParams{
-		Logger:     cfg.Logger,
-		FSM:        fsm.replicationManager.GetReplicationFSM(),
-		Proposer:   raft,
-		Drafting:   raft,
-		Clock:      clockwork.NewRealClock(),
-		Registerer: prometheus.DefaultRegisterer,
-		Measure:    cfg.RebalanceMeasure,
-		Schema:     raft.SchemaReader(),
-		CurrentTerm: func() uint64 {
-			// The raft node is nil until the store opens.
-			rn := raft.store.raft.Load()
-			if rn == nil {
-				return 0
+	// A nil NewRebalancePlanner leaves the node without a planner: plans
+	// created on it stay in PLANNING.
+	var rebalancePlanner RebalancePlanner
+	if cfg.NewRebalancePlanner != nil {
+		rebalancePlanner, err = cfg.NewRebalancePlanner(RebalancePlannerDeps{
+			Logger: cfg.Logger,
+			FSM:    fsm.replicationManager.GetReplicationFSM(),
+			Raft:   raft,
+			CurrentTerm: func() uint64 {
+				// The raft node is nil until the store opens.
+				rn := raft.store.raft.Load()
+				if rn == nil {
+					return 0
+				}
+				return rn.CurrentTerm()
+			},
+			// The loop runs on every node; a pass on a follower ends here.
+			ReadyToPlan: func() bool {
+				return raft.store.IsLeader() && raft.store.Ready() && raft.store.FSMHasCaughtUp()
+			},
+			Enabled: func() bool { return movementEnabled() && rebalanceEnabled() },
+		})
+		if err != nil {
+			// Reachable only with a nil dependency.
+			rebalancePlanner = nil
+			if cfg.Logger != nil {
+				cfg.Logger.Errorf("could not construct the rebalance planner: %v", err)
 			}
-			return rn.CurrentTerm()
-		},
-		// The loop runs on every node; a pass on a follower ends here.
-		ReadyToPlan: func() bool {
-			return raft.store.IsLeader() && raft.store.Ready() && raft.store.FSMHasCaughtUp()
-		},
-		Enabled: func() bool { return movementEnabled() && rebalanceEnabled() },
-	})
-	if err != nil && cfg.Logger != nil {
-		// Reachable only with a nil dependency. New cannot return an error, so
-		// log it and leave the planner nil.
-		cfg.Logger.Errorf("could not construct the rebalance planner: %v", err)
+		}
 	}
 	if rebalancePlanner != nil {
 		// Every node wakes its own planner when a plan create, stop or delete
@@ -406,7 +432,7 @@ func (c *Service) SetDistributedTaskSchedulerNotifier(notifier distributedtask.S
 // one is already pending.
 type plannerWakingNotifier struct {
 	scheduler distributedtask.SchedulerNotifier
-	planner   *replication.RebalancePlanner
+	planner   RebalancePlanner
 }
 
 func (n plannerWakingNotifier) Wake() {

@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/adapters/repos/db/vectormanifest"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -151,8 +152,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err != nil {
 		return nil, fmt.Errorf("open metadata db for shard %q: %w", s.ID(), err)
 	}
-	s.mapping = newVectorIndexMapping(s.metadataDB)
-	s.tasks = newVectorIndexTasks(s.metadataDB)
+	s.manifest = vectormanifest.New(vectormanifest.Config{
+		DB:           s.metadataDB,
+		ShardDir:     s.path(),
+		RemoveBucket: s.removeBucket,
+		Logger:       index.logger.WithField("shard", s.ID()),
+	})
 
 	if err := s.sweepChangelogDir(); err != nil {
 		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)

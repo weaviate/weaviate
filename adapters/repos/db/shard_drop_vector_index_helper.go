@@ -14,13 +14,9 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"slices"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/adapters/repos/db/vectormanifest"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
@@ -79,129 +75,12 @@ func (s *Shard) clearDroppedVectorDimensions(ctx context.Context, class *models.
 }
 
 // removeVectorIndexFiles removes every on-disk artifact of a named vector index
-// (see helpers.VectorIndexArtifactsFor for the set and why it is centralised).
-// otherTargetVectors are the collection's remaining vector names, needed so a
-// sibling whose own bucket collides with one of this target's artifact names is
-// not deleted along with it.
+// of a shard that is not loaded. otherTargetVectors are the collection's
+// remaining vector names, whose files stay.
 func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	indexPath, shardName, targetVector string, otherTargetVectors []string,
 ) error {
-	lsmDir := filepath.Join(indexPath, shardName, "lsm")
-	shardDir := filepath.Join(indexPath, shardName)
-
-	// the record says what the vector owns; a shard from a pre-mapping backup
-	// has none, and the naming rule is what its first load would record
-	rec, recorded, initialized, err := readVectorIndexRecordOffline(shardDir, targetVector)
-	if shardmeta.IsLocked(err) {
-		// a load slipped in: the shard's own drop and reconcile finish it
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	// a rebuild task names two more indexes the vector owns
-	var tasks map[string]vectorIndexTask
-	if initialized {
-		tasks, err = readVectorIndexTasksOffline(shardDir, append([]string{targetVector}, otherTargetVectors...))
-		if shardmeta.IsLocked(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-	}
-	task, rebuilding := tasks[targetVector]
-
-	var ids []string
-	var dirs []string
-	addArtifacts := func(artifacts helpers.VectorIndexArtifacts) {
-		for _, bucket := range artifacts.LSMBuckets {
-			dirs = append(dirs, filepath.Join(lsmDir, bucket))
-		}
-		for _, dir := range artifacts.ShardDirs {
-			dirs = append(dirs, filepath.Join(shardDir, dir))
-		}
-	}
-	switch {
-	case !initialized:
-		ids = []string{helpers.VectorIndexIDForTarget(targetVector)}
-		addArtifacts(helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors))
-	case !recorded && !rebuilding:
-		return nil // nothing recorded, nothing owned
-	default:
-		records := map[string]vectorIndexRecord{}
-		if recorded {
-			records[targetVector] = rec
-			ids = append(ids, rec.storageID())
-		}
-		var otherIDs []string
-		for _, other := range otherTargetVectors {
-			otherRec, ok, _, err := readVectorIndexRecordOffline(shardDir, other)
-			if err != nil {
-				return err
-			}
-			if ok {
-				records[other] = otherRec
-				otherIDs = append(otherIDs, otherRec.storageID())
-			}
-			if otherTask, ok := tasks[other]; ok {
-				otherIDs = append(otherIDs, otherTask.Source.storageID(), otherTask.Candidate.storageID())
-			}
-		}
-		// a sibling sharing a queue or files would lose them; a load refuses the pair
-		err := refuseSharedVectorIndexQueues(records)
-		if err != nil {
-			return err
-		}
-		err = refuseGeneratedVectorIndexCollisions(records)
-		if err != nil {
-			return err
-		}
-		if rebuilding {
-			ids = append(ids, task.Source.storageID(), task.Candidate.storageID())
-		}
-		slices.Sort(ids)
-		ids = slices.Compact(ids)
-		for _, id := range ids {
-			addArtifacts(helpers.VectorIndexArtifactsForID(id, otherIDs))
-		}
-		if recorded {
-			dirs = append(dirs, filepath.Join(shardDir, helpers.QueueDirName(rec.queueIDOrDefault())))
-		}
-	}
-
-	for _, dir := range dirs {
-		if err := os.RemoveAll(dir); err != nil {
-			return fmt.Errorf("remove %s: %w", dir, err)
-		}
-	}
-
-	// A dynamic index records its flat-to-hnsw upgrade as a key in the shard's
-	// index.db, which no artifact above can reach: that file is one per shard,
-	// not one per vector, so removing it would take every sibling's state too.
-	//
-	// Unconditional because nothing here can tell a dynamic vector from any
-	// other — the drop rewrote this entry's VectorIndexType to "none" and
-	// discarded the original type along with its config.
-	for _, id := range ids {
-		if err := dynamic.RemoveStateKeyForID(shardDir, id); err != nil {
-			return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
-		}
-	}
-
-	// the task, then the record, go last, so a failed sweep keeps them for
-	// the retry
-	key := []byte(vectorIndexMappingKey(targetVector))
-	if rebuilding {
-		if err := shardmeta.DeleteOffline(shardDir, vectorIndexTasksNamespace, key); err != nil {
-			return fmt.Errorf("remove rebuild task for %q: %w", targetVector, err)
-		}
-	}
-	if err := shardmeta.DeleteOffline(shardDir, vectorIndexMappingNamespace, key); err != nil {
-		return fmt.Errorf("remove mapping record for %q: %w", targetVector, err)
-	}
-
-	return nil
+	return vectormanifest.DropUnloaded(filepath.Join(indexPath, shardName), targetVector, otherTargetVectors)
 }
 
 // otherTargetVectors lists the collection's vector names except `exclude` —

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package vectormanifest
 
 import (
 	"os"
@@ -33,8 +33,8 @@ func newTestDynamicState(t *testing.T, shardDir string) dynamic.StateOps {
 	return db.Namespace(dynamic.StateNamespace)
 }
 
-// TestVectorIndexStorageDirs pins the directories each index type occupies.
-func TestVectorIndexStorageDirs(t *testing.T) {
+// TestStorageDirs pins the directories each index type occupies.
+func TestStorageDirs(t *testing.T) {
 	tests := []struct {
 		name      string
 		indexType string
@@ -65,7 +65,7 @@ func TestVectorIndexStorageDirs(t *testing.T) {
 				require.NoError(t, state.Put([]byte(key), tt.verdict))
 			}
 
-			dirs, err := vectorIndexStorageDirs(shardDir, state, tt.indexType, tt.id)
+			dirs, err := storageDirs(shardDir, state, tt.indexType, tt.id)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -80,40 +80,40 @@ func TestVectorIndexStorageDirs(t *testing.T) {
 	}
 }
 
-func TestVectorIndexStorageExists(t *testing.T) {
+func TestStorageExists(t *testing.T) {
 	shardDir := t.TempDir()
 	dirs := []string{
 		filepath.Join(shardDir, "main.hnsw.commitlog.d"),
 		filepath.Join(shardDir, "lsm", "vectors"),
 	}
 
-	exists, err := vectorIndexStorageExists(dirs)
+	exists, err := storageExists(dirs)
 	require.NoError(t, err)
 	assert.False(t, exists)
 
 	// one of two is not all
 	require.NoError(t, os.MkdirAll(dirs[0], 0o755))
-	exists, err = vectorIndexStorageExists(dirs)
+	exists, err = storageExists(dirs)
 	require.NoError(t, err)
 	assert.False(t, exists)
 
 	require.NoError(t, os.MkdirAll(dirs[1], 0o755))
-	exists, err = vectorIndexStorageExists(dirs)
+	exists, err = storageExists(dirs)
 	require.NoError(t, err)
 	assert.True(t, exists)
 
 	// a file in a dir's place is an error, not "absent"
 	require.NoError(t, os.RemoveAll(dirs[0]))
 	require.NoError(t, os.WriteFile(dirs[0], []byte("x"), 0o644))
-	_, err = vectorIndexStorageExists(dirs)
+	_, err = storageExists(dirs)
 	require.ErrorContains(t, err, "not a directory")
 
-	exists, err = vectorIndexStorageExists(nil)
+	exists, err = storageExists(nil)
 	require.NoError(t, err)
 	assert.True(t, exists)
 }
 
-func TestSyncVectorIndexStorage(t *testing.T) {
+func TestSyncStorage(t *testing.T) {
 	shardDir := t.TempDir()
 	dirs := []string{
 		filepath.Join(shardDir, "main.hnsw.commitlog.d"),
@@ -124,10 +124,10 @@ func TestSyncVectorIndexStorage(t *testing.T) {
 		require.NoError(t, os.MkdirAll(dir, 0o755))
 	}
 
-	require.NoError(t, syncVectorIndexStorage(dirs))
-	require.NoError(t, syncVectorIndexStorage(nil))
+	require.NoError(t, syncStorage(dirs))
+	require.NoError(t, syncStorage(nil))
 
 	missing := filepath.Join(shardDir, "vectors_gone.hnsw.commitlog.d")
-	err := syncVectorIndexStorage([]string{missing})
+	err := syncStorage([]string{missing})
 	require.ErrorContains(t, err, missing)
 }
