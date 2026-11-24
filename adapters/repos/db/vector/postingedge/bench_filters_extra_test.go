@@ -201,6 +201,60 @@ func requireSameFilter(t *testing.T, want, got *benchFilter, queries int) {
 	}
 }
 
+// parseTimedSearchers reads -bench.filters.timed: searchers by index and
+// path, comma separated, each a searcher of the measure and one that is
+// measured, none twice. Empty for every searcher measured (nil).
+func parseTimedSearchers(spec string, searchers, measured []string) (map[string]bool, error) {
+	if strings.TrimSpace(spec) == "" {
+		return nil, nil
+	}
+	timed := map[string]bool{}
+	for _, field := range strings.Split(spec, ",") {
+		name := strings.TrimSpace(field)
+		switch {
+		case !slices.Contains(searchers, name):
+			return nil, errors.Errorf("%q is no searcher (%s)", name, strings.Join(searchers, ", "))
+		case !slices.Contains(measured, name):
+			return nil, errors.Errorf("%s is not measured (no HNSW, or left out by another flag)", name)
+		case timed[name]:
+			return nil, errors.Errorf("%s is named twice", name)
+		}
+		timed[name] = true
+	}
+	return timed, nil
+}
+
+func TestParseTimedSearchers(t *testing.T) {
+	all := []string{"ours graph", "ours flat", "hnsw acorn", "hnsw sweeping"}
+	for _, tc := range []struct {
+		name     string
+		spec     string
+		measured []string
+		want     map[string]bool
+		err      string
+	}{
+		{name: "none", spec: "", measured: all},
+		{
+			name: "ours, the reproduction of the night of the 24th", spec: "ours graph, ours flat", measured: all,
+			want: map[string]bool{"ours graph": true, "ours flat": true},
+		},
+		{name: "no searcher", spec: "ours graph,ours", measured: all, err: `"ours" is no searcher`},
+		{name: "not measured", spec: "hnsw acorn", measured: all[:2], err: "hnsw acorn is not measured"},
+		{name: "twice", spec: "ours flat,ours flat", measured: all, err: "named twice"},
+		{name: "a trailing comma", spec: "ours flat,", measured: all, err: `"" is no searcher`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseTimedSearchers(tc.spec, filterSearcherNames, tc.measured)
+			if tc.err != "" {
+				require.ErrorContains(t, err, tc.err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestParseExtraShares(t *testing.T) {
 	for _, tc := range []struct {
 		name string

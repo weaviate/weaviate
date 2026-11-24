@@ -106,6 +106,9 @@ var (
 		"measure and a seed of their own, measured after the others; read from the cache, or drawn and added to it "+
 		"after the filters of the measure, which stay as they are. Filters of the cache beyond the measure that are "+
 		"not named here are not measured")
+	benchFiltersTimed = flag.String("bench.filters.timed", "", "TestIntegrationFilters: the searchers the timed "+
+		"rounds time, by index and path, comma separated, in their order of always: the others still find their "+
+		"curves, untimed, and HNSW stays alive to the end. Empty for every searcher measured")
 	benchFiltersCacheOnly = flag.Bool("bench.filters.cacheonly", false, "TestIntegrationFilters: stop once the "+
 		"filters are read or drawn and the cache is written, before the indexes are opened: to extend the cache "+
 		"ahead of a timed session")
@@ -518,12 +521,15 @@ type filterResult struct {
 	Drop      string         `json:"drop"`
 	// FilterSeconds is what drawing the filters took, 0 if they came from
 	// the cache, and HNSWBuildSeconds what building HNSW took.
-	FilterSeconds    float64       `json:"filterSeconds"`
-	HNSWBuildSeconds float64       `json:"hnswBuildSeconds,omitempty"`
-	Filters          []string      `json:"filters"`
-	Allowed          []int         `json:"allowed"`
-	Curves           []filterCurve `json:"curves"`
-	Rounds           []filterRound `json:"rounds"`
+	FilterSeconds    float64  `json:"filterSeconds"`
+	HNSWBuildSeconds float64  `json:"hnswBuildSeconds,omitempty"`
+	Filters          []string `json:"filters"`
+	Allowed          []int    `json:"allowed"`
+	// Timed is the searchers the timed rounds time (-bench.filters.timed),
+	// empty when they time every searcher measured.
+	Timed  []string      `json:"timed,omitempty"`
+	Curves []filterCurve `json:"curves"`
+	Rounds []filterRound `json:"rounds"`
 }
 
 // filterSearcher is one index on one path, as the measure searches it.
@@ -681,6 +687,17 @@ func TestIntegrationFilters(t *testing.T) {
 	for _, p := range points {
 		require.True(t, slices.ContainsFunc(searchers, func(s *filterSearcher) bool { return s.index+" "+s.path == p.searcher }),
 			"point %s on %s: the searcher is not measured (no HNSW, or left out by another flag)", p.searcher, p.filter)
+	}
+	measured := make([]string, len(searchers))
+	for i, s := range searchers {
+		measured[i] = s.index + " " + s.path
+	}
+	timedOnly, err := parseTimedSearchers(*benchFiltersTimed, filterSearcherNames, measured)
+	require.NoError(t, err, "-bench.filters.timed")
+	for _, name := range measured {
+		if timedOnly[name] {
+			result.Timed = append(result.Timed, name)
+		}
 	}
 	write()
 
@@ -1007,11 +1024,14 @@ func TestIntegrationFilters(t *testing.T) {
 	}
 	// The rounds of the integrated index and of HNSW with acorn first, and
 	// those of HNSW with sweeping after all of them.
+	// -bench.filters.timed leaves some out of the rounds, not out of the
+	// curves.
+	untimed := func(s *filterSearcher) bool { return timedOnly != nil && !timedOnly[s.index+" "+s.path] }
 	main := slices.DeleteFunc(slices.Clone(searchers), func(s *filterSearcher) bool {
-		return s.path == enthnsw.FilterStrategySweeping
+		return s.path == enthnsw.FilterStrategySweeping || untimed(s)
 	})
 	after := slices.DeleteFunc(slices.Clone(searchers), func(s *filterSearcher) bool {
-		return s.path != enthnsw.FilterStrategySweeping
+		return s.path != enthnsw.FilterStrategySweeping || untimed(s)
 	})
 	type timedPass struct {
 		round     int
