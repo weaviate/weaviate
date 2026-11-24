@@ -14,7 +14,11 @@
 package rebalance
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -28,6 +32,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -54,9 +59,12 @@ const (
 	// a row before the plan ends PLANNING_FAILED.
 	collectionLimit = 10 * time.Minute
 
-	// TODO(PR 2): replace with the approval window. Until moves exist, a
-	// PROPOSED plan never expires; it stays until deleted.
-	proposedApproveBeforeUnixMs int64 = math.MaxInt64
+	// approvalWindow is how long a PROPOSED plan can be approved, counted from
+	// the end of planning.
+	approvalWindow = time.Hour
+
+	noAcceptablePlanReason = "disk utilisation is unbalanced, and no direct move from a source to a target that fits the target's capacity narrows its spread"
+	inFlightBalancedReason = "in-flight replication operations will balance the cluster"
 
 	measurementUnavailable = "measurement unavailable"
 	notMeasured            = "not measured"
@@ -325,8 +333,11 @@ func unfinishedNodes(task replication.DraftTask) []string {
 }
 
 // assess collects the listed nodes' drafts and sets req's outcome, reason,
-// rows, measurement time and baseline, and returns "". If collection halts,
-// assess sets no outcome and returns collect's runs_total result.
+// rows, measurement time and baseline, and returns "". It searches for moves
+// only when the baseline is unbalanced and stays unbalanced once in-flight ops
+// complete. Only a PROPOSED outcome sets moves, move count, goal, hash and
+// approval deadline. If collection halts, assess sets no outcome and returns
+// collect's runs_total result.
 func (rp *RebalancePlanner) assess(ctx context.Context, plan replication.Plan, task replication.DraftTask, req *replication.CompletePlanningRequest,
 	logger *logrus.Entry,
 ) string {
@@ -344,6 +355,7 @@ func (rp *RebalancePlanner) assess(ctx context.Context, plan replication.Plan, t
 	if halt := rp.collect(ctx, plan.ID, task, nodes, req, logger); halt != "" {
 		return halt
 	}
+	drafts := draftSizes(req.Nodes)
 	// Draft sizes never enter the Raft log.
 	for i := range req.Nodes {
 		req.Nodes[i].Shards = nil
@@ -356,18 +368,51 @@ func (rp *RebalancePlanner) assess(ctx context.Context, plan replication.Plan, t
 		return ""
 	}
 
-	replicas, err := rp.countReplicas(req.Nodes)
+	replicas, err := rp.listReplicas(plan, req.Nodes)
 	if err != nil {
 		req.Outcome, req.Reason = replication.PlanStatePlanningFailed, err.Error()
 		return ""
 	}
-	req.Baseline = baseline(req.Nodes, replicas)
+	req.Baseline = baseline(req.Nodes, replicaCounts(replicas))
 	if rebalanceplanner.Balanced(req.Baseline) {
 		req.Outcome = replication.PlanStateNotNeeded
 		return ""
 	}
-	req.Outcome = replication.PlanStateProposed
-	req.ApproveBeforeUnixMs = proposedApproveBeforeUnixMs
+	in := rp.searchInput(plan, req.Nodes, replicas, drafts)
+	if rebalanceplanner.Balanced(projectedRows(in.Nodes)) {
+		req.Outcome, req.Reason = replication.PlanStateNotNeeded, inFlightBalancedReason
+		return ""
+	}
+	res, err := rebalanceplanner.Search(ctx, in)
+	if err != nil {
+		// If ctx ended, RunOnce sees ctx.Err() after assess and proposes nothing.
+		req.Outcome, req.Reason = replication.PlanStatePlanningFailed, "could not search for moves: "+err.Error()
+		return ""
+	}
+	switch res.Verdict {
+	case rebalanceplanner.NoAcceptablePlan:
+		req.Outcome, req.Reason = replication.PlanStateNoAcceptablePlan, noAcceptablePlanReason
+	case rebalanceplanner.MovesFound:
+		moves := make([]replication.PlanMove, len(res.Moves))
+		for i, m := range res.Moves {
+			moves[i] = replication.PlanMove{
+				ID:             uuid.NewString(),
+				Collection:     m.Collection,
+				Shard:          m.Shard,
+				SourceNode:     m.SourceNode,
+				TargetNode:     m.TargetNode,
+				EstimatedBytes: m.Bytes,
+			}
+		}
+		hash, err := planHash(plan, moves)
+		if err != nil {
+			req.Outcome, req.Reason = replication.PlanStatePlanningFailed, "could not hash the plan: "+err.Error()
+			return ""
+		}
+		req.Outcome = replication.PlanStateProposed
+		req.Moves, req.MoveCount, req.Goal, req.PlanHash = moves, len(moves), res.Goal, hash
+		req.ApproveBeforeUnixMs = rp.p.Clock.Now().Add(approvalWindow).UnixMilli()
+	}
 	return ""
 }
 
@@ -543,14 +588,32 @@ func withinCapacityTolerance(values []int64) bool {
 	return float64(hi-lo) <= capacityTolerance*float64(hi)
 }
 
-// countReplicas returns the replica count of every measured node. A shard
-// counts once on every listed node in its BelongsToNodes; FROZEN shards hold no
-// local data and are skipped. A collection deleted after it was listed is
-// skipped; any other read error is returned.
-func (rp *RebalancePlanner) countReplicas(rows []types.RebalanceNodeMeasurement) (map[string]int, error) {
-	replicas := make(map[string]int, len(rows))
+type replicaKey struct{ collection, shard, node string }
+
+type shardKey struct{ collection, shard string }
+
+// draftSizes returns the size each node drafted for each shard, keyed by
+// collection, shard and drafting node.
+func draftSizes(rows []types.RebalanceNodeMeasurement) map[replicaKey]int64 {
+	sizes := make(map[replicaKey]int64)
 	for _, r := range rows {
-		replicas[r.Node] = 0
+		for _, s := range r.Shards {
+			sizes[replicaKey{s.Collection, s.Shard, r.Node}] = s.Bytes
+		}
+	}
+	return sizes
+}
+
+// listReplicas returns a replica for each measured node in each shard's
+// BelongsToNodes. It skips FROZEN shards, which hold no local data. A replica
+// is eligible when three things hold: its node is a plan source, its shard is
+// HOT or COLD, and its collection is in plan.Collections (an empty list means
+// every collection). It skips a collection deleted after it was listed and
+// returns any other read error.
+func (rp *RebalancePlanner) listReplicas(plan replication.Plan, rows []types.RebalanceNodeMeasurement) ([]rebalanceplanner.Replica, error) {
+	listed := make(map[string]struct{}, len(rows))
+	for _, r := range rows {
+		listed[r.Node] = struct{}{}
 	}
 
 	var classes []string
@@ -559,18 +622,28 @@ func (rp *RebalancePlanner) countReplicas(rows []types.RebalanceNodeMeasurement)
 	}); err != nil {
 		return nil, fmt.Errorf("could not list collections: %w", err)
 	}
+	var replicas []rebalanceplanner.Replica
 	for _, class := range classes {
+		inPlan := len(plan.Collections) == 0 || slices.Contains(plan.Collections, class)
 		// The sharding state is live. It is read-locked only for the duration
-		// of this callback, so every shard is counted inside it.
+		// of this callback, so every shard is listed inside it.
 		err := rp.p.Schema.Read(class, false, func(_ *models.Class, state *sharding.State) error {
-			for _, shard := range state.Physical {
-				if shard.ActivityStatus() == models.TenantActivityStatusFROZEN {
+			for name, shard := range state.Physical {
+				status := shard.ActivityStatus()
+				if status == models.TenantActivityStatusFROZEN {
 					continue
 				}
+				movable := inPlan && (status == models.TenantActivityStatusHOT || status == models.TenantActivityStatusCOLD)
 				for _, node := range shard.BelongsToNodes {
-					if _, listed := replicas[node]; listed {
-						replicas[node]++
+					if _, ok := listed[node]; !ok {
+						continue
 					}
+					replicas = append(replicas, rebalanceplanner.Replica{
+						Collection: class,
+						Shard:      name,
+						Node:       node,
+						Eligible:   movable && slices.Contains(plan.SourceNodes, node),
+					})
 				}
 			}
 			return nil
@@ -585,19 +658,153 @@ func (rp *RebalancePlanner) countReplicas(rows []types.RebalanceNodeMeasurement)
 	return replicas, nil
 }
 
+func replicaCounts(replicas []rebalanceplanner.Replica) map[string]int {
+	counts := make(map[string]int)
+	for _, r := range replicas {
+		counts[r.Node]++
+	}
+	return counts
+}
+
+func usableBytes(r types.RebalanceNodeMeasurement) float64 {
+	return float64(r.DiskTotalBytes) * float64(r.DiskWarningPercentage) / 100
+}
+
 // baseline returns one row per measured node, with that node's count from replicas.
 func baseline(rows []types.RebalanceNodeMeasurement, replicas map[string]int) []types.RebalanceNodeBalance {
 	out := make([]types.RebalanceNodeBalance, len(rows))
 	for i, r := range rows {
-		used := float64(r.DiskTotalBytes - r.DiskAvailableBytes)
-		usable := float64(r.DiskTotalBytes) * float64(r.DiskWarningPercentage) / 100
 		out[i] = types.RebalanceNodeBalance{
 			Node:            r.Node,
-			DiskUtilisation: used / usable,
+			DiskUtilisation: float64(r.DiskTotalBytes-r.DiskAvailableBytes) / usableBytes(r),
 			ReplicaCount:    replicas[r.Node],
 		}
 	}
 	return out
+}
+
+// searchInput builds the input for Search: one node per row, in row order, and
+// each replica with its drafted size. A replica stays eligible only if its
+// node drafted a size for it and no in-flight op, of any transfer type, names
+// its shard.
+//
+// Every in-flight MOVE and COPY counts as complete. Its size is the one its
+// source drafted for the shard.
+//   - A target in the plan gains the replica and that size.
+//   - A MOVE's source in the plan loses the replica and that size. Its used
+//     bytes never drop below 0.
+//   - A node's bytes do not change when the schema already shows the replica
+//     where the op leaves it: on the target, or gone from the source. Its
+//     measured disk already reflects the op.
+func (rp *RebalancePlanner) searchInput(plan replication.Plan, rows []types.RebalanceNodeMeasurement,
+	replicas []rebalanceplanner.Replica, drafts map[replicaKey]int64,
+) rebalanceplanner.Input {
+	in := rebalanceplanner.Input{Nodes: make([]rebalanceplanner.Node, len(rows))}
+	index := make(map[string]int, len(rows))
+	for i, r := range rows {
+		role := rebalanceplanner.Target
+		if slices.Contains(plan.SourceNodes, r.Node) {
+			role = rebalanceplanner.Source
+		}
+		in.Nodes[i] = rebalanceplanner.Node{
+			Name:        r.Node,
+			Role:        role,
+			UsedBytes:   r.DiskTotalBytes - r.DiskAvailableBytes,
+			UsableBytes: usableBytes(r),
+			Workers:     r.ReplicationWorkers,
+		}
+		index[r.Node] = i
+	}
+
+	// An op is in flight unless it is READY or CANCELLED, as in opActiveLocked.
+	busy := make(map[shardKey]struct{})
+	var transfers []replication.ShardReplicationOp
+	for op, status := range rp.p.FSM.GetStatusByOps() {
+		if state := status.GetCurrentState(); state == api.READY || state == api.CANCELLED {
+			continue
+		}
+		busy[shardKey{op.SourceShard.CollectionId, op.SourceShard.ShardId}] = struct{}{}
+		if op.TransferType == api.MOVE || op.TransferType == api.COPY {
+			transfers = append(transfers, op)
+		}
+	}
+	// Clamping used bytes at 0 makes the result depend on op order. Applying
+	// ops in ID order gives the same result on every run.
+	slices.SortFunc(transfers, func(a, b replication.ShardReplicationOp) int { return cmp.Compare(a.ID, b.ID) })
+
+	in.Replicas = make([]rebalanceplanner.Replica, 0, len(replicas))
+	// present has a key for every replica in in.Replicas. A false value marks
+	// a replica that an in-flight MOVE takes away.
+	present := make(map[replicaKey]bool, len(replicas))
+	// inSchema holds the replicas the schema lists, before any projection.
+	inSchema := make(map[replicaKey]struct{}, len(replicas))
+	for _, r := range replicas {
+		k := replicaKey{r.Collection, r.Shard, r.Node}
+		size, drafted := drafts[k]
+		_, inFlight := busy[shardKey{r.Collection, r.Shard}]
+		r.Bytes, r.Eligible = size, r.Eligible && drafted && !inFlight
+		in.Replicas = append(in.Replicas, r)
+		present[k] = true
+		inSchema[k] = struct{}{}
+	}
+	for _, op := range transfers {
+		collection, shard := op.SourceShard.CollectionId, op.SourceShard.ShardId
+		size := drafts[replicaKey{collection, shard, op.SourceShard.NodeId}]
+		if i, listed := index[op.TargetShard.NodeId]; listed {
+			k := replicaKey{collection, shard, op.TargetShard.NodeId}
+			if _, placed := inSchema[k]; !placed {
+				in.Nodes[i].UsedBytes += size
+			}
+			if _, known := present[k]; !known {
+				in.Replicas = append(in.Replicas, rebalanceplanner.Replica{Collection: collection, Shard: shard, Node: k.node, Bytes: size})
+			}
+			present[k] = true
+		}
+		if op.TransferType != api.MOVE {
+			continue
+		}
+		if i, listed := index[op.SourceShard.NodeId]; listed {
+			k := replicaKey{collection, shard, op.SourceShard.NodeId}
+			if _, placed := inSchema[k]; placed {
+				in.Nodes[i].UsedBytes = max(in.Nodes[i].UsedBytes-size, 0)
+			}
+			if _, known := present[k]; known {
+				present[k] = false
+			}
+		}
+	}
+	in.Replicas = slices.DeleteFunc(in.Replicas, func(r rebalanceplanner.Replica) bool {
+		return !present[replicaKey{r.Collection, r.Shard, r.Node}]
+	})
+	return in
+}
+
+// projectedRows returns one row per node with its disk utilisation as Search
+// computes it.
+func projectedRows(nodes []rebalanceplanner.Node) []types.RebalanceNodeBalance {
+	rows := make([]types.RebalanceNodeBalance, len(nodes))
+	for i, n := range nodes {
+		rows[i] = types.RebalanceNodeBalance{Node: n.Name, DiskUtilisation: float64(n.UsedBytes) / n.UsableBytes}
+	}
+	return rows
+}
+
+// planHash returns "sha256:" followed by the hex SHA-256 of a JSON document.
+// The JSON holds plan's source nodes, target nodes, collections and
+// namespaces, and the moves with their IDs.
+func planHash(plan replication.Plan, moves []replication.PlanMove) (string, error) {
+	data, err := json.Marshal(struct {
+		SourceNodes []string               `json:"sourceNodes"`
+		TargetNodes []string               `json:"targetNodes"`
+		Collections []string               `json:"collections"`
+		Namespaces  []string               `json:"namespaces"`
+		Moves       []replication.PlanMove `json:"moves"`
+	}{plan.SourceNodes, plan.TargetNodes, plan.Collections, plan.Namespaces, moves})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 // propose completes planning with req and returns the runs_total result.

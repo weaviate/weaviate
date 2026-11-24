@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	rebalance "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/license"
 )
@@ -93,11 +94,18 @@ func (h *replicationHandler) createRebalancePlan(params replication.CreateRebala
 	if err != nil {
 		return replication.NewCreateRebalancePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("could not generate uuid v4: %w", err)))
 	}
+	var collections []string
+	if params.Body.Collections != nil {
+		collections = make([]string, len(params.Body.Collections))
+		for i, c := range params.Body.Collections {
+			collections[i] = schema.UppercaseClassName(c)
+		}
+	}
 	req := &rebalance.CreatePlanRequest{
 		PlanID:          id.String(),
 		SourceNodes:     params.Body.SourceNodes,
 		TargetNodes:     params.Body.TargetNodes,
-		Collections:     params.Body.Collections,
+		Collections:     collections,
 		CreatedAtUnixMs: time.Now().UnixMilli(),
 	}
 	if err := h.rebalanceManager.CreateRebalancePlan(ctx, req); err != nil {

@@ -341,6 +341,50 @@ func TestRebalanceHandlers(t *testing.T) {
 		requireRebalanceLog(t, hook, manager.created.PlanID)
 	})
 
+	t.Run("create upper-cases the first letter of each collection", func(t *testing.T) {
+		manager := &fakeRebalanceManager{}
+		handler, _, _ := createRebalanceHandlerWithFakes(t, true, true, manager, liveNodes)
+		body := validBody()
+		body.Collections = []string{"books", "Movies", "aUTHORS"}
+
+		response := create(body)(handler)
+
+		require.IsType(t, &replication.CreateRebalancePlanAccepted{}, response)
+		require.NotNil(t, manager.created)
+		assert.Equal(t, []string{"Books", "Movies", "AUTHORS"}, manager.created.Collections)
+		assert.Equal(t, []string{"books", "Movies", "aUTHORS"}, body.Collections, "the request body is not modified")
+	})
+
+	t.Run("create passes an omitted or empty collection list on unchanged", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			collections []string
+			wantNil     bool
+		}{
+			{name: "omitted list stays nil", collections: nil, wantNil: true},
+			{name: "empty list stays empty", collections: []string{}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				manager := &fakeRebalanceManager{}
+				handler, _, _ := createRebalanceHandlerWithFakes(t, true, true, manager, liveNodes)
+				body := validBody()
+				body.Collections = tt.collections
+
+				response := create(body)(handler)
+
+				require.IsType(t, &replication.CreateRebalancePlanAccepted{}, response)
+				require.NotNil(t, manager.created)
+				if tt.wantNil {
+					require.Nil(t, manager.created.Collections)
+				} else {
+					require.NotNil(t, manager.created.Collections)
+					require.Empty(t, manager.created.Collections)
+				}
+			})
+		}
+	})
+
 	t.Run("approve answers 501 to a permitted caller", func(t *testing.T) {
 		for _, enabled := range []bool{true, false} {
 			t.Run(fmt.Sprintf("flags enabled %v", enabled), func(t *testing.T) {

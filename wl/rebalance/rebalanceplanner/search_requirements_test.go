@@ -29,8 +29,6 @@ import (
 // Search and Balanced. Each expected state comes from replaying the returned
 // moves on the input, and Balanced decides whether a state is balanced.
 
-const noLimit = 1 << 30
-
 type replicaKey struct{ collection, shard, node string }
 
 func mustSearch(t *testing.T, in rp.Input) rp.Result {
@@ -156,7 +154,6 @@ func checkResult(t *testing.T, in rp.Input, res rp.Result) []types.RebalanceNode
 	switch res.Verdict {
 	case rp.MovesFound:
 		require.NotEmpty(t, res.Moves)
-		require.LessOrEqual(t, len(res.Moves), in.MaxMoves)
 		after := replay(t, in, res.Moves)
 		require.Len(t, res.Goal, len(in.Nodes))
 		for i, want := range after {
@@ -169,43 +166,10 @@ func checkResult(t *testing.T, in rp.Input, res rp.Result) []types.RebalanceNode
 	case rp.NoAcceptablePlan:
 		require.Empty(t, res.Moves)
 		require.Empty(t, res.Goal)
-	case rp.LimitExceeded:
-		require.Empty(t, res.Moves)
-		require.Empty(t, res.Goal)
-		require.Greater(t, res.MinMoveCount, in.MaxMoves)
 	default:
 		t.Fatalf("unknown verdict %d", res.Verdict)
 	}
 	return base
-}
-
-// checkLimit asserts that the move limit changes a result only when the
-// unlimited plan is longer than the limit. res is the unlimited result. A
-// limit equal to the plan's length returns the same plan, a limit one below
-// it returns LimitExceeded, and a layout with no acceptable plan has none at
-// a limit of 0 either.
-func checkLimit(t *testing.T, in rp.Input, res rp.Result) {
-	t.Helper()
-	same := func(limit int) {
-		in.MaxMoves = limit
-		got := mustSearch(t, in)
-		checkResult(t, in, got)
-		require.Equal(t, res.Verdict, got.Verdict, "verdict at MaxMoves %d", limit)
-		require.Equal(t, res.Moves, got.Moves, "moves at MaxMoves %d", limit)
-		require.Equal(t, res.Goal, got.Goal, "goal at MaxMoves %d", limit)
-	}
-	switch res.Verdict {
-	case rp.MovesFound:
-		same(len(res.Moves))
-		in.MaxMoves = len(res.Moves) - 1
-		got := mustSearch(t, in)
-		checkResult(t, in, got)
-		require.Equal(t, rp.LimitExceeded, got.Verdict, "MaxMoves one below the plan's length")
-	case rp.NoAcceptablePlan:
-		same(0)
-	case rp.LimitExceeded:
-		t.Fatal("checkLimit needs the unlimited result")
-	}
 }
 
 func rowsOf(rows []types.RebalanceNodeBalance, names ...string) []types.RebalanceNodeBalance {
@@ -238,7 +202,7 @@ func relocated(sources, targets, perNode int, sizes []int64) rp.Input {
 		owned += sizes[j%len(sizes)]
 	}
 	other := owned / 2
-	in := rp.Input{MaxMoves: noLimit}
+	in := rp.Input{}
 	used := make(map[string]int64)
 	sourceName := func(i int) string { return "s" + strconv.Itoa(i) }
 	for i := 0; i < sources+targets; i++ {
@@ -297,7 +261,6 @@ func TestSearchBalancesWhatDirectMovesCanBalance(t *testing.T) {
 			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
 			// Moving back every relocated shard balances the layout exactly.
 			require.LessOrEqual(t, len(res.Moves), tt.targets*tt.perNode)
-			checkLimit(t, in, res)
 		})
 	}
 }
@@ -314,7 +277,6 @@ func drained(targets, onSource, onTarget, percentFull int) rp.Input {
 	in := rp.Input{
 		Nodes:    []rp.Node{{Name: "S", Role: rp.Source, UsedBytes: int64(onSource) * b, UsableBytes: usable, Workers: 1}},
 		Replicas: shards("S", "s", onSource, b),
-		MaxMoves: noLimit,
 	}
 	for i := 0; i < targets; i++ {
 		name := fmt.Sprintf("T%02d", i)
@@ -349,7 +311,6 @@ func TestSearchBalancesOneSourceAmongManyTargets(t *testing.T) {
 				// at or before it.
 				mean := (tt.onSource + tt.targets*tt.onTarget) / (tt.targets + 1)
 				require.GreaterOrEqual(t, after[0].ReplicaCount, mean)
-				checkLimit(t, in, res)
 			})
 		}
 	}
@@ -370,7 +331,6 @@ func skewed(total, permille int) rp.Input {
 			{Name: "T", Role: rp.Target, UsedBytes: int64(onT) * b, UsableBytes: float64(allBytes), Workers: 1},
 		},
 		Replicas: append(shards("S", "s", onS, b), shards("T", "t", onT, b)...),
-		MaxMoves: noLimit,
 	}
 }
 
@@ -392,16 +352,23 @@ func rejectedSkew(t *testing.T) int {
 func TestSearchVerdictIgnoresReplicaTotal(t *testing.T) {
 	edge := rejectedSkew(t)
 
-	// MaxMoves 0 asks one question: does Search want a move? Search must
-	// answer after one step; it cannot finish the plan first.
+	// firstStep asks whether Search takes a first move. Only one source
+	// replica is eligible, so Search stops after at most one move. skewed
+	// gives every source replica the same bytes, so it does not matter which
+	// one is eligible. Bytes and replica counts stay as skewed sets them, so
+	// the disk spread is unchanged.
 	firstStep := func(t *testing.T, total, permille int) rp.Verdict {
 		in := skewed(total, permille)
 		if permille >= edge {
 			require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
 		}
-		in.MaxMoves = 0
+		require.Equal(t, "S", in.Replicas[0].Node)
+		for i := range in.Replicas {
+			in.Replicas[i].Eligible = i == 0
+		}
 		res := mustSearch(t, in)
 		checkResult(t, in, res)
+		require.LessOrEqual(t, len(res.Moves), 1)
 		return res.Verdict
 	}
 	for _, permille := range []int{0, edge / 2, edge * 9 / 10, edge, (edge + 1000) / 2, 900} {
@@ -410,7 +377,7 @@ func TestSearchVerdictIgnoresReplicaTotal(t *testing.T) {
 		case permille == 0:
 			require.Equal(t, rp.NoAcceptablePlan, small, "skew 0 at 2000 replicas")
 		case permille >= edge:
-			require.Equal(t, rp.LimitExceeded, small, "skew %d permille at 2000 replicas", permille)
+			require.Equal(t, rp.MovesFound, small, "skew %d permille at 2000 replicas", permille)
 		}
 		for _, total := range []int{20_000, 200_000, 1_000_000} {
 			if total > 200_000 && testing.Short() {
@@ -453,7 +420,6 @@ func two(sUsed, tUsed int64, sN int, sB int64, tN int, tB int64) rp.Input {
 			{Name: "T", Role: rp.Target, UsedBytes: tUsed, UsableBytes: 1_000_000, Workers: 1},
 		},
 		Replicas: append(shards("S", "s", sN, sB), shards("T", "t", tN, tB)...),
-		MaxMoves: noLimit,
 	}
 }
 
@@ -480,7 +446,6 @@ func TestSearchTakesNoMoveForReplicaCount(t *testing.T) {
 			res := mustSearch(t, tt.in)
 			require.Equal(t, rp.NoAcceptablePlan, res.Verdict)
 			checkResult(t, tt.in, res)
-			checkLimit(t, tt.in, res)
 		})
 	}
 }
@@ -491,7 +456,7 @@ func TestSearchTakesNoMoveForReplicaCount(t *testing.T) {
 func TestSearchBalancesDiskAgainstReplicaCount(t *testing.T) {
 	// s0 and s1 hold 60 large shards, each with a third replica on one target.
 	// The three targets hold 900 small shards.
-	five := rp.Input{MaxMoves: noLimit}
+	five := rp.Input{}
 	used := map[string]int64{}
 	place := func(shard string, bytes int64, on ...string) {
 		for _, n := range on {
@@ -539,7 +504,6 @@ func TestSearchBalancesDiskAgainstReplicaCount(t *testing.T) {
 			require.Equal(t, rp.MovesFound, res.Verdict)
 			after := checkResult(t, tt.in, res)
 			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
-			checkLimit(t, tt.in, res)
 		})
 	}
 }
@@ -548,7 +512,7 @@ func TestSearchBalancesDiskAgainstReplicaCount(t *testing.T) {
 // empty targets. Sizes cycle through sizes. Every node has 1,000,000 usable
 // bytes and 50,000 bytes that are not shards.
 func scaleOut(sizes []int64, n int) rp.Input {
-	in := rp.Input{MaxMoves: noLimit}
+	in := rp.Input{}
 	var perSource int64 = 50_000
 	for i := 0; i < n; i++ {
 		b := sizes[i%len(sizes)]
@@ -593,7 +557,6 @@ func TestSearchBalancesScaleOut(t *testing.T) {
 			require.Equal(t, rp.MovesFound, res.Verdict)
 			after := checkResult(t, in, res)
 			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
-			checkLimit(t, in, res)
 		})
 	}
 }
@@ -617,7 +580,6 @@ func TestSearchPlansAroundFullTarget(t *testing.T) {
 					{Name: "T2", Role: rp.Target, UsedBytes: 0, UsableBytes: 1_000_000, Workers: 1},
 				},
 				Replicas: shards("S", "s", 60, 10_000),
-				MaxMoves: noLimit,
 			}
 			res := mustSearch(t, in)
 			require.Equal(t, rp.MovesFound, res.Verdict)
@@ -625,13 +587,11 @@ func TestSearchPlansAroundFullTarget(t *testing.T) {
 			// S and T2 can split evenly every shard that T1 does not take.
 			pair := rowsOf(after, "S", "T2")
 			require.True(t, rp.Balanced(pair), "S and T2 are not balanced: %+v", after)
-			checkLimit(t, in, res)
 		})
 	}
 
 	// The source holds one 20-byte shard and thirty 2-byte shards. Each target
-	// has 4 workers and 100 usable bytes. Whatever a target's limit is, the
-	// move limit must not turn the plan into a failure.
+	// has 4 workers and 100 usable bytes.
 	t.Run("a target filled by one large shard", func(t *testing.T) {
 		in := rp.Input{
 			Nodes: []rp.Node{
@@ -641,12 +601,10 @@ func TestSearchPlansAroundFullTarget(t *testing.T) {
 			},
 			Replicas: append(shards("S", "s", 30, 2),
 				rp.Replica{Collection: "c", Shard: "huge", Node: "S", Bytes: 20, Eligible: true}),
-			MaxMoves: noLimit,
 		}
 		res := mustSearch(t, in)
 		require.Equal(t, rp.MovesFound, res.Verdict)
 		checkResult(t, in, res)
-		checkLimit(t, in, res)
 	})
 }
 
@@ -661,7 +619,6 @@ func TestSearchPlansAroundFullerTarget(t *testing.T) {
 			{Name: "T2", Role: rp.Target, UsedBytes: 40, UsableBytes: 100, Workers: 1},
 		},
 		Replicas: shards("S", "s", 20, 2),
-		MaxMoves: noLimit,
 	}
 	res := mustSearch(t, in)
 	require.Equal(t, rp.MovesFound, res.Verdict)
@@ -671,7 +628,6 @@ func TestSearchPlansAroundFullerTarget(t *testing.T) {
 	}
 	pair := rowsOf(after, "S", "T2")
 	require.True(t, rp.Balanced(pair), "S and T2 are not balanced: %+v", after)
-	checkLimit(t, in, res)
 }
 
 // A layout that only a swap can improve has no acceptable plan. S holds 6 and
@@ -689,12 +645,10 @@ func TestSearchSwapOnlyLayoutHasNoPlan(t *testing.T) {
 			{Collection: "c", Shard: "t5", Node: "T", Bytes: 5, Eligible: true},
 			{Collection: "c", Shard: "t3", Node: "T", Bytes: 3, Eligible: true},
 		},
-		MaxMoves: noLimit,
 	}
 	res := mustSearch(t, in)
 	require.Equal(t, rp.NoAcceptablePlan, res.Verdict)
 	checkResult(t, in, res)
-	checkLimit(t, in, res)
 }
 
 // A layout whose only move mirrors it has no acceptable plan. S and T have
@@ -721,13 +675,11 @@ func TestSearchMirrorOnlyLayoutHasNoPlan(t *testing.T) {
 								{Name: "T", Role: rp.Target, UsedBytes: usedS - shardBytes, UsableBytes: float64(usable), Workers: 1},
 							},
 							Replicas: append(shards("S", "s", onT+1, shardBytes), shards("T", "t", onT, shardBytes)...),
-							MaxMoves: noLimit,
 						}
 						require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
 						res := mustSearch(t, in)
 						require.Equal(t, rp.NoAcceptablePlan, res.Verdict)
 						checkResult(t, in, res)
-						checkLimit(t, in, res)
 					})
 				}
 			}
@@ -753,7 +705,6 @@ func TestSearchRejectsInvalidInput(t *testing.T) {
 				{Name: "T", Role: rp.Target, UsedBytes: 0, UsableBytes: 1_000_000, Workers: 1},
 			},
 			Replicas: shards("S", "s", 10, 10_000),
-			MaxMoves: noLimit,
 		}
 	}
 	require.Equal(t, rp.MovesFound, mustSearch(t, valid()).Verdict, "the unchanged input must plan")
@@ -772,7 +723,6 @@ func TestSearchRejectsInvalidInput(t *testing.T) {
 		{"zero workers on a source", func(in *rp.Input) { in.Nodes[0].Workers = 0 }},
 		{"zero workers on a target", func(in *rp.Input) { in.Nodes[1].Workers = 0 }},
 		{"negative workers", func(in *rp.Input) { in.Nodes[1].Workers = -1 }},
-		{"negative move limit", func(in *rp.Input) { in.MaxMoves = -1 }},
 		{"duplicate node name", func(in *rp.Input) { in.Nodes = append(in.Nodes, in.Nodes[1]) }},
 		{"duplicate replica", func(in *rp.Input) { in.Replicas = append(in.Replicas, in.Replicas[0]) }},
 	}
@@ -819,7 +769,7 @@ func TestSearchRejectsInvalidInput(t *testing.T) {
 func randomLayout(r *rand.Rand) rp.Input {
 	const usable = 1_000_000
 	sizes := []int64{500, 1_000, 2_500, 10_000}
-	in := rp.Input{MaxMoves: noLimit}
+	in := rp.Input{}
 	n := 2 + r.Intn(5)
 	for i := 0; i < n; i++ {
 		role := rp.Source
@@ -848,8 +798,8 @@ func randomLayout(r *rand.Rand) rp.Input {
 	return in
 }
 
-// Every result on a valid layout is legal, matches its moves, respects the
-// limit and does not depend on input order.
+// Every result on a valid layout is legal, matches its moves and does not
+// depend on input order.
 func TestSearchResultInvariants(t *testing.T) {
 	for seed := int64(1); seed <= 300; seed++ {
 		t.Run(fmt.Sprintf("seed %d", seed), func(t *testing.T) {
@@ -857,12 +807,10 @@ func TestSearchResultInvariants(t *testing.T) {
 			in := randomLayout(r)
 			res := mustSearch(t, in)
 			checkResult(t, in, res)
-			checkLimit(t, in, res)
 
 			shuffled := rp.Input{
 				Nodes:    append([]rp.Node(nil), in.Nodes...),
 				Replicas: append([]rp.Replica(nil), in.Replicas...),
-				MaxMoves: in.MaxMoves,
 			}
 			r.Shuffle(len(shuffled.Nodes), func(i, j int) {
 				shuffled.Nodes[i], shuffled.Nodes[j] = shuffled.Nodes[j], shuffled.Nodes[i]

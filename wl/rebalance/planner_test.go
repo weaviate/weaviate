@@ -13,6 +13,8 @@ package rebalance_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +27,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -43,6 +47,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/wl/rebalance"
+	"github.com/weaviate/weaviate/wl/rebalance/rebalanceplanner"
 )
 
 const (
@@ -53,6 +58,9 @@ const (
 	plannerTerm   uint64 = 9
 	// draftVersion is the version of every draft task the tests serve.
 	draftVersion uint64 = 7
+
+	noAcceptablePlanReason = "disk utilisation is unbalanced, and no direct move from a source to a target that fits the target's capacity narrows its spread"
+	inFlightBalancedReason = "in-flight replication operations will balance the cluster"
 )
 
 // plannerStart is the fake clock's time when a run starts.
@@ -304,15 +312,229 @@ func fixedMeasure(rows map[string]types.RebalanceNodeMeasurement) measureFunc {
 	}
 }
 
-// measuredRows is rows as the planner records them: node-1 then node-2, Node set.
+// measuredRows returns rows as the planner records them when the plan lists
+// nodes in name order. Each row has Node set and its draft (Shards) removed.
 func measuredRows(rows map[string]types.RebalanceNodeMeasurement) []types.RebalanceNodeMeasurement {
-	out := make([]types.RebalanceNodeMeasurement, 0, 2)
-	for _, node := range []string{"node-1", "node-2"} {
+	out := make([]types.RebalanceNodeMeasurement, 0, len(rows))
+	for _, node := range slices.Sorted(maps.Keys(rows)) {
 		m := rows[node]
-		m.Node = node
+		m.Node, m.Shards = node, nil
 		out = append(out, m)
 	}
 	return out
+}
+
+// diskUsable is the usable bytes of every node diskRows returns.
+const diskUsable = 800_000_000.0
+
+// diskRows returns rows for node-1, node-2 and so on. The nth value of used is
+// the bytes used on node-n. Every node has a 1GB disk with an 80% warning, the
+// same memory limit and one replication worker. So a target keeps free only
+// the size of the largest replica moved onto it.
+func diskRows(used ...int64) map[string]types.RebalanceNodeMeasurement {
+	rows := make(map[string]types.RebalanceNodeMeasurement, len(used))
+	for i, u := range used {
+		rows[fmt.Sprintf("node-%d", i+1)] = types.RebalanceNodeMeasurement{
+			DiskTotalBytes: 1_000_000_000, DiskAvailableBytes: 1_000_000_000 - u,
+			DiskWarningPercentage: 80, MemoryLimitBytes: 8_000_000_000, ReplicationWorkers: 1,
+		}
+	}
+	return rows
+}
+
+// drafted adds shards to node's draft in rows and returns rows.
+func drafted(rows map[string]types.RebalanceNodeMeasurement, node string, shards ...types.RebalanceShardSize) map[string]types.RebalanceNodeMeasurement {
+	m := rows[node]
+	m.Shards = append(m.Shards, shards...)
+	rows[node] = m
+	return rows
+}
+
+// shardSizes returns draft sizes for class's shards in layout group group.
+// Shard g<group>-shard<i> has bytes[i].
+func shardSizes(class string, group int, bytes ...int64) []types.RebalanceShardSize {
+	out := make([]types.RebalanceShardSize, len(bytes))
+	for i, b := range bytes {
+		out[i] = types.RebalanceShardSize{Collection: class, Shard: fmt.Sprintf("g%d-shard%d", group, i), Bytes: b}
+	}
+	return out
+}
+
+// spreadGroup is the layout group of the ten Articles shards spreadRows drafts.
+var spreadGroup = shardGroup{count: 10, nodes: []string{"node-1"}}
+
+// spreadRows has 700MB used on node-1 and 400MB on node-2, so disk utilisation
+// is unbalanced. node-1 drafts the spreadGroup shards at 16MB to 25MB.
+func spreadRows() map[string]types.RebalanceNodeMeasurement {
+	return drafted(diskRows(700_000_000, 400_000_000), "node-1", shardSizes("Articles", 0,
+		16_000_000, 17_000_000, 18_000_000, 19_000_000, 20_000_000,
+		21_000_000, 22_000_000, 23_000_000, 24_000_000, 25_000_000)...)
+}
+
+// transfer carries bytes and one replica from one node to another. An empty
+// from or to leaves that side unchanged.
+type transfer struct {
+	from, to string
+	bytes    int64
+}
+
+func transfersOf(moves []replication.PlanMove) []transfer {
+	out := make([]transfer, len(moves))
+	for i, m := range moves {
+		out[i] = transfer{from: m.SourceNode, to: m.TargetNode, bytes: m.EstimatedBytes}
+	}
+	return out
+}
+
+// goalAfter returns one row per baseline node. Each row holds the node's disk
+// utilisation (from rows) and replica count (from baseline) after every
+// transfer.
+func goalAfter(rows map[string]types.RebalanceNodeMeasurement, baseline []types.RebalanceNodeBalance, transfers ...transfer) []types.RebalanceNodeBalance {
+	used := make(map[string]int64, len(baseline))
+	counts := make(map[string]int, len(baseline))
+	for _, b := range baseline {
+		used[b.Node] = rows[b.Node].DiskTotalBytes - rows[b.Node].DiskAvailableBytes
+		counts[b.Node] = b.ReplicaCount
+	}
+	for _, tr := range transfers {
+		if tr.to != "" {
+			used[tr.to] += tr.bytes
+			counts[tr.to]++
+		}
+		if tr.from != "" {
+			used[tr.from] -= tr.bytes
+			counts[tr.from]--
+		}
+	}
+	out := make([]types.RebalanceNodeBalance, len(baseline))
+	for i, b := range baseline {
+		r := rows[b.Node]
+		usable := float64(r.DiskTotalBytes) * float64(r.DiskWarningPercentage) / 100
+		out[i] = types.RebalanceNodeBalance{Node: b.Node, DiskUtilisation: float64(used[b.Node]) / usable, ReplicaCount: counts[b.Node]}
+	}
+	return out
+}
+
+// withoutIDs returns moves with their IDs cleared. Move IDs are random, so
+// moves of two runs compare without them.
+func withoutIDs(moves []replication.PlanMove) []replication.PlanMove {
+	moves = slices.Clone(moves)
+	for i := range moves {
+		moves[i].ID = ""
+	}
+	return moves
+}
+
+// advance takes op id through states, in order, as the replication engine
+// reports them.
+func (h *plannerHarness) advance(id uint64, states ...api.ShardReplicationState) {
+	h.t.Helper()
+	for _, state := range states {
+		require.NoError(h.t, h.fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{Id: id, State: state}))
+	}
+}
+
+// cancel moves op id to CANCELLED by applying the cancel command and then the
+// replication engine's cancellation-complete command.
+func (h *plannerHarness) cancel(id uint64) {
+	h.t.Helper()
+	opUUID, err := h.fsm.GetReplicationOpUUIDFromId(id)
+	require.NoError(h.t, err)
+	require.NoError(h.t, h.fsm.CancelReplication(&api.ReplicationCancelRequest{Uuid: opUUID}))
+	require.NoError(h.t, h.fsm.CancellationComplete(&api.ReplicationCancellationCompleteRequest{Id: id}))
+}
+
+// requireSameAsNoOpRun runs the planner on rows and states with no replication
+// op. It asserts that req has the same moves (ignoring IDs) and the same goal
+// as that run.
+func requireSameAsNoOpRun(t *testing.T, req replication.CompletePlanningRequest, rows map[string]types.RebalanceNodeMeasurement, states *schemaFixture) {
+	t.Helper()
+	noOp := newPlannerHarness(t, fixedMeasure(rows), states.mock(t))
+	noOp.expectProposals()
+	noOp.planner.RunOnce(context.Background())
+	want := noOp.proposal()
+	require.Equal(t, replication.PlanStateProposed, want.Outcome, want.Reason)
+	require.Equal(t, withoutIDs(want.Moves), withoutIDs(req.Moves))
+	requireBaseline(t, want.Goal, req.Goal)
+}
+
+// replicate registers an in-flight op that transfers Articles shard from one
+// node to another.
+func (h *plannerHarness) replicate(id uint64, transferType api.ShardReplicationTransferType, shard, from, to string) {
+	h.t.Helper()
+	require.NoError(h.t, h.fsm.Replicate(id, &api.ReplicationReplicateShardRequest{
+		Uuid:             strfmt.UUID(uuid.NewString()),
+		SourceNode:       from,
+		SourceCollection: "Articles",
+		SourceShard:      shard,
+		TargetNode:       to,
+		TransferType:     string(transferType),
+	}))
+}
+
+// replacePlan replaces the harness's plan with a PLANNING plan of the same ID
+// listing sources, targets and collections, and serves a reported draft task
+// for its nodes.
+func (h *plannerHarness) replacePlan(sources, targets, collections []string) {
+	h.t.Helper()
+	require.NoError(h.t, h.fsm.StopPlan(&replication.StopPlanRequest{PlanID: plannerPlanID}))
+	require.NoError(h.t, h.fsm.DeletePlan(&replication.DeletePlanRequest{PlanID: plannerPlanID}))
+	require.NoError(h.t, h.fsm.CreatePlan(&replication.CreatePlanRequest{
+		PlanID:          plannerPlanID,
+		SourceNodes:     sources,
+		TargetNodes:     targets,
+		Collections:     collections,
+		CreatedAtUnixMs: plannerStart.UnixMilli(),
+	}))
+	task := reportedDraftTask(plannerPlanID)
+	for _, node := range slices.Concat(sources, targets) {
+		task.Units[node] = replication.DraftUnitCompleted
+	}
+	h.setDraftTasks(task)
+}
+
+// proposal returns the run's only request.
+func (h *plannerHarness) proposal() replication.CompletePlanningRequest {
+	reqs, _ := h.recorded()
+	require.Len(h.t, reqs, 1)
+	return reqs[0]
+}
+
+func requireProposal(t *testing.T, plan replication.Plan, req replication.CompletePlanningRequest) {
+	t.Helper()
+	require.NotEmpty(t, req.Moves)
+	require.Equal(t, len(req.Moves), req.MoveCount)
+	ids := make(map[string]struct{}, len(req.Moves))
+	for _, m := range req.Moves {
+		require.NotEmpty(t, m.ID)
+		ids[m.ID] = struct{}{}
+	}
+	require.Len(t, ids, len(req.Moves), "move IDs are unique")
+	require.Len(t, req.Goal, len(req.Nodes))
+	require.Equal(t, plannerStart.Add(time.Hour).UnixMilli(), req.ApproveBeforeUnixMs)
+
+	hashed, err := json.Marshal(struct {
+		SourceNodes []string               `json:"sourceNodes"`
+		TargetNodes []string               `json:"targetNodes"`
+		Collections []string               `json:"collections"`
+		Namespaces  []string               `json:"namespaces"`
+		Moves       []replication.PlanMove `json:"moves"`
+	}{plan.SourceNodes, plan.TargetNodes, plan.Collections, plan.Namespaces, req.Moves})
+	require.NoError(t, err)
+	sum := sha256.Sum256(hashed)
+	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, req.PlanHash)
+	require.Equal(t, "sha256:"+hex.EncodeToString(sum[:]), req.PlanHash)
+}
+
+// requireNoMoves asserts that a request or plan that is not PROPOSED holds no
+// moves, goal, move count, hash or approval deadline.
+func requireNoMoves(t *testing.T, moves []replication.PlanMove, goal []types.RebalanceNodeBalance, count int, hash string, approveBefore int64) {
+	t.Helper()
+	require.Empty(t, moves)
+	require.Empty(t, goal)
+	require.Zero(t, count)
+	require.Empty(t, hash)
+	require.Zero(t, approveBefore)
 }
 
 type shardGroup struct {
@@ -363,9 +585,14 @@ func (f *schemaFixture) failing(class string, err error) *schemaFixture {
 	return f
 }
 
-// layout returns one collection holding count shards per group, each shard
-// with a replica on every node of its group.
+// layout returns the collection Articles holding count shards per group, each
+// shard with a replica on every node of its group.
 func layout(groups ...shardGroup) *schemaFixture {
+	return (&schemaFixture{}).withClass("Articles", groups...)
+}
+
+// withClass adds the collection class, laid out as layout lays out Articles.
+func (f *schemaFixture) withClass(class string, groups ...shardGroup) *schemaFixture {
 	physical := map[string]sharding.Physical{}
 	for g, group := range groups {
 		for i := range group.count {
@@ -373,7 +600,11 @@ func layout(groups ...shardGroup) *schemaFixture {
 			physical[name] = sharding.Physical{Name: name, BelongsToNodes: group.nodes, Status: group.status}
 		}
 	}
-	return &schemaFixture{states: map[string]sharding.State{"Articles": {Physical: physical}}}
+	if f.states == nil {
+		f.states = map[string]sharding.State{}
+	}
+	f.states[class] = sharding.State{Physical: physical}
+	return f
 }
 
 // balancedLayout puts 100 replicas on node-1 and 104 on node-2. The replica
@@ -484,6 +715,29 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		}
 		return rows
 	}
+	// The "finished op is not projected" rows share these fixtures, one row
+	// per end state. Each row ends a MOVE of node-1's 90MB g1 shard. Projecting
+	// the op would shift 90MB to node-2 and make g1 ineligible, so the run must
+	// match a run with no op.
+	finishedRows := func() map[string]types.RebalanceNodeMeasurement {
+		return drafted(spreadRows(), "node-1", shardSizes("Articles", 1, 90_000_000)...)
+	}
+	finishedLayout := func() *schemaFixture {
+		return layout(spreadGroup, shardGroup{count: 1, nodes: []string{"node-1"}})
+	}
+	finishedSetup := func(finish func(h *plannerHarness)) func(t *testing.T, h *plannerHarness) {
+		return func(t *testing.T, h *plannerHarness) {
+			h.replicate(1, api.MOVE, "g1-shard0", "node-1", "node-2")
+			finish(h)
+		}
+	}
+	finishedBaseline := []types.RebalanceNodeBalance{
+		{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 11},
+		{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable},
+	}
+	finishedCheck := func(t *testing.T, h *plannerHarness) {
+		requireSameAsNoOpRun(t, h.proposal(), finishedRows(), finishedLayout())
+	}
 
 	cases := []struct {
 		name   string
@@ -497,11 +751,14 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		nilMeasure bool
 		setup      func(t *testing.T, h *plannerHarness)
 
-		wantOutcome  replication.PlanState
-		wantResult   string
-		wantReason   string
-		wantNodes    []types.RebalanceNodeMeasurement
-		wantBaseline []types.RebalanceNodeBalance
+		wantOutcome replication.PlanState
+		wantResult  string
+		wantReason  string
+		// wantReasonParts, when set, lists substrings the reason must
+		// contain, and wantReason is not checked.
+		wantReasonParts []string
+		wantNodes       []types.RebalanceNodeMeasurement
+		wantBaseline    []types.RebalanceNodeBalance
 		// wantMeasuredAt, when set, is the expected measurement time instead
 		// of plannerStart.
 		wantMeasuredAt time.Time
@@ -531,27 +788,242 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		},
 		{
 			name: "imbalanced disk utilisation",
-			rows: withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskAvailableBytes = 100_000_000 }),
-			// Utilisation 0.75 and 1.13.
+			// Utilisation 0.75 and 0.95. node-2 has room for a 1MB replica,
+			// but a move onto the fuller target widens the spread.
+			rows: drafted(withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskAvailableBytes = 250_000_000 }),
+				"node-1", shardSizes("Articles", 0, 1_000_000, 1_000_000)...),
+			states:      layout(shardGroup{count: 2, nodes: []string{"node-1"}}),
+			wantOutcome: replication.PlanStateNoAcceptablePlan,
+			wantReason:  noAcceptablePlanReason,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 2},
+				{Node: "node-2", DiskUtilisation: 790_000_000.0 / 832_000_000.0},
+			},
+		},
+		{
+			name:        "unbalanced cluster gets a plan",
+			rows:        spreadRows(),
+			states:      layout(spreadGroup),
 			wantOutcome: replication.PlanStateProposed,
 			wantBaseline: []types.RebalanceNodeBalance{
-				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
-				{Node: "node-2", DiskUtilisation: 940_000_000.0 / 832_000_000.0, ReplicaCount: 104},
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 10},
+				{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable},
 			},
 			check: func(t *testing.T, h *plannerHarness) {
-				create := func(id string) error {
+				req := h.proposal()
+				// Searching the same layout directly gives the expected moves,
+				// sized from node-1's draft. The plan must keep their order.
+				in := rebalanceplanner.Input{
+					Nodes: []rebalanceplanner.Node{
+						{Name: "node-1", Role: rebalanceplanner.Source, UsedBytes: 700_000_000, UsableBytes: diskUsable, Workers: 1},
+						{Name: "node-2", Role: rebalanceplanner.Target, UsedBytes: 400_000_000, UsableBytes: diskUsable, Workers: 1},
+					},
+				}
+				for _, s := range spreadRows()["node-1"].Shards {
+					in.Replicas = append(in.Replicas, rebalanceplanner.Replica{
+						Collection: s.Collection, Shard: s.Shard, Node: "node-1", Bytes: s.Bytes, Eligible: true,
+					})
+				}
+				res, err := rebalanceplanner.Search(context.Background(), in)
+				require.NoError(t, err)
+				require.Equal(t, rebalanceplanner.MovesFound, res.Verdict)
+				want := make([]replication.PlanMove, len(res.Moves))
+				for i, m := range res.Moves {
+					want[i] = replication.PlanMove{
+						Collection: m.Collection, Shard: m.Shard, SourceNode: m.SourceNode, TargetNode: m.TargetNode, EstimatedBytes: m.Bytes,
+					}
+				}
+				require.Greater(t, len(want), 1, "a single move has no order to check")
+				require.Equal(t, want, withoutIDs(req.Moves))
+				require.True(t, rebalanceplanner.Balanced(req.Goal))
+
+				create := func(id string, at int64) error {
 					return h.fsm.CreatePlan(&replication.CreatePlanRequest{
 						PlanID:          id,
 						SourceNodes:     []string{"node-1"},
 						TargetNodes:     []string{"node-2"},
-						CreatedAtUnixMs: plannerStart.Add(365 * 24 * time.Hour).UnixMilli(),
+						CreatedAtUnixMs: at,
 					})
 				}
-				require.ErrorIs(t, create("plan-2"), replication.ErrPlanExists, "a PROPOSED plan with no moves never expires")
-				require.NoError(t, h.fsm.DeletePlan(&replication.DeletePlanRequest{PlanID: plannerPlanID}))
-				_, ok := h.fsm.GetPlan()
-				require.False(t, ok)
-				require.NoError(t, create("plan-3"))
+				require.ErrorIs(t, create("plan-2", req.ApproveBeforeUnixMs-1), replication.ErrPlanExists)
+				require.NoError(t, create("plan-3", req.ApproveBeforeUnixMs))
+				got, ok := h.fsm.GetPlan()
+				require.True(t, ok)
+				require.Equal(t, "plan-3", got.ID)
+			},
+		},
+		{
+			name: "in-flight MOVE projected",
+			// node-1's 90MB g1 shard is moving to node-2. The projection,
+			// 610MB and 490MB, is still unbalanced.
+			rows:        drafted(spreadRows(), "node-1", shardSizes("Articles", 1, 90_000_000)...),
+			states:      layout(spreadGroup, shardGroup{count: 1, nodes: []string{"node-1"}}),
+			setup:       func(t *testing.T, h *plannerHarness) { h.replicate(1, api.MOVE, "g1-shard0", "node-1", "node-2") },
+			wantOutcome: replication.PlanStateProposed,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 11},
+				{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable},
+			},
+			check: func(t *testing.T, h *plannerHarness) {
+				req := h.proposal()
+				rows := diskRows(700_000_000, 400_000_000)
+				inFlight := transfer{from: "node-1", to: "node-2", bytes: 90_000_000}
+				requireBaseline(t, goalAfter(rows, req.Baseline, append([]transfer{inFlight}, transfersOf(req.Moves)...)...), req.Goal)
+				for _, m := range req.Moves {
+					require.NotEqual(t, "g1-shard0", m.Shard)
+				}
+			},
+		},
+		{
+			name: "in-flight COPY projected",
+			// node-1's 100MB g1 shard is being copied to node-3, and stays on
+			// node-1. Without the in-flight op, moving it to node-2 would be
+			// the search's first pick.
+			rows: drafted(drafted(diskRows(700_000_000, 400_000_000, 400_000_000), "node-1", spreadRows()["node-1"].Shards...),
+				"node-1", shardSizes("Articles", 1, 100_000_000)...),
+			states: layout(spreadGroup, shardGroup{count: 1, nodes: []string{"node-1"}}),
+			setup: func(t *testing.T, h *plannerHarness) {
+				h.replacePlan([]string{"node-1"}, []string{"node-2", "node-3"}, nil)
+				h.replicate(1, api.COPY, "g1-shard0", "node-1", "node-3")
+			},
+			wantOutcome: replication.PlanStateProposed,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 11},
+				{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable},
+				{Node: "node-3", DiskUtilisation: 400_000_000 / diskUsable},
+			},
+			check: func(t *testing.T, h *plannerHarness) {
+				req := h.proposal()
+				rows := diskRows(700_000_000, 400_000_000, 400_000_000)
+				inFlight := transfer{to: "node-3", bytes: 100_000_000}
+				requireBaseline(t, goalAfter(rows, req.Baseline, append([]transfer{inFlight}, transfersOf(req.Moves)...)...), req.Goal)
+				for _, m := range req.Moves {
+					require.NotEqual(t, "g1-shard0", m.Shard)
+				}
+			},
+		},
+		{
+			name: "in-flight ops balance the cluster",
+			// Measured 700MB and 400MB; the 150MB MOVE levels both at 550MB.
+			rows:        drafted(diskRows(700_000_000, 400_000_000), "node-1", shardSizes("Articles", 0, 150_000_000)...),
+			states:      layout(shardGroup{count: 1, nodes: []string{"node-1"}}),
+			setup:       func(t *testing.T, h *plannerHarness) { h.replicate(1, api.MOVE, "g0-shard0", "node-1", "node-2") },
+			wantOutcome: replication.PlanStateNotNeeded,
+			wantReason:  inFlightBalancedReason,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 1},
+				{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable},
+			},
+		},
+		{
+			name: "in-flight MOVE onto a target that already holds the replica",
+			// The schema already lists node-2 for the moving 90MB g1 shard, so
+			// node-2's measured disk holds it. Adding 90MB on node-2 as well
+			// would change its goal utilisation.
+			rows:        drafted(spreadRows(), "node-1", shardSizes("Articles", 1, 90_000_000)...),
+			states:      layout(spreadGroup, shardGroup{count: 1, nodes: []string{"node-1", "node-2"}}),
+			setup:       func(t *testing.T, h *plannerHarness) { h.replicate(1, api.MOVE, "g1-shard0", "node-1", "node-2") },
+			wantOutcome: replication.PlanStateProposed,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 11},
+				{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable, ReplicaCount: 1},
+			},
+			check: func(t *testing.T, h *plannerHarness) {
+				req := h.proposal()
+				inFlight := transfer{from: "node-1", bytes: 90_000_000}
+				requireBaseline(t, goalAfter(diskRows(700_000_000, 400_000_000), req.Baseline,
+					append([]transfer{inFlight}, transfersOf(req.Moves)...)...), req.Goal)
+			},
+		},
+		{
+			name: "in-flight MOVE whose source no longer holds the replica",
+			// The schema lists the moving g1 shard on node-2 only, so both
+			// measured disks already reflect the MOVE. node-1's draft still
+			// sizes the shard at 90MB, which the op must not apply to either node.
+			rows:        drafted(spreadRows(), "node-1", shardSizes("Articles", 1, 90_000_000)...),
+			states:      layout(spreadGroup, shardGroup{count: 1, nodes: []string{"node-2"}}),
+			setup:       func(t *testing.T, h *plannerHarness) { h.replicate(1, api.MOVE, "g1-shard0", "node-1", "node-2") },
+			wantOutcome: replication.PlanStateProposed,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 10},
+				{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable, ReplicaCount: 1},
+			},
+			check: func(t *testing.T, h *plannerHarness) {
+				req := h.proposal()
+				requireBaseline(t, goalAfter(diskRows(700_000_000, 400_000_000), req.Baseline, transfersOf(req.Moves)...), req.Goal)
+			},
+		},
+		{
+			name:         "finished op is not projected/READY",
+			rows:         finishedRows(),
+			states:       finishedLayout(),
+			setup:        finishedSetup(func(h *plannerHarness) { h.advance(1, api.HYDRATING, api.FINALIZING, api.READY) }),
+			wantOutcome:  replication.PlanStateProposed,
+			wantBaseline: finishedBaseline,
+			check:        finishedCheck,
+		},
+		{
+			name:         "finished op is not projected/CANCELLED",
+			rows:         finishedRows(),
+			states:       finishedLayout(),
+			setup:        finishedSetup(func(h *plannerHarness) { h.advance(1, api.HYDRATING); h.cancel(1) }),
+			wantOutcome:  replication.PlanStateProposed,
+			wantBaseline: finishedBaseline,
+			check:        finishedCheck,
+		},
+		{
+			name: "in-flight MOVE onto a source",
+			// node-2's 150MB g1 shard is moving to node-1, the plan's source:
+			// 850MB and 250MB once projected. If the arriving replica were
+			// eligible, moving it back would be the search's first pick.
+			rows:        drafted(spreadRows(), "node-2", shardSizes("Articles", 1, 150_000_000)...),
+			states:      layout(spreadGroup, shardGroup{count: 1, nodes: []string{"node-2"}}),
+			setup:       func(t *testing.T, h *plannerHarness) { h.replicate(1, api.MOVE, "g1-shard0", "node-2", "node-1") },
+			wantOutcome: replication.PlanStateProposed,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 10},
+				{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable, ReplicaCount: 1},
+			},
+			check: func(t *testing.T, h *plannerHarness) {
+				req := h.proposal()
+				for _, m := range req.Moves {
+					require.NotEqual(t, "g1-shard0", m.Shard)
+				}
+				inFlight := transfer{from: "node-2", to: "node-1", bytes: 150_000_000}
+				requireBaseline(t, goalAfter(diskRows(700_000_000, 400_000_000), req.Baseline,
+					append([]transfer{inFlight}, transfersOf(req.Moves)...)...), req.Goal)
+			},
+		},
+		{
+			name: "in-flight MOVE larger than its source's used bytes",
+			// node-1 drafted its g0 shard at 300MB but measures 100MB used. The
+			// MOVE goes to node-9, which the plan does not list, so node-1
+			// ends at 0, level with node-2.
+			rows:        drafted(diskRows(100_000_000, 0), "node-1", shardSizes("Articles", 0, 300_000_000)...),
+			states:      layout(shardGroup{count: 1, nodes: []string{"node-1"}}),
+			setup:       func(t *testing.T, h *plannerHarness) { h.replicate(1, api.MOVE, "g0-shard0", "node-1", "node-9") },
+			wantOutcome: replication.PlanStateNotNeeded,
+			wantReason:  inFlightBalancedReason,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 100_000_000 / diskUsable, ReplicaCount: 1},
+				{Node: "node-2"},
+			},
+		},
+		{
+			name: "node without replication workers",
+			rows: func() map[string]types.RebalanceNodeMeasurement {
+				rows := spreadRows()
+				m := rows["node-2"]
+				m.ReplicationWorkers = 0
+				rows["node-2"] = m
+				return rows
+			}(),
+			states:          layout(spreadGroup),
+			wantOutcome:     replication.PlanStatePlanningFailed,
+			wantReasonParts: []string{"could not search for moves", "node-2", "workers"},
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 10},
+				{Node: "node-2", DiskUtilisation: 400_000_000 / diskUsable},
 			},
 		},
 		{
@@ -728,10 +1200,6 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			if wantResult == "" {
 				wantResult = string(tc.wantOutcome)
 			}
-			var wantApproveBefore int64
-			if tc.wantOutcome == replication.PlanStateProposed {
-				wantApproveBefore = math.MaxInt64
-			}
 			wantMeasuredAt := tc.wantMeasuredAt
 			if wantMeasuredAt.IsZero() {
 				wantMeasuredAt = plannerStart
@@ -760,11 +1228,23 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 
 			req := requireRunAt(t, h, wantResult, wantMeasuredAt)
 			require.Equal(t, tc.wantOutcome, req.Outcome)
-			require.Equal(t, tc.wantReason, req.Reason)
+			if tc.wantReasonParts != nil {
+				for _, part := range tc.wantReasonParts {
+					require.Contains(t, req.Reason, part)
+				}
+			} else {
+				require.Equal(t, tc.wantReason, req.Reason)
+			}
 			require.Equal(t, wantNodes, req.Nodes)
 			requireBaseline(t, tc.wantBaseline, req.Baseline)
-			require.Zero(t, req.MoveCount)
-			require.Equal(t, wantApproveBefore, req.ApproveBeforeUnixMs)
+			proposed := tc.wantOutcome == replication.PlanStateProposed
+			if proposed {
+				plan, ok := h.fsm.GetPlan()
+				require.True(t, ok)
+				requireProposal(t, plan, req)
+			} else {
+				requireNoMoves(t, req.Moves, req.Goal, req.MoveCount, req.PlanHash, req.ApproveBeforeUnixMs)
+			}
 
 			if wantResult == string(tc.wantOutcome) {
 				got, ok := h.fsm.GetPlan()
@@ -774,14 +1254,87 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				require.Equal(t, plannerTerm, got.RunTerm)
 				require.Equal(t, wantMeasuredAt.UnixMilli(), got.MeasuredAtUnixMs)
 				require.Equal(t, wantNodes, got.Nodes)
-				require.Equal(t, tc.wantReason, got.Reason)
+				require.Equal(t, req.Reason, got.Reason)
 				requireBaseline(t, tc.wantBaseline, got.Baseline)
-				require.Zero(t, got.MoveCount)
-				require.Equal(t, wantApproveBefore, got.ApproveBeforeUnixMs)
+				if proposed {
+					require.Equal(t, req.Moves, got.Moves)
+					require.Equal(t, req.Goal, got.Goal)
+					require.Equal(t, req.MoveCount, got.MoveCount)
+					require.Equal(t, req.PlanHash, got.PlanHash)
+					require.Equal(t, req.ApproveBeforeUnixMs, got.ApproveBeforeUnixMs)
+				} else {
+					requireNoMoves(t, got.Moves, got.Goal, got.MoveCount, got.PlanHash, got.ApproveBeforeUnixMs)
+				}
 			}
 			if tc.check != nil {
 				tc.check(t, h)
 			}
+		})
+	}
+}
+
+func TestRebalancePlanner_Eligibility(t *testing.T) {
+	// Each layout adds one protected replica, 150MB on node-1, to spreadRows.
+	// Moving it alone levels both nodes at 550MB, so the search takes it first
+	// unless a rule makes it ineligible.
+	const protectedBytes = 150_000_000
+	onNode1 := []string{"node-1"}
+	cases := []struct {
+		name        string
+		states      *schemaFixture
+		collections []string
+		protected   types.RebalanceShardSize
+		// draftNode is the node whose draft holds the protected shard.
+		draftNode string
+		wantMoved bool
+	}{
+		{
+			name:      "shard neither HOT nor COLD does not move",
+			states:    layout(spreadGroup, shardGroup{count: 1, status: models.TenantActivityStatusFREEZING, nodes: onNode1}),
+			protected: types.RebalanceShardSize{Collection: "Articles", Shard: "g1-shard0"},
+			draftNode: "node-1",
+		},
+		{
+			name:      "COLD shard moves",
+			states:    layout(spreadGroup, shardGroup{count: 1, status: models.TenantActivityStatusCOLD, nodes: onNode1}),
+			protected: types.RebalanceShardSize{Collection: "Articles", Shard: "g1-shard0"},
+			draftNode: "node-1",
+			wantMoved: true,
+		},
+		{
+			name:        "collection outside plan collections does not move",
+			states:      layout(spreadGroup).withClass("Books", shardGroup{count: 1, nodes: onNode1}),
+			collections: []string{"Articles"},
+			protected:   types.RebalanceShardSize{Collection: "Books", Shard: "g0-shard0"},
+			draftNode:   "node-1",
+		},
+		{
+			// Only node-1 holds the shard, but node-2 drafted it. Another
+			// node's draft does not give node-1's replica a size.
+			name:      "replica without a drafted size does not move",
+			states:    layout(spreadGroup, shardGroup{count: 1, nodes: onNode1}),
+			protected: types.RebalanceShardSize{Collection: "Articles", Shard: "g1-shard0"},
+			draftNode: "node-2",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			protected := tc.protected
+			protected.Bytes = protectedBytes
+			h := newPlannerHarness(t, fixedMeasure(drafted(spreadRows(), tc.draftNode, protected)), tc.states.mock(t))
+			h.expectProposals()
+			if tc.collections != nil {
+				h.replacePlan([]string{"node-1"}, []string{"node-2"}, tc.collections)
+			}
+
+			h.planner.RunOnce(context.Background())
+
+			req := requireRun(t, h, string(replication.PlanStateProposed))
+			require.Equal(t, replication.PlanStateProposed, req.Outcome, req.Reason)
+			moved := slices.ContainsFunc(req.Moves, func(m replication.PlanMove) bool {
+				return m.Collection == protected.Collection && m.Shard == protected.Shard
+			})
+			require.Equal(t, tc.wantMoved, moved, "moves: %+v", req.Moves)
 		})
 	}
 }

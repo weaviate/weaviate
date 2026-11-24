@@ -70,9 +70,6 @@ type Replica struct {
 type Input struct {
 	Nodes    []Node
 	Replicas []Replica
-	// MaxMoves is the largest number of moves Search returns. It is at least 0;
-	// Search returns an error for a negative value.
-	MaxMoves int
 }
 
 // Move moves one replica from a source to a target.
@@ -90,7 +87,6 @@ type Verdict int
 const (
 	MovesFound Verdict = iota + 1
 	NoAcceptablePlan
-	LimitExceeded
 )
 
 // Result is what Search returns.
@@ -101,8 +97,6 @@ type Result struct {
 	// MovesFound.
 	Moves []Move
 	Goal  []types.RebalanceNodeBalance
-	// MinMoveCount is MaxMoves + 1 for LimitExceeded and 0 otherwise.
-	MinMoveCount int
 }
 
 // NodeLoad is one node's projected state during a search.
@@ -146,7 +140,6 @@ func (s sums) diskVariance() float64 {
 // Search plans direct moves from the input's sources to its targets.
 //
 // Search returns an error and Result{} when any of these holds:
-//   - MaxMoves is negative;
 //   - two nodes share a name;
 //   - a node's UsableBytes is not finite or not above 0;
 //   - a node's UsedBytes is negative;
@@ -169,10 +162,9 @@ func (s sums) diskVariance() float64 {
 //     the largest replica moved onto the target, fit within the target's
 //     usable bytes.
 //
-// If Search would take a step beyond MaxMoves, it returns LimitExceeded.
-// Otherwise it returns MovesFound with every move taken, or NoAcceptablePlan
-// when it takes none. The order of nodes and replicas in the input does not
-// change the result.
+// Search returns MovesFound with every move taken, or NoAcceptablePlan when it
+// takes none. The order of nodes and replicas in the input does not change
+// the result.
 func Search(ctx context.Context, in Input) (Result, error) {
 	if err := validate(in); err != nil {
 		return Result{}, err
@@ -191,9 +183,6 @@ func Search(ctx context.Context, in Input) (Result, error) {
 		if !ok {
 			break
 		}
-		if len(moves) >= in.MaxMoves {
-			return Result{Verdict: LimitExceeded, MinMoveCount: in.MaxMoves + 1}, nil
-		}
 		moves = append(moves, s.apply(c))
 	}
 	if len(moves) == 0 {
@@ -203,12 +192,8 @@ func Search(ctx context.Context, in Input) (Result, error) {
 }
 
 // validate returns an error for the first error case from Search's doc comment
-// that it finds. It checks MaxMoves, then nodes in input order, then replicas
-// in input order.
+// that it finds. It checks nodes in input order, then replicas in input order.
 func validate(in Input) error {
-	if in.MaxMoves < 0 {
-		return fmt.Errorf("max moves %d is negative", in.MaxMoves)
-	}
 	names := make(map[string]struct{}, len(in.Nodes))
 	for _, n := range in.Nodes {
 		if _, dup := names[n.Name]; dup {

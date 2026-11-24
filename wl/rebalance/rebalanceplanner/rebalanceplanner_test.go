@@ -76,13 +76,8 @@ func TestSearch(t *testing.T) {
 	// at k = 5, so the plan needs 5 moves.
 	tenNodes := []rp.Node{source("S", 10), target("T", 0, 1)}
 	var tenReplicas []rp.Replica
-	var fiveMoves []rp.Move
 	for i := 1; i <= 10; i++ {
-		shard := fmt.Sprintf("s%02d", i)
-		tenReplicas = append(tenReplicas, replica("S", shard, 1))
-		if i <= 5 {
-			fiveMoves = append(fiveMoves, move(shard, "S", "T", 1))
-		}
+		tenReplicas = append(tenReplicas, replica("S", fmt.Sprintf("s%02d", i), 1))
 	}
 
 	// S uses 10 (6, 4) and T 8 (5, 3). Baseline: disk 0.625, 0.5 (0.0039),
@@ -94,7 +89,6 @@ func TestSearch(t *testing.T) {
 		Replicas: []rp.Replica{
 			replica("S", "s6", 6), replica("S", "s4", 4), replica("T", "t5", 5), replica("T", "t3", 3),
 		},
-		MaxMoves: 10,
 	}
 
 	// S uses 12 + xBytes: a (4) and b (2) are eligible; x (xBytes), y (3) and
@@ -107,7 +101,6 @@ func TestSearch(t *testing.T) {
 				ineligible("S", "x", xBytes), ineligible("S", "y", 3), ineligible("S", "z", 3),
 				replica("T", "t", targetUsed),
 			},
-			MaxMoves: 10,
 		}
 	}
 
@@ -157,7 +150,6 @@ func TestSearch(t *testing.T) {
 			in: rp.Input{
 				Nodes:    []rp.Node{source("S", 11), target("T", 1, 1)},
 				Replicas: []rp.Replica{replica("S", "a", 7), ineligible("S", "b", 4), replica("T", "t", 1)},
-				MaxMoves: 10,
 			},
 			want: rp.Result{
 				Verdict: rp.MovesFound,
@@ -177,7 +169,6 @@ func TestSearch(t *testing.T) {
 				Replicas: []rp.Replica{
 					replica("S", "s1", 6), replica("S", "s2", 4), replica("S", "s3", 2), replica("T", "s4", 4),
 				},
-				MaxMoves: 10,
 			},
 			want: rp.Result{
 				Verdict: rp.MovesFound,
@@ -187,7 +178,7 @@ func TestSearch(t *testing.T) {
 		},
 		{
 			name: "three-node layout",
-			in:   rp.Input{Nodes: threeNodes, Replicas: threeReplicas, MaxMoves: 10},
+			in:   rp.Input{Nodes: threeNodes, Replicas: threeReplicas},
 			want: threeResult,
 		},
 		{
@@ -195,7 +186,6 @@ func TestSearch(t *testing.T) {
 			in: rp.Input{
 				Nodes:    threeNodes,
 				Replicas: append(slices.Clone(threeReplicas), replica("X", "x", -1)),
-				MaxMoves: 10,
 			},
 			want: threeResult,
 		},
@@ -204,7 +194,6 @@ func TestSearch(t *testing.T) {
 			in: rp.Input{
 				Nodes:    threeNodes,
 				Replicas: append(slices.Clone(threeReplicas), replica("X", "x", 4), replica("X", "x", 4)),
-				MaxMoves: 10,
 			},
 			want: threeResult,
 		},
@@ -215,7 +204,6 @@ func TestSearch(t *testing.T) {
 			in: rp.Input{
 				Nodes:    []rp.Node{target("T2", 0, 1), target("T1", 0, 1), source("S", 12)},
 				Replicas: []rp.Replica{replica("S", "c", 4), replica("S", "b", 4), replica("S", "a", 4)},
-				MaxMoves: 10,
 			},
 			want: rp.Result{
 				Verdict: rp.MovesFound,
@@ -238,7 +226,6 @@ func TestSearch(t *testing.T) {
 					replica("S1", "a", 4), replica("S1", "b", 4), replica("S1", "c", 4),
 					replica("S2", "a", 4), replica("S2", "d", 4), replica("S2", "e", 4),
 				},
-				MaxMoves: 10,
 			},
 			want: rp.Result{
 				Verdict: rp.MovesFound,
@@ -253,7 +240,6 @@ func TestSearch(t *testing.T) {
 			in: rp.Input{
 				Nodes:    threeNodes,
 				Replicas: []rp.Replica{ineligible("S", "a", 4), replica("S", "b", 4), replica("S", "c", 4)},
-				MaxMoves: 10,
 			},
 			want: rp.Result{
 				Verdict: rp.MovesFound,
@@ -270,28 +256,11 @@ func TestSearch(t *testing.T) {
 			in: rp.Input{
 				Nodes:    []rp.Node{source("S", 12), target("T1", 0, 1), target("T2", 0, 4)},
 				Replicas: threeReplicas,
-				MaxMoves: 10,
 			},
 			want: rp.Result{
 				Verdict: rp.MovesFound,
 				Moves:   threeMoves[:1],
 				Goal:    []types.RebalanceNodeBalance{row("S", 0.5, 2), row("T1", 0.25, 1), row("T2", 0, 0)},
-			},
-		},
-		{
-			// After 3 moves, disk stddev 0.125 fails Balanced and move 4 lowers
-			// the variance from 0.0156 to 0.0039.
-			name: "limit exceeded",
-			in:   rp.Input{Nodes: tenNodes, Replicas: tenReplicas, MaxMoves: 3},
-			want: rp.Result{Verdict: rp.LimitExceeded, MinMoveCount: 4},
-		},
-		{
-			name: "MaxMoves equal to the moves needed",
-			in:   rp.Input{Nodes: tenNodes, Replicas: tenReplicas, MaxMoves: 5},
-			want: rp.Result{
-				Verdict: rp.MovesFound,
-				Moves:   fiveMoves,
-				Goal:    []types.RebalanceNodeBalance{row("S", 0.3125, 5), row("T", 0.3125, 5)},
 			},
 		},
 		{
@@ -323,7 +292,7 @@ func TestSearch(t *testing.T) {
 			// Five live checks allow the ten-replica layout's 5 moves. The sixth
 			// check fails before the Balanced stop that would end the search.
 			name: "context that ends after the last move",
-			in:   rp.Input{Nodes: tenNodes, Replicas: tenReplicas, MaxMoves: 10},
+			in:   rp.Input{Nodes: tenNodes, Replicas: tenReplicas},
 			live: 5,
 		},
 	}
