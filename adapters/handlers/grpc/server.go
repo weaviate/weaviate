@@ -301,12 +301,15 @@ func makeClientIdentifierInterceptor() grpc.UnaryServerInterceptor {
 }
 
 func newOperationalModeInterceptor(s *state.State) *operationalModeInterceptor {
-	return &operationalModeInterceptor{state: s}
+	// TODO(dyma): do we want to add something like dev.Assert in Go client?
+	// To enable assertions in test, i.e. state is not nil.
+	return &operationalModeInterceptor{
+		getMode: s.ServerConfig.Config.OperationalMode.Get,
+	}
 }
 
 type operationalModeInterceptor struct {
-	// TODO(dyma): pass OperationalMode runtime.DynamicValue instead of the entire state object
-	state *state.State
+	getMode func() string // Returns the cluster's current operational mode.
 }
 
 // admit returns a non-nil error if the server cannot process the request in the current state.
@@ -315,7 +318,7 @@ func (omi *operationalModeInterceptor) admit(fullMethod string) error {
 		return nil
 	}
 	var err error
-	switch omi.state.ServerConfig.Config.OperationalMode.Get() {
+	switch omi.getMode() {
 	case config.READ_ONLY:
 		if config.IsGRPCWrite(fullMethod) {
 			err = config.ErrReadOnlyModeEnabled
@@ -328,17 +331,18 @@ func (omi *operationalModeInterceptor) admit(fullMethod string) error {
 		if config.IsGRPCRead(fullMethod) {
 			err = config.ErrWriteOnlyModeEnabled
 		}
-	default:
-		// all good
+	default: // The node can serve the request.
 	}
-	return err
+	if err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
+	return nil
 }
 
 // unary implements [grpc.UnaryServerInterceptor].
 func (omi *operationalModeInterceptor) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	if err := omi.admit(info.FullMethod); err != nil {
-		// TODO(dyma): replace with status.Error() for brevity
-		return nil, status.New(codes.Unavailable, err.Error()).Err()
+		return nil, err
 	}
 	return handler(ctx, req)
 }
@@ -346,7 +350,7 @@ func (omi *operationalModeInterceptor) unary(ctx context.Context, req any, info 
 // stream implements [grpc.StreamServerInterceptor].
 func (omi *operationalModeInterceptor) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	if err := omi.admit(info.FullMethod); err != nil {
-		return status.New(codes.Unavailable, err.Error()).Err()
+		return err
 	}
 	return handler(srv, ss)
 }
