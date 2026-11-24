@@ -121,12 +121,38 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 		return nil, fmt.Errorf("list backup files: %w", err)
 	}
 
-	out := make([]string, 0, len(dbRootFiles)+3)
+	// The files a vector index changes in place are copied, as a backup copies
+	// them (CreateBackupSnapshot): a hardlink made now would change with the
+	// live file once the shard resumes, and in halt-for-duration mode the live
+	// file goes on changing while the target reads it. The copies are served
+	// from the staging dir in both modes. HNSW, flat, dynamic and HFresh copy
+	// nothing; a posting-edge index copies its meta, its journal and the
+	// files it rewrites in place.
+	staged := map[string]struct{}{}
+	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+		shardRels, err := idx.SnapshotMutableFiles(ctx, s.path(), stagingRoot)
+		if err != nil {
+			return fmt.Errorf("snapshot mutable files of vector %q: %w", targetVector, err)
+		}
+		for _, shardRel := range shardRels {
+			staged[shardRel] = struct{}{}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(dbRootFiles)+len(staged)+3)
 	var hardlinks []file.HardlinkPair
 	for _, dbRel := range dbRootFiles {
 		shardRel, err := s.shardRelativePath(dbRel)
 		if err != nil {
 			return nil, err
+		}
+		if _, ok := staged[shardRel]; ok {
+			// Copied above: a hardlink would land on the copy.
+			continue
 		}
 		if hardlinkSegments {
 			hardlinks = append(hardlinks, file.HardlinkPair{
@@ -139,6 +165,10 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 	// hardlinks is nil in halt-for-duration mode, where HardlinkFiles is a no-op.
 	if err := file.HardlinkFiles(hardlinks); err != nil {
 		return nil, fmt.Errorf("hardlink replica snapshot files to staging: %w", err)
+	}
+
+	for shardRel := range staged {
+		out = append(out, shardRel)
 	}
 
 	mutables, err := s.writeReplicaSnapshotMutableFiles(stagingRoot, &sd)
