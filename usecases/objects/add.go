@@ -96,12 +96,13 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
+	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, m.authorizer, true, fetchedClasses, object)
 	if err != nil {
-		// A denial and a usage limit keep their own status. Every other error,
+		// Authorization failures and usage limits keep their own status. Every other error,
 		// a cluster failure writing the schema included, is reported as invalid
 		// input.
-		if _, limited := usagelimits.AsLimitExceeded(err); limited || errors.As(err, &authzerrs.Forbidden{}) {
+		if _, limited := usagelimits.AsLimitExceeded(err); limited ||
+			errors.As(err, &authzerrs.Forbidden{}) || isAutoSchemaAuthorizationError(err) {
 			return nil, fmt.Errorf("invalid object: %w", err)
 		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
@@ -119,6 +120,9 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)
 	if err != nil {
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, err
+		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return nil, NewErrInternal("validate object: %w", err)
 		}
@@ -210,7 +214,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled).
+		principal, m.authorizer, m.config.Config.Namespaces.Enabled).
 		Object(ctx, class, incoming, existing)
 }
 

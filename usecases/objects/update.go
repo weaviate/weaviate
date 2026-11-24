@@ -93,11 +93,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
+	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, m.authorizer, false, fetchedClasses, updates)
 	if err != nil {
-		// Extending the collection needs its own permission; reporting a denial
-		// as invalid input would hide the missing grant behind a 422.
-		if errors.As(err, &authzerrs.Forbidden{}) {
+		// Extending the collection needs its own permission. Authorization
+		// failures must retain their status instead of becoming invalid input.
+		if errors.As(err, &authzerrs.Forbidden{}) || isAutoSchemaAuthorizationError(err) {
 			return nil, err
 		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
@@ -115,6 +115,9 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	prevObj := obj.Object()
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClasses)
 	if err != nil {
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, err
+		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return nil, NewErrInternal("validate object: %w", err)
 		}

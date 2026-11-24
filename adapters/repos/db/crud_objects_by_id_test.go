@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -95,6 +96,86 @@ func TestObjectsByID(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestObjectsByIDWithClassCheck(t *testing.T) {
+	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
+	logger, _ := test.NewNullLogger()
+
+	t.Run("checks each eligible collection", func(t *testing.T) {
+		db := &DB{logger: logger, indices: map[string]*Index{}}
+		for _, c := range []struct {
+			class       string
+			multiTenant bool
+		}{
+			{class: "Plain"},
+			{class: "Other"},
+			{class: "Tenanted", multiTenant: true},
+			{class: "ns1:Plain"},
+			{class: "ns1:Other"},
+			{class: "ns1:Tenanted", multiTenant: true},
+		} {
+			db.indices[indexID(schema.ClassName(c.class))] = objectsByIDTestIndex(t, c.class, c.multiTenant, id)
+		}
+
+		for _, tc := range []struct {
+			name      string
+			namespace string
+			want      []string
+		}{
+			{name: "global", want: []string{"Plain", "Other"}},
+			{name: "namespace", namespace: "ns1", want: []string{"ns1:Plain", "ns1:Other"}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				var checked []string
+				results, err := db.ObjectsByIDWithClassCheck(t.Context(), id, nil, additional.Properties{}, "", tc.namespace,
+					func(class string) (bool, error) {
+						checked = append(checked, class)
+						return true, nil
+					})
+				require.NoError(t, err)
+				var found []string
+				for _, result := range results {
+					found = append(found, result.ClassName)
+				}
+				assert.ElementsMatch(t, tc.want, found)
+				assert.ElementsMatch(t, tc.want, checked)
+			})
+		}
+	})
+
+	t.Run("a skipped collection is not read", func(t *testing.T) {
+		db := &DB{logger: logger, indices: map[string]*Index{}}
+		db.indices[indexID("Closed")] = objectsByIDTestIndex(t, "Closed", false, id)
+		require.NoError(t, db.indices[indexID("Closed")].ForEachShard(func(_ string, shard ShardLike) error {
+			return shard.Shutdown(t.Context())
+		}))
+
+		results, err := db.ObjectsByIDWithClassCheck(t.Context(), id, nil, additional.Properties{}, "", "",
+			func(class string) (bool, error) {
+				assert.Equal(t, "Closed", class)
+				return false, nil
+			})
+		require.NoError(t, err)
+		require.Empty(t, results)
+	})
+
+	t.Run("a failed check prevents the collection read", func(t *testing.T) {
+		db := &DB{logger: logger, indices: map[string]*Index{}}
+		db.indices[indexID("Closed")] = objectsByIDTestIndex(t, "Closed", false, id)
+		require.NoError(t, db.indices[indexID("Closed")].ForEachShard(func(_ string, shard ShardLike) error {
+			return shard.Shutdown(t.Context())
+		}))
+		denied := errors.New("denied")
+
+		_, err := db.ObjectsByIDWithClassCheck(t.Context(), id, nil, additional.Properties{}, "", "",
+			func(class string) (bool, error) {
+				assert.Equal(t, "Closed", class)
+				return false, denied
+			})
+		require.ErrorIs(t, err, denied)
+		require.NotErrorIs(t, err, errAlreadyShutdown)
+	})
 }
 
 // objectsByIDTestIndex returns a one-shard index of className holding id. It

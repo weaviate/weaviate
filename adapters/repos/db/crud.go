@@ -169,6 +169,22 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant, namespace string,
 ) (search.Results, error) {
+	return db.objectsByID(ctx, id, props, additional, tenant, namespace, nil)
+}
+
+// ObjectsByIDWithClassCheck calls check before each eligible collection read.
+// A false result skips that collection.
+func (db *DB) ObjectsByIDWithClassCheck(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	tenant, namespace string, check func(class string) (bool, error),
+) (search.Results, error) {
+	return db.objectsByID(ctx, id, props, additional, tenant, namespace, check)
+}
+
+func (db *DB) objectsByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	tenant, namespace string, check func(class string) (bool, error),
+) (search.Results, error) {
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
@@ -181,6 +197,16 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		if tenant == "" && index.partitioningEnabled {
 			// A multi-tenant collection holds nothing a lookup without a tenant can reach.
 			continue
+		}
+		if check != nil {
+			allowed, err := check(string(index.Config.ClassName))
+			if err != nil {
+				db.indexLock.RUnlock()
+				return nil, err
+			}
+			if !allowed {
+				continue
+			}
 		}
 		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)
 		if err != nil {

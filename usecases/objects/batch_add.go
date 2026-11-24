@@ -183,7 +183,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		objectsPerClass       = make(map[string][]*models.Object)
 		originalIndexPerClass = make(map[string][]int)
 		validator             = validation.New(b.vectorRepo.Exists, b.config, repl,
-			principal, b.config.Config.Namespaces.Enabled)
+			principal, b.authorizer, b.config.Config.Namespaces.Enabled)
 	)
 
 	// validate each object and sort by class (==vectorizer)
@@ -196,7 +196,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
-		schemaVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, obj)
+		schemaVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, b.authorizer, true, fetchedClasses, obj)
 		if err != nil {
 			batchObjects[i].Err = err
 		}

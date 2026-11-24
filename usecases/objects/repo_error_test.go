@@ -25,6 +25,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -362,13 +363,17 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 	principal := &models.Principal{Username: "admin"}
 	denied := authzerrs.NewForbidden(principal, authorization.UPDATE, "collections/Zoo")
 	rejected := errors.New("collection is being deleted")
+	authorizationFailed := errors.New("authorization service unavailable")
 	limited := usagelimits.NewLimitExceededError("", usagelimits.LimitCollections, 1)
 
 	// requireStatus checks an error AddObject or UpdateObject returned.
-	requireStatus := func(t *testing.T, err error, wantForbidden, wantUserInput bool) {
+	requireStatus := func(t *testing.T, err error, wantForbidden, wantUserInput, wantAuthorizationFailure bool) {
 		switch {
 		case wantForbidden:
 			require.ErrorAs(t, err, &authzerrs.Forbidden{})
+			require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+		case wantAuthorizationFailure:
+			require.ErrorIs(t, err, authorizationFailed)
 			require.NotErrorAs(t, err, &ErrInvalidUserInput{})
 		case wantUserInput:
 			require.ErrorAs(t, err, &ErrInvalidUserInput{})
@@ -387,12 +392,18 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 	}
 
 	cases := []struct {
-		name          string
-		autoSchemaErr error
-		wantForbidden bool
-		wantUserInput bool
+		name                     string
+		autoSchemaErr            error
+		wantForbidden            bool
+		wantUserInput            bool
+		wantAuthorizationFailure bool
 	}{
 		{name: "denied", autoSchemaErr: denied, wantForbidden: true},
+		{
+			name:                     "authorization service failure",
+			autoSchemaErr:            &autoSchemaAuthorizationError{err: authorizationFailed},
+			wantAuthorizationFailure: true,
+		},
 		{name: "rejected", autoSchemaErr: rejected, wantUserInput: true},
 		{name: "permitted", autoSchemaErr: nil},
 	}
@@ -411,7 +422,7 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 
 				_, err := m.AddObject(context.Background(), principal, updates(), nil)
 
-				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput, tc.wantAuthorizationFailure)
 				repo.AssertExpectations(t)
 			})
 
@@ -428,7 +439,7 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 
 				_, err := m.UpdateObject(context.Background(), principal, class, id, updates(), nil)
 
-				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput, tc.wantAuthorizationFailure)
 				repo.AssertExpectations(t)
 			})
 
@@ -449,6 +460,10 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 				case tc.wantForbidden:
 					require.NotNil(t, objErr)
 					require.Equal(t, StatusForbidden, objErr.Code)
+				case tc.wantAuthorizationFailure:
+					require.NotNil(t, objErr)
+					require.Equal(t, StatusInternalServerError, objErr.Code)
+					require.ErrorIs(t, objErr, authorizationFailed)
 				case tc.wantUserInput:
 					// The handler renders a merge BadRequest as 422.
 					require.NotNil(t, objErr)
@@ -490,7 +505,497 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 				require.NotErrorAs(t, err, &ErrInvalidUserInput{})
 				return
 			}
-			requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+			requireStatus(t, err, tc.wantForbidden, tc.wantUserInput, false)
+		})
+	}
+}
+
+func inlineRefTestObject(class, target string, id, refID strfmt.UUID, tenant string) *models.Object {
+	return &models.Object{
+		Class:  class,
+		ID:     id,
+		Tenant: tenant,
+		Properties: map[string]interface{}{
+			"hasAnimals": []interface{}{map[string]interface{}{
+				"beacon": "weaviate://localhost/" + target + "/" + string(refID),
+			}},
+		},
+	}
+}
+
+func objectErrorAsError(objErr *Error) error {
+	if objErr != nil {
+		return objErr
+	}
+	return nil
+}
+
+func TestInlineRefTargetRequiresReadPermission(t *testing.T) {
+	const class, target, tenant = "Zoo", "Animal", "tenantA"
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	principal := &models.Principal{Username: "writer"}
+	targetResources := authorization.ShardsData(target, tenant)
+
+	withRef := func() *models.Object {
+		return inlineRefTestObject(class, target, id, refID, tenant)
+	}
+	requireForbidden := func(t *testing.T, err error) {
+		t.Helper()
+		require.ErrorAs(t, err, &authzerrs.Forbidden{})
+		require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+	}
+
+	ops := []struct {
+		name          string
+		arrange       func(repo *fakeObjectFinder)
+		call          func(t *testing.T, m *Manager, b *BatchManager) error
+		assertDenied  func(t *testing.T, err error)
+		isBatchObject bool
+	}{
+		{
+			name: "add object",
+			call: func(_ *testing.T, m *Manager, _ *BatchManager) error {
+				obj := withRef()
+				obj.ID = ""
+				_, err := m.AddObject(context.Background(), principal, obj, nil)
+				return err
+			},
+			assertDenied: requireForbidden,
+		},
+		{
+			name: "validate object",
+			call: func(_ *testing.T, m *Manager, _ *BatchManager) error {
+				return m.ValidateObject(context.Background(), principal, withRef(), nil)
+			},
+			assertDenied: requireForbidden,
+		},
+		{
+			name: "update object",
+			arrange: func(repo *fakeObjectFinder) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, tenant).
+					Return(&search.Result{ID: id, ClassName: class, Tenant: tenant}, nil).Once()
+			},
+			call: func(_ *testing.T, m *Manager, _ *BatchManager) error {
+				_, err := m.UpdateObject(context.Background(), principal, class, id, withRef(), nil)
+				return err
+			},
+			assertDenied: requireForbidden,
+		},
+		{
+			name: "merge object",
+			arrange: func(repo *fakeObjectFinder) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, tenant).
+					Return(&search.Result{ID: id, ClassName: class, Tenant: tenant}, nil).Once()
+			},
+			call: func(_ *testing.T, m *Manager, _ *BatchManager) error {
+				return objectErrorAsError(m.MergeObject(context.Background(), principal, withRef(), nil))
+			},
+			assertDenied: func(t *testing.T, err error) {
+				t.Helper()
+				requireForbidden(t, err)
+				var objErr *Error
+				require.ErrorAs(t, err, &objErr)
+				require.Equal(t, StatusForbidden, objErr.Code)
+			},
+		},
+		{
+			name: "batch object REST",
+			call: func(t *testing.T, _ *Manager, b *BatchManager) error {
+				objects := []*models.Object{
+					withRef(),
+					{Class: class, ID: "b0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc", Tenant: tenant},
+				}
+				res, err := b.AddObjects(context.Background(), principal, objects, nil, nil)
+				require.NoError(t, err)
+				require.Len(t, res, 2)
+				require.Equal(t, 0, res[0].OriginalIndex)
+				require.Equal(t, 1, res[1].OriginalIndex)
+				require.NoError(t, res[1].Err)
+				return res[0].Err
+			},
+			assertDenied:  requireForbidden,
+			isBatchObject: true,
+		},
+		{
+			name: "batch object gRPC after auth",
+			call: func(t *testing.T, _ *Manager, b *BatchManager) error {
+				objects := []*models.Object{
+					withRef(),
+					{Class: class, ID: "b0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc", Tenant: tenant},
+				}
+				classes := zooAnimalNSSchema(false)
+				fetchedClasses := make(map[string]versioned.Class, len(classes))
+				for _, class := range classes {
+					fetchedClasses[class.Class] = versioned.Class{Class: class}
+				}
+				res, err := b.AddObjectsGRPCAfterAuth(context.Background(), principal, objects, nil, fetchedClasses)
+				require.NoError(t, err)
+				require.Len(t, res, 2)
+				require.Equal(t, 0, res[0].OriginalIndex)
+				require.Equal(t, 1, res[1].OriginalIndex)
+				require.NoError(t, res[1].Err)
+				return res[0].Err
+			},
+			assertDenied:  requireForbidden,
+			isBatchObject: true,
+		},
+	}
+
+	permissions := []struct {
+		name    string
+		allowed bool
+	}{
+		{name: "target read allowed", allowed: true},
+		{name: "target read denied"},
+	}
+
+	for _, permission := range permissions {
+		for _, op := range ops {
+			t.Run(permission.name+"/"+op.name, func(t *testing.T) {
+				m, b, repo, mods, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
+				if op.arrange != nil {
+					op.arrange(repo)
+				}
+				if op.isBatchObject {
+					mods.On("BatchUpdateVector").Return(nil, nil).Once()
+					repo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+				}
+				if permission.allowed {
+					repo.On("Exists", target, refID).Return(false, nil).Once()
+				} else {
+					authz.Deny(targetResources...)
+					repo.On("Exists", target, refID).Return(false, nil).Maybe()
+				}
+
+				err := op.call(t, m, b)
+				if permission.allowed {
+					require.Error(t, err)
+					require.NotErrorAs(t, err, &authzerrs.Forbidden{})
+				} else {
+					op.assertDenied(t, err)
+					repo.AssertNotCalled(t, "Exists", target, refID)
+				}
+
+				calls := authz.Calls()
+				require.NotEmpty(t, calls)
+				targetCall := calls[len(calls)-1]
+				require.Equal(t, authorization.READ, targetCall.Verb)
+				require.Equal(t, targetResources, targetCall.Resources)
+				repo.AssertExpectations(t)
+			})
+		}
+	}
+}
+
+func TestInlineRefTargetAuthorizationFailureIsInternal(t *testing.T) {
+	const class, target, tenant = "Zoo", "Animal", "tenantA"
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	principal := &models.Principal{Username: "writer"}
+	authorizationFailed := errors.New("authorization service unavailable")
+	targetResources := authorization.ShardsData(target, tenant)
+
+	withRef := func() *models.Object {
+		return inlineRefTestObject(class, target, id, refID, tenant)
+	}
+	ops := []struct {
+		name               string
+		precedingAuthCalls int
+		arrange            func(*fakeObjectFinder, *fakeModulesProvider)
+		call               func(*testing.T, *Manager, *BatchManager) error
+		wantCode           int
+	}{
+		{
+			name:               "add object",
+			precedingAuthCalls: 1,
+			call: func(_ *testing.T, m *Manager, _ *BatchManager) error {
+				obj := withRef()
+				obj.ID = ""
+				_, err := m.AddObject(context.Background(), principal, obj, nil)
+				return err
+			},
+		},
+		{
+			name:               "validate object",
+			precedingAuthCalls: 1,
+			call: func(_ *testing.T, m *Manager, _ *BatchManager) error {
+				return m.ValidateObject(context.Background(), principal, withRef(), nil)
+			},
+		},
+		{
+			name:               "update object",
+			precedingAuthCalls: 1,
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, tenant).
+					Return(&search.Result{ID: id, ClassName: class, Tenant: tenant}, nil).Once()
+			},
+			call: func(_ *testing.T, m *Manager, _ *BatchManager) error {
+				_, err := m.UpdateObject(context.Background(), principal, class, id, withRef(), nil)
+				return err
+			},
+		},
+		{
+			name:               "merge object",
+			precedingAuthCalls: 1,
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, tenant).
+					Return(&search.Result{ID: id, ClassName: class, Tenant: tenant}, nil).Once()
+			},
+			call: func(_ *testing.T, m *Manager, _ *BatchManager) error {
+				return objectErrorAsError(m.MergeObject(context.Background(), principal, withRef(), nil))
+			},
+			wantCode: StatusInternalServerError,
+		},
+		{
+			name:               "batch object REST",
+			precedingAuthCalls: 2,
+			arrange: func(repo *fakeObjectFinder, mods *fakeModulesProvider) {
+				mods.On("BatchUpdateVector").Return(nil, nil).Once()
+				repo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+			},
+			call: func(t *testing.T, _ *Manager, b *BatchManager) error {
+				objects, err := b.AddObjects(context.Background(), principal, []*models.Object{withRef()}, nil, nil)
+				require.NoError(t, err)
+				require.Len(t, objects, 1)
+				return objects[0].Err
+			},
+		},
+		{
+			name: "batch object gRPC after auth",
+			arrange: func(repo *fakeObjectFinder, mods *fakeModulesProvider) {
+				mods.On("BatchUpdateVector").Return(nil, nil).Once()
+				repo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+			},
+			call: func(t *testing.T, _ *Manager, b *BatchManager) error {
+				classes := zooAnimalNSSchema(false)
+				fetchedClasses := make(map[string]versioned.Class, len(classes))
+				for _, class := range classes {
+					fetchedClasses[class.Class] = versioned.Class{Class: class}
+				}
+				objects, err := b.AddObjectsGRPCAfterAuth(context.Background(), principal,
+					[]*models.Object{withRef()}, nil, fetchedClasses)
+				require.NoError(t, err)
+				require.Len(t, objects, 1)
+				return objects[0].Err
+			},
+		},
+	}
+
+	for _, op := range ops {
+		t.Run(op.name, func(t *testing.T) {
+			m, b, repo, mods, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
+			if op.arrange != nil {
+				op.arrange(repo, mods)
+			}
+			authz.SetErrAfter(op.precedingAuthCalls, authorizationFailed)
+
+			err := op.call(t, m, b)
+			require.ErrorIs(t, err, authorizationFailed)
+			require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+			require.NotErrorAs(t, err, &authzerrs.Forbidden{})
+			if op.wantCode != 0 {
+				var objErr *Error
+				require.ErrorAs(t, err, &objErr)
+				require.Equal(t, op.wantCode, objErr.Code)
+			}
+
+			repo.AssertNotCalled(t, "Exists", target, refID)
+			calls := authz.Calls()
+			require.Len(t, calls, op.precedingAuthCalls+1)
+			targetCall := calls[len(calls)-1]
+			require.Equal(t, authorization.READ, targetCall.Verb)
+			require.Equal(t, targetResources, targetCall.Resources)
+			repo.AssertExpectations(t)
+		})
+	}
+}
+
+func TestAutoSchemaClasslessRefLookupSkipsUnreadableCollections(t *testing.T) {
+	const class, target = "Source", "Target"
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	principal := &models.Principal{Username: "writer"}
+	targetResources := authorization.Collections(target)
+
+	operations := []struct {
+		name string
+		call func(*testing.T, *Manager, *BatchManager, *fakeObjectFinder, *fakeModulesProvider) error
+	}{
+		{
+			name: "add object",
+			call: func(t *testing.T, m *Manager, _ *BatchManager, repo *fakeObjectFinder, mods *fakeModulesProvider) error {
+				mods.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil).Once()
+				repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+				_, err := m.AddObject(context.Background(), principal, classlessAutoSchemaObject(class, refID), nil)
+				return err
+			},
+		},
+		{
+			name: "batch objects",
+			call: func(t *testing.T, _ *Manager, b *BatchManager, repo *fakeObjectFinder, mods *fakeModulesProvider) error {
+				mods.On("BatchUpdateVector").Return(nil, nil).Once()
+				repo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+				objects, err := b.AddObjects(context.Background(), principal,
+					[]*models.Object{
+						classlessAutoSchemaObject(class, refID),
+						{Class: class},
+					}, nil, nil)
+				require.NoError(t, err)
+				require.Len(t, objects, 2)
+				require.Equal(t, 0, objects[0].OriginalIndex)
+				require.Equal(t, 1, objects[1].OriginalIndex)
+				require.NoError(t, objects[1].Err)
+				return objects[0].Err
+			},
+		},
+	}
+
+	denials := []struct {
+		name      string
+		resources []string
+	}{
+		{name: "data denied", resources: authorization.CollectionsData(target)},
+		{name: "metadata denied", resources: authorization.CollectionsMetadata(target)},
+	}
+
+	for _, denial := range denials {
+		for _, operation := range operations {
+			t.Run(denial.name+"/"+operation.name, func(t *testing.T) {
+				classes := []*models.Class{
+					{Class: class, Vectorizer: config.VectorizerModuleNone},
+					{Class: target, Vectorizer: config.VectorizerModuleNone},
+				}
+				m, b, repo, mods, authz := newNSManagers(t, classes, false, withAutoSchema(nil))
+				authz.Deny(denial.resources...)
+				repo.On("ObjectsByID", refID, mock.Anything, mock.Anything, "", "").
+					Return(search.Results{{ClassName: target}}, nil).Once()
+				repo.On("Exists", target, refID).Return(false, nil).Maybe()
+
+				require.NoError(t, operation.call(t, m, b, repo, mods))
+				repo.AssertNotCalled(t, "Exists", target, refID)
+
+				var lookupCalls int
+				for _, call := range authz.Calls() {
+					if call.Verb == authorization.READ && len(call.Resources) == len(targetResources) {
+						require.Equal(t, targetResources, call.Resources)
+						lookupCalls++
+					}
+				}
+				require.Equal(t, 1, lookupCalls)
+				repo.AssertExpectations(t)
+			})
+		}
+	}
+}
+
+func classlessAutoSchemaObject(class string, refID strfmt.UUID) *models.Object {
+	return &models.Object{
+		Class: class,
+		Properties: map[string]interface{}{
+			"watched": []interface{}{map[string]interface{}{
+				"beacon": "weaviate://localhost/" + string(refID),
+			}},
+		},
+	}
+}
+
+func TestDedicatedRefTargetScopeDenialIsForbidden(t *testing.T) {
+	const tenant = "tenantA"
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	principal := &models.Principal{Username: "writer"}
+
+	scenarios := []struct {
+		name             string
+		class            string
+		property         string
+		target           string
+		beacon           strfmt.URI
+		classes          []*models.Class
+		deniedResources  []string
+		wantInitialProbe bool
+	}{
+		{
+			name:             "named target tenantless retry",
+			class:            "Zoo",
+			property:         "hasAnimals",
+			target:           "Animal",
+			beacon:           strfmt.URI("weaviate://localhost/Animal/" + string(refID)),
+			classes:          zooAnimalNSSchema(false),
+			deniedResources:  authorization.ShardsData("Animal", ""),
+			wantInitialProbe: true,
+		},
+		{
+			name:            "classless target global lookup",
+			class:           "Source",
+			property:        "hasOther",
+			beacon:          strfmt.URI("weaviate://localhost/" + string(refID)),
+			classes:         multiTargetNSSchema(false),
+			deniedResources: authorization.ShardsData("", ""),
+		},
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			ops := []struct {
+				name    string
+				arrange func(repo *fakeObjectFinder)
+				call    func(m *Manager) *Error
+			}{
+				{
+					name: "add reference",
+					call: func(m *Manager) *Error {
+						return m.AddObjectReference(context.Background(), principal, &AddReferenceInput{
+							Class: scenario.class, ID: id, Property: scenario.property,
+							Ref: models.SingleRef{Beacon: scenario.beacon},
+						}, nil, tenant)
+					},
+				},
+				{
+					name: "replace references",
+					arrange: func(repo *fakeObjectFinder) {
+						repo.On("Object", scenario.class, id, mock.Anything, mock.Anything, tenant).
+							Return(&search.Result{ID: id, ClassName: scenario.class, Tenant: tenant}, nil).Once()
+					},
+					call: func(m *Manager) *Error {
+						return m.UpdateObjectReferences(context.Background(), principal, &PutReferenceInput{
+							Class: scenario.class, ID: id, Property: scenario.property,
+							Refs: models.MultipleRef{{Beacon: scenario.beacon}},
+						}, nil, tenant)
+					},
+				},
+			}
+
+			for _, op := range ops {
+				t.Run(op.name, func(t *testing.T) {
+					m, _, repo, _, authz := newNSManagers(t, scenario.classes, false)
+					if op.arrange != nil {
+						op.arrange(repo)
+					}
+					authz.Deny(scenario.deniedResources...)
+					probe := repo.On("Exists", scenario.target, refID)
+					if scenario.wantInitialProbe {
+						probe.Return(false, errors.New("target is not multi-tenant")).Once()
+					} else {
+						probe.Return(false, nil).Maybe()
+					}
+
+					err := op.call(m)
+					require.Error(t, err)
+					require.Equal(t, StatusForbidden, err.Code)
+					require.ErrorAs(t, err, &authzerrs.Forbidden{})
+
+					calls := authz.Calls()
+					require.NotEmpty(t, calls)
+					targetCall := calls[len(calls)-1]
+					require.Equal(t, authorization.READ, targetCall.Verb)
+					require.Equal(t, scenario.deniedResources, targetCall.Resources)
+					if !scenario.wantInitialProbe {
+						repo.AssertNotCalled(t, "Exists", scenario.target, refID)
+					}
+					repo.AssertExpectations(t)
+				})
+			}
 		})
 	}
 }
@@ -506,12 +1011,7 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 	beacon := "weaviate://localhost/" + target + "/" + string(refID)
 	found := &search.Result{ID: id, ClassName: class}
 	withRef := func() *models.Object {
-		return &models.Object{
-			Class: class, ID: id,
-			Properties: map[string]interface{}{
-				"hasAnimals": []interface{}{map[string]interface{}{"beacon": beacon}},
-			},
-		}
+		return inlineRefTestObject(class, target, id, refID, "")
 	}
 
 	// The create and PUT handlers check for ErrInvalidUserInput first. An error
@@ -530,14 +1030,6 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 			require.Equal(t, code, objErr.Code)
 		}
 	}
-	// A nil *Error must stay a nil error interface.
-	asErr := func(objErr *Error) error {
-		if objErr != nil {
-			return objErr
-		}
-		return nil
-	}
-
 	outcomes := []struct {
 		name     string
 		err      error
@@ -596,7 +1088,7 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()
 			},
 			call: func(m *Manager) error {
-				return asErr(m.MergeObject(context.Background(), &models.Principal{}, withRef(), nil))
+				return objectErrorAsError(m.MergeObject(context.Background(), &models.Principal{}, withRef(), nil))
 			},
 			internal:  requireCode(StatusInternalServerError),
 			userFault: requireCode(StatusBadRequest),
@@ -608,7 +1100,7 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 					Class: class, ID: id, Property: "hasAnimals",
 					Ref: models.SingleRef{Beacon: strfmt.URI(beacon)},
 				}
-				return asErr(m.AddObjectReference(context.Background(), &models.Principal{}, input, nil, ""))
+				return objectErrorAsError(m.AddObjectReference(context.Background(), &models.Principal{}, input, nil, ""))
 			},
 			internal:  requireCode(StatusInternalServerError),
 			userFault: requireCode(StatusBadRequest),
@@ -623,7 +1115,7 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 					Class: class, ID: id, Property: "hasAnimals",
 					Refs: models.MultipleRef{{Beacon: strfmt.URI(beacon)}},
 				}
-				return asErr(m.UpdateObjectReferences(context.Background(), &models.Principal{}, input, nil, ""))
+				return objectErrorAsError(m.UpdateObjectReferences(context.Background(), &models.Principal{}, input, nil, ""))
 			},
 			internal:  requireCode(StatusInternalServerError),
 			userFault: requireCode(StatusBadRequest),

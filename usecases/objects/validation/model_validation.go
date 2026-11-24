@@ -21,11 +21,20 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error)
+
+// ReferenceTargetTenant uses the tenantless scope required by classless lookups.
+func ReferenceTargetTenant(class, tenant string) string {
+	if class == "" {
+		return ""
+	}
+	return tenant
+}
 
 const (
 	// ErrorMissingActionObjects message
@@ -69,22 +78,21 @@ type Validator struct {
 	config            *config.WeaviateConfig
 	replicationProps  *additional.ReplicationProperties
 	principal         *models.Principal
+	authorizer        authorization.Authorizer
 	namespacesEnabled bool
 }
 
-// New constructs a Validator. principal + namespacesEnabled drive
-// cross-NS deny and storage-shape normalisation for inline-payload refs.
-// Production callers pass the request's principal and
-// m.config.Config.Namespaces.Enabled; tests may pass nil/false.
+// New constructs a Validator for object payloads and reference writes.
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
-	principal *models.Principal, namespacesEnabled bool,
+	principal *models.Principal, authorizer authorization.Authorizer, namespacesEnabled bool,
 ) *Validator {
 	return &Validator{
 		exists:            exists,
 		config:            config,
 		replicationProps:  repl,
 		principal:         principal,
+		authorizer:        authorizer,
 		namespacesEnabled: namespacesEnabled,
 	}
 }
@@ -124,11 +132,15 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
-		if tenant == "" {
+		if tenant == "" || errors.Is(err, replicaerrors.ErrReplicas) {
 			return err
 		}
 		// since refs can be created to non-MT classes, check again if non-MT object exists
 		// (use empty tenant, if previously was given)
+		if authErr := v.authorizer.Authorize(ctx, v.principal, authorization.READ,
+			authorization.ShardsData(ref.Class, "")...); authErr != nil {
+			return authErr
+		}
 		ok2, err2 := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
 		if err2 != nil {
 			// A target class without multi-tenancy fails the tenant call with a

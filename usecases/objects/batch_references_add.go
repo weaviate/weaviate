@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -111,14 +113,13 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
-	// MT validation must run after auto-detection — target class isn't
-	// known beforehand in all cases. Per ref: QualifyRefTarget to get
-	// qualified (for MT/authz/routing) + short (for the stored beacon).
 	type classAndShard struct {
 		Class string
 		Shard string
 	}
 	uniqueClassShard := map[string]classAndShard{}
+	qualifiedTargets := make([]string, len(refs))
+	authorizedTargetTenants := make([]string, len(refs))
 	// A ref whose target skips the multi-tenancy check below would otherwise leave
 	// this at 0, which makes db.AddBatchReferences' wait a no-op.
 	var schemaVersion uint64
@@ -142,21 +143,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			qualifiedTarget = qualified
 			ref.To.Class = short
 		}
-
-		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
-			// Schema lookup needs qualified; storage struct ref.To stays short.
-			targetQualified := *ref.To
-			targetQualified.Class = qualifiedTarget
-			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, &targetQualified, ref.Tenant, fetchedClasses)
-			if err != nil {
-				// Per-row Err but DON'T skip — authz still needs to track the
-				// caller's intent (a missing READ must surface as 403, not be
-				// hidden by an MT-mismatch). AddBatchReferences skips the row.
-				refs[i].Err = err
-			} else if classVersion > schemaVersion {
-				schemaVersion = classVersion
-			}
-		}
+		qualifiedTargets[i] = qualifiedTarget
 
 		if qualifiedTarget == "" {
 			// Classless beacon on a multi-target prop (autodetect can't pick).
@@ -165,10 +152,29 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			// behaviour (byte-exact compare on delete handles it).
 			if b.config.Config.Namespaces.Enabled {
 				refs[i].Err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+				continue
 			}
+			authorizedTargetTenants[i] = ""
+			uniqueClassShard["#"] = classAndShard{}
 			continue
 		}
-		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
+
+		targetTenant := ref.Tenant
+		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
+			targetQualified := *ref.To
+			targetQualified.Class = qualifiedTarget
+			_, targetClass, _, err := getReferenceClasses(ctx, principal, b.schemaManager,
+				ref.From.Class.String(), ref.From.Property.String(), targetQualified.Class, fetchedClasses)
+			if err != nil {
+				// Keep the requested target in the authorization set even when its
+				// schema is invalid, so a denial does not disclose that error.
+				refs[i].Err = err
+			} else if !schema.MultiTenancyEnabled(targetClass) {
+				targetTenant = ""
+			}
+		}
+		authorizedTargetTenants[i] = targetTenant
+		uniqueClassShard[qualifiedTarget+"#"+targetTenant] = classAndShard{Class: qualifiedTarget, Shard: targetTenant}
 	}
 
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
@@ -184,6 +190,25 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, shardsDataPaths...); err != nil {
 			return nil, err
 		}
+	}
+
+	for i, ref := range refs {
+		if ref.Err != nil || !shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
+			continue
+		}
+		targetQualified := *ref.To
+		targetQualified.Class = qualifiedTargets[i]
+		classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager,
+			b.authorizer, b.vectorRepo, ref.From, &targetQualified, ref.Tenant,
+			authorizedTargetTenants[i], fetchedClasses)
+		if err != nil {
+			if errors.As(err, &autherrs.Forbidden{}) {
+				return nil, err
+			}
+			refs[i].Err = err
+			continue
+		}
+		schemaVersion = max(schemaVersion, classVersion)
 	}
 
 	if res, err := b.vectorRepo.AddBatchReferences(ctx, refs, repl, schemaVersion); err != nil {
@@ -301,8 +326,9 @@ func validateReference(ctx context.Context,
 
 func validateReferenceMultiTenancy(ctx context.Context,
 	principal *models.Principal, schemaManager schemaManager,
-	repo VectorRepo, source *crossref.RefSource, target *crossref.Ref,
-	tenant string, fetchedClasses map[string]versioned.Class,
+	authorizer authorization.Authorizer, repo VectorRepo,
+	source *crossref.RefSource, target *crossref.Ref,
+	tenant, authorizedTargetTenant string, fetchedClasses map[string]versioned.Class,
 ) (uint64, error) {
 	if source == nil || target == nil {
 		return 0, fmt.Errorf("can't validate multi-tenancy for nil refs")
@@ -316,6 +342,16 @@ func validateReferenceMultiTenancy(ctx context.Context,
 
 	sourceEnabled := schema.MultiTenancyEnabled(sourceClass)
 	targetEnabled := schema.MultiTenancyEnabled(targetClass)
+	targetTenant := tenant
+	if !targetEnabled {
+		targetTenant = ""
+	}
+	if targetTenant != authorizedTargetTenant {
+		if err := authorizer.Authorize(ctx, principal, authorization.READ,
+			authorization.ShardsData(targetClass.Class, targetTenant)...); err != nil {
+			return 0, err
+		}
+	}
 
 	if !sourceEnabled && targetEnabled {
 		return 0, fmt.Errorf("invalid reference: cannot reference a multi-tenant " +
@@ -325,7 +361,7 @@ func validateReferenceMultiTenancy(ctx context.Context,
 		if err := validateTenantRefObject(ctx, repo, sourceClass, source.TargetID, tenant); err != nil {
 			return 0, fmt.Errorf("source: %w", err)
 		}
-		if err := validateTenantRefObject(ctx, repo, targetClass, target.TargetID, ""); err != nil {
+		if err := validateTenantRefObject(ctx, repo, targetClass, target.TargetID, targetTenant); err != nil {
 			return 0, fmt.Errorf("target: %w", err)
 		}
 	}
