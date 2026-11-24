@@ -43,12 +43,21 @@ func TestObjectsByID(t *testing.T) {
 		{class: "ns1:Plain"},
 		{class: "ns2:Plain"},
 		{class: "ns4:Closed"},
+		{class: "ns5:Dropping"},
+		{class: "ns5:Plain"},
+		{class: "ns6:Closing"},
 	} {
 		db.indices[indexID(schema.ClassName(c.class))] = objectsByIDTestIndex(t, c.class, c.multiTenant, id)
 	}
-	require.NoError(t, db.indices[indexID("ns4:Closed")].ForEachShard(func(_ string, shard ShardLike) error {
-		return shard.Shutdown(t.Context())
-	}))
+	for class, cause := range map[string]error{"ns4:Closed": nil, "ns5:Dropping": errIndexDropped, "ns6:Closing": errIndexShutdown} {
+		idx := db.indices[indexID(schema.ClassName(class))]
+		require.NoError(t, idx.ForEachShard(func(_ string, shard ShardLike) error {
+			return shard.Shutdown(t.Context())
+		}))
+		if cause != nil {
+			idx.signalCloseRequested(cause)
+		}
+	}
 
 	cases := []struct {
 		name      string
@@ -77,6 +86,16 @@ func TestObjectsByID(t *testing.T) {
 		{
 			name:      "a collection that cannot be read fails the lookup",
 			namespace: "ns4",
+			wantErr:   errAlreadyShutdown,
+		},
+		{
+			name:      "a collection being deleted is left out",
+			namespace: "ns5",
+			want:      []string{"ns5:Plain"},
+		},
+		{
+			name:      "a collection shutting down fails the lookup",
+			namespace: "ns6",
 			wantErr:   errAlreadyShutdown,
 		},
 	}

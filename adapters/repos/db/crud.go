@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -108,14 +109,14 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 	additional additional.Properties, tenant string,
 ) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
+	// Not under indexLock: a remote owner takes its own, so two peers can deadlock.
+	indices := db.copyIndices()
 
 	for i, q := range query {
 		// store original position to make assembly easier later
 		q.OriginalPosition = i
 
-		for _, index := range db.indices {
+		for _, index := range indices {
 			if index.Config.ClassName != schema.ClassName(q.ClassName) {
 				continue
 			}
@@ -128,8 +129,12 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
+		index := indices[indexID]
+		indexRes, err := index.multiObjectByID(ctx, queries, tenant)
 		if err != nil {
+			if ctx.Err() == nil && index.beingDropped() {
+				continue
+			}
 			return nil, fmt.Errorf("index %q: %w", indexID, err)
 		}
 
@@ -172,9 +177,8 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
-	db.indexLock.RLock()
-
-	for _, index := range db.indices {
+	// Not under indexLock: a replicated lookup takes it again on the local replica.
+	for _, index := range db.copyIndices() {
 		if index.namespace != namespace {
 			continue
 		}
@@ -184,7 +188,9 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		}
 		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)
 		if err != nil {
-			db.indexLock.RUnlock()
+			if ctx.Err() == nil && index.beingDropped() {
+				continue
+			}
 			switch {
 			case errors.As(err, &objects.ErrMultiTenancy{}):
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
@@ -197,7 +203,6 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 			result = append(result, res)
 		}
 	}
-	db.indexLock.RUnlock()
 
 	if result == nil {
 		return nil, nil
@@ -269,30 +274,51 @@ func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 }
 
 // anyExists must not name a collection: the caller may not be allowed to read it.
+// A hit in one collection wins over a failure in another.
 func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	repl *additional.ReplicationProperties,
 ) (bool, error) {
-	// TODO: Search in parallel, rather than sequentially or this will be
-	// painfully slow on large schemas
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
+	lookupCtx, stop := context.WithCancel(ctx)
+	defer stop()
 
-	for _, index := range db.indices {
+	var found atomic.Bool
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
+	eg.SetLimit(_NUMCPU)
+	// Not under indexLock: a replicated lookup takes it again on the local replica.
+	for _, index := range db.copyIndices() {
+		if found.Load() {
+			break
+		}
 		if index.partitioningEnabled {
 			continue
 		}
-		ok, err := index.exists(ctx, id, repl, "")
-		if err != nil {
+		collection := index.Config.ClassName.String()
+		eg.Go(func() error {
+			if err := lookupCtx.Err(); err != nil {
+				return err
+			}
+			ok, err := index.exists(lookupCtx, id, repl, "")
+			if ok {
+				found.Store(true)
+				stop()
+				return nil
+			}
+			if err == nil || found.Load() || (ctx.Err() == nil && index.beingDropped()) {
+				return nil
+			}
 			db.logger.WithField("action", "exists_any_collection").
-				WithField("collection", index.Config.ClassName.String()).
+				WithField("collection", collection).
 				Warnf("look up %s without a collection: %v", id, err)
-			return false, anyExistsError{err: err}
-		}
-		if ok {
-			return true, nil
-		}
+			return err
+		}, collection)
 	}
-
+	err := eg.Wait()
+	if found.Load() {
+		return true, nil
+	}
+	if err != nil {
+		return false, anyExistsError{err: err}
+	}
 	return false, nil
 }
 

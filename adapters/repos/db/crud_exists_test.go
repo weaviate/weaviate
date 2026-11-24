@@ -12,7 +12,10 @@
 package db
 
 import (
+	"context"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -20,7 +23,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // Repeats because Go map order varies per walk.
@@ -32,11 +39,15 @@ func TestExistsWithoutClass(t *testing.T) {
 		class       string
 		multiTenant bool
 		holds       strfmt.UUID
+		unreadable  bool  // its shards are shut down
+		closeCause  error // signalled as the index's close request
 	}
 	cases := []struct {
 		name        string
 		collections []collection
+		cancelled   bool
 		want        bool
+		wantErr     error
 	}{
 		{
 			name:        "a multi-tenant collection is skipped",
@@ -59,16 +70,84 @@ func TestExistsWithoutClass(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "a hit among many collections is found",
+			collections: []collection{
+				{class: "A", holds: otherID},
+				{class: "B", holds: otherID},
+				{class: "C", holds: otherID},
+				{class: "D", holds: otherID},
+				{class: "E", holds: id},
+				{class: "F", holds: otherID},
+			},
+			want: true,
+		},
+		{
+			name: "a hit wins over a collection that cannot be read",
+			collections: []collection{
+				{class: "Broken", holds: otherID, unreadable: true},
+				{class: "Plain", holds: id},
+			},
+			want: true,
+		},
+		{
+			name: "a collection that cannot be read fails a miss",
+			collections: []collection{
+				{class: "Broken", holds: otherID, unreadable: true},
+				{class: "Plain", holds: otherID},
+			},
+			wantErr: errAlreadyShutdown,
+		},
+		{
+			name: "a collection being deleted is left out",
+			collections: []collection{
+				{class: "Dropping", holds: id, unreadable: true, closeCause: errIndexDropped},
+				{class: "Plain", holds: otherID},
+			},
+		},
+		{
+			name: "a collection shutting down fails the lookup",
+			collections: []collection{
+				{class: "Closing", holds: id, unreadable: true, closeCause: errIndexShutdown},
+				{class: "Plain", holds: otherID},
+			},
+			wantErr: errAlreadyShutdown,
+		},
+		{
+			name:        "a cancelled lookup fails rather than report not found",
+			collections: []collection{{class: "Plain", holds: id}},
+			cancelled:   true,
+			wantErr:     context.Canceled,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			db := &DB{logger: logger, indices: map[string]*Index{}}
 			for _, c := range tc.collections {
-				db.indices[indexID(schema.ClassName(c.class))] = objectsByIDTestIndex(t, c.class, c.multiTenant, c.holds)
+				idx := objectsByIDTestIndex(t, c.class, c.multiTenant, c.holds)
+				if c.unreadable {
+					require.NoError(t, idx.ForEachShard(func(_ string, shard ShardLike) error {
+						return shard.Shutdown(t.Context())
+					}))
+				}
+				if c.closeCause != nil {
+					idx.signalCloseRequested(c.closeCause)
+				}
+				db.indices[indexID(schema.ClassName(c.class))] = idx
+			}
+			ctx := t.Context()
+			if tc.cancelled {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
 			}
 			for range 20 {
-				ok, err := db.Exists(t.Context(), "", id, nil, "")
+				ok, err := db.Exists(ctx, "", id, nil, "")
+				if tc.wantErr != nil {
+					require.ErrorIs(t, err, tc.wantErr)
+					continue
+				}
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, ok)
 			}
@@ -90,4 +169,148 @@ func TestExistsWithoutClassFailsOnUnreadableCollection(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(err.Error()), "secretplain")
 	require.NotNil(t, hook.LastEntry())
 	assert.Equal(t, "SecretPlain", hook.LastEntry().Data["collection"])
+}
+
+// A replicated read re-takes indexLock, so a lookup holding it can deadlock.
+func TestClasslessLookupsRunOutsideIndexLock(t *testing.T) {
+	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
+	otherID := strfmt.UUID("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e")
+	classes := []string{"First", "Second", "Third"}
+
+	cases := []struct {
+		name   string
+		lookup func(ctx context.Context, db *DB) error
+	}{
+		{
+			name: "exists",
+			lookup: func(ctx context.Context, db *DB) error {
+				_, err := db.Exists(ctx, "", id, nil, "")
+				return err
+			},
+		},
+		{
+			name: "objects by id",
+			lookup: func(ctx context.Context, db *DB) error {
+				_, err := db.ObjectsByID(ctx, id, nil, additional.Properties{}, "", "")
+				return err
+			},
+		},
+		{
+			name: "multi get",
+			lookup: func(ctx context.Context, db *DB) error {
+				var query []multi.Identifier
+				for _, class := range classes {
+					query = append(query, multi.Identifier{ID: string(id), ClassName: class})
+				}
+				_, err := db.MultiGet(ctx, query, additional.Properties{}, "")
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			db := &DB{logger: logger, indices: map[string]*Index{}}
+			probe := &indexLockProbe{t: t, db: db}
+			for _, class := range classes {
+				// a miss in every collection, so the lookup reads them all
+				idx := objectsByIDTestIndex(t, class, false, otherID)
+				var names []string
+				require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+					names = append(names, name)
+					return nil
+				}))
+				for _, name := range names {
+					idx.shards.Store(name, lockProbeShard{ShardLike: idx.shards.Load(name), probe: probe})
+				}
+				db.indices[indexID(schema.ClassName(class))] = idx
+			}
+
+			require.NoError(t, tc.lookup(t.Context(), db))
+			assert.Equal(t, int64(len(classes)), probe.reads.Load())
+		})
+	}
+}
+
+type indexLockProbe struct {
+	t     *testing.T
+	db    *DB
+	mu    sync.Mutex // concurrent probes would see each other's TryLock
+	reads atomic.Int64
+}
+
+func (p *indexLockProbe) check() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.reads.Add(1)
+	if !p.db.indexLock.TryLock() {
+		p.t.Error("a collection was read while db.indexLock was held")
+		return
+	}
+	p.db.indexLock.Unlock()
+}
+
+type lockProbeShard struct {
+	ShardLike
+	probe *indexLockProbe
+}
+
+func (s lockProbeShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	s.probe.check()
+	return s.ShardLike.Exists(ctx, id)
+}
+
+func (s lockProbeShard) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, addl additional.Properties,
+) (*storobj.Object, error) {
+	s.probe.check()
+	return s.ShardLike.ObjectByID(ctx, id, props, addl)
+}
+
+func (s lockProbeShard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
+	s.probe.check()
+	return s.ShardLike.MultiObjectByID(ctx, query)
+}
+
+func TestMultiGet(t *testing.T) {
+	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
+
+	cases := []struct {
+		name       string
+		unreadable bool
+		closeCause error
+		wantFound  bool
+		wantErr    error
+	}{
+		{name: "a readable collection returns the object", wantFound: true},
+		{name: "a collection that cannot be read fails the lookup", unreadable: true, wantErr: errAlreadyShutdown},
+		{name: "a collection being deleted is left out", unreadable: true, closeCause: errIndexDropped},
+		{name: "a collection shutting down fails the lookup", unreadable: true, closeCause: errIndexShutdown, wantErr: errAlreadyShutdown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			db := &DB{logger: logger, indices: map[string]*Index{}}
+			idx := objectsByIDTestIndex(t, "Target", false, id)
+			if tc.unreadable {
+				require.NoError(t, idx.ForEachShard(func(_ string, shard ShardLike) error {
+					return shard.Shutdown(t.Context())
+				}))
+			}
+			if tc.closeCause != nil {
+				idx.signalCloseRequested(tc.closeCause)
+			}
+			db.indices[indexID("Target")] = idx
+
+			res, err := db.MultiGet(t.Context(),
+				[]multi.Identifier{{ID: string(id), ClassName: "Target"}}, additional.Properties{}, "")
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, tc.wantFound, res[0].ID == id)
+		})
+	}
 }

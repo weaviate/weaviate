@@ -1003,6 +1003,11 @@ func (i *Index) closeRequestedCause() error {
 	return i.closeCause()
 }
 
+// beingDropped reports whether a delete of this collection has begun.
+func (i *Index) beingDropped() bool {
+	return errors.Is(i.closeRequestedCause(), errIndexDropped)
+}
+
 // forEachShardStrict is [Index.ForEachShard] for callers that must not
 // mistake a walk that skipped shards for one that reached them all.
 //
