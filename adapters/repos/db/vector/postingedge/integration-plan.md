@@ -1449,8 +1449,22 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 **La parada se cumple también aquí:** el arnés comprueba cada query cronometrada, en caliente y en frío, y no salió ningún resultado fuera de su filtro.
 
-**Las dos rondas coinciden.**
-- **El p50 cambia de una ronda a otra** como mucho un 11 % en el nuestro y un 5 % con `sweeping`. Con `acorn` cambia un 21 % en el anticorrelado al 0.1 % en frío: 2.93 ms y 2.36 ms.
+**El detector de deriva marca 5 de los 51 puntos, y se repiten.**
+- **La regla de siempre:** un punto queda marcado si su p50, en caliente o en frío, se separa un 10 % o más entre las dos rondas, sobre la primera. El punto marcado se repite. La sesión de experimentos lo comprobó con el mayor sobre el menor, y salen los mismos cinco:
+
+  | punto | medida | ronda 1 | ronda 2 | sobre la primera | el mayor sobre el menor |
+  |---|---|---:|---:|---:|---:|
+  | nuestro por el índice, al azar 1 % | caliente | 23.82 ms | 26.60 ms | +11.7 % | 11.7 % |
+  | nuestro por la plana, al azar 10 % | caliente | 23.70 ms | 26.26 ms | +10.8 % | 10.8 % |
+  | nuestro por la plana, correlado 10 % | caliente | 26.68 ms | 23.71 ms | −11.1 % | 12.5 % |
+  | `acorn`, correlado 0.1 % | frío | 1.51 ms | 1.36 ms | −10.1 % | 11.3 % |
+  | `acorn`, anticorrelado 0.1 % | frío | 2.93 ms | 2.36 ms | −19.4 % | 24.0 % |
+
+- **La primera versión de este apartado decía que las dos rondas coincidían:** medí la separación sobre la media de las dos y no apliqué la regla.
+- **Tres puntos más se quedan justo por debajo,** todos del nuestro por el índice y en caliente: correlado al 1 % y al 0.1 %, y anticorrelado al 50 %, del 9.6 al 9.9 %.
+- **Ninguno de los cinco cambia una conclusión.** Los tres nuestros son del punto de cruce, donde en caliente un camino cuesta de 6.6 a 15.6 veces el otro. Los dos de `acorn` quedan, en cualquiera de sus dos rondas, de 3.0 a 6.2 veces por debajo del nuestro.
+- **El nuestro por el índice va más lento en la ronda 2:** en caliente en 12 de sus 13 filtros, hasta un 11.7 %, y en frío en 11. La plana se mueve en los dos sentidos, y HNSW no pasa de un 3.5 % en caliente. La repetición, en un proceso nuevo, dice si vuelve a pasar.
+- **Los cinco se repiten solos, con el mismo protocolo:** el mismo índice, dos rondas, el marcador y la espera de 15 minutos sin actividad.
 - **Las dos mitades de cada medida en frío** van por lotes alternos, así que comparan grupos de queries y no momentos de la noche. Difieren hasta un 21 %, en el nuestro por el índice al azar al 10 %: 8.0 ms y 9.9 ms.
 
 **El criterio, con tiempos:**
