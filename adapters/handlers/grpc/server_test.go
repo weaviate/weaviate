@@ -14,6 +14,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -181,66 +182,98 @@ func TestMakeMetricsInterceptor(t *testing.T) {
 	})
 }
 
-// Test operational mode interceptor.
-func TestInterceptors(t *testing.T) {
-	const bufSize = 1024 * 1024
+type rpcDesc struct {
+	method string                                      // Method name.
+	fn     func(*testing.T, pbv1.WeaviateClient) error // Request function.
+}
 
-	// Start gRPC server.
-	defaultScheme := resolver.GetDefaultScheme()
-	t.Cleanup(func() { resolver.SetDefaultScheme(defaultScheme) })
+var (
+	batchObjects = rpcDesc{
+		method: "BatchObjects", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
+			_, err := c.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
+			return err
+		},
+	}
+	batchStream = rpcDesc{
+		method: "BatchStream", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
+			// The stream handle is returned as long as all configuration is valid.
+			// The server might've rejected any number of requests in the meantime,
+			// but we need to read them from s.Recv().
+			s, err := c.BatchStream(t.Context())
+			require.NoError(t, err, "create batch stream")
+			require.NotNil(t, s, "nil batch stream")
 
-	// grpc.Client defaults to "dns" scheme, but we want to effectively
-	// disable this altogether and use our custom dialer instead.
-	resolver.SetDefaultScheme("passthrough")
+			require.NoError(t, s.Send(&pbv1.BatchStreamRequest{
+				Message: &pbv1.BatchStreamRequest_Start_{},
+			}), "send Start message")
 
-	// Run gRPC Server.
-	logger, _ := test.NewNullLogger()
-	s := state.State{
+			// Closing the batch stream means Recv() won't block
+			// in cases where we expect the request to succeed,
+			// because then it can return at least return io.EOF.
+			require.NoError(t, s.CloseSend(), "close batch stream")
+
+			if _, err = s.Recv(); err == io.EOF {
+				err = nil
+			}
+			return err
+		},
+	}
+)
+
+func TestMaintenanceModeInterceptor(t *testing.T) {
+	serverState := state.State{
 		ServerConfig: &config.WeaviateConfig{
 			Config: config.Config{
-				GRPC: config.GRPC{
-					MaxMsgSize: bufSize,
+				Authentication: config.DefaultAuthentication, // Enabled anonymous access.
+				Cluster: cluster.Config{
+					Hostname: "node-0",
 				},
-				Sentry: &sentry.ConfigOpts{
-					Enabled: false,
-				},
-				Authentication: config.Authentication{
-					AnonymousAccess: config.AnonymousAccess{
-						Enabled: true,
-					},
-				},
-				OperationalMode: runtime.NewDynamicValue[string](config.READ_WRITE),
 			},
 		},
-		Cluster: &cluster.State{},
-		Logger:  logger,
 	}
 
-	srv, stop := CreateGRPCServer(&s, nil, nil)
-	t.Cleanup(stop)
-
-	// bufconn Listener mocks network connections using an in-memory buffer.
-	lis := bufconn.Listen(bufSize)
-	go func() {
-		defer lis.Close()
-		require.NoError(t, srv.Serve(lis), "server exited with an error")
-	}()
-
-	// Create gRPC client.
-	conn, err := grpc.NewClient("in-memory",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
-			return lis.DialContext(ctx)
-		}),
-	)
-	require.NoError(t, err, "create gRPC client")
-	t.Cleanup(func() { _ = conn.Close() })
-
+	conn := startTestServer(t, &serverState)
 	client := pbv1.NewWeaviateClient(conn)
+
+	for _, maintenance := range []bool{true, false} {
+		t.Run(fmt.Sprintf("maintenance mode %t", maintenance), func(t *testing.T) {
+			serverState.Cluster.SetMaintenanceModeForLocalhost(maintenance)
+
+			for _, tt := range []rpcDesc{
+				batchObjects,
+				batchStream,
+			} {
+				t.Run(tt.method, func(t *testing.T) {
+					err := tt.fn(t, client)
+
+					if maintenance {
+						require.ErrorContains(t, err, "maintenance mode", "interceptor error")
+					} else {
+						require.NoError(t, err, "interceptor error")
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestOperationalModeInterceptor(t *testing.T) {
+	serverState := state.State{
+		ServerConfig: &config.WeaviateConfig{
+			Config: config.Config{
+				OperationalMode: runtime.NewDynamicValue[string](config.READ_WRITE),
+				Authentication:  config.DefaultAuthentication, // Enable anonymous access.
+			},
+		},
+	}
+	conn := startTestServer(t, &serverState)
+	client := pbv1.NewWeaviateClient(conn)
+
 	for _, rpc := range []struct {
 		method string                                      // Method name.
 		fn     func(*testing.T, pbv1.WeaviateClient) error // Request function.
 	}{
+		// TODO(dyma): add BatchDelete
 		{method: "BatchObjects", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
 			_, err := c.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
 			return err
@@ -280,9 +313,9 @@ func TestInterceptors(t *testing.T) {
 			} {
 				t.Run("mode="+tt.mode, func(t *testing.T) {
 					// Put server in the expected mode.
-					mode := s.ServerConfig.Config.OperationalMode.Get()
-					t.Cleanup(func() { s.ServerConfig.Config.OperationalMode.SetValue(mode) })
-					s.ServerConfig.Config.OperationalMode.SetValue(tt.mode)
+					mode := serverState.ServerConfig.Config.OperationalMode.Get()
+					serverState.ServerConfig.Config.OperationalMode.SetValue(tt.mode)
+					t.Cleanup(func() { serverState.ServerConfig.Config.OperationalMode.SetValue(mode) })
 
 					err := rpc.fn(t, client)
 
@@ -295,4 +328,63 @@ func TestInterceptors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// startTestServer creates a gRPC server backed by an in-memory buffer
+// in place of a network. The function will add any necessary state
+// configuration except for Authentication, which the caller must configure
+// on the provided state s by itself.
+// Returns a client connection for this server. Frees resources on test cleanup.
+func startTestServer(t *testing.T, s *state.State) grpc.ClientConnInterface {
+	t.Helper()
+
+	// Size of the underlying request buffer.
+	bufSize := max(s.ServerConfig.Config.GRPC.MaxMsgSize, 8)
+
+	// grpc.Client defaults to "dns" scheme, but we want to effectively
+	// disable this altogether and use our custom dialer instead.
+	defaultScheme := resolver.GetDefaultScheme()
+	resolver.SetDefaultScheme("passthrough")
+	t.Cleanup(func() { resolver.SetDefaultScheme(defaultScheme) })
+
+	// Run gRPC Server.
+	logger, _ := test.NewNullLogger()
+	if s.Logger == nil {
+		s.Logger = logger
+	}
+	if s.ServerConfig == nil {
+		s.ServerConfig = new(config.WeaviateConfig)
+	}
+	s.ServerConfig.Config.GRPC.MaxMsgSize = max(s.ServerConfig.Config.GRPC.MaxMsgSize, bufSize)
+	if s.ServerConfig.Config.Sentry == nil {
+		s.ServerConfig.Config.Sentry = new(sentry.ConfigOpts)
+	}
+	if s.ServerConfig.Config.OperationalMode == nil {
+		s.ServerConfig.Config.OperationalMode = runtime.NewDynamicValue(config.READ_WRITE)
+	}
+	if s.Cluster == nil {
+		s.Cluster = new(cluster.State)
+	}
+
+	srv, stop := CreateGRPCServer(s, nil, nil)
+	t.Cleanup(stop)
+
+	// bufconn Listener mocks network connections using an in-memory buffer.
+	lis := bufconn.Listen(bufSize)
+	go func() {
+		defer lis.Close()
+		require.NoError(t, srv.Serve(lis), "server exited with an error")
+	}()
+
+	// Create gRPC client.
+	conn, err := grpc.NewClient("in-memory",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+	)
+	require.NoError(t, err, "create gRPC client")
+	t.Cleanup(func() { _ = conn.Close() })
+
+	return conn
 }
