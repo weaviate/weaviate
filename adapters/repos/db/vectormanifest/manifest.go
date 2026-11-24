@@ -89,6 +89,128 @@ func entryOf(name string, rec record, cfg schemaConfig.VectorIndexConfig) Entry 
 	}
 }
 
+// Open puts the persisted state in order against schema, the vectors that own
+// storage, and returns the indexes to open, in name order. Nothing may use the
+// shard's vector indexes before it. firstLoad is true for a shard that has no
+// records yet; Ready writes them.
+func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig,
+) (entries []Entry, firstLoad bool, err error) {
+	records, initialized, stripped, err := m.records.LoadAndStrip()
+	if err != nil {
+		return nil, false, err
+	}
+	if len(stripped) > 0 {
+		m.logger.Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
+	}
+	if initialized {
+		records, err = m.reconcile(ctx, schema, records)
+		if err != nil {
+			return nil, false, err
+		}
+	} else {
+		records = make(map[string]record, len(schema))
+		for name, cfg := range schema {
+			records[name] = recordFor(name, cfg, stateCreating)
+		}
+		for _, c := range collisions(ownersOf(records)) {
+			m.logger.Warnf("vector index physical names collide, a drop of either may take the other's files: %s", c)
+		}
+	}
+
+	m.mu.Lock()
+	m.opened = records
+	m.firstLoad = !initialized
+	m.mu.Unlock()
+
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		entries = append(entries, entryOf(name, records[name], schema[name]))
+	}
+	return entries, !initialized, nil
+}
+
+// reconcile matches the records with the schema after a crash, a schema change
+// while the shard was cold, or lost files. It returns the record each schema
+// vector is built from:
+//   - a ready record whose storage is on disk builds at the recorded ID;
+//   - a ready record whose storage is gone is rebuilt: a backup or a
+//     transfer carries no directory for an index that wrote nothing;
+//   - a creating record (a crash between the two writes of a creation) and a
+//     missing record (a vector added while the shard was cold) are built,
+//     then marked ready.
+//
+// A dropping record is finished first. A record the schema no longer has is
+// deleted; its storage is left alone.
+func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig,
+	records map[string]record,
+) (map[string]record, error) {
+	// before any deletion: finishing a drop would take the other's queue
+	err := refuseSharedFiles(records)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		if records[name].State != stateDropping {
+			continue
+		}
+		// a deferred deletion the process did not live to finish
+		err := m.finishDrop(ctx, name, records)
+		if err != nil {
+			return nil, err
+		}
+		delete(records, name)
+	}
+
+	toBuild := make(map[string]record, len(schema))
+	owners := ownersOf(records)
+	for _, name := range slices.Sorted(maps.Keys(schema)) {
+		cfg := schema[name]
+		rec, ok := records[name]
+		if !ok {
+			// a vector without a record is a newcomer: refused like a live
+			// creation when its files belong to another vector, and counted as
+			// an owner for the newcomers after it
+			rec = recordFor(name, cfg, stateCreating)
+			if shared := collisionsWith(owners, name, ownerOf(rec)); len(shared) > 0 {
+				return nil, collisionError(name, shared)
+			}
+			err := m.records.Put(name, rec)
+			if err != nil {
+				return nil, err
+			}
+			owners[name] = ownerOf(rec)
+		}
+		if rec.IndexType != cfg.IndexType() {
+			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
+				name, rec.IndexType, rec.recordedID(), cfg.IndexType())
+		}
+		if rec.State == stateReady {
+			exists, err := m.hasStorage(rec.IndexType, rec.storageID())
+			if err != nil {
+				return nil, fmt.Errorf("vector %q: %w", name, err)
+			}
+			if !exists {
+				// under async indexing this includes an index whose vectors
+				// are all still queued
+				rec.State = stateCreating
+			}
+		}
+		toBuild[name] = rec
+	}
+
+	for name := range records {
+		if _, ok := schema[name]; ok {
+			continue
+		}
+		// dropped or gone from the schema: the record goes, the storage stays
+		err := m.records.Delete(name)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return toBuild, nil
+}
+
 // Create records that name's index is about to be built under the naming rule
 // and returns where. It refuses a vector whose files another one owns; a retry
 // of an interrupted creation is not refused.
@@ -267,6 +389,23 @@ func (m *Manifest) Get(name string) (Entry, bool, error) {
 		return Entry{}, false, err
 	}
 	return entryOf(name, rec, rec.Config), true, nil
+}
+
+// HasStorage reports whether e's index has its directories on disk.
+func (m *Manifest) HasStorage(e Entry) (bool, error) {
+	exists, err := m.hasStorage(e.IndexType, e.StorageID)
+	if err != nil {
+		return false, fmt.Errorf("vector %q: %w", e.Name, err)
+	}
+	return exists, nil
+}
+
+func (m *Manifest) hasStorage(indexType, storageID string) (bool, error) {
+	dirs, err := storageDirs(m.shardDir, m.state, indexType, storageID)
+	if err != nil {
+		return false, err
+	}
+	return storageExists(dirs)
 }
 
 // syncStorage makes rec's directories durable before the record says ready.
