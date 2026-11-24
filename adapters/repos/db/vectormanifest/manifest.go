@@ -479,16 +479,16 @@ func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	records, _, err := m.records.Load()
+	c, err := m.load()
 	if err != nil {
 		return false, err
 	}
-	rec, ok := records[name]
+	rec, ok := c.records[name]
 	if !ok {
 		return false, nil
 	}
 	// the caller tears the index and its queue down next
-	err = refuseSharedFiles(records)
+	err = refuseSharedFiles(c)
 	if err != nil {
 		return false, err
 	}
