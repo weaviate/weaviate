@@ -18,7 +18,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
@@ -26,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -41,7 +41,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("async indexing is not enabled")
 	}
 
-	rec, ok, err := s.mapping.Get(targetVector)
+	entry, ok, err := s.manifest.Get(targetVector)
 	if err != nil {
 		return errors.Wrap(err, "read mapping record")
 	}
@@ -69,7 +69,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 
 	// bracketed like a creation: a crash in between leaves creating, which
 	// the next load resumes instead of refusing
-	err = s.markVectorIndexCreating(targetVector, rec)
+	err = s.manifest.Reset(targetVector)
 	if err != nil {
 		q.Resume()
 		return errors.Wrap(err, "mark vector index creating")
@@ -81,7 +81,8 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 	}
 
 	if isHFresh {
-		err = s.removeHFreshArtifacts(ctx, targetVector, rec.storageID())
+		// what is left would be loaded by the new index; it reuses the queue
+		err = s.manifest.RemoveIndexFiles(ctx, targetVector)
 		if err != nil {
 			return errors.Wrap(err, "remove hfresh files")
 		}
@@ -89,7 +90,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 
 	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
-	vidx, err = s.initVectorIndex(ctx, targetVector, rec.storageID(), newConfig, false)
+	vidx, err = s.initVectorIndex(ctx, targetVector, entry.StorageID, newConfig, false)
 	if err != nil {
 		return errors.Wrap(err, "init vector index")
 	}
@@ -109,38 +110,9 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		}
 	}, s.index.logger)
 
-	err = s.markVectorIndexReady(targetVector, rec)
+	err = s.manifest.Ready(map[string]schemaConfig.VectorIndexConfig{targetVector: newConfig})
 	if err != nil {
 		return errors.Wrap(err, "mark vector index ready")
-	}
-	return nil
-}
-
-// removeHFreshArtifacts deletes what a dropped hfresh index left on disk,
-// which the new index would otherwise load. The queue stays: the reset reuses it.
-func (s *Shard) removeHFreshArtifacts(ctx context.Context, targetVector, physicalID string) error {
-	var otherIDs []string
-	for _, other := range otherTargetVectors(s.class, targetVector) {
-		rec, ok, err := s.mapping.Get(other)
-		if err != nil {
-			return fmt.Errorf("vector %q: %w", other, err)
-		}
-		if ok {
-			otherIDs = append(otherIDs, rec.storageID())
-		}
-	}
-	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
-	for _, bucket := range artifacts.LSMBuckets {
-		err := s.removeBucket(ctx, bucket)
-		if err != nil {
-			return fmt.Errorf("drop bucket %q: %w", bucket, err)
-		}
-	}
-	for _, dir := range artifacts.ShardDirs {
-		err := removeDirIfExists(s.path(), dir)
-		if err != nil {
-			return fmt.Errorf("drop directory %q: %w", dir, err)
-		}
 	}
 	return nil
 }

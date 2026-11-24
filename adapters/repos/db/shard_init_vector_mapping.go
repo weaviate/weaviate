@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -69,24 +68,6 @@ func isGeneratedVectorIndexID(id string) bool {
 	return strings.Contains(id, "-")
 }
 
-// markVectorIndexCreating records that name's index is about to be built at
-// rec's storage ID. A crash from here on leaves a record the next load resumes.
-func (s *Shard) markVectorIndexCreating(name string, rec vectorIndexRecord) error {
-	rec.State = vectorIndexStateCreating
-	return s.mapping.Put(name, rec)
-}
-
-// markVectorIndexReady makes rec's directories durable, then records the
-// index as ready.
-func (s *Shard) markVectorIndexReady(name string, rec vectorIndexRecord) error {
-	err := s.syncVectorIndexRecordStorage(name, rec)
-	if err != nil {
-		return err
-	}
-	rec.State = vectorIndexStateReady
-	return s.mapping.Put(name, rec)
-}
-
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one
 // under the empty name, into those that own storage and the skipped ones.
 func vectorIndexConfigsByStorage(legacy schemaConfig.VectorIndexConfig,
@@ -120,25 +101,6 @@ func vectorIndexHasStorage(cfg schemaConfig.VectorIndexConfig) bool {
 func vectorIndexRecordFor(name string, cfg schemaConfig.VectorIndexConfig, state string) vectorIndexRecord {
 	id := vectorIndexID(name)
 	return vectorIndexRecord{PhysicalID: id, IndexType: cfg.IndexType(), State: state, QueueID: id, Config: cfg}
-}
-
-// vectorIndexStorageDirsFor lists the directories rec occupies under this shard.
-func (s *Shard) vectorIndexStorageDirsFor(rec vectorIndexRecord) ([]string, error) {
-	return vectorIndexStorageDirs(s.path(), s.metadataDB.Namespace(dynamic.StateNamespace), rec.IndexType, rec.storageID())
-}
-
-// syncVectorIndexRecordStorage makes rec's directories durable before the
-// record says ready.
-func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord) error {
-	dirs, err := s.vectorIndexStorageDirsFor(rec)
-	if err != nil {
-		return fmt.Errorf("vector %q: %w", name, err)
-	}
-	err = syncVectorIndexStorage(dirs)
-	if err != nil {
-		return fmt.Errorf("vector %q: %w", name, err)
-	}
-	return nil
 }
 
 // vectorIndexOwner is where a vector's files live: its index at physicalID,
