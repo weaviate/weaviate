@@ -194,6 +194,11 @@ func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []I
 
 // -----------------------------------------------------------------------------
 
+// readSpareRatio sizes the spare capacity of each result segmentInMemoryReader returns.
+// A larger ratio holds more idle memory per result, a smaller one copies a result sooner
+// as memtables merge into it. BenchmarkSegmentInMemoryReadHeadroom sweeps it.
+const readSpareRatio = 0.10
+
 // segmentInMemoryReader returns bitmaps with layer 0's free key slots and more
 // from spare capacity, since CombinedReader merges memtable layers into them.
 // Scratch bitmaps it releases itself never grow, so their spare stays tail room.
@@ -247,9 +252,9 @@ func (r *segmentInMemoryReader) readEqual(value uint64, conc int) (roaringset.Bi
 	var eq *sroar.Bitmap
 	var eqRelease func()
 	if value == 0 {
-		eq, eqRelease = r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+		eq, eqRelease = r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 	} else {
-		eq, eqRelease = r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], 0)
+		eq, eqRelease = r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], readSpareRatio)
 	}
 	r.mergeEqual(value, eq, conc)
 	return roaringset.BitmapLayer{Additions: eq}, eqRelease
@@ -266,7 +271,7 @@ func (r *segmentInMemoryReader) readNotEqual(value uint64, conc int) (roaringset
 	defer eqRelease()
 	r.mergeEqual(value, eq, conc)
 
-	neq, neqRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+	neq, neqRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 	neq.AndNotConc(eq, conc)
 	return roaringset.BitmapLayer{Additions: neq}, neqRelease
 }
@@ -281,7 +286,7 @@ func (r *segmentInMemoryReader) readLessThan(value uint64, conc int) (roaringset
 	defer gteRelease()
 	r.mergeGreaterThanEqual(value, gte, conc)
 
-	lt, ltRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+	lt, ltRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 	lt.AndNotConc(gte, conc)
 	return roaringset.BitmapLayer{Additions: lt}, ltRelease
 }
@@ -292,7 +297,7 @@ func (r *segmentInMemoryReader) readLessThanEqual(value uint64, conc int) (roari
 		return r.readEqual(value, conc)
 	}
 	if value == math.MaxUint64 {
-		all, allRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+		all, allRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 		// all values are <= max uint64
 		return roaringset.BitmapLayer{Additions: all}, allRelease
 	}
@@ -315,12 +320,12 @@ func (r *segmentInMemoryReader) readGreaterThan(value uint64, conc int) (roaring
 
 func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (roaringset.BitmapLayer, func()) {
 	if value == 0 {
-		all, allRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+		all, allRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 		// all values are >= 0
 		return roaringset.BitmapLayer{Additions: all}, allRelease
 	}
 
-	gte, gteRelease := r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], 0)
+	gte, gteRelease := r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], readSpareRatio)
 	r.mergeGreaterThanEqual(value, gte, conc)
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }

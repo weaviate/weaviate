@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,7 +27,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestSegmentInMemory(t *testing.T) {
@@ -518,10 +521,10 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 // tails without moving its keys node or growing its buffer.
 func TestSegmentInMemoryReaderResultHeadroom(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	const docsPerKey = 100
+	const keys, docsPerKey = 64, 100
 
 	mem := NewMemtable(logger)
-	for key := uint64(0); key < 4; key++ {
+	for key := uint64(0); key < keys; key++ {
 		for i := uint64(0); i < docsPerKey; i++ {
 			value := i % 20
 			if value == 19 {
@@ -536,7 +539,7 @@ func TestSegmentInMemoryReaderResultHeadroom(t *testing.T) {
 	values := []uint64{0, 13, math.MaxUint64}
 	active := NewMemtable(logger)
 	for i, value := range values {
-		for _, docID := range []uint64{20 << 16, 30 << 16, docsPerKey, 3<<16 + docsPerKey} {
+		for _, docID := range []uint64{keys << 16, (keys + 8) << 16, docsPerKey, 3<<16 + docsPerKey} {
 			active.Insert(value, []uint64{docID + uint64(i)})
 		}
 	}
@@ -560,7 +563,8 @@ func TestSegmentInMemoryReaderResultHeadroom(t *testing.T) {
 		{value: 0, operator: filters.OperatorGreaterThanEqual},
 	}
 
-	bufPool := newRangedBufPool(t)
+	// the noop pool does not round sizes up, so only readSpareRatio makes room
+	bufPool := roaringset.NewBitmapBufPoolNoop()
 	ctx := context.Background()
 
 	for _, tc := range testCases {
@@ -870,6 +874,82 @@ func headroomBenchValue(docID uint64) uint64 {
 	return docID * 0x9E3779B97F4A7C15 >> 56
 }
 
+// BenchmarkSegmentInMemoryReadHeadroom merges a pending, a flushing and an active
+// memtable into results of just under 1 MiB, just under the pool's largest bucket, and
+// above it. It reports growths, the buffers they outgrew and idle capacity at release.
+func BenchmarkSegmentInMemoryReadHeadroom(b *testing.B) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	pool := newRangedBufPool(b)
+
+	for _, keys := range []uint64{156, 5020, 8192} {
+		seg := NewSegmentInMemory(logger)
+		seg.bitmaps = newHeadroomBenchLayers(keys)
+		seg.Compact()
+		for _, flush := range []struct {
+			name             string
+			appends, updates uint64
+		}{
+			{"appends_1k", 1 << 10, 1 << 8},
+			{"appends_64k", 1 << 16, 1 << 12},
+			{"appends_256k", 1 << 18, 1 << 14},
+		} {
+			memtables := newHeadroomBenchFlushes(logger, keys, 3, flush.appends, flush.updates)
+			seg.memtables = memtables[:1]
+			for _, spareRatio := range []float64{0, 0.05, 0.10, 0.25} {
+				name := fmt.Sprintf("result_%.1fMiB/%s/spare_%.2f", float64(seg.bitmaps[0].LenInBytes())/(1<<20), flush.name, spareRatio)
+				b.Run(name, func(b *testing.B) {
+					b.ReportAllocs()
+					bufPool := &spareRatioPool{BitmapBufPool: pool, spareRatio: spareRatio}
+					growths, outgrown, idle, runs := 0, 0, 0, 0
+					for b.Loop() {
+						readers, release := seg.Readers(bufPool)
+						readers = append(readers, NewMemtableReader(memtables[1]), NewMemtableReader(memtables[2]))
+						combined := NewCombinedReader(readers, release, concurrency.SROAR_MERGE, logger)
+
+						getsBefore, capsBefore := bufPool.gets.Load(), bufPool.caps.Load()
+						// >= 0 clones layer 0, so the pool serves the result and nothing else
+						bm, releaseBm, err := combined.Read(ctx, 0, filters.OperatorGreaterThanEqual)
+						if err != nil {
+							b.Fatal(err)
+						}
+						growths += int(bufPool.gets.Load()-getsBefore) - 1
+						outgrown += int(bufPool.caps.Load()-capsBefore) - bm.CapInBytes()
+						idle += bm.CapInBytes() - bm.LenInBytes()
+						runs++
+						releaseBm()
+						combined.Close()
+					}
+					b.ReportMetric(float64(growths)/float64(runs), "growths/op")
+					b.ReportMetric(float64(outgrown)/float64(runs)/(1<<20), "outgrown_MiB/op")
+					b.ReportMetric(float64(idle)/float64(runs)/(1<<20), "idle_MiB/op")
+				})
+			}
+		}
+	}
+}
+
+// spareRatioPool clones with its own spare ratio, whatever the caller asks for, and
+// counts the buffers Get hands out and their capacity.
+type spareRatioPool struct {
+	roaringset.BitmapBufPool
+	spareRatio float64
+	gets, caps atomic.Int64
+}
+
+func (p *spareRatioPool) Get(minCap int) ([]byte, func()) {
+	buf, put := p.BitmapBufPool.Get(minCap)
+	p.gets.Add(1)
+	// a bitmap uses the even prefix of its buffer, which CapInBytes reports
+	p.caps.Add(int64(cap(buf) / 2 * 2))
+	return buf, put
+}
+
+func (p *spareRatioPool) CloneWithHeadroom(bm *sroar.Bitmap, _ float64) (*sroar.Bitmap, func()) {
+	dst, put := p.GetBitmapStruct()
+	return bm.CloneTo(dst, sroar.BuildOpts{Pool: p, InitialSpareRatio: p.spareRatio}), put
+}
+
 func BenchmarkSegmentInMemoryReader(b *testing.B) {
 	bufPool := newRangedBufPool(b)
 	ctx := context.Background()
@@ -983,7 +1063,8 @@ func mergeMemtableNow(s *SegmentInMemory, mem *Memtable) {
 // newRangedBufPool returns the production pool, whose buckets round sizes up.
 func newRangedBufPool(tb testing.TB) roaringset.BitmapBufPool {
 	logger, _ := test.NewNullLogger()
-	pool, closePool := roaringset.NewBitmapBufPoolDefault(logger, nil, 0, 0)
+	pool, closePool := roaringset.NewBitmapBufPoolDefault(logger, nil,
+		config.DefaultQueryBitmapBufsMaxBufSize, config.DefaultQueryBitmapBufsMaxMemory)
 	tb.Cleanup(closePool)
 	return pool
 }
