@@ -83,11 +83,7 @@ func (n *nextRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusTeapot) // distinguishable from anything real
 }
 
-// TestAddOperationalModeSearchRoutes covers the operational-mode
-// classification of REST search requests: they carry POST bodies (an HTTP
-// "write" method) but are semantically reads, so they stay available in
-// READ_ONLY/SCALE_OUT and are blocked in WRITE_ONLY.
-func TestAddOperationalModeSearchRoutes(t *testing.T) {
+func TestAddOperationalMode(t *testing.T) {
 	searchBody := func() *strings.Reader { return strings.NewReader(`{"query":"space"}`) }
 	routes := routableContext(t)
 
@@ -99,6 +95,66 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		return next, rec
+	}
+
+	// POST /v1 and * match no route, so the gate passes them on and the
+	// router answers. GET /v1 matches the root route, which every mode allows.
+	shortPathTests := []struct {
+		name       string
+		mode       string
+		method     string
+		path       string
+		wantNext   bool
+		wantStatus int
+	}{
+		{
+			name:       "READ_ONLY leaves a write to the API root to the router",
+			mode:       config.READ_ONLY,
+			method:     http.MethodPost,
+			path:       "/v1",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+		{
+			name:       "SCALE_OUT leaves a write to the API root to the router",
+			mode:       config.SCALE_OUT,
+			method:     http.MethodPost,
+			path:       "/v1",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+		{
+			name:       "WRITE_ONLY lets the API root be read",
+			mode:       config.WRITE_ONLY,
+			method:     http.MethodGet,
+			path:       "/v1",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+		{
+			name:       "READ_ONLY leaves a target without path segments to the router",
+			mode:       config.READ_ONLY,
+			method:     http.MethodPost,
+			path:       "*",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+		{
+			name:       "READ_ONLY keeps non-v1 paths available",
+			mode:       config.READ_ONLY,
+			method:     http.MethodPost,
+			path:       "/",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+	}
+	for _, test := range shortPathTests {
+		t.Run(test.name, func(t *testing.T) {
+			next, rec := run(t, searchTestAppState(test.mode), test.method, test.path)
+
+			assert.Equal(t, test.wantNext, next.called)
+			assert.Equal(t, test.wantStatus, rec.Code)
+		})
 	}
 
 	t.Run("READ_ONLY lets search through", func(t *testing.T) {
