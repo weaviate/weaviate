@@ -170,6 +170,9 @@ func (p *Persistent) drainStep(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, errors.Wrapf(err, "read the vector kept aside of doc %d", id)
 	}
+	if p.cfg.drainHook != nil {
+		p.cfg.drainHook()
+	}
 	if len(raw) != 4*dims {
 		return false, errors.Errorf("the vector kept aside of doc %d takes %d bytes, for %d dimensions", id, len(raw), dims)
 	}

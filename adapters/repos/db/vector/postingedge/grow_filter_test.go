@@ -181,11 +181,11 @@ func TestGrowFilteredSearchEqualsMemory(t *testing.T) {
 // codes and rescores the best ones. With no more allowed than it rescores it
 // is the exact answer among them, and with more it rescores as many as it is
 // told. It never returns a doc id the filter leaves out, nor one marked
-// deleted, and an index with no codes in memory refuses it, until it has one
-// of its own (integration-plan.md, section 8, amendment 3). How much of the
-// answer it finds
-// with real vectors is for the tests of the index a shard opens: the tight
-// clusters of these vectors have near ties a code cannot tell apart.
+// deleted. An index with no codes in memory ranks them by the full codes of
+// the postings that hold them, which it loads once each (integration-plan.md,
+// section 8, amendment 3). How much of the answer it finds with real vectors
+// is for the tests of the index a shard opens: the tight clusters of these
+// vectors have near ties a code cannot tell apart.
 func TestGrowFlatSearch(t *testing.T) {
 	ctx := context.Background()
 	const total, base, dims, k = 2200, 1000, 64, 10
@@ -254,10 +254,63 @@ func TestGrowFlatSearch(t *testing.T) {
 	_, _, err = g.flatSearch(ctx, query[:dims-1], k, 40, everything, nil)
 	require.Error(t, err, "a query of another length")
 
-	// With no codes in memory, no flat search.
+	// With no codes in memory the flat search ranks the allowed vectors by the
+	// full codes their postings hold (integration-plan.md, section 8,
+	// amendment 3): the posting map gives the posting of each, and each of
+	// those postings is loaded once, its row of members alone, and no other.
+	// It answers exactly where it rescores every allowed vector, and returns
+	// nothing the filter leaves out nor the vector marked deleted.
 	f.how.noCodes = true
 	f.reopen(t)
-	require.True(t, f.g.noCodes)
-	_, _, err = f.g.flatSearch(ctx, query, k, 40, filters[0].allow, nil)
-	require.ErrorIs(t, err, ErrNotSupported)
+	g = f.g
+	require.True(t, g.noCodes)
+	marked := before[0]
+	held := func(id uint64) bool { return id != marked }
+	for _, tt := range tests {
+		for _, filter := range filters {
+			postings, allowed := map[uint32]bool{}, 0
+			for id := range uint64(total) {
+				if filter.allow.Contains(id) && held(id) {
+					postings[g.st.side.postingOf[id]] = true
+					allowed++
+				}
+			}
+			hits, want := 0, 0
+			for i, query := range f.queries {
+				at := errors.Errorf("no codes in memory, %s, %s, query %d", tt.name, filter.name, i).Error()
+				stats := &diskSearchStats{}
+				ids, dists, err := g.flatSearch(ctx, query, k, tt.rescore, filter.allow, stats)
+				require.NoError(t, err, at)
+				require.True(t, stats.Flat, at)
+				require.True(t, slices.IsSorted(dists), at)
+				require.Len(t, ids, min(k, allowed), at)
+				for _, id := range ids {
+					require.True(t, filter.allow.Contains(id), "%s: doc %d is left out", at, id)
+					require.NotEqual(t, marked, id, "%s: the vector marked deleted", at)
+				}
+				truth := filteredTruth(t, f.provider, f.all, query, k, func(id uint64) bool {
+					return filter.allow.Contains(id) && held(id)
+				})
+				if tt.exact {
+					require.Equal(t, truth, ids, "%s: the exact answer", at)
+					require.Zero(t, stats.Scored, "%s: nothing is ranked by its code", at)
+					require.Zero(t, stats.Postings, "%s: no posting is loaded", at)
+				} else {
+					require.Equal(t, min(tt.rescore, allowed), stats.Rescored, at)
+					if allowed > tt.rescore {
+						require.Equal(t, allowed, stats.Scored, "%s: every allowed vector is ranked by its code", at)
+						require.Equal(t, len(postings), stats.Postings, "%s: each posting of an allowed vector loaded once", at)
+					}
+				}
+				for _, id := range truth {
+					if slices.Contains(ids, id) {
+						hits++
+					}
+				}
+				want += len(truth)
+			}
+			t.Logf("no codes in memory, %s, %s: recall %.3f, %d allowed in %d postings",
+				tt.name, filter.name, float64(hits)/float64(want), allowed, len(postings))
+		}
+	}
 }

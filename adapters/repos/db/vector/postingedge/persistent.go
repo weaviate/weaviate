@@ -255,6 +255,11 @@ type PersistentConfig struct {
 	// writeHook, in the tests, is called at the points of the write of the
 	// base (writeGrowIndex). What it answers is the write failing there.
 	writeHook func(point string) error
+	// drainHook, in the tests, is called before the index takes a vector
+	// kept aside, with no lock held: a test that holds it searches an index
+	// with a base and vectors still aside. baseHook is called with the lock
+	// of the index held, and a search would wait for it.
+	drainHook func()
 }
 
 func (c *PersistentConfig) validate() error {
