@@ -1235,7 +1235,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
-	t.recordKeyDocColumnDrops(shard, oldMainBuckets)
+	t.recordKeyDocColumnDrops(shard, props)
 
 	concrete, err := unwrapShard(ctx, shard)
 	if err == nil {

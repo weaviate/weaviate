@@ -117,10 +117,10 @@ func (d *keyDocColumnDrops) report(logger logrus.FieldLogger) {
 //
 // TODO aliszka:keydoccolumn restore the column after the swap, as
 // rebuildRangeableInMemoryReps does.
-func (t *ShardReindexTaskGeneric) recordKeyDocColumnDrops(shard ShardLike, swapped map[string]*lsmkv.Bucket) {
+func (t *ShardReindexTaskGeneric) recordKeyDocColumnDrops(shard ShardLike, swapped []string) {
 	configured := shard.Index().Config.KeyDocColumnProps
 	var props []string
-	for prop := range swapped {
+	for _, prop := range swapped {
 		if t.strategy.SourceBucketName(prop) == helpers.BucketFromPropNameLSM(prop) &&
 			keyDocColumnConfiguredIn(configured, prop) {
 			props = append(props, prop)
