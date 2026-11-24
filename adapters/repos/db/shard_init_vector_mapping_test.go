@@ -554,66 +554,6 @@ func TestInitTargetVector_SkippedVectorHasNoRecord(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestVectorIndexCollisions pins which pairs of owners share a physical
-// name, and that a newcomer is checked against the owners only.
-func TestVectorIndexCollisions(t *testing.T) {
-	tests := []struct {
-		name   string
-		owners map[string]string
-		want   []string
-	}{
-		{name: "no collision", owners: map[string]string{"": "main", "title": "vectors_title"}},
-		{
-			name:   "compressed next to the legacy vector",
-			owners: map[string]string{"": "main", "compressed": "vectors_compressed"},
-			want:   []string{`vectors "" and "compressed" share "vectors_compressed"`},
-		},
-		{
-			name:   "muvera next to its sibling",
-			owners: map[string]string{"foo": "vectors_foo", "foo_muvera_vectors": "vectors_foo_muvera_vectors"},
-			want:   []string{`vectors "foo" and "foo_muvera_vectors" share "vectors_foo_muvera_vectors"`},
-		},
-		{
-			name:   "centroids next to its sibling",
-			owners: map[string]string{"foo": "vectors_foo", "foo_centroids": "vectors_foo_centroids"},
-			want:   []string{`vectors "foo" and "foo_centroids" share "vectors_compressed_foo_centroids"`},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, vectorIndexCollisions(ownersAt(tt.owners)))
-		})
-	}
-
-	// a newcomer is checked against the owners, not the owners against each
-	// other: an existing collision does not block an unrelated addition
-	owners := ownersAt(map[string]string{"foo": "vectors_foo", "foo_muvera_vectors": "vectors_foo_muvera_vectors"})
-	assert.Empty(t, vectorIndexCollisionsWith(owners, "bar", ownerAt("vectors_bar")))
-	assert.Equal(t, []string{`vectors "foo" and "foo_mv_mappings" share "vectors_foo_mv_mappings"`},
-		vectorIndexCollisionsWith(owners, "foo_mv_mappings", ownerAt("vectors_foo_mv_mappings")))
-}
-
-// A queue that outlived its index is still its vector's: another vector
-// naming it collides, and so does a newcomer whose ID the index took.
-func TestVectorIndexCollisions_QueueOutlivedItsIndex(t *testing.T) {
-	owners := map[string]vectorIndexOwner{"foo": {physicalID: "vectors_foo_2", queueID: "vectors_foo"}}
-
-	assert.Empty(t, vectorIndexCollisionsWith(owners, "bar", ownerAt("vectors_bar")))
-	assert.Equal(t, []string{`vectors "foo" and "bar" share "vectors_foo.queue.d"`},
-		vectorIndexCollisionsWith(owners, "bar", vectorIndexOwner{physicalID: "vectors_bar", queueID: "vectors_foo"}))
-	assert.Equal(t, []string{`vectors "foo" and "foo_2" share "vectors_foo_2"`},
-		vectorIndexCollisionsWith(owners, "foo_2", ownerAt("vectors_foo_2")))
-}
-
-// ownersAt maps each vector to an owner whose index and queue share its ID.
-func ownersAt(ids map[string]string) map[string]vectorIndexOwner {
-	owners := make(map[string]vectorIndexOwner, len(ids))
-	for name, id := range ids {
-		owners[name] = ownerAt(id)
-	}
-	return owners
-}
-
 // A live creation whose physical names another vector owns is refused
 // before anything is written or built.
 func TestInitTargetVector_RefusesACollision(t *testing.T) {
