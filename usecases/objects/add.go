@@ -123,6 +123,9 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		if errors.As(err, &authzerrs.Forbidden{}) {
 			return nil, err
 		}
+		if validation.IsReferenceAuthorizationError(err) {
+			return nil, NewErrInternal("validate object: %w", err)
+		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return nil, NewErrInternal("validate object: %w", err)
 		}

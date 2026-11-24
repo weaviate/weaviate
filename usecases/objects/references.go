@@ -61,6 +61,13 @@ func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.
 	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
 }
 
+func referenceAuthorizationError(err error) *Error {
+	if errors.As(err, &autherrs.Forbidden{}) {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+	return &Error{"authorize reference target", StatusInternalServerError, err}
+}
+
 // validateReferenceName validates class and property names. The class
 // portion accepts the qualified "<namespace>:<Class>" form produced by
 // namespacing.Resolve upstream.

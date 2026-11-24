@@ -149,14 +149,14 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		checkName := parsedTargetRefs[i].Class + "#" + targetTenant
 		if _, ok := previouslyAuthorized[checkName]; !ok {
 			if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, targetTenant)...); err != nil {
-				return &Error{err.Error(), StatusForbidden, err}
+				return referenceAuthorizationError(err)
 			}
 			previouslyAuthorized[checkName] = struct{}{}
 		}
 
 		if err := input.validateExistence(ctx, validator, targetTenant, parsedTargetRefs[i]); err != nil {
-			if errors.As(err, &autherrs.Forbidden{}) {
-				return &Error{err.Error(), StatusForbidden, err}
+			if errors.As(err, &autherrs.Forbidden{}) || validation.IsReferenceAuthorizationError(err) {
+				return referenceAuthorizationError(err)
 			}
 			if errors.Is(err, replicaerrors.ErrReplicas) {
 				return &Error{"validate existence", StatusInternalServerError, err}

@@ -28,6 +28,29 @@ import (
 
 type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error)
 
+type referenceAuthorizationError struct {
+	err error
+}
+
+func (e *referenceAuthorizationError) Error() string {
+	return e.err.Error()
+}
+
+func (e *referenceAuthorizationError) Unwrap() error {
+	return e.err
+}
+
+func wrapReferenceAuthorizationError(err error) error {
+	return &referenceAuthorizationError{err: err}
+}
+
+// IsReferenceAuthorizationError reports whether reference validation failed
+// because its target permission check could not complete.
+func IsReferenceAuthorizationError(err error) bool {
+	var authErr *referenceAuthorizationError
+	return errors.As(err, &authErr)
+}
+
 // ReferenceTargetTenant uses the tenantless scope required by classless lookups.
 func ReferenceTargetTenant(class, tenant string) string {
 	if class == "" {
@@ -139,7 +162,7 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 		// (use empty tenant, if previously was given)
 		if authErr := v.authorizer.Authorize(ctx, v.principal, authorization.READ,
 			authorization.ShardsData(ref.Class, "")...); authErr != nil {
-			return authErr
+			return wrapReferenceAuthorizationError(authErr)
 		}
 		ok2, err2 := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
 		if err2 != nil {

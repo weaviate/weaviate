@@ -138,11 +138,11 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	targetTenant := validation.ReferenceTargetTenant(targetRef.Class, tenant)
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, targetTenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return referenceAuthorizationError(err)
 	}
 	if err := input.validateExistence(ctx, validator, targetTenant, targetRef); err != nil {
-		if errors.As(err, &autherrs.Forbidden{}) {
-			return &Error{err.Error(), StatusForbidden, err}
+		if errors.As(err, &autherrs.Forbidden{}) || validation.IsReferenceAuthorizationError(err) {
+			return referenceAuthorizationError(err)
 		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return &Error{"validate existence", StatusInternalServerError, err}

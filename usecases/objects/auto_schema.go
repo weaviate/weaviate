@@ -547,7 +547,7 @@ func (m *AutoSchemaManager) asRef(ctx context.Context, target refTarget,
 	// collections before reading them.
 	results, err := m.objectFinder.ObjectsByIDWithClassCheck(ctx, ref.TargetID, search.SelectProperties{},
 		additional.Properties{}, "", target.sourceNamespace, func(class string) (bool, error) {
-			err := target.authorizer.Authorize(ctx, target.principal, authorization.READ,
+			err := target.authorizer.AuthorizeSilent(ctx, target.principal, authorization.READ,
 				authorization.Collections(class)...)
 			if err == nil {
 				return true, nil

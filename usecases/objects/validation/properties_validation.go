@@ -629,7 +629,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 	targetTenant := ReferenceTargetTenant(refForValidation.Class, tenant)
 	if err := v.authorizer.Authorize(ctx, v.principal, authorization.READ,
 		authorization.ShardsData(refForValidation.Class, targetTenant)...); err != nil {
-		return nil, err
+		return nil, wrapReferenceAuthorizationError(err)
 	}
 	if err = v.ValidateExistence(ctx, refForValidation, errVal, targetTenant); err != nil {
 		return nil, err
