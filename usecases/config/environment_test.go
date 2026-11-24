@@ -3203,6 +3203,7 @@ func TestEnvironmentHNSWMaxSearchEF(t *testing.T) {
 		{name: "config file value kept when env unset", maxResults: "5000", fileMaxEF: 777, expectedMaxEF: 777},
 		{name: "env overrides config file value", fileMaxEF: 777, maxEF: "20000", expectedMaxEF: 20000},
 		{name: "zero env falls back to config file value", fileMaxEF: 777, maxEF: "0", expectedMaxEF: 777},
+		{name: "negative config file value rejected", fileMaxEF: -5, expectErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3246,6 +3247,7 @@ func TestEnvironmentHFreshMaxSearchProbe(t *testing.T) {
 		{name: "config file value kept when env unset", maxResults: "5000", fileMaxProbe: 777, expectedMaxProbe: 777},
 		{name: "env overrides config file value", fileMaxProbe: 777, maxProbe: "20000", expectedMaxProbe: 20000},
 		{name: "zero env falls back to config file value", fileMaxProbe: 777, maxProbe: "0", expectedMaxProbe: 777},
+		{name: "negative config file value rejected", fileMaxProbe: -5, expectErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

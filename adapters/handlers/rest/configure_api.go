@@ -522,6 +522,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,
+		HNSWMaxSearchEF:                     appState.ServerConfig.Config.HNSWMaxSearchEF,
+		HFreshMaxSearchProbe:                appState.ServerConfig.Config.HFreshMaxSearchProbe,
 		QueryHybridMaximumResults:           appState.ServerConfig.Config.QueryHybridMaximumResults,
 		QueryNestedRefLimit:                 appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
 		MaxImportGoroutinesFactor:           appState.ServerConfig.Config.MaxImportGoroutinesFactor,

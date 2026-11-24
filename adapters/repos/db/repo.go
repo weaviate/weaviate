@@ -445,6 +445,8 @@ type Config struct {
 	RootPath                       string
 	QueryLimit                     int64
 	QueryMaximumResults            int64
+	HNSWMaxSearchEF                int64
+	HFreshMaxSearchProbe           int64
 	QueryHybridMaximumResults      int64
 	QueryNestedRefLimit            int64
 	ResourceUsage                  config.ResourceUsage

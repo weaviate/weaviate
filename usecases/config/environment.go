@@ -2652,15 +2652,15 @@ func validateBackupDedupeConvergenceTimeout(val time.Duration) error {
 	return nil
 }
 
-// resolveSearchCap resolves the upper bound for one per-request vector search
-// knob. Precedence: the envName env var, then fileValue (the config-file
-// setting), then queryMax (the resolved QUERY_MAXIMUM_RESULTS). A value of 0
-// at any step falls through to the next, and a non-positive queryMax is
-// replaced by its default so a broken setting can never turn the cap into
-// "reject every request". A negative or non-numeric env var is an error.
+// resolveSearchCap resolves the cap for one per-request vector search knob:
+// the envName env var, then the config-file value, then QUERY_MAXIMUM_RESULTS
+// (its default if non-positive). 0 falls through; a negative value is an error.
 func resolveSearchCap(envName string, fileValue, queryMax int64) (int64, error) {
+	if fileValue < 0 {
+		return 0, fmt.Errorf("%s must not be negative in the config file", strings.ToLower(envName))
+	}
 	resolved := fileValue
-	if resolved <= 0 {
+	if resolved == 0 {
 		resolved = queryMax
 	}
 	if resolved <= 0 {

@@ -1737,10 +1737,14 @@ func (i *Index) DeletionStrategy() string {
 
 type IndexConfig struct {
 	// NodeName is the local node name.
-	NodeName                            string
-	RootPath                            string
-	ClassName                           schema.ClassName
-	QueryMaximumResults                 int64
+	NodeName            string
+	RootPath            string
+	ClassName           schema.ClassName
+	QueryMaximumResults int64
+	// HNSWMaxSearchEF and HFreshMaxSearchProbe cap incoming per-request
+	// vector search params (HNSW_MAX_SEARCH_EF, HFRESH_MAX_SEARCH_PROBE).
+	HNSWMaxSearchEF                     int64
+	HFreshMaxSearchProbe                int64
 	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
@@ -3479,6 +3483,11 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 	vectorSearchParams *searchparams.VectorSearchParams,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
+	// the coordinator validated against its own caps, which can differ
+	if err := vectorSearchParams.Validate(int(i.Config.HNSWMaxSearchEF), int(i.Config.HFreshMaxSearchProbe)); err != nil {
+		return nil, nil, nil, fmt.Errorf("vector search params: %w", err)
+	}
+
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, nil, err

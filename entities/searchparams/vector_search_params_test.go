@@ -182,3 +182,36 @@ func TestVectorSearchParams_JSONRoundTrip(t *testing.T) {
 		assert.Equal(t, oldVectorSearchParams{EF: 64}, out)
 	})
 }
+
+func TestVectorSearchParams_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		params  *VectorSearchParams
+		maxEF   int
+		maxProb int
+		wantErr string
+	}{
+		{name: "nil", params: nil, maxEF: 10, maxProb: 10},
+		{name: "within caps", params: &VectorSearchParams{EF: 10, SearchProbe: 10, FilterStrategy: FilterStrategyAcorn}, maxEF: 10, maxProb: 10},
+		{name: "ef over cap", params: &VectorSearchParams{EF: 11}, maxEF: 10, maxProb: 10, wantErr: "ef 11 exceeds HNSW_MAX_SEARCH_EF (10)"},
+		{name: "probe over cap", params: &VectorSearchParams{SearchProbe: 11}, maxEF: 10, maxProb: 10, wantErr: "searchProbe 11 exceeds HFRESH_MAX_SEARCH_PROBE (10)"},
+		{name: "negative ef", params: &VectorSearchParams{EF: -1}, maxEF: 10, maxProb: 10, wantErr: "ef must be >= 0, got -1"},
+		{name: "unknown strategy", params: &VectorSearchParams{FilterStrategy: "fast"}, maxEF: 10, maxProb: 10, wantErr: `filterStrategy must be one of sweeping, acorn, pathseer, got "fast"`},
+		{name: "unset caps are unbounded", params: &VectorSearchParams{EF: 50000, SearchProbe: 50000}},
+		{
+			name:   "per-target entry over cap names the target",
+			params: &VectorSearchParams{PerTarget: map[string]VectorSearchParams{"title": {EF: 11}}},
+			maxEF:  10, maxProb: 10, wantErr: "perTarget[title]: ef 11 exceeds HNSW_MAX_SEARCH_EF (10)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.params.Validate(tt.maxEF, tt.maxProb)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}

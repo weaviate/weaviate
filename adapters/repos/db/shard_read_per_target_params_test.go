@@ -324,3 +324,22 @@ func TestAnnotateVectorSearchParams(t *testing.T) {
 		assert.Zero(t, allocs)
 	})
 }
+
+func TestIncomingSearchRejectsParamsOverLocalCaps(t *testing.T) {
+	// the coordinator validates against its own caps; a replica configured
+	// with lower ones must not run the search anyway
+	idx := &Index{Config: IndexConfig{HNSWMaxSearchEF: 100, HFreshMaxSearchProbe: 50}}
+	for name, params := range map[string]*searchparams.VectorSearchParams{
+		"ef":               {EF: 101},
+		"search probe":     {SearchProbe: 51},
+		"per-target ef":    {PerTarget: map[string]searchparams.VectorSearchParams{"title": {EF: 101}}},
+		"unknown strategy": {FilterStrategy: "fast"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, _, err := idx.IncomingSearch(context.Background(), "shard", nil, nil, 0, 10,
+				nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, params)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "vector search params")
+		})
+	}
+}

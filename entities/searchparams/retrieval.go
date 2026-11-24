@@ -13,6 +13,8 @@ package searchparams
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/search"
@@ -91,6 +93,44 @@ func (p *VectorSearchParams) FilterStrategyOrEmpty() string {
 // per-target. A nil p is zero.
 func (p *VectorSearchParams) IsZero() bool {
 	return p == nil || (p.EF == 0 && p.SearchProbe == 0 && p.FilterStrategy == "" && len(p.PerTarget) == 0)
+}
+
+// Validate checks p against the HNSW_MAX_SEARCH_EF and
+// HFRESH_MAX_SEARCH_PROBE caps (a cap <= 0 is unbounded) and the known filter
+// strategies, including every per-target entry. A nil p is valid.
+func (p *VectorSearchParams) Validate(maxEF, maxProbe int) error {
+	if p == nil {
+		return nil
+	}
+	if err := p.validateEntry(maxEF, maxProbe); err != nil {
+		return err
+	}
+	for _, name := range slices.Sorted(maps.Keys(p.PerTarget)) {
+		entry := p.PerTarget[name]
+		if err := entry.validateEntry(maxEF, maxProbe); err != nil {
+			return fmt.Errorf("perTarget[%s]: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (p *VectorSearchParams) validateEntry(maxEF, maxProbe int) error {
+	switch {
+	case p.EF < 0:
+		return fmt.Errorf("ef must be >= 0, got %d", p.EF)
+	case maxEF > 0 && p.EF > maxEF:
+		return fmt.Errorf("ef %d exceeds HNSW_MAX_SEARCH_EF (%d)", p.EF, maxEF)
+	case p.SearchProbe < 0:
+		return fmt.Errorf("searchProbe must be >= 0, got %d", p.SearchProbe)
+	case maxProbe > 0 && p.SearchProbe > maxProbe:
+		return fmt.Errorf("searchProbe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", p.SearchProbe, maxProbe)
+	}
+	switch p.FilterStrategy {
+	case "", FilterStrategySweeping, FilterStrategyAcorn, FilterStrategyPathseer:
+		return nil
+	default:
+		return fmt.Errorf("filterStrategy must be one of sweeping, acorn, pathseer, got %q", p.FilterStrategy)
+	}
 }
 
 // ForTarget returns the parameters the index of target vector name must use:

@@ -121,6 +121,8 @@ func (db *DB) init(ctx context.Context) error {
 			RootPath:                       db.config.RootPath,
 			ResourceUsage:                  db.config.ResourceUsage,
 			QueryMaximumResults:            db.config.QueryMaximumResults,
+			HNSWMaxSearchEF:                db.config.HNSWMaxSearchEF,
+			HFreshMaxSearchProbe:           db.config.HFreshMaxSearchProbe,
 			QueryHybridMaximumResults:      db.config.QueryHybridMaximumResults,
 			QueryNestedRefLimit:            db.config.QueryNestedRefLimit,
 			MemtablesFlushDirtyAfter:       db.config.MemtablesFlushDirtyAfter,
