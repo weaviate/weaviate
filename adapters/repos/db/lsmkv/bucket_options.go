@@ -302,6 +302,17 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	}
 }
 
+// WithKeyDocColumn requests a resident key/doc column, built at open, or none for
+// an empty name. A property's shards share name, so a declined build warns once
+// per process. The build declines without docIDCount, the shard's issued docIDs.
+func WithKeyDocColumn(name string, docIDCount roaringset.DocIDCountGetterFunc) BucketOption {
+	return func(b *Bucket) error {
+		b.keyDocColumnName = name
+		b.docIDCountGetter = docIDCount
+		return nil
+	}
+}
+
 // WithRangeableInMemoryDeferred marks a bucket whose in-memory rep was left
 // unbuilt intentionally. Enables a diagnostic log line only; never affects
 // read-path selection.
