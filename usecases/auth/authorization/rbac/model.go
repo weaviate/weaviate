@@ -515,12 +515,93 @@ func makeNamespaceAwareMatcherFunc(namespacesEnabled bool) func(args ...any) (an
 		reqObj := args[0].(string)
 		polObj := args[1].(string)
 		ns := args[2].(string)
+		var matched bool
 		// NS-disabled empty-ns path: a ':' here is an OIDC username char, not a namespace prefix, so match plainly.
 		if !namespacesEnabled && ns == "" {
-			return weaviateKeyMatch(reqObj, polObj), nil
+			matched = weaviateKeyMatch(reqObj, polObj)
+		} else {
+			matched = namespaceAwareMatcher(reqObj, polObj, ns)
 		}
-		return namespaceAwareMatcher(reqObj, polObj, ns), nil
+		return matched && wildcardsCovered(reqObj, polObj), nil
 	}
+}
+
+// wildcardsCovered reports whether polObj, a stored policy, names every value
+// of each "*" segment in reqObj. Request builders write a literal "*" for
+// "every name", which KeyMatch5 matches as text, so a pattern such as "(A|.)"
+// that merely matches the character '*' would pass. Stored targets carry no
+// '/', so a policy's segments line up with the request's.
+func wildcardsCovered(reqObj, polObj string) bool {
+	if polObj == "*" {
+		return true
+	}
+	aligned := strings.Count(reqObj, "/") == strings.Count(polObj, "/")
+	for req, pol := reqObj, polObj; ; {
+		reqSeg, reqRest, more := strings.Cut(req, "/")
+		polSeg, polRest, _ := strings.Cut(pol, "/")
+		if reqSeg == "*" && (!aligned || !universalSegment(polSeg)) {
+			return false
+		}
+		if !more {
+			return true
+		}
+		req, pol = reqRest, polRest
+	}
+}
+
+// universalSegment reports whether a policy segment, as KeyMatch5 compiles it,
+// matches every name.
+func universalSegment(seg string) bool {
+	if strings.HasPrefix(seg, "*") {
+		seg = "." + seg // KeyMatch5 rewrites "/*" to "/.*"
+	}
+	if seg == ".*" {
+		return true
+	}
+	re, err := syntax.Parse(seg, syntax.Perl)
+	return err == nil && matchesEveryString(re.Simplify(), true)
+}
+
+// matchesEveryString reports whether re matches every string of non-newline
+// characters, or every non-empty one when nonEmpty. It recognises ".*"-like
+// shapes only, so it may say false for a pattern that does match everything.
+func matchesEveryString(re *syntax.Regexp, nonEmpty bool) bool {
+	switch re.Op {
+	case syntax.OpCapture:
+		return matchesEveryString(re.Sub[0], nonEmpty)
+	case syntax.OpAlternate:
+		return slices.ContainsFunc(re.Sub, func(sub *syntax.Regexp) bool { return matchesEveryString(sub, nonEmpty) })
+	case syntax.OpStar:
+		return matchesEveryChar(re.Sub[0]) || matchesEveryString(re.Sub[0], true)
+	case syntax.OpPlus:
+		return (nonEmpty && matchesEveryChar(re.Sub[0])) || matchesEveryString(re.Sub[0], nonEmpty)
+	case syntax.OpQuest:
+		return matchesEveryString(re.Sub[0], true)
+	case syntax.OpConcat:
+		// Every part must match any string, except that one part may match
+		// any single character or any non-empty string when nonEmpty.
+		spare := nonEmpty
+		for _, sub := range re.Sub {
+			switch {
+			case matchesEveryString(sub, false):
+			case spare && (matchesEveryChar(sub) || matchesEveryString(sub, true)):
+				spare = false
+			default:
+				return false
+			}
+		}
+		return len(re.Sub) > 0
+	default:
+		return false
+	}
+}
+
+// matchesEveryChar reports whether re matches every single non-newline character.
+func matchesEveryChar(re *syntax.Regexp) bool {
+	for re.Op == syntax.OpCapture {
+		re = re.Sub[0]
+	}
+	return re.Op == syntax.OpAnyChar || re.Op == syntax.OpAnyCharNotNL
 }
 
 func getVersion(path string) (string, error) {
