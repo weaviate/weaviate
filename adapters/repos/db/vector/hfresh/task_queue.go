@@ -169,6 +169,15 @@ func (tq *TaskQueue) Register() {
 }
 
 func (tq *TaskQueue) Close(ctx context.Context) error {
+	// Unregister and drain every producer before closing any writer. Workers
+	// can enqueue into another queue (or their own); these follow-up tasks must
+	// remain writable and will be replayed when the index reopens.
+	for _, q := range []*queue.DiskQueue{tq.analyzeQueue.DiskQueue, tq.splitQueue, tq.reassignQueue, tq.mergeQueue} {
+		if err := tq.scheduler.UnregisterQueue(ctx, q.ID()); err != nil {
+			return errors.Wrap(err, "failed to drain maintenance queues")
+		}
+	}
+
 	var errs []error
 	if err := tq.Flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))

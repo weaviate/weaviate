@@ -129,15 +129,15 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 	s.updateQueueCountMetric()
 }
 
-func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
+func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) error {
 	if s.ctx == nil {
 		// scheduler not started
-		return
+		return nil
 	}
 
 	q := s.getQueue(id)
 	if q == nil {
-		return
+		return nil
 	}
 
 	s.PauseQueue(id)
@@ -145,7 +145,9 @@ func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
 	q.cancelFn()
 
 	// wait for the workers to finish processing the queue's tasks
-	_ = s.Wait(ctx, id)
+	if err := s.Wait(ctx, id); err != nil {
+		return err
+	}
 
 	// the queue is paused, so it's safe to remove it
 	s.queues.Lock()
@@ -153,6 +155,7 @@ func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
 	s.queues.Unlock()
 
 	s.updateQueueCountMetric()
+	return nil
 }
 
 func (s *Scheduler) Start() {

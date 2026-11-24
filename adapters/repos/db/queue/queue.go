@@ -244,7 +244,14 @@ func (q *DiskQueue) Close(ctx context.Context) error {
 	q.closed = true
 	q.m.Unlock()
 
-	q.scheduler.UnregisterQueue(ctx, q.id)
+	if err := q.scheduler.UnregisterQueue(ctx, q.id); err != nil {
+		// Keep the handles and registration until the workers have stopped. A
+		// later Close can retry the wait with a fresh context.
+		q.m.Lock()
+		q.closed = false
+		q.m.Unlock()
+		return err
+	}
 
 	q.m.Lock()
 	defer q.m.Unlock()
@@ -702,6 +709,9 @@ func (q *DiskQueue) Drop(ctx context.Context) error {
 
 	err := q.Close(ctx)
 	if err != nil {
+		if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
 		q.Logger.WithError(err).Error("failed to close queue")
 	}
 

@@ -115,6 +115,8 @@ type HFresh struct {
 
 	taskQueue TaskQueue
 
+	shutdownState atomic.Uint32
+
 	visitedPool *visited.Pool
 
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
@@ -297,9 +299,22 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	return nil
 }
 
+const (
+	shutdownNotStarted uint32 = iota
+	shutdownInProgress
+	shutdownComplete
+)
+
 func (h *HFresh) Drop(ctx context.Context) error {
-	_ = h.Shutdown(ctx)
-	// Shard::drop will take care of handling store buckets
+	if h.ctx == nil {
+		return nil
+	}
+	err := h.Shutdown(ctx)
+	if h.shutdownState.Load() != shutdownComplete {
+		// The shard must not drop the buckets while maintenance is still running.
+		return err
+	}
+	// Shard::drop will take care of handling store buckets.
 	return nil
 }
 
@@ -307,9 +322,8 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 	if h.ctx == nil {
 		return nil // Already closed or not started
 	}
-
-	if h.ctx.Err() != nil {
-		return h.ctx.Err() // Context already cancelled
+	if !h.shutdownState.CompareAndSwap(shutdownNotStarted, shutdownInProgress) {
+		return context.Canceled // Already closed or draining
 	}
 
 	// Cancel the context to prevent new operations from being enqueued
@@ -318,6 +332,10 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 	var errs []error
 
 	err := h.taskQueue.Close(ctx)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		h.shutdownState.Store(shutdownNotStarted)
+		return err
+	}
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -337,6 +355,7 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
+	h.shutdownState.Store(shutdownComplete)
 	return stderrors.Join(errs...)
 }
 
