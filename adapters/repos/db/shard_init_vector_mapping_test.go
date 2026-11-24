@@ -1114,6 +1114,55 @@ func TestRemoveVectorIndexFiles_ReadsTheRecordOffline(t *testing.T) {
 	assert.NoError(t, err, "nothing deleted on a refused record")
 }
 
+// The cold sweep of a vector being rebuilt deletes both indexes the task
+// names, then the task, then the record; with no record left, both indexes
+// still go.
+func TestRemoveVectorIndexFiles_RemovesBothIndexesOfARebuild(t *testing.T) {
+	tests := []struct {
+		name     string
+		recorded bool
+	}{
+		{name: "with the record", recorded: true},
+		{name: "after the record went", recorded: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+			require.NoError(t, shard.Shutdown(ctx))
+			plantVectorIndexFiles(t, shard, testCandidateID)
+			require.NotEmpty(t, plantedOrBuiltFiles(t, shard, "vectors_foo"))
+			withOfflineTasks(t, shard.path(), func(tasks *manifestTasks) {
+				require.NoError(t, tasks.Put("foo", fooRebuildTask("hnsw", "hfresh")))
+			})
+			if !tt.recorded {
+				withOfflineMapping(t, shard.path(), func(m *manifestRecords, _ *shardmeta.Namespace) {
+					require.NoError(t, m.Delete("foo"))
+				})
+			}
+
+			markDropped(class, "foo")
+			h := newVectorDropIndexHelper()
+			require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "foo", otherTargetVectors(class, "foo")))
+
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, "vectors_foo"))
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, testCandidateID))
+			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
+			withOfflineTasks(t, shard.path(), func(tasks *manifestTasks) {
+				all, err := tasks.Load()
+				require.NoError(t, err)
+				assert.Empty(t, all)
+			})
+			withOfflineMapping(t, shard.path(), func(m *manifestRecords, _ *shardmeta.Namespace) {
+				_, ok, err := m.Get("foo")
+				require.NoError(t, err)
+				assert.False(t, ok)
+			})
+		})
+	}
+}
+
 // A drop that failed part-way leaves a dropping record and files, here an
 // upgraded dynamic index whose state key is gone and whose commit log
 // survives. When the schema has the name again, the load finishes the drop
@@ -1604,4 +1653,250 @@ func TestShardWithGeneratedVectorIndexIDs(t *testing.T) {
 		works(t, shard)
 		noNameDerivedFiles(t, shard)
 	})
+}
+
+// testCandidateID is a rebuild's generated physical ID.
+const testCandidateID = "3f2a9c1e-0b7d"
+
+// withOfflineTasks opens a shut-down shard's index.db for fn.
+func withOfflineTasks(t *testing.T, shardDir string, fn func(tasks *manifestTasks)) {
+	t.Helper()
+	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	defer db.Close()
+	fn(newManifestTasks(db))
+}
+
+// plantVectorIndexFiles creates every file name an index at physicalID can
+// own, as a half-built or retired index leaves them.
+func plantVectorIndexFiles(t *testing.T, s *Shard, physicalID string) {
+	t.Helper()
+	artifacts := helpers.VectorIndexArtifactNamesForID(manifestRecord{PhysicalID: physicalID}.storageID())
+	var dirs []string
+	for _, bucket := range artifacts.LSMBuckets {
+		dirs = append(dirs, filepath.Join(s.pathLSM(), bucket))
+	}
+	for _, dir := range artifacts.ShardDirs {
+		dirs = append(dirs, filepath.Join(s.path(), dir))
+	}
+	for _, dir := range dirs {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "planted"), []byte("x"), 0o600))
+	}
+}
+
+// plantedOrBuiltFiles lists the file names an index at physicalID can own
+// that are on disk.
+func plantedOrBuiltFiles(t *testing.T, s *Shard, physicalID string) []string {
+	t.Helper()
+	artifacts := helpers.VectorIndexArtifactNamesForID(manifestRecord{PhysicalID: physicalID}.storageID())
+	var found []string
+	for _, path := range append(
+		prefixed(s.pathLSM(), artifacts.LSMBuckets), prefixed(s.path(), artifacts.ShardDirs)...,
+	) {
+		_, err := os.Stat(path)
+		if err == nil {
+			found = append(found, path)
+		}
+	}
+	return found
+}
+
+func prefixed(dir string, names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, filepath.Join(dir, name))
+	}
+	return out
+}
+
+func fooRebuildTask(sourceType, candidateType string) manifestTask {
+	return manifestTask{
+		TaskID: "task-1", TaskVersion: 1,
+		Source:    manifestTaskIndex{PhysicalID: "vectors_foo", IndexType: sourceType},
+		Candidate: manifestTaskIndex{PhysicalID: testCandidateID, IndexType: candidateType},
+	}
+}
+
+// A crash before the switch: the mapping still names the source, so the
+// load deletes the half-built candidate and opens the source.
+func TestInitShardVectors_RecoveryDiscardsTheCandidate(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	foo := recorded(shard, "foo", "vectors_foo", "ready")
+
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		plantVectorIndexFiles(t, shard, testCandidateID)
+		withOfflineTasks(t, shard.path(), func(tasks *manifestTasks) {
+			require.NoError(t, tasks.Put("foo", fooRebuildTask("hnsw", "hfresh")))
+		})
+	})
+
+	assert.Empty(t, entriesWithID(t, shard, testCandidateID))
+	assert.NotEmpty(t, entriesNamed(t, shard, "foo"), "the source stays")
+	rec, _, err := recordsOf(shard).Get("foo")
+	require.NoError(t, err)
+	assert.Equal(t, foo, rec)
+	tasks, err := tasksOf(shard).Load()
+	require.NoError(t, err)
+	assert.Empty(t, tasks)
+	found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+		assert.True(t, index.ContainsDoc(0))
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, found)
+}
+
+// A crash after the switch: the mapping names the candidate, so the load
+// serves the writes kept during the rebuild again before the queue starts,
+// and deletes the source.
+func TestInitShardVectors_RecoveryReplaysIntoTheCandidate(t *testing.T) {
+	ctx := testCtx()
+	tt := queuedVectorIndexCases()[2]
+	shard, idx, class := newQueuedVectorShard(t, ctx, tt, true)
+	for i := range queuedObjectCount {
+		require.NoError(t, shard.PutObject(ctx, tt.object(i)))
+	}
+	switched := recorded(shard, "foo", testCandidateID, "ready")
+	switched.QueueID = "vectors_foo"
+	shardName, shardDir := shard.Name(), shard.path()
+	queueDir := filepath.Join(shardDir, "vectors_foo.queue.d")
+	sourceDir := filepath.Join(shardDir, helpers.GetHNSWCommitLogDirName("foo"))
+	require.NoError(t, shard.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+
+	// the source read every write during the rebuild; the queue kept them
+	chunks, err := filepath.Glob(filepath.Join(queueDir, "chunk-*.bin"))
+	require.NoError(t, err)
+	require.NotEmpty(t, chunks)
+	for _, chunk := range chunks {
+		require.NoError(t, os.WriteFile(chunk+".processed", nil, 0o644))
+	}
+	require.DirExists(t, sourceDir)
+	withOfflineMapping(t, shardDir, func(m *manifestRecords, _ *shardmeta.Namespace) {
+		require.NoError(t, m.Put("foo", switched))
+	})
+	withOfflineTasks(t, shardDir, func(tasks *manifestTasks) {
+		require.NoError(t, tasks.Put("foo", fooRebuildTask("hnsw", "hnsw")))
+	})
+
+	idx.scheduler = idx.db.scheduler
+	reopened, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	require.NoError(t, err)
+	idx.shards.Store(shardName, reopened)
+	shard = underlyingShard(t, reopened)
+
+	waitForQueueToDrain(t, shard, "foo")
+	found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+		for docID := range uint64(queuedObjectCount) {
+			require.True(t, index.ContainsDoc(docID), "doc %d is replayed into the candidate", docID)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.NoDirExists(t, sourceDir)
+	assert.DirExists(t, queueDir)
+	rec, _, err := recordsOf(shard).Get("foo")
+	require.NoError(t, err)
+	assert.Equal(t, switched, rec)
+	tasks, err := tasksOf(shard).Load()
+	require.NoError(t, err)
+	assert.Empty(t, tasks)
+}
+
+// A vector gone from the schema, or whose drop did not finish, has no live
+// index: the load deletes both indexes the task names, then the task.
+func TestInitShardVectors_RecoveryWithoutALiveIndex(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(m *manifestRecords)
+	}{
+		{name: "no record", mutate: func(m *manifestRecords) {
+			require.NoError(t, m.Delete("foo"))
+		}},
+		{name: "dropping record", mutate: func(m *manifestRecords) {
+			require.NoError(t, m.Put("foo", manifestRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "dropping"}))
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+			require.NotEmpty(t, entriesNamed(t, shard, "foo"))
+
+			delete(class.VectorConfig, "foo")
+			shard.index.vectorIndexUserConfigLock.Lock()
+			delete(shard.index.vectorIndexUserConfigs, "foo")
+			shard.index.vectorIndexUserConfigLock.Unlock()
+			shard = reloadAfter(t, ctx, shard, class, func() {
+				plantVectorIndexFiles(t, shard, testCandidateID)
+				withOfflineMapping(t, shard.path(), func(m *manifestRecords, _ *shardmeta.Namespace) {
+					tt.mutate(m)
+				})
+				withOfflineTasks(t, shard.path(), func(tasks *manifestTasks) {
+					require.NoError(t, tasks.Put("foo", fooRebuildTask("hnsw", "hfresh")))
+				})
+			})
+
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, testCandidateID))
+			assert.Empty(t, plantedOrBuiltFiles(t, shard, "vectors_foo"))
+			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
+			_, ok, err := recordsOf(shard).Get("foo")
+			require.NoError(t, err)
+			assert.False(t, ok)
+			tasks, err := tasksOf(shard).Load()
+			require.NoError(t, err)
+			assert.Empty(t, tasks)
+		})
+	}
+}
+
+// A task the mapping cannot account for fails the load before anything is
+// deleted.
+func TestInitShardVectors_RecoveryRefusesATaskItCannotPlace(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(m *manifestRecords)
+		wantErr string
+	}{
+		{
+			name: "the record names neither index",
+			mutate: func(m *manifestRecords) {
+				require.NoError(t, m.Put("foo", manifestRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "ready"}))
+			},
+			wantErr: `vector "foo": the mapping names "vectors_foo_v2", the rebuild task names source "vectors_foo" and candidate "3f2a9c1e-0b7d"`,
+		},
+		{
+			name:    "a vector of the schema without a record",
+			mutate:  func(m *manifestRecords) { require.NoError(t, m.Delete("foo")) },
+			wantErr: `vector "foo": a rebuild task but no record`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			foo := recorded(shard, "foo", "vectors_foo", "ready")
+			reloadExpectingError(t, ctx, shard, class, tt.wantErr, func() {
+				plantVectorIndexFiles(t, shard, testCandidateID)
+				withOfflineMapping(t, shard.path(), func(m *manifestRecords, _ *shardmeta.Namespace) {
+					tt.mutate(m)
+				})
+				withOfflineTasks(t, shard.path(), func(tasks *manifestTasks) {
+					require.NoError(t, tasks.Put("foo", fooRebuildTask("hnsw", "hfresh")))
+				})
+			})
+			assert.NotEmpty(t, entriesWithID(t, shard, testCandidateID), "nothing deleted on a refused task")
+
+			withOfflineMapping(t, shard.path(), func(m *manifestRecords, _ *shardmeta.Namespace) {
+				require.NoError(t, m.Put("foo", foo))
+			})
+			shard = reload(t, ctx, shard, class)
+			assert.Empty(t, entriesWithID(t, shard, testCandidateID))
+		})
+	}
 }
