@@ -114,9 +114,14 @@ func newTaskStore(db *shardmeta.DB) *taskStore {
 // Load reads every task, keyed by vector name. Anything it cannot account
 // for fails the load, as for the mapping.
 func (t *taskStore) Load() (map[string]rebuildTask, error) {
+	return readTasks(t.ns.ForEach)
+}
+
+// readTasks is taskStore.Load over the keys forEach walks.
+func readTasks(forEach func(fn func(key, value []byte) error) error) (map[string]rebuildTask, error) {
 	tasks := map[string]rebuildTask{}
 	versioned := false
-	err := t.ns.ForEach(func(key, value []byte) error {
+	err := forEach(func(key, value []byte) error {
 		k := string(key)
 		if k == formatVersionKey {
 			err := checkTasksFormatVersion(value)

@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
@@ -35,7 +34,7 @@ func DropUnloaded(shardDir, name string, siblings []string) error {
 	if err != nil {
 		return err
 	}
-	tasks, err := readUnloadedTasks(shardDir, append([]string{name}, siblings...))
+	tasks, err := readUnloadedTasks(shardDir)
 	if shardmeta.IsLocked(err) {
 		return nil
 	}
@@ -125,42 +124,10 @@ func readUnloaded(shardDir string) (records map[string]record, initialized bool,
 	return records, initialized, err
 }
 
-// readUnloadedTasks reads the tasks of names from a shard that is
-// not loaded, with Load's refusals. A shard without a metadata DB has none.
-func readUnloadedTasks(shardDir string, names []string) (map[string]rebuildTask, error) {
-	keys := make([][]byte, 0, len(names)+1)
-	keys = append(keys, []byte(formatVersionKey))
-	for _, name := range names {
-		keys = append(keys, []byte(recordKey(name)))
-	}
-	vals, _, err := shardmeta.GetOfflineMulti(shardDir, tasksNamespace, keys...)
-	if err != nil {
-		return nil, fmt.Errorf("read vector index tasks: %w", err)
-	}
-	tasks := map[string]rebuildTask{}
-	if vals == nil {
-		return tasks, nil
-	}
-	if vals[0] == nil {
-		if slices.ContainsFunc(vals[1:], func(v []byte) bool { return v != nil }) {
-			return nil, errors.New("read vector index tasks: tasks without a format version")
-		}
-		return tasks, nil
-	}
-	err = checkTasksFormatVersion(vals[0])
-	if err != nil {
-		return nil, fmt.Errorf("read vector index tasks: %w", err)
-	}
-	for i, name := range names {
-		v := vals[i+1]
-		if v == nil {
-			continue
-		}
-		task, err := decodeTask(name, v)
-		if err != nil {
-			return nil, fmt.Errorf("read vector index tasks: %w", err)
-		}
-		tasks[name] = task
-	}
-	return tasks, nil
+// readUnloadedTasks reads the rebuild tasks of a shard that is not loaded,
+// refusing what a load refuses.
+func readUnloadedTasks(shardDir string) (map[string]rebuildTask, error) {
+	return readTasks(func(fn func(key, value []byte) error) error {
+		return shardmeta.ForEachOffline(shardDir, tasksNamespace, fn)
+	})
 }
