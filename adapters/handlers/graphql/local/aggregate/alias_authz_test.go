@@ -182,5 +182,5 @@ func TestAggregateThroughAliasDeniedOnTarget(t *testing.T) {
 	require.ErrorAs(t, res.Errors[0].OriginalError(), &gqlErr)
 	var userErr enterrors.ErrGraphQLUser
 	require.ErrorAs(t, gqlErr.OriginalError, &userErr)
-	assert.Equal(t, "Car", userErr.ClassName(), "the user-error metric must count the collection, not the alias")
+	assert.Equal(t, "Car", userErr.ClassName(), "the error must carry the collection, not the alias")
 }
