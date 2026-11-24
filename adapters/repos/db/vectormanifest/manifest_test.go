@@ -609,7 +609,10 @@ func TestManifest_DropRefusesATaskNamingASibling(t *testing.T) {
 	plant(t, files(dir, "vectors_body")...)
 
 	_, err := m.BeginDrop("title")
+	require.ErrorContains(t, err, `an index of vector "body"`)
+	rec, _, err := m.records.Get("title")
 	require.NoError(t, err)
+	assert.Equal(t, "ready", rec.State)
 	require.ErrorContains(t, m.FinishDrop(t.Context(), "title"), `an index of vector "body"`)
 	for _, path := range append(files(dir, "vectors_title"), files(dir, "vectors_body")...) {
 		assert.DirExists(t, path)
