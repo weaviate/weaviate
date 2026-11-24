@@ -1696,6 +1696,23 @@ No he tocado nada de esto.
 
 Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce queda para una enmienda pre-registrada.
 
+### El R de la plana sale del código recortado (24 de noviembre, sin cronometrar)
+
+*La midió la sesión de experimentos, con su pre-registro en `bench-report.md` y el resultado en `4ea94708ad`. El arnés es `TestFlatRankingCode`, de la rama `exp/flat-ranking-code` (`7bf1236245`), que entra aquí por merge. Los datos están en `testdata/bench/integration-filters/flatcodes/`. Copia la plana sobre el dataset sin abrir el índice: ordena los permitidos con un código y rescora exactos los R mejores. A 1 536 dimensiones da el recall de la plana de la noche con una diferencia de 0.0003 como mucho.*
+
+**A 1 536 dimensiones, la plana pide R = 507 porque ordena con el código de ruteo, recortado a 512 bits de 1 536.**
+- **Con el código completo y R = 64,** el recall iguala o supera al del recortado con R = 507 en tres de los cuatro filtros pequeños correlados y anticorrelados. En anticorrelado al 1 % da 0.9917, frente a 0.9813.
+- **En anticorrelado al 0.1 %** se queda 0.0065 por debajo con R = 64, y lo supera con R = 150.
+- **Con el recortado y R = 64,** anticorrelado al 1 % cae a 0.788.
+
+**A 768 dimensiones (wiki-dpr 1M), anticorrelado al 1 % pide R = 507 también con el código completo** (0.9885). Con R = 150, el que da la regla del 22 para 768 bits, se queda en 0.9531. Con filtros, esa regla se queda corta.
+
+**Lo que cambia de esta sección:** ninguna cifra medida.
+- **El frío de la plana es sobre todo leer R vectores:** los unos 8 ms que el frío añade al caliente son las 507 lecturas.
+- **Ordenar con el código completo pagaría menos lecturas con más memoria:** 25 palabras por vector en vez de 9 a 1 536 dimensiones.
+- **Decide el usuario,** con las opciones y su coste en RAM que propone la sesión de experimentos.
+- **El nuevo cronometraje** mide la plana con R = 507, como dice su pre-registro.
+
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
 *Orden del usuario del 23, al leer el backup: «Primero el test en rojo, que abra el índice sin `meta.json` y compruebe que no se borra nada. Después el arreglo: si falta, error al abrir, nunca borrado».*

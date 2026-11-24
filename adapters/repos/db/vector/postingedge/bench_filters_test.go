@@ -101,6 +101,18 @@ var (
 	benchFiltersUntimedProfiles = flag.String("bench.filters.untimedprofiles", "", "TestIntegrationFilters: the "+
 		"directory of a CPU profile of the untimed pass of every timed point, the one that checks its recall before "+
 		"the warm passes, which are never profiled; empty for none")
+	benchFiltersExtraRandom = flag.String("bench.filters.extrarandom", "", "TestIntegrationFilters: more shares at "+
+		"random, in percent, comma separated, as in \"7,5,3\": filters drawn by the same code as the four of the "+
+		"measure and a seed of their own, measured after the others; read from the cache, or drawn and added to it "+
+		"after the filters of the measure, which stay as they are. Filters of the cache beyond the measure that are "+
+		"not named here are not measured")
+	benchFiltersCacheOnly = flag.Bool("bench.filters.cacheonly", false, "TestIntegrationFilters: stop once the "+
+		"filters are read or drawn and the cache is written, before the indexes are opened: to extend the cache "+
+		"ahead of a timed session")
+	benchFiltersCacheFixed = flag.Bool("bench.filters.cachefixed", false, "TestIntegrationFilters: fail unless the "+
+		"cache holds every filter measured, so that a timed session never draws one")
+	benchFiltersHNSWCentering = flag.Bool("bench.filters.hnswcentering", false, "TestIntegrationFilters: HNSW with "+
+		"its 1-bit RQ centered (rqCentering), the cell of the 10M table, instead of the default of a class")
 	benchFiltersMemory = flag.Bool("bench.filters.memory", false, "TestIntegrationFilters: the memory of the "+
 		"system, untimed, before and after the warm passes and the cold batches of every timed point: vm_stat, "+
 		"memory_pressure -Q, sysctl vm.swapusage and top on the process (macOS), in the events and the JSON")
@@ -176,7 +188,9 @@ func filterName(kind string, share float64) string {
 	if kind == "none" {
 		return "none"
 	}
-	return fmt.Sprintf("%s %g %%", kind, 100*share)
+	// Ten digits, so that the percent of a share such as 0.07, which is
+	// 7.000000000000001, reads 7.
+	return fmt.Sprintf("%s %.10g %%", kind, 100*share)
 }
 
 // filterCache is what the cache file holds: every allow list as the buffer of
@@ -214,12 +228,7 @@ func buildFilters(t *testing.T, data *benchData, k int) []*benchFilter {
 	random := make([][]bool, len(filterShares))
 	randomIDs := make([][]uint64, len(filterShares))
 	for s, share := range filterShares {
-		rng := rand.New(rand.NewPCG(1000+uint64(s), 7))
-		ids := make([]uint64, int(share*float64(n)))
-		for i, id := range rng.Perm(n)[:len(ids)] {
-			ids[i] = uint64(id)
-		}
-		slices.Sort(ids)
+		ids := randomFilterIDs(n, share, 1000+uint64(s))
 		randomIDs[s] = ids
 		random[s] = make([]bool, n)
 		for _, id := range ids {
@@ -566,12 +575,36 @@ func TestIntegrationFilters(t *testing.T) {
 	if *benchFiltersCache != "" {
 		filters, cached = readFilterCache(t, *benchFiltersCache, data, k)
 	}
+	require.False(t, *benchFiltersCacheFixed && !cached, "-bench.filters.cachefixed: no cache at %q", *benchFiltersCache)
 	if !cached {
 		filters = buildFilters(t, data, k)
 		result.FilterSeconds = time.Since(begin).Seconds()
 		if *benchFiltersCache != "" {
 			writeFilterCache(t, *benchFiltersCache, data, k, filters)
 		}
+	}
+	extra, err := parseExtraShares(*benchFiltersExtraRandom)
+	require.NoError(t, err, "-bench.filters.extrarandom")
+	filters, drawn := withExtraRandom(data, k, filters, extra)
+	require.False(t, *benchFiltersCacheFixed && drawn, "-bench.filters.cachefixed: the cache lacks a filter of "+
+		"-bench.filters.extrarandom %q", *benchFiltersExtraRandom)
+	if drawn && *benchFiltersCache != "" {
+		// The filters of the measure come from the cache as they were: the
+		// cache written again must give back every filter as it is here.
+		writeFilterCache(t, *benchFiltersCache, data, k, filters)
+		written, ok := readFilterCache(t, *benchFiltersCache, data, k)
+		require.True(t, ok)
+		require.Len(t, written, len(filters))
+		for i := range filters {
+			requireSameFilter(t, filters[i], written[i], len(data.queries))
+		}
+	}
+	if *benchFiltersCacheOnly {
+		for _, f := range filters {
+			t.Logf("filters, %s: %d allowed", f.Name, f.Allowed)
+		}
+		t.Logf("filters: %d, and nothing else (-bench.filters.cacheonly)", len(filters))
+		return
 	}
 	if *benchFiltersOnly != "" {
 		wanted := map[string]bool{}
@@ -1287,8 +1320,9 @@ func buildFilterHNSW(t *testing.T, ctx context.Context, logger logrus.FieldLogge
 	uc := enthnsw.UserConfig{}
 	uc.SetDefaults()
 	uc.RQ = enthnsw.RQConfig{
-		Enabled: true, Bits: 1, Centering: enthnsw.DefaultRQCentering, TrainingLimit: enthnsw.DefaultRQTrainingLimit,
-		RescoreLimit: enthnsw.DefaultBRQRescoreLimit,
+		Enabled: true, Bits: 1, Centering: enthnsw.DefaultRQCentering || *benchFiltersHNSWCentering,
+		TrainingLimit: enthnsw.DefaultRQTrainingLimit,
+		RescoreLimit:  enthnsw.DefaultBRQRescoreLimit,
 	}
 	uc.FilterStrategy = enthnsw.FilterStrategyAcorn
 	h := &filterHNSW{vectors: vectors, uc: uc, config: map[string]any{
