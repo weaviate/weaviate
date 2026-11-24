@@ -276,6 +276,45 @@ func TestReindexSwapPhaseReportsKeyDocColumnDrop(t *testing.T) {
 	}
 }
 
+// A load before the schema flip requested the column by the schema's tokenization, not the migrated bucket's.
+func TestShardLoadedBeforeTheSchemaFlipRequestsTheColumnByMigratedTokenization(t *testing.T) {
+	tests := []struct {
+		from, to   string
+		wantColumn bool
+	}{
+		{from: models.PropertyTokenizationWord, to: models.PropertyTokenizationField, wantColumn: true},
+		{from: models.PropertyTokenizationField, to: models.PropertyTokenizationWord, wantColumn: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.from+" to "+tc.to, func(t *testing.T) {
+			ctx := testCtx()
+			className := "KeyDocColumnPreFlip_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"sku"})
+			class.Properties[0].Tokenization = tc.from
+			logger, _ := test.NewNullLogger()
+			shard, idx := openKeyDocColumnShard(t, class, map[string][]string{className: {"sku"}}, logger)
+			putSKUs(t, shard, "a", "b", "c")
+			column := func(s *Shard) bool {
+				b := s.Store().Bucket(helpers.BucketFromPropNameLSM("sku"))
+				require.NotNil(t, b)
+				return b.KeyDocColumn() != nil
+			}
+			require.Equal(t, !tc.wantColumn, column(shard), "before the migration")
+
+			task, _ := newFilterableRetokenizeTask(t, idx, className, "sku", tc.to, shard.migrationUnit())
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+			require.NoError(t, task.RunSwapOnShard(ctx, shard))
+
+			shard = reloadShardFromDisk(t, ctx, idx, shard, class)
+			t.Cleanup(func() { shard.Shutdown(context.Background()) })
+			require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, shard.pathLSM()))
+			require.Equal(t, tc.from, class.Properties[0].Tokenization, "the schema has not flipped")
+			assert.Equal(t, tc.wantColumn, column(shard), "after the load")
+		})
+	}
+}
+
 // ShardInvertedReindexer records the column a bucket swap drops.
 func TestShardInvertedReindexerRecordsKeyDocColumnDrop(t *testing.T) {
 	className := "KeyDocColumnLegacyDrop_" + uuid.NewString()[:8]
