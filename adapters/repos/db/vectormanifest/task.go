@@ -86,6 +86,22 @@ func (t rebuildTask) validate() error {
 	return nil
 }
 
+// retired lists the indexes that go once the rebuild ends: the one rec does not
+// name, or both for a vector without a record.
+func (t rebuildTask) retired(rec record, recorded bool) ([]taskIndex, error) {
+	switch {
+	case !recorded:
+		return []taskIndex{t.Source, t.Candidate}, nil
+	case rec.storageID() == t.Source.storageID():
+		return []taskIndex{t.Candidate}, nil
+	case rec.storageID() == t.Candidate.storageID():
+		return []taskIndex{t.Source}, nil
+	default:
+		return nil, fmt.Errorf("the mapping names %q, the rebuild task names source %q and candidate %q",
+			rec.recordedID(), t.Source.recordedID(), t.Candidate.recordedID())
+	}
+}
+
 // taskStore is the shard's task section in index.db.
 type taskStore struct {
 	ns *shardmeta.Namespace

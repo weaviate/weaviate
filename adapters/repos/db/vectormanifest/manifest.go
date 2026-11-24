@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -195,13 +196,17 @@ func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.Vect
 //     missing record (a vector added while the shard was cold) are built,
 //     then marked ready.
 //
-// A dropping record is finished first. A record the schema no longer has is
-// deleted; its storage is left alone.
+// Interrupted rebuilds, then drops, are finished first. A record the schema no
+// longer has is deleted; its storage is left alone.
 func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig,
 	c contents,
 ) (map[string]record, error) {
 	// before any deletion: finishing a drop would take the other's queue
 	err := refuseSharedFiles(c)
+	if err != nil {
+		return nil, err
+	}
+	err = m.finishRebuilds(ctx, schema, c)
 	if err != nil {
 		return nil, err
 	}
@@ -268,6 +273,77 @@ func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig
 		}
 	}
 	return toBuild, nil
+}
+
+// finishRebuilds finishes the rebuilds a restart interrupted: the index the
+// record names stays, the others its task names go, then the task. It runs
+// before any queue opens, which deletes the chunks a rebuild kept. Every task
+// is checked before anything is deleted.
+func (m *Manifest) finishRebuilds(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig,
+	c contents,
+) error {
+	names := slices.Sorted(maps.Keys(c.tasks))
+	retired := make(map[string][]taskIndex, len(names))
+	for _, name := range names {
+		rec, recorded := c.records[name]
+		if _, ok := schema[name]; ok && !recorded {
+			return fmt.Errorf("vector %q: a rebuild task but no record", name)
+		}
+		if recorded && rec.State == stateDropping {
+			continue // the drop takes both indexes
+		}
+		var err error
+		retired[name], err = c.tasks[name].retired(rec, recorded)
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", name, err)
+		}
+	}
+	for _, name := range names {
+		rec, recorded := c.records[name]
+		if recorded && rec.State == stateDropping {
+			continue
+		}
+		task := c.tasks[name]
+		m.logger.WithFields(logrus.Fields{
+			"target_vector": name,
+			"task_id":       task.TaskID,
+			"task_version":  task.TaskVersion,
+			"source":        task.Source.recordedID(),
+			"candidate":     task.Candidate.recordedID(),
+		}).Infof("finishing a vector index rebuild interrupted by a restart, removing %v", retired[name])
+		if recorded && rec.storageID() == task.Candidate.storageID() {
+			err := queue.RewindDir(filepath.Join(m.shardDir, helpers.QueueDirName(rec.queueIDOrDefault())))
+			if err != nil {
+				return fmt.Errorf("vector %q: serve the writes kept during the rebuild again: %w", name, err)
+			}
+		}
+		err := m.finishRebuild(ctx, name, retired[name], c)
+		if err != nil {
+			return err
+		}
+		delete(c.tasks, name)
+	}
+	return nil
+}
+
+// finishRebuild deletes the retired indexes of name's rebuild, then its task,
+// so a failed cleanup is retried at the next load.
+func (m *Manifest) finishRebuild(ctx context.Context, name string, retired []taskIndex, c contents) error {
+	others := c.otherStorageIDs(name)
+	if rec, ok := c.records[name]; ok {
+		others = append(others, rec.storageID())
+	}
+	for _, index := range retired {
+		id := index.storageID()
+		err := m.removeArtifacts(ctx, helpers.VectorIndexArtifactsForID(id, others))
+		if err == nil {
+			err = dynamic.RemoveStateKeyIn(m.state, id)
+		}
+		if err != nil {
+			return fmt.Errorf("vector %q: remove the %s index at %q: %w", name, index.IndexType, index.recordedID(), err)
+		}
+	}
+	return m.tasks.Delete(name)
 }
 
 // Create records that name's index is about to be built under the naming rule
