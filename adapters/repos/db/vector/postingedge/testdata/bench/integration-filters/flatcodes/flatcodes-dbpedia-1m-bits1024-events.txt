@@ -1,0 +1,11 @@
+=== RUN   TestFlatRankingCode
+    bench_flat_codes_test.go:117: filters: 13, from the cache, in 1s
+    bench_flat_codes_test.go:146: codes: routing of 17 words and full of 25, in 8s
+    bench_flat_codes_test.go:219: random 1 % (9900 allowed): routing [0.9963 1 1], full [0.9998 1 1] at R [64 150 507]
+    bench_flat_codes_test.go:219: random 0.1 % (990 allowed): routing [0.9979 1 1], full [0.9999 1 1] at R [64 150 507]
+    bench_flat_codes_test.go:219: near 1 % (9900 allowed): routing [0.9925 0.9994 1], full [0.9994 1 1] at R [64 150 507]
+    bench_flat_codes_test.go:219: near 0.1 % (990 allowed): routing [0.9944 0.9999 1], full [0.9997 1 1] at R [64 150 507]
+    bench_flat_codes_test.go:219: far 1 % (9900 allowed): routing [0.9513 0.9899 0.9995], full [0.9917 0.9995 1] at R [64 150 507]
+    bench_flat_codes_test.go:219: far 0.1 % (990 allowed): routing [0.9579 0.9953 1], full [0.992 0.9993 1] at R [64 150 507]
+--- PASS: TestFlatRankingCode (18.89s)
+PASS
