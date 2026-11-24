@@ -12,7 +12,7 @@
 // Package vectormanifest owns the state a shard persists about its vector
 // indexes: which index on disk each vector uses, in <shard>/index.db. Only
 // this package reads or writes that state, and only it decides which files
-// belong to a vector.
+// belong to a vector, the layout from before 1.30.19 aside.
 package vectormanifest
 
 import (
