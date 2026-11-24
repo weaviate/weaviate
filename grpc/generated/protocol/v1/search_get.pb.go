@@ -18,8 +18,8 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// HNSW strategy for a filtered graph walk, per request. UNSPECIFIED keeps the
-// collection's vectorIndexConfig.filterStrategy.
+// HNSW filtered-walk strategy for one request. UNSPECIFIED keeps the
+// collection's filterStrategy.
 type FilterStrategy int32
 
 const (
@@ -207,18 +207,15 @@ type SearchRequest struct {
 	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
 	Boost        *Boost             `protobuf:"bytes,62,opt,name=boost,proto3,oneof" json:"boost,omitempty"`
-	// Per-request vector search tuning, applied to every vector search the
-	// request performs (all target vectors, the dense leg of a hybrid search).
-	// Requires a near* or hybrid search: rejected (InvalidArgument) on bm25-only
-	// requests and on requests without any search clause.
+	// Per-request vector search tuning for every vector search of the request
+	// (all target vectors, the dense leg of hybrid). Requires a near* or hybrid
+	// search, otherwise InvalidArgument.
 	VectorSearchParams *VectorSearchParams `protobuf:"bytes,63,opt,name=vector_search_params,json=vectorSearchParams,proto3,oneof" json:"vector_search_params,omitempty"`
-	// Per-target-vector overrides for multi-target searches. Each entry applies
-	// to the named target vector only and overrides just the fields it sets;
-	// unset fields fall back to vector_search_params, then to the collection
-	// config. The target must be one of the request's target vectors (explicit
-	// targets, or the collection's single named vector); an unknown or
-	// duplicated target, or an entry on a legacy single-vector collection, is
-	// rejected with InvalidArgument. Same search-clause requirement as field 63.
+	// Per-target overrides: each entry sets only its fields for the named
+	// target, the rest fall back to vector_search_params, then to the collection
+	// config. An entry cannot unset a request-wide value. Unknown or duplicated
+	// targets, and entries on a legacy single-vector collection, are
+	// InvalidArgument.
 	VectorSearchParamsForTargets []*VectorSearchParamsForTarget `protobuf:"bytes,64,rep,name=vector_search_params_for_targets,json=vectorSearchParamsForTargets,proto3" json:"vector_search_params_for_targets,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
@@ -478,27 +475,21 @@ func (x *SearchRequest) GetUses_127Api() bool {
 	return false
 }
 
-// One flat set of knobs for every index type: each index reads the fields it
-// knows and ignores the rest (flat ignores all; the dynamic index forwards
-// the set to whichever stage is active). Nodes that predate a field drop it
-// during a rolling upgrade and answer with the collection default.
+// One set of knobs for every index type: each index reads the fields it knows
+// and ignores the rest. Nodes that predate a field ignore it and use the
+// collection default.
 type VectorSearchParams struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// HNSW layer-0 beam width, floored at the requested limit; 0/unset =
-	// collection default. Must not exceed the server's HNSW_MAX_SEARCH_EF
-	// (defaults to QUERY_MAXIMUM_RESULTS), otherwise InvalidArgument.
+	// HNSW layer-0 beam width, floored at the limit; 0/unset = collection
+	// default, at most HNSW_MAX_SEARCH_EF. On a compressed index it also caps
+	// the rescored candidates, including in the flat search below
+	// flatSearchCutoff, so a low ef can lower recall there.
 	Ef *uint32 `protobuf:"varint,1,opt,name=ef,proto3,oneof" json:"ef,omitempty"`
-	// HFresh number of centroid postings visited, floored at the requested
-	// limit; 0/unset = collection default (searchProbe). Must not exceed the
-	// server's HFRESH_MAX_SEARCH_PROBE (defaults to QUERY_MAXIMUM_RESULTS),
-	// otherwise InvalidArgument. Never applied to the HNSW HFresh uses
-	// internally for centroid routing.
+	// HFresh centroid postings visited, floored at the limit; 0/unset =
+	// collection default, at most HFRESH_MAX_SEARCH_PROBE.
 	SearchProbe *uint32 `protobuf:"varint,2,opt,name=search_probe,json=searchProbe,proto3,oneof" json:"search_probe,omitempty"`
-	// HNSW strategy for the filtered layer-0 walk of this request. Has no
-	// effect without a filter, or when the allow-list is below
-	// flatSearchCutoff (brute force). ACORN still falls back to the
-	// non-ACORN walk on a dense allow-list, as it does for the collection
-	// setting. Unknown values are rejected with InvalidArgument.
+	// HNSW strategy for the filtered layer-0 walk. No effect without a filter
+	// or below flatSearchCutoff; ACORN still falls back on a dense allow-list.
 	FilterStrategy *FilterStrategy `protobuf:"varint,3,opt,name=filter_strategy,json=filterStrategy,proto3,enum=weaviate.v1.FilterStrategy,oneof" json:"filter_strategy,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -557,9 +548,9 @@ func (x *VectorSearchParams) GetFilterStrategy() FilterStrategy {
 
 type VectorSearchParamsForTarget struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Target vector name; must be one of the request's target vectors.
+	// One of the request's target vectors.
 	Target string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
-	// Overrides for that target; only the fields set here take effect.
+	// Only the fields set here take effect.
 	Params        *VectorSearchParams `protobuf:"bytes,2,opt,name=params,proto3" json:"params,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

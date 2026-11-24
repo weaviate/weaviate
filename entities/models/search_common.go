@@ -72,7 +72,7 @@ type SearchCommon struct {
 	// Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).
 	SinglePrompt *string `json:"singlePrompt,omitempty"`
 
-	// Per-target overrides of `vectorSearchParams`, keyed by target vector name, e.g. `{"title": {"ef": 256}}`. Each entry overrides only the fields it sets; the others fall back to `vectorSearchParams`, then to the collection's configuration. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.
+	// Per-target overrides of `vectorSearchParams`, keyed by target vector name, e.g. `{"title": {"ef": 256}}`. Each entry overrides only the fields it sets; the others fall back to `vectorSearchParams`, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in `vectorSearchParams`. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.
 	TargetVectorSearchParams map[string]*SearchVectorSearchParams `json:"targetVectorSearchParams,omitempty"`
 
 	// The tenant to search in a multi-tenant collection.

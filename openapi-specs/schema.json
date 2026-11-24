@@ -4389,7 +4389,7 @@
           "$ref": "#/definitions/SearchVectorSearchParams"
         },
         "targetVectorSearchParams": {
-          "description": "Per-target overrides of `vectorSearchParams`, keyed by target vector name, e.g. `{\"title\": {\"ef\": 256}}`. Each entry overrides only the fields it sets; the others fall back to `vectorSearchParams`, then to the collection's configuration. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
+          "description": "Per-target overrides of `vectorSearchParams`, keyed by target vector name, e.g. `{\"title\": {\"ef\": 256}}`. Each entry overrides only the fields it sets; the others fall back to `vectorSearchParams`, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in `vectorSearchParams`. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/SearchVectorSearchParams",
@@ -4403,7 +4403,7 @@
       "type": "object",
       "properties": {
         "ef": {
-          "description": "HNSW layer-0 beam width for this request only. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
+          "description": "HNSW layer-0 beam width for this request only, floored at the request's limit. Omitted or 0 uses the collection's vectorIndexConfig. On a compressed index it also caps the candidates that are rescored, including in the flat search used when a filter matches fewer objects than flatSearchCutoff, so a low ef can lower recall there. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true

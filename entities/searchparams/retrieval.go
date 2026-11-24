@@ -133,11 +133,10 @@ func (p *VectorSearchParams) validateEntry(maxEF, maxProbe int) error {
 	}
 }
 
-// ForTarget returns the parameters the index of target vector name must use:
-// the per-target entry merged field-wise over the request-wide values, where
-// a set field of the entry wins and an unset one falls back. It returns p
-// itself (no allocation) when there is no entry for name, and nil when p is
-// nil. The result never carries a PerTarget map.
+// ForTarget returns the parameters for target vector name: its per-target
+// entry merged over the request-wide values, field by field. It returns p
+// itself when p has no per-target entries, a copy without PerTarget otherwise,
+// and nil for a nil p. An entry cannot unset a request-wide value.
 func (p *VectorSearchParams) ForTarget(name string) *VectorSearchParams {
 	if p == nil {
 		return nil

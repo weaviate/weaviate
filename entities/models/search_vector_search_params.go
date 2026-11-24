@@ -31,7 +31,7 @@ import (
 // swagger:model SearchVectorSearchParams
 type SearchVectorSearchParams struct {
 
-	// HNSW layer-0 beam width for this request only. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.
+	// HNSW layer-0 beam width for this request only, floored at the request's limit. Omitted or 0 uses the collection's vectorIndexConfig. On a compressed index it also caps the candidates that are rescored, including in the flat search used when a filter matches fewer objects than flatSearchCutoff, so a low ef can lower recall there. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.
 	Ef *int64 `json:"ef,omitempty"`
 
 	// HNSW filtered-walk strategy for this request only: `sweeping`, `acorn` or `pathseer`. Omitted uses the collection's vectorIndexConfig. Has no effect without a filter, or when the filter matches fewer objects than flatSearchCutoff (a flat search is used). Ignored by non-HNSW indexes.
