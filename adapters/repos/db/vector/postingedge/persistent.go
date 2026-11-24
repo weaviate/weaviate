@@ -255,6 +255,10 @@ type PersistentConfig struct {
 	// writeHook, in the tests, is called at the points of the write of the
 	// base (writeGrowIndex). What it answers is the write failing there.
 	writeHook func(point string) error
+	// layoutHook, in the tests, is called before every step of a pass over
+	// the vectors that runs next to the searches and the inserts, with how
+	// many steps it took before, and holding none of the locks of the index.
+	layoutHook func(step int)
 }
 
 func (c *PersistentConfig) validate() error {

@@ -175,7 +175,10 @@ func (p *Persistent) layOut(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for done := false; !done; {
+	for step, done := 0, false; !done; step++ {
+		if p.cfg.layoutHook != nil {
+			p.cfg.layoutHook(step)
+		}
 		if err := ctx.Err(); err != nil {
 			pass.abort()
 			return err
