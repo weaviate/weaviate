@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vectormanifest"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
@@ -939,27 +940,19 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 	// A vector this update adds must not own a file an existing vector owns:
 	// file names derive from the name, so "compressed" next to the legacy
 	// vector shares its quantized bucket. Checked here, before the schema
-	// commits; the shard checks again against its own records. Names are
-	// enough: a vector rebuilt under a generated ID owns only names with a
-	// "-", which no vector name has (see validateVectorIndexID).
-	owners := make(map[string]vectorIndexOwner, len(old))
+	// commits; the shard checks again against its own records.
+	var existing, added []string
 	for name, cfg := range old {
 		if vectorIndexHasStorage(cfg) {
-			owners[name] = ownerAt(vectorIndexID(name))
+			existing = append(existing, name)
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(updated)) {
-		if _, existed := old[name]; existed || !vectorIndexHasStorage(updated[name]) {
-			continue
+		if _, existed := old[name]; !existed && vectorIndexHasStorage(updated[name]) {
+			added = append(added, name)
 		}
-		owner := ownerAt(vectorIndexID(name))
-		collisions := vectorIndexCollisionsWith(owners, name, owner)
-		if len(collisions) > 0 {
-			return vectorIndexCollisionError(name, collisions)
-		}
-		owners[name] = owner
 	}
-	return nil
+	return vectormanifest.RefuseCollidingNames(existing, added)
 }
 
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig,
