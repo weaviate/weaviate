@@ -28,11 +28,24 @@ const (
 type Status string
 
 const (
-	// StatusUnlicensed means no well-formed license key is configured.
+	// StatusUnlicensed means no well-formed license key is configured;
+	// community mode, no checks run.
 	StatusUnlicensed Status = "unlicensed"
-	// StatusValid means a well-formed license key is configured. Server-side
-	// verification of the key is not implemented yet.
+	// StatusValid means the last signed answer said valid and has not
+	// expired. Until server-side verification ships, a well-formed key is
+	// reported as valid.
 	StatusValid Status = "valid"
+	// StatusExpired / StatusRevoked / StatusUnknown mean the last signed
+	// answer said so.
+	StatusExpired Status = "expired"
+	StatusRevoked Status = "revoked"
+	StatusUnknown Status = "unknown"
+	// StatusUnreachable means there is no trustworthy answer yet, or the
+	// last attempt failed.
+	StatusUnreachable Status = "unreachable"
+	// StatusDegraded means no valid answer has been obtained within the
+	// grace period; enterprise features are disabled.
+	StatusDegraded Status = "degraded"
 )
 
 // State is the license state derived once at startup from the configured

@@ -696,7 +696,6 @@ func TestListAndGetUser_NamespaceVisibility(t *testing.T) {
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{userID: storedUser}, nil)
-			dynUser.On("GetRolesForUserOrGroup", userID, mock.Anything, false).Return(map[string][]authorization.Policy{}, nil)
 
 			h := dynUserHandler{
 				dbUsers:       dynUser,

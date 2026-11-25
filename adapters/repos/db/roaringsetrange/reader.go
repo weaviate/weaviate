@@ -58,20 +58,15 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	var subresultsReadSum time.Duration
 	var mergingSum time.Duration
 
-	defer func() {
-		took := time.Since(before)
-		vals := map[string]any{
+	defer helpers.AnnotateSlowQueryLogSlowest(ctx, "build_allow_list_doc_bitmap_rangeable", before, func() map[string]any {
+		return map[string]any{
 			"readers":                         count,
 			"subresults_read_sum_took":        subresultsReadSum,
 			"subresults_read_sum_took_string": subresultsReadSum.String(),
 			"merging_sum_took":                mergingSum,
 			"merging_sum_took_string":         mergingSum.String(),
-			"took":                            took,
-			"took_string":                     took.String(),
 		}
-
-		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap_rangeable", vals)
-	}()
+	})
 
 	switch count {
 	case 0:

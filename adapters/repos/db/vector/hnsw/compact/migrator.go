@@ -165,7 +165,7 @@ func (m *Migrator) MarkMigrationComplete() error {
 }
 
 // MigrateSnapshotDirectory moves snapshots from old directory to commitlog directory.
-// Returns error if V1/V2 snapshot detected.
+// V1/V2 snapshots are deleted instead of moved.
 // This MUST be called before Loader.Load() to ensure snapshots are found.
 func (m *Migrator) MigrateSnapshotDirectory() error {
 	// 1. Derive old snapshot directory path from commitlog dir
@@ -200,12 +200,18 @@ func (m *Migrator) MigrateSnapshotDirectory() error {
 			return errors.Wrapf(err, "detect version of %s", oldPath)
 		}
 
+		// Versions before v1.34 wrote V1/V2 and never deleted the commit logs a
+		// snapshot covered, so dropping it only means replaying those logs.
 		if version < snapshotVersionV3 {
-			return fmt.Errorf("legacy snapshot version %d detected at %s; "+
-				"upgrade not supported. Please downgrade Weaviate and either: "+
-				"(1) delete the snapshot file and let it regenerate, or "+
-				"(2) run a compaction cycle to create a V3 snapshot before upgrading",
-				version, oldPath)
+			if err := m.fs.Remove(oldPath); err != nil {
+				return errors.Wrapf(err, "remove legacy snapshot %s", oldPath)
+			}
+			m.logger.WithFields(logrus.Fields{
+				"action":  "hnsw_migrator",
+				"path":    oldPath,
+				"version": version,
+			}).Warn("discarded legacy snapshot, rebuilding the index from commit logs")
+			continue
 		}
 
 		// 5. Move V3 snapshot to new location (atomic on same filesystem)

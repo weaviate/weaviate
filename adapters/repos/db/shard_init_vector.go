@@ -50,7 +50,7 @@ func vectorFromObjectForTarget(targetVector string) hnsw.VectorFromObject {
 		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
 		if err != nil {
 			var notFound storobj.ErrTargetVectorNotFound
-			if stderrors.As(err, &notFound) {
+			if stderrors.As(err, &notFound) || stderrors.Is(err, storobj.ErrNoVector) {
 				return nil, nil
 			}
 			return nil, err
@@ -67,12 +67,20 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	targets := s.index.getTargetVectorIndexConfigs()
 	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
 
+	err := newCompressedVectorsMigrator(s.index.logger).removeVectorsCompressedLink(s.store.GetDir())
+	if err != nil {
+		return fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
+
 	// The mapping decides the physical ID of each index. A shard without one
 	// creates everything under the naming rule; a shard with one checks its
 	// records against the schema and the disk first.
-	records, initialized, err := s.mapping.Load()
+	records, initialized, stripped, err := s.mapping.LoadAndStrip()
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
+	if len(stripped) > 0 {
+		s.index.logger.WithField("shard", s.ID()).Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
 	if initialized {
 		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
@@ -89,14 +97,23 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		}
 	}
 
-	s.migrateCompressedVectors(legacy, targets)
+	// Only a shard without a mapping can still hold the pre-1.30.19 layout: a
+	// failed repair fails the load before the mapping is written, so the next
+	// load retries it. 1.40 only logged a failed repair and wrote the mapping;
+	// such a shard keeps the old layout and is not repaired again (accepted).
+	if !initialized {
+		err := newCompressedVectorsMigrator(s.index.logger).do(s, records, active)
+		if err != nil {
+			return fmt.Errorf("shard %q: migrate compressed vectors: %w", s.ID(), err)
+		}
+	}
 
 	// legacy first, then names in order. The record says where the index and
 	// its queue live; the schema says what config to build with, until the
 	// cutover makes the record authoritative for that too.
 	for _, name := range slices.Sorted(maps.Keys(records)) {
 		rec := records[name]
-		err := s.createVectorIndex(ctx, name, rec.PhysicalID, rec.queueIDOrDefault(), active[name], s.lazySegmentLoadingEnabled)
+		err := s.createVectorIndex(ctx, name, rec.storageID(), rec.queueIDOrDefault(), active[name], s.lazySegmentLoadingEnabled)
 		if err != nil {
 			return err
 		}
@@ -358,16 +375,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	return vectorIndex, nil
 }
 
-// migrateCompressedVectors logs a failed compressed-vectors folder migration.
-func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, configs map[string]schemaConfig.VectorIndexConfig) {
-	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
-		s.index.logger.WithFields(logrus.Fields{
-			"action":   "init_target_vectors",
-			"shard_id": s.ID(),
-		}).Errorf("failed to migrate vectors compressed folder: %v", err)
-	}
-}
-
 // initTargetVector creates the named vector's index and queue under the
 // naming rule unless the shard has them already, recording it creating
 // before the build and ready after. Creates are serialized by the slots, so
@@ -380,7 +387,7 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 	}
 	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		err := s.refuseVectorIndexCollision(targetVector, rec.PhysicalID)
+		err := s.refuseVectorIndexCollision(targetVector, rec)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -388,7 +395,7 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 		if err != nil {
 			return nil, nil, err
 		}
-		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.PhysicalID, rec.QueueID, cfg, lazyLoadSegments)
+		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.storageID(), rec.queueIDOrDefault(), cfg, lazyLoadSegments)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -450,24 +457,24 @@ type perVectorDropper interface {
 }
 
 // dropOneVectorIndex tears down a single named vector's index. Index types that
-// own nothing shard-wide fall through to Drop(keepFiles=false), which is the
-// same thing for them; the interface exists so a type that DOES own shared
-// state has somewhere to say so, rather than the caller having to know which
-// types are special.
+// own nothing shard-wide fall through to Drop, which is the same thing for
+// them; the interface exists so a type that DOES own shared state has
+// somewhere to say so, rather than the caller having to know which types are
+// special.
 func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 	if d, ok := index.(perVectorDropper); ok {
 		return d.DropTargetVector(ctx)
 	}
-	return index.Drop(ctx, false)
+	return index.Drop(ctx)
 }
 
 // removeVectorIndexArtifacts deletes every file name's index owns at
-// physicalID, its dynamic state key and last its record. Siblings protect
-// what their records map them to; a sibling without a record owns nothing.
+// rec's physical ID, the queue at its queue ID, its dynamic state key and
+// last its record. Siblings protect what their records map them to; a
+// sibling without a record owns nothing.
 // Idempotent: a retry after a partial run finds less to do.
-// The queue is removed under physicalID: validate refuses a record whose
-// queue ID differs.
-func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID string) error {
+func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec vectorIndexRecord) error {
+	physicalID := rec.storageID()
 	others := otherTargetVectors(s.class, name)
 	otherIDs := make([]string, 0, len(others))
 	for _, other := range others {
@@ -476,7 +483,7 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 			return fmt.Errorf("vector %q: %w", other, err)
 		}
 		if ok {
-			otherIDs = append(otherIDs, rec.PhysicalID)
+			otherIDs = append(otherIDs, rec.storageID())
 		}
 	}
 	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
@@ -492,7 +499,12 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
 		}
 	}
-	err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
+	queueDir := helpers.QueueDirName(rec.queueIDOrDefault())
+	err := removeDirIfExists(s.path(), queueDir)
+	if err != nil {
+		return fmt.Errorf("drop directory %q for vector %q: %w", queueDir, name, err)
+	}
+	err = dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", name, err)
 	}
@@ -534,5 +546,5 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil || !recorded {
 		return err
 	}
-	return s.removeVectorIndexArtifacts(ctx, targetVector, rec.PhysicalID)
+	return s.removeVectorIndexArtifacts(ctx, targetVector, rec)
 }

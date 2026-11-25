@@ -749,6 +749,41 @@ func TestSchedulerFailingQueueWaitsRetryInterval(t *testing.T) {
 	require.GreaterOrEqual(t, executed.Load(), int32(2), "a failing queue must keep being retried")
 }
 
+// A batch whose tasks succeed but whose flush keeps failing is replayed at
+// most once per RetryInterval too.
+func TestSchedulerFailingFlushWaitsRetryInterval(t *testing.T) {
+	s := makeScheduler(t, 1)
+	s.RetryInterval = 200 * time.Millisecond
+	s.Start()
+	defer s.Close(t.Context())
+
+	var flushes atomic.Int32
+	q, err := NewDiskQueue(DiskQueueOptions{
+		ID:           "test_queue",
+		Scheduler:    s,
+		Logger:       newTestLogger(),
+		Dir:          t.TempDir(),
+		TaskDecoder:  discardExecutor(),
+		StaleTimeout: 10 * time.Millisecond,
+		OnBatchProcessed: func() error {
+			flushes.Add(1)
+			return errors.New("flush failed")
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.Init())
+	s.RegisterQueue(q)
+	defer q.Close(t.Context())
+
+	pushMany(t, q, 1, 1)
+	require.Eventually(t, func() bool { return flushes.Load() > 0 }, 10*time.Second, 10*time.Millisecond)
+
+	time.Sleep(time.Second)
+	require.LessOrEqual(t, flushes.Load(), int32(7), "a failing flush must wait between replays")
+	require.GreaterOrEqual(t, flushes.Load(), int32(2), "a failing flush must keep being retried")
+	require.EqualValues(t, 1, q.Size())
+}
+
 // When a task fails with a transient error or panics, its whole chunk is
 // replayed on the queue's next turn, before any newer chunk.
 func TestSchedulerReplaysCanceledChunkFirst(t *testing.T) {
@@ -898,4 +933,22 @@ func TestStreamExecutorTaskDoesNotBlockClose(t *testing.T) {
 	require.NoError(t, ctx.Err(), "Close waited for a task blocked on the stream channel")
 
 	require.NoError(t, s.Close(t.Context()))
+}
+
+// A queue is marked scheduled only when not paused, in one step with the
+// check, so a pause sees the mark or the scheduler sees the pause.
+func TestMarkAsScheduled_SkipsAPausedQueue(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+	q := makeQueue(t, s, discardExecutor())
+	state := s.getQueue(q.id)
+
+	require.NoError(t, q.Pause(t.Context()))
+	require.False(t, state.MarkAsScheduled())
+	require.True(t, s.IsQueueIdle(q.id))
+
+	q.Resume()
+	require.True(t, state.MarkAsScheduled())
+	state.MarkAsUnscheduled()
 }

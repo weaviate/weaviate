@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1052,18 +1053,24 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				// typed sentinel — keep the two paths cleanly separable.
 				assert.False(t, errors.Is(err, errCannotCommit),
 					"in-flight-reindex error must not also match errCannotCommit, got: %v", err)
+				assert.Contains(t, err.Error(), "exclude that collection")
 			}
 			if tc.expectCanCommit {
 				assert.True(t, errors.Is(err, errCannotCommit),
 					"expected errors.Is(err, errCannotCommit), got: %v", err)
 				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 					"generic refusal must not match the typed sentinel, got: %v", err)
+				assert.NotContains(t, err.Error(), "exclude that collection")
 			}
 			if tc.expectContain != "" {
 				assert.Contains(t, err.Error(), tc.expectContain)
 			}
 			// Surface the offending node so the operator knows where to look.
 			assert.Contains(t, err.Error(), nodes[1])
+
+			// A refusal must free the one-backup-at-a-time slot.
+			err = coordinator.Backup(ctx, store, &req)
+			assert.NotContains(t, err.Error(), "already in progress")
 		})
 	}
 }
@@ -1265,17 +1272,48 @@ func newRestoreRolesAndUsersFixture(t *testing.T, ctx context.Context, blobs rol
 }
 
 // TestRestoreRoutesRolesAndUsersThroughRaft pins that the RAFT entry carries the exact
-// blobs the scheduler selected, with the strip flag the class restore uses.
+// blobs the scheduler selected, with roles replaced by the refreshRoles result when
+// set, and the strip flag the class restore uses.
 func TestRestoreRoutesRolesAndUsersThroughRaft(t *testing.T) {
 	roles := []byte(`{"roles_policies":[],"version":1}`)
 	users := []byte(`{"Data":{},"Version":0}`)
+	refreshed := []byte(`{"roles_policies":[],"version":1,"refreshed":true}`)
+	refresh := func(got []byte) ([]byte, error) {
+		if !bytes.Equal(got, roles) {
+			return nil, fmt.Errorf("refreshRoles got %s, want the roles blob as built", got)
+		}
+		return refreshed, nil
+	}
+	failRefresh := func([]byte) ([]byte, error) { return nil, errors.New("refresh failed") }
 
 	tests := []struct {
 		name              string
 		blobs             rolesAndUsersBlobs
 		namespacesEnabled bool
 		wantCall          bool
+		wantRoles         []byte
+		wantErr           string
 	}{
+		{
+			name:      "refresh result is dispatched",
+			blobs:     rolesAndUsersBlobs{roles: roles, users: users, refreshRoles: refresh},
+			wantCall:  true,
+			wantRoles: refreshed,
+		},
+		{
+			name:    "refresh error fails the restore without an entry",
+			blobs:   rolesAndUsersBlobs{roles: roles, users: users, refreshRoles: failRefresh},
+			wantErr: "restore roles and users: refresh roles: refresh failed",
+		},
+		{
+			name:     "refresh is skipped without a roles blob",
+			blobs:    rolesAndUsersBlobs{users: users, refreshRoles: failRefresh},
+			wantCall: true,
+		},
+		{
+			name:  "neither, with refresh set: no entry and no refresh",
+			blobs: rolesAndUsersBlobs{refreshRoles: failRefresh},
+		},
 		{
 			name:     "both blobs, namespaces disabled: strip",
 			blobs:    rolesAndUsersBlobs{roles: roles, users: users},
@@ -1312,15 +1350,26 @@ func TestRestoreRoutesRolesAndUsersThroughRaft(t *testing.T) {
 			})
 
 			calls := f.rolesAndUsers.recorded()
+			if tt.wantErr != "" {
+				assert.Empty(t, calls)
+				assert.Equal(t, backup.Failed, f.coord.descriptor.Status)
+				assert.Equal(t, tt.wantErr, f.coord.descriptor.Error)
+				return
+			}
+			// Success shows failRefresh did not run, since a run fails the restore.
+			assert.Equal(t, backup.Success, f.coord.descriptor.Status)
 			if !tt.wantCall {
 				assert.Empty(t, calls)
 				return
 			}
+			wantRoles := tt.blobs.roles
+			if tt.wantRoles != nil {
+				wantRoles = tt.wantRoles
+			}
 			require.Len(t, calls, 1)
-			assert.Equal(t, tt.blobs.roles, calls[0].roles)
+			assert.Equal(t, wantRoles, calls[0].roles)
 			assert.Equal(t, tt.blobs.users, calls[0].users)
 			assert.Equal(t, !tt.namespacesEnabled, calls[0].strip)
-			assert.Equal(t, backup.Success, f.coord.descriptor.Status)
 		})
 	}
 }

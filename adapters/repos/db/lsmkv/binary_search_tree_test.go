@@ -324,6 +324,74 @@ func BenchmarkFlattenInOrder(b *testing.B) {
 	}
 }
 
+var countStatsSink *countStats
+
+// TestBinarySearchTreeCountStats pins that countStats lists every live and every
+// tombstoned key, and allocates only the stats and one array of keys however
+// many keys the tree holds.
+func TestBinarySearchTreeCountStats(t *testing.T) {
+	tests := []struct {
+		name       string
+		upserts    int
+		tombstones int
+		wantAllocs float64
+	}{
+		{name: "empty", wantAllocs: 1},
+		{name: "upserts only", upserts: 1000, wantAllocs: 2},
+		{name: "tombstones only", tombstones: 1000, wantAllocs: 2},
+		{name: "mixed", upserts: 900, tombstones: 100, wantAllocs: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rnd := mathrand.New(mathrand.NewSource(42))
+			tree := &binarySearchTree{}
+			var upserts, tombstones [][]byte
+			for i := 0; i < tt.upserts+tt.tombstones; i++ {
+				key := []byte(fmt.Sprintf("key-%016x", rnd.Uint64()))
+				// every other key first passes through the opposite state
+				if i < tt.upserts {
+					if i%2 == 0 {
+						tree.setTombstone(key, nil, nil)
+					}
+					tree.insert(key, key, nil)
+					upserts = append(upserts, key)
+				} else {
+					if i%2 == 0 {
+						tree.insert(key, key, nil)
+					}
+					tree.setTombstone(key, nil, nil)
+					tombstones = append(tombstones, key)
+				}
+			}
+
+			stats := tree.countStats()
+			require.ElementsMatch(t, upserts, stats.upsertKeys)
+			require.ElementsMatch(t, tombstones, stats.tombstonedKeys)
+
+			allocs := testing.AllocsPerRun(10, func() { countStatsSink = tree.countStats() })
+			require.Equal(t, tt.wantAllocs, allocs)
+		})
+	}
+}
+
+func BenchmarkCountStats(b *testing.B) {
+	for _, size := range []int{1000, 10000, 100000} {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			tree := buildTree(size, 16, 64)
+			for i, n := range tree.flattenInOrder() {
+				if i%10 == 0 {
+					tree.setTombstone(n.key, nil, nil)
+				}
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				countStatsSink = tree.countStats()
+			}
+		})
+	}
+}
+
 // TestBinarySearchTreeFlattenInOrderRange: bounded flatten must equal the filtered full flatten, sized exactly by countInRange.
 func TestBinarySearchTreeFlattenInOrderRange(t *testing.T) {
 	rnd := mathrand.New(mathrand.NewSource(42))

@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -27,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -131,33 +134,65 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 	})
 
 	t.Run("object without class", func(t *testing.T) {
-		reset()
-		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
-		objects := []*models.Object{
+		ids := []strfmt.UUID{"8d5a3aa2-3c8c-4f4e-9a3c-7d6f2bfa0c11", "8d5a3aa2-3c8c-4f4e-9a3c-7d6f2bfa0c12"}
+		namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
+		tests := []struct {
+			name          string
+			principal     *models.Principal
+			nsEnabled     bool
+			class         string
+			secondClass   string
+			denyAll       bool
+			wantActivated map[string][]string
+		}{
+			{name: "namespaces off", class: "Foo", secondClass: "Foo", wantActivated: map[string][]string{"Foo": {"t1"}}},
 			{
-				Class:  "",
-				Vector: []float32{0.1, 0.1, 0.1111},
+				name: "namespaced caller", principal: namespaced, nsEnabled: true, class: "customer1:Foo", secondClass: "Foo",
+				wantActivated: map[string][]string{"customer1:Foo": {"t1"}},
 			},
-			{
-				Class:  "Foo",
-				Vector: []float32{0.2, 0.2, 0.2222},
-			},
+			{name: "every object, caller denied everything", class: "Foo", denyAll: true},
 		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				classes := []*models.Class{{
+					Class: tt.class, Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+					MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				}}
+				var sm *fakeSchemaManager
+				_, b, repo, mp, authz := newNSManagers(t, classes, tt.nsEnabled, func(_ *config.WeaviateConfig, s *fakeSchemaManager) { sm = s })
+				// Deny the every-collection resource, as RBAC does for a caller scoped to named collections.
+				authz.Deny(authorization.ShardsData("", "")...)
+				if tt.denyAll {
+					authz.SetErr(errors.New("forbidden"))
+				}
+				repo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+				mp.On("BatchUpdateVector").Return(nil, nil)
 
-		for range objects {
-			modulesProvider.On("BatchUpdateVector").
-				Return(nil, nil)
+				objs := []*models.Object{
+					{Class: "", ID: ids[0], Tenant: "t2", Vector: []float32{0.1, 0.1, 0.1111}},
+					{Class: tt.secondClass, ID: ids[1], Tenant: "t1", Vector: []float32{0.2, 0.2, 0.2222}},
+				}
+				resp, err := b.AddObjects(ctx, tt.principal, objs, []*string{}, nil)
+				require.NoError(t, err)
+				require.Len(t, resp, 2)
+
+				for i, entry := range resp {
+					if objs[i].Class != "" {
+						require.NoError(t, entry.Err)
+						require.Equal(t, tt.class, entry.Object.Class)
+						continue
+					}
+					require.ErrorIs(t, entry.Err, ErrEmptyClass)
+					require.Same(t, objs[i], entry.Object)
+					require.Equal(t, ids[i], entry.UUID)
+				}
+				if tt.denyAll {
+					require.Empty(t, authz.Calls())
+				}
+				// BatchPutObjects writes no failed entry, so its tenant stays inactive.
+				require.Equal(t, tt.wantActivated, sm.ActivatedTenants)
+			})
 		}
-
-		resp, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
-		assert.Nil(t, err)
-		assert.NotNil(t, resp)
-		require.Len(t, repoCalledWithObjects, 2)
-
-		require.NotNil(t, resp[0].Err)
-		require.Equal(t, resp[0].Err.Error(), "object has an empty class")
-		require.Nil(t, resp[1].Err)
 	})
 
 	t.Run("with objects without IDs and nonexistent class and auto schema enabled", func(t *testing.T) {
@@ -554,6 +589,68 @@ func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
 			require.Len(t, added, 1)
 			require.Error(t, added[0].Err)
 			assert.ErrorContains(t, added[0].Err, "unrecognized data type")
+		})
+	}
+}
+
+// Test_BatchManager_AddObjects_LocalSchemaBehind pins that a batch on a node
+// whose schema stays behind the fetched collection fails once, before
+// auto-schema runs, instead of waiting again for every object.
+func Test_BatchManager_AddObjects_LocalSchemaBehind(t *testing.T) {
+	const classVersion = 40
+	errBehind := errors.New("deadline exceeded")
+	tests := []struct {
+		name string
+		add  func(*BatchManager, []*models.Object, map[string]versioned.Class) (BatchObjects, error)
+	}{
+		{
+			name: "REST",
+			add: func(m *BatchManager, objs []*models.Object, _ map[string]versioned.Class) (BatchObjects, error) {
+				return m.AddObjects(context.Background(), nil, objs, []*string{}, nil)
+			},
+		},
+		{
+			name: "gRPC",
+			add: func(m *BatchManager, objs []*models.Object, classes map[string]versioned.Class) (BatchObjects, error) {
+				return m.AddObjectsGRPCAfterAuth(context.Background(), nil, objs, nil, classes)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:             "Movie",
+				VectorIndexConfig: hnsw.UserConfig{},
+				Properties:        []*models.Property{{Name: "title", DataType: schema.DataTypeText.PropString()}},
+			}
+			objectFinder := &fakeObjectFinder{}
+			objectFinder.On("BatchPutObjects", mock.Anything).Return(nil)
+			cfg := &config.WeaviateConfig{Config: config.Config{AutoSchema: config.AutoSchema{
+				Enabled:       runtime.NewDynamicValue(true),
+				DefaultString: schema.DataTypeText.String(),
+			}}}
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
+				ClassVersion:      classVersion,
+				WaitForUpdateErr:  errBehind,
+			}
+			logger, _ := test.NewNullLogger()
+			manager := NewBatchManager(objectFinder, getFakeModulesProvider(), schemaManager, cfg, logger,
+				mocks.NewMockAuthorizer(), nil,
+				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
+
+			// Every object carries a property the collection does not have yet.
+			objs := []*models.Object{
+				{Class: "Movie", Properties: map[string]interface{}{"title": "Heat", "director": "Mann"}},
+				{Class: "Movie", Properties: map[string]interface{}{"title": "Ronin", "genre": "thriller"}},
+				{Class: "Movie", Properties: map[string]interface{}{"title": "Alien", "studio": "Fox"}},
+			}
+			_, err := tt.add(manager, objs, map[string]versioned.Class{"Movie": {Class: class, Version: classVersion}})
+			require.ErrorIs(t, err, errBehind)
+			assert.ErrorContains(t, err, "error waiting for local schema to catch up to version 40")
+			assert.Equal(t, []uint64{classVersion}, schemaManager.WaitedVersions, "the batch waits once")
+			assert.Len(t, class.Properties, 1, "no property is added")
+			objectFinder.AssertNotCalled(t, "BatchPutObjects", mock.Anything)
 		})
 	}
 }

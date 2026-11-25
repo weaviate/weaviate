@@ -654,9 +654,9 @@ func TestFindUUIDs_ResolvesTheFilterOnce(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, uuids, limit, "call %d fills the window past the dead ids", call)
 
-				resolves, ok := helpers.ExtractSlowQueryDetails(callCtx)["build_allow_list_doc_bitmap"].([]map[string]any)
+				resolves, ok := helpers.ExtractSlowQueryDetails(callCtx)["build_allow_list_doc_bitmap"].(helpers.SlowestEntries)
 				require.True(t, ok, "call %d: the searcher records each leaf it resolves", call)
-				require.Len(t, resolves, 1, "call %d resolves the filter once", call)
+				require.Equal(t, 1, resolves.Count, "call %d resolves the filter once", call)
 			}
 		})
 	}

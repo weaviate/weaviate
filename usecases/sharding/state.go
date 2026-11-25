@@ -43,6 +43,21 @@ type State struct {
 	localNodeName string // TODO: localNodeName is static it is better to store just once
 }
 
+// ValidateShardNames rejects a physical shard whose map key or name is not a
+// valid tenant name. A shard's name is its directory under the index, so a
+// state read from a backup must pass this before any of it is applied.
+func (s *State) ValidateShardNames() error {
+	for key, physical := range s.Physical {
+		if err := schema.ValidateTenantName(key); err != nil {
+			return fmt.Errorf("shard %q: %w", key, err)
+		}
+		if err := schema.ValidateTenantName(physical.Name); err != nil {
+			return fmt.Errorf("shard %q: %w", physical.Name, err)
+		}
+	}
+	return nil
+}
+
 // MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
 // migrates it into the new format for backward-compatibility with all classes
 // created before v1.17

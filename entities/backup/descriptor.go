@@ -13,24 +13,19 @@ package backup
 
 import (
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// DeleteMarkerAdd marks folders of indices that have been deleted during an ongoing backup and are already removed from
-// store and schema. However, we want to keep them on disk to ensure that the backup can complete. The folders are
-// removed after backup completion. In case of a crash they are deleted at the next startup.
+// DeleteMarker prefixes an index directory a backup kept on disk after its
+// class was deleted, which a node upgraded from an earlier version can still
+// hold. cleanupRootPathOnStartup removes it.
 const DeleteMarker = "__DELETE_ME_AFTER_BACKUP__"
 
 // BackupStagingPrefix is the prefix for staging directories used during backup.
 // These directories contain hard-linked snapshot files and are cleaned up after backup completion.
 const BackupStagingPrefix = ".backup-staging-"
-
-func DeleteMarkerAdd(filename string) string {
-	return fmt.Sprintf("%s%s", DeleteMarker, filename)
-}
 
 // NodeDescriptor contains data related to one participant in DBRO
 type NodeDescriptor struct {
@@ -235,6 +230,13 @@ func (d *DistributedBackupDescriptor) Validate() error {
 	if len(d.Nodes) == 0 {
 		return fmt.Errorf("empty list of node descriptors")
 	}
+	// Each node's BackupDescriptor.Validate refuses the same names, but only
+	// after the restore request was accepted.
+	for _, c := range d.Classes() {
+		if _, err := schema.ValidateQualifiedClassName(c); err != nil {
+			return fmt.Errorf("class=%q: %w", c, err)
+		}
+	}
 	return nil
 }
 
@@ -327,7 +329,7 @@ func (s *ShardDescriptor) ClearTemporary() {
 	s.PropLengthTracker = nil
 }
 
-func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndID, rootPath string) error {
+func (s *ShardDescriptor) FillFileInfo(files []string, shardBaseDescrs []ShardAndID, src FileSource) error {
 	if len(shardBaseDescrs) == 0 {
 		s.Files = files
 		return nil
@@ -337,11 +339,7 @@ FilesLoop:
 	for _, file := range files {
 		for _, shardBaseDescr := range shardBaseDescrs {
 			if info, ok := shardBaseDescr.ShardDesc.BigFilesChunk[file]; ok {
-				absPath, err := diskio.SanitizeFilePathJoin(rootPath, file)
-				if err != nil {
-					return fmt.Errorf("sanitize file path %v: %w", file, err)
-				}
-				infoNew, err := os.Stat(absPath)
+				infoNew, err := src.Stat(file)
 				if err != nil {
 					return fmt.Errorf("stat big file %v: %w", file, err)
 				}
@@ -499,7 +497,8 @@ type ClassDescriptor struct {
 	// aliases
 	AliasesIncluded         bool               `json:"aliasesIncluded"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
-	StagingDir              string             `json:"-"` // non-serialized; staging dir for hard-linked snapshot files
+	StagingDir              string             `json:"-"` // holds one flat dir per shard, which the uploader reads, so a class with shards must set it
+	StagingNameMax          int                `json:"-"` // the byte length StagedFilePath cuts this class's staged names to, set from StagedNameMax
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }
@@ -662,6 +661,11 @@ func (d *BackupDescriptor) Validate() error {
 	for _, c := range d.Classes {
 		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
 			return fmt.Errorf("class=%q: invalid attributes [name schema sharding]", c.Name)
+		}
+		// fileWriter.Write deletes and refills path.Join(tempDir, name), so a
+		// ".." in the name would delete a directory outside the staging dir.
+		if _, err := schema.ValidateQualifiedClassName(c.Name); err != nil {
+			return fmt.Errorf("class=%q: %w", c.Name, err)
 		}
 		for _, s := range c.Shards {
 			if s.Name == "" || s.Node == "" {

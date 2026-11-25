@@ -25,6 +25,9 @@ var (
 	googleAPIHostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.googleapis\.com$`)
 	// A single DNS label, e.g. us-central1 or global.
 	googleLocationPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+	// A project id, project number or domain-scoped project id, e.g. my-project,
+	// 123456789012 or example.com:my-project.
+	googleProjectIDPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]*[a-z0-9])?:)?[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 )
 
 // ValidateGoogleApiEndpoint rejects an apiEndpoint outside Google's API domain.
@@ -55,6 +58,29 @@ func ValidateGoogleLocation(property, location string) error {
 	}
 	if !googleLocationPattern.MatchString(strings.ToLower(location)) {
 		return fmt.Errorf("%s must be a Google region name, got %q", property, location)
+	}
+	return nil
+}
+
+// ValidateGoogleProjectID rejects a projectId that is not a Google Cloud project
+// id or number. In the request path, a "/", "?" or ".." would change which API
+// the request reaches. Callers decide whether it may be empty.
+func ValidateGoogleProjectID(projectID string) error {
+	if projectID == "" {
+		return nil
+	}
+	if !googleProjectIDPattern.MatchString(strings.ToLower(projectID)) {
+		return fmt.Errorf("projectId must be a Google Cloud project id, got %q", projectID)
+	}
+	return nil
+}
+
+// ValidateGoogleModel rejects a model or endpoint id that would move the request
+// to a different API path or add a query string. A "." or ".." survives the path
+// escaping the Google modules apply, so it is rejected here as well.
+func ValidateGoogleModel(model string) error {
+	if model == "." || model == ".." || strings.ContainsAny(model, "/?#") {
+		return fmt.Errorf("model must be a Google model name, got %q", model)
 	}
 	return nil
 }

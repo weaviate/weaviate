@@ -27,6 +27,13 @@ import (
 
 const postingMapMigrationBatchSize = 10_000
 
+// Per-posting arrays address 1 billion posting IDs in 4k-entry pages, so a
+// small index does not reserve a 64k-entry page for a handful of postings.
+const (
+	postingPageSize = 4 * 1024
+	postingPages    = 256 * 1024
+)
+
 // PostingMetadata holds the list of vector IDs associated with a posting.
 type PostingMetadata struct {
 	PackedPostingMetadata
@@ -48,7 +55,7 @@ func NewPostingMap(bucket bucketRef) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
 
 	return &PostingMap{
-		data:   common.NewGroupedPagedArray[postingMapSlot](16*1024, 64*1024), // 1 billion posting IDs with 64k per page
+		data:   common.NewGroupedPagedArray[postingMapSlot](postingPages, postingPageSize),
 		bucket: b,
 		locks:  common.NewShardedRWLocks(512),
 	}
@@ -640,32 +647,28 @@ func legacyPostingMapBatch(ctx context.Context, ref bucketRef, limit int) ([]pos
 	c := bucket.Cursor()
 	defer c.Close()
 
-	batch := make([]postingMapMigrationEntry, 0, limit)
+	// Allocated on the first legacy row: every restore runs this, and once
+	// migrated there are none left.
+	var batch []postingMapMigrationEntry
 	for k, v := c.Seek(postingMapBucketPrefixV1); len(k) > 0 && bytes.HasPrefix(k, postingMapBucketPrefixV1); k, v = c.Next() {
 		if len(batch)%1000 == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 		}
-
-		postingID := binary.LittleEndian.Uint64(k[len(postingMapBucketPrefixV1):])
-		key := make([]byte, len(k))
-		copy(key, k)
-		if len(v) == 0 {
-			batch = append(batch, postingMapMigrationEntry{
-				key:       key,
-				postingID: postingID,
-				empty:     true,
-			})
-			continue
+		if batch == nil {
+			batch = make([]postingMapMigrationEntry, 0, limit)
 		}
 
-		metadata := normalizePackedPostingMetadata(PackedPostingMetadata(v), true)
-		batch = append(batch, postingMapMigrationEntry{
-			key:       key,
-			postingID: postingID,
-			metadata:  metadata,
-		})
+		entry := postingMapMigrationEntry{
+			key:       bytes.Clone(k),
+			postingID: binary.LittleEndian.Uint64(k[len(postingMapBucketPrefixV1):]),
+			empty:     len(v) == 0,
+		}
+		if !entry.empty {
+			entry.metadata = normalizePackedPostingMetadata(PackedPostingMetadata(v), true)
+		}
+		batch = append(batch, entry)
 
 		if len(batch) == limit {
 			break

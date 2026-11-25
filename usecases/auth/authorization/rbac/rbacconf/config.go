@@ -42,7 +42,7 @@ type Config struct {
 // config package
 func (c Config) Validate() error {
 	// Checking a user's "oidc:<name>" row also covers the "db:<name>" row
-	// applyPredefinedRoles saves for a user with an API key. The rows differ
+	// applyPredefinedRoles adds for a user with an API key. The rows differ
 	// only in that prefix, and "db:" is the shorter one.
 	user := func(name string) string { return conv.UserNameWithTypeFromId(name, authentication.AuthTypeOIDC) }
 	group := conv.PrefixGroupName
@@ -56,12 +56,13 @@ func (c Config) Validate() error {
 	)
 }
 
-// validateGrants rejects an entry whose policy.csv row would fail to load or
-// give a subject a role the config does not. A row that fails to load stops
-// every boot, since Init loads the file before applyPredefinedRoles rewrites it.
+// validateGrants rejects an entry whose row casbin's CSV file cannot store, or
+// that gives a subject a role the config does not. RAFT snapshots carry every
+// config row, and after a rollback the previous release saves them to
+// policy.csv. AddRolesForUser also refuses such an admin or viewer row.
 func validateGrants(setting string, entries []string, subject func(string) string, role string) error {
 	for _, entry := range entries {
-		// applyPredefinedRoles skips blank entries, so they never reach the file.
+		// applyPredefinedRoles skips blank entries, so they never become rows.
 		if strings.TrimSpace(entry) == "" {
 			continue
 		}

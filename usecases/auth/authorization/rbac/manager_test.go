@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -318,6 +319,90 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 	})
 }
 
+func TestScopedSnapshot(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	editor := conv.PrefixRoleName("editor")
+	reader := conv.PrefixRoleName("reader")
+	alice := []string{"db:alice", editor}
+	aliceReader := []string{"db:alice", reader}
+	bob := []string{"db:bob", editor}
+	nsAlice := []string{"db:ns1:alice", editor}
+
+	seed := func(t *testing.T) *Manager {
+		m, err := setupTestManagerWithStaticUsers(t, logger, "custom-user")
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", editor, "collections/*", authorization.UPDATE, authorization.SchemaDomain)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", reader, "collections/*", authorization.READ, authorization.SchemaDomain)
+		require.NoError(t, err)
+		for _, g := range [][]string{
+			{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), editor},
+			{"db:custom-user", editor},
+			{"oidc:carl", editor},
+			{conv.PrefixGroupName("devs"), editor},
+			alice, aliceReader, bob, nsAlice,
+		} {
+			_, err = m.casbin.AddRoleForUser(g[0], g[1])
+			require.NoError(t, err)
+		}
+		return m
+	}
+
+	// Each case expects the unscoped Snapshot of the same roles, minus the rows in
+	// drop. Every other row must survive, including static, placeholder, oidc and
+	// group rows.
+	tests := []struct {
+		name     string
+		forUsers []string
+		roles    []string
+		drop     [][]string
+	}{
+		{
+			name:     "a partial user set keeps that set's dynamic rows and drops the rest",
+			forUsers: []string{"alice"},
+			drop:     [][]string{bob, nsAlice},
+		},
+		{
+			name: "an empty set drops every dynamic row and keeps static, placeholder, oidc and group rows",
+			drop: [][]string{alice, aliceReader, bob, nsAlice},
+		},
+		{
+			name:     "a namespaced subject matches its qualified id",
+			forUsers: []string{"ns1:alice"},
+			drop:     [][]string{alice, aliceReader, bob},
+		},
+		{
+			name:     "role filtering still applies",
+			forUsers: []string{"bob"},
+			roles:    []string{"reader"},
+			drop:     [][]string{aliceReader},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := seed(t)
+			full, err := m.Snapshot(tt.roles...)
+			require.NoError(t, err)
+			var want snapshot
+			require.NoError(t, json.Unmarshal(full, &want))
+			for _, d := range tt.drop {
+				require.Contains(t, want.GroupingPolicy, d, "seed lacks a row the case drops")
+			}
+			want.GroupingPolicy = slices.DeleteFunc(want.GroupingPolicy, func(g []string) bool {
+				return slices.ContainsFunc(tt.drop, func(d []string) bool { return slices.Equal(d, g) })
+			})
+
+			blob, err := m.ScopedSnapshot(tt.forUsers, tt.roles...)
+			require.NoError(t, err)
+			var got snapshot
+			require.NoError(t, json.Unmarshal(blob, &got))
+			assert.ElementsMatch(t, want.Policy, got.Policy)
+			assert.ElementsMatch(t, want.GroupingPolicy, got.GroupingPolicy)
+			assert.Equal(t, SnapshotVersionLatest, got.Version)
+		})
+	}
+}
+
 // TestBuiltInAssignments covers the admin and viewer grants a backup carries for the
 // users it backs up.
 func TestBuiltInAssignments(t *testing.T) {
@@ -599,6 +684,333 @@ func TestMergeSnapshots(t *testing.T) {
 			tt.check(t, merged)
 		})
 	}
+}
+
+func TestReplaceDynamicUserAssignments(t *testing.T) {
+	encode := func(t *testing.T, s snapshot) []byte {
+		var buf bytes.Buffer
+		require.NoError(t, json.NewEncoder(&buf).Encode(s))
+		return buf.Bytes()
+	}
+
+	editor := conv.PrefixRoleName("editor")
+	nsEditor := conv.PrefixRoleName("ns1:editor")
+	gone := conv.PrefixRoleName("gone")
+	viewer := conv.PrefixRoleName(authorization.Viewer)
+	editorP := []string{editor, "collections/*", authorization.UPDATE, authorization.SchemaDomain}
+	nsEditorP := []string{nsEditor, "collections/ns1:*", authorization.UPDATE, authorization.SchemaDomain}
+	placeholder := []string{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), editor}
+	empty := conv.PrefixRoleName("empty")
+	emptyPlaceholder := []string{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), empty}
+	static := []string{"custom-user"}
+
+	tests := []struct {
+		name           string
+		backup, target snapshot
+		want           snapshot
+	}{
+		{
+			name: "drops the backup's dynamic-user rows, plain and namespaced",
+			backup: snapshot{
+				Policy:         [][]string{editorP, nsEditorP},
+				GroupingPolicy: [][]string{{"db:alice", editor}, {"db:ns1:alice", nsEditor}},
+				Version:        SnapshotVersionLatest,
+			},
+			want: snapshot{
+				Policy:  [][]string{editorP, nsEditorP},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "appends a target dynamic-user row for a role the backup defines",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{placeholder, {"db:alice", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", editor}}},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{placeholder, {"db:bob", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "appends a target row for a role only the placeholder row holds",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{emptyPlaceholder, {"db:alice", empty}},
+				Version:        SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", empty}}},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{emptyPlaceholder, {"db:bob", empty}},
+				Version:        SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "drops a target row for a role only a dropped dynamic row holds",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:alice", empty}},
+				Version:        SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", empty}}},
+			want: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "keeps a target row to built-in viewer the backup lacks",
+			backup: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", viewer}}},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:bob", viewer}},
+				Version:        SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "drops a target row to a role the backup lacks",
+			backup: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+			target: snapshot{
+				Policy:         [][]string{{gone, "collections/*", authorization.READ, authorization.SchemaDomain}},
+				GroupingPolicy: [][]string{{"db:bob", gone}},
+			},
+			want: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "keeps the backup's oidc, group, static and placeholder rows but not the target's",
+			backup: snapshot{
+				Policy: [][]string{editorP},
+				// "db:" does not parse, so it is not a dynamic-user row.
+				GroupingPolicy: [][]string{
+					placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor}, {"db:", editor},
+				},
+				Version: SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{
+				placeholder, {"oidc:dana", editor}, {"group:ops", editor}, {"db:custom-user", viewer},
+			}},
+			want: snapshot{
+				Policy: [][]string{editorP},
+				GroupingPolicy: [][]string{
+					placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor}, {"db:", editor},
+				},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "keeps a V0 backup's version and user rows",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"user:test-user", editor}},
+				Version:        SnapshotVersionV0,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", editor}}},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"user:test-user", editor}, {"db:bob", editor}},
+				Version:        SnapshotVersionV0,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := ReplaceDynamicUserAssignments(encode(t, tt.backup), encode(t, tt.target), static)
+			require.NoError(t, err)
+			var got snapshot
+			require.NoError(t, json.Unmarshal(out, &got))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("an empty backup returns empty", func(t *testing.T) {
+		target := encode(t, snapshot{GroupingPolicy: [][]string{{"db:bob", viewer}}})
+		out, err := ReplaceDynamicUserAssignments(nil, target, nil)
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+
+	t.Run("a nil target still drops the backup's dynamic rows", func(t *testing.T) {
+		backup := snapshot{
+			Policy:         [][]string{editorP},
+			GroupingPolicy: [][]string{placeholder, {"oidc:carl", editor}, {"db:alice", editor}},
+			Version:        SnapshotVersionLatest,
+		}
+		out, err := ReplaceDynamicUserAssignments(encode(t, backup), nil, nil)
+		require.NoError(t, err)
+		var got snapshot
+		require.NoError(t, json.Unmarshal(out, &got))
+		assert.Equal(t, snapshot{
+			Policy:         [][]string{editorP},
+			GroupingPolicy: [][]string{placeholder, {"oidc:carl", editor}},
+			Version:        SnapshotVersionLatest,
+		}, got)
+	})
+
+	t.Run("malformed input returns an error", func(t *testing.T) {
+		valid := encode(t, snapshot{Policy: [][]string{editorP}})
+		_, err := ReplaceDynamicUserAssignments([]byte("{"), valid, nil)
+		require.ErrorContains(t, err, "decode backup")
+		_, err = ReplaceDynamicUserAssignments(valid, []byte("{"), nil)
+		require.ErrorContains(t, err, "decode target")
+	})
+
+	// The strip turns db:ns1:alice into db:alice. Keeping that backup row next to
+	// the target's db:alice row would make the strip fail on a duplicate subject.
+	t.Run("output from a namespaced backup plus bare target rows passes the strip", func(t *testing.T) {
+		reader := conv.PrefixRoleName("reader")
+		backup := encode(t, snapshot{
+			Policy: [][]string{nsEditorP, {reader, "collections/*", authorization.READ, authorization.SchemaDomain}},
+			GroupingPolicy: [][]string{
+				{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), nsEditor},
+				{"db:ns1:alice", nsEditor},
+				{"oidc:ns1:carl", nsEditor},
+			},
+			Version:    SnapshotVersionLatest,
+			Namespaces: []string{"ns1"},
+		})
+		target := encode(t, snapshot{GroupingPolicy: [][]string{
+			{"db:alice", reader}, {"db:bob", viewer}, {"db:carol", editor},
+		}})
+
+		out, err := ReplaceDynamicUserAssignments(backup, target, nil)
+		require.NoError(t, err)
+		var got snapshot
+		require.NoError(t, json.Unmarshal(out, &got))
+		assert.Equal(t, []string{"ns1"}, got.Namespaces)
+		assert.Contains(t, got.GroupingPolicy, []string{"db:alice", reader})
+		// The backup defines ns1:editor but not editor, so the db:carol row is dropped.
+		assert.NotContains(t, got.GroupingPolicy, []string{"db:carol", editor})
+		require.NoError(t, ValidateNamespaceStrip(out, nil))
+	})
+}
+
+func TestDropMissingDynamicUserAssignments(t *testing.T) {
+	encode := func(t *testing.T, s snapshot) []byte {
+		var buf bytes.Buffer
+		require.NoError(t, json.NewEncoder(&buf).Encode(s))
+		return buf.Bytes()
+	}
+
+	editor := conv.PrefixRoleName("editor")
+	nsEditor := conv.PrefixRoleName("ns1:editor")
+	viewer := conv.PrefixRoleName(authorization.Viewer)
+	editorP := []string{editor, "collections/*", authorization.UPDATE, authorization.SchemaDomain}
+	placeholder := []string{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), editor}
+	// "db:custom-user" is a static API-key user, so its row is not a dynamic-user row.
+	nonDynamic := [][]string{placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor}}
+	static := []string{"custom-user"}
+
+	tests := []struct {
+		name    string
+		blob    snapshot
+		current []byte
+		want    snapshot
+	}{
+		{
+			name: "keeps a dynamic row current holds and drops one it lacks",
+			blob: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:alice", editor}, {"db:bob", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+			current: encode(t, snapshot{GroupingPolicy: [][]string{{"db:alice", editor}}}),
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:alice", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+		},
+		{
+			name: "drops a dynamic row whose subject current holds with another role",
+			blob: snapshot{
+				GroupingPolicy: [][]string{{"db:alice", editor}},
+				Version:        SnapshotVersionLatest,
+			},
+			current: encode(t, snapshot{GroupingPolicy: [][]string{{"db:alice", viewer}}}),
+			want:    snapshot{Version: SnapshotVersionLatest},
+		},
+		{
+			name: "matches a namespaced subject on the full row",
+			blob: snapshot{
+				GroupingPolicy: [][]string{{"db:ns1:alice", nsEditor}, {"db:ns1:bob", nsEditor}},
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns1"},
+			},
+			current: encode(t, snapshot{GroupingPolicy: [][]string{{"db:ns1:alice", nsEditor}, {"db:bob", nsEditor}}}),
+			want: snapshot{
+				GroupingPolicy: [][]string{{"db:ns1:alice", nsEditor}},
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns1"},
+			},
+		},
+		{
+			name: "keeps p-rows and non-dynamic rows against a current that lacks them",
+			blob: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: append([][]string{{"db:alice", editor}}, nonDynamic...),
+				Version:        SnapshotVersionV0,
+			},
+			current: encode(t, snapshot{GroupingPolicy: [][]string{{"db:bob", editor}}}),
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: nonDynamic,
+				Version:        SnapshotVersionV0,
+			},
+		},
+		{
+			name: "an empty current drops every dynamic row and keeps the rest",
+			blob: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: append([][]string{{"db:alice", editor}}, nonDynamic...),
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns1"},
+			},
+			want: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: nonDynamic,
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns1"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := DropMissingDynamicUserAssignments(encode(t, tt.blob), tt.current, static)
+			require.NoError(t, err)
+			var got snapshot
+			require.NoError(t, json.Unmarshal(out, &got))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("an empty blob returns unchanged", func(t *testing.T) {
+		current := encode(t, snapshot{GroupingPolicy: [][]string{{"db:bob", viewer}}})
+		out, err := DropMissingDynamicUserAssignments(nil, current, nil)
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+
+	t.Run("malformed input returns an error", func(t *testing.T) {
+		valid := encode(t, snapshot{Policy: [][]string{editorP}})
+		_, err := DropMissingDynamicUserAssignments([]byte("{"), valid, nil)
+		require.ErrorContains(t, err, "decode blob")
+		_, err = DropMissingDynamicUserAssignments(valid, []byte("{"), nil)
+		require.ErrorContains(t, err, "decode current")
+	})
 }
 
 // TestSnapshotRecordsNamespaces covers what a snapshot writes into its namespace list.
@@ -1343,68 +1755,6 @@ func TestRestoreStripFalseUnchanged(t *testing.T) {
 	}
 }
 
-// TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload pins that an
-// already-absent role in a batch delete does not drop persistence of the roles
-// (and their assignments) removed alongside it: the cleanup cascade calls
-// DeleteRoles with many names, and a concurrent delete can leave one already
-// gone. Reloading the policy from disk (a restart) must still see every removed
-// role and assignment gone.
-func TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload(t *testing.T) {
-	const (
-		roleA = "batchRoleA"
-		roleB = "batchRoleB"
-		roleC = "batchRoleC"
-	)
-	allRoles := []string{roleA, roleB, roleC}
-	user := conv.UserNameWithTypeFromId("batch-user", authentication.AuthTypeDb)
-
-	tests := []struct {
-		name       string
-		preRemoved []string // roles deleted (and persisted) before the batch
-	}{
-		{name: "no pre-removed role", preRemoved: nil},
-		{name: "some roles already absent", preRemoved: []string{roleB}},
-		{name: "all roles already absent", preRemoved: allRoles},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
-			m, err := setupTestManager(t, logger)
-			require.NoError(t, err)
-
-			for _, r := range allRoles {
-				require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
-					r: {{Resource: "data/collections/Movies/shards/*/objects/*", Verb: authorization.READ, Domain: authorization.DataDomain}},
-				}))
-			}
-			// Assign every role so the batch must also persist assignment removal.
-			require.NoError(t, m.AddRolesForUser(user, allRoles))
-
-			if len(tt.preRemoved) > 0 {
-				require.NoError(t, m.DeleteRoles(tt.preRemoved...))
-			}
-
-			require.NoError(t, m.DeleteRoles(allRoles...))
-
-			// Drop in-memory state and reload from the persisted policy file,
-			// which is what a restart does.
-			require.NoError(t, m.casbin.LoadPolicy())
-
-			got, err := m.GetRoles()
-			require.NoError(t, err)
-			for _, r := range allRoles {
-				_, exists := got[r]
-				require.Falsef(t, exists, "role %q must stay deleted across reload", r)
-			}
-
-			assignments, err := m.GetRolesForUserOrGroup("batch-user", authentication.AuthTypeDb, false)
-			require.NoError(t, err)
-			require.Empty(t, assignments, "assignments must stay removed across reload")
-		})
-	}
-}
-
 // TestManager_CountNamespaceLocalRBAC pins the filtering: a namespace-local
 // role and assignments to its direct principals count (even when the assigned
 // role is global), while global roles and out-of-namespace subjects do not.
@@ -1751,7 +2101,7 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 
 	// Hammer checkPermissions() concurrently during Restore(). Without the
 	// restoreLock in Restore() and checkPermissions(), a concurrent reader can
-	// re-cache a stale "true" after LoadPolicy() clears the cache.
+	// re-cache a stale "true" after the restore invalidates the cache.
 	const concurrentReaders = 10
 	done := make(chan struct{})
 	var wg sync.WaitGroup
@@ -1936,9 +2286,7 @@ func TestRemovePermissions(t *testing.T) {
 			wantAbsent: []*authorization.Policy{p1, p2},
 		},
 		{
-			// A real removal followed by an absent permission must still be
-			// persisted (SavePolicy must not be skipped).
-			name:       "present then absent persists durably",
+			name:       "present then absent",
 			initial:    []*authorization.Policy{p1},
 			remove:     []*authorization.Policy{p1, absentA},
 			wantAbsent: []*authorization.Policy{p1},
@@ -1971,26 +2319,16 @@ func TestRemovePermissions(t *testing.T) {
 
 			require.NoError(t, m.RemovePermissions(role, tt.remove))
 
-			assertPermissions := func(t *testing.T) {
-				for _, p := range tt.wantAbsent {
-					has, err := m.HasPermission(role, p)
-					require.NoError(t, err)
-					assert.False(t, has, "permission %v should be removed", p)
-				}
-				for _, p := range tt.wantPresent {
-					has, err := m.HasPermission(role, p)
-					require.NoError(t, err)
-					assert.True(t, has, "permission %v should still be present", p)
-				}
+			for _, p := range tt.wantAbsent {
+				has, err := m.HasPermission(role, p)
+				require.NoError(t, err)
+				assert.False(t, has, "permission %v should be removed", p)
 			}
-
-			// In-memory state.
-			assertPermissions(t)
-
-			// Durable state: reload from the policy file. A skipped SavePolicy
-			// would let removed permissions reappear here.
-			require.NoError(t, m.casbin.LoadPolicy())
-			assertPermissions(t)
+			for _, p := range tt.wantPresent {
+				has, err := m.HasPermission(role, p)
+				require.NoError(t, err)
+				assert.True(t, has, "permission %v should still be present", p)
+			}
 		})
 	}
 }
@@ -2020,9 +2358,9 @@ func TestDeleteRoles(t *testing.T) {
 			wantAbsent: []string{roleA, roleB},
 		},
 		{
-			// A real delete followed by an absent role must still be persisted
-			// (SavePolicy/InvalidateCache must not be skipped).
-			name:       "present then absent persists durably",
+			// An absent role after a real delete does not fail the batch or
+			// bring the deleted role back.
+			name:       "present then absent",
 			create:     []string{roleA},
 			delete:     []string{roleA, absentA},
 			wantAbsent: []string{roleA},
@@ -2055,33 +2393,23 @@ func TestDeleteRoles(t *testing.T) {
 
 			require.NoError(t, m.DeleteRoles(tt.delete...))
 
-			assertRoles := func(t *testing.T) {
-				got, err := m.GetRoles(append(append([]string{}, tt.wantAbsent...), tt.wantPresent...)...)
-				require.NoError(t, err)
-				for _, name := range tt.wantAbsent {
-					_, ok := got[name]
-					assert.False(t, ok, "role %q should be deleted", name)
-				}
-				for _, name := range tt.wantPresent {
-					_, ok := got[name]
-					assert.True(t, ok, "role %q should still be present", name)
-				}
+			got, err := m.GetRoles(append(append([]string{}, tt.wantAbsent...), tt.wantPresent...)...)
+			require.NoError(t, err)
+			for _, name := range tt.wantAbsent {
+				_, ok := got[name]
+				assert.False(t, ok, "role %q should be deleted", name)
 			}
-
-			// In-memory state.
-			assertRoles(t)
-
-			// Durable state: reload from the policy file. A skipped SavePolicy
-			// would let deleted roles reappear here.
-			require.NoError(t, m.casbin.LoadPolicy())
-			assertRoles(t)
+			for _, name := range tt.wantPresent {
+				_, ok := got[name]
+				assert.True(t, ok, "role %q should still be present", name)
+			}
 		})
 	}
 }
 
 // recordingAdapter records the section each policy removal targets, in the order
-// casbin calls the adapter. The file adapter under it answers "not implemented",
-// which casbin ignores.
+// casbin calls the adapter. The embedded Adapter is nil: DeleteRoles makes casbin
+// call only RemoveFilteredPolicy.
 type recordingAdapter struct {
 	persist.Adapter
 	removed []string
@@ -2089,7 +2417,7 @@ type recordingAdapter struct {
 
 func (a *recordingAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
 	a.removed = append(a.removed, sec+" "+strings.Join(fieldValues, " "))
-	return a.Adapter.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...)
+	return nil
 }
 
 // TestDeleteRolesRemovesAssignmentsFirst pins that DeleteRoles removes a role's g
@@ -2110,7 +2438,7 @@ func TestDeleteRolesRemovesAssignmentsFirst(t *testing.T) {
 
 	// casbin hands every removal to the adapter, which is how the test sees the
 	// order without a seam in Manager.
-	adapter := &recordingAdapter{Adapter: m.casbin.GetAdapter()}
+	adapter := &recordingAdapter{}
 	m.casbin.SetAdapter(adapter)
 
 	require.NoError(t, m.DeleteRoles(roles...))

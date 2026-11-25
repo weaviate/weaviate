@@ -818,12 +818,8 @@ func TestLoader_NodeIDLimit(t *testing.T) {
 			if tc.counterFile != nil {
 				require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), tc.counterFile, 0o644))
 			}
-			l := NewLoader(LoaderConfig{
-				Dir:              filepath.Join(shardDir, "main.hnsw.commitlog.d"),
-				Logger:           loaderTestLogger(),
-				NodeIDsAreDocIDs: tc.docIDs,
-			})
-			assert.Equal(t, tc.want, l.nodeIDLimit())
+			dir := filepath.Join(shardDir, "main.hnsw.commitlog.d")
+			assert.Equal(t, tc.want, nodeIDLimit(dir, tc.docIDs, loaderTestLogger()))
 		})
 	}
 }

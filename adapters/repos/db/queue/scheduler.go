@@ -290,6 +290,22 @@ func (s *Scheduler) ResumeQueue(id string) {
 	s.Logger.WithField("id", id).Debug("queue resumed")
 }
 
+// IsQueueIdle returns true if the queue is paused and none of its work is
+// scheduled or running.
+func (s *Scheduler) IsQueueIdle(id string) bool {
+	if s.ctx == nil {
+		// scheduler not started
+		return false
+	}
+
+	q := s.getQueue(id)
+	if q == nil {
+		return false
+	}
+
+	return q.Paused() && !q.Scheduled() && q.activeTasks.Count() == 0
+}
+
 func (s *Scheduler) updatePausedMetric() {
 	if s.Metrics == nil {
 		return
@@ -346,6 +362,22 @@ func (s *Scheduler) WaitAll(ctx context.Context) error {
 	}
 
 	return s.activeTasks.Wait(ctx)
+}
+
+// retryLater delays the next turn of a queue whose batch failed after its
+// tasks ran, as for a canceled batch.
+func (s *Scheduler) retryLater(id string) {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
+	q := s.getQueue(id)
+	if q == nil {
+		return
+	}
+
+	q.RetryAfter(s.RetryInterval)
 }
 
 func (s *Scheduler) getQueue(id string) *queueState {
@@ -446,10 +478,7 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 		}
 
 		// mark it as scheduled
-		q.MarkAsScheduled()
-
-		if q.Paused() {
-			q.MarkAsUnscheduled()
+		if !q.MarkAsScheduled() {
 			continue
 		}
 
@@ -744,8 +773,17 @@ func (qs *queueState) Scheduled() bool {
 	return qs.scheduled.Count() > 0
 }
 
-func (qs *queueState) MarkAsScheduled() {
+// MarkAsScheduled marks the queue unless it is paused, under the lock
+// PauseQueue takes, so a pause sees the mark or the scheduler sees the pause.
+func (qs *queueState) MarkAsScheduled() bool {
+	qs.m.RLock()
+	defer qs.m.RUnlock()
+
+	if qs.paused {
+		return false
+	}
 	qs.scheduled.Incr()
+	return true
 }
 
 func (qs *queueState) MarkAsUnscheduled() {

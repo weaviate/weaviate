@@ -108,6 +108,11 @@ message ApplyRequest {
     TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID = 224;
     TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS = 225;
 
+    TYPE_REPLICATION_REBALANCE_CREATE_PLAN = 230;
+    TYPE_REPLICATION_REBALANCE_COMPLETE_PLANNING = 231;
+    TYPE_REPLICATION_REBALANCE_STOP = 232;
+    TYPE_REPLICATION_REBALANCE_DELETE = 233;
+
     TYPE_DISTRIBUTED_TASK_ADD = 300;
     TYPE_DISTRIBUTED_TASK_CANCEL = 301;
     // Deprecated: kept for backward compat with existing Raft logs.
@@ -171,6 +176,7 @@ message QueryRequest {
     TYPE_GET_ALL_REPLICATION_DETAILS = 206;
     TYPE_GET_REPLICATION_OPERATION_STATE = 207;
     TYPE_GET_REPLICATION_SCALE_PLAN = 208;
+    TYPE_GET_REBALANCE_PLAN = 209;
 
     TYPE_DISTRIBUTED_TASK_LIST = 300;
     TYPE_DISTRIBUTED_TASK_GET = 301;
@@ -185,12 +191,16 @@ message QueryResponse {
 }
 
 message AddTenantsRequest {
+  // SchemaManager.AddTenants fills an empty list of a namespaced class with the
+  // first RF entries of the namespace's HomeNodes at that log index.
   repeated string cluster_nodes = 1;
   repeated Tenant tenants = 2;
 }
 
 message UpdateTenantsRequest {
   repeated Tenant tenants = 1;
+  // SchemaManager.UpdateTenants fills an empty list of a namespaced class with
+  // the namespace's whole HomeNodes at that log index.
   repeated string cluster_nodes = 2;
   bool implicit_update_request = 3;
 }
@@ -325,9 +335,9 @@ message MarkTaskFinalizedRequest {
   int64 finalized_at_unix_millis = 4;
 }
 
-// MarkTaskFailedRequest transitions a task SWAPPING → FAILED when
-// OnTaskCompleted returns a terminal error: permanent schema-flip failure
-// or retry-exhausted transient one (weaviate/0-weaviate-issues#297).
+// MarkTaskFailedRequest ends a SWAPPING task when OnTaskCompleted returns a
+// terminal error: a permanent schema-flip failure or an exhausted retry. It
+// records FAILED, or FINISHED when the run's cutover write already landed.
 // Idempotent at the FSM layer: a later commit on a terminal task is a no-op.
 message MarkTaskFailedRequest {
   string namespace = 1;
@@ -340,12 +350,12 @@ message MarkTaskFailedRequest {
 // RecordDistributedTaskPostCompletionAckRequest captures one node's
 // SWAP-phase callback result (OnGroupCompleted for non-barrier tasks,
 // OnSwapRequested for barrier tasks) — i.e. did every local unit's
-// swap/finalize phase succeed? Emitted by every node that has local
-// units, after the SWAP callback returns, before the cluster-wide
-// MarkTaskFinalized commit lands.
+// swap/finalize phase succeed? Sent after the SWAP callback returns,
+// before the cluster-wide MarkTaskFinalized commit lands. For a barrier
+// task, only a success is sent; a failed swap stays owed and retries.
 //
 // The scheduler gates MarkTaskFinalized on having an ack from every
-// node with local units in the task. If any ack reports success=false,
+// node with local units in the task. If any ack of a non-barrier task reports success=false,
 // the FSM transitions the task to FAILED instead of FINISHED, which
 // makes OnTaskCompleted skip the cluster-wide schema flip — so a
 // node that silently failed its local swap can no longer let the
@@ -366,6 +376,8 @@ message RecordDistributedTaskPostCompletionAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
+  // A barrier task's ack names the group whose swap it pays; empty is a single-tenant run's group.
+  string group_id = 8;
 }
 
 message RecordDistributedTaskPreparationCompleteAckRequest {
@@ -376,6 +388,7 @@ message RecordDistributedTaskPreparationCompleteAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
+  optional string group_id = 8;
 }
 
 // ForceTerminateDistributedTaskRequest transitions a task to a terminal

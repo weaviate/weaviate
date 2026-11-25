@@ -29,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
@@ -2032,11 +2033,12 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_ShardCoverage(t *testing.T) {
 		// shards is the collection's shard list; targetShard is what the caller asks
 		// for, empty meaning all of them. nodesByShard holds a stub per shard the
 		// plan build is expected to visit.
-		shards       []string
-		targetShard  string
-		nodesByShard map[string]shardNodes
-		wantShards   []string
-		wantErr      string
+		shards                []string
+		targetShard           string
+		nodesByShard          map[string]shardNodes
+		skipReachabilityCheck bool
+		wantShards            []string
+		wantErr               string
 	}{
 		{
 			name:   "every shard has a read replica",
@@ -2058,13 +2060,24 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_ShardCoverage(t *testing.T) {
 			wantErr: `no read replica found for shards ["shard2"]`,
 		},
 		{
+			// An unresolvable node is unreachable, which the consistency check reports.
 			name:   "a shard's only read replica sits on a node that resolves to no hostname",
 			shards: []string{"shard1", "shard2"},
 			nodesByShard: map[string]shardNodes{
 				"shard1": {inSchema: []string{"node1"}, readable: []string{"node1"}},
 				"shard2": {inSchema: []string{"node9"}, readable: []string{"node9"}},
 			},
-			wantErr: `no read replica found for shards ["shard2"]`,
+			wantErr: `shard "shard2": 0 of 1 replicas reachable`,
+		},
+		{
+			name:   "a shard with no reachable replica still fails when the reachability check is skipped",
+			shards: []string{"shard1", "shard2"},
+			nodesByShard: map[string]shardNodes{
+				"shard1": {inSchema: []string{"node1"}, readable: []string{"node1"}},
+				"shard2": {inSchema: []string{"node9"}, readable: []string{"node9"}},
+			},
+			skipReachabilityCheck: true,
+			wantErr:               `no read replica found for shards ["shard2"]`,
 		},
 		{
 			name:   "a shard keeps its resolvable read replica when another resolves to no hostname",
@@ -2107,9 +2120,10 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_ShardCoverage(t *testing.T) {
 				mockSchemaReader, mockReplicationFSM).Build()
 
 			plan, err := r.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-				Tenant:           "",
-				Shard:            tt.targetShard,
-				ConsistencyLevel: types.ConsistencyLevelOne,
+				Tenant:                "",
+				Shard:                 tt.targetShard,
+				ConsistencyLevel:      types.ConsistencyLevelOne,
+				SkipReachabilityCheck: tt.skipReachabilityCheck,
 			})
 
 			if tt.wantErr != "" {
@@ -2291,6 +2305,207 @@ func TestRouter_BuildReadRoutingPlan_LocalOnly(t *testing.T) {
 			plan, err := r.BuildReadRoutingPlan(opts)
 			require.NoError(t, err)
 			require.Equal(t, expected, plan.ReplicaSet.Replicas)
+		})
+	}
+}
+
+func TestRouter_BuildRoutingPlan_ReachabilityCheck(t *testing.T) {
+	const (
+		readPlan  = "read"
+		writePlan = "write"
+	)
+	threeNodes := []string{"node1", "node2", "node3"}
+
+	tests := []struct {
+		name           string
+		schemaReplicas []string // returned by ShardReplicas
+		fsmReplicas    []string // returned by the FSM read and write filters
+		reachable      []string // nodes known to the node selector
+		level          types.ConsistencyLevel
+		skip           bool     // RoutingPlanBuildOptions.SkipReachabilityCheck
+		plans          []string // plan kinds to build; nil means read and write
+		want           int
+		wantErr        string // substring of the rejection; empty means no error
+	}{
+		{
+			name:      "only node1 reachable: QUORUM is rejected",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelQuorum,
+			wantErr:   "1 of 3 replicas reachable",
+		},
+		{
+			name:      "only node1 reachable: ALL is rejected",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelAll,
+			wantErr:   "1 of 3 replicas reachable",
+		},
+		{
+			name:      "only node1 reachable: ONE requires 1",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelOne,
+			want:      1,
+		},
+		{
+			name:      "node1 and node2 reachable: QUORUM requires 2",
+			reachable: []string{"node1", "node2"},
+			level:     types.ConsistencyLevelQuorum,
+			want:      2,
+		},
+		{
+			name:      "node1 and node2 reachable: ALL requires 2",
+			reachable: []string{"node1", "node2"},
+			level:     types.ConsistencyLevelAll,
+			want:      2,
+		},
+		{
+			name:      "skipped check: ALL read with only node1 reachable requires 1",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelAll,
+			skip:      true,
+			plans:     []string{readPlan},
+			want:      1,
+		},
+		{
+			name:      "write plans ignore the skip option",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelAll,
+			skip:      true,
+			plans:     []string{writePlan},
+			wantErr:   "1 of 3 replicas reachable",
+		},
+		{
+			name:           "replica count is taken after the FSM filter",
+			schemaReplicas: []string{"node1", "node2", "node3", "node4"},
+			fsmReplicas:    threeNodes,
+			reachable:      []string{"node1", "node2"},
+			level:          types.ConsistencyLevelQuorum,
+			want:           2,
+		},
+	}
+
+	routers := []struct {
+		name         string
+		partitioning bool
+		tenant       string
+		shard        string // shard passed in the plan options
+		shardName    string // shard the router resolves
+	}{
+		{name: "single_tenant", shard: "shard1", shardName: "shard1"},
+		{name: "multi_tenant", partitioning: true, tenant: "luke", shardName: "luke"},
+	}
+
+	for _, tt := range tests {
+		if tt.schemaReplicas == nil {
+			tt.schemaReplicas = threeNodes
+		}
+		if tt.fsmReplicas == nil {
+			tt.fsmReplicas = tt.schemaReplicas
+		}
+		if tt.plans == nil {
+			tt.plans = []string{readPlan, writePlan}
+		}
+
+		t.Run(tt.name, func(t *testing.T) {
+			for _, rt := range routers {
+				for _, plan := range tt.plans {
+					t.Run(rt.name+"_"+plan, func(t *testing.T) {
+						sg := schema.NewMockSchemaGetter(t)
+						sr := local.NewMockSchemaReader(t)
+						fsm := replicationTypes.NewMockReplicationFSMReader(t)
+
+						state := createShardingStateWithShards([]string{rt.shardName})
+						sr.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+							return readFunc(&models.Class{Class: className}, state)
+						}).Maybe()
+						sr.EXPECT().ShardReplicas("TestClass", rt.shardName).Return(tt.schemaReplicas, nil)
+						sg.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", rt.tenant, mock.Anything).
+							Return(map[string]string{rt.tenant: models.TenantActivityStatusHOT}, nil).Maybe()
+						fsm.EXPECT().FilterOneShardReplicasRead("TestClass", rt.shardName, tt.schemaReplicas).Return(tt.fsmReplicas).Maybe()
+						fsm.EXPECT().FilterOneShardReplicasWrite("TestClass", rt.shardName, tt.schemaReplicas).Return(tt.fsmReplicas).Maybe()
+
+						r := router.NewBuilder("TestClass", rt.partitioning, mocks.NewMockNodeSelector(tt.reachable...), sg, sr, fsm).Build()
+						opts := types.RoutingPlanBuildOptions{
+							Shard:                 rt.shard,
+							Tenant:                rt.tenant,
+							ConsistencyLevel:      tt.level,
+							SkipReachabilityCheck: tt.skip,
+						}
+
+						var got int
+						var err error
+						if plan == readPlan {
+							var p types.ReadRoutingPlan
+							p, err = r.BuildReadRoutingPlan(opts)
+							got = p.IntConsistencyLevel
+						} else {
+							var p types.WriteRoutingPlan
+							p, err = r.BuildWriteRoutingPlan(opts)
+							got = p.IntConsistencyLevel
+						}
+
+						if tt.wantErr != "" {
+							require.ErrorIs(t, err, replicaerrors.ErrReplicas)
+							require.ErrorContains(t, err, "cannot reach enough replicas")
+							require.ErrorContains(t, err, tt.wantErr)
+							return
+						}
+						require.NoError(t, err)
+						require.Equal(t, tt.want, got)
+					})
+				}
+			}
+		})
+	}
+
+	// Single-shard plans fail with "no read replica found" before validation when no
+	// replica is reachable, so the reachability check at ONE needs a multi-shard plan.
+	shardReplicas := map[string][]string{
+		"shard1": threeNodes,
+		"shard2": {"node4", "node5", "node6"},
+	}
+	allShardsTests := []struct {
+		name      string
+		reachable []string
+		want      int
+		wantErr   string
+	}{
+		{
+			name:      "all shards: ONE is rejected when no replica of shard2 is reachable",
+			reachable: threeNodes,
+			wantErr:   `shard "shard2": 0 of 3 replicas reachable`,
+		},
+		{
+			name:      "all shards: ONE requires 1 when one replica of shard2 is reachable",
+			reachable: []string{"node1", "node2", "node3", "node4"},
+			want:      1,
+		},
+	}
+
+	for _, tt := range allShardsTests {
+		t.Run(tt.name, func(t *testing.T) {
+			sg := schema.NewMockSchemaGetter(t)
+			sr := local.NewMockSchemaReader(t)
+			fsm := replicationTypes.NewMockReplicationFSMReader(t)
+
+			state := createShardingStateWithShards([]string{"shard1", "shard2"})
+			sr.EXPECT().Shards("TestClass").Return(state.AllPhysicalShards(), nil)
+			for shard, replicas := range shardReplicas {
+				sr.EXPECT().ShardReplicas("TestClass", shard).Return(replicas, nil)
+				fsm.EXPECT().FilterOneShardReplicasRead("TestClass", shard, replicas).Return(replicas)
+			}
+
+			r := router.NewBuilder("TestClass", false, mocks.NewMockNodeSelector(tt.reachable...), sg, sr, fsm).Build()
+			plan, err := r.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{ConsistencyLevel: types.ConsistencyLevelOne})
+
+			if tt.wantErr != "" {
+				require.ErrorIs(t, err, replicaerrors.ErrReplicas)
+				require.ErrorContains(t, err, "cannot reach enough replicas")
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, plan.IntConsistencyLevel)
+			require.ElementsMatch(t, []string{"shard1", "shard2"}, plan.Shards())
 		})
 	}
 }

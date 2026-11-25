@@ -14,11 +14,13 @@ package file
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // SnapshotNameMaxLabel caps the human-readable label in a staging dir name.
@@ -45,15 +47,17 @@ func SafeStagingDirName(prefix string, parts ...string) string {
 }
 
 // ProbeHardlinkSupport reports whether the filesystem backing dir supports hardlinks.
-func ProbeHardlinkSupport(dir string) bool {
-	// Test-only: forces fallback mode without needing a non-hardlink FS.
+// A non-nil error means the probe could not decide; the boolean is then
+// meaningless.
+func ProbeHardlinkSupport(dir string) (bool, error) {
+	// Test-only: forces an unsupported result without needing a filesystem that lacks hard links.
 	if os.Getenv("WEAVIATE_TEST_FORCE_NO_HARDLINK") == "true" {
-		return false
+		return false, nil
 	}
 
 	f, err := os.CreateTemp(dir, ".hardlink-probe-*")
 	if err != nil {
-		return false
+		return false, fmt.Errorf("create probe file: %w", err)
 	}
 	src := f.Name()
 	f.Close()
@@ -62,7 +66,25 @@ func ProbeHardlinkSupport(dir string) bool {
 	dst := src + ".link"
 	defer os.Remove(dst)
 
-	return os.Link(src, dst) == nil
+	if err := os.Link(src, dst); err != nil {
+		if hardlinkUnsupported(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("link probe file: %w", err)
+	}
+	return true, nil
+}
+
+// hardlinkUnsupported reports whether a Link error means the filesystem refuses
+// hard links. EPERM counts as a refusal. Linux protected_hardlinks only blocks
+// links to files the caller does not own, and the probe links a file it just
+// created in the same directory.
+func hardlinkUnsupported(err error) bool {
+	return errors.Is(err, syscall.ENOTSUP) ||
+		errors.Is(err, syscall.EOPNOTSUPP) ||
+		errors.Is(err, syscall.EXDEV) ||
+		errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.ENOSYS)
 }
 
 // HardlinkPair is one src→dst hardlink request; both are absolute paths.
@@ -77,9 +99,15 @@ type HardlinkPair struct {
 // shard) and pass only immutable files: a shared inode would let post-snapshot
 // writes corrupt the staged copy. Use CopyFile for mutable files.
 func HardlinkFiles(pairs []HardlinkPair) error {
+	var lastDir string
 	for _, p := range pairs {
-		if err := os.MkdirAll(filepath.Dir(p.Dst), 0o755); err != nil {
-			return fmt.Errorf("create staging subdir for %s: %w", p.Dst, err)
+		// Callers list a directory's files in one run, so MkdirAll's stat runs
+		// once per directory rather than once per file.
+		if dir := filepath.Dir(p.Dst); dir != lastDir {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("create staging subdir for %s: %w", p.Dst, err)
+			}
+			lastDir = dir
 		}
 		if err := os.Link(p.Src, p.Dst); err != nil {
 			return fmt.Errorf("hardlink %s to staging: %w", p.Dst, err)

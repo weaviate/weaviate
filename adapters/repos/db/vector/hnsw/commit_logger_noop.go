@@ -90,7 +90,7 @@ func (n *NoopCommitLogger) Reset() error {
 	return nil
 }
 
-func (n *NoopCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
+func (n *NoopCommitLogger) Drop(ctx context.Context) error {
 	return nil
 }
 

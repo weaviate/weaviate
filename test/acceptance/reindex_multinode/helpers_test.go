@@ -40,8 +40,27 @@ import (
 // default.
 func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...string) (*docker.DockerCompose, func()) {
 	t.Helper()
+	return startReindexCluster(ctx, t, reindexClusterBuilder(t, extraEnv...))
+}
+
+// start3NodeReindexClusterWithS3Backup is start3NodeReindexCluster plus an
+// S3/MinIO backup backend, for tests that back up, restore, or move
+// replicas during a migration. Filesystem backups are per-node and
+// refused on a multi-node cluster.
+func start3NodeReindexClusterWithS3Backup(
+	ctx context.Context, t *testing.T, backupBucket string, extraEnv ...string,
+) (*docker.DockerCompose, func()) {
+	t.Helper()
+	b := reindexClusterBuilder(t, extraEnv...).WithBackendS3(backupBucket, "us-east-1")
+	return startReindexCluster(ctx, t, b)
+}
+
+// reindexClusterBuilder is the docker-compose configuration shared by every
+// 3-node reindex test, before any backup backend is attached.
+func reindexClusterBuilder(t *testing.T, extraEnv ...string) *docker.Compose {
+	t.Helper()
 	if len(extraEnv)%2 != 0 {
-		t.Fatalf("start3NodeReindexCluster: extraEnv must be (key,value) pairs, got %d items", len(extraEnv))
+		t.Fatalf("reindexClusterBuilder: extraEnv must be (key,value) pairs, got %d items", len(extraEnv))
 	}
 
 	b := docker.New().
@@ -54,6 +73,13 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...str
 	for i := 0; i < len(extraEnv); i += 2 {
 		b = b.WithWeaviateEnv(extraEnv[i], extraEnv[i+1])
 	}
+	return b
+}
+
+// startReindexCluster starts the given builder, dumping startup logs on
+// failure so a bad config is diagnosable from CI output alone.
+func startReindexCluster(ctx context.Context, t *testing.T, b *docker.Compose) (*docker.DockerCompose, func()) {
+	t.Helper()
 	compose, err := b.Start(ctx)
 	if err != nil {
 		if compose != nil {
@@ -546,8 +572,8 @@ func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string)
 
 // restartCluster cycles every node serially — stop, start, wait for
 // ready, move on. Used by the restart-matrix tests to verify the
-// deferred-finalize design: every per-node migration tracker dir is
-// consumed by FinalizeCompletedMigrations at startup, and follow-up
+// deferred-finalize design: every per-node migration record is
+// consumed by reconciliation at startup, and follow-up
 // migrations start from a clean state.
 //
 // Full-cluster simultaneous restart is intentionally NOT used here.
@@ -589,7 +615,7 @@ func cycleNodeFastKill(ctx context.Context, t *testing.T, compose *docker.Docker
 // times produced different on-disk states for the same migration.
 //
 // Without the readiness wait, the test would race the node's
-// FinalizeCompletedMigrations + shard-init + bucket-load — queries to
+// reconciliation + shard-init + bucket-load — queries to
 // a not-yet-ready node return 0 across the board even though the
 // promoted canonical dir is present on disk. That manifested as a
 // per-replica `[6 6 0]`/`[0 0 0]` failure that looks identical to the
@@ -603,7 +629,7 @@ func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.Do
 		// Wait for this node's HTTP endpoint to respond before moving
 		// on. tryGetSchema is cheap and exercises the same routing
 		// path the test asserts against. 60s is generous for the
-		// FinalizeCompletedMigrations + shard-init phase.
+		// reconciliation + shard-init phase.
 		restartedURI := compose.GetWeaviateNode(i).URI()
 		require.Eventuallyf(t, func() bool {
 			resp, err := http.Get(fmt.Sprintf("http://%s/v1/.well-known/ready", restartedURI))
@@ -638,9 +664,8 @@ func filterMigrationLogLines(s string) []string {
 		"OnAfterLsmInit",
 		"OnGroupCompleted", "OnTaskCompleted",
 		"RunSwapOnShard", "RunReindexOnlyOnShard", "RunOnShard",
-		"finalize:", "FinalizeCompletedMigrations",
-		"swapped.mig", "tidied.mig", "merged.mig", "prepended.mig",
-		"recovered untidied", "swap INCOMPLETE", "swap complete",
+		"reconcile", "migration record", "promote", "supersede",
+		"swap INCOMPLETE", "swap complete",
 		"runtime swap", "trim:",
 		"distributed task", "distributedtask",
 		// raft leadership lines: correlate with the FINISHED vs

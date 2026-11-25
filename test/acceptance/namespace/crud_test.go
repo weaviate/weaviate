@@ -125,7 +125,7 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 
 	created := helper.CreateNamespaceWithHomeNode(t, ns, nodeA, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
-	require.Equal(t, nodeA, created.HomeNode)
+	require.Equal(t, []string{nodeA}, created.HomeNodes)
 
 	userKey := createNamespacedUser(t, "u1", ns, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
@@ -133,9 +133,9 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 	helper.CreateClassAuth(t, &models.Class{Class: "ClassA"}, userKey)
 	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":ClassA", adminKey) })
 
-	updated := helper.UpdateNamespace(t, ns, nodeB, adminKey)
-	assert.Equal(t, nodeB, updated.HomeNode)
-	assert.Equal(t, nodeB, helper.GetNamespace(t, ns, adminKey).HomeNode)
+	updated := helper.UpdateNamespace(t, ns, []string{nodeB}, adminKey)
+	assert.Equal(t, []string{nodeB}, updated.HomeNodes)
+	assert.Equal(t, []string{nodeB}, helper.GetNamespace(t, ns, adminKey).HomeNodes)
 
 	t.Run("existing shard stays on original home_node", func(t *testing.T) {
 		// CreateClass / UpdateNamespace block on leader apply but the
@@ -209,7 +209,7 @@ func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
 	assert.NotContains(t, unproc.Payload.Error[0].Message, "namespace")
 }
 
-// TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.
+// TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_nodes entry with 422.
 func TestNamespaces_UpdateHomeNode_Invalid(t *testing.T) {
 	t.Parallel()
 	name := uniqueNS()
@@ -217,11 +217,10 @@ func TestNamespaces_UpdateHomeNode_Invalid(t *testing.T) {
 	helper.CreateNamespace(t, name, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })
 
-	homeNode := "not-a-real-node"
 	_, err := helper.Client(t).Namespaces.UpdateNamespace(
 		namespaces.NewUpdateNamespaceParams().
 			WithNamespaceID(name).
-			WithBody(&models.NamespaceUpdateRequest{HomeNode: &homeNode}),
+			WithBody(&models.NamespaceUpdateRequest{HomeNodes: []string{"not-a-real-node"}}),
 		helper.CreateAuth(adminKey),
 	)
 	require.Error(t, err)

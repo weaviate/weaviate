@@ -24,6 +24,10 @@ func GetTokensCount(model string, input string, tke *tiktoken.Tiktoken) int {
 	}
 
 	tokensCount := tokensPerMessage
+	if tke == nil {
+		// roughly 4 characters per token
+		return tokensCount + (len(input)+3)/4
+	}
 	tokensCount += len(tke.Encode(input, nil, nil))
 	return tokensCount
 }

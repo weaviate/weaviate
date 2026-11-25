@@ -46,12 +46,13 @@ func (*Prefixing) QualifyForCreate(principal *models.Principal, raw string) (str
 }
 
 // QualifyRefTarget rejects a target whose prefix names a namespace other than
-// sourceClass's, because refs cannot cross namespaces.
+// sourceClass's, because refs cannot cross namespaces. It also rejects a prefix
+// with no class after it, whose short form would store a classless beacon.
 func (*Prefixing) QualifyRefTarget(sourceClass, target string) (qualified, short string, err error) {
 	sourceNS := namespacing.NamespaceFromQualified(sourceClass)
-	if ns := namespacing.NamespaceFromQualified(target); ns != "" && ns != sourceNS {
+	short = namespacing.StripQualification(target)
+	if ns := namespacing.NamespaceFromQualified(target); ns != "" && (ns != sourceNS || short == "") {
 		return "", "", fmt.Errorf("'%s' is not a valid class name", target)
 	}
-	short = namespacing.StripQualification(target)
 	return namespacing.QualifiedName(sourceNS, short), short, nil
 }

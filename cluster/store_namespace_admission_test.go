@@ -15,6 +15,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -22,6 +25,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -39,11 +44,13 @@ const (
 
 // This file tests the namespace checks on both sides of the RAFT log. Every
 // ApplyRequest type belongs to exactly one of the maps below. The namespace
-// lifecycle commands stay ungated, so a suspended namespace can still be resumed
-// or deleted.
+// lifecycle commands other than UPDATE_NAMESPACE stay ungated, so a suspended
+// namespace can still be resumed or deleted.
 //
-// No type is gated in the apply switch. Every check runs before the append, so a
-// committed entry applies on every binary; see Store.admitPropose.
+// Only the types in bothSidesApplyTypes, selfGatedApplyTypes and
+// refuseDeletingProposeTypes are gated at apply as well. Every other check runs
+// before the append, so a committed entry applies on every binary.
+// Store.admitPropose says why.
 //
 // The maps record intent, not behaviour. The switch in store_apply.go is the
 // authority, so a type listed here but wired to a different check still leaves
@@ -65,6 +72,12 @@ var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
+}
+
+// Commands gated by namespaces.RequireActive in store.admitReplicaMovement, both
+// at propose time and in their Store.Apply case.
+var bothSidesApplyTypes = map[api.ApplyRequest_Type]struct{}{
+	api.ApplyRequest_TYPE_REPLICATION_REPLICATE: {},
 }
 
 // Commands gated by namespaces.AdmitDestructiveApply, in store.admitDestructive
@@ -102,10 +115,8 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_USER:                                                {},
 	api.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE:                                  {},
 	api.ApplyRequest_TYPE_ADD_NAMESPACE:                                              {},
-	api.ApplyRequest_TYPE_UPDATE_NAMESPACE:                                           {},
 	api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:                                     {},
 	api.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY:                                    {},
-	api.ApplyRequest_TYPE_REPLICATION_REPLICATE:                                      {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:                         {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:                       {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:                               {},
@@ -125,6 +136,10 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE:          {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:                 {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:                  {},
+	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_CREATE_PLAN:                          {},
+	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_COMPLETE_PLANNING:                    {},
+	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_STOP:                                 {},
+	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_DELETE:                               {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:                                       {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:                                    {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:                     {}, //nolint:staticcheck // deprecated but must stay classified for the drift check
@@ -137,6 +152,12 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK:           {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE:                           {},
 	api.ApplyRequest_TYPE_CLUSTER_ID_SET:                                             {},
+}
+
+// Commands refused by namespaces.AdmitNamespaceUpdate at propose time, in
+// store.admitNamespaceUpdate, and by Controller.Update at apply.
+var refuseDeletingProposeTypes = map[api.ApplyRequest_Type]struct{}{
+	api.ApplyRequest_TYPE_UPDATE_NAMESPACE: {},
 }
 
 // Commands carrying no single namespace, which check the ones they reference
@@ -152,8 +173,10 @@ var applyTypeBuckets = []struct {
 	types map[api.ApplyRequest_Type]struct{}
 }{
 	{"requireActiveProposeTypes", requireActiveProposeTypes},
+	{"bothSidesApplyTypes", bothSidesApplyTypes},
 	{"destructiveApplyTypes", destructiveApplyTypes},
 	{"ungatedApplyTypes", ungatedApplyTypes},
+	{"refuseDeletingProposeTypes", refuseDeletingProposeTypes},
 	{"selfGatedApplyTypes", selfGatedApplyTypes},
 }
 
@@ -412,6 +435,50 @@ func shardStatusCommand() gatedCommand {
 				}
 			}
 			return false
+		},
+	}
+}
+
+// replicaMovementUUID names the op replicaMovementRequest registers.
+const replicaMovementUUID = strfmt.UUID("5b0e3c1a-8d2f-4f6b-9a47-1c3e5d7f9b20")
+
+// replicaMovementRequest copies seededTenant of collection off the node seedClass
+// places it on, to a node holding no replica.
+func replicaMovementRequest(collection string) api.ReplicationReplicateShardRequest {
+	return api.ReplicationReplicateShardRequest{
+		Version:          api.ReplicationCommandVersionV0,
+		Uuid:             replicaMovementUUID,
+		SourceNode:       "Node-1",
+		SourceCollection: collection,
+		SourceShard:      seededTenant,
+		TargetNode:       "Node-2",
+		TransferType:     api.COPY.String(),
+	}
+}
+
+// replicaMovementCommand drives a COPY registration through Apply. It writes no
+// schema, so an op in the replication FSM is what says the apply took effect.
+func replicaMovementCommand() gatedCommand {
+	return gatedCommand{
+		cmdType: api.ApplyRequest_TYPE_REPLICATION_REPLICATE,
+		build: func(target string) *api.ApplyRequest {
+			sub, err := json.Marshal(replicaMovementRequest(target))
+			if err != nil {
+				panic(err)
+			}
+			return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
+		},
+		seedEntity: func(t *testing.T, ms *MockStore, target string) {
+			// setupApplyTest swaps the schema manager, and Manager.Replicate
+			// validates against the schema reader it was built over.
+			ms.store.replicationManager = replication.NewManager(
+				ms.store.schemaManager.NewSchemaReader(), ms.cfg.NodeSelector, prometheus.NewPedanticRegistry())
+			seedClass(t, ms, target)
+		},
+		expectApplied: func(t *testing.T, ms *MockStore, _ string) {},
+		landed: func(ms *MockStore, _ string) bool {
+			_, ok := ms.store.replicationManager.GetReplicationFSM().GetOpByUuid(replicaMovementUUID)
+			return ok
 		},
 	}
 }
@@ -701,7 +768,9 @@ func admitProposeBytes(t *testing.T, ms *MockStore, data []byte) error {
 	t.Helper()
 	req := &api.ApplyRequest{}
 	require.NoError(t, gproto.Unmarshal(data, req))
-	return ms.store.admitPropose(req)
+	collection, task, err := ms.store.taskOrMovementCollection(req)
+	require.NoError(t, err)
+	return ms.store.admitPropose(req, collection, task)
 }
 
 // TestExecuteGate_DestructiveApplyTypes drives the three destructive commands
@@ -743,20 +812,69 @@ func TestExecuteGate_DestructiveApplyTypes(t *testing.T) {
 // st.raft.Apply. The mock store has no raft, so a refusal that returns the
 // sentinel proves nothing was appended: reaching the append would panic.
 func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
-	ms, _ := setupApplyTest(t)
-	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
-
-	_, err := ms.store.Execute(&api.ApplyRequest{
-		Type:  api.ApplyRequest_TYPE_DELETE_CLASS,
-		Class: "alpha:Foo",
-	})
-	require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+	for _, tc := range []struct {
+		name     string
+		store    func(*testing.T) *Store
+		command  func(*testing.T) *api.ApplyRequest
+		wantErr  error
+		wantText string
+	}{
+		{
+			name: "a class delete in a suspended namespace",
+			store: func(t *testing.T) *Store {
+				ms, _ := setupApplyTest(t)
+				seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
+				return ms.store
+			},
+			command: func(*testing.T) *api.ApplyRequest {
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DELETE_CLASS, Class: "alpha:Foo"}
+			},
+			wantErr: namespaces.ErrNamespaceSuspended,
+		},
+		{
+			name: "a movement while a reindex task runs on the collection",
+			store: func(t *testing.T) *Store {
+				s := exclusionStore(t)
+				seedExclusionTask(t, s)
+				return s
+			},
+			command:  exclusionMovementCommand,
+			wantErr:  replicationTypes.ErrMovementBlockedByTask,
+			wantText: exclusionCollection,
+		},
+		{
+			name:  "a replicate whose payload does not parse",
+			store: exclusionStore,
+			command: func(*testing.T) *api.ApplyRequest {
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: []byte("{")}
+			},
+			wantText: "unmarshal replicate subcommand",
+		},
+		{
+			name:  "an add-task whose payload does not parse",
+			store: exclusionStore,
+			command: func(*testing.T) *api.ApplyRequest {
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: []byte("{")}
+			},
+			wantText: "unmarshal add-task subcommand",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.store(t).Execute(tc.command(t))
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.ErrorAs(t, err, new(*json.SyntaxError))
+			}
+			require.Contains(t, err.Error(), tc.wantText)
+		})
+	}
 }
 
 // applyState is one namespace state the FSM has to apply through, seeded onto
-// alpha. The missing case is deliberate: an entry can commit before the
-// namespace it names is known locally, and refusing it in Apply would diverge
-// from a node that already has it.
+// alpha. The "missing" row is deliberate. An entry admitted before its namespace
+// is removed can commit after the removal, and the commands gatedCommands
+// drives still apply then.
 type applyState struct {
 	name string
 	seed func(*testing.T, *namespaces.Controller)
@@ -786,15 +904,12 @@ func applyStateNamed(t *testing.T, name string) applyState {
 	return applyState{}
 }
 
-// TestApplyGate_GatedTypesIgnoreNamespaceState is the guard that keeps every
-// namespace check out of the FSM. Apply must be a pure function of the log, so a
-// committed entry has to apply in every namespace state, live and on replay.
-// Re-adding a gate to any arm fails this test, and would otherwise have one
-// binary carry out what another refuses.
+// TestApplyGate_GatedTypesIgnoreNamespaceState keeps a check that refuses a
+// suspended namespace out of the Store.Apply arms of the commands gatedCommands
+// drives. A committed entry of those types has to apply in every namespace
+// state, live and on replay, or one binary carries out what another refuses.
 //
-// One table for all three buckets, because they now answer alike: before the
-// checks moved ahead of the append the shard-materializing arms were the
-// exception, and they no longer are.
+// One table covers all three buckets, because every one of them answers alike.
 func TestApplyGate_GatedTypesIgnoreNamespaceState(t *testing.T) {
 	const target = "alpha:Foo"
 
@@ -852,10 +967,10 @@ var applyUndrivableGatedTypes = map[api.ApplyRequest_Type]string{
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       "cluster/rbac.TestAddRolesForUserIgnoresTheNamespace",
 }
 
-// TestApplyGate_CoversEveryGatedType fails when a gated type has no apply-side
-// case and no recorded reason for lacking one. Without it, adding a type to a
-// gate map would silently gain propose-side coverage and no guard against the
-// check being put in Apply as well.
+// TestApplyGate_CoversEveryGatedType fails when a type gated only at propose
+// time has no apply-side case and no recorded reason for lacking one. Without
+// it, adding a type to requireActiveProposeTypes or destructiveApplyTypes would
+// gain propose-side coverage and no guard against the check being put in Apply.
 func TestApplyGate_CoversEveryGatedType(t *testing.T) {
 	covered := make(map[api.ApplyRequest_Type]struct{}, len(applyUndrivableGatedTypes))
 	for _, c := range gatedCommands() {
@@ -901,6 +1016,28 @@ func TestApplyGate_DestructiveTypesApplyDuringReplay(t *testing.T) {
 	require.NoError(t, resp.Error)
 	require.Empty(t, ms.store.SchemaReader().ClassEqual("alpha:Foo"),
 		"replay must not resurrect a class the committed entry deleted")
+}
+
+// TestApplyGate_RefusesReplicaMovementAfterSuspend applies a replica movement
+// after alpha's suspend. A movement commits in that order when it is proposed
+// while the suspend is appended but not yet applied.
+func TestApplyGate_RefusesReplicaMovementAfterSuspend(t *testing.T) {
+	const target = "alpha:Foo"
+
+	ms, log := setupApplyTest(t)
+	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
+	movement := replicaMovementCommand()
+	movement.seedEntity(t, &ms, target)
+
+	data, err := gproto.Marshal(movement.build(target))
+	require.NoError(t, err)
+	log.Data = data
+
+	resp, ok := ms.store.Apply(log).(Response)
+	require.True(t, ok)
+	require.ErrorIs(t, resp.Error, namespaces.ErrNamespaceSuspended)
+	require.False(t, movement.landed(&ms, target), "a refused movement must store no op")
+	require.Equal(t, float64(1), testutil.ToFloat64(ms.store.metrics.applyFailures))
 }
 
 func TestSubjectNamespace(t *testing.T) {
@@ -1039,7 +1176,7 @@ func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 		{
 			name:    "TYPE_UPSERT_USER",
 			cmdType: api.ApplyRequest_TYPE_UPSERT_USER,
-			jsonSub: api.CreateUsersRequest{UserId: "bob", Namespace: "alpha"},
+			jsonSub: api.CreateUsersRequest{UserId: "alpha:bob", Namespace: "alpha"},
 		},
 	}
 
@@ -1051,6 +1188,62 @@ func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 			assertProposeAdmits(t, tt, alphaAt(api.NamespaceStateActive))
 		})
 	}
+}
+
+// TestExecuteGate_RejectsUserCreateOutsideItsNamespace drives user creates whose
+// ID prefix and Namespace disagree through the propose-time check, with alpha
+// active so only the mismatch can refuse them.
+func TestExecuteGate_RejectsUserCreateOutsideItsNamespace(t *testing.T) {
+	tests := []struct {
+		name      string
+		userID    string
+		namespace string
+		wantErr   bool
+	}{
+		{name: "prefix names another namespace", userID: "beta:bob", namespace: "alpha", wantErr: true},
+		{name: "bare ID with a namespace", userID: "bob", namespace: "alpha", wantErr: true},
+		{name: "qualified ID without a namespace", userID: "alpha:bob", namespace: "", wantErr: true},
+		{name: "bare ID without a namespace", userID: "bob", namespace: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms, _ := setupApplyTest(t)
+			seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateActive)
+
+			sub := api.CreateUsersRequest{UserId: tt.userID, Namespace: tt.namespace}
+			err := admitProposeBytes(t, &ms, cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_USER, sub, nil))
+			if tt.wantErr {
+				require.ErrorContains(t, err, "is not in namespace")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// namespaceUpdateCommand is built as Raft.UpdateNamespace builds it, with no
+// Class, so the check must read the namespace off the subcommand.
+var namespaceUpdateCommand = proposeCommand{
+	name:    "TYPE_UPDATE_NAMESPACE",
+	cmdType: api.ApplyRequest_TYPE_UPDATE_NAMESPACE,
+	jsonSub: api.UpdateNamespaceRequest{
+		Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}},
+		Version:   api.NamespaceLatestCommandPolicyVersion,
+	},
+}
+
+func TestExecuteGate_RefusesNamespaceUpdateWhileDeleting(t *testing.T) {
+	assertProposeRefuses(t, namespaceUpdateCommand, inactiveNamespaceCase{
+		seed:    alphaAt(api.NamespaceStateDeleting),
+		wantErr: namespaces.ErrNamespaceDeleting,
+	})
+}
+
+// TestExecuteGate_AdmitsNamespaceUpdateWhileSuspended pins that the check is
+// not RequireActive's, because Controller.Update accepts a suspended namespace.
+func TestExecuteGate_AdmitsNamespaceUpdateWhileSuspended(t *testing.T) {
+	assertProposeAdmits(t, namespaceUpdateCommand, alphaAt(api.NamespaceStateSuspended))
 }
 
 // TestExecuteGate_RejectsShardStatusApplyType drives the manual shard status
@@ -1085,6 +1278,27 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 	// admitted whatever the namespace map holds.
 	t.Run("an unqualified class is admitted", func(t *testing.T) {
 		assertProposeAdmits(t, statusCmd("Foo"), alphaAt(api.NamespaceStateSuspended))
+	})
+}
+
+// TestExecuteGate_RefusesReplicaMovement drives a replica movement through the
+// propose-time check. The command carries no Class, so a suspended alpha refuses
+// it only when the check reads the subcommand's collection.
+func TestExecuteGate_RefusesReplicaMovement(t *testing.T) {
+	movementCmd := proposeCommand{
+		name:    "TYPE_REPLICATION_REPLICATE",
+		cmdType: api.ApplyRequest_TYPE_REPLICATION_REPLICATE,
+		jsonSub: replicaMovementRequest("alpha:Books"),
+	}
+
+	for _, c := range inactiveNamespaceCases() {
+		t.Run(c.name, func(t *testing.T) {
+			assertProposeRefuses(t, movementCmd, c)
+		})
+	}
+
+	t.Run("active namespace admitted", func(t *testing.T) {
+		assertProposeAdmits(t, movementCmd, alphaAt(api.NamespaceStateActive))
 	})
 }
 

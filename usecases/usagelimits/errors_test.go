@@ -122,3 +122,28 @@ func TestFromBodyJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestLimitExceededError_BodyJSONRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *LimitExceededError
+	}{
+		{
+			name: "rendered message",
+			err:  &LimitExceededError{Limit: LimitObjects, Value: 10, RenderedMessage: "hit cap"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := tt.err.BodyJSON()
+			got, ok := FromBodyJSON([]byte(body))
+			if !ok {
+				t.Fatalf("FromBodyJSON(%s) ok = false", body)
+			}
+			if got.Limit != tt.err.Limit || got.Value != tt.err.Value || got.RenderedMessage != tt.err.Error() {
+				t.Errorf("FromBodyJSON(%s) = %+v, want limit %q, value %d, message %q",
+					body, got, tt.err.Limit, tt.err.Value, tt.err.Error())
+			}
+		})
+	}
+}

@@ -27,7 +27,7 @@ func composeUpWithSettings(t *testing.T,
 	viewers map[string]string,
 	enableMCP bool,
 	weaviateEnvs map[string]string,
-	withDbUsers, withNamespaces bool,
+	withDbUsers bool,
 ) (*docker.DockerCompose, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
@@ -38,9 +38,6 @@ func composeUpWithSettings(t *testing.T,
 
 	if withDbUsers {
 		builder = builder.WithDbUsers()
-	}
-	if withNamespaces {
-		builder = builder.WithNamespaces()
 	}
 
 	// Enable MCP server if requested

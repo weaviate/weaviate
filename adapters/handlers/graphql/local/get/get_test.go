@@ -1923,16 +1923,40 @@ func TestGetRelation(t *testing.T) {
 
 func TestGetWithAlias(t *testing.T) {
 	t.Parallel()
-	resolver := newMockResolver()
-	expectedParams := dto.GetParams{
-		ClassName:  "SomeAction",
-		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+	tests := []struct {
+		name    string
+		query   string
+		filters *filters.LocalFilter
+	}{
+		{
+			name:  "without where",
+			query: "{ Get { SomeActionAlias { intField } } }",
+		},
+		{
+			name:  "with where",
+			query: `{ Get { SomeActionAlias(where:{path:["intField"] operator:Equal valueInt:7}) { intField } } }`,
+			filters: &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On:       &filters.Path{Class: "SomeAction", Property: "intField"},
+				Value:    &filters.Value{Value: 7, Type: schema.DataTypeInt},
+			}},
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := newMockResolver()
+			expectedParams := dto.GetParams{
+				ClassName:  "SomeAction",
+				Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+				Filters:    tt.filters,
+			}
 
-	resolver.On("GetClass", expectedParams).
-		Return(test_helper.EmptyList(), nil).Once()
+			resolver.On("GetClass", expectedParams).
+				Return(test_helper.EmptyList(), nil).Once()
 
-	resolver.AssertResolve(t, "{ Get { SomeActionAlias { intField } } }")
+			resolver.AssertResolve(t, tt.query)
+		})
+	}
 }
 
 func TestNearObject(t *testing.T) {

@@ -60,7 +60,7 @@ type dynUserHandler struct {
 	authorizer                authorization.Authorizer
 	dbUsers                   DbUserAndRolesGetter
 	localUsers                LocalUsersGetter
-	localRoles                authorization.Controller // nil when RBAC is disabled
+	localRoles                authorization.Controller // non-nil; read only when RBAC is enabled
 	staticApiKeysConfigs      config.StaticAPIKey
 	rbacConfig                rbacconf.Config
 	adminListConfig           adminlist.Config
@@ -135,7 +135,9 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	allUsers := slices.Collect(maps.Values(allDbUsers))
+	allUsers := namespacing.KeepOwnNamespace(principal, slices.Collect(maps.Values(allDbUsers)), func(user apikey.UserView) string {
+		return user.Namespace
+	})
 
 	resourceFilter := filter.New[apikey.UserView](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
@@ -202,7 +204,7 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 	// The list reads roles once per user, so it reads this node's controller
 	// rather than querying the leader.
 	var roles map[string][]authorization.Policy
-	if h.localRoles != nil {
+	if h.rbacConfig.Enabled {
 		var err error
 		roles, err = h.localRoles.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
 		if err != nil {
@@ -263,7 +265,10 @@ func (h *dynUserHandler) visibleRoleNames(ctx context.Context, principal *models
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	internalKey, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	if err != nil {
+		return users.NewGetUserInfoUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users(internalKey)...); err != nil {
 		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -309,9 +314,12 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	}
 	response.DbUserType = &userType
 
-	existingRoles, err := h.dbUsers.GetRolesForUserOrGroup(internalKey, authentication.AuthTypeDb, false)
-	if err != nil {
-		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
+	var existingRoles map[string][]authorization.Policy
+	if h.rbacConfig.Enabled {
+		existingRoles, err = h.dbUsers.GetRolesForUserOrGroup(internalKey, authentication.AuthTypeDb, false)
+		if err != nil {
+			return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
+		}
 	}
 
 	own := apikey.IsOwnUser(principal, internalKey)
@@ -518,7 +526,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	internalKey, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	if err != nil {
+		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -538,6 +549,27 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 			return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user '%v' is static user", params.UserID)))
 		}
 		return users.NewRotateUserAPIKeyNotFound()
+	}
+
+	// Without this guard an admin could log in as an imported root user. An
+	// admin passes the check below, since its role holds every permission root
+	// does. Root-only endpoints check the caller's name, not its permissions.
+	if h.isRootUser(internalKey) && !h.isRequestFromRootUser(principal) {
+		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can rotate the key of a root user")))
+	}
+
+	// The caller receives the new key and can log in as the target with it, so
+	// it must already hold every permission the target's roles grant.
+	if h.rbacConfig.Enabled && !apikey.IsOwnUser(principal, internalKey) {
+		roles, err := h.dbUsers.GetRolesForUserOrGroup(internalKey, authentication.AuthTypeDb, false)
+		if err != nil {
+			return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
+		}
+		targetNamespace := namespacing.NamespaceFromQualified(internalKey)
+		if err := rolevisibility.AuthorizeRolePermissions(ctx, h.authorizer, h.namespacesEnabled, principal, targetNamespace, roles); err != nil {
+			// The joined error names the target's permissions, which the caller must not learn.
+			return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("can only rotate the key of users with less or equal permissions as the current user")))
+		}
 	}
 
 	oldUserIdentifier := existingUser[internalKey].InternalIdentifier
@@ -583,7 +615,10 @@ func (h *dynUserHandler) getApiKey() (string, string, string, error) {
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	internalKey, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	if err != nil {
+		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Users(internalKey)...); err != nil {
 		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -632,7 +667,10 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 
 func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	internalKey, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	if err != nil {
+		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewDeactivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -680,7 +718,10 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 
 func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalKey := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	internalKey, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.UserID)
+	if err != nil {
+		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))

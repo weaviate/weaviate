@@ -16,20 +16,25 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeSelfRecoveryOrch struct {
@@ -230,6 +235,103 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 		require.False(t, idx.recoverShardFromPeerIfNeeded(enterrors.WithStartedWithoutRaftState(context.Background()), class, "S", promMetrics))
 		require.Zero(t, orch.submitCalls)
 	})
+}
+
+// A node that boots while its namespace is suspended opens none of its shards, but
+// still hands one whose directory is missing to self-recovery, whose submission
+// waits for the resume. Registering nothing would let the resume create it empty.
+func TestSuspendedBootRecoversMissingShard(t *testing.T) {
+	const class = "alpha:Product"
+	shards := map[string]sharding.Physical{
+		"lost1": hotPhysical("lost1"), "lost2": hotPhysical("lost2"), "kept": hotPhysical("kept"),
+		"cold1": coldPhysical("cold1"), "remote1": remotePhysical("remote1"),
+	}
+	lost := []string{"lost1", "lost2"}
+
+	tests := []struct {
+		name           string
+		state          api.NamespaceState
+		selfRecoveryOp bool // an in-flight SELF_RECOVERY op targets each lost shard
+		otherOp        bool // an in-flight op of another type targets each lost shard
+		submitOK       bool
+		readErr        error
+		wantRecovering []string
+		wantSubmits    int
+	}{
+		{
+			name:  "each missing shard is held recovering and submitted",
+			state: api.NamespaceStateSuspended, submitOK: true,
+			wantRecovering: lost, wantSubmits: 2,
+		},
+		{
+			name:  "a missing shard a self-recovery op targets is held recovering for that op",
+			state: api.NamespaceStateSuspended, selfRecoveryOp: true,
+			wantRecovering: lost,
+		},
+		{
+			name:  "a missing shard another op targets is left to that op",
+			state: api.NamespaceStateSuspended, otherOp: true,
+		},
+		{
+			name:  "a declined submission registers nothing",
+			state: api.NamespaceStateSuspended, wantSubmits: 2,
+		},
+		{
+			name:  "a failed sharding-state read fails the boot",
+			state: api.NamespaceStateSuspended, submitOK: true, readErr: errors.New("schema unavailable"),
+		},
+		{
+			name:  "a failed sharding-state read fails an active boot",
+			state: api.NamespaceStateActive, submitOK: true, readErr: errors.New("schema unavailable"),
+		},
+		{
+			name:  "a deleting namespace submits nothing",
+			state: api.NamespaceStateDeleting, submitOK: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := readerForShards(t, class, shards)
+			switch {
+			case tc.readErr != nil:
+				reader = local.NewMockSchemaReader(t)
+				reader.EXPECT().Read(class, mock.Anything, mock.Anything).Return(tc.readErr)
+			case tc.state == api.NamespaceStateDeleting:
+				// The mock has no Read expectation, so a boot that walks the tenants fails the test.
+				reader = local.NewMockSchemaReader(t)
+			}
+			idx, _ := indexForBootTest(t, class, existerWithState(t, tc.state), reader)
+			orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: tc.submitOK}
+			idx.Config.SelfRecoveryOrchestrator = orch
+			fsm := replicationTypes.NewMockReplicationFSMReader(t)
+			fsm.EXPECT().HasActiveSelfRecoveryTargetingShard(class, mock.Anything, "node1").Return(tc.selfRecoveryOp).Maybe()
+			fsm.EXPECT().HasActiveTargetReplicationForShard(class, mock.Anything, "node1").Return(tc.otherOp).Maybe()
+			idx.SetReplicationFSMReader(fsm)
+			require.NoError(t, os.MkdirAll(shardPath(idx.path(), "kept"), 0o755))
+
+			err := idx.initAndStoreShards(schemaReloadCtx(), &models.Class{Class: class}, nil)
+			if tc.readErr != nil {
+				require.ErrorIs(t, err, tc.readErr)
+			} else {
+				require.NoError(t, err)
+				require.True(t, idx.allShardsReady.Load())
+			}
+
+			var recovering []string
+			require.NoError(t, idx.shards.Range(func(name string, shard ShardLike) error {
+				rec, ok := shard.(*RecoveringShard)
+				require.True(t, ok && rec.IsRecovering(), "shard %q registered as %T", name, shard)
+				recovering = append(recovering, name)
+				return nil
+			}))
+			slices.Sort(recovering)
+			require.Equal(t, tc.wantRecovering, recovering)
+			require.Equal(t, tc.wantSubmits, orch.submitCalls)
+			for _, name := range lost {
+				require.NoDirExists(t, shardPath(idx.path(), name))
+			}
+		})
+	}
 }
 
 // Pins X1: a forced load mid-copy must not clear the block nor plant an empty live dir.

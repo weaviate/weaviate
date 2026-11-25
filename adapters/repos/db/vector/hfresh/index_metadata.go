@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -266,8 +267,32 @@ func (h *HFresh) restoreMetadata() error {
 	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
+	if !h.Centroids.Built() {
+		err = h.restoreSinglePosting()
+		if err != nil {
+			return err
+		}
+	}
 
 	return h.restoreMetrics()
+}
+
+// restoreSinglePosting finds posting 1 by its size, persisted on each append,
+// without reading the posting.
+func (h *HFresh) restoreSinglePosting() error {
+	size, err := h.PostingSizes.Get(h.ctx, singlePostingID)
+	if err != nil || size == 0 {
+		return err
+	}
+
+	h.Centroids.restoreSingle()
+
+	// a crash can lose the queued split, and a lowered limit applies without
+	// waiting for an insert
+	if size > h.splitLimit() {
+		return h.taskQueue.EnqueueSplit(singlePostingID)
+	}
+	return nil
 }
 
 // restoreDimensions restores dimension-dependent components from persisted
@@ -368,6 +393,8 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 type BucketStore struct {
 	bucket bucketRef
 	key    []byte
+	// written to their files in this order after each stored bound
+	flushOnStore []bucketRef
 }
 
 func NewBucketStore(bucket bucketRef) *BucketStore {
@@ -375,6 +402,15 @@ func NewBucketStore(bucket bucketRef) *BucketStore {
 		bucket: bucket,
 		key:    []byte(postingSequenceKey),
 	}
+}
+
+// NewDurableBucketStore writes each stored bound to its file before returning:
+// the commit log can record an ID before the store's next flush. The postings
+// bucket goes first so the versions in the shared bucket never get ahead of it.
+func NewDurableBucketStore(shared, postings bucketRef) *BucketStore {
+	s := NewBucketStore(shared)
+	s.flushOnStore = []bucketRef{postings, shared}
+	return s
 }
 
 func (s *BucketStore) Store(upperBound uint64) error {
@@ -385,9 +421,31 @@ func (s *BucketStore) Store(upperBound uint64) error {
 	if err != nil {
 		return err
 	}
+	err = bucket.Put(s.key, buf[:])
+	// writeWAL pins the shared bucket again, so this pin must not be held
+	release()
+	if err != nil {
+		return err
+	}
+
+	for _, ref := range s.flushOnStore {
+		err = writeWAL(ref)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeWAL(ref bucketRef) error {
+	bucket, release, err := ref.acquire()
+	if err != nil {
+		return err
+	}
 	defer release()
 
-	return bucket.Put(s.key, buf[:])
+	return bucket.WriteWAL()
 }
 
 func (s *BucketStore) Load() (uint64, error) {
@@ -406,4 +464,73 @@ func (s *BucketStore) Load() (uint64, error) {
 	}
 
 	return binary.LittleEndian.Uint64(v), nil
+}
+
+// repairOrphanPostings queues a reassignment for every live vector of a
+// posting left without a usable centroid. A crash that persists the store and
+// the centroid commit log unevenly leaves such postings unreachable.
+func (h *HFresh) repairOrphanPostings() {
+	_, quantizer := h.loadQuantizer()
+	if quantizer == nil {
+		return
+	}
+
+	var orphans []uint64
+	for postingID, metadata := range h.PostingMap.Iter() {
+		if metadata.Count() == 0 {
+			continue
+		}
+		if !h.Centroids.Exists(postingID) || h.Centroids.VectorMissing(postingID) {
+			orphans = append(orphans, postingID)
+		}
+	}
+	// a first split cut short after the graph existed leaves posting 1 full,
+	// outside the graph and without a persisted map entry
+	if h.Centroids.Built() && !h.Centroids.Exists(singlePostingID) && !slices.Contains(orphans, singlePostingID) {
+		orphans = append(orphans, singlePostingID)
+	}
+
+	for _, postingID := range orphans {
+		queued, err := h.repairOrphanPosting(h.ctx, postingID)
+		if err != nil {
+			// the posting stays orphaned and is retried on the next startup
+			h.logger.WithField("postingID", postingID).
+				Errorf("failed to repair posting without centroid, its vectors stay unreachable: %v", err)
+			continue
+		}
+		if queued > 0 {
+			h.logger.WithField("postingID", postingID).
+				WithField("vectors", queued).
+				Warn("reassigning the vectors of a posting without centroid")
+		}
+	}
+}
+
+func (h *HFresh) repairOrphanPosting(ctx context.Context, postingID uint64) (int, error) {
+	// a centroid without its vector would be tombstoned by the first search
+	// reaching it, and must not draw the reassigned vectors back
+	err := h.Centroids.MarkAsDeleted(postingID)
+	if err != nil {
+		return 0, err
+	}
+
+	p, err := h.PostingStore.Get(ctx, postingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return 0, err
+	}
+	// an orphan is never emptied: a reassign that saved its version bump but
+	// lost its new copy leaves the stale entry as the vector's only record
+	live, err := p.GarbageCollect(h.VersionMap)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, v := range live {
+		err = h.taskQueue.EnqueueReassign(postingID, v.ID())
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return len(live), nil
 }

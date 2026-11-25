@@ -46,9 +46,6 @@ type SchemaReader interface {
 type ClassReader interface {
 	ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error)
 	SchemaFromLeader() (models.Schema, error)
-	// CollectionsCountFromLeader counts collections. An empty namespace counts the
-	// whole cluster; a non-empty one restricts the count to that namespace.
-	CollectionsCountFromLeader(namespace string) (int, error)
 	ClassVersionsFromLeader(classes ...string) (map[string]uint64, error)
 }
 
@@ -94,13 +91,11 @@ type ClassWriter interface {
 	UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
 	// UpdatePropertyFromMigration is the variant of UpdateProperty used by the
 	// distributed-task scheduler's reindex completion path. It sets
-	// [cmd.UpdatePropertyRequest.FromInFlightMigration] so the schema FSM's cross-FSM
-	// MutationGuard, which blocks property mutations while a reindex on the same
-	// property is STARTED or FINALIZING, lets the migration's own schema flip through:
-	// OnTaskCompleted fires while the task is still FINALIZING. The flag also lets the
-	// flip through while its namespace is not active. Public REST / gRPC handlers must
-	// not call it.
-	UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
+	// [cmd.UpdatePropertyRequest.FromInFlightMigration] so the schema FSM checks it
+	// with MutationGuard.CheckMigrationPropertyUpdate, which admits the flip only
+	// while run is SWAPPING. The flag also lets the flip through while its namespace
+	// is not active. Public REST / gRPC handlers must not call it.
+	UpdatePropertyFromMigration(ctx context.Context, class string, run cmd.MigrationRun, property *models.Property, fields ...string) (uint64, error)
 }
 
 // TenantWriter changes tenants.

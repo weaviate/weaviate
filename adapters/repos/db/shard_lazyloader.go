@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -580,7 +581,7 @@ func (l *LazyLoadShard) ID() string {
 	return shardId(l.shardOpts.index.ID(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) drop(keepFiles bool) error {
+func (l *LazyLoadShard) drop() error {
 	// if not loaded, execute simplified drop without loading shard:
 	// - perform required actions
 	// - remove entire shard directory
@@ -616,21 +617,19 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		// rename sync (must complete even if ctx is expired); RemoveAll async.
 		// Mirrors Shard.drop so the unloaded path doesn't reintroduce the
 		// blocking RemoveAll the loaded path was changed to avoid.
-		if !keepFiles {
-			path := shardPath(idx.path(), shardName)
-			deleted, err := renameForAsyncDelete(path, idx.logger)
-			if err != nil {
-				return fmt.Errorf("rename shard for async delete: %w", err)
-			}
-			if deleted != "" {
-				spawnAsyncDelete(deleted, idx.logger)
-			}
+		path := shardPath(idx.path(), shardName)
+		deleted, err := renameForAsyncDelete(path, idx.logger)
+		if err != nil {
+			return fmt.Errorf("rename shard for async delete: %w", err)
+		}
+		if deleted != "" {
+			spawnAsyncDelete(deleted, idx.logger)
 		}
 
 		return nil
 	}
 
-	return shard.drop(keepFiles)
+	return shard.drop()
 }
 
 func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
@@ -656,37 +655,11 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 }
 
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
-	property *models.Property, payloadReads *atomic.Int64,
+	property *models.Property, counts *migrationSweepCounts,
 ) {
 	if shard := l.loadedShard(); shard != nil {
-		shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
-	} else {
-		// The unloaded path removes bucket dirs by name and reads no payloads.
-		l.updateUnloadedPropertyBuckets(ctx, eg, property)
+		shard.updatePropertyBuckets(ctx, eg, property, counts)
 	}
-}
-
-func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
-	eg *enterrors.ErrorGroupWrapper,
-	prop *models.Property,
-) {
-	eg.Go(func() error {
-		// Shares the loaded path's index types so Index.updateProperty's summary
-		// log names what this branch removed too. Not its body: this path
-		// removes the main bucket dir by name and nothing else, so a cold
-		// tenant's migration and sidecar dirs outlive the property delete.
-		// That is a gap, not a property of unloaded shards.
-		for _, indexType := range disabledIndexTypes(prop) {
-			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
-			if !ok {
-				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
-			}
-			if err := removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
-				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
-			}
-		}
-		return nil
-	})
 }
 
 // DropVectorIndex routes to the loaded shard or to disk, deciding and acting
@@ -758,22 +731,12 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 		l.shardOpts.index.path(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
+func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool) error {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {
 		return err
 	}
-	return shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
-}
-
-// MayResetTransferInactivityTimer never loads the shard. A cold shard has no
-// timer to reset, since it was never halted or its shutdown stopped the timer.
-func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	if shard := l.currentShard(); shard != nil {
-		shard.MayResetTransferInactivityTimer()
-	}
+	return shard.HaltForTransfer(ctx, offloading)
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
@@ -784,12 +747,12 @@ func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDe
 	return shard.ListBackupFiles(ctx, ret)
 }
 
-func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging, gate reindexGate) ([]string, error) {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+	return shard.CreateBackupSnapshot(ctx, sd, shardStaging, gate)
 }
 
 func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
@@ -798,14 +761,6 @@ func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot s
 		return nil, err
 	}
 	return shard.CreateReplicaSnapshot(ctx, stagingRoot)
-}
-
-func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
-	shard, _, err := l.loadIfCold(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
 }
 
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -1171,19 +1126,65 @@ func (l *LazyLoadShard) blockLoading() func() {
 	}
 }
 
+// Only a loaded shard's reconciler can end a record; an unreadable set may hold one.
+func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) bool {
+	release := l.blockLoading()
+	defer release()
+
+	if l.currentShard() != nil {
+		return true
+	}
+	index := l.shardOpts.index
+	store := NewMigrationRecordStoreForUnit(l.pathLSM(), migrationUnitOf(index, l.shardOpts.name), index.logger)
+	if err := store.Load(); err != nil || len(store.Unreadable()) > 0 {
+		return true
+	}
+	tasks := []distributedtask.TaskStatusEntry{task.StatusEntryFor(l.shardOpts.name)}
+	for _, rec := range store.Records() {
+		if _, found := findMigrationTask(rec.Subject(), tasks); found && !rec.FlipDecided() {
+			return true
+		}
+	}
+	return false
+}
+
+// Never revives an unmapped tenant, and loads under ctx: preventShutdown's load has no deadline.
+func (i *Index) loadMappedShardForCleanup(ctx context.Context, name string) (ShardLike, func(), error) {
+	if err := i.enterRead(); err != nil {
+		return nil, nil, err
+	}
+	defer i.exitRead()
+	i.shardCreateLocks.RLock(name)
+	defer i.shardCreateLocks.RUnlock(name)
+
+	shard := i.shards.Load(name)
+	if shard == nil {
+		return nil, nil, nil
+	}
+	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
+	}
+	if lazy, isLazy := shard.(*LazyLoadShard); isLazy {
+		if _, _, err := lazy.loadIfCold(ctx); err != nil {
+			if truncated := truncatedByCancellation(err); truncated != nil {
+				return nil, nil, truncated
+			}
+			return nil, nil, fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
+		}
+	}
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
+	}
+	return shard, release, nil
+}
+
 // canSkipUnloadedSweep reports whether the cleanup sweep can leave this
 // shard alone; a loaded shard is never skipped, since sweeping it costs no
 // load. The loading mutex covers the disk read and is released before
 // returning — the hydration that follows takes it itself.
 //
-// A completed migration's leftovers are the second reason not to skip: a
-// load is what runs [FinalizeCompletedMigrations], so a shard that keeps its
-// data under the ingest sidecar name plus a full backup copy of the bucket it
-// replaced reclaims neither until something hydrates it. One load per tenant
-// per completed migration settles that — finalize removes the tracker dir it
-// answers from, so the next sweep skips the tenant again. A tenant with no
-// migration leftovers at all, which is the population this gate is for, is
-// never loaded.
+// Completed-migration leftovers also block a skip: only a load reclaims them.
 //
 // Skipping holds only while reindex state arrives through a load. Shutdown does
 // not remove the shard from the index map — [Index.Shutdown] shuts its shards
@@ -1191,27 +1192,14 @@ func (l *LazyLoadShard) blockLoading() func() {
 // mutex: [LazyLoadShard.Shutdown] takes the one held across this disk read. A
 // sweep racing an index shutdown then comes back truncated from
 // [Index.forEachShardStrict] rather than as a walk that reached every shard.
-//
-// The second return is how many tracker payloads this call had to read, for
-// the caller's log; a loaded shard reads none, and so does a shard a previous
-// tuple of the same run already answered from props.
-func (l *LazyLoadShard) canSkipUnloadedSweep(
-	propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
-) (bool, int) {
+func (l *LazyLoadShard) canSkipUnloadedSweep(propName, indexType string, dirs *dirNamesCache) bool {
 	release := l.blockLoading()
 	defer release()
 
 	if l.currentShard() != nil {
-		return false, 0
+		return false
 	}
-	if props == nil {
-		// No run-wide memo. Substituted here rather than left to the probe, so
-		// the count below is taken off the cache the probe actually used.
-		props = &taskPropsCache{}
-	}
-	// props is a running total over the whole run, so the caller gets the delta.
-	before := props.count()
 	stale, finalizable := hasStalePartialReindexState(
-		l.pathLSM(), propName, indexType, dirs, props)
-	return !stale && !finalizable, props.count() - before
+		l.pathLSM(), propName, indexType, dirs, l.Index().logger)
+	return !stale && !finalizable
 }

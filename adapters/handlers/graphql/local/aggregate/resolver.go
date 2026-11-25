@@ -63,7 +63,7 @@ func makeResolveClass(authorizer authorization.Authorizer, modulesProvider Modul
 
 func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authorizer, modulesProvider ModulesProvider, class *models.Class) (interface{}, error) {
 	principal := restCtx.GetPrincipalFromContext(p.Context)
-	className := schema.ClassName(p.Info.FieldName)
+	className := schema.ClassName(class.Class)
 
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
@@ -95,7 +95,7 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 		return nil, fmt.Errorf("could not extract properties for class '%s': %w", className, err)
 	}
 
-	groupBy, err := extractGroupBy(p.Args, p.Info.FieldName)
+	groupBy, err := extractGroupBy(p.Args, className.String())
 	if err != nil {
 		return nil, fmt.Errorf("could not extract groupBy path: %w", err)
 	}
@@ -113,7 +113,7 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 		return nil, fmt.Errorf("could not extract objectLimit: %w", err)
 	}
 
-	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+	filters, err := common_filters.ExtractFilters(p.Args, className.String())
 	if err != nil {
 		return nil, fmt.Errorf("could not extract filters: %w", err)
 	}

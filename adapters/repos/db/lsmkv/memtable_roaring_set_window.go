@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"math"
 
@@ -72,7 +71,7 @@ func (m *Memtable) roaringSetGetWindow(
 	for keyIdx := from; ; {
 		if err != nil {
 			// NotFound means the tree is exhausted, not that something failed.
-			if errors.Is(err, entlsmkv.NotFound) {
+			if entlsmkv.IsNotFound(err) {
 				return fill, nil
 			}
 			return fill, err

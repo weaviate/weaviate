@@ -106,10 +106,10 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 		}
 	})
 
-	t.Run("verify that all nodes are running", func(t *testing.T) {
+	t.Run("verify that all nodes are running and populated", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
-			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
 			require.NoError(ct, clientErr, "failed to get nodes status: %+v", clientErr)
 			require.NotNil(ct, body.Payload)

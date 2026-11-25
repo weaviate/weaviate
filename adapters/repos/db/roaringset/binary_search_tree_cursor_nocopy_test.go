@@ -234,11 +234,11 @@ func TestCursorNoCopyExhaustionIsStable(t *testing.T) {
 	}
 }
 
-// TestCursorNoCopyWalksARebalancedTree covers the tree this cursor is the first
-// to depend on the shape of. It descends by following each node's parent
-// pointer, where the copying cursor flattens the tree first and never reads
-// them; a rotation that failed to re-point a parent would show up here as a
-// skipped or repeated key and nowhere else.
+// TestCursorNoCopyWalksARebalancedTree covers the tree shape this cursor
+// depends on. It descends by following each node's parent pointer, as
+// FlattenInOrder does for the copying cursor, so it checks the keys against a
+// sorted list. A rotation that failed to re-point a parent would show up as a
+// skipped or repeated key in both cursors.
 //
 // The other cursor tests use a handful of keys, which is too few to rotate.
 func TestCursorNoCopyWalksARebalancedTree(t *testing.T) {
@@ -303,8 +303,8 @@ func TestCursorNoCopyWalksARebalancedTree(t *testing.T) {
 
 // TestCursorNoCopyAllocatesPerWalkNotPerNode is what lets a caller walk a
 // memtable without materializing it: draining the cursor costs the same
-// whatever the tree holds, where NewBinarySearchTreeCursor allocates a node per
-// key up front through FlattenInOrder.
+// whatever the tree holds, where NewBinarySearchTreeCursor copies every key's
+// bitmaps up front through FlattenInOrder.
 //
 // The two counts are compared to each other rather than to a recorded number,
 // so the assertion holds whatever a node costs to build. It walks inline rather

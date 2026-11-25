@@ -164,21 +164,6 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	return t, nil
 }
 
-func (t *JsonShardMetaData) Clear() {
-	if t == nil {
-		return
-	}
-	t.Lock()
-	defer t.Unlock()
-	if t.closed {
-		return
-	}
-
-	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
-	t.dirty = true
-	t.lockFreeFlush()
-}
-
 // Path to the file on disk
 func (t *JsonShardMetaData) FileName() string {
 	if t == nil {
@@ -439,8 +424,8 @@ func (t *JsonShardMetaData) Close() error {
 	return nil
 }
 
-// Drop closes the tracker and, unless keepFiles, removes its file.
-func (t *JsonShardMetaData) Drop(keepFiles bool) error {
+// Drop closes the tracker and removes its file.
+func (t *JsonShardMetaData) Drop() error {
 	if t == nil {
 		return nil
 	}
@@ -448,18 +433,11 @@ func (t *JsonShardMetaData) Drop(keepFiles bool) error {
 	t.Lock()
 	defer t.Unlock()
 
-	// Files kept for a running backup are deleted once it finishes, so they
-	// need no fsync.
-	if keepFiles && !t.closed {
-		t.lockFreeFlush()
-	}
 	clear(t.data.BucketedData)
 	t.closed = true
 
-	if !keepFiles {
-		os.Remove(t.path)
-		os.Remove(t.path + ".bak")
-	}
+	os.Remove(t.path)
+	os.Remove(t.path + ".bak")
 
 	return nil
 }

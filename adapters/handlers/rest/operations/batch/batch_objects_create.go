@@ -98,7 +98,7 @@ type BatchObjectsCreateBody struct {
 	// Controls which fields are returned in the response for each object. Default is `ALL`.
 	Fields []*string `json:"fields" yaml:"fields"`
 
-	// Array of objects to be created.
+	// Array of objects to be created. Each object needs a `class`; an object without one fails on its own and the rest of the batch is still imported.
 	Objects []*models.Object `json:"objects" yaml:"objects"`
 }
 

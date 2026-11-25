@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"slices"
 	"sort"
@@ -48,7 +49,7 @@ const (
 	// Must exceed checkpoint-create fan-out latency: shards reject a past cutoff.
 	_DedupeCutoffLead               = 10 * time.Second
 	_DedupePollInterval             = 3 * time.Second
-	_DefaultDedupeConvergenceBudget = 60 * time.Second
+	_DefaultDedupeConvergenceBudget = 15 * time.Second
 	_DedupeCleanupTimeout           = 10 * time.Second
 	// Classes whose checkpoint RPCs run at once; each call already fans out per shard and replica.
 	_DedupeClassConcurrency = 16
@@ -83,6 +84,8 @@ type Config struct {
 	ConvergenceBudget time.Duration
 	PlanningSlack     time.Duration
 	CleanupTimeout    time.Duration
+	// DefaultBudget is read on every run that has no request budget; a nil func or non-positive value means ConvergenceBudget.
+	DefaultBudget func() time.Duration
 }
 
 // Planner is the backup.DedupePlanner of a licensed node.
@@ -94,6 +97,8 @@ type Planner struct {
 	convergenceBudget time.Duration
 	planningSlack     time.Duration
 	cleanupTimeout    time.Duration
+	pickTie           func(n int) int
+	defaultBudget     func() time.Duration
 }
 
 // New returns a Planner, or an error instead of a Planner that would panic on its first call.
@@ -112,6 +117,8 @@ func New(cfg Config) (*Planner, error) {
 		convergenceBudget: orDefault(cfg.ConvergenceBudget, _DefaultDedupeConvergenceBudget),
 		planningSlack:     orDefault(cfg.PlanningSlack, _DedupePlanningSlack),
 		cleanupTimeout:    orDefault(cfg.CleanupTimeout, _DedupeCleanupTimeout),
+		pickTie:           rand.IntN,
+		defaultBudget:     cfg.DefaultBudget,
 	}, nil
 }
 
@@ -155,9 +162,10 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	sum := &planSummary{classes: len(classes), missingByNode: map[string]int{}}
 	defer func(begin time.Time) { p.logSummary(sum, plan, time.Since(begin), cancelled()) }(time.Now())
 	if budget <= 0 {
-		budget = p.convergenceBudget
+		budget = p.configuredBudget()
 	}
 	budget = min(budget, _MaxDedupeConvergenceBudget)
+	sum.budget = budget
 	// Hard deadline: the request ctx has none, and a wedged peer RPC would otherwise stall planning while the op slot blocks every subsequent backup.
 	ctx, cancel := context.WithTimeout(ctx, p.cutoffLead+budget+p.planningSlack+dedupeFanoutAllowance(len(classes)))
 	defer cancel()
@@ -299,7 +307,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	}
 	sort.Strings(classNames)
 	for _, class := range classNames {
-		designations, sticky := assignDesignations(converged[class], loads, participants, preferred[class])
+		designations, sticky := assignDesignations(converged[class], loads, participants, preferred[class], p.pickTie)
 		plan.Designations[class] = designations
 		p.log.WithField("action", backup.OpCreate).WithField("class", class).
 			WithField("designated", len(designations)).
@@ -310,6 +318,13 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("designated").Add(float64(plan.Designated()))
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.Fallback()))
 	return plan
+}
+
+func (p *Planner) configuredBudget() time.Duration {
+	if p.defaultBudget == nil {
+		return p.convergenceBudget
+	}
+	return orDefault(p.defaultBudget(), p.convergenceBudget)
 }
 
 // stopEligibility aborts planning inside the class-eligibility loop.
@@ -355,6 +370,7 @@ func (t *failureTally) add(class string, shards int, err error) {
 
 // planSummary collects one planning run's outcomes so it logs once, never once per class or tenant.
 type planSummary struct {
+	budget                   time.Duration
 	classes, asyncDisabled   int
 	replicas, create, status failureTally
 	missing, unconverged     int
@@ -375,6 +391,7 @@ func (p *Planner) logSummary(sum *planSummary, plan *backup.DedupePlan, took tim
 		WithField("candidate_shards", plan.CandidateShards).
 		WithField("designated", plan.Designated()).
 		WithField("fallback", plan.Fallback()).
+		WithField("budget", sum.budget.String()).
 		WithField("took", took.String())
 	if sum.asyncDisabled > 0 {
 		log = log.WithField("async_disabled_classes", sum.asyncDisabled)
@@ -752,9 +769,9 @@ func missingReplicasAtCutoff(entries []replica.AsyncCheckpointNodeStatus, replic
 	return missing
 }
 
-// assignDesignations picks one archiving node per shard: an eligible preferred (base) designee outranks balance since only it can skip unchanged files, the rest go least-loaded (lexicographic ties, loads shared across classes).
+// assignDesignations picks one archiving node per shard: an eligible preferred (base) designee outranks balance since only it can skip unchanged files, the rest go least-loaded (random ties, loads shared across classes).
 // Shards with fewer than two participant replicas get no designation: naming a non-participant would orphan the shard, and a lone participant gains nothing.
-func assignDesignations(shardReplicas map[string][]string, loads map[string]int, participants map[string]struct{}, preferred map[string]string) (map[string]string, int) {
+func assignDesignations(shardReplicas map[string][]string, loads map[string]int, participants map[string]struct{}, preferred map[string]string, pick func(n int) int) (map[string]string, int) {
 	shards := make([]string, 0, len(shardReplicas))
 	for shard := range shardReplicas {
 		shards = append(shards, shard)
@@ -796,16 +813,40 @@ func assignDesignations(shardReplicas map[string][]string, loads map[string]int,
 		if _, done := out[shard]; done {
 			continue
 		}
-		best := nodes[0]
-		for _, node := range nodes[1:] {
-			if loads[node] < loads[best] {
-				best = node
-			}
-		}
+		best := leastLoaded(nodes, loads, pick)
 		loads[best]++
 		out[shard] = best
 	}
 	return out, sticky
+}
+
+// leastLoaded returns the node with the lowest load, consulting pick only when several share it.
+func leastLoaded(nodes []string, loads map[string]int, pick func(n int) int) string {
+	minLoad, tied := loads[nodes[0]], 1
+	for _, node := range nodes[1:] {
+		switch load := loads[node]; {
+		case load < minLoad:
+			minLoad, tied = load, 1
+		case load == minLoad:
+			tied++
+		}
+	}
+	skip := 0
+	if tied > 1 {
+		skip = pick(tied)
+	}
+	var best string
+	for _, node := range nodes {
+		if loads[node] != minLoad {
+			continue
+		}
+		best = node
+		if skip == 0 {
+			break
+		}
+		skip--
+	}
+	return best
 }
 
 func uniqueNonEmpty(nodes []string) map[string]struct{} {
