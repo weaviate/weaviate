@@ -55,7 +55,7 @@ func newMultiVectorIndex(t *testing.T) *hnsw {
 		Multivector:           ent.MultivectorConfig{Enabled: true},
 	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.NoError(t, err)
-	t.Cleanup(func() { index.Drop(context.Background(), false) })
+	t.Cleanup(func() { index.Drop(context.Background()) })
 	return index
 }
 
