@@ -67,10 +67,14 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// "concurrent map read and map write", not a recoverable race.
 	legacy := s.index.GetVectorIndexConfig("")
 	targets := s.index.getTargetVectorIndexConfigs()
-	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
 	// Read after the configs: a drop marks the schema before it deletes the
-	// config, so one missing above because of a drop is marked here.
+	// config, so one missing above because of a drop is marked here, and one
+	// still above is about to be deleted.
 	dropped := droppedVectorNames(s.index.getClass())
+	for _, name := range dropped {
+		delete(targets, name)
+	}
+	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
 
 	err := newCompressedVectorsMigrator(s.index.logger).removeVectorsCompressedLink(s.store.GetDir())
 	if err != nil {
