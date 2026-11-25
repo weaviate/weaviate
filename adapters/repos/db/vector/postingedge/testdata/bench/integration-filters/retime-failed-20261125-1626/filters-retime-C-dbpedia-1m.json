@@ -1,0 +1,294 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 1000,
+  "k": 10,
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1237381,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 1,
+    "postings": 8105,
+    "splits": 4031,
+    "splitsFailed": 0,
+    "live": 990000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 8,
+    "vectorsLaidOut": 990000,
+    "refreshedAt": 10000
+  },
+  "flatCutoff": 40000,
+  "hnsw": {
+    "acornFilterRatio": 0.4,
+    "distance": "cosine",
+    "efConstruction": 128,
+    "filterStrategy": "acorn",
+    "flatSearchCutoff": 40000,
+    "maxConnections": 32,
+    "rqBits": 1,
+    "rqCentering": true,
+    "rqRescoreLimit": 512,
+    "rqTrainingLimit": 10000
+  },
+  "admission": true,
+  "budget": 8,
+  "gomaxprocs": 10,
+  "drop": "ok=0; for try in 1 2 3 4 5; do diskutil unmount '/Volumes/v40bench' \u003e /dev/null 2\u003e\u00261 \u0026\u0026 ok=1 \u0026\u0026 break; sleep 2; done; [ $ok = 1 ] \u0026\u0026 diskutil mount 'disk3s7' \u003e /dev/null",
+  "filterSeconds": 0,
+  "hnswBuildSeconds": 102.234005833,
+  "filters": [
+    "random 10 %",
+    "random 1 %",
+    "near 1 %",
+    "far 1 %"
+  ],
+  "allowed": [
+    99000,
+    9900,
+    9900,
+    9900
+  ],
+  "curves": [
+    {
+      "index": "hnsw",
+      "path": "acorn",
+      "filter": "random 10 %",
+      "kind": "random",
+      "share": 0.1,
+      "allowed": 99000,
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.7069,
+          "vectorReads": 10.098,
+          "seconds": 0.202809625
+        },
+        {
+          "ef": 20,
+          "recall": 0.8584,
+          "vectorReads": 20,
+          "seconds": 0.2159465
+        },
+        {
+          "ef": 40,
+          "recall": 0.9229,
+          "vectorReads": 40,
+          "seconds": 0.345533625
+        },
+        {
+          "ef": 80,
+          "recall": 0.958,
+          "vectorReads": 80,
+          "seconds": 0.526040417
+        },
+        {
+          "ef": 160,
+          "recall": 0.9762,
+          "vectorReads": 160,
+          "seconds": 0.757621583
+        },
+        {
+          "ef": 320,
+          "recall": 0.9857,
+          "vectorReads": 320,
+          "seconds": 1.116860792
+        },
+        {
+          "ef": 640,
+          "recall": 0.9899,
+          "vectorReads": 512,
+          "seconds": 1.715159916
+        },
+        {
+          "ef": 1024,
+          "recall": 0.9919,
+          "vectorReads": 512,
+          "seconds": 2.29875825
+        },
+        {
+          "ef": 2048,
+          "recall": 0.9937,
+          "vectorReads": 512,
+          "seconds": 3.603175458
+        }
+      ],
+      "points": [
+        {
+          "ef": 66,
+          "recall": 0.9511,
+          "vectorReads": 66,
+          "seconds": 0.300078375
+        },
+        {
+          "ef": 675,
+          "recall": 0.99,
+          "vectorReads": 512,
+          "seconds": 1.834163875
+        }
+      ],
+      "bestRecall": 0.9937
+    },
+    {
+      "index": "hnsw",
+      "path": "acorn",
+      "filter": "random 1 %",
+      "kind": "random",
+      "share": 0.01,
+      "allowed": 9900,
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.8204,
+          "vectorReads": 10,
+          "seconds": 1.378450667
+        },
+        {
+          "ef": 20,
+          "recall": 0.9766,
+          "vectorReads": 20,
+          "seconds": 1.4027992089999999
+        },
+        {
+          "ef": 40,
+          "recall": 0.9985,
+          "vectorReads": 40,
+          "seconds": 1.40670225
+        },
+        {
+          "ef": 80,
+          "recall": 0.9999,
+          "vectorReads": 80,
+          "seconds": 1.420679667
+        }
+      ],
+      "points": [
+        {
+          "ef": 17,
+          "recall": 0.9573,
+          "vectorReads": 17,
+          "seconds": 1.394082
+        },
+        {
+          "ef": 27,
+          "recall": 0.9911,
+          "vectorReads": 27,
+          "seconds": 1.408197834
+        }
+      ],
+      "bestRecall": 0.9999
+    },
+    {
+      "index": "hnsw",
+      "path": "acorn",
+      "filter": "near 1 %",
+      "kind": "near",
+      "share": 0.01,
+      "allowed": 9900,
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.8072,
+          "vectorReads": 10,
+          "seconds": 1.286603833
+        },
+        {
+          "ef": 20,
+          "recall": 0.9674,
+          "vectorReads": 20,
+          "seconds": 1.281464375
+        },
+        {
+          "ef": 40,
+          "recall": 0.9961,
+          "vectorReads": 40,
+          "seconds": 1.241070708
+        },
+        {
+          "ef": 80,
+          "recall": 0.9998,
+          "vectorReads": 80,
+          "seconds": 1.206294417
+        }
+      ],
+      "points": [
+        {
+          "ef": 18,
+          "recall": 0.9552,
+          "vectorReads": 18,
+          "seconds": 1.346569708
+        },
+        {
+          "ef": 30,
+          "recall": 0.9904,
+          "vectorReads": 30,
+          "seconds": 1.372048334
+        }
+      ],
+      "bestRecall": 0.9998
+    },
+    {
+      "index": "hnsw",
+      "path": "acorn",
+      "filter": "far 1 %",
+      "kind": "far",
+      "share": 0.01,
+      "allowed": 9900,
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.7021,
+          "vectorReads": 10,
+          "seconds": 1.337121375
+        },
+        {
+          "ef": 20,
+          "recall": 0.8959,
+          "vectorReads": 20,
+          "seconds": 1.312844667
+        },
+        {
+          "ef": 40,
+          "recall": 0.9761,
+          "vectorReads": 40,
+          "seconds": 1.2537544999999999
+        },
+        {
+          "ef": 80,
+          "recall": 0.9959,
+          "vectorReads": 80,
+          "seconds": 1.225903333
+        },
+        {
+          "ef": 160,
+          "recall": 0.9997,
+          "vectorReads": 160,
+          "seconds": 1.302460667
+        }
+      ],
+      "points": [
+        {
+          "ef": 30,
+          "recall": 0.9534,
+          "vectorReads": 30,
+          "seconds": 1.392669459
+        },
+        {
+          "ef": 57,
+          "recall": 0.99,
+          "vectorReads": 57,
+          "seconds": 1.403487625
+        }
+      ],
+      "bestRecall": 0.9997
+    }
+  ],
+  "rounds": null
+}
