@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -342,6 +344,8 @@ func TestManifest_DropRefusesSharedFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, rec, got)
 
+	rec.State = "dropping"
+	require.NoError(t, m.records.Put("title", rec))
 	require.ErrorContains(t, m.FinishDrop(t.Context(), "title"), wantErr)
 	assert.DirExists(t, queueDir)
 }
@@ -349,12 +353,65 @@ func TestManifest_DropRefusesSharedFiles(t *testing.T) {
 func TestManifest_DropKeepsTheRecordWhenAFileStays(t *testing.T) {
 	dir := t.TempDir()
 	m := loaded(t, dir, "foo")
+	_, err := m.BeginDrop("foo")
+	require.NoError(t, err)
 	m.removeBucket = func(context.Context, string) error { return assert.AnError }
 
 	require.ErrorIs(t, m.FinishDrop(t.Context(), "foo"), assert.AnError)
 	_, ok, err := m.Get("foo")
 	require.NoError(t, err)
 	assert.True(t, ok)
+}
+
+// A vector created again since its drop began keeps its record and files.
+func TestManifest_FinishDropRefusesAVectorNotBeingDropped(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "foo")
+	_, err := m.BeginDrop("foo")
+	require.NoError(t, err)
+	_, err = m.Create("foo", enthnsw.NewDefaultUserConfig())
+	require.NoError(t, err)
+
+	require.ErrorContains(t, m.FinishDrop(t.Context(), "foo"), `vector "foo" is creating, not dropping`)
+	assert.DirExists(t, filepath.Join(dir, "vectors_foo.hnsw.commitlog.d"))
+	rec, ok, err := m.records.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "creating", rec.State)
+}
+
+// A creation waits for a drop that is deleting files.
+func TestManifest_CreateWaitsForAFinishingDrop(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "foo")
+	_, err := m.BeginDrop("foo")
+	require.NoError(t, err)
+
+	created := make(chan error, 1)
+	removeBucket := m.removeBucket
+	started := false
+	m.removeBucket = func(ctx context.Context, bucket string) error {
+		if !started {
+			started = true
+			enterrors.GoWrapper(func() {
+				_, err := m.Create("foo", enthnsw.NewDefaultUserConfig())
+				created <- err
+			}, m.logger)
+			select {
+			case err := <-created:
+				t.Error("created while the drop deletes files")
+				created <- err
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		return removeBucket(ctx, bucket)
+	}
+	require.NoError(t, m.FinishDrop(t.Context(), "foo"))
+	require.NoError(t, <-created)
+	rec, ok, err := m.records.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok, "the new record outlives the drop")
+	assert.Equal(t, "creating", rec.State)
 }
 
 func TestManifest_HasStorage(t *testing.T) {
@@ -639,6 +696,9 @@ func TestManifest_DropRefusesATaskNamingASibling(t *testing.T) {
 	rec, _, err := m.records.Get("title")
 	require.NoError(t, err)
 	assert.Equal(t, "ready", rec.State)
+
+	rec.State = "dropping"
+	require.NoError(t, m.records.Put("title", rec))
 	require.ErrorContains(t, m.FinishDrop(t.Context(), "title"), `an index of vector "body"`)
 	for _, path := range append(files(dir, "vectors_title"), files(dir, "vectors_body")...) {
 		assert.DirExists(t, path)

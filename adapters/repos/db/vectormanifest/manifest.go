@@ -53,7 +53,8 @@ type Manifest struct {
 	removeBucket func(ctx context.Context, bucket string) error
 	logger       logrus.FieldLogger
 
-	// mu serializes the checks and writes that record a change.
+	// mu serializes every change to the records or to the files they name,
+	// Open aside, which runs before anything else.
 	mu sync.Mutex
 	// opened holds the records Open returned that Ready has not seen yet.
 	opened map[string]record
@@ -69,7 +70,8 @@ type Entry struct {
 	// QueueID is the ID the queue's directory is named by.
 	QueueID   string
 	IndexType string
-	Config    schemaConfig.VectorIndexConfig
+	// Config is the schema's from Open and Create, the record's from Get.
+	Config schemaConfig.VectorIndexConfig
 }
 
 // contents is everything the manifest has on disk, by vector name.
@@ -460,6 +462,9 @@ func (m *Manifest) Reset(name string) error {
 // RemoveIndexFiles deletes the files of name's index and keeps its queue and
 // its record.
 func (m *Manifest) RemoveIndexFiles(ctx context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	c, err := m.load()
 	if err != nil {
 		return err
@@ -472,9 +477,9 @@ func (m *Manifest) RemoveIndexFiles(ctx context.Context, name string) error {
 }
 
 // BeginDrop records that name is being dropped, so a crash before its files go
-// is finished at the next load. It refuses a vector whose files another one
-// uses. found is false for a vector without a record,
-// which owns nothing: a skipped vector, or a drop that already completed.
+// is finished at the next load. It refuses while any two vectors of the shard
+// share a queue or files a drop could take. found is false for a vector without
+// a record, which owns nothing: a skipped vector, or a drop that completed.
 func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -497,16 +502,22 @@ func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 }
 
 // FinishDrop deletes everything name owns, its record and its rebuild task
-// last. A retry after a partial run finds less to do.
+// last. A retry after a partial run finds less to do. It refuses a vector
+// BeginDrop did not mark.
 func (m *Manifest) FinishDrop(ctx context.Context, name string) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	c, err := m.load()
-	m.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	if _, ok := c.records[name]; !ok {
+	rec, ok := c.records[name]
+	if !ok {
 		return nil
+	}
+	if rec.State != stateDropping {
+		return fmt.Errorf("vector %q is %s, not %s", name, rec.State, stateDropping)
 	}
 	return m.finishDrop(ctx, name, c)
 }
