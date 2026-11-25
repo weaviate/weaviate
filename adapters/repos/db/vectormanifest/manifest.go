@@ -381,9 +381,8 @@ func (m *Manifest) RemoveIndexFiles(ctx context.Context, name string) error {
 }
 
 // BeginDrop records that name is being dropped, so a crash before its files go
-// is finished at the next load. It refuses while any two vectors of the shard
-// share a queue or files a drop could take. found is false for a vector without
-// a record, which owns nothing: a skipped vector, or a drop that completed.
+// is finished at the next load. found is false for a vector without a record,
+// which owns nothing: a skipped vector, or a drop that completed.
 func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -396,7 +395,8 @@ func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	if !ok {
 		return false, nil
 	}
-	// the caller tears the index and its queue down next
+	// a load and Create refuse shared files already: this guards the teardown
+	// that follows against an index.db changed behind the shard
 	err = refuseSharedFiles(records)
 	if err != nil {
 		return false, err
