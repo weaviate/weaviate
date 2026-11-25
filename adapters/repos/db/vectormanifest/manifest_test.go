@@ -498,6 +498,42 @@ func TestManifest_CreateWaitsForAFinishingDrop(t *testing.T) {
 	assert.Equal(t, "creating", rec.State)
 }
 
+// A load that fails while it finishes a drop leaves it to the next load.
+func TestManifest_OpenRetriesADropItCouldNotFinish(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "foo", "bar")
+	_, err := m.BeginDrop("foo")
+	require.NoError(t, err)
+	own := filepath.Join(dir, "lsm", "vectors_foo")
+	plant(t, own)
+	schema := schemaVectors{"bar": enthnsw.NewDefaultUserConfig()}
+
+	removeBucket := m.removeBucket
+	calls := 0
+	m.removeBucket = func(ctx context.Context, bucket string) error {
+		calls++
+		if calls > 1 {
+			return assert.AnError
+		}
+		return removeBucket(ctx, bucket)
+	}
+	_, _, err = m.Open(t.Context(), schema, nil)
+	require.ErrorIs(t, err, assert.AnError)
+	rec, ok, err := m.records.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "dropping", rec.State)
+
+	m.removeBucket = removeBucket
+	_, _, err = m.Open(t.Context(), schema, nil)
+	require.NoError(t, err)
+	assert.NoDirExists(t, own)
+	assert.NoDirExists(t, filepath.Join(dir, "vectors_foo.hnsw.commitlog.d"))
+	_, ok, err = m.records.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 func TestManifest_HasStorage(t *testing.T) {
 	dir := t.TempDir()
 	m := loaded(t, dir)
