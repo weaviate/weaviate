@@ -355,9 +355,10 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 // tryShutdownIdle is the unloader's performShutdown: it only try-locks, refuses
 // a shard that is shut, pinned or asked to shut down or drop, and never sets
 // shutdownRequested, so a concurrent pin is never answered errShutdownInProgress.
+// stillIdle runs once no pin is left or can start, so it sees every stamp made under one.
 // marked runs once shut is set, before the teardown; the caller releases
 // shardCreateLocks there.
-func (s *Shard) tryShutdownIdle(ctx context.Context, marked func()) (bool, error) {
+func (s *Shard) tryShutdownIdle(ctx context.Context, stillIdle func() bool, marked func()) (bool, error) {
 	if !s.shutdownLock.TryLock() {
 		return false, nil
 	}
@@ -366,6 +367,9 @@ func (s *Shard) tryShutdownIdle(ctx context.Context, marked func()) (bool, error
 		return false, nil
 	}
 	if s.inUseCounter.Load() != 0 || s.shutdownRequested.Load() || s.dropRequested.Load() {
+		return false, nil
+	}
+	if !stillIdle() {
 		return false, nil
 	}
 	if err := s.teardownLocked(ctx, marked); err != nil {

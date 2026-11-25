@@ -165,9 +165,6 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 	if shard == nil {
 		return false
 	}
-	if req.IdleTTL > 0 && !AccessClockIdle(AccessClockNow(), l.lastAccess.Load(), req.IdleTTL) {
-		return false
-	}
 
 	registry := l.unloadRegistry()
 	if registry != nil {
@@ -175,8 +172,11 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 		defer registry.unloading.Add(-1)
 	}
 
+	stillIdle := func() bool {
+		return req.IdleTTL <= 0 || AccessClockIdle(AccessClockNow(), l.lastAccess.Load(), req.IdleTTL)
+	}
 	var manualReadOnly bool
-	unloaded, err := shard.tryShutdownIdle(ctx, func() {
+	unloaded, err := shard.tryShutdownIdle(ctx, stillIdle, func() {
 		// Past the in-use check under shutdownLock, so no pin can change the status anymore.
 		manualReadOnly = shard.manuallyReadOnly()
 		l.unloadPhase.Store(unloadPhaseTearing)
