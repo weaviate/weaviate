@@ -99,6 +99,8 @@ func TestHandler_BatchObjectsAuthorization(t *testing.T) {
 	const badUUID = "not-a-uuid"
 	_, errBadUUID := uuid.Parse(badUUID)
 	errDenied := errors.New("denied")
+	errRead := errors.New("schema read failed")
+	errDangling := errors.New(`alias "DroppedAlias" points to collection "Dropped" which does not exist`)
 	authzCall := func(verb, class, tenant string) authMocks.AuthZReq {
 		return authMocks.AuthZReq{
 			Verb:      verb,
@@ -141,6 +143,53 @@ func TestHandler_BatchObjectsAuthorization(t *testing.T) {
 				authzCall(authorization.UPDATE, "Foo#tenantA", "Victim"),
 			},
 		},
+		{
+			name:         "a refused create check refuses the object",
+			objects:      []*pb.BatchObject{{Collection: "FooAlias"}},
+			allowedCalls: 1,
+			authzErr:     errDenied,
+			wantErrs:     []error{errDenied},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Foo", ""),
+				authzCall(authorization.CREATE, "Foo", ""),
+			},
+		},
+		{
+			name:     "a failed schema read refuses the pair's next object without reading again",
+			objects:  []*pb.BatchObject{{Collection: "Broken"}, {Collection: "Broken"}},
+			wantErrs: []error{errRead, errRead},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Broken", ""),
+				authzCall(authorization.CREATE, "Broken", ""),
+			},
+		},
+		{
+			name:     "a refused pair is refused again without another authorization",
+			objects:  []*pb.BatchObject{{Collection: "FooAlias"}, {Collection: "FooAlias"}},
+			authzErr: errDenied,
+			wantErrs: []error{errDenied, errDenied},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Foo", ""),
+			},
+		},
+		{
+			name:     "an admitted missing class does not admit a dangling alias to it",
+			objects:  []*pb.BatchObject{{Collection: "Dropped"}, {Collection: "DroppedAlias"}},
+			wantErrs: []error{errBadUUID, errDangling},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Dropped", ""),
+				authzCall(authorization.CREATE, "Dropped", ""),
+			},
+		},
+		{
+			name:     "a dangling alias's refusal does not refuse the class it names",
+			objects:  []*pb.BatchObject{{Collection: "DroppedAlias"}, {Collection: "Dropped"}},
+			wantErrs: []error{errDangling, errBadUUID},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Dropped", ""),
+				authzCall(authorization.CREATE, "Dropped", ""),
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -149,10 +198,15 @@ func TestHandler_BatchObjectsAuthorization(t *testing.T) {
 			authorizer := authMocks.NewMockAuthorizer()
 			authorizer.SetErrAfter(tt.allowedCalls, tt.authzErr)
 			schemaManager := batchMocks.NewMockschemaManager(t)
-			schemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Twice()
+			schemaManager.EXPECT().ResolveAlias("FooAlias").Return("Foo").Maybe()
+			schemaManager.EXPECT().ResolveAlias("DroppedAlias").Return("Dropped").Maybe()
+			schemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 			schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, "Foo").
-				Return(map[string]versioned.Class{"Foo": {Class: &models.Class{Class: "Foo"}}}, nil).
-				Once()
+				Return(map[string]versioned.Class{"Foo": {Class: &models.Class{Class: "Foo"}}}, nil).Maybe()
+			schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, "Dropped").
+				Return(map[string]versioned.Class{}, nil).Maybe()
+			schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, "Broken").
+				Return(nil, errRead).Maybe()
 			handler := NewHandler(authorizer, nil, logger, auth.NewHandler(true, nil), schemaManager, false)
 
 			wantErrors := make([]*pb.BatchObjectsReply_BatchError, len(tt.objects))
