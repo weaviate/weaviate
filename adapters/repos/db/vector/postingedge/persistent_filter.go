@@ -13,8 +13,6 @@ package postingedge
 
 import (
 	"context"
-	"math"
-	"slices"
 
 	"github.com/pkg/errors"
 
@@ -26,10 +24,12 @@ import (
 // The filtered search of the index a shard opens (integration-plan.md,
 // section 8, amendment 1). A filter is the doc ids a search may return. With
 // fewer allowed than the cutoff the search is flat: the routing code of every
-// allowed vector ranks it, and the best are rescored. With more, the index is
-// searched as without a filter, and a member the filter leaves out routes and
-// is never a candidate (postingSearch.allow). No path returns a doc id the
-// filter leaves out.
+// allowed vector ranks it, and the best are rescored; with no codes in memory
+// the exact vector of every allowed vector is read instead, under a cutoff of
+// its own (the user's order of 2026-11-24). With more, the index is searched
+// as without a filter, and a member the filter leaves out routes and is never
+// a candidate (postingSearch.allow). No path returns a doc id the filter
+// leaves out.
 
 // DefaultFlatSearchCutoff is the allowed vectors under which a filtered
 // search is flat: the flatSearchCutoff of HNSW, compared the same way.
@@ -47,6 +47,29 @@ func (p *Persistent) flatCutoff() int {
 	return p.cfg.flatCutoff
 }
 
+// noneFlatCutoff is the cutoff of an index with no codes in memory, whose
+// flat search reads the exact vector of every allowed vector: the default,
+// the one the config gives, or none at all. The default is the one of an
+// index with its codes in memory until the user sets the one the measure
+// proposes.
+func (p *Persistent) noneFlatCutoff() int {
+	switch {
+	case p.cfg.noneFlatCutoff == 0:
+		return DefaultFlatSearchCutoff
+	case p.cfg.noneFlatCutoff < 0:
+		return 0
+	}
+	return p.cfg.noneFlatCutoff
+}
+
+// cutoff is the cutoff of the index as it keeps its codes.
+func (p *Persistent) cutoff() int {
+	if p.g.noCodes {
+		return p.noneFlatCutoff()
+	}
+	return p.flatCutoff()
+}
+
 // searchIndex is the search of an index with a base: the flat search of a
 // filter that allows fewer vectors than the cutoff, and otherwise the search
 // of the index, with the filter if there is one. The caller holds mu for
@@ -54,7 +77,7 @@ func (p *Persistent) flatCutoff() int {
 func (p *Persistent) searchIndex(ctx context.Context, vector []float32, k int, allow helpers.AllowList,
 	stats *diskSearchStats,
 ) ([]uint64, []float32, error) {
-	if allow != nil && allow.Len() < p.flatCutoff() {
+	if allow != nil && allow.Len() < p.cutoff() {
 		return p.g.flatSearch(ctx, vector, k, p.flatRescore(k, p.g.flatBits()), allow, stats)
 	}
 	search := p.g.searcher()
@@ -89,23 +112,21 @@ func routingBitsOf(meta *growMeta) int {
 }
 
 // flatBits is the width of the code the flat search ranks the allowed
-// vectors by: the routing code, which is in memory, or with no codes in
-// memory the full code the postings hold (integration-plan.md, section 8,
-// amendment 3).
+// vectors by: the routing code, which is in memory. With no codes in memory
+// no code ranks them: every one is read.
 func (g *growIndex) flatBits() int {
-	if g.noCodes {
-		return scanBitsOf(&g.meta)
-	}
 	return routingBitsOf(&g.meta)
 }
 
 // flatSearch is the flat search of a filter: every allowed doc id the index
-// holds and has not marked deleted is ranked by a code; the best rescore of
-// them are rescored with their exact vectors, all of them where there are no
-// more than that; and the best k of those are the answer. With the routing
-// codes in memory it ranks by them and loads no posting. With no codes in
-// memory it ranks by the full codes of the postings that hold the allowed
-// vectors, each loaded once (flatRankByPostings).
+// holds and has not marked deleted is ranked by its routing code, which is in
+// memory; the best rescore of them are rescored with their exact vectors, all
+// of them where there are no more than that; and the best k of those are the
+// answer. It loads no posting. With no codes in memory nothing ranks them:
+// the exact vector of every one is read, once, in parallel within the budget
+// of the query, and the answer is the exact one (the direct read, by the
+// user's order of 2026-11-24, which replaced the ranking by the full codes of
+// the postings of amendment 3).
 func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore int, allow helpers.AllowList,
 	stats *diskSearchStats,
 ) ([]uint64, []float32, error) {
@@ -140,15 +161,10 @@ func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore
 
 	var candidates []scored
 	switch {
-	case len(ids) <= rescore:
+	case len(ids) <= rescore || g.noCodes:
 		candidates = make([]scored, len(ids))
 		for i, id := range ids {
 			candidates[i] = scored{id: uint64(id)}
-		}
-	case g.noCodes:
-		var err error
-		if candidates, err = g.flatRankByPostings(ctx, query, ids, rescore, stats); err != nil {
-			return nil, nil, err
 		}
 	default:
 		estimator := g.st.quantizer.NewEstimator(query)
@@ -177,77 +193,4 @@ func (g *growIndex) flatSearch(ctx context.Context, vector []float32, k, rescore
 		result.push(cand.id, cand.dist)
 	}
 	return topResults(result.sorted(), k)
-}
-
-// flatRankByPostings ranks the given allowed doc ids, which the index holds
-// and has not marked deleted, with no codes in memory, and returns the best
-// rescore of them by code (integration-plan.md, section 8, amendment 3). The
-// posting map, which is in memory either way, gives the posting of each.
-// Every posting that holds one of them is loaded once, its row of members
-// alone, and only its members among the ids given are scored, by the full
-// code the row holds. Nothing in it is quick yet: the postings are read one
-// after another, as the user asked of a first version.
-func (g *growIndex) flatRankByPostings(ctx context.Context, query []float32, ids []uint32, rescore int,
-	stats *diskSearchStats,
-) ([]scored, error) {
-	postingOf := g.st.side.postingOf
-	wanted := make(map[uint32]struct{}, len(ids))
-	var postings []uint32
-	seen := map[uint32]struct{}{}
-	for _, id := range ids {
-		p := postingOf[id]
-		if p == unplaced || int(p) >= len(g.size) {
-			return nil, errors.Errorf("doc %d is held and the posting map puts it in no posting", id)
-		}
-		wanted[id] = struct{}{}
-		if _, ok := seen[p]; !ok {
-			seen[p] = struct{}{}
-			postings = append(postings, p)
-		}
-	}
-	slices.Sort(postings)
-
-	quantizer := g.st.quantizer
-	if g.st.scanQuantizer != nil {
-		quantizer = g.st.scanQuantizer
-	}
-	estimator := quantizer.NewEstimator(query)
-	words := g.meta.ScanCodeWords
-	var best topK
-	best.reset(rescore)
-	var dp diskPosting
-	scoredMembers := 0
-	for _, p := range postings {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if err := g.fetchMembers(p, &dp); err != nil {
-			return nil, err
-		}
-		stats.Postings++
-		stats.Members += len(dp.docIDs)
-		stats.MemberBytes += dp.bytes[diskBlockMembers]
-		for i, docID := range dp.docIDs {
-			if docID > math.MaxUint32 {
-				continue
-			}
-			if _, ok := wanted[uint32(docID)]; !ok || postingOf[docID] != p {
-				// Not allowed, not held there, or scored already.
-				continue
-			}
-			delete(wanted, uint32(docID))
-			dist, err := estimator.Distance(dp.codes[i*words : (i+1)*words])
-			if err != nil {
-				return nil, errors.Wrapf(err, "estimate distance to doc %d", docID)
-			}
-			best.push(docID, dist)
-			scoredMembers++
-		}
-	}
-	if len(wanted) > 0 {
-		return nil, errors.Errorf("%d of %d allowed vectors are not in the postings the posting map puts them in",
-			len(wanted), len(ids))
-	}
-	stats.Scored = scoredMembers
-	return best.sorted(), nil
 }

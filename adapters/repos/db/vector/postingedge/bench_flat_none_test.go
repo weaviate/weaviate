@@ -87,7 +87,11 @@ type flatNoneWay struct {
 // are the same whichever way an index keeps its codes, so the second way over
 // an index grown with its codes in memory reads what the same index with none
 // would. No query is timed: the volume is not cold, and nothing else is
-// measured with it.
+// measured with it. Since the direct read (the user's order of 2026-11-24)
+// the second way reads only the exact vectors of the allowed vectors, and
+// loads no posting: the data of 24 November in testdata/bench/
+// integration-filters/flatnone/ is of the ranking by the postings it
+// replaced.
 func TestFlatNoneCost(t *testing.T) {
 	if *benchDatasetDir == "" || *benchFiltersCache == "" || *benchFiltersIndex == "" {
 		t.Skip("no -bench.dataset, -bench.filters.cache and -bench.filters.index given")
@@ -113,6 +117,7 @@ func TestFlatNoneCost(t *testing.T) {
 	defer ix.shut()
 	ix.cutoff = math.MaxInt
 	ix.p.cfg.flatCutoff = math.MaxInt
+	ix.p.cfg.noneFlatCutoff = math.MaxInt
 	g := ix.p.g
 	require.False(t, g.noCodes, "the index opens with its routing codes in memory")
 	result := &flatNoneResult{
