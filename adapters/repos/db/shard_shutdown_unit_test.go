@@ -702,6 +702,9 @@ func TestRetainedDrainsReachTeardownConsumers(t *testing.T) {
 					vi, release, ok := s.AcquireVectorIndex("")
 					require.True(t, ok)
 					release()
+					geoQueue, err := newVectorIndexQueueWithID(s, "retained-geo", idx.logger, "geo_location", vi, 0)
+					require.NoError(t, err)
+					s.geoQueues["location"] = geoQueue
 					worker := &undrainedVectorIndex{VectorIndex: vi, err: cause}
 					require.True(t, s.vectors.Replace("", worker))
 					t.Cleanup(func() { s.vectors.Replace("", vi); s.drop() })
