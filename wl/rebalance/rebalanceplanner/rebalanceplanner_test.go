@@ -70,20 +70,20 @@ func TestSearch(t *testing.T) {
 		Goal:    []types.RebalanceNodeBalance{row("S", 0.25, 1), row("T1", 0.25, 1), row("T2", 0.25, 1)},
 	}
 
-	// S holds s01 to s10 of 1 byte each; T is empty. After k moves the disk
-	// stddev is (10−2k)/32. Its square, the variance, is 0.0977, 0.0625,
-	// 0.0352, 0.0156, 0.0039, 0 for k = 0 to 5. The stddev is within 0.05 only
-	// at k = 5, so the plan needs 5 moves.
+	// S holds s01 to s10 of 1 byte each; T is empty. After k moves, S is
+	// (10−2k)/16 above T. That is within 0.10 only at k = 5, so the plan
+	// needs 5 moves. The variance is 0.0977, 0.0625, 0.0352, 0.0156, 0.0039,
+	// 0 for k = 0 to 5.
 	tenNodes := []rp.Node{source("S", 10), target("T", 0, 1)}
 	var tenReplicas []rp.Replica
 	for i := 1; i <= 10; i++ {
 		tenReplicas = append(tenReplicas, replica("S", fmt.Sprintf("s%02d", i), 1))
 	}
 
-	// S uses 10 (6, 4) and T 8 (5, 3). Baseline: disk 0.625, 0.5 (0.0039),
-	// stddev 0.0625, so it is unbalanced. Moving the 4 gives disk 0.375, 0.75
-	// (0.0352); moving the 6 gives 0.25, 0.875 (0.0977). Either move widens
-	// the spread, so Search takes none.
+	// S uses 10 (6, 4) and T 8 (5, 3). Baseline: disk 0.625, 0.5 (0.0039).
+	// S is 0.125 above T, so it is unbalanced. Moving the 4 gives disk 0.375,
+	// 0.75 (0.0352); moving the 6 gives 0.25, 0.875 (0.0977). Either move
+	// widens the spread, so Search takes none.
 	noMove := rp.Input{
 		Nodes: []rp.Node{source("S", 10), target("T", 8, 1)},
 		Replicas: []rp.Replica{
@@ -113,7 +113,7 @@ func TestSearch(t *testing.T) {
 			// twoIncoming with T using 5 and x of 4. Baseline: disk 1, 0.3125
 			// (0.1182).
 			//   1. a: disk 0.75, 0.5625 (0.0088). b: disk 0.875, 0.4375 (0.0479).
-			//      a wins; stddev 0.0938 fails Balanced.
+			//      a wins; S is 0.1875 above T, which fails Balanced.
 			//   2. b: disk 0.625, 0.6875 (0.0010). The state passes Balanced.
 			// Before move 2, T needs 9 + 2 + 1 × 4 = 15 ≤ 16. With the sum of the
 			// incoming bytes it would need 9 + 2 + 6 = 17 > 16.
@@ -129,8 +129,8 @@ func TestSearch(t *testing.T) {
 			// twoIncoming with T using 7 and x of 8. Baseline: disk 1.25, 0.4375
 			// (0.1650).
 			//   1. a: T needs 7 + 4 + 4 = 15 ≤ 16; disk 1, 0.6875 (0.0244). b:
-			//      disk 1.125, 0.5625 (0.0791). a wins; stddev 0.1563 fails
-			//      Balanced.
+			//      disk 1.125, 0.5625 (0.0791). a wins; S is 0.3125 above T,
+			//      which fails Balanced.
 			//   2. b: T needs 11 + 2 + 4 = 17 > 16, so no move is allowed. With the
 			//      last incoming replica, 11 + 2 + 2 = 15 would fit, and disk
 			//      0.875, 0.8125 (0.0010) would gain.

@@ -55,6 +55,17 @@ func baselineRows(in rp.Input) []types.RebalanceNodeBalance {
 	return rows
 }
 
+// sources returns the names of the input's sources, in input node order.
+func sources(in rp.Input) []string {
+	var names []string
+	for _, n := range in.Nodes {
+		if n.Role == rp.Source {
+			names = append(names, n.Name)
+		}
+	}
+	return names
+}
+
 // replay applies moves to in and returns the resulting rows, in input
 // node order. It fails the test on a move that is not legal: the replica is
 // an eligible replica on a source, the target is a target that does not hold
@@ -148,7 +159,7 @@ func diskSpread(rows []types.RebalanceNodeBalance) float64 {
 func checkResult(t *testing.T, in rp.Input, res rp.Result) []types.RebalanceNodeBalance {
 	t.Helper()
 	base := baselineRows(in)
-	if rp.Balanced(base) {
+	if rp.Balanced(base, sources(in)) {
 		require.Equal(t, rp.NoAcceptablePlan, res.Verdict, "the baseline is balanced")
 	}
 	switch res.Verdict {
@@ -254,11 +265,11 @@ func TestSearchBalancesWhatDirectMovesCanBalance(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := relocated(tt.sources, tt.targets, tt.perNode, tt.sizes)
-			require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
+			require.False(t, rp.Balanced(baselineRows(in), sources(in)), "the baseline must start unbalanced")
 			res := mustSearch(t, in)
 			require.Equal(t, rp.MovesFound, res.Verdict)
 			after := checkResult(t, in, res)
-			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
+			require.True(t, rp.Balanced(after, sources(in)), "goal is not balanced: %+v", after)
 			// Moving back every relocated shard balances the layout exactly.
 			require.LessOrEqual(t, len(res.Moves), tt.targets*tt.perNode)
 		})
@@ -302,11 +313,11 @@ func TestSearchBalancesOneSourceAmongManyTargets(t *testing.T) {
 			name := fmt.Sprintf("%d targets, %d against %d shards, %d%% full", tt.targets, tt.onSource, tt.onTarget, percentFull)
 			t.Run(name, func(t *testing.T) {
 				in := drained(tt.targets, tt.onSource, tt.onTarget, percentFull)
-				require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
+				require.False(t, rp.Balanced(baselineRows(in), sources(in)), "the baseline must start unbalanced")
 				res := mustSearch(t, in)
 				require.Equal(t, rp.MovesFound, res.Verdict)
 				after := checkResult(t, in, res)
-				require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
+				require.True(t, rp.Balanced(after, sources(in)), "goal is not balanced: %+v", after)
 				// Shards are equal, so equal counts is level disk. The plan stops
 				// at or before it.
 				mean := (tt.onSource + tt.targets*tt.onTarget) / (tt.targets + 1)
@@ -339,7 +350,7 @@ func skewed(total, permille int) rp.Input {
 func rejectedSkew(t *testing.T) int {
 	t.Helper()
 	for p := 1; p <= 800; p++ {
-		if !rp.Balanced(baselineRows(skewed(2_000, p))) {
+		if in := skewed(2_000, p); !rp.Balanced(baselineRows(in), sources(in)) {
 			return p + 1
 		}
 	}
@@ -360,7 +371,7 @@ func TestSearchVerdictIgnoresReplicaTotal(t *testing.T) {
 	firstStep := func(t *testing.T, total, permille int) rp.Verdict {
 		in := skewed(total, permille)
 		if permille >= edge {
-			require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
+			require.False(t, rp.Balanced(baselineRows(in), sources(in)), "the baseline must start unbalanced")
 		}
 		require.Equal(t, "S", in.Replicas[0].Node)
 		for i := range in.Replicas {
@@ -399,11 +410,11 @@ func TestSearchVerdictIgnoresReplicaTotal(t *testing.T) {
 	for _, tt := range runs {
 		t.Run(fmt.Sprintf("full plan, %d replicas, skew %d permille", tt.total, tt.permille), func(t *testing.T) {
 			in := skewed(tt.total, tt.permille)
-			require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
+			require.False(t, rp.Balanced(baselineRows(in), sources(in)), "the baseline must start unbalanced")
 			res := mustSearch(t, in)
 			require.Equal(t, rp.MovesFound, res.Verdict)
 			after := checkResult(t, in, res)
-			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
+			require.True(t, rp.Balanced(after, sources(in)), "goal is not balanced: %+v", after)
 			// Shards are equal, so equal counts is level disk. The plan stops
 			// at or before it.
 			require.GreaterOrEqual(t, after[0].ReplicaCount, after[1].ReplicaCount)
@@ -426,6 +437,15 @@ func two(sUsed, tUsed int64, sN int, sB int64, tN int, tB int64) rp.Input {
 // Replica count alone never earns a move. In every layout the source holds
 // more replicas than the target, and no move narrows the disk spread.
 func TestSearchTakesNoMoveForReplicaCount(t *testing.T) {
+	// S holds 18 small shards that are not eligible and two eligible shards of
+	// 250,000 bytes.
+	fuller := two(600_000, 400_000, 2, 250_000, 2, 200_000)
+	small := shards("S", "small", 18, 5_000)
+	for i := range small {
+		small[i].Eligible = false
+	}
+	fuller.Replicas = append(fuller.Replicas, small...)
+
 	tests := []struct {
 		name     string
 		in       rp.Input
@@ -433,16 +453,19 @@ func TestSearchTakesNoMoveForReplicaCount(t *testing.T) {
 	}{
 		{name: "level disk, 1,000 replicas against 10", in: two(500_000, 500_000, 1_000, 500, 10, 50_000), balanced: true},
 		{name: "level disk, 10 replicas against 1", in: two(400_000, 400_000, 10, 40_000, 1, 400_000), balanced: true},
-		// The disk spread is 0.04, inside the tolerance.
+		// S is 0.08 above T, inside the tolerance.
 		{name: "source 8 points fuller, 100 replicas against 10", in: two(480_000, 400_000, 100, 4_800, 10, 40_000), balanced: true},
-		// S sits at 40% disk and T at 80%, so every move widens the disk spread.
-		{name: "source emptier than the target, 20 replicas against 2", in: two(400_000, 800_000, 20, 20_000, 2, 400_000), balanced: false},
+		// S sits at 40% disk and T at 80%, so no source is fuller than a target.
+		{name: "source emptier than the target, 20 replicas against 2", in: two(400_000, 800_000, 20, 20_000, 2, 400_000), balanced: true},
+		// S sits at 60% disk and T at 40%. Moving either eligible shard leaves
+		// S at 35% and T at 65%.
+		{name: "source 20 points fuller, 20 replicas against 2", in: fuller, balanced: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			base := baselineRows(tt.in)
 			require.Greater(t, base[0].ReplicaCount, base[1].ReplicaCount, "the source must hold more replicas")
-			require.Equal(t, tt.balanced, rp.Balanced(base), "the baseline's balance")
+			require.Equal(t, tt.balanced, rp.Balanced(base, sources(tt.in)), "the baseline's balance")
 			res := mustSearch(t, tt.in)
 			require.Equal(t, rp.NoAcceptablePlan, res.Verdict)
 			checkResult(t, tt.in, res)
@@ -494,7 +517,7 @@ func TestSearchBalancesDiskAgainstReplicaCount(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			base := baselineRows(tt.in)
-			require.False(t, rp.Balanced(base), "the baseline must start unbalanced")
+			require.False(t, rp.Balanced(base, sources(tt.in)), "the baseline must start unbalanced")
 			for _, r := range base[1:] {
 				if r.DiskUtilisation < base[0].DiskUtilisation {
 					require.LessOrEqual(t, base[0].ReplicaCount, r.ReplicaCount, "the fuller node must hold no more replicas")
@@ -503,7 +526,7 @@ func TestSearchBalancesDiskAgainstReplicaCount(t *testing.T) {
 			res := mustSearch(t, tt.in)
 			require.Equal(t, rp.MovesFound, res.Verdict)
 			after := checkResult(t, tt.in, res)
-			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
+			require.True(t, rp.Balanced(after, sources(tt.in)), "goal is not balanced: %+v", after)
 		})
 	}
 }
@@ -552,11 +575,11 @@ func TestSearchBalancesScaleOut(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := scaleOut(tt.sizes, tt.n)
-			require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
+			require.False(t, rp.Balanced(baselineRows(in), sources(in)), "the baseline must start unbalanced")
 			res := mustSearch(t, in)
 			require.Equal(t, rp.MovesFound, res.Verdict)
 			after := checkResult(t, in, res)
-			require.True(t, rp.Balanced(after), "goal is not balanced: %+v", after)
+			require.True(t, rp.Balanced(after, sources(in)), "goal is not balanced: %+v", after)
 		})
 	}
 }
@@ -586,7 +609,7 @@ func TestSearchPlansAroundFullTarget(t *testing.T) {
 			after := checkResult(t, in, res)
 			// S and T2 can split evenly every shard that T1 does not take.
 			pair := rowsOf(after, "S", "T2")
-			require.True(t, rp.Balanced(pair), "S and T2 are not balanced: %+v", after)
+			require.True(t, rp.Balanced(pair, []string{"S"}), "S and T2 are not balanced: %+v", after)
 		})
 	}
 
@@ -609,8 +632,8 @@ func TestSearchPlansAroundFullTarget(t *testing.T) {
 }
 
 // A target that is fuller than the source receives no move and does not end
-// the plan for the others. S sits at 80% disk, T1 at 90% and T2 at 40%. Ten
-// 2-byte shards onto T2 level S and T2 at 60%.
+// the plan for the others. S sits at 80% disk, T1 at 90% and T2 at 40%.
+// Moving 2-byte shards onto T2 brings S within the tolerance of T2.
 func TestSearchPlansAroundFullerTarget(t *testing.T) {
 	in := rp.Input{
 		Nodes: []rp.Node{
@@ -627,7 +650,7 @@ func TestSearchPlansAroundFullerTarget(t *testing.T) {
 		require.Equal(t, "T2", m.TargetNode, "move %d", i)
 	}
 	pair := rowsOf(after, "S", "T2")
-	require.True(t, rp.Balanced(pair), "S and T2 are not balanced: %+v", after)
+	require.True(t, rp.Balanced(pair, []string{"S"}), "S and T2 are not balanced: %+v", after)
 }
 
 // A layout that only a swap can improve has no acceptable plan. S holds 6 and
@@ -676,7 +699,7 @@ func TestSearchMirrorOnlyLayoutHasNoPlan(t *testing.T) {
 							},
 							Replicas: append(shards("S", "s", onT+1, shardBytes), shards("T", "t", onT, shardBytes)...),
 						}
-						require.False(t, rp.Balanced(baselineRows(in)), "the baseline must start unbalanced")
+						require.False(t, rp.Balanced(baselineRows(in), sources(in)), "the baseline must start unbalanced")
 						res := mustSearch(t, in)
 						require.Equal(t, rp.NoAcceptablePlan, res.Verdict)
 						checkResult(t, in, res)
@@ -759,7 +782,7 @@ func TestSearchRejectsInvalidInput(t *testing.T) {
 				{Node: "a", DiskUtilisation: bad, ReplicaCount: 1},
 				{Node: "b", DiskUtilisation: 0.5, ReplicaCount: 1},
 			}
-			require.False(t, rp.Balanced(rows), "disk utilisation %v", bad)
+			require.False(t, rp.Balanced(rows, []string{"a"}), "disk utilisation %v", bad)
 		}
 	})
 }

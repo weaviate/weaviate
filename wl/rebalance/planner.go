@@ -78,6 +78,11 @@ const (
 	planningResultError     = "ERROR"
 )
 
+func baselineBalancedReason() string {
+	return fmt.Sprintf("no source's disk utilisation exceeds any target's by more than the balance tolerance of %.2f",
+		rebalanceplanner.BalanceTolerance)
+}
+
 // rebalanceProposer is the Raft surface the planner needs. *cluster.Raft
 // satisfies it.
 type rebalanceProposer interface {
@@ -374,12 +379,12 @@ func (rp *RebalancePlanner) assess(ctx context.Context, plan replication.Plan, t
 		return ""
 	}
 	req.Baseline = baseline(req.Nodes, replicaCounts(replicas))
-	if rebalanceplanner.Balanced(req.Baseline) {
-		req.Outcome = replication.PlanStateNotNeeded
+	if rebalanceplanner.Balanced(req.Baseline, plan.SourceNodes) {
+		req.Outcome, req.Reason = replication.PlanStateNotNeeded, baselineBalancedReason()
 		return ""
 	}
 	in := rp.searchInput(plan, req.Nodes, replicas, drafts)
-	if rebalanceplanner.Balanced(projectedRows(in.Nodes)) {
+	if rebalanceplanner.Balanced(projectedRows(in.Nodes), plan.SourceNodes) {
 		req.Outcome, req.Reason = replication.PlanStateNotNeeded, inFlightBalancedReason
 		return ""
 	}

@@ -61,6 +61,7 @@ const (
 
 	noAcceptablePlanReason = "disk utilisation is unbalanced, and no direct move from a source to a target that fits the target's capacity narrows its spread"
 	inFlightBalancedReason = "in-flight replication operations will balance the cluster"
+	baselineBalancedReason = "no source's disk utilisation exceeds any target's by more than the balance tolerance of 0.10"
 )
 
 // plannerStart is the fake clock's time when a run starts.
@@ -739,6 +740,10 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		requireSameAsNoOpRun(t, h.proposal(), finishedRows(), finishedLayout())
 	}
 
+	t.Run("baseline reason states the tolerance", func(t *testing.T) {
+		require.Contains(t, baselineBalancedReason, fmt.Sprintf("%.2f", rebalanceplanner.BalanceTolerance))
+	})
+
 	cases := []struct {
 		name   string
 		rows   map[string]types.RebalanceNodeMeasurement
@@ -767,6 +772,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		{
 			name:        "balanced",
 			wantOutcome: replication.PlanStateNotNeeded,
+			wantReason:  baselineBalancedReason,
 			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
@@ -781,23 +787,37 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				shardGroup{count: 40, nodes: []string{"node-1"}},
 			),
 			wantOutcome: replication.PlanStateNotNeeded,
+			wantReason:  baselineBalancedReason,
 			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 80},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 40},
 			},
 		},
 		{
-			name: "imbalanced disk utilisation",
-			// Utilisation 0.75 and 0.95. node-2 has room for a 1MB replica,
-			// but a move onto the fuller target widens the spread.
+			name: "source emptier than its target needs no plan",
+			// node-1 at 0.75 is emptier than node-2 at 0.95.
 			rows: drafted(withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskAvailableBytes = 250_000_000 }),
 				"node-1", shardSizes("Articles", 0, 1_000_000, 1_000_000)...),
+			states:      layout(shardGroup{count: 2, nodes: []string{"node-1"}}),
+			wantOutcome: replication.PlanStateNotNeeded,
+			wantReason:  baselineBalancedReason,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 2},
+				{Node: "node-2", DiskUtilisation: 790_000_000.0 / 832_000_000.0},
+			},
+		},
+		{
+			name: "no move narrows the spread",
+			// Utilisation 0.875 and 0.625. Moving either node-1 replica needs
+			// 500MB + 2 × its size on node-2. That is more than node-2's 800MB
+			// usable.
+			rows:        drafted(diskRows(700_000_000, 500_000_000), "node-1", shardSizes("Articles", 0, 160_000_000, 200_000_000)...),
 			states:      layout(shardGroup{count: 2, nodes: []string{"node-1"}}),
 			wantOutcome: replication.PlanStateNoAcceptablePlan,
 			wantReason:  noAcceptablePlanReason,
 			wantBaseline: []types.RebalanceNodeBalance{
-				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 2},
-				{Node: "node-2", DiskUtilisation: 790_000_000.0 / 832_000_000.0},
+				{Node: "node-1", DiskUtilisation: 700_000_000 / diskUsable, ReplicaCount: 2},
+				{Node: "node-2", DiskUtilisation: 500_000_000 / diskUsable},
 			},
 		},
 		{
@@ -835,7 +855,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				}
 				require.Greater(t, len(want), 1, "a single move has no order to check")
 				require.Equal(t, want, withoutIDs(req.Moves))
-				require.True(t, rebalanceplanner.Balanced(req.Goal))
+				require.True(t, rebalanceplanner.Balanced(req.Goal, []string{"node-1"}))
 
 				create := func(id string, at int64) error {
 					return h.fsm.CreatePlan(&replication.CreatePlanRequest{
@@ -1031,6 +1051,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			// node-9 is not listed, so both listed nodes count 0 replicas.
 			states:      layout(shardGroup{count: 4, nodes: []string{"node-9"}}),
 			wantOutcome: replication.PlanStateNotNeeded,
+			wantReason:  baselineBalancedReason,
 			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation},
 				{Node: "node-2", DiskUtilisation: node2Utilisation},
@@ -1046,6 +1067,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			name:        "class deleted during the pass",
 			states:      balancedLayout().failing("Deleted", missingClassErr(t)),
 			wantOutcome: replication.PlanStateNotNeeded,
+			wantReason:  baselineBalancedReason,
 			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
@@ -1163,6 +1185,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			},
 			wantOutcome: replication.PlanStateNotNeeded,
 			wantResult:  "STOPPED",
+			wantReason:  baselineBalancedReason,
 			wantBaseline: []types.RebalanceNodeBalance{
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},

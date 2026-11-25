@@ -152,7 +152,8 @@ func (s sums) diskVariance() float64 {
 // when the balance value after it is below current − current × minRelativeGain.
 // Each step runs in this order:
 //  1. If ctx is done, Search returns ctx.Err() and Result{}.
-//  2. If Balanced accepts the current state, Search stops.
+//  2. If Balanced accepts the current state with the input's sources, Search
+//     stops.
 //  3. Among allowed moves that gain, Search takes the one with the lowest
 //     balance value after it. It stops when no allowed move gains.
 //
@@ -170,13 +171,19 @@ func Search(ctx context.Context, in Input) (Result, error) {
 		return Result{}, err
 	}
 	s := newSearch(in)
+	var sources []string
+	for _, n := range in.Nodes {
+		if n.Role == Source {
+			sources = append(sources, n.Name)
+		}
+	}
 
 	var moves []Move
 	for {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
-		if Balanced(s.rows()) {
+		if Balanced(s.rows(), sources) {
 			break
 		}
 		c, ok := s.best()
