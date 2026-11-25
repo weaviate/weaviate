@@ -1035,6 +1035,7 @@ func TestQueueOverlappingCloseKeepsRunningBatch(t *testing.T) {
 			done := make(chan error, 1)
 			enterrors.GoWrapper(func() { done <- q.Close(ctx) }, q.Logger)
 			<-draining
+			require.EqualError(t, q.Push(makeRecord(1, 30)), "queue closed")
 			if mode == "wait" {
 				waiting := &closeWaitContext{Context: context.Background(), entered: make(chan struct{})}
 				dropped := make(chan error, 1)

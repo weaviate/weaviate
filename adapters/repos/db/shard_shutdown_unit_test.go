@@ -33,6 +33,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -687,3 +689,144 @@ func TestIndexDropRetriesUndrainedShard(t *testing.T) {
 		}
 	}
 }
+
+func TestRetainedDrainsReachTeardownConsumers(t *testing.T) {
+	for _, route := range []string{"delete-index", "orphaned-class", "frozen-tenant", "index-shutdown", "db-shutdown"} {
+		for _, lazy := range []bool{false, true} {
+			for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+				t.Run(fmt.Sprintf("%s/lazy=%t/%v", route, lazy, cause), func(t *testing.T) {
+					sl, idx := testShard(t, context.Background(), "RetainedDrain")
+					idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+					s := sl.(*Shard)
+					vi, release, ok := s.AcquireVectorIndex("")
+					require.True(t, ok)
+					release()
+					worker := &undrainedVectorIndex{VectorIndex: vi, err: cause}
+					require.True(t, s.vectors.Replace("", worker))
+					t.Cleanup(func() { s.vectors.Replace("", vi); s.drop() })
+					if lazy {
+						wrapper := &LazyLoadShard{shardOpts: &deferredShardOpts{name: s.Name(), index: idx}}
+						wrapper.shard.Store(s)
+						idx.shards.Store(s.Name(), wrapper)
+					}
+					ns := s.metadataDB.Namespace("retained-drain")
+					require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+					db := newShutdownTestDB(t, logrus.New(), 0)
+					db.indices = map[string]*Index{idx.ID(): idx}
+					db.config.RootPath, db.promMetrics = idx.Config.RootPath, monitoring.GetMetrics()
+					closed := false
+					t.Cleanup(func() {
+						if !closed {
+							db.Shutdown(context.Background())
+						}
+					})
+					m := NewMigrator(db, idx.logger, "node1")
+					m.SetCluster(&recordingProcessor{})
+					run := func() error {
+						switch route {
+						case "delete-index":
+							return db.DeleteIndex(idx.Config.ClassName)
+						case "orphaned-class":
+							_, err := db.DropOrphanedClass(idx.Config.ClassName)
+							return err
+						case "frozen-tenant":
+							ec := errorcompounder.NewSafe()
+							m.frozen(context.Background(), idx, []string{s.Name()}, ec)
+							return ec.ToError()
+						case "index-shutdown":
+							return idx.Shutdown(context.Background())
+						default:
+							closed = true
+							return db.Shutdown(context.Background())
+						}
+					}
+					if route == "index-shutdown" {
+						require.ErrorIs(t, idx.dropShards([]string{s.Name()}), cause)
+					} else if route == "db-shutdown" {
+						require.ErrorIs(t, db.DeleteIndex(idx.Config.ClassName), cause, "class deletion must report an unfinished drain")
+					}
+					err := run()
+					require.ErrorIs(t, err, cause, "teardown must report the retained worker's unfinished drain")
+					require.DirExists(t, s.path(), "teardown must retain an undrained worker's directory")
+					value, err := ns.Get([]byte("key"))
+					require.NoError(t, err)
+					require.Equal(t, []byte("value"), value)
+					if route == "delete-index" || route == "orphaned-class" {
+						require.Nil(t, db.registeredIndex(idx.Config.ClassName), "a dropping index must not serve requests")
+						require.ErrorIs(t, m.AddClass(context.Background(), s.class), errDropInProgress, "a dropping index must not be reopened")
+					}
+					if route == "delete-index" || route == "orphaned-class" || route == "frozen-tenant" {
+						require.ErrorIs(t, run(), cause, "retry must report the retained worker's unfinished drain")
+						require.DirExists(t, s.path(), "retry must retain an undrained worker's directory")
+					}
+					require.True(t, s.vectors.Replace("", vi))
+					switch route {
+					case "index-shutdown":
+						require.NoError(t, idx.drop())
+					case "db-shutdown":
+						require.NoError(t, db.DeleteIndex(idx.Config.ClassName))
+					default:
+						require.NoError(t, run())
+					}
+					require.NoDirExists(t, s.path())
+					_, err = ns.Get([]byte("key"))
+					require.Error(t, err, "successful teardown must close the retained metadata handle")
+				})
+			}
+		}
+	}
+}
+
+func TestConcurrentIndexTeardownRetainsDrain(t *testing.T) {
+	for _, dropFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dropFirst=%t", dropFirst), func(t *testing.T) {
+			sl, idx := testShard(t, context.Background(), "ConcurrentDrain")
+			idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+			s := sl.(*Shard)
+			vi, release, ok := s.AcquireVectorIndex("")
+			require.True(t, ok)
+			release()
+			started, unblock := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			require.True(t, s.vectors.Replace("", &heldTeardownIndex{VectorIndex: vi, drain: func() error {
+				once.Do(func() { close(started) })
+				<-unblock
+				return context.DeadlineExceeded
+			}}))
+			db := newShutdownTestDB(t, logrus.New(), 0)
+			db.indices, db.promMetrics = map[string]*Index{idx.ID(): idx}, monitoring.GetMetrics()
+			done := make(chan error, 1)
+			enterrors.GoWrapper(func() {
+				if dropFirst {
+					done <- db.DeleteIndex(idx.Config.ClassName)
+				} else {
+					done <- idx.Shutdown(context.Background())
+				}
+			}, idx.logger)
+			<-started
+			var err error
+			if dropFirst {
+				err = db.Shutdown(context.Background())
+			} else {
+				err = db.DeleteIndex(idx.Config.ClassName)
+			}
+			close(unblock)
+			firstErr := <-done
+			s.vectors.Replace("", vi)
+			defer func() { s.drop(); db.Shutdown(context.Background()) }()
+			require.ErrorIs(t, err, context.Canceled, "concurrent teardown must report the active drain")
+			require.ErrorIs(t, firstErr, context.DeadlineExceeded)
+			require.DirExists(t, s.path())
+			require.NoError(t, db.DeleteIndex(idx.Config.ClassName), "deletion must retry after the active drain finishes")
+			require.NoDirExists(t, s.path())
+		})
+	}
+}
+
+type heldTeardownIndex struct {
+	VectorIndex
+	drain func() error
+}
+
+func (v *heldTeardownIndex) Shutdown(context.Context) error { return v.drain() }
+func (v *heldTeardownIndex) Drop(context.Context) error     { return v.drain() }
