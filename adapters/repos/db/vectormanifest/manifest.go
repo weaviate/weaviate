@@ -224,6 +224,10 @@ func (m *Manifest) Create(name string, cfg schemaConfig.VectorIndexConfig) (Entr
 	if err != nil {
 		return Entry{}, err
 	}
+	err = refuseDropping(name, records[name])
+	if err != nil {
+		return Entry{}, err
+	}
 	rec := recordFor(name, cfg, stateCreating)
 	if shared := collisionsWith(ownersOf(records), name, ownerOf(rec)); len(shared) > 0 {
 		return Entry{}, collisionError(name, shared)
@@ -261,6 +265,10 @@ func (m *Manifest) Ready(built map[string]schemaConfig.VectorIndexConfig) error 
 			if !ok {
 				return fmt.Errorf("vector %q has no mapping record", name)
 			}
+		}
+		err := refuseDropping(name, rec)
+		if err != nil {
+			return err
 		}
 		adopted, changed := rec.adopted(built[name])
 		if rec.State != stateReady {
@@ -319,6 +327,10 @@ func (m *Manifest) Reset(name string) error {
 	}
 	if !ok {
 		return fmt.Errorf("vector %q has no mapping record", name)
+	}
+	err = refuseDropping(name, rec)
+	if err != nil {
+		return err
 	}
 	rec.State = stateCreating
 	return m.records.Put(name, rec)
@@ -411,6 +423,14 @@ func (m *Manifest) Get(name string) (Entry, bool, error) {
 		return Entry{}, false, err
 	}
 	return entryOf(name, rec, rec.Config), true, nil
+}
+
+// refuseDropping fails for a vector whose drop has not finished.
+func refuseDropping(name string, rec record) error {
+	if rec.State == stateDropping {
+		return fmt.Errorf("vector %q is being dropped", name)
+	}
+	return nil
 }
 
 // HasStorage reports whether e's index has its directories on disk.
