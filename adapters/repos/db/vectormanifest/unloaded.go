@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
@@ -81,7 +82,8 @@ func DropUnloaded(shardDir, name string, siblings []string) error {
 // for a vector without one. When a load holds the records (locked) or they
 // cannot be read (err), the IDs are the naming rule's and may be wrong.
 func UnloadedStorageIDs(shardDir string, names []string) (ids map[string]string, locked bool, err error) {
-	records, _, err := readUnloaded(shardDir)
+	// another vector's record must not fail the report of these
+	records, _, err := readUnloaded(shardDir, names...)
 	ids = make(map[string]string, len(names))
 	for _, name := range names {
 		ids[name] = helpers.VectorIndexIDForTarget(name)
@@ -96,11 +98,18 @@ func UnloadedStorageIDs(shardDir string, names []string) (ids map[string]string,
 }
 
 // readUnloaded reads the records of a shard that is not loaded, refusing what
-// a load refuses. initialized is false for a shard that has none, such as one
-// restored from a backup older than them.
-func readUnloaded(shardDir string) (records map[string]record, initialized bool, err error) {
+// a load refuses, or only those of names when there are any. initialized is
+// false for a shard that has none, such as one restored from a backup older
+// than them.
+func readUnloaded(shardDir string, names ...string) (records map[string]record, initialized bool, err error) {
 	records, initialized, _, err = readRecords(func(fn func(key, value []byte) error) error {
-		return shardmeta.ForEachOffline(shardDir, namespace, fn)
+		return shardmeta.ForEachOffline(shardDir, namespace, func(key, value []byte) error {
+			if len(names) > 0 && string(key) != formatVersionKey &&
+				!slices.ContainsFunc(names, func(name string) bool { return recordKey(name) == string(key) }) {
+				return nil
+			}
+			return fn(key, value)
+		})
 	})
 	return records, initialized, err
 }
