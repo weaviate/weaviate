@@ -363,21 +363,48 @@ func TestManifest_DropKeepsTheRecordWhenAFileStays(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// A vector created again since its drop began keeps its record and files.
+// A vector that is not being dropped keeps its record and files.
 func TestManifest_FinishDropRefusesAVectorNotBeingDropped(t *testing.T) {
 	dir := t.TempDir()
 	m := loaded(t, dir, "foo")
-	_, err := m.BeginDrop("foo")
-	require.NoError(t, err)
-	_, err = m.Create("foo", enthnsw.NewDefaultUserConfig())
-	require.NoError(t, err)
 
-	require.ErrorContains(t, m.FinishDrop(t.Context(), "foo"), `vector "foo" is creating, not dropping`)
+	require.ErrorContains(t, m.FinishDrop(t.Context(), "foo"), `vector "foo" is ready, not dropping`)
 	assert.DirExists(t, filepath.Join(dir, "vectors_foo.hnsw.commitlog.d"))
-	rec, ok, err := m.records.Get("foo")
+	_, ok, err := m.Get("foo")
 	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, "creating", rec.State)
+	assert.True(t, ok)
+}
+
+// Only FinishDrop and a load end a drop: overwriting its record would leave
+// the files it names behind, or open them again.
+func TestManifest_ADropInProgressIsNotOverwritten(t *testing.T) {
+	cfg := enthnsw.NewDefaultUserConfig()
+	tests := []struct {
+		name string
+		call func(m *Manifest) error
+	}{
+		{name: "create", call: func(m *Manifest) error {
+			_, err := m.Create("foo", cfg)
+			return err
+		}},
+		{name: "ready", call: func(m *Manifest) error { return m.Ready(schemaVectors{"foo": cfg}) }},
+		{name: "reset", call: func(m *Manifest) error { return m.Reset("foo") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := loaded(t, t.TempDir(), "foo")
+			_, err := m.BeginDrop("foo")
+			require.NoError(t, err)
+			want, _, err := m.records.Get("foo")
+			require.NoError(t, err)
+
+			require.ErrorContains(t, tt.call(m), `vector "foo" is being dropped`)
+			got, _, err := m.records.Get("foo")
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+			require.NoError(t, m.FinishDrop(t.Context(), "foo"))
+		})
+	}
 }
 
 // A creation waits for a drop that is deleting files.
