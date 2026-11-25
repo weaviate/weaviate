@@ -239,6 +239,86 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## La plana en `none` por lectura directa, y el corte de `none` (pre-registro, 2026-11-24 a las 21:50)
+
+**Estado: pre-registrado antes de compilar nada.**
+- El encargo es del usuario, del 24 por la noche. Lo que deja abierto lo fijo aquí, marcado como *mío*.
+- Sin cronometrar.
+- Escrito mientras cronometraba la cadena de la noche del 24, que no deja hacer commits. Entra en un commit en cuanto acabe la cadena, antes de compilar nada.
+- Se implementa después de abrir la PR de filtros, no antes.
+
+### El encargo (del usuario)
+
+- **La plana en `none` pasa a ser lectura directa.**
+  - Con pocos permitidos, lee el vector exacto de cada uno del fichero de vectores, en paralelo dentro del presupuesto de la query, y calcula su distancia exacta, sin códigos ni rescore.
+  - Con más permitidos que el corte de `none`, va por el recorrido del índice.
+- **Medirla sin cronometrar sobre el clon,** cuando la cadena haya soltado el volumen. Se comparan las lecturas, los bytes y el recall de la lectura directa con los del recorrido del índice:
+  - al azar, con 500, 1 000, 2 000, 5 000 y 10 000 permitidos;
+  - correlado y anticorrelado, al 0.1 % y al 1 %.
+- **Proponer el corte de `none`:** el número de permitidos a partir del cual la lectura directa deja de hacer menos lecturas que el índice.
+
+### Cómo lo aplico (*mío*)
+
+**El código**, en una rama propia, `feat/posting-edge-none-direct`, sacada de `feat/posting-edge-integration` cuando la PR de filtros esté abierta. Así el diff que se revisa no cambia.
+- **Qué lee.** Toma los permitidos que el índice tiene y no ha marcado borrados, igual que la plana de hoy. Calcula la distancia exacta de cada uno con `ix.rescore`, que lee el vector como lo lee el rescore y reparte las lecturas dentro del presupuesto de la query: `concurrency.BudgetFromCtx`, con `rescoreConcurrency` como tope. Devuelve los k mejores.
+  - Aquí `ix.rescore` solo lee vectores: no hay un orden previo ni R.
+  - No lee ningún posting ni ningún código.
+  - `flatRankByPostings` se quita.
+- **Los vectores apartados** siguen como hoy: búsqueda exacta y merge.
+- **El corte de `none`** es un campo propio sin exportar, `PersistentConfig.noneFlatCutoff`, que los tests y el arnés fijan para forzar cada camino.
+  - Hasta que el usuario decida su valor, vale lo mismo que el de `routing`: 40 000.
+  - El valor que decida entra en un commit aparte.
+- **`routing` no cambia.**
+
+**Tests, en rojo en su propio commit antes del arreglo:**
+- **En `none`, por debajo del corte de `none`:**
+  - devuelve la verdad exacta, es decir, los k permitidos más cercanos por distancia exacta;
+  - no carga ningún posting ni puntúa ningún código (`Postings` y `Scored` a 0);
+  - lee un vector por cada permitido vivo (`Rescored`).
+- **Lo mismo con borrados, con vectores apartados y tras reabrir.** Los vectores apartados se prueban con el test de `drainHook`.
+- **Por encima del corte de `none`** va por el recorrido del índice, y los dos caminos se pueden forzar.
+- **Las lecturas no pasan del presupuesto de la query:** con un presupuesto B, nunca hay más de B lecturas en vuelo a la vez. Solo si el fixture deja contarlas; si no, lo digo.
+- **Los gemelos `routing` y `none`:** bajo el corte, `none` da recall 1.
+- **Por el shard:** una clase en `none` con un filtro bajo el corte.
+- **Los tests de `routing` pasan sin tocarlos.**
+
+**La medida:**
+- **El clon no tiene halos.** El clon es `/Volumes/v40bench/v54/flatnone/pe`, el índice de la noche. Creció en `routing`, y el índice solo escribe halos en `none` (`cfg.halo = p.noCodes`, `persistent.go:993`). Sin el halo, el recorrido del índice en `none` no se puede medir sobre el clon. Lo que hago:
+  - **La lectura directa,** sobre el clon con `noCodes` puesto. No lee ni códigos ni postings, solo vectores, así que es la misma que en un índice crecido en `none`.
+  - **El recorrido del índice,** sobre el clon en `routing`. Mido las cargas, los bloques leídos, sus bytes y los vectores rescorados.
+  - **En `none` cada carga lee además su halo,** un bloque más. Las lecturas del índice en `none` las doy como las medidas más una por carga, *calculadas y no medidas*. Los bytes del halo no los calculo: van como no medidos.
+  - **Por qué vale el cálculo:** en la pieza 7 a 1M, los dos modos cargaron lo mismo, dentro de lo que se separan dos corridas: 18.85 cargas a 0.95 en `none`, frente a 19.03 en `routing`.
+  - **Si el usuario quiere el recorrido en `none` medido,** hay que crecer un índice de 1M en `none`. El de la medida tardó 1 h 40 min en sus inserts, en `routing`. Esto se enmendaría antes.
+- **Los filtros:**
+  - **Al azar,** con 500, 1 000, 2 000, 5 000 y 10 000 permitidos exactos de los 990 000. Se sacan como `randomFilterIDs`, pero por número de permitidos y no por cuota, cada uno con su semilla: 4 000 más el número de permitidos dividido entre 100. La verdad se calcula por fuerza bruta sobre el train set, como en `drawRandomFilters`.
+  - **Correlado y anticorrelado al 0.1 % y al 1 %:** los de la caché de la medida, con 990 y 9 900 permitidos.
+  - **Al azar con 990 y 9 900, los de la caché,** como enlace con las cifras de la plana del 24 (*mío*).
+- **Las queries:** las 1 000, con k = 10.
+- **El recorrido del índice, forzado:** el punto de 0.95 se busca como en la medida de la noche del 23, con la misma función del arnés. También doy 0.99.
+- **Qué cuenta como lectura y como byte:**
+
+  | | lecturas | bytes |
+  |---|---|---|
+  | lectura directa | vectores leídos | vectores leídos × 6 144 |
+  | índice | bloques leídos (`Blocks`) más vectores rescorados (`Rescored`) | `BlockBytes` más vectores rescorados × 6 144 |
+
+- **Recall** frente a la verdad filtrada.
+- **El corte propuesto.** Con los cinco puntos al azar busco el número de permitidos en que las lecturas de la directa, que son tantas como permitidos, igualan las del índice en `none` a 0.95.
+  - Sale por interpolación lineal entre los dos puntos medidos que lo rodean, y se dice como interpolado.
+  - Si no cruza entre 500 y 10 000, digo de qué lado cae y no extrapolo.
+  - Doy también el cruce con las lecturas del índice medidas en `routing`, sin el halo.
+- **Correlado y anticorrelado** dicen si ese corte los manda bien: por filtro, qué camino lee menos y por cuál los manda el corte.
+- **El volumen:** el clon se abre solo cuando la cadena lo ha soltado, y al acabar no queda nada abierto en él.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **La lectura directa da recall 1** en todos los filtros, salvo empates en la verdad. Lee 6 KB por permitido: 3 MB por query con 500 permitidos y 61 MB con 10 000.
+- **El índice al azar carga más cuantos menos permitidos hay.** En `routing` fueron 1 320 cargas con 990 permitidos y 258.5 con 9 900. Calculado en `none`, son unas 4 000 lecturas con 1 000 permitidos y unas 840 con 10 000.
+- **El cruce al azar, entre 2 000 y 3 000 permitidos.**
+- **Correlado:** el índice lee menos en los dos, porque carga pocos postings (21.7 al 1 %, 50 al 0.1 %). Al 0.1 % el corte lo manda a la directa, que lee unas 4 o 5 veces más, aunque son menos de 1 000 lecturas.
+- **Anticorrelado:** la directa lee menos en los dos, porque el índice carga miles de postings.
+- **Por bytes la directa gana mucho más arriba.** Cada carga lee unos 50 KB de miembros, más las aristas y el halo, y cada vector son 6 KB. El corte se propone por lecturas, como pide el encargo; el cruce por bytes lo doy al lado.
+
 ## La búsqueda plana y el punto de cruce, otra vez, con HNSW centrado (pre-registro, 2026-11-24 a las 07:20)
 
 **Estado: pre-registrado. Solo corre cuando la plana lenta de la noche del 23 quede explicada.** El encargo es del usuario. Lo que deja abierto lo fijo aquí, marcado como *mío*. Lo mide la sesión de integración, con su arnés.
