@@ -266,13 +266,14 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 
 	newIndexFn := func(lazy, trackDimensions bool) *Index {
 		idx, err := NewIndex(ctx, nil, IndexConfig{
-			NodeName:              "test-node",
-			RootPath:              dirName,
-			ClassName:             schema.ClassName(className),
-			ReplicationFactor:     1,
-			ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-			TrackVectorDimensions: trackDimensions,
-			EnableLazyLoadShards:  lazy,
+			NodeName:                      "test-node",
+			RootPath:                      dirName,
+			ClassName:                     schema.ClassName(className),
+			ReplicationFactor:             1,
+			ShardLoadLimiter:              loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+			TrackVectorDimensions:         trackDimensions,
+			EnableLazyLoadShards:          lazy,
+			LazyLoadShardWarmupMinObjects: -1,
 		}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 			legacyVectorConfig,
 			namedVectorConfigs,
