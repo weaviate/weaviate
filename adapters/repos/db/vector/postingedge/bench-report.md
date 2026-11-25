@@ -319,6 +319,71 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Anticorrelado:** la directa lee menos en los dos, porque el índice carga miles de postings.
 - **Por bytes la directa gana mucho más arriba.** Cada carga lee unos 50 KB de miembros, más las aristas y el halo, y cada vector son 6 KB. El corte se propone por lecturas, como pide el encargo; el cruce por bytes lo doy al lado.
 
+### Resultados (25 de noviembre: el código de 08:40 a 08:47, la medida de 08:49 a 09:29)
+
+El orden del usuario de la mañana del 25 adelantó esto: la PR de filtros se abrió primero (#14023), y la lectura directa se midió antes de lanzar la cadena del día.
+
+**El código,** en `feat/posting-edge-none-direct`, sacada de `2ea0585696`:
+- **`d42b574347`: los tests en rojo.**
+  - Fallaron los cinco con el código de antes: `TestGrowFlatSearch`, `TestPersistentFilteredSearch`, `TestPersistentFlatSearchTwins`, `TestPersistentFlatSearchWithVectorsKeptAside` y el nuevo `TestPersistentNoneFlatCutoff`.
+  - Cubren:
+    - la verdad exacta, con `Postings` y `Scored` a 0 y `Rescored` igual a los permitidos vivos;
+    - lo mismo con borrados, con vectores apartados (`drainHook`) y tras reabrir;
+    - los dos cortes y los dos caminos forzados, en los dos modos;
+    - los gemelos, con `none` exacto.
+  - **Las lecturas en vuelo sí se pudieron contar:** el test envuelve la lectura del vector del índice. Con un presupuesto de 3 nunca hubo más de 3 a la vez, y sí más de 1. Este test no estaba en rojo antes: el rescore ya repartía así.
+- **`45b040f0eb`: el arreglo.** En `none`, todos los permitidos vivos van al rescore, se quita `flatRankByPostings`, y está `noneFlatCutoff`, a 40 000 por defecto. `routing` no cambia.
+- **`b990ed4976` y `d9b66bc86b`: el arnés `TestNoneDirectRead`.** El segundo commit corrige una comprobación del arnés que falló en la primera corrida, antes de medir nada: contaba el largo de `live` y no los vivos.
+- **Lint:** limpio, con las dos etiquetas, y `linter_go_routines.sh` pasa.
+
+**La medida** (`testdata/bench/integration-filters/nonedirect/`, en la rama): 1 000 queries, k = 10, sobre el clon, sin cronometrar.
+
+| filtro | permitidos | directa: lecturas · MB · recall | índice a 0.95: ef · recall · cargas | lecturas del índice, `routing` · `none` (calc.) | MB del índice, `routing` | lee menos (`none`) |
+|---|---:|---|---|---|---:|---|
+| al azar | 500 | 500 · 2.9 · 1.0000 | 10 · 0.9950 · 1 952.3 | 3 968.7 · 5 921.0 | 116.4 | directa, 11.8× |
+| al azar | 1 000 | 1 000 · 5.9 · 1.0000 | 10 · 0.9916 · 1 297.8 | 2 659.6 · 3 957.4 | 78.2 | directa, 4.0× |
+| al azar | 2 000 | 2 000 · 11.7 · 1.0000 | 10 · 0.9878 · 849.5 | 1 762.8 · 2 612.3 | 51.6 | directa, 1.3× |
+| al azar | 5 000 | 5 000 · 29.3 · 1.0000 | 10 · 0.9840 · 432.7 | 929.1 · 1 361.9 | 26.7 | índice, 3.7× |
+| al azar | 10 000 | 10 000 · 58.6 · 1.0000 | 10 · 0.9767 · 255.7 | 574.9 · 830.6 | 16.0 | índice, 12.0× |
+| al azar 0.1 % (caché) | 990 | 990 · 5.8 · 1.0000 | 10 · 0.9929 · 1 320.4 | 2 704.7 · 4 025.1 | 79.5 | directa, 4.1× |
+| al azar 1 % (caché) | 9 900 | 9 900 · 58.0 · 1.0000 | 10 · 0.9756 · 258.5 | 580.5 · 839.0 | 16.2 | índice, 11.8× |
+| correlado 0.1 % | 990 | 990 · 5.8 · 1.0000 | 10 · 0.9586 · 50.0 | 163.8 · 213.8 | 3.5 | índice, 4.6× |
+| correlado 1 % | 9 900 | 9 900 · 58.0 · 1.0000 | 12 · 0.9513 · 21.7 | 107.3 · 129.0 | 1.7 | índice, 76.8× |
+| anticorrelado 0.1 % | 990 | 990 · 5.8 · 1.0000 | 10 · 0.9868 · 3 898.9 | 7 861.8 · 11 760.7 | 224.9 | directa, 11.9× |
+| anticorrelado 1 % | 9 900 | 9 900 · 58.0 · 1.0000 | 10 · 0.9690 · 2 842.2 | 5 748.5 · 8 590.7 | 166.9 | índice, 1.15× |
+
+- **El índice, en `routing`,** lee dos bloques por carga en todos los filtros (miembros y aristas) y rescora unos 64 vectores.
+- **En `none` se suma un bloque de halo por carga,** calculado. Los bytes del halo no se calculan.
+- **Las cargas al azar con 990 y 9 900 son las de la noche del 23,** 1 320.4 y 258.5. El clon es el mismo índice.
+
+**El corte, por la regla pre-registrada:**
+- **2 432 permitidos,** interpolado entre 2 000 (la directa lee 2 000 y el índice en `none` 2 612) y 5 000 (5 000 frente a 1 362).
+- **Propongo 2 400,** redondeado a centenas (*mío*: el redondeo no estaba pre-registrado).
+- **Al lado:**
+  - contra las lecturas del índice en `routing`, sin halo, el cruce cae en 1 875, entre 1 000 y 2 000;
+  - por bytes, contra el índice en `routing`, en 4 813, entre 2 000 y 5 000. Un bloque del índice pesa unos 29 KB de media; un vector, 6 KB.
+
+**Por dónde manda el corte de 2 400 a los filtros de la caché:**
+- **Al azar 0.1 % y 1 %, y anticorrelado 0.1 % y 1 %:** van por el camino que lee menos.
+- **Correlado 0.1 %:** va a la directa, que lee 4.6 veces lo del índice (990 lecturas frente a 214). El corte cuenta permitidos y no ve la correlación. Es lo mismo que pasaba con el corte de `routing`.
+- **Correlado 1 %:** va al índice, que es el que lee menos.
+
+**Frente a lo que esperaba:**
+- **Se cumple:**
+  - recall 1 en todos;
+  - 6 KB por permitido;
+  - unas 4 000 lecturas calculadas con 1 000 permitidos (3 957) y unas 840 con 10 000 (831);
+  - el cruce al azar entre 2 000 y 3 000;
+  - el correlado: el índice lee menos en los dos, y al 0.1 % el corte lo manda a la directa, 4.6 veces más.
+- **Falla el anticorrelado al 1 %:** el índice lee un 13 % menos que la directa (8 591 frente a 9 900). Al 0.1 %, en cambio, la directa sí lee menos.
+- **«Mucho más arriba» por bytes era demasiado:** el cruce por bytes cae en unas 4 800, el doble que por lecturas.
+
+**Lo que no es comparable o queda abierto:**
+- **El punto de 0.95 del índice al azar cae siempre en ef 10,** el mínimo con k = 10, y con recall entre 0.977 y 0.995. Por eso el cruce es contra ef 10: el índice no puede leer menos a 0.95.
+- **Las lecturas del índice en `none` son calculadas.** Medirlas pide crecer un índice de 1M en `none`.
+- **Una lectura no pesa lo mismo en los dos caminos,** ni tarda lo mismo: un vector por doc id frente a un bloque de unos 29 KB. Nada se cronometró.
+- **Hasta que el usuario decida, el corte de `none` vale 40 000.** Con él, un filtro de entre 2 400 y 40 000 permitidos lee hasta 40 000 vectores por query, unos 234 MB. Con 10 000 permitidos ya son 12 veces las lecturas del índice; por encima de 10 000 no se midió. La rama no está en ningún sitio que se use.
+
 ## La búsqueda plana y el punto de cruce, otra vez, con HNSW centrado (pre-registro, 2026-11-24 a las 07:20)
 
 **Estado: pre-registrado. Solo corre cuando la plana lenta de la noche del 23 quede explicada.** El encargo es del usuario. Lo que deja abierto lo fijo aquí, marcado como *mío*. Lo mide la sesión de integración, con su arnés.
