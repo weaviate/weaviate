@@ -621,6 +621,42 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
+// A load told that a vector is dropped deletes every index of its rebuild,
+// as it does for a record that says dropping.
+func TestManifest_OpenFinishesADropItWasToldOfDuringARebuild(t *testing.T) {
+	for _, recorded := range []string{"vectors_title", "a-b", "c-d"} {
+		t.Run(recorded, func(t *testing.T) {
+			dir := t.TempDir()
+			m := loaded(t, dir, "title", "body")
+			rec, _, err := m.records.Get("title")
+			require.NoError(t, err)
+			rec.PhysicalID = recorded
+			require.NoError(t, m.records.Put("title", rec))
+			require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+			queueDir := filepath.Join(dir, "vectors_title.queue.d")
+			plant(t, queueDir)
+			for _, id := range []string{"vectors_title", "vectors_a-b", "vectors_body", rec.storageID()} {
+				plant(t, files(dir, id)...)
+			}
+
+			_, _, err = m.Open(t.Context(), schemaVectors{"body": enthnsw.NewDefaultUserConfig()}, []string{"title"})
+			require.NoError(t, err)
+			for _, id := range []string{"vectors_title", "vectors_a-b", rec.storageID()} {
+				for _, path := range files(dir, id) {
+					assert.NoDirExists(t, path)
+				}
+			}
+			assert.NoDirExists(t, queueDir)
+			for _, path := range files(dir, "vectors_body") {
+				assert.DirExists(t, path)
+			}
+			c, err := m.load()
+			require.NoError(t, err)
+			assert.Equal(t, []string{"body"}, c.names())
+		})
+	}
+}
+
 // A task the records cannot account for fails the load before anything goes.
 func TestManifest_OpenRefusesATask(t *testing.T) {
 	cfg := enthnsw.NewDefaultUserConfig()
