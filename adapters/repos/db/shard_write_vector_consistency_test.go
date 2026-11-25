@@ -864,23 +864,3 @@ func nonNilErrs(errs []error) []error {
 	}
 	return out
 }
-
-func TestExperimentAsyncBatchErrors(t *testing.T) {
-	className := "AsyncBlame"
-	flavor := consistencyFlavors()[0]
-	shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
-		enthnsw.NewDefaultUserConfig(), false, true)
-
-	seed := consistencyObjects(flavor, className, 1)
-	require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), seed)))
-
-	objs := consistencyObjects(flavor, className, 5)
-	objs[2].Vector = make([]float32, 7)
-	objs[2].Vector[0] = 1
-	errs := shard.PutObjectBatch(t.Context(), objs)
-	for i, err := range errs {
-		ok, existsErr := shard.Exists(t.Context(), objs[i].ID())
-		require.NoError(t, existsErr)
-		t.Logf("object %d: stored=%v err=%v", i, ok, err)
-	}
-}
