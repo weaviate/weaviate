@@ -74,11 +74,11 @@ func NewServer(
 		grpc.WriteBufferSize(WRITE_BUFFER_SIZE),
 	)
 
-	// Both FileReplicationService and ReplicationService are internal cluster services
-	// that require basic auth when enabled.
+	// FileReplicationService and ReplicationService are internal cluster services.
+	// They check basic auth when credentials are set and send-only mode is off.
 	servicePrefixes := []string{"/clusterapi.FileReplicationService", "/clusterapi.ReplicationService"}
 	basicAuth := config.State.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
-	if basicAuth.Enabled() {
+	if basicAuth.VerifyEnabled() {
 		o = append(o, grpc.ChainUnaryInterceptor(
 			basicAuthUnaryInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))

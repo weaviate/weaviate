@@ -946,6 +946,50 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				MaintenanceNodes:        make([]string, 0),
 			},
 		},
+		{
+			name: "basic auth send only enabled",
+			envVars: map[string]string{
+				"CLUSTER_BASIC_AUTH_USERNAME":  "user",
+				"CLUSTER_BASIC_AUTH_PASSWORD":  "pass",
+				"CLUSTER_BASIC_AUTH_SEND_ONLY": "true",
+			},
+			expectedResult: cluster.Config{
+				Hostname:         hostname,
+				GossipBindPort:   7946,
+				DataBindPort:     7947,
+				AuthConfig:       cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "user", Password: "pass", SendOnly: true}},
+				MaintenanceNodes: make([]string, 0),
+			},
+		},
+		{
+			name: "basic auth send only disabled",
+			envVars: map[string]string{
+				"CLUSTER_BASIC_AUTH_USERNAME":  "user",
+				"CLUSTER_BASIC_AUTH_PASSWORD":  "pass",
+				"CLUSTER_BASIC_AUTH_SEND_ONLY": "false",
+			},
+			expectedResult: cluster.Config{
+				Hostname:         hostname,
+				GossipBindPort:   7946,
+				DataBindPort:     7947,
+				AuthConfig:       cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "user", Password: "pass"}},
+				MaintenanceNodes: make([]string, 0),
+			},
+		},
+		{
+			name: "basic auth send only unset",
+			envVars: map[string]string{
+				"CLUSTER_BASIC_AUTH_USERNAME": "user",
+				"CLUSTER_BASIC_AUTH_PASSWORD": "pass",
+			},
+			expectedResult: cluster.Config{
+				Hostname:         hostname,
+				GossipBindPort:   7946,
+				DataBindPort:     7947,
+				AuthConfig:       cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "user", Password: "pass"}},
+				MaintenanceNodes: make([]string, 0),
+			},
+		},
 	}
 
 	for _, test := range tests {
