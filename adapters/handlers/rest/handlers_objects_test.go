@@ -15,9 +15,11 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
@@ -1085,6 +1088,78 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			t.Errorf("expected: %T got: %T", objects.ObjectsListInternalServerError{}, res)
 		}
 	})
+}
+
+// The deprecated handlers read the flag on every request, so a runtime override
+// takes effect without a restart. With namespaces enabled they answer 410
+// whatever the flag says.
+func TestObjectIDEndpointsWithoutClassGone(t *testing.T) {
+	id := strfmt.UUID("85f78e29-5937-4390-a121-5379f262b4e5")
+	body := &models.Object{Class: "Foo"}
+	endpoints := []struct {
+		name string
+		call func(h *objectHandlers, r *http.Request) middleware.Responder
+	}{
+		{"GET", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.getObjectDeprecated(objects.ObjectsGetParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"HEAD", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.headObjectDeprecated(objects.ObjectsHeadParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"PUT", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.updateObjectDeprecated(objects.ObjectsUpdateParams{HTTPRequest: r, ID: id, Body: body}, nil)
+		}},
+		{"PATCH", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.patchObjectDeprecated(objects.ObjectsPatchParams{HTTPRequest: r, ID: id, Body: body}, nil)
+		}},
+		{"DELETE", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.deleteObjectDeprecated(objects.ObjectsDeleteParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"POST reference", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.addObjectReferenceDeprecated(objects.ObjectsReferencesCreateParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: new(models.SingleRef),
+			}, nil)
+		}},
+		{"PUT references", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.updateObjectReferencesDeprecated(objects.ObjectsReferencesUpdateParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: models.MultipleRef{},
+			}, nil)
+		}},
+		{"DELETE reference", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.deleteObjectReferenceDeprecated(objects.ObjectsReferencesDeleteParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: new(models.SingleRef),
+			}, nil)
+		}},
+	}
+	status := func(res middleware.Responder) int {
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		return rec.Code
+	}
+	newHandler := func(cfg config.Config) *objectHandlers {
+		return &objectHandlers{
+			manager:             &fakeManager{getObjectReturn: &models.Object{Class: "Foo"}},
+			logger:              &logrus.Logger{},
+			config:              cfg,
+			metricRequestsTotal: &fakeMetricRequestsTotal{},
+		}
+	}
+
+	for _, e := range endpoints {
+		t.Run(e.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects/"+id.String(), nil)
+
+			disabled := configRuntime.NewDynamicValue(false)
+			h := newHandler(config.Config{DisableObjectIDEndpointsWithoutClass: disabled})
+			assert.NotEqual(t, http.StatusGone, status(e.call(h, req)))
+
+			require.NoError(t, disabled.SetValue(true))
+			assert.Equal(t, http.StatusGone, status(e.call(h, req)))
+
+			h = newHandler(config.Config{Namespaces: config.Namespaces{Enabled: true}})
+			assert.Equal(t, http.StatusGone, status(e.call(h, req)))
+		})
+	}
 }
 
 func TestObjectsListWithoutClassCounter(t *testing.T) {

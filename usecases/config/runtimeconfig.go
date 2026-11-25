@@ -81,6 +81,9 @@ type WeaviateRuntimeConfig struct {
 	DebugEndpointsEnabled                     *runtime.DynamicValue[bool]          `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
 	GRPCWebEnabled                            *runtime.DynamicValue[bool]          `json:"grpc_web_enabled" yaml:"grpc_web_enabled"`
 	DisableGraphQL                            *runtime.DynamicValue[bool]          `json:"disable_graphql" yaml:"disable_graphql"`
+	DisableObjectIDEndpointsWithoutClass      *runtime.DynamicValue[bool]          `json:"disable_object_id_endpoints_without_class" yaml:"disable_object_id_endpoints_without_class"`
+	DisableObjectsListWithoutClass            *runtime.DynamicValue[bool]          `json:"disable_objects_list_without_class" yaml:"disable_objects_list_without_class"`
+	DisableMultiTargetReferencesWithoutClass  *runtime.DynamicValue[bool]          `json:"disable_multi_target_references_without_class" yaml:"disable_multi_target_references_without_class"`
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
 
@@ -487,6 +490,9 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.DebugEndpointsEnabled = cfg.Profiling.DebugEndpointsEnabled
 	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
 	registered.DisableGraphQL = cfg.DisableGraphQL
+	registered.DisableObjectIDEndpointsWithoutClass = cfg.DisableObjectIDEndpointsWithoutClass
+	registered.DisableObjectsListWithoutClass = cfg.DisableObjectsListWithoutClass
+	registered.DisableMultiTargetReferencesWithoutClass = cfg.DisableMultiTargetReferencesWithoutClass
 
 	if cfg.Authentication.OIDC.Enabled {
 		registered.OIDCIssuer = cfg.Authentication.OIDC.Issuer
