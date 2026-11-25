@@ -30,6 +30,7 @@ type fakeShardUnloader struct {
 	registry     *LoadedShardRegistry
 	beforeLoads  atomic.Int64
 	onBeforeLoad atomic.Pointer[func(*LazyLoadShard)]
+	onRegistry   atomic.Pointer[func()]
 	closes       atomic.Int64
 	idle         atomic.Bool
 }
@@ -40,7 +41,13 @@ func newFakeShardUnloader() *fakeShardUnloader {
 	return &fakeShardUnloader{registry: NewLoadedShardRegistry()}
 }
 
-func (f *fakeShardUnloader) Registry() *LoadedShardRegistry { return f.registry }
+// Registry runs onRegistry once, inside TryUnload between its wrapper checks and tryShutdownIdle.
+func (f *fakeShardUnloader) Registry() *LoadedShardRegistry {
+	if fn := f.onRegistry.Swap(nil); fn != nil {
+		(*fn)()
+	}
+	return f.registry
+}
 
 func (f *fakeShardUnloader) BeforeLoad(l *LazyLoadShard) {
 	f.beforeLoads.Add(1)
@@ -298,6 +305,69 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			require.NotSame(t, s, f.lazy.currentShard())
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
 			require.True(t, f.lazy.UnloadedAt().IsZero(), "a reload clears it")
+		})
+	}
+}
+
+func TestLazyLoadShard_TryUnloadSeesAStampMadeBeforeThePinReleased(t *testing.T) {
+	const requestID = "prepared"
+	tests := []struct {
+		name         string
+		whilePinned  func(t *testing.T, f *unloadFixture, s *Shard, id strfmt.UUID)
+		wantUnloaded bool
+		wantDeleted  bool
+	}{
+		{
+			name: "request stamps and releases",
+			whilePinned: func(t *testing.T, f *unloadFixture, s *Shard, id strfmt.UUID) {
+				f.index.recordShardAccess(testCtx(), f.lazy)
+			},
+		},
+		{
+			name: "replica prepare stamps and releases",
+			whilePinned: func(t *testing.T, f *unloadFixture, s *Shard, id strfmt.UUID) {
+				f.index.recordShardAccess(testCtx(), f.lazy)
+				require.Empty(t, s.prepareDeleteObject(testCtx(), requestID, id, time.Now()).Errors)
+			},
+			wantDeleted: true,
+		},
+		{
+			name: "background work releases without a stamp",
+			whilePinned: func(t *testing.T, f *unloadFixture, s *Shard, id strfmt.UUID) {
+				f.index.recordShardAccess(withBackgroundShardAccess(testCtx()), f.lazy)
+			},
+			wantUnloaded: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			id := f.put(t)
+			s := f.lazy.currentShard()
+			require.NotNil(t, s)
+			require.Eventually(t, func() bool { return time.Since(accessClockEpoch) >= 3*time.Second },
+				5*time.Second, 10*time.Millisecond)
+			advanceAccessClock()
+
+			release, err := s.preventShutdown()
+			require.NoError(t, err)
+			f.lazy.lastAccess.Store(0)
+			released := false
+			hook := func() {
+				tt.whilePinned(t, f, s, id)
+				release()
+				released = true
+			}
+			f.unloader.onRegistry.Store(&hook)
+
+			require.Equal(t, tt.wantUnloaded, f.lazy.TryUnload(testCtx(), UnloadRequest{IdleTTL: time.Second}))
+			require.True(t, released)
+			require.Equal(t, !tt.wantUnloaded, f.lazy.isLoaded())
+			if tt.wantDeleted {
+				require.NotNil(t, f.index.CommitReplication(testCtx(), f.name, requestID))
+			}
+			require.Equal(t, !tt.wantDeleted, f.exists(t, id))
 		})
 	}
 }
