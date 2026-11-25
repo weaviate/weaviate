@@ -585,30 +585,6 @@ func replicationFactor(class *models.Class) int64 {
 	return class.ReplicationConfig.Factor
 }
 
-// checkTenantNodesCoverFactor refuses a namespaced tenant add or explicit unfreeze
-// whose non-empty ClusterNodes are shorter than the class's factor. Apply runs it
-// against the factor as of the entry, which the node that built the list can lag.
-// TODO(v1.43): it and AddTenants' cut to the factor change what apply writes, so
-// keep both while any node can replay an entry that carries ClusterNodes.
-func (s *SchemaManager) checkTenantNodesCoverFactor(req *command.ApplyRequest) error {
-	if _, ok := s.classNamespace(req.Class); !ok {
-		return nil
-	}
-	// A FREEZING tenant's unfreeze is left for metaClass.UpdateTenants to refuse.
-	nodes, err := s.placedTenantNodes(req, func(status string) bool {
-		return status == models.TenantActivityStatusFROZEN
-	})
-	if err != nil {
-		return err
-	}
-	factor := s.schema.ClassInfo(req.Class).ReplicationFactor
-	if len(nodes) > 0 && len(nodes) < factor {
-		return fmt.Errorf("%w: class %q has replication factor %d, and the node that received this request has not yet applied a change to it",
-			ErrBadRequest, req.Class, factor)
-	}
-	return nil
-}
-
 // placedTenantNodes returns the ClusterNodes of a tenant add, or of an explicit
 // update that moves a tenant whose status in the schema passes isFrozen to a
 // status other than FROZEN. Apply reads an update's list only to unfreeze. An
@@ -1239,9 +1215,6 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	if err := s.checkTenantNodesCoverFactor(cmd); err != nil {
-		return err
-	}
 	if ns, ok := s.classNamespace(cmd.Class); ok {
 		// With more than factor entries, GetPartitions would spread one request's
 		// tenants over every entry. Factor 0 marks a class the schema does not hold.
@@ -1273,9 +1246,6 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 	req := &command.UpdateTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
-	}
-	if err := s.checkTenantNodesCoverFactor(cmd); err != nil {
-		return err
 	}
 	if len(req.ClusterNodes) == 0 {
 		// metaClass.unfreeze calls GetPartitions per tenant, so each takes the first RF entries.

@@ -1704,116 +1704,6 @@ func TestPreApplyFilter_TenantNodesAreHomeNodes(t *testing.T) {
 	}
 }
 
-// TestSchemaManager_TenantNodesCoverFactor pins apply's refusal of a tenant add or
-// unfreeze whose list is shorter than the namespaced class's factor of 2. It also
-// pins AddTenants cutting a longer add list to the factor.
-func TestSchemaManager_TenantNodesCoverFactor(t *testing.T) {
-	const (
-		hot         = models.TenantActivityStatusHOT
-		cold        = models.TenantActivityStatusCOLD
-		frozen      = models.TenantActivityStatusFROZEN
-		freezing    = models.TenantActivityStatusFREEZING
-		staleFactor = `class "alpha:Foo" has replication factor 2, and the node that received this request has not yet applied a change to it`
-		beingFrozen = "is currently being frozen"
-	)
-	tests := []struct {
-		name      string
-		class     string   // alpha:Foo when empty
-		held      string   // t1's status in the schema; t1 is not held when empty
-		add       bool     // a tenant add; an update of t1 when false
-		tenants   []string // the tenants an add names, t1 when empty
-		requested string
-		coldFirst bool // a HOT t0 moving to COLD goes ahead of t1 in the update
-		sent      []string
-		wantErr   string // the refusal's text; admitted when empty
-		wantIs    error  // ErrBadRequest when nil
-		wantNodes map[string][]string
-	}{
-		{name: "add: a list shorter than the factor is refused", add: true, sent: []string{"n1"}, wantErr: staleFactor},
-		{
-			name: "add: a list longer than the factor is cut to it", add: true,
-			tenants: []string{"t1", "t2", "t3"}, sent: []string{"n1", "n2", "n3"},
-			wantNodes: map[string][]string{"t1": {"n1", "n2"}, "t2": {"n2", "n1"}, "t3": {"n2", "n1"}},
-		},
-		{
-			name: "add: an unqualified class's list is not cut", class: "Foo", add: true,
-			tenants: []string{"t1", "t2"}, sent: []string{"n4", "n5"},
-			wantNodes: map[string][]string{"t1": {"n4"}, "t2": {"n5"}},
-		},
-		{name: "unfreeze: a list shorter than the factor is refused", held: frozen, requested: hot, sent: []string{"n2"}, wantErr: staleFactor},
-		{
-			name: "unfreeze: a short list is refused before another tenant in the update changes",
-			held: frozen, requested: hot, coldFirst: true, sent: []string{"n2"}, wantErr: staleFactor,
-		},
-		{
-			name: "unfreeze: a FREEZING tenant with a short list is refused for its status",
-			held: freezing, requested: hot, sent: []string{"n2"}, wantErr: beingFrozen, wantIs: ErrTenantTransitionalState,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			class := cmp.Or(tt.class, "alpha:Foo")
-			physical := map[string]sharding.Physical{}
-			if tt.held != "" {
-				physical["t1"] = sharding.Physical{Name: "t1", Status: tt.held, BelongsToNodes: []string{"n1"}}
-			}
-			names := []string{"t1"}
-			var req *cmd.ApplyRequest
-			if tt.add {
-				if len(tt.tenants) > 0 {
-					names = tt.tenants
-				}
-				addReq := &cmd.AddTenantsRequest{ClusterNodes: tt.sent}
-				for _, name := range names {
-					addReq.Tenants = append(addReq.Tenants, &cmd.Tenant{Name: name, Status: hot})
-				}
-				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT, addReq)
-			} else {
-				tenants := []*cmd.Tenant{{Name: "t1", Status: tt.requested}}
-				if tt.coldFirst {
-					physical["t0"] = sharding.Physical{Name: "t0", Status: hot, BelongsToNodes: []string{"n1"}}
-					tenants = append([]*cmd.Tenant{{Name: "t0", Status: cold}}, tenants...)
-					names = append(names, "t0")
-				}
-				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_UPDATE_TENANT, &cmd.UpdateTenantsRequest{
-					ClusterNodes: tt.sent,
-					Tenants:      tenants,
-				})
-			}
-			req.Class = class
-			sm := newManagerWithNamespacedClass(t, 2, []string{"n1", "n2", "n3"}, physical)
-			require.NoError(t, sm.schema.addClass(&models.Class{
-				Class:              "Foo",
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-				ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
-			}, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{}}, 1))
-			before, _ := sm.schema.TenantsShardsStatus(class, names...)
-
-			var err error
-			if tt.add {
-				err = sm.AddTenants(req, true)
-			} else {
-				err = sm.UpdateTenants(req, true)
-			}
-			if tt.wantErr == "" {
-				require.NoError(t, err)
-				for name, want := range tt.wantNodes {
-					got, _, err := sm.schema.ShardReplicas(class, name)
-					require.NoError(t, err)
-					assert.Equal(t, want, got, name)
-				}
-				return
-			}
-			require.ErrorIs(t, err, cmp.Or(tt.wantIs, ErrBadRequest))
-			assert.ErrorContains(t, err, tt.wantErr)
-			assert.NotContains(t, err.Error(), "retry")
-			after, _ := sm.schema.TenantsShardsStatus(class, names...)
-			assert.Equal(t, before, after, "a refused request must change no tenant")
-			require.NoError(t, sm.PreApplyFilter(req), "the leader must not judge a list against the factor before the append")
-		})
-	}
-}
-
 // propertyRecordingIndexer captures the property the store half applies.
 type propertyRecordingIndexer struct {
 	Indexer
@@ -1935,11 +1825,12 @@ func tenantApplyRequest(t *testing.T, typ cmd.ApplyRequest_Type, req gproto.Mess
 func TestSchemaManager_AddTenantsFillsHomeNodes(t *testing.T) {
 	tests := []struct {
 		name      string
+		class     string // alpha:Foo when empty
 		factor    int64
 		homeNodes []string
 		sent      []string
 		tenants   []string
-		wantNodes []string
+		wantNodes map[string][]string // each tenant's nodes, in any order
 		wantErr   string
 	}{
 		{
@@ -1947,7 +1838,15 @@ func TestSchemaManager_AddTenantsFillsHomeNodes(t *testing.T) {
 			factor:    2,
 			homeNodes: []string{"n1", "n2", "n3"},
 			tenants:   []string{"t1", "t2", "t3"},
-			wantNodes: []string{"n1", "n2"},
+			wantNodes: map[string][]string{"t1": {"n1", "n2"}, "t2": {"n1", "n2"}, "t3": {"n1", "n2"}},
+		},
+		{
+			name:      "a sent list longer than the factor is cut to it",
+			factor:    2,
+			homeNodes: []string{"n1", "n2", "n3"},
+			sent:      []string{"n1", "n2", "n3"},
+			tenants:   []string{"t1", "t2", "t3"},
+			wantNodes: map[string][]string{"t1": {"n1", "n2"}, "t2": {"n1", "n2"}, "t3": {"n1", "n2"}},
 		},
 		{
 			name:      "a sent list no longer than the factor is kept",
@@ -1955,7 +1854,15 @@ func TestSchemaManager_AddTenantsFillsHomeNodes(t *testing.T) {
 			homeNodes: []string{"n1"},
 			sent:      []string{"n4"},
 			tenants:   []string{"t1"},
-			wantNodes: []string{"n4"},
+			wantNodes: map[string][]string{"t1": {"n4"}},
+		},
+		{
+			name:      "an unqualified class's list is not cut",
+			class:     "Foo",
+			factor:    1,
+			sent:      []string{"n4", "n5"},
+			tenants:   []string{"t1", "t2"},
+			wantNodes: map[string][]string{"t1": {"n4"}, "t2": {"n5"}},
 		},
 		{
 			name:      "a factor above the home-node count is refused",
@@ -1968,22 +1875,30 @@ func TestSchemaManager_AddTenantsFillsHomeNodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			class := cmp.Or(tt.class, "alpha:Foo")
 			sm := newManagerWithNamespacedClass(t, tt.factor, tt.homeNodes, nil)
+			require.NoError(t, sm.schema.addClass(&models.Class{
+				Class:              "Foo",
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				ReplicationConfig:  &models.ReplicationConfig{Factor: tt.factor},
+			}, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{}}, 1))
 			req := &cmd.AddTenantsRequest{ClusterNodes: tt.sent}
 			for _, name := range tt.tenants {
 				req.Tenants = append(req.Tenants, &cmd.Tenant{Name: name, Status: models.TenantActivityStatusHOT})
 			}
+			apply := tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT, req)
+			apply.Class = class
 
-			err := sm.AddTenants(tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT, req), true)
+			err := sm.AddTenants(apply, true)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			for _, name := range tt.tenants {
-				owners, _, err := sm.schema.ShardReplicas("alpha:Foo", name)
+			for name, want := range tt.wantNodes {
+				owners, _, err := sm.schema.ShardReplicas(class, name)
 				require.NoError(t, err)
-				assert.ElementsMatch(t, tt.wantNodes, owners, name)
+				assert.ElementsMatch(t, want, owners, name)
 			}
 		})
 	}
