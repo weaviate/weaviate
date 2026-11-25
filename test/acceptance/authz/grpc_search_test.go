@@ -108,6 +108,21 @@ func TestAuthzGRPCSearch(t *testing.T) {
 				require.NotNil(t, resp)
 				require.Len(t, resp.Results, 1)
 			})
+
+			t.Run("filter on a property with read_data only", func(t *testing.T) {
+				ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+				resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+					Collection: articles.ArticlesClass().Class,
+					Tenant:     tt.tenantName,
+					Filters: &protocol.Filters{
+						Operator:  protocol.Filters_OPERATOR_EQUAL,
+						On:        []string{"title"},
+						TestValue: &protocol.Filters_ValueText{ValueText: "git"},
+					},
+				})
+				require.NoError(t, err)
+				require.Len(t, resp.Results, 1)
+			})
 		})
 	}
 }

@@ -77,4 +77,4 @@ go run generator.go
 | DeleteTenants | usecases/schema/tenant.go | DELETE → ShardsMetadata |
 | GetConsistentTenants | usecases/schema/tenant.go | READ → ShardsMetadata |
 | ConsistentTenantExists | usecases/schema/tenant.go | READ → ShardsMetadata |
-| validateFilters | usecases/traverser/traverser_get.go | READ → CollectionsMetadata |
+| validateFilters | usecases/traverser/traverser_get.go | READ → ShardsData<br>READ → CollectionsData |

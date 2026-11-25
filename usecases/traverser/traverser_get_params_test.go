@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -29,6 +30,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -744,4 +747,140 @@ outer:
 	}
 
 	return out[:i]
+}
+
+func TestTraverserFilterAuthorization(t *testing.T) {
+	principal := &models.Principal{Username: "some-user"}
+	testSchema := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+		{
+			Class:              "Article",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties: []*models.Property{
+				{Name: "title", DataType: schema.DataTypeText.PropString()},
+			},
+		},
+	}}}
+
+	textClause := func(on *filters.Path) filters.Clause {
+		return filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       on,
+			Value:    &filters.Value{Value: "x", Type: schema.DataTypeText},
+		}
+	}
+	onTitle := textClause(&filters.Path{Class: "Article", Property: "title"})
+	onMissingClass := textClause(&filters.Path{Class: "Missing", Property: "title"})
+	titleTwice := filters.Clause{
+		Operator: filters.OperatorAnd,
+		Operands: []filters.Clause{onTitle, onTitle},
+	}
+
+	tests := []struct {
+		name            string
+		clause          *filters.Clause
+		tenant          string
+		deny            string
+		expectResources [][]string
+		expectErr       string
+	}{
+		{
+			name: "no filter",
+		},
+		{
+			name:            "without tenant",
+			clause:          &onTitle,
+			expectResources: [][]string{authorization.CollectionsData("Article")},
+		},
+		{
+			name:            "with tenant",
+			clause:          &onTitle,
+			tenant:          "tenant1",
+			expectResources: [][]string{authorization.ShardsData("Article", "tenant1")},
+		},
+		{
+			name:            "class repeated across operands",
+			clause:          &titleTwice,
+			expectResources: [][]string{authorization.CollectionsData("Article")},
+		},
+		{
+			name:            "denied",
+			clause:          &onTitle,
+			deny:            authorization.Objects("Article", ""),
+			expectResources: [][]string{authorization.CollectionsData("Article")},
+			expectErr:       "forbidden",
+		},
+		{
+			name:   "denied in every operand",
+			clause: &titleTwice,
+			tenant: "tenant1",
+			deny:   authorization.Objects("Article", "tenant1"),
+			// a denial is not memoized
+			expectResources: [][]string{
+				authorization.ShardsData("Article", "tenant1"),
+				authorization.ShardsData("Article", "tenant1"),
+			},
+			expectErr: "forbidden",
+		},
+		{
+			name: "class missing from the schema",
+			clause: &filters.Clause{
+				Operator: filters.OperatorOr,
+				Operands: []filters.Clause{onMissingClass, onMissingClass},
+			},
+			tenant:          "tenant1",
+			expectResources: [][]string{authorization.ShardsData("Missing", "tenant1")},
+			expectErr:       `class "Missing" does not exist in schema`,
+		},
+	}
+
+	entryPoints := map[string]func(*Traverser, *filters.LocalFilter, string) error{
+		"GetClass": func(tr *Traverser, filter *filters.LocalFilter, tenant string) error {
+			_, err := tr.GetClass(context.Background(), principal,
+				dto.GetParams{ClassName: "Article", Filters: filter, Tenant: tenant})
+			return err
+		},
+		"Aggregate": func(tr *Traverser, filter *filters.LocalFilter, tenant string) error {
+			_, err := tr.Aggregate(context.Background(), principal,
+				&aggregation.Params{ClassName: "Article", Filters: filter, Tenant: tenant})
+			return err
+		},
+	}
+
+	for entryPoint, run := range entryPoints {
+		for _, tt := range tests {
+			t.Run(entryPoint+"/"+tt.name, func(t *testing.T) {
+				authorizer := mocks.NewMockAuthorizer()
+				if tt.deny != "" {
+					authorizer.Deny(tt.deny)
+				}
+				repo := &fakeVectorRepo{}
+				repo.On("Aggregate", mock.Anything).Return((*aggregation.Result)(nil), nil).Maybe()
+				logger, _ := logrus.NewNullLogger()
+				tr := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
+					repo, &fakeExplorer{}, &fakeSchemaGetter{testSchema}, nil, nil, -1)
+
+				var filter *filters.LocalFilter
+				if tt.clause != nil {
+					filter = &filters.LocalFilter{Root: tt.clause}
+				}
+				err := run(tr, filter, tt.tenant)
+
+				if tt.expectErr == "" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, tt.expectErr)
+				}
+				var forbidden authzerrs.Forbidden
+				assert.Equal(t, tt.deny != "", errors.As(err, &forbidden))
+
+				var resources [][]string
+				for _, call := range authorizer.Calls() {
+					assert.Equal(t, principal, call.Principal)
+					assert.Equal(t, authorization.READ, call.Verb)
+					resources = append(resources, call.Resources)
+				}
+				assert.Equal(t, tt.expectResources, resources)
+			})
+		}
+	}
 }
