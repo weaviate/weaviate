@@ -740,9 +740,10 @@ func TestRetainedDrainsReachTeardownConsumers(t *testing.T) {
 							return db.Shutdown(context.Background())
 						}
 					}
-					if route == "index-shutdown" {
+					switch route {
+					case "index-shutdown":
 						require.ErrorIs(t, idx.dropShards([]string{s.Name()}), cause)
-					} else if route == "db-shutdown" {
+					case "db-shutdown":
 						require.ErrorIs(t, db.DeleteIndex(idx.Config.ClassName), cause, "class deletion must report an unfinished drain")
 					}
 					err := run()
