@@ -491,14 +491,22 @@ func (m *Manifest) syncStorage(name string, rec record) error {
 }
 
 func (m *Manifest) removeArtifacts(ctx context.Context, artifacts helpers.VectorIndexArtifacts) error {
+	return removeArtifacts(m.shardDir, artifacts, func(bucket string) error {
+		return m.removeBucket(ctx, bucket)
+	})
+}
+
+// removeArtifacts deletes artifacts of the shard at shardDir, its LSM buckets
+// with removeBucket.
+func removeArtifacts(shardDir string, artifacts helpers.VectorIndexArtifacts, removeBucket func(bucket string) error) error {
 	for _, bucket := range artifacts.LSMBuckets {
-		err := m.removeBucket(ctx, bucket)
+		err := removeBucket(bucket)
 		if err != nil {
 			return fmt.Errorf("remove bucket %q: %w", bucket, err)
 		}
 	}
 	for _, dir := range artifacts.ShardDirs {
-		err := os.RemoveAll(filepath.Join(m.shardDir, dir))
+		err := os.RemoveAll(filepath.Join(shardDir, dir))
 		if err != nil {
 			return fmt.Errorf("remove directory %q: %w", dir, err)
 		}

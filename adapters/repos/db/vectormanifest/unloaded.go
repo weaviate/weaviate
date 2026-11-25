@@ -52,17 +52,11 @@ func DropUnloaded(shardDir, name string, siblings []string) error {
 		}
 	}
 
-	for _, bucket := range artifacts.LSMBuckets {
-		err := os.RemoveAll(filepath.Join(shardDir, "lsm", bucket))
-		if err != nil {
-			return fmt.Errorf("remove bucket %q: %w", bucket, err)
-		}
-	}
-	for _, dir := range artifacts.ShardDirs {
-		err := os.RemoveAll(filepath.Join(shardDir, dir))
-		if err != nil {
-			return fmt.Errorf("remove directory %q: %w", dir, err)
-		}
+	err = removeArtifacts(shardDir, artifacts, func(bucket string) error {
+		return os.RemoveAll(filepath.Join(shardDir, "lsm", bucket))
+	})
+	if err != nil {
+		return err
 	}
 	// Whatever the index type: the drop discarded it with the vector's config.
 	err = dynamic.RemoveStateKeyForID(shardDir, id)
