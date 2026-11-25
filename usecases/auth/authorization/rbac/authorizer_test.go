@@ -32,6 +32,7 @@ import (
 	authzErrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func TestAuthorize(t *testing.T) {
@@ -1261,5 +1262,41 @@ func TestBackupsWildcardProbeRequiresBlanketGrant(t *testing.T) {
 			require.Error(t, err)
 			assert.ErrorAs(t, err, new(authzErrors.Forbidden))
 		})
+	}
+}
+
+// TestTenantGrantDoesNotReachCollection checks that a tenant grant whose
+// pattern also matches the collection-level "#" updates and deletes tenants,
+// never the collection itself, for global and namespace-confined callers.
+func TestTenantGrantDoesNotReachCollection(t *testing.T) {
+	for _, tc := range []struct{ tenantPattern, tenant string }{
+		{"*", "t1"}, {".+", "t1"}, {".", "a"}, {"(.*)", "t1"}, {`\x23|t1`, "t1"},
+	} {
+		for _, namespace := range []string{"", "customer1"} {
+			t.Run(tc.tenantPattern+"/namespace="+namespace, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				m, err := New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true}, config.Authentication{}, namespace != "", nil, logger)
+				require.NoError(t, err)
+				var perms []*models.Permission
+				for _, action := range []string{authorization.UpdateTenants, authorization.DeleteTenants} {
+					perms = append(perms, &models.Permission{
+						Action:  authorization.String(action),
+						Tenants: &models.PermissionTenants{Collection: authorization.String("Movies"), Tenant: authorization.String(tc.tenantPattern)},
+					})
+				}
+				policies, err := conv.RolesToPolicies(&models.Role{Name: authorization.String("tenant-admin"), Permissions: perms})
+				require.NoError(t, err)
+				require.NoError(t, m.CreateRolesPermissions(policies))
+				require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb), []string{"tenant-admin"}))
+				alice := &models.Principal{Username: "alice", UserType: models.UserTypeInputDb, Namespace: namespace}
+				collection := namespacing.QualifiedName(namespace, "Movies")
+				ctx := context.Background()
+
+				for _, verb := range []string{authorization.UPDATE, authorization.DELETE} {
+					require.NoError(t, m.Authorize(ctx, alice, verb, authorization.ShardsMetadata(collection, tc.tenant)...))
+					require.Error(t, m.Authorize(ctx, alice, verb, authorization.CollectionsMetadata(collection)...))
+				}
+			})
+		}
 	}
 }

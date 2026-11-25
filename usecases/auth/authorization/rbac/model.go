@@ -394,8 +394,9 @@ func operatorOnlyResource(path string) bool {
 		strings.HasPrefix(path, groupsPrefix)
 }
 
-// weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
-// KeyMatch5: a collection-level request must not match a per-tenant policy.
+// weaviateKeyMatch runs the `/shards/#` carve-out then KeyMatch5: a
+// collection-level request must not match a per-tenant policy, whatever its
+// tenant pattern, since ".", ".+" or "(.*)" also match the text "#".
 //
 // A verbose nodes policy on any collection also satisfies the minimal nodes request.
 //
@@ -403,7 +404,7 @@ func operatorOnlyResource(path string) bool {
 // nothing. KeyMatch5 panics on it, which casbin turns into an error failing
 // the whole Enforce call.
 func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
-	if strings.HasSuffix(reqObj, "/shards/#") && strings.HasSuffix(polObj, "/shards/.*") {
+	if strings.HasSuffix(reqObj, collectionShardSuffix) && tenantLevelPolicy(polObj) {
 		return false
 	}
 	if reqObj == nodesMinimalResource && strings.HasPrefix(polObj, nodesVerbosePrefix) {
@@ -418,6 +419,20 @@ func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
 		}
 	}()
 	return casbinutil.KeyMatch5(reqObj, polObj)
+}
+
+// collectionShardSuffix ends a collection-level request; "#" names no tenant.
+const collectionShardSuffix = namespacing.ShardsMidSeg + "#"
+
+// tenantLevelPolicy reports whether polObj is a collection policy whose shards
+// segment is not the collection-level "#". Names cannot carry '/', so the last
+// "/shards/" starts it. A user or group id may contain "/shards/".
+func tenantLevelPolicy(polObj string) bool {
+	if !strings.HasPrefix(polObj, namespacing.SchemaCollectionsPrefix) {
+		return false
+	}
+	i := strings.LastIndex(polObj, namespacing.ShardsMidSeg)
+	return i >= 0 && polObj[i+len(namespacing.ShardsMidSeg):] != "#"
 }
 
 // namespaceAwareMatcher reports whether policy resource pattern polObj

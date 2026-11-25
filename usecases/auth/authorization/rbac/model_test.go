@@ -161,6 +161,18 @@ func TestKeyMatchTenant(t *testing.T) {
 			"schema/collections/Class1/shards/#",
 			false,
 		},
+		// Every tenant pattern below also matches the text "#"; none is a
+		// collection-level grant.
+		{"Tenant specific path should not match any tenant pattern", "schema/collections/Class1/shards/#", "schema/collections/Class1/shards/.+", false},
+		{"Tenant specific path should not match a single-character tenant", "schema/collections/Class1/shards/#", "schema/collections/Class1/shards/.", false},
+		{"Tenant specific path should not match an escaped #", "schema/collections/Class1/shards/#", `schema/collections/Class1/shards/\x23`, false},
+		{"Tenant specific path should not match a grouped wildcard", "schema/collections/Class1/shards/#", "schema/collections/Class1/shards/(.*)", false},
+		{"Tenant specific path should not match an alternation", "schema/collections/Class1/shards/#", "schema/collections/Class1/shards/(a|.)", false},
+		{"Tenant specific path should match root's wildcard", "schema/collections/Class1/shards/#", "*", true},
+		{"Tenant specific path should match a policy without a shards segment", "schema/collections/Class1/shards/#", "schema/collections/.*", true},
+		{"Regular shard should match a tenant pattern", "schema/collections/Class1/shards/shard-1", "schema/collections/Class1/shards/.+", true},
+		{"A user id with a shards segment is not a tenant", "users/team/shards/#", "users/team/shards/.+", true},
+		{"A group id with a shards segment is not a tenant", "groups/oidc/team/shards/#", "groups/oidc/team/shards/.*", true},
 	}
 
 	for _, tt := range tests {
