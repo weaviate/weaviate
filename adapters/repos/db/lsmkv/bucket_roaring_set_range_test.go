@@ -162,7 +162,7 @@ func TestRoaringSetRangeReaderConsistentViewInMemo(t *testing.T) {
 	mt := roaringsetrange.NewMemtable(logger)
 	mt.Insert(key1, []uint64{1})
 	mt.Insert(key2, []uint64{2})
-	segInMemo := roaringsetrange.NewSegmentInMemory(logger)
+	segInMemo := roaringsetrange.NewSegmentInMemory(logger, nil)
 	segInMemo.MergeMemtableEventually(mt)
 
 	b := Bucket{
@@ -234,12 +234,12 @@ func countLogLevel(hook *test.Hook, level logrus.Level) int {
 // newRangeableRepEmpty returns an unpopulated rep: presence set empty
 // (IsUnpopulated == true) despite the 65-bitmap skeleton giving Size() > 0.
 func newRangeableRepEmpty(logger logrus.FieldLogger) *roaringsetrange.SegmentInMemory {
-	return roaringsetrange.NewSegmentInMemory(logger)
+	return roaringsetrange.NewSegmentInMemory(logger, nil)
 }
 
 func newRangeableRepPopulated(t *testing.T, logger logrus.FieldLogger, value, docID uint64) *roaringsetrange.SegmentInMemory {
 	t.Helper()
-	rep := roaringsetrange.NewSegmentInMemory(logger)
+	rep := roaringsetrange.NewSegmentInMemory(logger, nil)
 	mt := roaringsetrange.NewMemtable(logger)
 	mt.Insert(value, []uint64{docID})
 	rep.MergeMemtableEventually(mt)
@@ -422,7 +422,7 @@ func TestRoaringSetRangeDeferredServingINFO(t *testing.T) {
 // the populated-rep hot path: one short-circuited IsEmpty() check.
 func BenchmarkRoaringSetRangeReaderPopulatedHotPath(b *testing.B) {
 	logger, _ := test.NewNullLogger()
-	rep := roaringsetrange.NewSegmentInMemory(logger)
+	rep := roaringsetrange.NewSegmentInMemory(logger, nil)
 	mt := roaringsetrange.NewMemtable(logger)
 	mt.Insert(5, []uint64{100})
 	rep.MergeMemtableEventually(mt)

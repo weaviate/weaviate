@@ -14,11 +14,16 @@ package roaringsetrange
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"runtime"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -30,13 +35,14 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestSegmentInMemory(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	t.Run("bitmaps are initialized and empty", func(t *testing.T) {
-		s := NewSegmentInMemory(logger)
+		s := NewSegmentInMemory(logger, nil)
 
 		for i := range s.bitmaps {
 			assert.NotNil(t, s.bitmaps[i])
@@ -47,7 +53,7 @@ func TestSegmentInMemory(t *testing.T) {
 	t.Run("size is sum of bitmap sizes", func(t *testing.T) {
 		bmSize := sroar.NewBitmap().LenInBytes()
 
-		s := NewSegmentInMemory(logger)
+		s := NewSegmentInMemory(logger, nil)
 		assert.Equal(t, bmSize*65, s.Size())
 	})
 
@@ -80,7 +86,7 @@ func TestSegmentInMemory(t *testing.T) {
 			cur2 := newFakeSegmentCursor(mt2)
 			cur3 := newFakeSegmentCursor(mt3)
 
-			seg := NewSegmentInMemory(logger)
+			seg := NewSegmentInMemory(logger, nil)
 			seg.MergeSegmentByCursor(cur1)
 			seg.MergeSegmentByCursor(cur2)
 			seg.MergeSegmentByCursor(cur3)
@@ -89,7 +95,7 @@ func TestSegmentInMemory(t *testing.T) {
 		})
 
 		t.Run("memtables", func(t *testing.T) {
-			seg := NewSegmentInMemory(logger)
+			seg := NewSegmentInMemory(logger, nil)
 			seg.MergeMemtableEventually(mt1)
 			seg.MergeMemtableEventually(mt2)
 			seg.MergeMemtableEventually(mt3)
@@ -102,7 +108,7 @@ func TestSegmentInMemory(t *testing.T) {
 			cur1 := newFakeSegmentCursor(mt1)
 			cur2 := newFakeSegmentCursor(mt2)
 
-			seg := NewSegmentInMemory(logger)
+			seg := NewSegmentInMemory(logger, nil)
 			seg.MergeSegmentByCursor(cur1)
 			seg.MergeSegmentByCursor(cur2)
 			seg.MergeMemtableEventually(mt3)
@@ -136,7 +142,7 @@ func TestSegmentInMemory(t *testing.T) {
 		}
 
 		t.Run("multiple readers used", func(t *testing.T) {
-			seg := NewSegmentInMemory(logger)
+			seg := NewSegmentInMemory(logger, nil)
 			seg.MergeMemtableEventually(mt1)
 			seg.MergeMemtableEventually(mt2)
 			seg.MergeMemtableEventually(mt3)
@@ -181,7 +187,7 @@ func TestSegmentInMemory(t *testing.T) {
 				assertResult(t, creader, 13, filters.OperatorGreaterThanEqual, []uint64{117, 217, 119, 219, 113, 213, 15, 25})
 			}
 
-			seg := NewSegmentInMemory(logger)
+			seg := NewSegmentInMemory(logger, nil)
 			creader0 := createReader(seg)
 			seg.MergeMemtableEventually(mt1)
 			creader1 := createReader(seg)
@@ -236,7 +242,7 @@ func (c *outOfRangeSecondKeyCursor) Next() (uint8, roaringset.BitmapLayer, bool)
 // weaviate/weaviate#12215: an out-of-range key must return an error, not panic.
 func TestSegmentInMemoryMergeSegmentByCursor_RejectsOutOfRangeKey(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	s := NewSegmentInMemory(logger)
+	s := NewSegmentInMemory(logger, nil)
 
 	err := s.MergeSegmentByCursor(&outOfRangeSecondKeyCursor{})
 	require.Error(t, err)
@@ -247,7 +253,7 @@ func TestSegmentInMemoryReader(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)
 
-	seg := NewSegmentInMemory(logger)
+	seg := NewSegmentInMemory(logger, nil)
 	seg.MergeMemtableEventually(mt1)
 	seg.MergeMemtableEventually(mt2)
 	seg.MergeMemtableEventually(mt3)
@@ -361,7 +367,7 @@ func TestSegmentInMemoryReader(t *testing.T) {
 			{name: "stored small values", seg: seg, cases: testCases},
 			{name: "stored max values", seg: newSegmentInMemoryFrom(t, memMax), cases: maxCases},
 			{name: "stored values with high lowest bits", seg: newSegmentInMemoryFrom(t, memHigh), cases: highCases},
-			{name: "empty", seg: NewSegmentInMemory(logger), cases: emptyCases},
+			{name: "empty", seg: NewSegmentInMemory(logger, nil), cases: emptyCases},
 		}
 
 		// the ranged pool hands out spare capacity and dirty buffers, the noop pool neither
@@ -459,7 +465,7 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)
 
-	seg := NewSegmentInMemory(logger)
+	seg := NewSegmentInMemory(logger, nil)
 	seg.MergeMemtableEventually(mt1)
 	seg.MergeMemtableEventually(mt2)
 	seg.MergeMemtableEventually(mt3)
@@ -632,7 +638,7 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 	}
 
 	t.Run("correct oldest->newest fold: newest value wins", func(t *testing.T) {
-		seg := NewSegmentInMemory(logger)
+		seg := NewSegmentInMemory(logger, nil)
 		require.NoError(t, seg.MergeSegmentByCursor(olderSegment()))
 		require.NoError(t, seg.MergeSegmentByCursor(newerSegment()))
 
@@ -643,7 +649,7 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 	})
 
 	t.Run("trap: incremental older-onto-newer fold corrupts the value (old wins)", func(t *testing.T) {
-		seg := NewSegmentInMemory(logger)
+		seg := NewSegmentInMemory(logger, nil)
 		require.NoError(t, seg.MergeSegmentByCursor(newerSegment()))
 		require.NoError(t, seg.MergeSegmentByCursor(olderSegment()))
 
@@ -653,6 +659,7 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 }
 
 func TestSegmentInMemoryCompact(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	// dense enough that layer 0 holds bitmap containers
 	const keys, docsPerKey = 4, 8192
 
@@ -668,6 +675,20 @@ func TestSegmentInMemoryCompact(t *testing.T) {
 
 		assert.Less(t, seg.bitmaps[0].CapInBytes(), layer0Before, "odd containers of layer 0 must turn into arrays")
 		assert.Less(t, seg.Size(), sizeBefore)
+	})
+
+	t.Run("dead space reclaimed at run time", func(t *testing.T) {
+		seg := newSegmentInMemoryWithDeadSpace(t, keys, docsPerKey)
+		seg.compactInterval = 0
+		layer0 := seg.bitmaps[0]
+		mem := NewMemtable(logger)
+		for docID := uint64(0); docID < 2000; docID++ {
+			mem.Insert(3, []uint64{docID})
+		}
+
+		mergeMemtableNow(seg, mem)
+
+		assert.Less(t, seg.bitmaps[0].CapInBytes(), layer0.LenInBytes(), "odd containers of layer 0 must turn into arrays")
 	})
 }
 
@@ -714,7 +735,7 @@ func TestSegmentInMemoryCompactPadsOnlyOnce(t *testing.T) {
 		seg  *SegmentInMemory
 	}{
 		{name: "populated", seg: newSegmentInMemoryWithDeadSpace(t, 4, 40)},
-		{name: "empty", seg: NewSegmentInMemory(logger)},
+		{name: "empty", seg: NewSegmentInMemory(logger, nil)},
 	}
 
 	for _, tc := range testCases {
@@ -740,6 +761,417 @@ func TestSegmentInMemoryCompactPadsOnlyOnce(t *testing.T) {
 			assert.Equal(t, want.ToArray(), tc.seg.bitmaps[0].ToArray())
 		})
 	}
+}
+
+// Pins that a memtable added while others merge is served meanwhile and merged after them.
+func TestSegmentInMemoryMemtableAddedWhileMerging(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	newMemtable := func(value uint64, docIDs ...uint64) *Memtable {
+		mem := NewMemtable(logger)
+		mem.Insert(value, docIDs)
+		return mem
+	}
+	// doc 1 gets a new value in each, so a wrong order is visible
+	newMemtables := func() (mt1, mt2, mt3 *Memtable) {
+		return newMemtable(1, 1, 10), newMemtable(2, 1, 20), newMemtable(3, 1, 30)
+	}
+	assertServesAll := func(t *testing.T, seg *SegmentInMemory) {
+		t.Helper()
+		assert.Equal(t, []uint64{10}, combinedRows(t, seg, 1, filters.OperatorEqual))
+		assert.Equal(t, []uint64{20}, combinedRows(t, seg, 2, filters.OperatorEqual))
+		assert.Equal(t, []uint64{1, 30}, combinedRows(t, seg, 3, filters.OperatorEqual))
+	}
+	assertMerged := func(t *testing.T, seg *SegmentInMemory) {
+		t.Helper()
+		require.Zero(t, seg.countPendingMemtables())
+		assertServesAll(t, seg)
+	}
+
+	// mergeBehindReader returns once a merge of mt1 and mt2 has built their nodes and
+	// waits for the returned release.
+	mergeBehindReader := func(mt1, mt2 *Memtable) (seg *SegmentInMemory, release func()) {
+		seg = NewSegmentInMemory(logger, nil)
+		_, releaseReaders := seg.Readers(roaringset.NewBitmapBufPoolNoop())
+		seg.memtables = append(seg.memtables, mt1)
+		seg.MergeMemtableEventually(mt2)
+		synctest.Wait()
+		return seg, sync.OnceFunc(releaseReaders)
+	}
+
+	t.Run("merge", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			mt1, mt2, mt3 := newMemtables()
+			seg, release := mergeBehindReader(mt1, mt2)
+			defer release()
+
+			// holds the merge at the removal, inside bitmapsLock
+			seg.memtablesLock.Lock()
+			unlock := sync.OnceFunc(seg.memtablesLock.Unlock)
+			defer unlock()
+			release()
+			// a goroutine waiting for a mutex keeps synctest's clock from advancing
+			locked := func() bool {
+				runtime.Gosched()
+				if seg.bitmapsLock.TryRLock() {
+					seg.bitmapsLock.RUnlock()
+					return false
+				}
+				return true
+			}
+			taken := locked()
+			for i := 0; i < 1_000_000 && !taken; i++ {
+				taken = locked()
+			}
+			require.True(t, taken, "the merge never took bitmapsLock")
+			for range 100_000 {
+				require.True(t, locked(), "the list must change under bitmapsLock")
+			}
+
+			seg.memtables = append(seg.memtables, mt3)
+			unlock()
+			assertServesAll(t, seg)
+
+			synctest.Wait()
+			assertMerged(t, seg)
+		})
+	})
+
+	t.Run("compaction", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			mt1, mt2, mt3 := newMemtables()
+			checker := newBlockingAllocChecker(t)
+			seg := NewSegmentInMemory(logger, checker)
+			seg.compactInterval = 0
+
+			seg.memtables = append(seg.memtables, mt1)
+			seg.MergeMemtableEventually(mt2)
+			synctest.Wait()
+			require.True(t, seg.bitmapsLock.TryRLock(), "compaction holds bitmapsLock")
+			seg.bitmapsLock.RUnlock()
+
+			seg.MergeMemtableEventually(mt3)
+			assertServesAll(t, seg)
+			synctest.Wait()
+			require.Equal(t, []*Memtable{mt3}, seg.memtables, "a second merge ran alongside the first")
+
+			checker.resume()
+			synctest.Wait()
+			require.Zero(t, seg.countPendingMemtables())
+			assertServesAll(t, seg)
+			assert.False(t, seg.changed)
+		})
+	})
+}
+
+func TestSegmentInMemoryDropsMergedMemtables(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	mt1, mt2, mt3 := createTestMemtables(logger)
+	seg := NewSegmentInMemory(logger, nil)
+	seg.memtables = append(seg.memtables, mt1, mt2, mt3)
+	backing := seg.memtables[:cap(seg.memtables)]
+
+	seg.mergeMemtables()
+
+	for i, mem := range backing {
+		assert.Nil(t, mem, "slot %d keeps a merged memtable alive", i)
+	}
+}
+
+// Pins merging mergeBatchMemtables at a time, compacting once drained or every compactDeferBatches batches.
+func TestSegmentInMemoryMergeBacklog(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	for _, tc := range []struct {
+		memtables       int
+		pendingAtChecks []int
+	}{
+		{10, []int{0}},
+		{32, []int{0}},
+		{33, []int{1, 0}},
+		{72, []int{40, 8, 0}},
+	} {
+		t.Run(fmt.Sprintf("%d memtables", tc.memtables), func(t *testing.T) {
+			seg := NewSegmentInMemory(logger, nil)
+			seg.compactInterval = 0
+			var pendingAtChecks []int
+			// the checker refuses, so each check is recorded without paying for a compaction
+			seg.allocChecker = fakeAllocChecker{check: func(int64) error {
+				pendingAtChecks = append(pendingAtChecks, seg.countPendingMemtables())
+				return errors.New("refused")
+			}}
+			for docID := range tc.memtables {
+				mem := NewMemtable(logger)
+				mem.Insert(1, []uint64{uint64(docID)})
+				seg.memtables = append(seg.memtables, mem)
+			}
+
+			seg.mergeMemtables()
+
+			assert.Equal(t, tc.pendingAtChecks, pendingAtChecks)
+			assert.Zero(t, seg.countPendingMemtables())
+		})
+	}
+}
+
+// Pins compaction only once compactInterval has passed since the last one and a merge changed the layers.
+func TestSegmentInMemoryCompactionDue(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	docIDs := func(first, count uint64) []uint64 {
+		ids := make([]uint64, count)
+		for i := range ids {
+			ids[i] = first + uint64(i)
+		}
+		return ids
+	}
+	inserts := func(first, count uint64) *Memtable {
+		mem := NewMemtable(logger)
+		mem.Insert(7, docIDs(first, count))
+		return mem
+	}
+	// newSeg must run inside the synctest bubble, so its deadline is on the fake clock
+	newSeg := func(t *testing.T, checker memwatch.AllocChecker) *SegmentInMemory {
+		seg := NewSegmentInMemory(logger, checker)
+		require.NoError(t, seg.MergeSegmentByCursor(newFakeSegmentCursor(inserts(0, 1000))))
+		return seg
+	}
+	// mergeCompacts merges mem and reports whether the layers were swapped
+	mergeCompacts := func(seg *SegmentInMemory, mem *Memtable) bool {
+		before := seg.bitmaps[0]
+		mergeMemtableNow(seg, mem)
+		return seg.bitmaps[0] != before
+	}
+
+	for _, tc := range []struct {
+		name  string
+		after time.Duration
+		mem   *Memtable
+		want  bool
+	}{
+		{"appends after an interval", compactInterval, inserts(1000, 1), true},
+		{"nothing changed after an interval", compactInterval, NewMemtable(logger), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				seg := newSeg(t, nil)
+				time.Sleep(tc.after)
+				assert.Equal(t, tc.want, mergeCompacts(seg, tc.mem))
+				if tc.want {
+					assert.False(t, seg.changed)
+				}
+			})
+		})
+	}
+
+	t.Run("an interval after the last compaction", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			seg := newSeg(t, nil)
+			time.Sleep(compactInterval)
+			require.True(t, mergeCompacts(seg, inserts(0, 1)))
+
+			time.Sleep(compactInterval - time.Nanosecond)
+			require.False(t, mergeCompacts(seg, inserts(0, 1)), "compacted before an interval passed")
+			time.Sleep(time.Nanosecond)
+			assert.True(t, mergeCompacts(seg, inserts(0, 1)))
+		})
+	})
+
+	t.Run("a refusal keeps the deadline", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			refuse := true
+			seg := newSeg(t, fakeAllocChecker{check: func(int64) error {
+				if refuse {
+					return errors.New("refused")
+				}
+				return nil
+			}})
+			time.Sleep(compactInterval)
+			require.False(t, mergeCompacts(seg, inserts(0, 1)))
+
+			refuse = false
+			assert.True(t, mergeCompacts(seg, inserts(0, 1)), "the next merge must compact without waiting again")
+		})
+	})
+
+	t.Run("indexes built together compact apart", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			deadlines := map[time.Time]bool{}
+			for range 20 {
+				seg := NewSegmentInMemory(logger, nil)
+				deadline := seg.compactedAt.Add(compactInterval)
+				require.Greater(t, time.Until(deadline), compactInterval/2)
+				require.LessOrEqual(t, time.Until(deadline), compactInterval)
+				deadlines[deadline] = true
+			}
+			assert.Greater(t, len(deadlines), 1, "every index got the same deadline")
+		})
+	})
+}
+
+func TestSegmentInMemoryCompactionAllocChecker(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	refuse := true
+	var checked []int64
+	update := NewMemtable(logger)
+	for docID := uint64(0); docID < 2000; docID++ {
+		update.Insert(3, []uint64{docID})
+	}
+	// merging the rows it already holds leaves no dead space to pad the estimate
+	seg := newSegmentInMemoryFrom(t, update)
+	seg.Compact()
+	seg.logger = logger
+	seg.compactInterval = 0
+	seg.allocChecker = fakeAllocChecker{check: func(size int64) error {
+		checked = append(checked, size)
+		if refuse {
+			return errors.New("refused")
+		}
+		return nil
+	}}
+	before := seg.bitmaps
+
+	mergeMemtableNow(seg, update)
+	require.True(t, before == seg.bitmaps, "a refused compaction must keep every layer")
+	require.True(t, seg.changed)
+	require.Len(t, checked, 1)
+	assert.Equal(t, 1, countLogs(hook, logrus.DebugLevel))
+	assert.Len(t, hook.AllEntries(), 1)
+
+	refuse = false
+	one := NewMemtable(logger)
+	one.Insert(3, []uint64{1})
+	mergeMemtableNow(seg, one)
+	require.NotSame(t, before[0], seg.bitmaps[0])
+	assert.False(t, seg.changed)
+	require.Len(t, checked, 2)
+	assert.GreaterOrEqual(t, checked[1], int64(seg.Size()), "must cover the copies")
+}
+
+func TestSegmentInMemoryCompactionMatchesUncompactedTwin(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	rnd := rand.New(rand.NewPCG(1, 2))
+	values := []uint64{0, 1, 5, 13, 1 << 40, math.MaxUint64 - 1, math.MaxUint64}
+	seg, twin := NewSegmentInMemory(logger, nil), NewSegmentInMemory(logger, nil)
+	twin.compactInterval = math.MaxInt64
+
+	const merges = 25
+	compactions := 0
+	for i := range merges {
+		changes := 20 + rnd.IntN(600)
+		if i == 0 {
+			changes = 12_000 // enough for bitmap containers
+		}
+		mem := NewMemtable(logger)
+		for range changes {
+			docID := rnd.Uint64N(3)<<16 + rnd.Uint64N(1<<13)
+			if rnd.IntN(3) == 0 {
+				mem.Delete(0, []uint64{docID})
+			} else {
+				mem.Insert(values[rnd.IntN(len(values))], []uint64{docID})
+			}
+		}
+		// every third merge compacts, so most land on layers compacted earlier
+		seg.compactInterval = math.MaxInt64
+		if i%3 == 0 {
+			seg.compactInterval = 0
+		}
+		before := seg.bitmaps[0]
+		mergeMemtableNow(seg, mem)
+		mergeMemtableNow(twin, mem)
+		if seg.bitmaps[0] != before {
+			compactions++
+			requireSameLayers(t, twin, seg)
+		}
+	}
+	requireSameLayers(t, twin, seg)
+	require.Greater(t, compactions, 1)
+	require.Less(t, compactions, merges, "some merges must land on layers compacted earlier")
+
+	for _, value := range values {
+		for _, op := range segmentReaderOperators {
+			assert.Equal(t, combinedRows(t, twin, value, op), combinedRows(t, seg, value, op), "%s %d", op.Name(), value)
+		}
+	}
+}
+
+func TestSegmentInMemoryCompactionSwapWaitsForReader(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		checker := newBlockingAllocChecker(t)
+		seg := NewSegmentInMemory(logger, checker)
+		seg.compactInterval = 0
+		before := seg.bitmaps[0]
+		mem := NewMemtable(logger)
+		mem.Insert(5, []uint64{1, 2, 3})
+		seg.MergeMemtableEventually(mem)
+		synctest.Wait()
+		require.True(t, seg.bitmapsLock.TryRLock(), "compaction holds bitmapsLock")
+		seg.bitmapsLock.RUnlock()
+
+		readers, releaseReaders := seg.Readers(roaringset.NewBitmapBufPoolNoop())
+		release := sync.OnceFunc(releaseReaders)
+		defer release()
+		read := func() []uint64 {
+			layer, releaseLayer, err := readers[0].Read(context.Background(), 5, filters.OperatorEqual)
+			require.NoError(t, err)
+			defer releaseLayer()
+			return layer.Additions.ToArray()
+		}
+		require.Equal(t, []uint64{1, 2, 3}, read())
+
+		checker.resume()
+		synctest.Wait()
+		require.Same(t, before, seg.bitmaps[0], "the swap did not wait for the reader")
+		assert.Equal(t, []uint64{1, 2, 3}, read())
+
+		release()
+		synctest.Wait()
+		require.False(t, seg.merging)
+		assert.NotSame(t, before, seg.bitmaps[0])
+		assert.Equal(t, []uint64{1, 2, 3}, combinedRows(t, seg, 5, filters.OperatorEqual))
+	})
+}
+
+// Pins a panic while copying a layer, which leaves the index mergeable and the
+// compaction due.
+func TestSegmentInMemoryCompactionPanic(t *testing.T) {
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false") // the integration run sets it to true
+	synctest.Test(t, func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		checker := newBlockingAllocChecker(t)
+		seg := NewSegmentInMemory(logger, checker)
+		seg.compactInterval = 0
+		// the last layer's only container ends past its buffer, so copying it panics
+		whole := roaringset.NewBitmap(5 << 16)
+		broken := whole.ToBuffer()
+		seg.bitmaps[64] = sroar.FromBuffer(append(make([]byte, 0, len(broken)-8), broken[:len(broken)-8]...))
+		before := seg.bitmaps[0]
+
+		mem := NewMemtable(logger)
+		for docID := uint64(0); docID < 100; docID++ {
+			mem.Insert(3, []uint64{docID})
+		}
+		seg.MergeMemtableEventually(mem)
+		synctest.Wait()
+		require.True(t, seg.bitmapsLock.TryRLock(), "compaction holds bitmapsLock")
+		release := sync.OnceFunc(seg.bitmapsLock.RUnlock)
+		defer release()
+		checker.resume()
+		synctest.Wait()
+		require.Positive(t, countLogs(hook, logrus.ErrorLevel), "copying must panic or the case tests nothing")
+		release()
+		require.False(t, seg.merging, "the panic left merging set")
+		require.Zero(t, seg.countPendingMemtables())
+		require.Same(t, before, seg.bitmaps[0])
+		require.True(t, seg.changed)
+
+		seg.bitmaps[64] = sroar.NewBitmap()
+		one := NewMemtable(logger)
+		one.Insert(3, []uint64{100})
+		seg.MergeMemtableEventually(one)
+		synctest.Wait()
+		assert.NotSame(t, before, seg.bitmaps[0])
+		assert.Equal(t, 101, seg.bitmaps[0].GetCardinality())
+	})
 }
 
 // BenchmarkSegmentInMemoryCompactHeadroom merges a run of flushes into layers of
@@ -768,7 +1200,8 @@ func BenchmarkSegmentInMemoryCompactHeadroom(b *testing.B) {
 					var seg *SegmentInMemory
 					for b.Loop() {
 						b.StopTimer()
-						seg = NewSegmentInMemory(logger)
+						seg = NewSegmentInMemory(logger, nil)
+						seg.compactInterval = math.MaxInt64 // a compaction would hide the growths
 						for i, bm := range base {
 							seg.bitmaps[i] = bm.CompactedTo(nil, sroar.BuildOpts{InitialSpareRatio: spareRatio})
 						}
@@ -883,7 +1316,7 @@ func BenchmarkSegmentInMemoryReadHeadroom(b *testing.B) {
 	pool := newRangedBufPool(b)
 
 	for _, keys := range []uint64{156, 5020, 8192} {
-		seg := NewSegmentInMemory(logger)
+		seg := NewSegmentInMemory(logger, nil)
 		seg.bitmaps = newHeadroomBenchLayers(keys)
 		seg.Compact()
 		for _, flush := range []struct {
@@ -973,6 +1406,13 @@ func BenchmarkSegmentInMemoryReader(b *testing.B) {
 	}
 }
 
+func requireSameLayers(tb testing.TB, want, got *SegmentInMemory) {
+	tb.Helper()
+	for i := range want.bitmaps {
+		require.True(tb, slices.Equal(want.bitmaps[i].ToArray(), got.bitmaps[i].ToArray()), "layer %d", i)
+	}
+}
+
 // headroomPool records whether each bitmap built from it got headroom.
 type headroomPool struct {
 	*roaringset.BitmapBufPoolTrackingForTests
@@ -1013,7 +1453,7 @@ func (p *headroomPool) ZeroedLayoutWithHeadroom(bm *sroar.Bitmap, spareRatio flo
 func newSegmentInMemoryFrom(tb testing.TB, mem *Memtable) *SegmentInMemory {
 	tb.Helper()
 	logger, _ := test.NewNullLogger()
-	seg := NewSegmentInMemory(logger)
+	seg := NewSegmentInMemory(logger, nil)
 	require.NoError(tb, seg.MergeSegmentByCursor(newFakeSegmentCursor(mem)))
 	return seg
 }
@@ -1080,7 +1520,62 @@ func assertElemsByBit(t *testing.T, s *SegmentInMemory, expectedElemsByBit map[i
 	}
 }
 
+// mergeTestTimeout leaves room for a slow runner under -race with coverage.
+const mergeTestTimeout = 10 * time.Second
+
 func waitUntilMemtablesMerged(t *testing.T, s *SegmentInMemory) {
 	t.Helper()
-	require.Eventually(t, func() bool { return s.countPendingMemtables() == 0 }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		s.memtablesLock.Lock()
+		defer s.memtablesLock.Unlock()
+		return len(s.memtables) == 0 && !s.merging
+	}, mergeTestTimeout, time.Millisecond)
+}
+
+func countLogs(hook *test.Hook, level logrus.Level) int {
+	count := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == level {
+			count++
+		}
+	}
+	return count
+}
+
+// combinedRows reads the layers and the pending memtables.
+func combinedRows(t *testing.T, seg *SegmentInMemory, value uint64, op filters.Operator) []uint64 {
+	t.Helper()
+	readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
+	creader := NewCombinedReader(readers, release, 1, seg.logger)
+	defer creader.Close()
+	bm, releaseBm, err := creader.Read(context.Background(), value, op)
+	require.NoError(t, err)
+	defer releaseBm()
+	return bm.ToArray()
+}
+
+type fakeAllocChecker struct {
+	memwatch.AllocChecker
+	check func(size int64) error
+}
+
+func (c fakeAllocChecker) CheckAlloc(size int64) error { return c.check(size) }
+
+// blockingAllocChecker holds each compaction before its copies until resume.
+type blockingAllocChecker struct {
+	memwatch.AllocChecker
+	resumed chan struct{}
+	resume  func()
+}
+
+func newBlockingAllocChecker(t *testing.T) *blockingAllocChecker {
+	c := &blockingAllocChecker{resumed: make(chan struct{})}
+	c.resume = sync.OnceFunc(func() { close(c.resumed) })
+	t.Cleanup(c.resume)
+	return c
+}
+
+func (c *blockingAllocChecker) CheckAlloc(int64) error {
+	<-c.resumed
+	return nil
 }

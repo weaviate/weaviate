@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -25,6 +27,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // readRangeEqual is a goroutine-safe readEqual: it returns an error instead
@@ -444,6 +447,49 @@ func TestSegmentGroupRoaringSetRangeRep_AllocCheckerRefusalSoftDegrades(t *testi
 	require.Error(t, b.RebuildRangeableSegmentInMemory(ctx),
 		"the refusal must propagate through the full rebuild call, not panic")
 	assert.False(t, b.rangeableRepRebuilt.Load(), "a refused rebuild must not publish")
+}
+
+// Pins that the index of a load and of a rebuild consults the bucket's
+// allocChecker before it compacts a flush at run time.
+func TestRoaringSetRangeSegmentInMemory_CompactionConsultsAllocChecker(t *testing.T) {
+	for _, inMemory := range []bool{true, false} {
+		t.Run(fmt.Sprintf("in memory at load %v", inMemory), func(t *testing.T) {
+			// the fake clock passes the compaction interval without waiting for it
+			synctest.Test(t, func(t *testing.T) {
+				ctx := context.Background()
+				checker := &recordingAllocChecker{}
+				b := createTestBucketWithOptions(t, ctx, t.TempDir(),
+					WithStrategy(StrategyRoaringSetRange),
+					WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+					WithKeepSegmentsInMemory(inMemory),
+					WithAllocChecker(checker),
+				)
+				defer b.Shutdown(ctx)
+				if !inMemory {
+					require.NoError(t, b.RoaringSetRangeAdd(1, 1))
+					require.NoError(t, b.FlushAndSwitch())
+					require.NoError(t, b.RebuildRangeableSegmentInMemory(ctx))
+				}
+				checker.calls.Store(0)
+
+				time.Sleep(24 * time.Hour) // past any index's first compaction deadline
+				require.NoError(t, b.RoaringSetRangeAdd(2, 2))
+				require.NoError(t, b.FlushAndSwitch())
+				synctest.Wait()
+				assert.Equal(t, int64(1), checker.calls.Load())
+			})
+		})
+	}
+}
+
+type recordingAllocChecker struct {
+	memwatch.AllocChecker
+	calls atomic.Int64
+}
+
+func (c *recordingAllocChecker) CheckAlloc(int64) error {
+	c.calls.Add(1)
+	return nil
 }
 
 // TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish pins
