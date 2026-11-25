@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -397,8 +398,9 @@ func TestManifest_CreateWaitsForAFinishingDrop(t *testing.T) {
 				created <- err
 			}, m.logger)
 			select {
-			case <-created:
+			case err := <-created:
 				t.Error("created while the drop deletes files")
+				created <- err
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
