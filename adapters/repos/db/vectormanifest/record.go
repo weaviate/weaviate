@@ -47,6 +47,11 @@ const (
 	stateDropping = "dropping"
 )
 
+var (
+	defaultIDPattern   = regexp.MustCompile(`^` + helpers.VectorsBucketLSM + `_` + schema.TargetVectorNameRegex + `$`)
+	generatedIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]*-[A-Za-z0-9_-]*$`)
+)
+
 // record is what the shard persists about one logical vector:
 // where its index lives on disk, which implementation opens it, whether
 // creation completed, which queue feeds it, and the config the index
@@ -121,11 +126,6 @@ func storageIDFor(physicalID string) string {
 	}
 	return helpers.VectorsBucketLSM + "_" + physicalID
 }
-
-var (
-	defaultIDPattern   = regexp.MustCompile(`^` + helpers.VectorsBucketLSM + `_` + schema.TargetVectorNameRegex + `$`)
-	generatedIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]*-[A-Za-z0-9_-]*$`)
-)
 
 // validateID accepts the IDs the naming rule gives a vector name,
 // "main" and "vectors_<name>", and generated IDs, which contain a "-" so they
