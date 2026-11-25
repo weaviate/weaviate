@@ -338,6 +338,29 @@ func TestRegexSegmentsToWildcard(t *testing.T) {
 	}
 }
 
+// TestRolePoliciesVisibleToPrincipalCasbin hides a role whose wildcard reaches
+// past the caller's pattern, though that pattern matches the wildcard's text.
+func TestRolePoliciesVisibleToPrincipalCasbin(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true}, config.Authentication{}, true, nil, logger)
+	require.NoError(t, err)
+	updateUsers := func(name, users string) *models.Role {
+		return &models.Role{Name: authorization.String(name), Permissions: []*models.Permission{{
+			Action: authorization.String(authorization.UpdateUsers), Users: &models.PermissionUsers{Users: &users},
+		}}}
+	}
+	policies, err := conv.RolesToPolicies(updateUsers("a-and-two-users", "a.."), updateUsers("a-users", "a*"), updateUsers("abc-users", "abc"))
+	require.NoError(t, err)
+	require.NoError(t, m.CreateRolesPermissions(policies))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("ops", authentication.AuthTypeDb), []string{"a-and-two-users"}))
+	roles, err := m.GetRoles("a-users", "abc-users")
+	require.NoError(t, err)
+
+	ops := &models.Principal{Username: "ops", UserType: models.UserTypeInputDb}
+	require.False(t, RolePoliciesVisibleToPrincipal(context.Background(), m, true, ops, roles["a-users"]))
+	require.True(t, RolePoliciesVisibleToPrincipal(context.Background(), m, true, ops, roles["abc-users"]))
+}
+
 // TestAuthorizeRolePermissionsCasbin runs the check against the real enforcer,
 // whose unanchored verb match a mocked authorizer cannot show.
 func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
@@ -379,6 +402,16 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		readMoviesData("eu-movies-reader", "*eu*"),
 		readMoviesData("eu-or-secret-movies-reader", "eu|secret"),
 		updateUsers("two-letter-users", ".."),
+		updateUsers("a-users", "a*"),
+		updateUsers("ab-users", "ab*"),
+		updateUsers("a-optional-users", "a?*"),
+		updateUsers("a-and-two-users", "a.."),
+		updateUsers("a-and-more-users", "a.+"),
+		updateUsers("non-empty-users", ".*"),
+		updateUsers("customer1-a-and-two-users", "customer1:a.."),
+		updateUsers("customer1-a-users", "customer1:a*"),
+		updateUsers("a-and-two-colon-bob", "a..:bob"),
+		updateUsers("a-colon-bob", "a*:bob"),
 		role("bob-reader", authorization.ReadUsers, users("bob")),
 		role("foreign-movies-reader", authorization.ReadCollections, collections("customer2:Movies")),
 	)
@@ -420,6 +453,14 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "a confined caller with every user covers an alternation in its namespace", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"user-updater"}, targetRoles: []string{"customer1-eu-or-admin-users"}, namespacesEnabled: true},
 		{name: "a dotted name with a trailing wildcard inside the caller's pattern is covered", caller: "caller", callerRoles: []string{"eu-users"}, targetRoles: []string{"eu-west-users"}},
 		{name: "a caller pattern matching the text of a wildcard is not a wildcard", caller: "caller", callerRoles: []string{"two-letter-users"}, targetRoles: []string{"eu-or-admin-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: eu|admin]]"},
+		{name: "a caller pattern of fixed length does not cover a wildcard", caller: "caller", callerRoles: []string{"two-letter-users"}, targetRoles: []string{"user-updater"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: X]]"},
+		{name: "a caller pattern needing more after a prefix does not cover the prefix's wildcard", caller: "caller", callerRoles: []string{"a-and-two-users"}, targetRoles: []string{"a-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a]]"},
+		{name: "a caller pattern needing one more after a prefix does not cover the prefix's wildcard", caller: "caller", callerRoles: []string{"a-and-more-users"}, targetRoles: []string{"a-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a]]"},
+		{name: "an optional prefix character reaching past the caller's pattern is refused", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-optional-users"}, wantDenied: deniedAllUsers},
+		{name: "a caller wildcard covers itself and a longer prefix", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-users", "ab-users"}},
+		{name: "a caller pattern needing more before a colon does not cover the wildcard there", caller: "caller", callerRoles: []string{"a-and-two-colon-bob"}, targetRoles: []string{"a-colon-bob"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a:bob]]"},
+		{name: "a caller pattern matching every non-empty name covers a wildcard and an alternation", caller: "caller", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"user-updater", "eu-or-admin-users"}},
+		{name: "a confined caller pattern needing more after a prefix does not cover the prefix's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"customer1-a-and-two-users"}, targetRoles: []string{"customer1-a-users"}, namespacesEnabled: true, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a]]"},
 		{name: "global caller: a bare user grant is checked in the target's namespace", namespacesEnabled: true, caller: "ops", callerRoles: []string{"bob-reader"}, targetNamespace: "customer1", targetRoles: []string{"bob-reader"}, wantDenied: "rbac: authorization, forbidden action: user 'ops' has insufficient permissions to read_users [[Domain: users, User: customer1:bob]]"},
 		{name: "a grant bound to another namespace gives the target nothing", namespacesEnabled: true, caller: "ops", callerRoles: []string{"user-updater"}, targetNamespace: "customer1", targetRoles: []string{"foreign-movies-reader"}},
 		{name: "namespaces disabled: the target namespace is ignored", caller: "ops", callerRoles: []string{"bob-reader"}, targetNamespace: "customer1", targetRoles: []string{"bob-reader"}},

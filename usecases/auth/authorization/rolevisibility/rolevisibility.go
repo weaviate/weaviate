@@ -15,6 +15,7 @@
 package rolevisibility
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -131,8 +132,9 @@ func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer,
 }
 
 // authorizeResource returns an error unless the caller holds verb on resource.
-// A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*".
-// A wildcard passes both, and so can a pattern that excludes names, such as "[^a]*".
+// A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*",
+// and the result must also pass with each name at its shortest. A wildcard passes
+// all of these, and so can a pattern that excludes names, such as "[^a]*".
 func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, verb, resource string) error {
 	wildcard := regexSegmentsToWildcard(resource)
 	// A caller pattern such as ".." matches the text ".*" without holding
@@ -142,7 +144,33 @@ func authorizeResource(ctx context.Context, authorizer authorization.Authorizer,
 			return err
 		}
 	}
-	return authorizePolicy(ctx, authorizer, principal, verb, wildcard)
+	if err := authorizePolicy(ctx, authorizer, principal, verb, wildcard); err != nil {
+		return err
+	}
+	// A caller pattern such as "a.." matches the text "a.*" but not "a".
+	if shortest := shortestNames(wildcard); shortest != wildcard {
+		return authorizePolicy(ctx, authorizer, principal, verb, shortest)
+	}
+	return nil
+}
+
+// shortestNames drops each ".*" from resource, leaving "X" where a name or
+// namespace would be empty, since none is.
+func shortestNames(resource string) string {
+	if !strings.Contains(resource, ".*") {
+		return resource
+	}
+	segments := strings.Split(resource, "/")
+	for i, segment := range segments {
+		parts := strings.Split(segment, ":")
+		for j, part := range parts {
+			if short := strings.ReplaceAll(part, ".*", ""); short != part {
+				parts[j] = cmp.Or(short, "X")
+			}
+		}
+		segments[i] = strings.Join(parts, ":")
+	}
+	return strings.Join(segments, "/")
 }
 
 // regexSyntax lists the regex characters a stored pattern can carry besides
