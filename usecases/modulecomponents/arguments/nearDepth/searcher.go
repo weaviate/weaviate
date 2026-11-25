@@ -13,8 +13,8 @@ package nearDepth
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -31,7 +31,7 @@ func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
 	) (T, error) {
 		vector, err := vectorizer.VectorizeDepth(ctx, params.(*NearDepthParams).Depth, cfg)
 		if err != nil {
-			return nil, errors.Errorf("vectorize thermal: %v", err)
+			return nil, fmt.Errorf("vectorize depth: %w", err)
 		}
 		return vector, nil
 	}}

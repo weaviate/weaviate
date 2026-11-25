@@ -254,7 +254,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, prevPropsSc
 	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
 	obj := &models.Object{Class: class.Class, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id, Tenant: tenant}
-	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
+	if err := m.modulesProvider.UpdateVector(ctx, obj, class, findObjectFor(m.vectorRepo, m.qualifier, class.Class), m.logger); err != nil {
 		return nil, err
 	}
 

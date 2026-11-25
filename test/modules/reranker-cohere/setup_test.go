@@ -31,9 +31,7 @@ func TestRerankerCohere(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
-
-	t.Run("reranker-cohere", testRerankerCohere(endpoint))
+	t.Run("reranker-cohere", testRerankerCohere(compose.GetWeaviate().URI(), compose.GetWeaviate().GrpcURI()))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,
@@ -41,7 +39,7 @@ func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 	compose, err = docker.New().
 		WithText2VecModel2Vec().
 		WithRerankerCohere(apiKey).
-		WithWeaviate().
+		WithWeaviateWithGRPC().
 		Start(ctx)
 	return compose, err
 }

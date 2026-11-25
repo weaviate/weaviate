@@ -30,7 +30,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -53,7 +52,7 @@ func TestZip(t *testing.T) {
 
 			// compression writer
 			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-			z, rc, err := NewZip(pathDest, int(compressionLevel), 0, 0, 0)
+			z, rc, err := NewZip(backup.NewTreeFileSource(pathDest), int(compressionLevel), 0, 0, 0)
 			require.NoError(t, err)
 			var zInputLen int64
 			fileList := newFileList(t, pathDest, sd.Files)
@@ -367,7 +366,7 @@ func TestNewZipClampsSplitFileSize(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFilesThreshold, tc.splitFileSize)
+			z, rc, err := NewZip(backup.NewTreeFileSource(dir), int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFilesThreshold, tc.splitFileSize)
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedSplitFileSize, z.splitFileSizeBytes)
 			go func() { io.Copy(io.Discard, rc) }()
@@ -396,6 +395,8 @@ func TestWriteRegulars(t *testing.T) {
 		expectSplitFile      string   // if non-empty, expect a SplitFile with this RelPath
 		expectAlreadyWritten int64    // expected AlreadyWritten on the returned SplitFile
 		expectBigFileChunk   string   // if non-empty, expect this file tracked in BigFilesChunk
+		removeAfterListing   string   // if non-empty, delete this listed file before the write
+		expectErr            error
 	}{
 		{
 			name: "fills chunk with small files when big file does not fit",
@@ -476,6 +477,16 @@ func TestWriteRegulars(t *testing.T) {
 			expectTarFiles:       []string{"shard/a.db", "shard/c.db"},
 			expectRemainingFiles: []string{"shard/b.db"},
 		},
+		{
+			name: "listed file removed before the write fails the chunk",
+			files: []testFile{
+				{"shard/gone.db", 100},
+			},
+			chunkTargetSize:      1000,
+			removeAfterListing:   "shard/gone.db",
+			expectErr:            os.ErrNotExist,
+			expectRemainingFiles: []string{"shard/gone.db"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -492,6 +503,9 @@ func TestWriteRegulars(t *testing.T) {
 				fileNames = append(fileNames, f.relPath)
 				fileSizes[f.relPath] = int64(f.size)
 			}
+			if tt.removeAfterListing != "" {
+				require.NoError(t, os.Remove(filepath.Join(dir, tt.removeAfterListing)))
+			}
 
 			sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
 			fileList := &backup.FileList{
@@ -499,7 +513,7 @@ func TestWriteRegulars(t *testing.T) {
 				FileSizes: fileSizes,
 			}
 
-			z, rc, err := NewZip(dir, int(NoCompression), tt.chunkTargetSize, tt.minIndividualSize, tt.splitFileSize)
+			z, rc, err := NewZip(backup.NewTreeFileSource(dir), int(NoCompression), tt.chunkTargetSize, tt.minIndividualSize, tt.splitFileSize)
 			require.NoError(t, err)
 
 			preCompSize := &atomic.Int64{}
@@ -515,7 +529,11 @@ func TestWriteRegulars(t *testing.T) {
 			_, err = io.Copy(buf, rc)
 			require.NoError(t, err)
 			require.NoError(t, rc.Close())
-			require.NoError(t, writeErr)
+			if tt.expectErr != nil {
+				require.ErrorIs(t, writeErr, tt.expectErr)
+			} else {
+				require.NoError(t, writeErr)
+			}
 
 			// Check remaining files.
 			require.Equal(t, len(tt.expectRemainingFiles), fileList.Len(), "remaining file count")
@@ -567,7 +585,7 @@ func TestWriteRegulars(t *testing.T) {
 		}
 
 		// Chunk 1: small files written, big file deferred.
-		z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
+		z, rc, err := NewZip(backup.NewTreeFileSource(dir), int(NoCompression), 10000, 500, 0)
 		require.NoError(t, err)
 		preComp := &atomic.Int64{}
 		var writeErr error
@@ -585,7 +603,7 @@ func TestWriteRegulars(t *testing.T) {
 		require.Equal(t, 1, fileList.Len(), "only big file should remain")
 
 		// Chunk 2: big file is first and gets its own chunk.
-		z2, rc2, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
+		z2, rc2, err := NewZip(backup.NewTreeFileSource(dir), int(NoCompression), 10000, 500, 0)
 		require.NoError(t, err)
 		preComp2 := &atomic.Int64{}
 		go func() {
@@ -636,7 +654,7 @@ func TestWriteRegulars(t *testing.T) {
 			FileSizes: map[string]int64{"shard/meta.db": 2000},
 		}
 
-		z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
+		z, rc, err := NewZip(backup.NewTreeFileSource(dir), int(NoCompression), 10000, 500, 0)
 		require.NoError(t, err)
 		preComp := &atomic.Int64{}
 		var writeErr error
@@ -712,7 +730,7 @@ func TestWriteRegulars(t *testing.T) {
 // the pipe. Used to drive a split file across multiple chunks.
 func runZipChunk(t *testing.T, sourceDir string, write func(z *zip, pc *atomic.Int64)) {
 	t.Helper()
-	z, rc, err := NewZip(sourceDir, int(NoCompression), 1000, 1000, 1000)
+	z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(NoCompression), 1000, 1000, 1000)
 	require.NoError(t, err)
 	pc := &atomic.Int64{}
 	go func() {
@@ -836,7 +854,7 @@ func TestWriteShard(t *testing.T) {
 				FileSizes: fileSizes,
 			}
 
-			z, rc, err := NewZip(dir, int(NoCompression), tt.chunkTargetSize, 0, 0)
+			z, rc, err := NewZip(backup.NewTreeFileSource(dir), int(NoCompression), tt.chunkTargetSize, 0, 0)
 			require.NoError(t, err)
 
 			var splitFile *SplitFile
@@ -879,130 +897,6 @@ func TestWriteShard(t *testing.T) {
 			} else {
 				require.Nil(t, splitFile, "did not expect a SplitFile")
 			}
-		})
-	}
-}
-
-// TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
-func TestRenamingDuringBackup(t *testing.T) {
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
-		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "source")
-			dir2 := filepath.Join(t.TempDir(), "dest")
-			ctx := context.Background()
-			require.NoError(t, os.MkdirAll(dir, os.ModePerm))
-			require.NoError(t, os.MkdirAll(dir2, os.ModePerm))
-
-			sd := backup.ShardDescriptor{
-				Name: "shard1",
-				Node: "node1",
-			}
-
-			rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
-
-			// create files with random data and one important byte at the end to make sure that the complete file is read
-			// There will be concurrent renaming and reading of the files
-			writeDir := filepath.Join(dir, "collection")
-			writeDirRename := filepath.Join(dir, backup.DeleteMarkerAdd("collection"))
-
-			require.NoError(t, os.MkdirAll(writeDir, os.ModePerm))
-			counter := 0
-			for i := range 100 {
-				f, err := os.Create(filepath.Join(writeDir, strconv.Itoa(i)+".tmp"))
-				require.NoError(t, err)
-				size := rng.Intn(4096)
-				buf := make([]byte, size)
-				n, err := rng.Read(buf)
-				require.NoError(t, err)
-				require.Equal(t, size, n)
-				_, err = f.Write(buf)
-				require.NoError(t, err)
-				_, err = f.Write([]byte{byte(i)})
-				require.NoError(t, err)
-				counter += size + i
-
-				require.NoError(t, f.Close())
-				sd.Files = append(sd.Files, filepath.Join("collection", strconv.Itoa(i)+".tmp"))
-			}
-
-			f, err := os.Create(filepath.Join(writeDir, "indexcount.tmp"))
-			require.NoError(t, err)
-			_, err = f.Write([]byte("12345"))
-			require.NoError(t, err)
-			require.NoError(t, f.Close())
-			sd.DocIDCounterPath = filepath.Join("collection", "indexcount.tmp")
-			sd.DocIDCounter = []byte("12345")
-
-			f, err = os.Create(filepath.Join(writeDir, "version.tmp"))
-			require.NoError(t, err)
-			_, err = f.Write([]byte("12345"))
-			require.NoError(t, err)
-			require.NoError(t, f.Close())
-			sd.ShardVersionPath = filepath.Join("collection", "version.tmp")
-			sd.Version = []byte("12345")
-
-			f, err = os.Create(filepath.Join(writeDir, "propLength.tmp"))
-			require.NoError(t, err)
-			_, err = f.Write([]byte("12345"))
-			require.NoError(t, err)
-			require.NoError(t, f.Close())
-			sd.PropLengthTrackerPath = filepath.Join("collection", "propLength.tmp")
-			sd.PropLengthTracker = []byte("12345")
-
-			// start backup process
-			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0, 0)
-			require.NoError(t, err)
-			fileList := newFileList(t, dir, sd.Files)
-			// Use assert (not require) in goroutines: require calls t.FailNow() which
-			// invokes runtime.Goexit(), terminating the goroutine without running
-			// deferred cleanup (z.Close). That would leave the pipe writer open and
-			// deadlock the main goroutine on io.Copy.
-			go func() {
-				defer func() { assert.NoError(t, z.Close()) }()
-				_, _, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
-				assert.NoError(t, err)
-			}()
-
-			// rename files concurrently
-			wg := sync.WaitGroup{}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				require.NoError(t, os.Rename(writeDir, writeDirRename))
-			}()
-
-			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-			_, err = io.Copy(compressBuf, rc)
-			require.NoError(t, err)
-			require.NoError(t, rc.Close())
-
-			require.NoError(t, os.RemoveAll(dir))
-
-			compressionType, err := CompressionTypeFromLevel(compressionLevel)
-			require.NoError(t, err)
-
-			uz, wc := NewUnzip(dir2, compressionType)
-			go func() {
-				defer func() { assert.NoError(t, wc.Close()) }()
-				_, err := io.Copy(wc, compressBuf)
-				assert.NoError(t, err)
-			}()
-			_, err = uz.ReadChunk()
-			require.NoError(t, err)
-			require.NoError(t, uz.Close())
-
-			wg.Wait()
-
-			// check restored backup
-			readDir := filepath.Join(dir2, "collection")
-			counter2 := 0
-			for i := range 100 {
-				buf, err := os.ReadFile(filepath.Join(readDir, strconv.Itoa(i)+".tmp"))
-				require.NoError(t, err)
-				// files have a random length AND their last byte is the index
-				counter2 += len(buf) - 1 + int(buf[len(buf)-1])
-			}
-			require.Equal(t, counter, counter2)
 		})
 	}
 }
@@ -1057,7 +951,7 @@ func TestSplitFileRoundTrip(t *testing.T) {
 
 			for {
 				var buf bytes.Buffer
-				z, rc, err := NewZip(sourceDir, int(compressionLevel), chunkSize, 0, splitFileSize)
+				z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(compressionLevel), chunkSize, 0, splitFileSize)
 				require.NoError(t, err)
 
 				type writeResult struct {
@@ -1162,7 +1056,7 @@ func TestSplitFileExactBoundary(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1264,7 +1158,7 @@ func TestSplitFileBelowThreshold(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1371,7 +1265,7 @@ func TestSplitFirstFileInChunk(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1627,7 +1521,7 @@ func TestFirstFileBelowSplitThresholdWrittenWhole(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1733,7 +1627,7 @@ func TestMultipleSplitFilesInShard(t *testing.T) {
 
 	for {
 		var buf bytes.Buffer
-		z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+		z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(NoCompression), chunkSize, 0, splitFileSize)
 		require.NoError(t, err)
 
 		type writeResult struct {
@@ -1866,7 +1760,7 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 
 		for {
 			var buf bytes.Buffer
-			z, rc, err := NewZip(sourceDir, int(NoCompression), chunkSize, 0, splitFileSize)
+			z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(NoCompression), chunkSize, 0, splitFileSize)
 			require.NoError(t, err)
 
 			type writeResult struct {

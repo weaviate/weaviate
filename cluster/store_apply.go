@@ -12,10 +12,12 @@
 package cluster
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,14 +58,19 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
+	// Tenant deletes, tenant updates and class deletes hold taskMovementLocks shared until they apply, so a submit waits for them.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
-	if collection != "" {
-		st.taskMovementLocks.Lock(collection)
-		defer st.taskMovementLocks.Unlock(collection)
+	switch key := classLockKey(cmp.Or(collection, req.Class)); {
+	case collection != "":
+		st.taskMovementLocks.Lock(key)
+		defer st.taskMovementLocks.Unlock(key)
+	case req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT ||
+		req.Type == api.ApplyRequest_TYPE_DELETE_CLASS:
+		st.taskMovementLocks.RLock(key)
+		defer st.taskMovementLocks.RUnlock(key)
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
@@ -132,19 +139,18 @@ func refuseUnknownFields(req *api.ApplyRequest) error {
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
-// it. It runs on the leader before the entry is appended, which is the only
-// place such a refusal can live: Apply must be a pure function of the log, so a
-// check there would have an older binary carry out what an upgraded one refuses,
-// live during a rolling update and again on every replay of that entry.
-// Refusing before the append means no node ever sees a committed entry it has to
-// reject, so the set of commands checked here can grow without becoming a
-// compatibility event.
+// it. It runs on the leader before the entry is appended. A check in Apply would
+// have an older binary carry out what an upgraded one refuses, live during a
+// rolling update and again on every replay of that entry. Refusing before the
+// append means no node ever sees a committed entry it has to reject, so the set
+// of commands checked here can grow without becoming a compatibility event.
 //
 // The check reads the leader's namespace state and the entry commits shortly
 // after, so a state flip landing in between still lets an accepted command
 // through. That is deliberate, and matches the rule that a suspend does not
 // cancel work already accepted. Every node applies the entry either way, so the
-// outcome stays the same across the cluster.
+// outcome stays the same across the cluster. A replica movement is the one
+// exception, which every node of one binary refuses once the flip has applied.
 //
 // A command that materializes a shard is checked here too. The flip it can race
 // leaves the schema entry standing with its shard still to open, which is the
@@ -152,7 +158,7 @@ func refuseUnknownFields(req *api.ApplyRequest) error {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace has a header decoder that reads a collection from its payload.
 func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
@@ -163,13 +169,24 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
+	if err := st.admitNamespaceUpdate(req); err != nil {
+		return err
+	}
+	if err := st.admitReplicaMovement(req); err != nil {
+		return err
+	}
 	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
 		return err
 	}
 	return st.admitTaskReplicas(task, collection)
 }
 
-// admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
+// classLockKey gives every spelling of a class one key, since the schema matches class names with strings.EqualFold.
+func classLockKey(class string) string {
+	return strings.ToLower(strings.ToUpper(class))
+}
+
+// admitTaskReplicas refuses a task naming a shard that is not HOT, or one whose units no longer match the current replicas of the shards they name. A replica with no unit is never reindexed.
 // A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
 // A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
 func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
@@ -185,12 +202,16 @@ func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collecti
 		return nil
 	}
 
-	changed := false
+	changed, notHot := false, false
 	if err := st.schemaManager.NewSchemaReader().Read(collection, false, func(_ *models.Class, state *sharding.State) error {
 		for shard, nodes := range taskReplicas {
-			if !sameNodes(nodes, state.Physical[shard].BelongsToNodes) {
+			physical := state.Physical[shard]
+			if !sameNodes(nodes, physical.BelongsToNodes) {
 				changed = true
 				return nil
+			}
+			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
+				notHot = true
 			}
 		}
 		return nil
@@ -201,6 +222,9 @@ func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collecti
 	}
 	if changed {
 		return distributedtask.NewReplicasChangedError(collection)
+	}
+	if notHot {
+		return distributedtask.NewTenantsNotHotError(collection)
 	}
 	return nil
 }
@@ -258,6 +282,25 @@ func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection s
 	}
 }
 
+// admitReplicaMovement refuses a replica movement outside the active state. The
+// suspend sweep keeps the shards a movement copies out of and into loaded, so
+// one registered while suspended would hold the namespace's shards open.
+func (st *Store) admitReplicaMovement(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_REPLICATION_REPLICATE {
+		return nil
+	}
+	// The command carries no Class, so the namespace comes off the subcommand's
+	// collection.
+	sub := &api.ReplicationReplicateShardRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return fmt.Errorf("unmarshal replicate subcommand: %w", err)
+	}
+	if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.SourceCollection)); err != nil {
+		return fmt.Errorf("replica movement of shard %q of %q: %w", sub.SourceShard, sub.SourceCollection, err)
+	}
+	return nil
+}
+
 // admitShardStatus refuses a manual shard status change outside the active
 // state. It writes no schema, only the status of a shard the namespace holds
 // open, which a namespace that serves no requests has nothing to set.
@@ -270,10 +313,27 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 }
 
+// admitNamespaceUpdate runs AdmitNamespaceUpdate before PreApplyFilter can
+// refuse the update for its class factors. The command carries no Class, so
+// the name comes off the subcommand.
+func (st *Store) admitNamespaceUpdate(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_UPDATE_NAMESPACE {
+		return nil
+	}
+	sub := &api.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, sub.Namespace.Name)
+}
+
 // admitCreateLike refuses a create-like, property or class update command
 // outside the active state, except the completions its UPDATE_PROPERTY and
-// UPDATE_CLASS arms exempt. admitPropose says why a check this early is enough
-// for ADD_CLASS, RESTORE_CLASS and the tenant commands, which materialize a shard.
+// UPDATE_CLASS arms exempt. The alias commands write schema and no store, and
+// the RBAC and user commands write neither, so a late one leaves nothing
+// half-built. admitPropose says why a check this early is enough for
+// ADD_CLASS, RESTORE_CLASS and the tenant commands, which materialize a shard.
+// It also refuses a user create whose ID prefix is not its namespace.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS,
@@ -366,6 +426,12 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal upsert-user subcommand: %w", err)
 		}
+		// NamespaceLocalRBAC finds a user's role assignments by its ID prefix, and
+		// DeleteUsersInNamespace finds its record by Namespace, so a mismatch
+		// splits the user across two namespaces.
+		if namespacing.NamespaceFromQualified(sub.UserId) != sub.Namespace {
+			return fmt.Errorf("user %q is not in namespace %q", sub.UserId, sub.Namespace)
+		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, sub.Namespace)
 
 	default:
@@ -417,8 +483,11 @@ func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
 //
-// That determinism is why no arm below refuses a command for its namespace
-// state: [Store.admitPropose] does it before the entry is appended.
+// That determinism is why [Store.admitPropose] refuses a command for its
+// namespace state before the entry is appended. TYPE_REPLICATION_REPLICATE is
+// the one command an arm below refuses as well. Every node of one binary
+// answers it the same, because the namespace and replication FSMs restore from
+// one snapshot.
 func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
@@ -720,6 +789,11 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
+			// The propose check can race a suspend appended ahead of this entry,
+			// and only Apply sees which of the two came first in the log.
+			if ret.Error = st.admitReplicaMovement(&cmd); ret.Error != nil {
+				return
+			}
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:

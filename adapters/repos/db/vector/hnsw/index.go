@@ -269,7 +269,7 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	ClearLinksAtLevel(nodeid uint64, level uint16) error
 	Reset() error
-	Drop(ctx context.Context, keepFiles bool) error
+	Drop(ctx context.Context) error
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
@@ -830,12 +830,12 @@ func (h *hnsw) docIDVectorExists(id uint64) bool {
 // Drop stops the index exactly as Shutdown does, then removes the commit log's
 // files. Dropping before stopping would leave the maintenance cycles and the
 // tombstone cleanup running against state being torn down underneath them.
-func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
+func (h *hnsw) Drop(ctx context.Context) error {
 	if err := h.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if err := h.commitLog.Drop(ctx, keepFiles); err != nil {
+	if err := h.commitLog.Drop(ctx); err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
 
@@ -849,8 +849,9 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.compressWg.Wait()
 
 	ec := errorcompounder.New()
-	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
+	// a tombstone cleanup cycle writes to the commit log, so it stops before the log closes
 	ec.AddWrapf(h.tombstoneCleanupCallbackCtrl.Unregister(ctx), "unregister tombstone cleanup cycle")
+	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
 
 	// release the vectors even if the steps above failed, otherwise a failed
 	// teardown keeps the whole cache in memory

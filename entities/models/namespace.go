@@ -31,13 +31,17 @@ import (
 // swagger:model Namespace
 type Namespace struct {
 
-	// The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.
+	// Deprecated: use home_nodes. Holds the first entry of `home_nodes`.
 	HomeNode string `json:"home_node,omitempty"`
+
+	// The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.
+	// Max Items: 64
+	HomeNodes []string `json:"home_nodes"`
 
 	// The unique name of the namespace.
 	Name string `json:"name,omitempty"`
 
-	// Lifecycle state. "active" namespaces accept all operations. "suspended" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. "resuming" namespaces are on their way back to "active" and are still restricted the same way. "deleting" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.
+	// Lifecycle state. "active" namespaces accept all operations. "suspended" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. "resuming" namespaces are on their way back to "active" and are still restricted the same way, replica movements included. "deleting" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.
 	// Enum: [active suspended resuming deleting]
 	State string `json:"state,omitempty"`
 }
@@ -46,6 +50,10 @@ type Namespace struct {
 func (m *Namespace) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateHomeNodes(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateState(formats); err != nil {
 		res = append(res, err)
 	}
@@ -53,6 +61,20 @@ func (m *Namespace) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Namespace) validateHomeNodes(formats strfmt.Registry) error {
+	if swag.IsZero(m.HomeNodes) { // not required
+		return nil
+	}
+
+	iHomeNodesSize := int64(len(m.HomeNodes))
+
+	if err := validate.MaxItems("home_nodes", "body", iHomeNodesSize, 64); err != nil {
+		return err
+	}
+
 	return nil
 }
 

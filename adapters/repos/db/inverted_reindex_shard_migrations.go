@@ -29,7 +29,13 @@ func (m shardMigrations) ReconcileWithClusterTasks(ctx context.Context, tasks []
 	if m.shard.migrationRecords == nil {
 		return
 	}
-	m.liveReconciler().ReconcileWithClusterTasks(ctx, tasks)
+	reconciler := m.liveReconciler()
+	reconciler.ReconcileWithClusterTasks(ctx, tasks)
+	if released := reconciler.RedecideOverrides(ctx); len(released) > 0 {
+		if class := reconciler.deps.Class(); class != nil {
+			m.shard.retireReleasedOverlays(released, class)
+		}
+	}
 }
 
 func (m shardMigrations) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
@@ -57,7 +63,7 @@ func (m shardMigrations) LocalTasks() ([]distributedtask.TaskStatusEntry, bool) 
 	if m.shard.index == nil || m.shard.index.db == nil {
 		return nil, false
 	}
-	return m.shard.index.db.migrationCluster.LocalTasks()
+	return m.shard.index.db.migrationCluster.LocalTasks(m.shard.name)
 }
 
 func (m shardMigrations) SealUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {

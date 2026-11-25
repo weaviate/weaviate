@@ -98,7 +98,8 @@ func TestSnapshotMutableFiles_Dynamic(t *testing.T) {
 
 	// (1) Delegation: while still flat, the underlying meta.db is snapshotted.
 	staging := t.TempDir()
-	relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+	dstFor := func(relPath string) string { return filepath.Join(staging, relPath) }
+	relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, dstFor)
 	require.NoError(t, err)
 	require.Equal(t, []string{"meta.db"}, relPaths)
 	stagedMeta := filepath.Join(staging, "meta.db")
@@ -108,7 +109,7 @@ func TestSnapshotMutableFiles_Dynamic(t *testing.T) {
 	// (2) Snapshot index.db as Shard.CreateBackupSnapshot does (shardmeta.DB.Snapshot,
 	// a bbolt read tx), then mutate it in place as the flat->hnsw upgrade would; the
 	// staged copy must keep the pre-snapshot state.
-	relPath, err := meta.Snapshot(metaDir, staging)
+	relPath, err := meta.Snapshot(metaDir, dstFor)
 	require.NoError(t, err)
 	require.Equal(t, "index.db", relPath)
 	stagedIndexDB := filepath.Join(staging, relPath)

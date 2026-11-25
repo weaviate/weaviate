@@ -82,10 +82,29 @@ func (s *Raft) DeleteRebalancePlan(ctx context.Context, req *replication.DeleteP
 	return nil
 }
 
-// GetRebalancePlan reads this node's local replication state, which can lag
+// ReadRebalancePlan reads this node's local replication state, which can lag
 // behind the leader.
-func (s *Raft) GetRebalancePlan() (replication.Plan, bool) {
+func (s *Raft) ReadRebalancePlan() (replication.Plan, bool) {
 	return s.ReplicationFsm().GetPlan()
+}
+
+// QueryRebalancePlan reads the plan from the leader's replication
+// state. It returns nil and no error when the leader holds no plan.
+func (s *Raft) QueryRebalancePlan(ctx context.Context) (*replication.Plan, error) {
+	resp, err := s.Query(ctx, &api.QueryRequest{Type: api.QueryRequest_TYPE_GET_REBALANCE_PLAN})
+	if err != nil {
+		// Match by text: typed errors are lost when a follower forwards the
+		// query to the leader.
+		if strings.Contains(err.Error(), replication.ErrPlanNotFound.Error()) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("query rebalance plan: %w", err)
+	}
+	var plan replication.Plan
+	if err := json.Unmarshal(resp.Payload, &plan); err != nil {
+		return nil, fmt.Errorf("unmarshal rebalance plan: %w", err)
+	}
+	return &plan, nil
 }
 
 // rebalancePlanError finds the first sentinel whose message appears in err's

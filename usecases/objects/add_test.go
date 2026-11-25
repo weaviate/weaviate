@@ -31,7 +31,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
@@ -227,6 +229,36 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 
 		_, err := manager.AddObject(ctx, nil, class, nil)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
+	})
+
+	t.Run("without a class", func(t *testing.T) {
+		for _, tt := range []struct {
+			name       string
+			principal  *models.Principal
+			namespaced bool
+			noID       bool
+		}{
+			{name: "namespaces disabled"},
+			{name: "namespaced principal", principal: &models.Principal{Username: "u", Namespace: "customer1"}, namespaced: true},
+			{name: "without an id", noID: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				reset()
+				if tt.namespaced {
+					manager.qualifier = wlnamespaces.NewPrefixing()
+				}
+				vectorRepo.On("Exists", mock.Anything, mock.Anything).Return(false, nil)
+
+				object := &models.Object{ID: "5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc"}
+				if tt.noID {
+					object.ID = ""
+				}
+				_, err := manager.AddObject(context.Background(), tt.principal, object, nil)
+				assert.Equal(t, NewErrInvalidUserInput("invalid object: %s", validation.ErrorMissingClass), err)
+				vectorRepo.AssertNotCalled(t, "Exists", mock.Anything, mock.Anything)
+				assert.Empty(t, authorizer.Calls())
+			})
+		}
 	})
 
 	t.Run("without a vector", func(t *testing.T) {

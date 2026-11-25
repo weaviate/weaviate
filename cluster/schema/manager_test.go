@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -29,13 +30,14 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestResolveAlais(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 	areq := cmd.QueryResolveAliasRequest{
 		Alias: "AliasNotExist",
 	}
@@ -337,7 +339,7 @@ func TestPropertiesMigration(t *testing.T) {
 func TestReloadKeepsNestedRangeFiltersInSchema(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	sm := NewSchemaManager("node1", &recordingIndexer{}, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := NewSchemaManager("node1", &recordingIndexer{}, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 	vTrue := true
 	sub, err := json.Marshal(cmd.AddClassRequest{
@@ -558,7 +560,7 @@ func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		indexer := fakes.NewMockSchemaExecutor()
 		indexer.On("ReconcileAsyncReplicationForShard", mock.Anything, mock.Anything).Return(nil).Maybe()
-		sm := NewSchemaManager("local-node", indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("local-node", indexer, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetReplicationFSM(fsm)
 
 		ss := &sharding.State{Physical: map[string]sharding.Physical{
@@ -677,7 +679,7 @@ func TestSchemaManagerReplicaAddRoutesByCommandType(t *testing.T) {
 			indexer.On(tc.wantIndexer, className, shardName, nodeID).Return(nil)
 			indexer.On("ReconcileAsyncReplicationForShard", className, shardName).Return(nil)
 
-			sm := NewSchemaManager(nodeID, indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm := NewSchemaManager(nodeID, indexer, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			sm.SetReplicationFSM(&fakeReplicationFSM{})
 
 			ss := &sharding.State{Physical: map[string]sharding.Physical{
@@ -706,6 +708,19 @@ type recordingMutationGuard struct {
 	lastRemoved []string
 	lastShards  []string
 	rejectWith  error
+
+	proposeCalled     int
+	rejectProposeWith error
+
+	migrationCalls      int
+	lastRun             cmd.MigrationRun
+	rejectMigrationWith error
+}
+
+func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string, run cmd.MigrationRun) error {
+	g.migrationCalls++
+	g.lastRun = run
+	return g.rejectMigrationWith
 }
 
 func (g *recordingMutationGuard) CheckPropertyUpdate(class, prop string) error {
@@ -735,6 +750,14 @@ func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedV
 	return g.rejectWith
 }
 
+func (g *recordingMutationGuard) CheckVectorConfigRemovalAtPropose(class string, removedVectors, shards []string) error {
+	g.proposeCalled++
+	g.lastClass = class
+	g.lastRemoved = removedVectors
+	g.lastShards = shards
+	return g.rejectProposeWith
+}
+
 // TestSchemaManager_UpdateProperty_MutationGuard pins the cross-FSM
 // MutationGuard wiring on the UpdateProperty apply path
 // (https://github.com/weaviate/0-weaviate-issues/issues/218). The guard:
@@ -742,9 +765,7 @@ func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedV
 //   - MUST be consulted before the schema apply on any external
 //     UpdateProperty.
 //   - MUST be bypassed when FromInFlightMigration is true on the
-//     request (the migration-completion path uses this to flip its
-//     own scheduled schema update past the guard that would otherwise
-//     reject it during FINALIZING).
+//     request; CheckMigrationPropertyUpdate gates that write instead.
 //   - MUST short-circuit before the guard on malformed requests, so a
 //     bad payload doesn't waste a detector dispatch.
 //
@@ -759,6 +780,9 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 			FieldsToUpdate:        fields,
 			FromInFlightMigration: fromMigration,
 		}
+		if fromMigration {
+			req.MigrationRun = &cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1}
+		}
 		sub, err := json.Marshal(&req)
 		require.NoError(t, err)
 		return &cmd.ApplyRequest{
@@ -771,7 +795,7 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 	newSM := func(guard MutationGuard) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		if guard != nil {
 			sm.SetMutationGuard(guard)
 		}
@@ -796,21 +820,27 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 		require.Equal(t, "name", guard.lastProp)
 	})
 
-	t.Run("guard bypassed when FromInFlightMigration=true", func(t *testing.T) {
-		guard := &recordingMutationGuard{
-			rejectWith: fmt.Errorf("guard rejection that MUST be bypassed"),
-		}
-		sm := newSM(guard)
-		// FromInFlightMigration=true bypasses the guard. The downstream
-		// apply still errors (no class set up), but the guard
-		// rejection text must NOT appear in the returned error and the
-		// guard call counter must stay at zero.
-		err := sm.UpdateProperty(mkRequest("C", "name", true), true, false)
-		require.Error(t, err, "downstream apply still errors on missing class, but the error must not be a guard rejection")
-		require.NotContains(t, err.Error(), "MUST be bypassed",
-			"FromInFlightMigration=true MUST bypass the guard rejection")
-		require.Equal(t, 0, guard.called,
-			"guard MUST NOT be consulted when FromInFlightMigration=true")
+	t.Run("a migration write is gated only by its run completing", func(t *testing.T) {
+		guard := &recordingMutationGuard{}
+		_ = newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
+		require.Equal(t, 0, guard.called, "the property guard MUST NOT be consulted for a migration write")
+		require.Equal(t, 1, guard.migrationCalls)
+		require.Equal(t, cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1}, guard.lastRun)
+
+		// A peer's flip arriving after its run was marked FAILED or CANCELLED.
+		late := errors.New("no reindex run is completing")
+		guard = &recordingMutationGuard{rejectMigrationWith: late}
+		err := newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
+		require.ErrorIs(t, err, late)
+		require.ErrorIs(t, err, ErrBadRequest)
+	})
+
+	t.Run("a migration write naming no run consults no guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{}
+		req := mkRequest("C", "name", false)
+		req.SubCommand, _ = json.Marshal(&cmd.UpdatePropertyRequest{Property: &models.Property{Name: "name"}, FromInFlightMigration: true})
+		_ = newSM(guard).UpdateProperty(req, true, false)
+		require.Zero(t, guard.called+guard.migrationCalls)
 	})
 
 	t.Run("no guard registered → no extra rejection", func(t *testing.T) {
@@ -873,7 +903,7 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	newSM := func(guard MutationGuard) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		if guard != nil {
 			sm.SetMutationGuard(guard)
 		}
@@ -906,6 +936,7 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 // issues on drop-vector marker introduction.
 type fakeCascadeDeleter struct {
 	collectionCalls []string
+	forgotten       []string
 	activeMatch     bool
 	purgeErr        error // non-sentinel purge failure
 	targetCalls     []struct {
@@ -917,6 +948,10 @@ type fakeCascadeDeleter struct {
 func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor {
 	f.collectionCalls = append(f.collectionCalls, collection)
 	return nil
+}
+
+func (f *fakeCascadeDeleter) ForgetGroupsForCollection(collection string, groups []string) {
+	f.forgotten = append(f.forgotten, collection+":"+strings.Join(groups, ","))
 }
 
 func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
@@ -955,7 +990,7 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 	newSM := func(deleter *fakeCascadeDeleter, initial, parsed *models.Class) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetDistributedTaskManager(deleter)
 		require.NoError(t, sm.schema.addClass(initial,
 			&sharding.State{Physical: map[string]sharding.Physical{}}, 1))
@@ -1096,6 +1131,110 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 	})
 }
 
+// TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate pins the leader-side
+// check: a class update that removes a dropped VectorConfig entry asks the
+// propose-time gate before it is appended, and the apply never asks it.
+func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
+	none := models.VectorConfig{VectorIndexType: "none"}
+	hnsw := models.VectorConfig{VectorIndexType: "hnsw"}
+	withVectors := func(names ...string) *models.Class {
+		class := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
+		for _, name := range names {
+			class.VectorConfig[name] = hnsw
+		}
+		return class
+	}
+
+	tests := []struct {
+		name        string
+		class       string
+		updated     *models.Class
+		subCommand  []byte
+		reject      error
+		wantCalled  int
+		wantRemoved []string
+		wantErr     bool
+	}{
+		{
+			name:        "removing a dropped entry asks the gate",
+			class:       "C",
+			updated:     withVectors("keep"),
+			wantCalled:  1,
+			wantRemoved: []string{"vec1"},
+		},
+		{
+			name:        "the gate's refusal stops the propose",
+			class:       "C",
+			updated:     withVectors("keep"),
+			reject:      fmt.Errorf("not drained"),
+			wantCalled:  1,
+			wantRemoved: []string{"vec1"},
+			wantErr:     true,
+		},
+		{
+			name:  "keeping the dropped entry does not ask the gate",
+			class: "C",
+			updated: &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+				"keep": hnsw, "vec1": none,
+			}},
+			reject: fmt.Errorf("should not be reached"),
+		},
+		{
+			name:    "unknown class is left for the apply to reject",
+			class:   "Other",
+			updated: withVectors("keep"),
+			reject:  fmt.Errorf("should not be reached"),
+		},
+		{
+			name:       "unreadable update is left for the apply to reject",
+			class:      "C",
+			subCommand: []byte("not json"),
+			reject:     fmt.Errorf("should not be reached"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := fakes.NewMockParser()
+			parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(tt.updated, nil)
+			sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
+			guard := &recordingMutationGuard{rejectProposeWith: tt.reject}
+			sm.SetMutationGuard(guard)
+			initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none}}
+			require.NoError(t, sm.schema.addClass(initial, &sharding.State{Physical: map[string]sharding.Physical{
+				"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"},
+			}}, 1))
+
+			sub := tt.subCommand
+			if sub == nil {
+				var err error
+				sub, err = json.Marshal(&cmd.UpdateClassRequest{Class: tt.updated})
+				require.NoError(t, err)
+			}
+			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_CLASS, Class: tt.class, Version: 2, SubCommand: sub}
+
+			err := sm.PreApplyFilter(req)
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrBadRequest)
+				require.ErrorIs(t, err, tt.reject)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.wantCalled, guard.proposeCalled)
+			if tt.wantCalled > 0 {
+				require.Equal(t, tt.wantRemoved, guard.lastRemoved)
+				require.Equal(t, []string{"shardA", "shardB"}, guard.lastShards)
+			}
+			require.Zero(t, guard.called, "the propose must not ask the apply-time gate")
+
+			if tt.class == "C" && tt.subCommand == nil && !tt.wantErr {
+				proposeCalls := guard.proposeCalled
+				require.NoError(t, sm.UpdateClass(req, "test-node", true, false))
+				require.Equal(t, proposeCalls, guard.proposeCalled, "the apply must not ask the propose-time gate")
+			}
+		})
+	}
+}
+
 // TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the gate wiring
 // on the UpdateClass apply path: when an update removes a dropped ("none")
 // VectorConfig entry, the MutationGuard MUST be consulted with the removed names
@@ -1121,7 +1260,7 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 	newSM := func(guard MutationGuard, parsed *models.Class) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		if guard != nil {
 			sm.SetMutationGuard(guard)
 		}
@@ -1167,7 +1306,7 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		guard := &recordingMutationGuard{}
 		parser := fakes.NewMockParser()
 		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetMutationGuard(guard)
 		initial := &models.Class{
 			Class:        "C",
@@ -1210,7 +1349,7 @@ func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
 	newSM := func(guard MutationGuard) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		if guard != nil {
 			sm.SetMutationGuard(guard)
 		}
@@ -1227,6 +1366,16 @@ func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
 		require.Contains(t, err.Error(), "tenants blocked")
 		require.Equal(t, 1, guard.called)
 		require.Equal(t, "C", guard.lastClass)
+	})
+
+	t.Run("a deleted tenant is forgotten by the collection's finished runs", func(t *testing.T) {
+		sm := newSM(nil)
+		deleter := &fakeCascadeDeleter{}
+		sm.SetDistributedTaskManager(deleter)
+		require.NoError(t, sm.schema.addClass(&models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+			&sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"t1": {Name: "t1"}}}, 1))
+		require.NoError(t, sm.DeleteTenants(mkRequest("C", []string{"t1"}), true))
+		require.Equal(t, []string{"C:t1"}, deleter.forgotten)
 	})
 
 	t.Run("empty tenants list does not consult the guard", func(t *testing.T) {
@@ -1325,7 +1474,7 @@ func TestSchemaManager_SetMutationGuard(t *testing.T) {
 func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
 	newManager := func(t *testing.T) *SchemaManager {
 		t.Helper()
-		sm := NewSchemaManager("testNode", nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("testNode", nil, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		require.NoError(t, sm.schema.addClass(&models.Class{Class: "Movies"},
 			&sharding.State{Physical: make(map[string]sharding.Physical)}, 0))
 		require.NoError(t, sm.schema.createAlias("Movies", "Films"))
@@ -1358,6 +1507,109 @@ func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+// TestPreApplyFilter_UpdateNamespaceShrink builds its request as
+// Raft.UpdateNamespace does, with no Class and the namespace only in the
+// subcommand.
+func TestPreApplyFilter_UpdateNamespaceShrink(t *testing.T) {
+	sm := NewSchemaManager("n1", nil, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+	require.NoError(t, sm.schema.addClass(&models.Class{
+		Class:             "alpha:Docs",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 3},
+	}, &sharding.State{Physical: make(map[string]sharding.Physical)}, 1))
+	sub, err := json.Marshal(cmd.UpdateNamespaceRequest{
+		Namespace: cmd.Namespace{Name: "alpha", HomeNodes: []string{"n1", "n2"}},
+		Version:   cmd.NamespaceLatestCommandPolicyVersion,
+	})
+	require.NoError(t, err)
+
+	err = sm.PreApplyFilter(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_NAMESPACE, SubCommand: sub})
+	require.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
+	assert.NotErrorIs(t, err, ErrBadRequest)
+	assert.ErrorContains(t, err, "alpha:Docs")
+}
+
+// TestPreApplyFilter_TenantNodesAreHomeNodes pins the leader's refusal of a
+// tenant add or explicit unfreeze whose nodes are not HomeNodes entries of n1,
+// n2, n3 in list order.
+func TestPreApplyFilter_TenantNodesAreHomeNodes(t *testing.T) {
+	const (
+		hot      = models.TenantActivityStatusHOT
+		cold     = models.TenantActivityStatusCOLD
+		frozen   = models.TenantActivityStatusFROZEN
+		freezing = models.TenantActivityStatusFREEZING
+	)
+	tests := []struct {
+		name      string
+		class     string // alpha:Foo when empty
+		held      string // t1's status in the schema; a tenant add when empty
+		requested string
+		implicit  bool
+		coldFirst bool // a HOT t0 moving to COLD goes ahead of t1 in the update
+		sent      []string
+		wantErr   bool
+	}{
+		{name: "add: an empty list is left for apply to fill"},
+		{name: "add: the first entries are admitted", sent: []string{"n1", "n2"}},
+		{name: "add: entries in list order with one skipped are admitted", sent: []string{"n1", "n3"}},
+		{name: "add: entries out of list order are refused", sent: []string{"n2", "n1"}, wantErr: true},
+		{name: "add: a node that is not a home node is refused", sent: []string{"n4"}, wantErr: true},
+		{name: "add: an unqualified class is not checked", class: "Foo", sent: []string{"n4"}},
+		{name: "unfreeze: a stale list is refused", held: frozen, requested: hot, sent: []string{"n4"}, wantErr: true},
+		{name: "unfreeze: a stale list is refused when the tenant goes to COLD", held: frozen, requested: cold, sent: []string{"n4"}, wantErr: true},
+		{name: "unfreeze: entries in list order are admitted", held: frozen, requested: hot, sent: []string{"n2"}},
+		{name: "unfreeze: an empty list is left for apply to fill", held: frozen, requested: hot},
+		{
+			name: "unfreeze: an implicit activation with every storage node is admitted",
+			held: frozen, requested: hot, implicit: true, sent: []string{"n4", "n1", "n2", "n3"},
+		},
+		{name: "unfreeze: a FREEZING tenant with a stale list is refused", held: freezing, requested: hot, sent: []string{"n4"}, wantErr: true},
+		{
+			name: "unfreeze: a stale list is refused when another tenant in the update does not unfreeze",
+			held: frozen, requested: hot, coldFirst: true, sent: []string{"n4"}, wantErr: true,
+		},
+		{name: "update: a freeze with a stale list is admitted", held: hot, requested: frozen, sent: []string{"n4"}},
+		{name: "update: a freeze re-sent for a FROZEN tenant with a stale list is admitted", held: frozen, requested: frozen, sent: []string{"n4"}},
+		{name: "update: a change to COLD with a stale list is admitted", held: hot, requested: cold, sent: []string{"n4"}},
+		{name: "update: an activation of a COLD tenant with a stale list is admitted", held: cold, requested: hot, sent: []string{"n4"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				physical map[string]sharding.Physical
+				req      *cmd.ApplyRequest
+			)
+			if tt.held == "" {
+				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT,
+					&cmd.AddTenantsRequest{ClusterNodes: tt.sent, Tenants: []*cmd.Tenant{{Name: "t1"}}})
+			} else {
+				physical = map[string]sharding.Physical{"t1": {Name: "t1", Status: tt.held, BelongsToNodes: []string{"n1"}}}
+				tenants := []*cmd.Tenant{{Name: "t1", Status: tt.requested}}
+				if tt.coldFirst {
+					physical["t0"] = sharding.Physical{Name: "t0", Status: hot, BelongsToNodes: []string{"n1"}}
+					tenants = append([]*cmd.Tenant{{Name: "t0", Status: cold}}, tenants...)
+				}
+				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_UPDATE_TENANT, &cmd.UpdateTenantsRequest{
+					ClusterNodes:          tt.sent,
+					Tenants:               tenants,
+					ImplicitUpdateRequest: tt.implicit,
+				})
+			}
+			sm := newManagerWithNamespacedClass(t, 1, []string{"n1", "n2", "n3"}, physical)
+			if tt.class != "" {
+				req.Class = tt.class
+			}
+
+			err := sm.PreApplyFilter(req)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrBadRequest)
+			assert.ErrorContains(t, err, "the node that received this request has not yet applied the namespace's current home nodes")
 		})
 	}
 }
@@ -1421,7 +1673,7 @@ func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
 			idx := &propertyRecordingIndexer{}
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm := NewSchemaManager("node1", idx, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 			require.NoError(t, sm.schema.addClass(&models.Class{
 				Class: "C",
@@ -1451,6 +1703,129 @@ func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
 			require.Equal(t, *schemaProp.IndexFilterable, *idx.got.IndexFilterable)
 			require.Equal(t, *schemaProp.IndexSearchable, *idx.got.IndexSearchable)
 			require.Equal(t, *schemaProp.IndexRangeFilters, *idx.got.IndexRangeFilters)
+		})
+	}
+}
+
+// newManagerWithNamespacedClass returns a SchemaManager holding the multi-tenant
+// class alpha:Foo at factor with the tenants in physical, where namespace alpha
+// has homeNodes.
+func newManagerWithNamespacedClass(t *testing.T, factor int64, homeNodes []string,
+	physical map[string]sharding.Physical,
+) *SchemaManager {
+	t.Helper()
+	exister := usecasesNamespaces.NewMockExister(t)
+	exister.On("GetNamespace", "alpha").Return(cmd.Namespace{Name: "alpha", HomeNodes: homeNodes}, true).Maybe()
+	sm := NewSchemaManager("n1", nil, nil, exister, prometheus.NewPedanticRegistry(), logrus.New())
+	require.NoError(t, sm.schema.addClass(&models.Class{
+		Class:              "alpha:Foo",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		ReplicationConfig:  &models.ReplicationConfig{Factor: factor},
+	}, &sharding.State{PartitioningEnabled: true, Physical: physical}, 1))
+	return sm
+}
+
+func tenantApplyRequest(t *testing.T, typ cmd.ApplyRequest_Type, req gproto.Message) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := gproto.Marshal(req)
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: typ, Class: "alpha:Foo", SubCommand: sub}
+}
+
+func TestSchemaManager_AddTenantsFillsHomeNodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		factor    int64
+		homeNodes []string
+		sent      []string
+		tenants   []string
+		wantNodes []string
+		wantErr   string
+	}{
+		{
+			name:      "an empty list puts every tenant on the first RF home nodes",
+			factor:    2,
+			homeNodes: []string{"n1", "n2", "n3"},
+			tenants:   []string{"t1", "t2", "t3"},
+			wantNodes: []string{"n1", "n2"},
+		},
+		{
+			name:      "a sent list is kept",
+			factor:    1,
+			homeNodes: []string{"n1"},
+			sent:      []string{"n4"},
+			tenants:   []string{"t1"},
+			wantNodes: []string{"n4"},
+		},
+		{
+			name:      "a factor above the home-node count is refused",
+			factor:    2,
+			homeNodes: []string{"n1"},
+			tenants:   []string{"t1"},
+			wantErr:   "not enough replicas",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newManagerWithNamespacedClass(t, tt.factor, tt.homeNodes, nil)
+			req := &cmd.AddTenantsRequest{ClusterNodes: tt.sent}
+			for _, name := range tt.tenants {
+				req.Tenants = append(req.Tenants, &cmd.Tenant{Name: name, Status: models.TenantActivityStatusHOT})
+			}
+
+			err := sm.AddTenants(tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT, req), true)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for _, name := range tt.tenants {
+				owners, _, err := sm.schema.ShardReplicas("alpha:Foo", name)
+				require.NoError(t, err)
+				assert.ElementsMatch(t, tt.wantNodes, owners, name)
+			}
+		})
+	}
+}
+
+func TestSchemaManager_UpdateTenantsFillsHomeNodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		factor    int64
+		homeNodes []string
+		sent      []string
+		wantNodes []string
+	}{
+		{
+			name:      "an empty list unfreezes onto the first RF home nodes",
+			factor:    2,
+			homeNodes: []string{"n1", "n2", "n3"},
+			wantNodes: []string{"n1", "n2"},
+		},
+		{
+			name:      "a sent list is kept",
+			factor:    1,
+			homeNodes: []string{"n1"},
+			sent:      []string{"n4"},
+			wantNodes: []string{"n4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newManagerWithNamespacedClass(t, tt.factor, tt.homeNodes, map[string]sharding.Physical{
+				"t1": {Name: "t1", Status: models.TenantActivityStatusFROZEN, BelongsToNodes: []string{"n9"}},
+			})
+			req := &cmd.UpdateTenantsRequest{
+				ClusterNodes: tt.sent,
+				Tenants:      []*cmd.Tenant{{Name: "t1", Status: models.TenantActivityStatusHOT}},
+			}
+
+			require.NoError(t, sm.UpdateTenants(tenantApplyRequest(t, cmd.ApplyRequest_TYPE_UPDATE_TENANT, req), true))
+			owners, _, err := sm.schema.ShardReplicas("alpha:Foo", "t1")
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.wantNodes, owners)
 		})
 	}
 }

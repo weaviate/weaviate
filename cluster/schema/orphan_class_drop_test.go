@@ -168,7 +168,7 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 			idx := &recordingIndexer{}
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm := NewSchemaManager("node1", idx, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 			tt.seed(t, sm)
 			sm.ReloadDBFromSchema(context.Background())
@@ -185,7 +185,7 @@ func TestMetadataOnlyNodesRecordNoOrphans(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	idx := &recordingIndexer{}
-	sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := NewSchemaManager("node1", idx, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 	sm.SetMetadataOnly(true)
 
 	addClass(t, sm, "Orphan")
@@ -203,7 +203,7 @@ func TestFailedDropIsRetriedOnTheNextReload(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	idx := &recordingIndexer{dropErr: errors.New("disk gone")}
-	sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := NewSchemaManager("node1", idx, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 	addClass(t, sm, "Orphan")
 	deleteClassSchemaOnly(t, sm, "Orphan")
@@ -253,7 +253,7 @@ func TestRestoreCarriesTheFrozenFlag(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	idx := &recordingIndexer{}
-	sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := NewSchemaManager("node1", idx, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 	addFrozenTenantClass(t, sm, "Frozen")
 	addClass(t, sm, "Hot")
@@ -352,7 +352,7 @@ func TestReloadNeverDropsAClassThatDiffersOnlyByCase(t *testing.T) {
 			idx := &recordingIndexer{}
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm := NewSchemaManager("node1", idx, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 			tt.seed(t, sm)
 			sm.ReloadDBFromSchema(context.Background())

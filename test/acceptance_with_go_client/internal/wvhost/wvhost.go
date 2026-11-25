@@ -42,12 +42,16 @@ func host() string {
 	return "localhost"
 }
 
-func NewClient(t *testing.T) *weaviate.Client {
+func NewClient(t *testing.T, opts ...weaviate.Option) *weaviate.Client {
+	t.Helper()
+
 	c, err := weaviate.NewLocal(
 		t.Context(),
-		weaviate.WithHost(host()),
-		weaviate.WithHTTPPort(port("WV_TEST_REST_PORT", "8080")),
-		weaviate.WithGRPCPort(port("WV_TEST_GRPC_PORT", "50051")),
+		append([]weaviate.Option{
+			weaviate.WithHost(host()),
+			weaviate.WithHTTPPort(port("WV_TEST_REST_PORT", "8080")),
+			weaviate.WithGRPCPort(port("WV_TEST_GRPC_PORT", "50051")),
+		}, opts...)...,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, c)

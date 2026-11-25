@@ -696,7 +696,7 @@ func uuidsAndBeacons(objs []*pb.BatchObject, refs []*pb.BatchReference) (uuids, 
 		uuids = append(uuids, obj.GetUuid())
 	}
 	for _, ref := range refs {
-		beacons = append(beacons, toBeacon(ref))
+		beacons = append(beacons, ReferenceUUID(ref))
 	}
 	return uuids, beacons
 }

@@ -43,7 +43,7 @@ func TestGetScore(t *testing.T) {
 		c := New("key", 0, nullLogger())
 
 		cfg := fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}}
-		res, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, cfg)
+		res, err := c.Rank(context.Background(), "Where do I work?", "text", []string{"I work at Apple"}, cfg)
 
 		assert.Nil(t, err)
 		assert.Equal(t, ent.RankResult{
@@ -68,7 +68,7 @@ func TestGetScore(t *testing.T) {
 		c := New("key", 0, nullLogger())
 
 		cfg := fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}}
-		_, err := c.Rank(context.Background(), "prop", []string{"I work at Apple"}, cfg)
+		_, err := c.Rank(context.Background(), "prop", "text", []string{"I work at Apple"}, cfg)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")
@@ -115,7 +115,7 @@ func TestGetScore(t *testing.T) {
 		}
 
 		cfg := fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}}
-		resp, err := c.Rank(context.Background(), query, documents, cfg)
+		resp, err := c.Rank(context.Background(), query, "text", documents, cfg)
 
 		require.Nil(t, err)
 		require.NotNil(t, resp)

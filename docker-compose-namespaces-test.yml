@@ -13,7 +13,7 @@
 # Namespaces.Enabled forces:
 #   - DISABLE_GRAPHQL=true                  (Config.Validate requirement)
 #   - RBAC enabled                          (Config.Validate requirement)
-#   - REPLICATION_MAXIMUM_FACTOR=1          (home_node pins each shard)
+#   - REPLICATION_MAXIMUM_FACTOR=1          (enforceNamespaceStartupInvariants requirement)
 #
 # Usage:
 #   docker compose -f docker-compose-test.yml build
