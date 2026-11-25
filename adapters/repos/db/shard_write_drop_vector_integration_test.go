@@ -860,30 +860,48 @@ func TestDropVectorIndex_DuringALazyLoad(t *testing.T) {
 
 // A load that started from a class older than the drop, for a shard the drop
 // did not see, deletes the vector too, so the name starts clean once it is
-// free again.
+// free again. The drop's delete of the config may not have happened yet.
 func TestDropVectorIndex_LoadWithAClassOlderThanTheDrop(t *testing.T) {
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded %v", recorded), func(t *testing.T) {
+	tests := []struct {
+		name      string
+		recorded  bool
+		hasConfig bool
+	}{
+		{name: "recorded", recorded: true},
+		{name: "not recorded"},
+		{name: "recorded, its config still there", recorded: true, hasConfig: true},
+		{name: "not recorded, its config still there", hasConfig: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			ctx := testCtx()
 			shard, class := setupDropVectorShard(t, ctx)
 			idx := shard.index
 			require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
-			if !recorded {
+			if !tt.recorded {
 				wipeMapping(t, shard)
 			}
-			idx.vectorIndexUserConfigLock.Lock()
-			delete(idx.vectorIndexUserConfigs, "foo")
-			idx.vectorIndexUserConfigLock.Unlock()
-			idx.getSchema = &classGetter{SchemaGetter: idx.getSchema, read: func() *models.Class {
+			if !tt.hasConfig {
+				idx.vectorIndexUserConfigLock.Lock()
+				delete(idx.vectorIndexUserConfigs, "foo")
+				idx.vectorIndexUserConfigLock.Unlock()
+			}
+			getSchema := idx.getSchema
+			idx.getSchema = &classGetter{SchemaGetter: getSchema, read: func() *models.Class {
 				return withDropMarker(class, "foo")
 			}}
 
 			shard = reload(t, ctx, shard, class)
 			assert.Empty(t, entriesNamed(t, shard, "foo"))
 			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
+			found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+			require.NoError(t, err)
+			assert.False(t, found)
+			require.NoError(t, idx.dropVectorIndex(ctx, "foo"), "the drop finds nothing left to do")
 
+			idx.getSchema = &classGetter{SchemaGetter: getSchema, read: func() *models.Class { return class }}
 			require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"foo": hnsw.NewDefaultUserConfig()}))
-			found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+			found, err = shard.WithVectorIndex("foo", func(index VectorIndex) error {
 				assert.False(t, index.ContainsDoc(0), "the new index does not open the old one's files")
 				return nil
 			})
