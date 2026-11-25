@@ -47,6 +47,14 @@ const (
 	stateDropping = "dropping"
 )
 
+var (
+	defaultIDPattern   = regexp.MustCompile(`^` + helpers.VectorsBucketLSM + `_` + schema.TargetVectorNameRegex + `$`)
+	generatedIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]*-[A-Za-z0-9_-]*$`)
+)
+
+// maxFileName is what file systems allow.
+const maxFileName = 255
+
 // record is what the shard persists about one logical vector:
 // where its index lives on disk, which implementation opens it, whether
 // creation completed, which queue feeds it, and the config the index
@@ -122,17 +130,20 @@ func storageIDFor(physicalID string) string {
 	return helpers.VectorsBucketLSM + "_" + physicalID
 }
 
-var (
-	defaultIDPattern   = regexp.MustCompile(`^` + helpers.VectorsBucketLSM + `_` + schema.TargetVectorNameRegex + `$`)
-	generatedIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]*-[A-Za-z0-9_-]*$`)
-)
-
 // validateID accepts the IDs the naming rule gives a vector name,
 // "main" and "vectors_<name>", and generated IDs, which contain a "-" so they
 // can never equal one of those: a vector name has no "-". The schema's
 // collision check reads names only and relies on it.
 func validateID(id string) error {
-	if id == helpers.VectorIndexIDForTarget("") || defaultIDPattern.MatchString(id) || generatedIDPattern.MatchString(id) {
+	if id == helpers.VectorIndexIDForTarget("") || defaultIDPattern.MatchString(id) {
+		return nil
+	}
+	if generatedIDPattern.MatchString(id) {
+		// the longest name an index creates
+		name := helpers.HNSWCommitLogDirNameForID(helpers.CentroidsID(storageIDFor(id)))
+		if len(name) > maxFileName {
+			return fmt.Errorf("%q is too long: it would name a file of %d characters, the limit is %d", id, len(name), maxFileName)
+		}
 		return nil
 	}
 	return fmt.Errorf("%q is neither %q, \"vectors_<vector name>\", nor an ID with a \"-\" made of letters, digits, \"_\" and \"-\"",

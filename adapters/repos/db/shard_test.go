@@ -299,6 +299,28 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
+// A debug reset that fails once it dropped the index leaves the record
+// creating, which the next load builds again.
+func TestShard_DebugResetVectorIndex_FailedRebuildLeavesCreating(t *testing.T) {
+	ctx := testCtx()
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "TestClass"}, hnsw.UserConfig{}, false, true)
+	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"added": hnsw.UserConfig{}}))
+	s := underlyingShard(t, shd)
+	want, _, err := recordsOf(s).Get("added")
+	require.NoError(t, err)
+	want.State = "creating"
+
+	idx.vectorIndexUserConfigLock.Lock()
+	idx.vectorIndexUserConfigs["added"] = hnsw.UserConfig{Distance: "bogus"}
+	idx.vectorIndexUserConfigLock.Unlock()
+	require.ErrorContains(t, shd.DebugResetVectorIndex(ctx, "added"), "bogus")
+
+	rec, ok, err := recordsOf(s).Get("added")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, want, rec)
+}
+
 // A vector added on a running shard is recorded, so the reset finds its
 // record and rebuilds at its ID; the record is ready again afterwards.
 func TestShard_DebugResetVectorIndex_AddedVector(t *testing.T) {
