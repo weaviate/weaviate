@@ -25,6 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
@@ -165,7 +166,7 @@ func getToken(ctx context.Context) (string, error) {
 	if token := modulecomponents.GetValueFromContext(ctx, "Authorization"); token != "" {
 		return token, nil
 	}
-	return "", errors.New("no authentication token found in request header: Authorization")
+	return "", enterrors.NewErrModulePrecondition(errors.New("no authentication token found in request header: Authorization"))
 }
 
 func getClusterURL(ctx context.Context) (string, error) {
@@ -174,7 +175,7 @@ func getClusterURL(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if clusterURL == "" {
-		return "", errors.New("no cluster URL found in request header: X-Weaviate-Cluster-Url")
+		return "", enterrors.NewErrModulePrecondition(errors.New("no cluster URL found in request header: X-Weaviate-Cluster-Url"))
 	}
 	return clusterURL, nil
 }

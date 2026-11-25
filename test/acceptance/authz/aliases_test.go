@@ -12,6 +12,7 @@
 package authz
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -91,5 +92,103 @@ func TestAuthzAliases(t *testing.T) {
 		resp, err := helper.Client(t).Schema.AliasesGetAlias(params, helper.CreateAuth(limitedKey))
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
+	})
+}
+
+func TestAuthzUpdateAliasRequiresPermissionOnCurrentTarget(t *testing.T) {
+	adminKey := "admin-key"
+	malloryUser, malloryKey := "custom-user2", "custom-key2"
+	readerUser, readerKey := "test-user", "test-key"
+	ingestUser, ingestKey := "write-user", "write-key"
+
+	const (
+		victimClass   = "CompanyOrders"
+		scratchClass  = "MalloryScratch"
+		aliasName     = "Orders"
+		scratchRole   = "scratch-owner"
+		readerRole    = "orders-reader"
+		ingestRole    = "ingest-all"
+		bothSidesRole = "orders-mover"
+	)
+
+	_, down := composeUpShared(t)
+	defer down()
+
+	for _, class := range []string{victimClass, scratchClass} {
+		helper.CreateClassAuth(t, &models.Class{Class: class}, adminKey)
+	}
+	helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: victimClass}, adminKey)
+
+	scratchPermissions := []*models.Permission{
+		helper.NewAliasesPermission().WithAction(authorization.UpdateAliases).WithCollection(scratchClass).Permission(),
+		helper.NewAliasesPermission().WithAction(authorization.DeleteAliases).WithCollection(scratchClass).Permission(),
+		helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(scratchClass).Permission(),
+	}
+	helper.CreateRole(t, adminKey, &models.Role{Name: String(scratchRole), Permissions: scratchPermissions})
+	helper.AssignRoleToUser(t, adminKey, scratchRole, malloryUser)
+	helper.CreateRole(t, adminKey, &models.Role{Name: String(readerRole), Permissions: append([]*models.Permission{
+		helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection(victimClass).WithAlias(aliasName).Permission(),
+	}, scratchPermissions...)})
+	helper.AssignRoleToUser(t, adminKey, readerRole, readerUser)
+	helper.CreateRole(t, adminKey, &models.Role{Name: String(ingestRole), Permissions: []*models.Permission{
+		helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection("*").Permission(),
+	}})
+	helper.AssignRoleToUser(t, adminKey, ingestRole, ingestUser)
+
+	assertTarget := func(t *testing.T, want string) {
+		t.Helper()
+		got := helper.GetAliasWithAuthz(t, aliasName, helper.CreateAuth(adminKey))
+		require.Equal(t, want, got.Class)
+	}
+
+	t.Run("caller who cannot read the alias gets the missing-alias answer", func(t *testing.T) {
+		_, missingErr := helper.UpdateAliasAuthWithReturn(t, "NoSuchAlias", scratchClass, malloryKey)
+		var missing *schema.AliasesUpdateNotFound
+		require.ErrorAs(t, missingErr, &missing)
+
+		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, malloryKey)
+		var denied *schema.AliasesUpdateNotFound
+		require.ErrorAs(t, err, &denied)
+		assert.Equal(t, missing, denied)
+		assert.Equal(t, missingErr.Error(), err.Error())
+		assertTarget(t, victimClass)
+	})
+
+	t.Run("caller who can read the alias gets forbidden", func(t *testing.T) {
+		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, readerKey)
+		var forbidden *schema.AliasesUpdateForbidden
+		require.ErrorAs(t, err, &forbidden)
+		assertTarget(t, victimClass)
+	})
+
+	t.Run("writes through the alias still land in the original collection", func(t *testing.T) {
+		require.NoError(t, helper.CreateObjectAuth(t, &models.Object{Class: aliasName, Properties: map[string]any{}}, ingestKey))
+
+		res, err := helper.ListObjectsAuth(t, scratchClass, malloryKey)
+		require.NoError(t, err)
+		assert.Empty(t, res.Objects)
+		res, err = helper.ListObjectsAuth(t, victimClass, adminKey)
+		require.NoError(t, err)
+		assert.Len(t, res.Objects, 1)
+	})
+
+	t.Run("delete_aliases on the new target alone cannot delete the alias", func(t *testing.T) {
+		_, err := helper.DeleteAliasAuthWithReturn(t, aliasName, malloryKey)
+		var forbidden *schema.AliasesDeleteForbidden
+		var notFound *schema.AliasesDeleteNotFound
+		require.True(t, errors.As(err, &forbidden) || errors.As(err, &notFound),
+			"want 403 or 404, got %v", err)
+		assertTarget(t, victimClass)
+	})
+
+	t.Run("update_aliases on both targets moves the alias", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{Name: String(bothSidesRole), Permissions: []*models.Permission{
+			helper.NewAliasesPermission().WithAction(authorization.UpdateAliases).WithCollection(victimClass).WithAlias(aliasName).Permission(),
+		}})
+		helper.AssignRoleToUser(t, adminKey, bothSidesRole, malloryUser)
+
+		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, malloryKey)
+		require.NoError(t, err)
+		assertTarget(t, scratchClass)
 	})
 }
