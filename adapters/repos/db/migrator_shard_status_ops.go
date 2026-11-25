@@ -238,6 +238,16 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
+			if idx.pendingDrops.Load(name) != nil {
+				err := fmt.Errorf("shard %q: %w", name, errDropInProgress)
+				ec.Add(err)
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{Name: name},
+					Op:     command.TenantsProcess_OP_ABORT,
+				}
+				return err
+			}
+
 			// An artifact's .ht would be trusted verbatim on load, so none may survive the download on either leg.
 			discardHashtree := func() {
 				if err := os.RemoveAll(idx.shardPathHashTree(name)); err != nil {

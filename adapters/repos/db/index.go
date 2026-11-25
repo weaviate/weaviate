@@ -4587,6 +4587,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 			return err
 		}
 	}
+	i.dropRetry.Store(false)
 
 	// requestCycleStops runs first so the cycles start no compaction or flush
 	// during the shard shutdown. waitForCycleStops runs after the shards, so a

@@ -21,6 +21,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 
+	diskqueue "github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -382,7 +383,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
 		}
 
-		if err = queue.Close(ctx); err != nil {
+		if err = queue.Close(ctx); err != nil && !errors.Is(err, diskqueue.ErrAlreadyClosed) {
 			err = fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err)
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
@@ -402,7 +403,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 			ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
 		}
 
-		if err = queue.Close(ctx); err != nil {
+		if err = queue.Close(ctx); err != nil && !errors.Is(err, diskqueue.ErrAlreadyClosed) {
 			err = fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err)
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err

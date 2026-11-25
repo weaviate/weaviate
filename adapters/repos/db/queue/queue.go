@@ -41,6 +41,9 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
+// ErrAlreadyClosed reports a queue whose teardown has completed.
+var ErrAlreadyClosed = errors.New("queue already closed")
+
 const (
 	// defaultChunkSize is the maximum size of each chunk file. Defaults to 10MB.
 	defaultChunkSize = 10 * 1024 * 1024
@@ -250,7 +253,7 @@ func (q *DiskQueue) Close(ctx context.Context) error {
 	}
 	if q.closed {
 		q.m.Unlock()
-		return errors.New("queue already closed")
+		return ErrAlreadyClosed
 	}
 	q.closing = make(chan struct{})
 	q.m.Unlock()
