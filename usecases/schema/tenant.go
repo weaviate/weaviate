@@ -116,15 +116,17 @@ func (h *Handler) AddTenants(ctx context.Context,
 }
 
 // tenantClusterNodes returns candidateHomeNodes at this node's factor, or every
-// storage candidate on NS-disabled clusters. SchemaManager places each tenant on the
-// list's first entries up to the factor it applies with, which can be above this node's.
+// storage candidate on NS-disabled clusters. For a namespaced class, a leader
+// running SchemaManager.WriteTenantNodes replaces the list. Leaders without it, such
+// as v1.40.x and v1.41.0, append it as sent. Upgraded nodes then place tenants on its
+// first entries up to the factor they apply with, which can be above this node's.
 func (h *Handler) tenantClusterNodes(qualifiedClass string) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
 		return h.membership.StorageCandidates(), nil
 	}
-	// TODO(v1.42): send nil for SchemaManager to fill from HomeNodes at apply.
-	// v1.38 to v1.40 nodes refuse a tenant with no nodes. The fill cannot skip
-	// home nodes that are not storage candidates, so nil gives up that skip.
+	// TODO(v1.42): send nil for a namespaced class once every leader runs
+	// SchemaManager.WriteTenantNodes. An older leader appends nil, which apply
+	// fills from HomeNodes without skipping home nodes that are not storage candidates.
 	factor := h.schemaReader.ClassInfo(qualifiedClass).ReplicationFactor
 	return h.candidateHomeNodes(qualifiedClass, int64(factor))
 }
@@ -139,6 +141,7 @@ func (h *Handler) updateTenantsClusterNodes(qualifiedClass string,
 	if namespacing.NamespaceFromQualified(qualifiedClass) == "" {
 		return h.tenantClusterNodes(qualifiedClass)
 	}
+	// TODO(v1.42): return nil without asking the leader, once tenantClusterNodes sends nil.
 	held, _, err := h.schemaManager.TenantsShardsFromLeader(qualifiedClass, names...)
 	if err != nil {
 		return nil, err

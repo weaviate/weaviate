@@ -489,7 +489,8 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 // is encoded, and replaces its ClusterNodes with the first factor HomeNodes
 // entries that storageCandidates returns. It refuses an add or unfreeze that
 // finds none, and gives any other update that finds none HomeNodes[:factor].
-// Only a v1.40 or rc.0 leader appends the sent list.
+// An add or unfreeze whose pick is shorter than factor is appended, and
+// GetPartitions refuses it at apply.
 func (s *SchemaManager) WriteTenantNodes(req *command.ApplyRequest, storageCandidates func() []string) error {
 	if req.Type != command.ApplyRequest_TYPE_ADD_TENANT && req.Type != command.ApplyRequest_TYPE_UPDATE_TENANT {
 		return nil
