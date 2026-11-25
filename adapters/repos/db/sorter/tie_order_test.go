@@ -373,3 +373,59 @@ func TestInvertedSorterBoundsTheUUIDScan(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, top[:10], got)
 }
+
+// A vector search sorted by a property keeps its ties in distance order, then
+// UUID order.
+func TestVectorSortBreaksTiesByDistance(t *testing.T) {
+	ids := []uuid.UUID{
+		uuid.MustParse("00000000-0000-0000-0000-000000000001"),
+		uuid.MustParse("00000000-0000-0000-0000-000000000002"),
+		uuid.MustParse("00000000-0000-0000-0000-000000000003"),
+		uuid.MustParse("00000000-0000-0000-0000-000000000004"),
+	}
+	objects := []tiedObject{{id: ids[2], int: 1}, {id: ids[0], int: 1}, {id: ids[3], int: 1}, {id: ids[1], int: 0}}
+	dists := []float32{0.2, 0.3, 0.2, 0.9}
+	// value 0 first, then the value-1 ties: 0.2 (ids[2], ids[3] by UUID), then 0.3
+	want := []uuid.UUID{ids[1], ids[2], ids[3], ids[0]}
+	wantDists := []float32{0.9, 0.2, 0.2, 0.3}
+	byInt := []filters.Sort{{Path: []string{"int"}, Order: "asc"}}
+	class := func(string) *models.Class { return dummyClass() }
+
+	t.Run("in a shard", func(t *testing.T) {
+		r := newTieReplica(t, objects, func(i int) uint64 { return uint64(len(objects) - i) })
+		ls, err := NewLSMSorter(r.store, class, "DummyClass", runtime.NewDynamicValue(true))
+		require.NoError(t, err)
+		docIDs, gotDists, err := ls.SortDocIDsAndDists(context.Background(), 0, byInt, slices.Clone(r.docs), slices.Clone(dists))
+		require.NoError(t, err)
+		require.Equal(t, want, r.uuids(docIDs))
+		require.Equal(t, wantDists, gotDists)
+	})
+
+	loaded := func() []*storobj.Object {
+		objs := make([]*storobj.Object, len(objects))
+		for i, o := range objects {
+			objs[i] = storobj.FromObject(&models.Object{
+				Class: "DummyClass", ID: strfmt.UUID(o.id.String()), Properties: map[string]any{"int": float64(o.int)},
+			}, nil, nil, nil)
+		}
+		return objs
+	}
+	uuidsOf := func(objs []*storobj.Object) []uuid.UUID {
+		out := make([]uuid.UUID, len(objs))
+		for i, o := range objs {
+			out[i] = uuid.MustParse(o.ID().String())
+		}
+		return out
+	}
+	t.Run("merging shards", func(t *testing.T) {
+		got, gotDists, err := NewObjectsSorter(class).TieByDistances().Sort(loaded(), slices.Clone(dists), 0, byInt)
+		require.NoError(t, err)
+		require.Equal(t, want, uuidsOf(got))
+		require.Equal(t, wantDists, gotDists)
+	})
+	t.Run("scores that are not distances tie by UUID", func(t *testing.T) {
+		got, _, err := NewObjectsSorter(class).Sort(loaded(), slices.Clone(dists), 0, byInt)
+		require.NoError(t, err)
+		require.Equal(t, []uuid.UUID{ids[1], ids[0], ids[2], ids[3]}, uuidsOf(got))
+	})
+}

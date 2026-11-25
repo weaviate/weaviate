@@ -2690,7 +2690,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	if len(sort) > 0 {
 		if len(readPlan.Shards()) > 1 {
 			var err error
-			outObjects, outScores, err = i.sort(outObjects, outScores, sort, limit)
+			outObjects, outScores, err = i.sort(outObjects, outScores, sort, limit, false)
 			if err != nil {
 				return nil, nil, errors.Wrap(err, "sort")
 			}
@@ -2902,11 +2902,15 @@ func (i *Index) sortKeywordRanking(objects []*storobj.Object,
 	return newScoresSorter().sort(objects, scores)
 }
 
+// sort merges shard results; vector search ties fall to the closer object.
 func (i *Index) sort(objects []*storobj.Object, scores []float32,
-	sort []filters.Sort, limit int,
+	sort []filters.Sort, limit int, scoresAreDistances bool,
 ) ([]*storobj.Object, []float32, error) {
-	return sorter.NewObjectsSorter(i.getSchema.ReadOnlyClass).
-		Sort(objects, scores, limit, sort)
+	s := sorter.NewObjectsSorter(i.getSchema.ReadOnlyClass)
+	if scoresAreDistances {
+		s = s.TieByDistances()
+	}
+	return s.Sort(objects, scores, limit, sort)
 }
 
 func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
@@ -3163,7 +3167,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	if len(readPlan.Shards()) > 1 && len(sort) > 0 {
-		return i.sort(out, dists, sort, limit)
+		return i.sort(out, dists, sort, limit, true)
 	}
 
 	out, dists = newDistancesSorter().sort(out, dists)

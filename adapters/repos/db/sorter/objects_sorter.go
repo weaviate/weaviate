@@ -25,11 +25,19 @@ type Sorter interface {
 }
 
 type objectsSorter struct {
-	readOnlyClass func(string) *models.Class
+	readOnlyClass  func(string) *models.Class
+	tieByDistances bool
 }
 
 func NewObjectsSorter(fn func(string) *models.Class) *objectsSorter {
 	return &objectsSorter{readOnlyClass: fn}
+}
+
+// TieByDistances breaks ties by the given distances, closest first, before
+// ids. Scores that rank higher-is-better must not use it.
+func (s *objectsSorter) TieByDistances() *objectsSorter {
+	s.tieByDistances = true
+	return s
 }
 
 func (s objectsSorter) Sort(objects []*storobj.Object,
@@ -56,18 +64,21 @@ func (s objectsSorter) Sort(objects []*storobj.Object,
 	comparator := newComparator(dataTypesHelper, propNames, orders)
 	creator := newComparableCreator(valueExtractor, propNames)
 
-	return newObjectsSorterHelper(comparator, creator, limit).
+	return newObjectsSorterHelper(comparator, creator, limit, s.tieByDistances).
 		sort(objects, scores)
 }
 
 type objectsSorterHelper struct {
-	comparator *comparator
-	creator    *comparableCreator
-	limit      int
+	comparator     *comparator
+	creator        *comparableCreator
+	limit          int
+	tieByDistances bool
 }
 
-func newObjectsSorterHelper(comparator *comparator, creator *comparableCreator, limit int) *objectsSorterHelper {
-	return &objectsSorterHelper{comparator, creator, limit}
+func newObjectsSorterHelper(comparator *comparator, creator *comparableCreator, limit int,
+	tieByDistances bool,
+) *objectsSorterHelper {
+	return &objectsSorterHelper{comparator, creator, limit, tieByDistances}
 }
 
 func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances []float32) ([]*storobj.Object, []float32, error) {
@@ -81,6 +92,9 @@ func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances []float3
 			payload.d = distances[i]
 		}
 		comparable := h.creator.createFromObjectWithPayload(objects[i], payload)
+		if withDistances && h.tieByDistances {
+			comparable.distance, comparable.byDistance = distances[i], true
+		}
 		sorter.addComparable(comparable)
 	}
 

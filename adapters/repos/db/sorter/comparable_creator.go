@@ -21,6 +21,9 @@ type comparable struct {
 	docID uint64
 	// id breaks ties: docIDs differ between replicas, so they cannot
 	id uuid.UUID
+	// distance, when set, breaks ties before id: the closer object first
+	distance   float32
+	byDistance bool
 	// all property values that will be used for comparison
 	// most important 1st, least important last
 	values []interface{}

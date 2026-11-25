@@ -216,6 +216,7 @@ func (h *lsmSorterHelper) getSortedDocIDsAndDistances(ctx context.Context, docID
 		}
 
 		comparable := h.creator.createFromBytesWithPayload(docID, objData, distances[i])
+		comparable.distance, comparable.byDistance = distances[i], true
 		sorter.addComparable(comparable)
 	}
 
