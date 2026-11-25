@@ -50,7 +50,6 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/weaviate/fgprof"
@@ -421,41 +420,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger.WithField("action", "startup").Fatalf("failed to create replication client: %v", err)
 	}
 
-	// Set up gRPC connection manager (needed for both file replication and replication gRPC client)
-	grpcConfig := appState.ServerConfig.Config.GRPC
-	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
-
-	var creds credentials.TransportCredentials
-	useTLS := len(grpcConfig.CertFile) > 0
-	if useTLS {
-		creds = credentials.NewClientTLSFromCert(nil, "")
-	} else {
-		creds = insecure.NewCredentials()
-	}
-
-	grpcDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-	if authConfig.BasicAuth.Enabled() {
-		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
-		grpcDialOpts = append(
-			grpcDialOpts,
-			grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
-			grpc.WithChainStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
-		)
-	}
-
-	maxSize := clusterapigrpc.GetMaxMessageSize(appState)
-	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(appState)
-	grpcDialOpts = append(
-		grpcDialOpts,
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(maxSize),
-			grpc.MaxCallSendMsgSize(maxSize),
-		),
-		grpc.WithInitialWindowSize(int32(initialConnWindowSize)),
-		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
-		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
-		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
-	)
+	// Set up gRPC connection manager (needed for both file replication and replication gRPC client).
+	// Peer cluster API servers serve unencrypted HTTP/2 even when public GRPC TLS is enabled.
+	grpcDialOpts := clusterGRPCDialOptions(appState)
 
 	grpcConnManager, err := grpcconn.NewConnManager(
 		appState.ServerConfig.Config.GRPC.MaxOpenConns,
@@ -2687,6 +2654,37 @@ type clientWithAuth struct {
 func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 	r.SetBasicAuth(c.basicAuth.Username, c.basicAuth.Password)
 	return c.r.RoundTrip(r)
+}
+
+// clusterGRPCDialOptions builds dial options for intra-cluster gRPC calls to peers'
+// internal cluster API port, which uses unencrypted HTTP/2 regardless of public GRPC TLS.
+func clusterGRPCDialOptions(appState *state.State) []grpc.DialOption {
+	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+
+	grpcDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	if authConfig.BasicAuth.Enabled() {
+		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
+		grpcDialOpts = append(
+			grpcDialOpts,
+			grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
+			grpc.WithChainStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
+		)
+	}
+
+	maxSize := clusterapigrpc.GetMaxMessageSize(appState)
+	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(appState)
+	grpcDialOpts = append(
+		grpcDialOpts,
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxSize),
+			grpc.MaxCallSendMsgSize(maxSize),
+		),
+		grpc.WithInitialWindowSize(int32(initialConnWindowSize)),
+		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
+	)
+	return grpcDialOpts
 }
 
 func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
