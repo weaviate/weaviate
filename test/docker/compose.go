@@ -141,7 +141,6 @@ type Compose struct {
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
 
-	withWeaviateAuth               bool
 	withWeaviateBasicAuth          bool
 	withWeaviateBasicAuthUsername  string
 	withWeaviateBasicAuthPassword  string
@@ -666,11 +665,6 @@ func (d *Compose) WithWeaviateBasicAuth(username, password string) *Compose {
 	return d
 }
 
-func (d *Compose) WithWeaviateAuth() *Compose {
-	d.withWeaviateAuth = true
-	return d.With1NodeCluster()
-}
-
 func (d *Compose) WithAdminListAdmins(users ...string) *Compose {
 	d.weaviateAdminlistAdminUsers = users
 	return d
@@ -1174,15 +1168,6 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateBasicAuth {
 		settings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
 		settings["CLUSTER_BASIC_AUTH_PASSWORD"] = d.withWeaviateBasicAuthPassword
-	}
-	if d.withWeaviateAuth {
-		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
-		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.weaviate.cloud/Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
-		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
-		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "roles"
-		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
-		settings["AUTHORIZATION_ADMINLIST_USERS"] = "oidc-test-user@weaviate.io"
 	}
 	if len(d.weaviateAdminlistAdminUsers) > 0 {
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"

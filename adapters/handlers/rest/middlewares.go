@@ -382,9 +382,15 @@ func writeOperationalModeErrorResponse(w http.ResponseWriter, err error) {
 
 func whitelist(path string, whitelist map[string]struct{}) bool {
 	split := strings.Split(path, "/")
+	if len(split) < 2 {
+		return false
+	}
 	root := split[1]
 	if root != "v1" {
 		return true
+	}
+	if len(split) < 3 {
+		return false
 	}
 	namespace := split[2]
 	if _, ok := whitelist[namespace]; ok {
