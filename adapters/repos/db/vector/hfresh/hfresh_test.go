@@ -16,11 +16,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -41,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -65,6 +68,9 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 // Uncomment to enable pprof and prometheus metrics when running tests
 
 func TestMain(m *testing.M) {
+	// tests opt into single-posting mode explicitly, whatever the shell exports
+	_ = os.Unsetenv(singlePostingMaxSizeEnv)
+
 	runtime.SetMutexProfileFraction(1)
 
 	go func() {
@@ -87,6 +93,9 @@ func TestMain(m *testing.M) {
 func makeNoopCommitLogger(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
+
+// testScheduleInterval replaces the scheduler's 1s default, which every wait for an idle task queue would pay
+const testScheduleInterval = 10 * time.Millisecond
 
 func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	l := logrus.New()
@@ -116,7 +125,8 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	cfg.Logger = l
 	scheduler := queue.NewScheduler(
 		queue.SchedulerOptions{
-			Logger: l,
+			Logger:           l,
+			ScheduleInterval: testScheduleInterval,
 		},
 	)
 	scheduler.Start()
@@ -334,4 +344,251 @@ func TestCentroidPrefillNeverReadsObjectStorage(t *testing.T) {
 		assert.Emptyf(t, centroid.Uncompressed,
 			"centroid graph must never prefill from object storage, but doc id %d was found in its cache", docID)
 	}
+}
+
+// singlePostingDims keeps the per-vector work small; at 8 dimensions and
+// the smallest I/O budget a posting holds 315 vectors, so a threshold of
+// 1000 forces a split cascade of two levels once the centroid index is built.
+const (
+	singlePostingDims      = 8
+	singlePostingThreshold = 1000
+)
+
+func singlePostingUserConfig() ent.UserConfig {
+	uc := ent.NewDefaultUserConfig()
+	uc.MaxPostingSizeKB = ent.MaxPostingSizeKBFloor
+	return uc
+}
+
+func TestSinglePostingMode(t *testing.T) {
+	ctx := context.Background()
+
+	insert := func(t *testing.T, tf *TestHFresh, n int) [][]float32 {
+		vectors, _ := testinghelpers.RandomVecsFixedSeed(n, 0, singlePostingDims)
+		for i, v := range vectors {
+			addVectorToIndex(t, tf, uint64(i), v)
+		}
+		return vectors
+	}
+
+	assertSelfSearch := func(t *testing.T, tf *TestHFresh, vectors [][]float32) {
+		for i, v := range vectors {
+			ids, _, err := tf.Index.SearchByVector(ctx, v, 1, nil)
+			require.NoError(t, err)
+			require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
+		}
+	}
+
+	t.Run("threshold zero builds the centroid index eagerly", func(t *testing.T) {
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		require.True(t, tf.Index.Centroids.Built())
+	})
+
+	t.Run("stays in one posting below the threshold", func(t *testing.T) {
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		vectors := insert(t, &tf, singlePostingThreshold)
+		tf.Index.waitForMaintenance(t)
+
+		require.False(t, tf.Index.Centroids.Built())
+		require.EqualValues(t, 1, tf.Index.PostingSizes.Count())
+		requireSinglePostingSize(t, tf.Index, singlePostingThreshold)
+		require.EqualValues(t, 0, tf.Index.taskQueue.Size(), "no maintenance task may be queued in single-posting mode")
+
+		assertSelfSearch(t, &tf, vectors)
+
+		var sizeSlots int
+		for range tf.Index.PostingSizes.data.IterAllocated() {
+			sizeSlots++
+		}
+		require.LessOrEqual(t, sizeSlots, postingPageSize, "one posting must not reserve a 64k-entry size page")
+
+		// deletes are honoured by the scan
+		require.NoError(t, tf.Index.Delete(3))
+		ids, _, err := tf.Index.SearchByVector(ctx, vectors[3], 1, nil)
+		require.NoError(t, err)
+		require.NotEqual(t, []uint64{3}, ids)
+
+		// an allow list larger than the flat-search cutoff goes through the
+		// posting scan and must still be applied
+		allowed := make([]uint64, 0, flatSearchCutoff+1)
+		for id := uint64(5); id < uint64(flatSearchCutoff+6); id++ {
+			allowed = append(allowed, id)
+		}
+		ids, _, err = tf.Index.SearchByVector(ctx, vectors[0], 1, helpers.NewAllowList(allowed...))
+		require.NoError(t, err)
+		require.Len(t, ids, 1)
+		require.GreaterOrEqual(t, ids[0], uint64(5))
+
+		require.NoError(t, tf.Index.Flush())
+		require.NoError(t, tf.Index.Shutdown(ctx))
+	})
+
+	t.Run("never splits the single posting inline", func(t *testing.T) {
+		// far past the inline split of graph mode, still under the limit
+		setSinglePostingLimit(t, 2000)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		insert(t, &tf, 1600)
+		require.Greater(t, uint32(1600), 5*tf.Index.maxPostingSize)
+		require.False(t, tf.Index.Centroids.Built())
+		require.EqualValues(t, 1, tf.Index.PostingSizes.Count())
+	})
+
+	t.Run("splits the single posting inline far above its limit", func(t *testing.T) {
+		// a limit under the max posting size leaves the latter as the limit
+		setSinglePostingLimit(t, 100)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
+		defer tf.Index.taskQueue.splitQueue.Resume()
+
+		vectors := insert(t, &tf, 1600)
+		require.Greater(t, uint32(1600), 5*tf.Index.maxPostingSize)
+		require.True(t, tf.Index.Centroids.Built(), "the insert splits the posting when its queued split is that late")
+		assertSelfSearch(t, &tf, vectors)
+	})
+
+	t.Run("deleted entries do not count toward the limit", func(t *testing.T) {
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
+		vectors := insert(t, &tf, singlePostingThreshold+200)
+		for id := range uint64(700) {
+			require.NoError(t, tf.Index.Delete(id))
+		}
+		tf.Index.taskQueue.splitQueue.Resume()
+		tf.Index.waitForMaintenance(t)
+
+		// 500 live entries are above the max posting size but under the limit
+		require.False(t, tf.Index.Centroids.Built())
+		requireSinglePostingSize(t, tf.Index, 500)
+		requireNoSinglePostingIDs(t, tf.Index)
+		for i := 700; i < len(vectors); i++ {
+			ids, _, err := tf.Index.SearchByVector(ctx, vectors[i], 1, nil)
+			require.NoError(t, err)
+			require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
+		}
+	})
+
+	t.Run("filtered search finds pre-threshold vectors before the first split", func(t *testing.T) {
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		// hold the bootstrap split so the transition window stays open
+		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
+		defer tf.Index.taskQueue.splitQueue.Resume()
+
+		vectors := insert(t, &tf, singlePostingThreshold+1)
+		require.False(t, tf.Index.Centroids.Built(), "the paused split keeps the single posting")
+
+		// pad the allow list past the flat-search cutoff so the filter goes
+		// through the posting scan
+		allowed := make([]uint64, 0, flatSearchCutoff+singlePostingThreshold)
+		for id := range uint64(singlePostingThreshold) {
+			allowed = append(allowed, id)
+		}
+		for id := uint64(1_000_000); len(allowed) <= flatSearchCutoff; id++ {
+			allowed = append(allowed, id)
+		}
+		ids, _, err := tf.Index.SearchByVector(ctx, vectors[0], 1, helpers.NewAllowList(allowed...))
+		require.NoError(t, err)
+		require.Equal(t, []uint64{0}, ids)
+
+		requireSinglePostingSize(t, tf.Index, uint32(len(vectors)))
+	})
+
+	t.Run("concurrent inserts across the threshold are all counted", func(t *testing.T) {
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
+		defer tf.Index.taskQueue.splitQueue.Resume()
+
+		const total = singlePostingThreshold + 200
+		vectors, _ := testinghelpers.RandomVecsFixedSeed(total, 0, singlePostingDims)
+		for i, v := range vectors {
+			tf.Vectors.put(uint64(i), v)
+		}
+
+		const workers = 8
+		eg := enterrors.NewErrorGroupWrapper(tf.Index.logger)
+		for w := range workers {
+			eg.Go(func() error {
+				for i := w; i < total; i += workers {
+					err := tf.Index.Add(ctx, uint64(i), vectors[i])
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+		}
+		require.NoError(t, eg.Wait())
+
+		require.False(t, tf.Index.Centroids.Built(), "the paused split keeps the single posting")
+		requireSinglePostingSize(t, tf.Index, total)
+	})
+
+	t.Run("builds the centroid index and splits past the threshold", func(t *testing.T) {
+		setSinglePostingLimit(t, singlePostingThreshold)
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		vectors := insert(t, &tf, singlePostingThreshold+1)
+		tf.Index.waitForMaintenance(t)
+		require.True(t, tf.Index.Centroids.Built())
+
+		// the cascade must reach normal posting sizes without further
+		// inserts, and the posting map is rebuilt from the postings on disk
+		var postings int
+		seen := make(map[uint64]struct{})
+		for id, meta := range tf.Index.PostingMap.Iter() {
+			postings++
+			require.LessOrEqual(t, meta.Count(), tf.Index.maxPostingSize, "posting %d", id)
+			for vid := range meta.Iter() {
+				seen[vid] = struct{}{}
+			}
+		}
+		require.Greater(t, postings, 2)
+		require.Len(t, seen, len(vectors))
+
+		assertSelfSearch(t, &tf, vectors)
+	})
+
+	t.Run("muvera index searches the single posting and the graph built from it", func(t *testing.T) {
+		const (
+			limit  = 300
+			tokens = 2
+			dim    = 16
+		)
+		muvera := muveraUserConfig().Multivector.MuveraConfig
+		encodedDims := muvera.Repetitions * (1 << muvera.KSim) * muvera.DProjections
+		t.Setenv(singlePostingMaxSizeEnv, strconv.FormatUint(uint64(limit*postingEntryBytes(encodedDims)), 10))
+		tf := createMuveraHFreshIndex(t, withDistanceProvider(distancer.NewCosineDistanceProvider()))
+
+		rng := rand.New(rand.NewSource(7))
+		var docs [][][]float32
+		add := func(n int) {
+			for range n {
+				doc := randomMultiVector(rng, tokens, dim)
+				addMultiVectorToIndex(t, &tf, uint64(len(docs)), doc)
+				docs = append(docs, doc)
+			}
+		}
+		assertSelfSearch := func() {
+			for i, doc := range docs {
+				ids, _, err := tf.Index.SearchByMultiVector(ctx, doc, 1, nil)
+				require.NoError(t, err)
+				require.Equal(t, []uint64{uint64(i)}, ids, "document %d", i)
+			}
+		}
+
+		add(limit)
+		tf.Index.waitForMaintenance(t)
+		require.EqualValues(t, limit, tf.Index.bootstrapThreshold)
+		require.Greater(t, uint32(limit), tf.Index.maxPostingSize, "only the limit keeps the posting whole")
+		require.False(t, tf.Index.Centroids.Built())
+		requireSinglePostingSize(t, tf.Index, limit)
+		assertSelfSearch()
+
+		add(100)
+		tf.Index.waitForMaintenance(t)
+		require.True(t, tf.Index.Centroids.Built())
+		assertSelfSearch()
+	})
 }

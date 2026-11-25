@@ -63,16 +63,11 @@ func armObjectsEditOp(t *testing.T, shard *Shard) *lsmkv.Bucket {
 // reach a state where a retry succeeds.
 func TestReplicaSnapshotDefersWhileEditOpsPending(t *testing.T) {
 	for _, tc := range []struct {
-		name            string
-		forceNoHardlink bool
+		name string
 	}{
-		{name: "hardlink mode", forceNoHardlink: false},
-		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
+		{name: "hardlink mode"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.forceNoHardlink {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-			}
 			index, shard := newSharedHaltTestShard(t)
 			ctx := context.Background()
 
@@ -145,20 +140,15 @@ func TestReplicaSnapshotDefersOnEditOpsReadError(t *testing.T) {
 		"the deferral must come from the edit-ops probe itself, not some unrelated failure")
 }
 
-// Both replica snapshot modes carry a copy of index.db, staged: the mapping
-// and the dynamic upgrade verdicts must travel with the files they describe.
+// A replica snapshot stages a copy of index.db, because the mapping and the
+// dynamic upgrade verdicts must travel with the files they describe.
 func TestReplicaSnapshotCarriesIndexDB(t *testing.T) {
 	for _, tc := range []struct {
-		name            string
-		forceNoHardlink bool
+		name string
 	}{
 		{name: "hardlink mode"},
-		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.forceNoHardlink {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-			}
 			index, _ := newSharedHaltTestShard(t)
 			ctx := context.Background()
 			putSharedHaltObject(t, index, strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b"), 0)

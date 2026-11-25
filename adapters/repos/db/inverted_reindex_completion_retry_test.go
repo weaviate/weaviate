@@ -90,13 +90,11 @@ func TestCompletionRetriesAfterASchemaEffectFailure(t *testing.T) {
 				return loaded.(*Shard)
 			}
 
-			post := reload(shard) // promotion waits: the flag is still off
-			require.NoDirExists(t, filepath.Join(lsmPath, canonical),
-				"fixture: promotion must wait while the class turns the index off")
-			require.DirExists(t, filepath.Join(lsmPath, task.ingestBucketName(propName)),
-				"fixture: the rebuilt data must keep its staged name")
-			require.Nil(t, post.store.Bucket(canonical),
-				"fixture: the canonical bucket must be closed while the flag is off")
+			post := reload(shard) // an enabling migration promotes ahead of its flag
+			require.DirExists(t, filepath.Join(lsmPath, canonical),
+				"fixture: the load must promote an index its migration turned on")
+			require.NotNil(t, post.store.Bucket(canonical),
+				"fixture: the promoted bucket must be open while the flag is off")
 
 			if test.destroyFirst {
 				// The one sequence that still empties the canonical name: the

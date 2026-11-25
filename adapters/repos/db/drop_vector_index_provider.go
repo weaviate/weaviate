@@ -247,7 +247,7 @@ func (p *DropVectorIndexProvider) processUnits(
 
 	pending := make([]string, 0, len(localUnits))
 	for _, unitID := range localUnits {
-		if unit, ok := task.Units[unitID]; ok && unit.Status == distributedtask.UnitStatusCompleted {
+		if unit := task.Units[unitID]; unit != nil && unit.Status == distributedtask.UnitStatusCompleted {
 			continue // already done in a prior run
 		}
 		pending = append(pending, unitID)
@@ -276,6 +276,11 @@ func (p *DropVectorIndexProvider) processUnits(
 		return
 	}
 
+	if payload.VerifyOnly {
+		p.verifyUnits(ctx, task, payload, pending)
+		return
+	}
+
 	// Arm every unit up front so all shards' compaction/cleanup cycles
 	// drain concurrently — arming lazily while polling unit-by-unit would
 	// serialize days of rewrite work on multi-tenant nodes.
@@ -296,6 +301,133 @@ func (p *DropVectorIndexProvider) processUnits(
 		}
 		p.drainUnit(ctx, task, payload, unitID, buckets[payload.UnitToShard[unitID]])
 	}
+}
+
+// verifyUnits runs a verify-only round's local units: no op is armed, and the
+// units complete once every locally loaded shard of the drop has drained the
+// epoch's op. The wait is node-wide, so it runs once however many units the
+// node holds.
+func (p *DropVectorIndexProvider) verifyUnits(
+	ctx context.Context, task *distributedtask.Task,
+	payload *DropVectorIndexTaskPayload, unitIDs []string,
+) {
+	if len(unitIDs) == 0 {
+		return
+	}
+	if err := p.pollUntilLocalShardsDrained(ctx, task, payload); err != nil {
+		if ctx.Err() != nil {
+			return // shutdown: resume after restart, do not mark failed
+		}
+		for _, unitID := range unitIDs {
+			p.failUnit(ctx, task, unitID, "verify the drop is drained on this node: "+err.Error())
+		}
+		return
+	}
+	for _, unitID := range unitIDs {
+		if err := p.recorder.RecordDistributedTaskUnitCompletion(ctx, task.Namespace, task.ID,
+			task.Version, p.localNode, unitID); err != nil {
+			p.unitLogger(task, payload, unitID).Errorf("drop-vector: record unit completion failed: %v", err)
+		}
+	}
+}
+
+// pollUntilLocalShardsDrained waits until no locally loaded shard of the drop
+// has pending or quarantined rows for the epoch's op. A shard with no such op
+// reads as drained, so the usual case returns on the first pass.
+//
+// Quarantined rows get one fresh retry budget, as a normal round's arm gives
+// them; a shard that quarantines again fails the wait. Shards that are not
+// loaded cannot be checked and are skipped, as on the completion path.
+func (p *DropVectorIndexProvider) pollUntilLocalShardsDrained(
+	ctx context.Context, task *distributedtask.Task, payload *DropVectorIndexTaskPayload,
+) error {
+	covered := payload.CoveredShards()
+	shardNames := make([]string, 0, len(covered))
+	for shard := range covered {
+		shardNames = append(shardNames, shard)
+	}
+	sort.Strings(shardNames)
+
+	ticker := time.NewTicker(p.pollInterval)
+	defer ticker.Stop()
+
+	requeued := map[string]struct{}{}
+	consecutiveErrors := 0
+	for {
+		undrained, err := p.undrainedLocalShards(payload, shardNames, requeued)
+		switch {
+		case errors.Is(err, errDropQuarantinedAgain):
+			return err
+		case err != nil:
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutivePollErrors {
+				return fmt.Errorf("read pending/quarantine sets after %d consecutive errors: %w", consecutiveErrors, err)
+			}
+			p.logger.WithField("task", task.ID).WithField("collection", payload.Collection).
+				Warnf("drop-vector: verify read failed (%d/%d), retrying: %v",
+					consecutiveErrors, maxConsecutivePollErrors, err)
+		case undrained == 0:
+			return nil
+		default:
+			consecutiveErrors = 0
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// errDropQuarantinedAgain fails a verify-only wait: a shard quarantined
+// segments after its fresh retry budget.
+var errDropQuarantinedAgain = errors.New("cleanup quarantined segments again after a fresh retry budget")
+
+// undrainedLocalShards counts the locally loaded shards among shardNames that
+// still have pending or quarantined rows for the drop's op. A shard seen with
+// quarantined rows for the first time is re-queued and recorded in requeued.
+func (p *DropVectorIndexProvider) undrainedLocalShards(
+	payload *DropVectorIndexTaskPayload, shardNames []string, requeued map[string]struct{},
+) (int, error) {
+	buckets, err := p.shards.EditOpBucketsForLoadedShards(payload.Collection, shardNames)
+	if err != nil {
+		return 0, fmt.Errorf("resolve buckets: %w", err)
+	}
+	undrained := 0
+	for _, shardName := range shardNames {
+		bucket, ok := buckets[shardName]
+		if !ok {
+			continue
+		}
+		pending, err := bucket.EditOpPending(payload.OpID)
+		if err != nil {
+			return 0, fmt.Errorf("shard %q: %w", shardName, err)
+		}
+		quarantined, err := bucket.EditOpQuarantined(payload.OpID)
+		if err != nil {
+			return 0, fmt.Errorf("shard %q: %w", shardName, err)
+		}
+		if len(quarantined) > 0 {
+			if _, again := requeued[shardName]; again {
+				return 0, fmt.Errorf("shard %q, %d segment(s): %w", shardName, len(quarantined), errDropQuarantinedAgain)
+			}
+			// The op exists (it holds rows), so this only re-queues them.
+			desc := lsmkv.OpDescriptor{
+				Type:      lsmkv.OpTypeRemoveTargetVectors,
+				Targets:   payload.Targets,
+				CreatedAt: time.Now().UnixNano(),
+			}
+			if err := bucket.RegisterEditOp(payload.OpID, desc); err != nil {
+				return 0, fmt.Errorf("shard %q: re-queue quarantined segments: %w", shardName, err)
+			}
+			requeued[shardName] = struct{}{}
+		}
+		if len(pending) > 0 || len(quarantined) > 0 {
+			undrained++
+		}
+	}
+	return undrained, nil
 }
 
 // localBuckets resolves the objects bucket for every local unit's shard in one

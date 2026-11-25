@@ -83,10 +83,8 @@ var ErrCleanupSweepTruncated = errors.New("partial-reindex cleanup did not reach
 
 // ErrCleanupCollectionDropped marks a sweep that found the collection not on
 // this node (deleted, or never held here), possibly after sweeping some
-// shards before a mid-walk delete. Whatever state remains — including files a
-// backup in flight keeps past the drop ([Index.drop]'s keepFiles) — is
-// harmless: with the class gone from the schema, no later submit can
-// short-circuit on it.
+// shards before a mid-walk delete. Whatever state remains is harmless, since
+// with the class gone from the schema no later submit can short-circuit on it.
 var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: the collection is not on this node")
 
 // ErrCleanupShardFailed marks a sweep that reached a shard and could not
@@ -97,11 +95,23 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // errors.Is.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
+var errCleanupShardWithheld = errors.New("cleanup withheld")
+
+type cleanupWithheldError struct{ faults []MigrationRecordUnreadable }
+
+func (e *cleanupWithheldError) Error() string {
+	return fmt.Sprintf("%d migration record fault(s), first %q: %s",
+		len(e.faults), e.faults[0].FileName, e.faults[0].Reason)
+}
+
+func (e *cleanupWithheldError) Is(target error) bool { return target == errCleanupShardWithheld }
+
 // IsCleanupCollectionDropped reports whether the collection being gone is the
 // whole of what a sweep error says. Unlike a bare errors.Is check, it returns
 // false if a shard also failed before the delete landed.
 func IsCleanupCollectionDropped(err error) bool {
-	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed)
+	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed) &&
+		!errors.Is(err, errCleanupShardWithheld)
 }
 
 // truncatedByCancellation re-reports a shard error that a cancelled context
@@ -177,7 +187,7 @@ func (i *Index) cleanStalePartialReindexState(
 	if _, ok := mainBucketForPropertyIndex(propName, indexType); !ok {
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}
-	shardErrs := errorcompounder.New()
+	shardErrs, withheldShards := errorcompounder.New(), errorcompounder.New()
 	skippedShards := 0
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
@@ -220,10 +230,14 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			shard = unwrapped
 		}
-		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
+		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType, dirs); err != nil {
 			reported := fmt.Errorf("shard %q: %w", name, err)
 			if truncated := truncatedByCancellation(reported); truncated != nil {
 				return truncated
+			}
+			if errors.Is(err, errCleanupShardWithheld) {
+				withheldShards.Add(reported)
+				return nil
 			}
 			shardErrs.Add(reported)
 		}
@@ -233,7 +247,8 @@ func (i *Index) cleanStalePartialReindexState(
 	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
 		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)
 	}
-	sweepErr := errors.Join(failedShards, classifyIncompleteWalk(walkErr))
+	sweepErr := errors.Join(failedShards, withheldShards.ToErrorLimited(maxReportedErrors),
+		classifyIncompleteWalk(walkErr))
 
 	outcome, _ := ClassifyCleanupSweep(sweepErr)
 	msg, level := CleanupSweepSummary(sweepPhaseIndexCleanup, outcome)
@@ -323,16 +338,32 @@ type dirNamesCache struct {
 	unreadableErrs    errorcompounder.ErrorCompounder
 }
 
-func (c *dirNamesCache) chargeUnreadableRecordSet(lsmPath string, err error) {
-	if err == nil {
+// Records of several units leave the set unreadable without failing Load. A
+// path is charged once, so a shard reads as one fault whichever path reads it.
+func (c *dirNamesCache) chargeUnreadableRecordSet(lsmPath string,
+	faults []MigrationRecordUnreadable, recordSetErr error,
+) {
+	if c == nil {
 		return
+	}
+	if _, charged := c.unreadableRecords[lsmPath]; charged {
+		return
+	}
+	if recordSetErr == nil {
+		i := slices.IndexFunc(faults, func(fault MigrationRecordUnreadable) bool {
+			return fault.Scope == MigrationRecordFaultStore
+		})
+		if i < 0 {
+			return
+		}
+		recordSetErr = errors.New(faults[i].Reason)
 	}
 	if c.unreadableRecords == nil {
 		c.unreadableRecords = map[string]struct{}{}
 		c.unreadableErrs = errorcompounder.New()
 	}
 	c.unreadableRecords[lsmPath] = struct{}{}
-	c.unreadableErrs.AddWrapf(err, "%s", lsmPath)
+	c.unreadableErrs.AddWrapf(recordSetErr, "%s", lsmPath)
 }
 
 func (c *dirNamesCache) unreadableRecordSets() (int, error) {
@@ -352,8 +383,9 @@ func (c *dirNamesCache) committedMigrations(lsmPath string,
 	if state, ok := c.committed[lsmPath]; ok {
 		return state
 	}
-	state, recordSetErr := migrationPreservedStateAt(lsmPath, logger)
-	c.chargeUnreadableRecordSet(lsmPath, recordSetErr)
+	records, faults, recordSetErr := migrationRecordsAt(lsmPath, logger)
+	state := migrationPreservedStateFromRecords(records, faults)
+	c.chargeUnreadableRecordSet(lsmPath, faults, recordSetErr)
 	if c.committed == nil {
 		c.committed = map[string]migrationPreservedState{}
 	}

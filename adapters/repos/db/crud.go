@@ -268,6 +268,7 @@ func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 	return index.exists(ctx, id, repl, tenant)
 }
 
+// anyExists must not name a collection: the caller may not be allowed to read it.
 func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	repl *additional.ReplicationProperties,
 ) (bool, error) {
@@ -277,14 +278,15 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	defer db.indexLock.RUnlock()
 
 	for _, index := range db.indices {
+		if index.partitioningEnabled {
+			continue
+		}
 		ok, err := index.exists(ctx, id, repl, "")
 		if err != nil {
-			switch {
-			case errors.As(err, &objects.ErrMultiTenancy{}):
-				return false, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
-			default:
-				return false, fmt.Errorf("search index %s: %w", index.ID(), err)
-			}
+			db.logger.WithField("action", "exists_any_collection").
+				WithField("collection", index.Config.ClassName.String()).
+				Warnf("look up %s without a collection: %v", id, err)
+			return false, anyExistsError{err: err}
 		}
 		if ok {
 			return true, nil
@@ -293,6 +295,15 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 
 	return false, nil
 }
+
+// anyExistsError hides the cause's text, which names a collection, but unwraps to it.
+type anyExistsError struct{ err error }
+
+func (e anyExistsError) Error() string {
+	return "look up id without a collection: a collection could not be searched, see the server log"
+}
+
+func (e anyExistsError) Unwrap() error { return e.err }
 
 func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, target *crossref.Ref,
 	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,

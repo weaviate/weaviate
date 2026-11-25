@@ -129,6 +129,7 @@ type objectsMetrics interface {
 	UpdateReferenceDec()
 	DeleteReferenceInc()
 	DeleteReferenceDec()
+	MultiTargetRefWithoutClassInc()
 	AddUsageDimensions(className, queryType, operation string, dims int)
 }
 

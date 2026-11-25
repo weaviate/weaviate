@@ -123,16 +123,16 @@ func (m *BatchDelete) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// BatchDeleteMatch Outlines how to find the objects to be deleted.
+// BatchDeleteMatch Outlines how to find the objects to be deleted. Required.
 //
 // swagger:model BatchDeleteMatch
 type BatchDeleteMatch struct {
 
-	// The name of the collection (class) from which to delete objects.
+	// The name of the collection (class) from which to delete objects. Required.
 	// Example: City
 	Class string `json:"class,omitempty"`
 
-	// Filter to limit the objects to be deleted.
+	// Filter to limit the objects to be deleted. Required.
 	Where *WhereFilter `json:"where,omitempty"`
 }
 

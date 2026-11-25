@@ -39,7 +39,7 @@ import (
 //
 // Regression test for weaviate/0-weaviate-issues#246: a restart could
 // strand a replica because its rangeable bucket — created by
-// [FilterableToRangeableStrategy.PreReindexHook], not
+// the reindex, not
 // createPropertyValueIndex — was never reloaded into memory.
 //
 // Source data is int64 (rangeable applies only to numeric props); the
@@ -89,8 +89,8 @@ func makeFilterableToRangeableTestObjects(t *testing.T, n int, className string)
 // newFilterableToRangeableTestClass builds a class with a single numeric
 // property in the pre-migration state: IndexFilterable defaults to true
 // (filterable bucket exists), IndexRangeFilters is nil so HasRangeableIndex
-// returns false (no rangeable bucket pre-migration). PreReindexHook will
-// create the rangeable bucket; the backfill populates it.
+// returns false (no rangeable bucket pre-migration). The backfill
+// populates the rangeable bucket; the swap installs it.
 //
 // Mirrors newTestClassWithProps but for a numeric prop. We cannot reuse
 // newTestClassWithProps directly because it hard-codes text/word and the
@@ -113,8 +113,8 @@ func newFilterableToRangeableTestClass(className string) *models.Class {
 				// IndexFilterable nil → defaults to true (filterable
 				// bucket gets created on shard init).
 				// IndexRangeFilters nil → defaults to false (rangeable
-				// bucket does NOT exist pre-migration — strategy's
-				// PreReindexHook creates it).
+				// bucket does NOT exist pre-migration — the swap
+				// installs it).
 			},
 		},
 	}

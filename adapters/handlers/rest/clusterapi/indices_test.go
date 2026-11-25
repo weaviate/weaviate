@@ -15,9 +15,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 )
 
@@ -65,6 +67,20 @@ func TestMaintenanceModeIndices(t *testing.T) {
 			assert.True(t, res.StatusCode == maintenanceModeExpectedHTTPStatus, "expected %d, got %d", maintenanceModeExpectedHTTPStatus, res.StatusCode)
 		})
 	}
+}
+
+// Nodes before v1.35.19, v1.36.13 and v1.37.3 forward shard status updates to this removed route.
+func TestPostShardStatusIsNotAllowed(t *testing.T) {
+	indices := clusterapi.NewIndices(nil, nil, clusterapi.NewNoopAuthHandler(), func() bool { return false }, nil)
+	mux := http.NewServeMux()
+	mux.Handle("/indices/", indices.Indices())
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	res, err := http.Post(server.URL+"/indices/MyClass/shards/myshard/status", "vnd.weaviate.updateshardstatusparams+json", strings.NewReader(`{"targetStatus":"READONLY"}`))
+	require.NoError(t, err)
+	defer res.Body.Close()
+	assert.Equal(t, http.StatusMethodNotAllowed, res.StatusCode)
 }
 
 type indicesTestRequest struct {

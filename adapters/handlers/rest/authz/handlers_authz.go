@@ -847,7 +847,10 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 
 func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
@@ -908,7 +911,11 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	if err := h.authorizeAssignRolePermissions(ctx, principal, namespacing.NamespaceFromQualified(internalID), existedRoles); err != nil {
+	targetNamespace := namespacing.NamespaceFromQualified(internalID)
+	if params.Body.UserType == models.UserTypeInputDb && h.isStaticAPIKeyUser(internalID) {
+		targetNamespace = ""
+	}
+	if err := h.authorizeAssignRolePermissions(ctx, principal, targetNamespace, existedRoles); err != nil {
 		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -990,8 +997,9 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		return authz.NewAssignRoleToGroupNotFound()
 	}
 
-	// Group assignment is global-only (a namespaced caller is denied above), so
-	// no namespace projection applies.
+	// A group has no namespace of its own, so its roles are checked as stored.
+	// A namespaced member holds a bare users/ grant in its own namespace, which
+	// this check does not cover.
 	if err := h.authorizeAssignRolePermissions(ctx, principal, "", existedRoles); err != nil {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -1135,7 +1143,10 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	if err := h.validateUserIDForNamespaces(internalID); err != nil {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -1378,7 +1389,10 @@ func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDe
 
 func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
@@ -1625,7 +1639,7 @@ func (h *authZHandlers) userExistsDeprecated(user string) (bool, error) {
 // dbUserExists reports whether a db user exists: a static API-key user or a
 // dynamic user known to the controller.
 func (h *authZHandlers) dbUserExists(user string) (bool, error) {
-	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, user) {
+	if h.isStaticAPIKeyUser(user) {
 		return true, nil
 	}
 
@@ -1634,6 +1648,12 @@ func (h *authZHandlers) dbUserExists(user string) (bool, error) {
 		return false, err
 	}
 	return len(users) == 1, nil
+}
+
+// isStaticAPIKeyUser reports whether userID is a static API-key user. Such a
+// user logs in as a global operator, so a ':' in its id names no namespace.
+func (h *authZHandlers) isStaticAPIKeyUser(userID string) bool {
+	return h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID)
 }
 
 // validateRootGroup validates that enduser do not touch the internal root group
@@ -1718,7 +1738,7 @@ func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
 	if !h.namespacesEnabled {
 		return nil
 	}
-	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {
+	if h.isStaticAPIKeyUser(userID) {
 		return nil
 	}
 	if !conv.ContainsNamespaceSeparator(userID) {

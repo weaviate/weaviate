@@ -811,6 +811,16 @@ func (s *Store) renameFlushedBucket(currBucket *Bucket, bucketName, newBucketNam
 // entry which is cleaned up by the caller's subsequent Shutdown of the
 // returned bucket — that path is NOT released here.
 func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName string) (*Bucket, error) {
+	return s.swapBucketPointer(targetName, sourceName, true)
+}
+
+// InstallOrSwapBucketPointer is [Store.SwapBucketPointer] for a migration that adds an index: no bucket serves the
+// target name until the swap, so the source is installed there and the returned old bucket is nil.
+func (s *Store) InstallOrSwapBucketPointer(ctx context.Context, targetName, sourceName string) (*Bucket, error) {
+	return s.swapBucketPointer(targetName, sourceName, false)
+}
+
+func (s *Store) swapBucketPointer(targetName, sourceName string, requireTarget bool) (*Bucket, error) {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
@@ -823,7 +833,7 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 	defer s.bucketAccessLock.Unlock()
 
 	oldBucket, ok := s.bucketsByName[targetName]
-	if !ok {
+	if !ok && requireTarget {
 		return nil, fmt.Errorf("target bucket %q not found in store %q", targetName, s.dir)
 	}
 

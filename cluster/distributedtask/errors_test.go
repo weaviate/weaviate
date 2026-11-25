@@ -109,6 +109,7 @@ func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
 	for _, sentinel := range []error{
 		ErrTaskNotRunning, ErrTaskDoesNotExist, ErrUnitAlreadyTerminal, ErrUnitWrongNode,
 		ErrTaskNotInFinalizingState, ErrTaskConflict, ErrTaskBlockedByReplicaMovement, ErrTaskReplicasChanged,
+		ErrTaskTenantsNotHot,
 	} {
 		require.True(t, registered[sentinel], "%v is not registered in permanentMarkers", sentinel)
 	}

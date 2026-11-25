@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -88,15 +89,22 @@ func (v *Vectorizer) referenceVectorSearch(ctx context.Context,
 			return nil, err
 		}
 
-		// if the ref'd object has a vector, we grab it.
-		// these will be used to compute the parent's
-		// vector eventually
-		if res.Vector != nil {
-			refVecs = append(refVecs, res.Vector)
+		if vec := v.referenceVector(res); len(vec) > 0 {
+			refVecs = append(refVecs, vec)
 		}
 	}
 
 	return refVecs, nil
+}
+
+// referenceVector returns the referenced object's default vector: the named
+// vector "default" if present, otherwise the legacy vector, which migration to
+// named vectors moves under "default".
+func (v *Vectorizer) referenceVector(res *search.Result) []float32 {
+	if vec, ok := res.Vectors[modelsext.DefaultNamedVectorName].([]float32); ok && len(vec) > 0 {
+		return vec
+	}
+	return res.Vector
 }
 
 func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon strfmt.URI, tenant string) (res *search.Result, err error) {

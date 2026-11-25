@@ -169,7 +169,7 @@ func TestDeleteEntrypoint_PersistsUnderLock(t *testing.T) {
 					"persisted max layer must match in-memory max layer")
 			}
 
-			require.Nil(t, index.Drop(ctx, false))
+			require.NoError(t, index.Drop(ctx))
 		})
 	}
 }

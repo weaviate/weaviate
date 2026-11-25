@@ -211,6 +211,16 @@ func ValidateMuveraUpperBounds(uc UserConfig) error {
 	return nil
 }
 
+// ValidateMultiVectorRequiresMuvera rejects multivector.enabled without
+// muvera: hfresh only stores multi-vectors MUVERA-encoded. Like
+// ValidateMuveraUpperBounds it runs on schema create/update only.
+func ValidateMultiVectorRequiresMuvera(uc UserConfig) error {
+	if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
+		return errors.New("invalid hfresh config: multivector.enabled requires multivector.muvera.enabled, hfresh only stores multi-vectors MUVERA-encoded")
+	}
+	return nil
+}
+
 func parseAndValidateRQ(ucMap map[string]interface{}, uc *UserConfig) error {
 	rqConfigValue, ok := ucMap["rq"]
 	if !ok {
@@ -280,6 +290,13 @@ func parseAndValidateQuantization(ucMap map[string]interface{}, uc *UserConfig) 
 func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
+
+	// a multi-vector vectorizer implies muvera, hfresh has no other
+	// multi-vector mode
+	if isMultiVector {
+		uc.Multivector.Enabled = true
+		uc.Multivector.MuveraConfig.Enabled = true
+	}
 
 	if input == nil {
 		return uc, nil
@@ -356,13 +373,21 @@ func parseMultivectorConfig(in map[string]interface{}, multivector *hnsw.Multive
 		return nil
 	}
 
+	var muveraErr error
 	if err := vectorIndexCommon.OptionalBoolFromMap(muveraMap, "enabled", func(v bool) {
+		if isMultiVector && !v {
+			muveraErr = errors.New("invalid hfresh config: multivector.muvera.enabled cannot be false with a multi-vector vectorizer, hfresh only stores multi-vectors MUVERA-encoded")
+			return
+		}
 		multivector.MuveraConfig.Enabled = v
 		if v {
 			multivector.Enabled = true
 		}
 	}); err != nil {
 		return err
+	}
+	if muveraErr != nil {
+		return muveraErr
 	}
 
 	if err := vectorIndexCommon.OptionalIntFromMap(muveraMap, "ksim", func(v int) {

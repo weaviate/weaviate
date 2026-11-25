@@ -70,14 +70,11 @@ func (index *flat) getMetadataFile() string {
 	return helpers.FlatMetadataFileNameForID(index.id)
 }
 
-func (index *flat) removeMetadataFile(keepFiles bool) error {
+func (index *flat) removeMetadataFile() error {
 	index.closeMetadata()
-	if !keepFiles {
-		path := filepath.Join(index.rootPath, index.getMetadataFile())
-		err := os.Remove(path)
-		if err != nil {
-			return errors.Wrapf(err, "remove metadata file %q", path)
-		}
+	path := filepath.Join(index.rootPath, index.getMetadataFile())
+	if err := os.Remove(path); err != nil {
+		return errors.Wrapf(err, "remove metadata file %q", path)
 	}
 	return nil
 }

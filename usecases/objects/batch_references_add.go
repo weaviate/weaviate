@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -168,10 +169,9 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		if qualifiedTarget == "" {
 			// Classless beacon on a multi-target prop (autodetect can't pick).
 			// On NS clusters the persisted ref would be un-deletable via the
-			// delete handler's gate — reject. Non-NS keeps the legacy
-			// behaviour (byte-exact compare on delete handles it).
-			if b.config.Config.Namespaces.Enabled {
-				refs[i].Err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+			// delete handler's gate.
+			if err := validation.CheckMultiTargetRefWithoutClass(b.config, b.metrics); err != nil {
+				refs[i].Err = err
 			}
 			continue
 		}
@@ -380,7 +380,7 @@ func getReferenceClasses(ctx context.Context,
 		}
 
 		if len(refProp.DataType) != 1 {
-			err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+			err = validation.ErrMultiTargetRefWithoutClass
 			return sourceClass, targetClass, schemaVersion, err
 		}
 		toClassName = refProp.DataType[0]

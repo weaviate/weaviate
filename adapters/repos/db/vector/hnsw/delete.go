@@ -212,7 +212,18 @@ func (h *hnsw) resetUnlocked() error {
 	h.tombstones = make(map[uint64]struct{})
 	h.metrics.SetTombstone(0)
 
-	return h.commitLog.Reset()
+	err := h.commitLog.Reset()
+	if err != nil {
+		return err
+	}
+
+	// replaying the reset drops the compression data logged before it, while
+	// the index stays compressed in memory
+	if h.compressed.Load() {
+		h.compressor.PersistCompression(h.commitLog)
+	}
+
+	return nil
 }
 
 func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {

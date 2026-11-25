@@ -970,6 +970,8 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	cursor := bucket.Cursor()
 	defer cursor.Close()
 
+	propExtraction := storobj.StoredPropertiesExtraction()
+
 	var key, val []byte
 	if c.After == "" {
 		key, val = cursor.First()
@@ -989,7 +991,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinaryDisk(val, bucketClassName)
+		obj, err := storobj.FromBinaryDiskWithProps(val, bucketClassName, propExtraction)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal item %d", i)
 		}

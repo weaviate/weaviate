@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -53,13 +52,7 @@ func newDynamicAboveThreshold(t *testing.T) (*dynamic, ent.UserConfig, [][]float
 
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
-	hnswuc.SetDefaults()
+	hnswuc := smallHNSWUserConfig()
 
 	uc := ent.UserConfig{
 		Threshold: uint64(threshold),
