@@ -115,6 +115,7 @@ type DiskQueue struct {
 	m            sync.RWMutex
 	lastPushTime time.Time
 	closed       bool
+	closing      chan struct{}
 	w            *chunkWriter
 	r            *chunkReader
 	recordCount  uint64
@@ -237,24 +238,38 @@ func (q *DiskQueue) Close(ctx context.Context) error {
 	}
 
 	q.m.Lock()
+	for q.closing != nil {
+		done := q.closing
+		q.m.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		q.m.Lock()
+	}
 	if q.closed {
 		q.m.Unlock()
 		return errors.New("queue already closed")
 	}
-	q.closed = true
+	q.closing = make(chan struct{})
 	q.m.Unlock()
+	defer func() {
+		q.m.Lock()
+		close(q.closing)
+		q.closing = nil
+		q.m.Unlock()
+	}()
 
 	if err := q.scheduler.UnregisterQueue(ctx, q.id); err != nil {
 		// Keep the handles and registration until the workers have stopped. A
 		// later Close can retry the wait with a fresh context.
-		q.m.Lock()
-		q.closed = false
-		q.m.Unlock()
 		return err
 	}
 
 	q.m.Lock()
 	defer q.m.Unlock()
+	q.closed = true
 
 	var errs []error
 
@@ -291,7 +306,7 @@ var bufPool = sync.Pool{
 
 func (q *DiskQueue) Push(record []byte) error {
 	q.m.RLock()
-	if q.closed {
+	if q.closed || q.closing != nil {
 		q.m.RUnlock()
 		return errors.New("queue closed")
 	}

@@ -303,6 +303,7 @@ const (
 	shutdownNotStarted uint32 = iota
 	shutdownInProgress
 	shutdownComplete
+	shutdownCentroidsPending // queue writers are already closed; retry only the centroid drain
 )
 
 func (h *HFresh) Drop(ctx context.Context) error {
@@ -322,7 +323,8 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 	if h.ctx == nil {
 		return nil // Already closed or not started
 	}
-	if !h.shutdownState.CompareAndSwap(shutdownNotStarted, shutdownInProgress) {
+	state := h.shutdownState.Load()
+	if (state != shutdownNotStarted && state != shutdownCentroidsPending) || !h.shutdownState.CompareAndSwap(state, shutdownInProgress) {
 		return context.Canceled // Already closed or draining
 	}
 
@@ -331,26 +333,32 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	err := h.taskQueue.Close(ctx)
+	if state == shutdownNotStarted {
+		err := h.taskQueue.Close(ctx)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			h.shutdownState.Store(shutdownNotStarted)
+			return err
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		err = h.Flush()
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		err = h.IDs.Flush()
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	err := h.Centroids.Shutdown(ctx)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		h.shutdownState.Store(shutdownNotStarted)
-		return err
+		h.shutdownState.Store(shutdownCentroidsPending)
+		return stderrors.Join(append(errs, err)...)
 	}
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	err = h.Flush()
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	err = h.IDs.Flush()
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	err = h.Centroids.Shutdown(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
