@@ -201,7 +201,7 @@ func permString(p *models.Permission) string {
 // confinement group. Each is tried in every target slot of every kind.
 var isolationAttacks = []string{
 	"", "*", "Movies", "M.*", ".*", "Movies|Secret", "X|.*", "X)|(.*", `X\)|\(.*`, `X\Q`, `X\Q)|(.*`, `X\Q|\E.*`,
-	"X{.*}", "X{|}", "X{)|(}Y", "X{1,2}", "X{}", "{x}", "{.*}", "X{a}|{b}", "X{)}|{(}",
+	"X{.*}", "X{|}", "X{)|(}Y", "X{1,2}", "X{}", "{x}", "{.*}", "X{a}|{b}", "X{)}|{(}", "X[{x}]", "[a{x}]?", `\{x}`,
 	"X(?s).*", "X(?i)movies", "(?i)a", "(?s).*", "(?m)^.*$", "X(?m)$|^.*", "X(?U).*", "(?i)ABC.*",
 	`X\x3a.*`, `\x3a.*`, `.\x3a.*`, `b\x3a.*`, `X\x2f.*`, `X\x{3a}.*`, `abc\x3a.*`, `xyz\x3a.*`, `[a-z]+\x3a.*`,
 	"X[:]", "X[^a]*", "X[^/]*", "[^/]*", `X[\x00-\x{10FFFF}]*`, "X[[:alpha:]]", "X[[:^alpha:]]", `X\pL`, `X\p{L}`, `X\PL.*`,
@@ -210,7 +210,7 @@ var isolationAttacks = []string{
 	"X.*Y", "X..*", `X\b`, `X\A.*`, `X\z`, `X\C*`, `\C`,
 	"x:y", "b:.*", "x|b:.*", "a:x|b:y", "abc:.*", "abcd:.*", "abc:x|abcd:y", "abc:(x|.*)", "xyz:.*",
 	"auth0|123", "a@b.c", "x?y", "X+", "+X", "?X", "**", "X**", `\*`, `X\*.*`, `\`, `X\`, `X\E`, `\Q\E`,
-	"T1", "T)|(.*", "T|.*", "T.*", "Xy",
+	"T1", "T)|(.*", "T|.*", "T.*", "Xy", "\n", "X\t.*",
 	strings.Repeat(".*", 128), "M" + strings.Repeat("a", 254), "M" + strings.Repeat(".", 254),
 	strings.Repeat("a", 256), strings.Repeat("a", 257), "M" + strings.Repeat("|.*", 85),
 }
@@ -336,6 +336,7 @@ func FuzzNamespaceIsolation(f *testing.F) {
 		f.Add(a.kind, a.t1, a.t2, a.kind, "", "")
 	}
 	f.Add(uint8(4), `b\x3a.*`, "", uint8(1), "b:alice", "bcd")
+	f.Add(uint8(4), "x", "", uint8(1), "x?abcd:y", "")
 	reqsBase := isolationRequestSet("")
 	f.Fuzz(func(t *testing.T, kind uint8, t1, t2 string, sel uint8, reqName, victim string) {
 		ns := isolationNamespaces[int(sel>>2)%len(isolationNamespaces)]
