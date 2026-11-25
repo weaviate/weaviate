@@ -1778,6 +1778,39 @@ Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce q
 - si la plana en `none` se hace más barata, y cómo;
 - si `none` necesita un corte propio.
 
+*Decidido el 24 por la noche: el apartado siguiente.*
+
+### Decisiones del usuario del 24 por la noche
+
+**Tres decisiones sobre esta búsqueda filtrada:**
+- **El R de la plana se queda como está:** la regla aplicada al ancho del código que ordena, con 4 × k y ef como suelos, que en `routing` a 1 536 dimensiones es 507. Ninguna de las opciones con más RAM entra.
+- **El corte sigue sin ser público:** `PersistentConfig.flatCutoff`, sin exportar, en 40 000.
+- **La primera parte del criterio no se cumple al azar al 10 %, y queda documentada así en la versión simple:** 2.69 veces las cargas de sin filtro, donde pedía 2 como mucho. La versión simple es la de esta sección: el recorrido del índice con `sweeping` y el corte plano. No cambia el recorrido para las selectividades intermedias.
+
+**La plana en `none` pasa a lectura directa, después de abrir la PR de filtros, no antes.** Palabras del usuario: «Con pocos permitidos, leer el vector exacto de cada uno del fichero de vectores, en paralelo con el presupuesto de la query, y calcular la distancia exacta, sin códigos ni rescore. Con más permitidos que el corte de `none`, el recorrido del índice».
+- **El pre-registro de su medida** va en `bench-report.md` de `feat/posting-edge-index`, antes de compilar nada.
+- **La medida** es sin cronometrar, sobre el clon del índice de la noche. Compara las lecturas, los bytes y el recall de la lectura directa con los del recorrido del índice:
+  - al azar, con 500, 1 000, 2 000, 5 000 y 10 000 permitidos;
+  - correlado y anticorrelado, al 0.1 % y al 1 %.
+- **El corte de `none` que se proponga** es el número de permitidos a partir del cual la lectura directa deja de hacer menos lecturas que el índice.
+
+**La PR de filtros:**
+- **Base y cabeza.** La base es una rama nueva en `b6200010ab`, el final del hito 2. La cabeza es `feat/posting-edge-integration`.
+- **Cuándo se abre.** Después de leer la reproducción de la plana lenta de la noche del 24 al 25, y solo si no deja un arreglo pendiente.
+- **La descripción** lleva antes los resultados de esa noche: la reproducción, y las corridas A, B y C.
+
+### La noche del 24 al 25: la máquina se durmió (leída el 25 a las 08:10)
+
+- **El Mac entró en reposo por inactividad** de 18:18 a 21:33 y desde las 23:47 hasta las 08:00. Dormido, solo despertaba en DarkWake, unos 45 s cada 15 minutos. Ninguna aserción lo impedía.
+- **De R se cronometraron con la máquina despierta** las 11 celdas del índice de «sin filtro» a «far 10 %», que acabaron hacia las 23:41.
+  - «far 1 %» y «far 0.1 %» se cronometraron en DarkWake y no son comparables.
+  - La plana no se cronometró: sus 12 celdas pasaron de las 08:00.
+- **A, B y C no arrancaron.**
+- **La plana lenta de la noche del 23 sigue sin explicar.** Esa noche la máquina no se durmió.
+- **Las 11 celdas despiertas del índice** fueron entre un 4 % y un 16 % más rápidas que la ronda 1 del 23, con los mismos ef y las mismas cargas.
+- **Los ficheros de R** están en `testdata/bench/integration-filters/filters-timed-slowflat-dbpedia-1m*`. El relato completo está en `bench-report.md` de `feat/posting-edge-index` (`5ff992307c`).
+- **La PR no se abre.** Le falta lo que tenía que llevar: la explicación de la plana lenta y A, B y C. Repetir la noche lo decide el usuario.
+
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
 *Orden del usuario del 23, al leer el backup: «Primero el test en rojo, que abra el índice sin `meta.json` y compruebe que no se borra nada. Después el arreglo: si falta, error al abrir, nunca borrado».*
