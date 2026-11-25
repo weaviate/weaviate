@@ -384,6 +384,11 @@ El orden del usuario de la mañana del 25 adelantó esto: la PR de filtros se ab
 - **Una lectura no pesa lo mismo en los dos caminos,** ni tarda lo mismo: un vector por doc id frente a un bloque de unos 29 KB. Nada se cronometró.
 - **Hasta que el usuario decida, el corte de `none` vale 40 000.** Con él, un filtro de entre 2 400 y 40 000 permitidos lee hasta 40 000 vectores por query, unos 234 MB. Con 10 000 permitidos ya son 12 veces las lecturas del índice; por encima de 10 000 no se midió. La rama no está en ningún sitio que se use.
 
+**El corte decidido (25 de noviembre por la tarde, decisión del usuario): 2 400.**
+- Es `defaultNoneFlatCutoff`, sin exportar, en `feat/posting-edge-none-direct` (`37b4189700`). `TestPersistentNoneFlatCutoffDefault` lo fija.
+- Lleva dos salvedades: las lecturas del índice en `none` de esta medida son calculadas, y el corte se revisará en Linux, donde los bytes pueden pesar más que el número de lecturas (por bytes, 4 813).
+- La rama irá en una PR aparte contra `feat/posting-edge-integration-m2` cuando se mergee #14023, y no dentro de ella.
+
 ## La búsqueda plana y el punto de cruce, otra vez, con HNSW centrado (pre-registro, 2026-11-24 a las 07:20)
 
 **Estado: pre-registrado. Solo corre cuando la plana lenta de la noche del 23 quede explicada.** El encargo es del usuario. Lo que deja abierto lo fijo aquí, marcado como *mío*. Lo mide la sesión de integración, con su arnés.
@@ -505,6 +510,53 @@ El orden del usuario de la mañana del 25 adelantó esto: la PR de filtros se ab
 
 - la cadena bajo `caffeinate -i -w <pid de la cadena>`, que es una aserción de usuario y no cambia ningún ajuste;
 - antes de leer una noche, comprobar el registro de energía.
+
+### Resultados (25 de noviembre): A, B y C de día, después R y la repetición de los puntos marcados
+
+*Por orden del usuario del 25 por la mañana, todo de día y seguido, bajo `caffeinate -s -i`, con el registro de energía leído después de cada proceso: el Mac no se durmió en ninguno. Lo medí yo, con el binario y la cadena de la sesión de integración. La lectura entera está en la sección 8 de `integration-plan.md` de `feat/posting-edge-integration` (`dc8ef27210`), y los datos en `8715962982`, `c312f955b7` y `11635da544`.*
+
+**Lo que no salió como estaba escrito:**
+- **El orden.** El pre-registro ponía R primero. El usuario ordenó A, B y C de 09:35 a 17:55, y R detrás, de 18:16 a 22:02.
+- **B y C fallaron la primera vez** (16:22 y 16:26), en su primer lote en frío, por un error del arnés. Con solo HNSW medido, nuestro índice seguía abierto y el volumen no se podía desmontar.
+  - El test en rojo es `c10bcef29d` y el arreglo `0ca6067e57`, los dos en `feat/posting-edge-integration`.
+  - B y C se repitieron de 17:23 a 17:55 con el binario del arreglo. El código de HNSW y el de nuestro índice que se mide no cambian entre los dos binarios.
+- **La repetición de los 10 puntos marcados** corrió esa misma noche detrás de R (de 22:02 a 23:10), por orden del usuario.
+
+**Frente al pre-registro:**
+- **La plana:** de 41 a 56 ns por permitido en caliente, 5.49 ms al azar al 10 %, y el frío suma 7.9 ms. Se cumple lo esperado: unos 50 ns, 5.8 ms y unos 8 ms.
+- **El cruce al azar,** la cuota más alta en la que la plana es más barata en p50 en frío a 0.95: el 5 %. Al 7 % el índice cuesta 10.50 ms y la plana 12.11; al 5 %, 12.50 y 11.23. Se cumple lo esperado: entre el 7 % y el 5 %.
+- **El correlado y el anticorrelado, como la noche del 23:** el índice gana en las cuatro cuotas del correlado, y la plana gana en el anticorrelado al 10 %, al 1 % y al 0.1 %. Se cumple.
+- **HNSW centrado frente al de por defecto:**
+  - al azar al 10 % llega con menos ef (68 frente a 133) y es más rápido en frío (5.77 ms frente a 7.56): se cumple;
+  - al 1 % no empatan: el centrado llega con menos ef (17 frente a 37 al azar) y es más rápido (3.39 ms frente a 4.12 en frío). No se cumple.
+- **El nuestro frente al centrado al azar al 10 %:** 1.43 veces en frío, frente a 1.09 con el de por defecto. Se cumple: pierde por más.
+- **El nuestro frente a los dos HNSW, por el camino del corte, en caliente / en frío:**
+  - al azar 10 %: 0.87 / 1.09 frente al de por defecto, y 1.47 / 1.43 frente al centrado;
+  - al azar 1 %: 0.65 / 1.84, y 0.92 / 2.24;
+  - near 1 %: 0.36 / 1.01, y 0.40 / 1.06;
+  - far 1 %: 0.34 / 1.31, y 0.39 / 1.12.
+
+  En near 1 %, y en far 1 % frente al centrado, el frío es contra la media de las cuatro rondas de HNSW (abajo).
+
+**R: la plana lenta del 23 no se reproduce,** con el mismo código del índice que esa noche (entre `ada98eba8e` y `b1ee33a38b` solo cambia el arnés) y en sus condiciones:
+- HNSW vivo en el proceso, las curvas de todos los buscadores, la espera de 60 minutos, y el índice en sus 13 filtros antes que la plana.
+- Al azar al 10 % da 5.56 ms en caliente, frente a 23.70 y 26.26 aquella noche, y 13.38 ms en frío, frente a 32.07 y 32.23.
+- Los contadores alrededor de cada medida de la plana están quietos: ningún swapout, el swap fijo en 3 891 MB, y el proceso con 110 MB comprimidos de principio a fin.
+- **Por la regla de la enmienda 1** («si la reproducción no da la plana lenta»), A se lee como otra medida de la plana en un proceso propio, y la duda sobre la noche del 23 sigue abierta. Nada apunta al índice: no hay test en rojo que escribir, y la lentitud de esa noche se anota como efecto del entorno, sin causa conocida.
+
+**El detector de deriva marcó 10 de los 76 puntos de A, B y C. La repetición:**
+- **Las cinco de nuestra plana en caliente vuelven a derivar en la ronda 2,** con los mismos valores: del +11 al +50 %.
+  - En la ronda 2 cada una lee de 6.9 a 7.8 GB del disco durante sus pasadas en caliente, con la misma CPU. La caché de ficheros no retiene los vectores que reescoran las queries en caliente.
+  - Su frío no se mueve, y son puntos de la plana forzada en cuotas que el corte manda al índice. No cambia ninguna conclusión.
+- **HNSW en frío al 1 % se dispersa, no deriva:** el signo cambia de una sesión a otra, y sus p50 van de 4.9 a 10.9 ms con el mismo ef.
+  - *Mío:* la regla no dice qué hacer con una repetición que vuelve a derivar, así que leo esos puntos con la media de las cuatro rondas.
+  - El centrado al azar al 10 % y en far 1 % no vuelven a derivar.
+- **No encolo otra repetición** (*mío*).
+
+**Queda abierto:**
+- por qué la caché de ficheros deja de retener esos vectores en la ronda 2;
+- la causa de la noche del 23;
+- el corte de 40 000 frente al cruce medido al azar, entre el 7 % y el 5 %.
 
 ## La búsqueda plana: ¿pide R = 507 por ordenar con el código recortado? (pre-registro, 2026-11-24 a las 07:10)
 
