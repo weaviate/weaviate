@@ -695,7 +695,8 @@ func TestRetainedDrainsReachTeardownConsumers(t *testing.T) {
 		for _, lazy := range []bool{false, true} {
 			for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
 				t.Run(fmt.Sprintf("%s/lazy=%t/%v", route, lazy, cause), func(t *testing.T) {
-					sl, idx := testShard(t, context.Background(), "RetainedDrain")
+					sl, idx := testShardWithSettings(t, context.Background(), &models.Class{Class: "RetainedDrain"},
+						enthnsw.UserConfig{Skip: true}, false, true)
 					idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
 					s := sl.(*Shard)
 					vi, release, ok := s.AcquireVectorIndex("")
@@ -761,15 +762,12 @@ func TestRetainedDrainsReachTeardownConsumers(t *testing.T) {
 						require.DirExists(t, s.path(), "retry must retain an undrained worker's directory")
 					}
 					require.True(t, s.vectors.Replace("", vi))
-					switch route {
-					case "index-shutdown":
-						require.NoError(t, idx.drop())
-					case "db-shutdown":
-						require.NoError(t, db.DeleteIndex(idx.Config.ClassName))
-					default:
-						require.NoError(t, run())
+					require.NoError(t, run(), "teardown must finish after the retained worker drains")
+					if route == "index-shutdown" || route == "db-shutdown" {
+						require.DirExists(t, s.path())
+					} else {
+						require.NoDirExists(t, s.path())
 					}
-					require.NoDirExists(t, s.path())
 					_, err = ns.Get([]byte("key"))
 					require.Error(t, err, "successful teardown must close the retained metadata handle")
 				})
@@ -874,4 +872,37 @@ func TestClassDropRetainsDrainBeyondErrorLimit(t *testing.T) {
 	_, err = db.DropOrphanedClass(idx.Config.ClassName)
 	require.NoError(t, err)
 	require.NoDirExists(t, s.path())
+}
+
+func TestUnfreezeRetainsUndrainedShard(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			sl, idx := testShard(t, context.Background(), "UnfreezeDrain")
+			s := sl.(*Shard)
+			vi, release, ok := s.AcquireVectorIndex("")
+			require.True(t, ok)
+			release()
+			require.True(t, s.vectors.Replace("", &undrainedVectorIndex{VectorIndex: vi, err: cause}))
+			t.Cleanup(func() { s.vectors.Replace("", vi); idx.dropShards([]string{s.Name()}) })
+			m := NewMigrator(nil, idx.logger, "node1")
+			m.SetCluster(&recordingProcessor{})
+			ec := errorcompounder.NewSafe()
+			m.frozen(context.Background(), idx, []string{s.Name()}, ec)
+			require.ErrorIs(t, ec.ToError(), cause)
+			file := path.Join(s.pathHashTree(), "retained.ht")
+			require.NoError(t, os.MkdirAll(s.pathHashTree(), 0o700))
+			require.NoError(t, os.WriteFile(file, []byte("original"), 0o600))
+			m.cloud = &downloadingOffloadCloud{download: func(string, string) error {
+				return os.WriteFile(file, []byte("overwritten"), 0o600)
+			}}
+			for range 2 {
+				ec := errorcompounder.NewSafe()
+				m.unfreeze(context.Background(), idx, idx.Config.ClassName.String(), []string{s.Name() + "#node1"}, ec)
+				require.ErrorIs(t, ec.ToError(), errDropInProgress, "unfreeze must refuse an undrained shard")
+				got, err := os.ReadFile(file)
+				require.NoError(t, err, "unfreeze must retain the worker's hashtree")
+				require.Equal(t, "original", string(got), "unfreeze must not overwrite the worker's files")
+			}
+		})
+	}
 }
