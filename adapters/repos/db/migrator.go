@@ -106,6 +106,12 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	defer m.classLocks.Unlock(indexID)
 
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	m.db.indexLock.RLock()
+	pendingDrop := m.db.pendingIndexDrops[indexID] != nil
+	m.db.indexLock.RUnlock()
+	if pendingDrop {
+		return fmt.Errorf("index for class %s: %w", class.Class, errDropInProgress)
+	}
 	if idx != nil {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}

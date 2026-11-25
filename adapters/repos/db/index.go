@@ -4321,7 +4321,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 
 func (i *Index) drop() error {
 	if !i.dropLock.TryLock() {
-		return errAlreadyShutdown
+		return context.Canceled
 	}
 	defer i.dropLock.Unlock()
 	if !i.dropRetry {
@@ -4578,8 +4578,14 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 func (i *Index) Shutdown(ctx context.Context) error {
 	// a reader admitted by enterRead would hold up the whole DB shutdown
 	i.signalCloseRequested(errIndexShutdown)
-	if err := i.beginClose(); err != nil {
-		return err
+	if !i.dropLock.TryLock() {
+		return context.Canceled
+	}
+	defer i.dropLock.Unlock()
+	if !i.dropRetry {
+		if err := i.beginClose(); err != nil {
+			return err
+		}
 	}
 
 	// requestCycleStops runs first so the cycles start no compaction or flush
@@ -4588,7 +4594,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	cycleStops := i.requestCycleStops()
 
 	ec := errorcompounder.NewSafe()
-	ec.Add(i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
+	shutdownShard := func(name string, shard ShardLike) error {
 		i.backupLock.RLock(name)
 		defer i.backupLock.RUnlock(name)
 
@@ -4600,10 +4606,16 @@ func (i *Index) Shutdown(ctx context.Context) error {
 			i.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
 		}
 		return nil
-	}))
+	}
+	ec.Add(i.shards.RangeConcurrently(i.logger, shutdownShard))
+	ec.Add(i.pendingDrops.RangeConcurrently(i.logger, shutdownShard))
 	ec.Add(waitForCycleStops(ctx, "shutdown", cycleStops))
 
-	return ec.ToErrorLimited(maxReportedErrors)
+	err := ec.ToErrorLimited(maxReportedErrors)
+	if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+		i.dropRetry = true
+	}
+	return err
 }
 
 // stopCycleManagers asks every cycle to stop before waiting for any of them, so
