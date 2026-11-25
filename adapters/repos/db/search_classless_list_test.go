@@ -294,16 +294,21 @@ func TestObjectSearchWithoutClassReads(t *testing.T) {
 	}
 	objs := []listedObject{{"A", 1, "x"}, {"A", 2, "y"}, {"B", 3, "z"}, {"C", 4, "w"}}
 
+	byName := []filters.Sort{{Path: []string{"name"}}}
 	cases := []struct {
-		name      string
-		sort      []filters.Sort
-		limit     int
-		wantReads int64
+		name          string
+		class         string // named-class list when set
+		sort          []filters.Sort
+		offset, limit int
+		wantReads     int64
 	}{
 		{name: "a first collection that fills the page is the only one read", limit: 2, wantReads: 1},
 		{name: "a page past the first collection reads on", limit: 3, wantReads: int64(1 + min(2, listBatchLimit))},
-		{name: "a page of zero reads nothing", sort: []filters.Sort{{Path: []string{"name"}}}, wantReads: 0},
-		{name: "a sort reads every collection", sort: []filters.Sort{{Path: []string{"name"}}}, limit: 1, wantReads: 3},
+		{name: "a page of zero reads nothing", sort: byName, wantReads: 0},
+		{name: "a page of zero past an offset reads nothing", sort: byName, offset: 2, wantReads: 0},
+		{name: "a page of zero past an offset reads nothing, unsorted", offset: 2, wantReads: 0},
+		{name: "a named-class page of zero past an offset reads nothing", class: "A", sort: byName, offset: 1, wantReads: 0},
+		{name: "a sort reads every collection", sort: byName, limit: 1, wantReads: 3},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -315,8 +320,13 @@ func TestObjectSearchWithoutClassReads(t *testing.T) {
 				wrapShards(t, idx, func(shard ShardLike) ShardLike { return lockProbeShard{ShardLike: shard, probe: probe} })
 			}
 
-			_, err := db.ObjectSearch(t.Context(), 0, tc.limit, nil, tc.sort, additional.Properties{}, "")
-			require.NoError(t, err)
+			if tc.class != "" {
+				_, err := db.Query(t.Context(), &objects.QueryInput{Class: tc.class, Offset: tc.offset, Limit: tc.limit, Sort: tc.sort})
+				require.Nil(t, err)
+			} else {
+				_, err := db.ObjectSearch(t.Context(), tc.offset, tc.limit, nil, tc.sort, additional.Properties{}, "")
+				require.NoError(t, err)
+			}
 			assert.Equal(t, tc.wantReads, probe.reads.Load())
 		})
 	}
@@ -458,10 +468,12 @@ func TestObjectSearchWithoutClassCancelled(t *testing.T) {
 		name    string
 		classes []*models.Class
 		sort    []filters.Sort
+		limit   int
 	}{
-		{name: "without collections"},
-		{name: "cancelled while a collection fills the page", classes: []*models.Class{listClass("A", schema.DataTypeText)}},
-		{name: "cancelled during a sorted search", classes: []*models.Class{listClass("A", schema.DataTypeText)}, sort: byName},
+		{name: "without collections", limit: 1},
+		{name: "a page of zero", limit: 0},
+		{name: "cancelled while a collection fills the page", classes: []*models.Class{listClass("A", schema.DataTypeText)}, limit: 1},
+		{name: "cancelled during a sorted search", classes: []*models.Class{listClass("A", schema.DataTypeText)}, sort: byName, limit: 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -480,7 +492,7 @@ func TestObjectSearchWithoutClassCancelled(t *testing.T) {
 				})
 			}
 
-			_, err := db.ObjectSearch(ctx, 0, 1, nil, tc.sort, additional.Properties{}, "")
+			_, err := db.ObjectSearch(ctx, 0, tc.limit, nil, tc.sort, additional.Properties{}, "")
 			require.ErrorIs(t, err, context.Canceled)
 		})
 	}

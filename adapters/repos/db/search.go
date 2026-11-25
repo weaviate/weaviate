@@ -314,7 +314,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		}).Debugf("query completed in %s", took)
 	}()
 	totalLimit := q.Offset + q.Limit
-	if totalLimit == 0 {
+	if q.Limit == 0 || totalLimit == 0 {
 		return nil, nil
 	}
 	if len(q.Sort) > 0 {
@@ -378,10 +378,10 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	if offset < 0 || limit < 0 {
 		return nil, objects.NewErrInvalidUserInput("offset and limit must not be negative")
 	}
-	totalLimit := offset + limit
-	if totalLimit == 0 {
-		return nil, nil // a limit of 0 means "all" to the sorters
+	if limit == 0 {
+		return nil, ctx.Err() // a limit of 0 means "all" to the sorters
 	}
+	totalLimit := offset + limit
 	listed := listableCollections(db.copyIndices(), tenant)
 	if err := validateSort(listed, sort); err != nil {
 		return nil, errors.Wrap(err, "search")
