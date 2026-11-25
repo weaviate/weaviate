@@ -592,7 +592,10 @@ func measuredFilterSearchers(built []*filterSearcher, names string, pointed func
 		}
 	}
 	measured = slices.DeleteFunc(measured, func(s *filterSearcher) bool { return !pointed(s.index+" "+s.path, "") })
-	return measured, &filterOpenSet{built: measured}, nil
+	// Every searcher built holds its files open from when it is built,
+	// measured or not: the set closes them all before a drop of the cache, or
+	// the volume under them cannot be unmounted.
+	return measured, &filterOpenSet{built: built}, nil
 }
 
 // TestIntegrationFilters measures filters on the integrated index and on
