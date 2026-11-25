@@ -547,14 +547,16 @@ type shardGroup struct {
 // schemaFixture holds the sharding states a schema mock serves. A collection
 // in readErrs is listed, and reading it returns its error.
 type schemaFixture struct {
-	states   map[string]sharding.State
-	readErrs map[string]error
+	states        map[string]sharding.State
+	readErrs      map[string]error
+	optionalReads bool
 }
 
 // mock returns a schema mock that serves f and expects ReadSchema and a Read
 // of every listed collection. ReadSchema lists collections in sorted order.
 // Read is expected only with retryIfClassNotFound=false, because a real reader
 // retries a missing class with backoff before failing.
+// With optionalReads set, the mock serves each Read but does not require it.
 func (f *schemaFixture) mock(t *testing.T) *rebalance.MockrebalanceSchemaReader {
 	m := rebalance.NewMockrebalanceSchemaReader(t)
 	classes := append(slices.Collect(maps.Keys(f.states)), slices.Collect(maps.Keys(f.readErrs))...)
@@ -566,15 +568,28 @@ func (f *schemaFixture) mock(t *testing.T) *rebalance.MockrebalanceSchemaReader 
 		return nil
 	})
 	for class, state := range f.states {
-		m.EXPECT().Read(class, false, mock.Anything).
+		read := m.EXPECT().Read(class, false, mock.Anything).
 			RunAndReturn(func(_ string, _ bool, reader func(*models.Class, *sharding.State) error) error {
 				return reader(&models.Class{Class: class}, &state)
 			})
+		if f.optionalReads {
+			read.Maybe()
+		}
 	}
 	for class, err := range f.readErrs {
-		m.EXPECT().Read(class, false, mock.Anything).Return(err)
+		read := m.EXPECT().Read(class, false, mock.Anything).Return(err)
+		if f.optionalReads {
+			read.Maybe()
+		}
 	}
 	return m
+}
+
+// unread marks f's sharding reads as optional, for a run that may end before
+// reading them.
+func (f *schemaFixture) unread() *schemaFixture {
+	f.optionalReads = true
+	return f
 }
 
 // failing adds a listed collection whose read returns err.
@@ -751,6 +766,8 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		// noSchemaRead marks a run that ends before counting replicas; its
 		// schema mock fails the test on any call.
 		noSchemaRead bool
+		// listsSchemaOnce, when set, requires exactly one ReadSchema call.
+		listsSchemaOnce bool
 		// measure, when set, replaces fixedMeasure(rows).
 		measure    func(h *plannerHarness) measureFunc
 		nilMeasure bool
@@ -762,8 +779,10 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 		// wantReasonParts, when set, lists substrings the reason must
 		// contain, and wantReason is not checked.
 		wantReasonParts []string
-		wantNodes       []types.RebalanceNodeMeasurement
-		wantBaseline    []types.RebalanceNodeBalance
+		// wantReasonAbsent lists substrings the reason must not contain.
+		wantReasonAbsent []string
+		wantNodes        []types.RebalanceNodeMeasurement
+		wantBaseline     []types.RebalanceNodeBalance
 		// wantMeasuredAt, when set, is the expected measurement time instead
 		// of plannerStart.
 		wantMeasuredAt time.Time
@@ -1058,6 +1077,23 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			},
 		},
 		{
+			// The plan's collections list is empty and non-nil, as JSON
+			// "collections": [] decodes. The run lists the schema once and
+			// reaches the balance check.
+			name:   "empty collections list names nothing",
+			states: layout(shardGroup{count: 4, nodes: []string{"node-9"}}),
+			setup: func(t *testing.T, h *plannerHarness) {
+				h.replacePlan([]string{"node-1"}, []string{"node-2"}, []string{})
+			},
+			listsSchemaOnce: true,
+			wantOutcome:     replication.PlanStateNotNeeded,
+			wantReason:      baselineBalancedReason,
+			wantBaseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: node1Utilisation},
+				{Node: "node-2", DiskUtilisation: node2Utilisation},
+			},
+		},
+		{
 			name:        "class read error",
 			states:      balancedLayout().failing("Broken", errors.New("invalid sharding state: physical shards unavailable")),
 			wantOutcome: replication.PlanStatePlanningFailed,
@@ -1072,6 +1108,48 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
 			},
+		},
+		{
+			name:   "plan names a missing collection",
+			rows:   spreadRows(),
+			states: layout(spreadGroup).unread(),
+			setup: func(t *testing.T, h *plannerHarness) {
+				h.replacePlan([]string{"node-1"}, []string{"node-2"}, []string{"Ghost"})
+			},
+			wantOutcome:     replication.PlanStatePlanningFailed,
+			wantReasonParts: []string{"Ghost"},
+		},
+		{
+			// The cluster is balanced. If the check ran after the balance
+			// check, the run would end NOT_NEEDED.
+			name:   "plan names a missing collection on a balanced cluster",
+			states: balancedLayout().unread(),
+			setup: func(t *testing.T, h *plannerHarness) {
+				h.replacePlan([]string{"node-1"}, []string{"node-2"}, []string{"Ghost"})
+			},
+			wantOutcome:     replication.PlanStatePlanningFailed,
+			wantReasonParts: []string{"Ghost"},
+		},
+		{
+			name:   "plan names an existing and a missing collection",
+			rows:   spreadRows(),
+			states: layout(spreadGroup).unread(),
+			setup: func(t *testing.T, h *plannerHarness) {
+				h.replacePlan([]string{"node-1"}, []string{"node-2"}, []string{"Articles", "Ghost"})
+			},
+			wantOutcome:      replication.PlanStatePlanningFailed,
+			wantReasonParts:  []string{"Ghost"},
+			wantReasonAbsent: []string{"Articles"},
+		},
+		{
+			name:   "plan names two missing collections",
+			rows:   spreadRows(),
+			states: layout(spreadGroup).unread(),
+			setup: func(t *testing.T, h *plannerHarness) {
+				h.replacePlan([]string{"node-1"}, []string{"node-2"}, []string{"Phantom", "Ghost"})
+			},
+			wantOutcome:     replication.PlanStatePlanningFailed,
+			wantReasonParts: []string{"Ghost, Phantom"},
 		},
 		{
 			name: "unreachable node",
@@ -1249,6 +1327,9 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 
 			h.planner.RunOnce(context.Background())
 
+			if tc.listsSchemaOnce {
+				states.AssertNumberOfCalls(t, "ReadSchema", 1)
+			}
 			req := requireRunAt(t, h, wantResult, wantMeasuredAt)
 			require.Equal(t, tc.wantOutcome, req.Outcome)
 			if tc.wantReasonParts != nil {
@@ -1257,6 +1338,9 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				}
 			} else {
 				require.Equal(t, tc.wantReason, req.Reason)
+			}
+			for _, part := range tc.wantReasonAbsent {
+				require.NotContains(t, req.Reason, part)
 			}
 			require.Equal(t, wantNodes, req.Nodes)
 			requireBaseline(t, tc.wantBaseline, req.Baseline)

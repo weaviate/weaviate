@@ -63,8 +63,9 @@ const (
 	// the end of planning.
 	approvalWindow = time.Hour
 
-	noAcceptablePlanReason = "disk utilisation is unbalanced, and no direct move from a source to a target that fits the target's capacity narrows its spread"
-	inFlightBalancedReason = "in-flight replication operations will balance the cluster"
+	noAcceptablePlanReason   = "disk utilisation is unbalanced, and no direct move from a source to a target that fits the target's capacity narrows its spread"
+	inFlightBalancedReason   = "in-flight replication operations will balance the cluster"
+	missingCollectionsReason = "plan names collections that do not exist: "
 
 	measurementUnavailable = "measurement unavailable"
 	notMeasured            = "not measured"
@@ -338,11 +339,13 @@ func unfinishedNodes(task replication.DraftTask) []string {
 }
 
 // assess collects the listed nodes' drafts and sets req's outcome, reason,
-// rows, measurement time and baseline, and returns "". It searches for moves
-// only when the baseline is unbalanced and stays unbalanced once in-flight ops
-// complete. Only a PROPOSED outcome sets moves, move count, goal, hash and
-// approval deadline. If collection halts, assess sets no outcome and returns
-// collect's runs_total result.
+// rows, measurement time and baseline, and returns "". A plan naming a
+// collection the schema does not list ends PLANNING_FAILED before the balance
+// check, with no baseline. It searches for moves only when the baseline is
+// unbalanced and stays unbalanced once in-flight ops complete. Only a PROPOSED
+// outcome sets moves, move count, goal, hash and approval deadline. If
+// collection halts, assess sets no outcome and returns collect's runs_total
+// result.
 func (rp *RebalancePlanner) assess(ctx context.Context, plan replication.Plan, task replication.DraftTask, req *replication.CompletePlanningRequest,
 	logger *logrus.Entry,
 ) string {
@@ -373,7 +376,16 @@ func (rp *RebalancePlanner) assess(ctx context.Context, plan replication.Plan, t
 		return ""
 	}
 
-	replicas, err := rp.listReplicas(plan, req.Nodes)
+	classes, err := rp.listCollections()
+	if err != nil {
+		req.Outcome, req.Reason = replication.PlanStatePlanningFailed, err.Error()
+		return ""
+	}
+	if missing := missingCollections(plan.Collections, classes); len(missing) > 0 {
+		req.Outcome, req.Reason = replication.PlanStatePlanningFailed, missingCollectionsReason+strings.Join(missing, ", ")
+		return ""
+	}
+	replicas, err := rp.listReplicas(plan, classes, req.Nodes)
 	if err != nil {
 		req.Outcome, req.Reason = replication.PlanStatePlanningFailed, err.Error()
 		return ""
@@ -609,24 +621,43 @@ func draftSizes(rows []types.RebalanceNodeMeasurement) map[replicaKey]int64 {
 	return sizes
 }
 
-// listReplicas returns a replica for each measured node in each shard's
-// BelongsToNodes. It skips FROZEN shards, which hold no local data. A replica
-// is eligible when three things hold: its node is a plan source, its shard is
-// HOT or COLD, and its collection is in plan.Collections (an empty list means
-// every collection). It skips a collection deleted after it was listed and
-// returns any other read error.
-func (rp *RebalancePlanner) listReplicas(plan replication.Plan, rows []types.RebalanceNodeMeasurement) ([]rebalanceplanner.Replica, error) {
-	listed := make(map[string]struct{}, len(rows))
-	for _, r := range rows {
-		listed[r.Node] = struct{}{}
-	}
-
+// listCollections returns the name of every collection in the schema.
+func (rp *RebalancePlanner) listCollections() ([]string, error) {
 	var classes []string
 	if err := rp.p.Schema.ReadSchema(func(c models.Class, _ uint64) {
 		classes = append(classes, c.Class)
 	}); err != nil {
 		return nil, fmt.Errorf("could not list collections: %w", err)
 	}
+	return classes, nil
+}
+
+// missingCollections returns the names in want that are not in classes,
+// sorted and without duplicates. Names match exactly.
+func missingCollections(want, classes []string) []string {
+	var missing []string
+	for _, name := range want {
+		if !slices.Contains(classes, name) {
+			missing = append(missing, name)
+		}
+	}
+	slices.Sort(missing)
+	return slices.Compact(missing)
+}
+
+// listReplicas returns, for each shard of each collection in classes, a
+// replica for every measured node in the shard's BelongsToNodes. It skips
+// FROZEN shards, which hold no local data. A replica is eligible when three
+// things hold: its node is a plan source, its shard is HOT or COLD, and its
+// collection is in plan.Collections (an empty list means every collection).
+// It skips a collection deleted after it was listed and returns any other read
+// error.
+func (rp *RebalancePlanner) listReplicas(plan replication.Plan, classes []string, rows []types.RebalanceNodeMeasurement) ([]rebalanceplanner.Replica, error) {
+	listed := make(map[string]struct{}, len(rows))
+	for _, r := range rows {
+		listed[r.Node] = struct{}{}
+	}
+
 	var replicas []rebalanceplanner.Replica
 	for _, class := range classes {
 		inPlan := len(plan.Collections) == 0 || slices.Contains(plan.Collections, class)
