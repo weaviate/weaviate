@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -815,47 +814,77 @@ func withDropMarker(class *models.Class, target string) *models.Class {
 	return &marked
 }
 
-// A drop that lands after a lazy load read the class, and before it read the
-// vector configs, waits for the load and finds nothing to do: the load is what
-// deletes the vector.
+// A drop that lands while a lazy shard loads waits for the load. Whichever of
+// the load's class reads it lands on, the vector is gone once both are done:
+// the load deletes it, or leaves it recorded for the drop to delete.
 func TestDropVectorIndex_DuringALazyLoad(t *testing.T) {
+	// the loader's read, then the one that follows the vector configs
+	for _, landsOn := range []int32{1, 2} {
+		t.Run(fmt.Sprintf("on class read %d", landsOn), func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			idx := shard.index
+			require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+			require.NoError(t, shard.Shutdown(ctx))
+			simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+			require.NotEmpty(t, entriesNamed(t, shard, "foo"))
+			lazy := newColdLazyShard(ctx, shard, class)
+
+			var current atomic.Pointer[models.Class]
+			current.Store(class)
+			var reads atomic.Int32
+			dropErr := make(chan error, 1)
+			idx.getSchema = &classGetter{SchemaGetter: idx.getSchema, read: func() *models.Class {
+				read := current.Load()
+				if reads.Add(1) == landsOn {
+					// as a RAFT apply does: the schema, then the store
+					current.Store(withDropMarker(class, "foo"))
+					go func() { dropErr <- idx.dropVectorIndex(ctx, "foo") }()
+					require.Eventually(t, func() bool {
+						_, ok := idx.getTargetVectorIndexConfigs()["foo"]
+						return !ok
+					}, 5*time.Second, time.Millisecond)
+				}
+				return read
+			}}
+
+			loaded, _, err := lazy.loadIfCold(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = loaded.Shutdown(ctx) })
+			require.GreaterOrEqual(t, reads.Load(), landsOn)
+			require.NoError(t, <-dropErr)
+
+			assert.Empty(t, entriesNamed(t, loaded, "foo"))
+			assert.NotEmpty(t, entriesNamed(t, loaded, "mv"), "the sibling stays")
+			_, ok, err := recordsOf(loaded).Get("foo")
+			require.NoError(t, err)
+			assert.False(t, ok)
+		})
+	}
+}
+
+// A shard that loaded before the marker and was published after the drop walked
+// the shards still serves the vector. The drop's completion sweep deletes it.
+func TestDropVectorIndex_SweepDropsFromAShardTheDropDidNotSee(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
 	idx := shard.index
 	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
-	require.NoError(t, shard.Shutdown(ctx))
-	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
-	require.NotEmpty(t, entriesNamed(t, shard, "foo"))
-	lazy := newColdLazyShard(ctx, shard, class)
 
-	var current atomic.Pointer[models.Class]
-	current.Store(class)
-	var apply sync.Once
-	dropErr := make(chan error, 1)
-	idx.getSchema = &classGetter{SchemaGetter: idx.getSchema, read: func() *models.Class {
-		read := current.Load()
-		apply.Do(func() {
-			// as a RAFT apply does: the schema, then the store
-			current.Store(withDropMarker(class, "foo"))
-			go func() { dropErr <- idx.dropVectorIndex(ctx, "foo") }()
-			require.Eventually(t, func() bool {
-				_, ok := idx.getTargetVectorIndexConfigs()["foo"]
-				return !ok
-			}, 5*time.Second, time.Millisecond)
-		})
-		return read
-	}}
-
-	loaded, _, err := lazy.loadIfCold(ctx)
+	idx.shards.LoadAndDelete(shard.name)
+	require.NoError(t, idx.dropVectorIndex(ctx, "foo"))
+	idx.shards.Store(shard.name, shard)
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = loaded.Shutdown(ctx) })
-	require.NoError(t, <-dropErr)
+	require.True(t, found, "precondition: the drop did not see the shard")
 
-	assert.Empty(t, entriesNamed(t, loaded, "foo"))
-	assert.NotEmpty(t, entriesNamed(t, loaded, "mv"), "the sibling stays")
-	_, ok, err := recordsOf(loaded).Get("foo")
+	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
+	assert.Empty(t, entriesNamed(t, shard, "foo"))
+	assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
+	found, err = shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
 	require.NoError(t, err)
-	assert.False(t, ok)
+	assert.False(t, found)
 }
 
 // A load that started from a class older than the drop, for a shard the drop
