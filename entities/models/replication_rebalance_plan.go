@@ -32,6 +32,9 @@ import (
 // swagger:model ReplicationRebalancePlan
 type ReplicationRebalancePlan struct {
 
+	// The UNIX timestamp in ms when the approval window of a `PROPOSED` plan ends, set by the applied planning run.
+	ApproveBeforeUnixMs int64 `json:"approveBeforeUnixMs,omitempty"`
+
 	// The measured load of each listed node before any move.
 	Baseline []*ReplicationRebalancePlanBaselineItems0 `json:"baseline"`
 
@@ -44,14 +47,29 @@ type ReplicationRebalancePlan struct {
 	// The drafting status of each listed node, source nodes first, while the plan is `PLANNING`. The list is empty in every other state. It is also empty while the plan is `PLANNING` until the node serving the request holds the plan's drafting task.
 	Drafting []*ReplicationRebalancePlanDraftingItems0 `json:"drafting"`
 
+	// The sum of the estimated bytes of every move in the plan.
+	EstimatedBytes int64 `json:"estimatedBytes,omitempty"`
+
+	// The expected load of each listed node after every move of the plan, taken from the applied planning run.
+	Goal []*ReplicationRebalancePlanGoalItems0 `json:"goal"`
+
 	// The unique identifier (ID) of the rebalance plan.
 	ID string `json:"id,omitempty"`
 
 	// The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.
 	MeasuredAtUnixMs int64 `json:"measuredAtUnixMs,omitempty"`
 
+	// The number of moves in the plan.
+	MoveCount int64 `json:"moveCount,omitempty"`
+
+	// The replica moves of the plan. The list is empty unless the plan is `PROPOSED` or `EXPIRED`.
+	Moves []*ReplicationRebalancePlanMovesItems0 `json:"moves"`
+
 	// The resource measurement of each listed node, taken by the applied planning run.
 	Nodes []*ReplicationRebalancePlanNodesItems0 `json:"nodes"`
+
+	// The hash of the plan, set by the applied planning run.
+	PlanHash string `json:"planHash,omitempty"`
 
 	// A human-readable explanation of the planning outcome, e.g. why planning failed.
 	Reason string `json:"reason,omitempty"`
@@ -59,8 +77,8 @@ type ReplicationRebalancePlan struct {
 	// The names of the nodes that replicas move away from, as given in the create request.
 	SourceNodes []string `json:"sourceNodes"`
 
-	// The current state of the rebalance plan. A plan starts in `PLANNING`. A planning run ends it `NOT_NEEDED`, `PROPOSED`, `NO_ACCEPTABLE_PLAN` or `PLANNING_FAILED`, and a stop ends it `STOPPED`.
-	// Enum: [PLANNING PROPOSED NOT_NEEDED NO_ACCEPTABLE_PLAN PLANNING_FAILED RUNNING STOPPING STOPPED COMPLETED FAILED]
+	// The current state of the rebalance plan. A plan starts in `PLANNING`. A planning run ends it `NOT_NEEDED`, `PROPOSED`, `NO_ACCEPTABLE_PLAN` or `PLANNING_FAILED`, and a stop ends it `STOPPED`. A `PROPOSED` plan is reported as `EXPIRED` once the time reaches `approveBeforeUnixMs`, when its approval window has passed. `EXPIRED` is never stored.
+	// Enum: [PLANNING PROPOSED EXPIRED NOT_NEEDED NO_ACCEPTABLE_PLAN PLANNING_FAILED RUNNING STOPPING STOPPED COMPLETED FAILED]
 	State string `json:"state,omitempty"`
 
 	// The names of the nodes that replicas move to, as given in the create request.
@@ -76,6 +94,14 @@ func (m *ReplicationRebalancePlan) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateDrafting(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateGoal(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateMoves(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -145,6 +171,58 @@ func (m *ReplicationRebalancePlan) validateDrafting(formats strfmt.Registry) err
 	return nil
 }
 
+func (m *ReplicationRebalancePlan) validateGoal(formats strfmt.Registry) error {
+	if swag.IsZero(m.Goal) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Goal); i++ {
+		if swag.IsZero(m.Goal[i]) { // not required
+			continue
+		}
+
+		if m.Goal[i] != nil {
+			if err := m.Goal[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("goal" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("goal" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *ReplicationRebalancePlan) validateMoves(formats strfmt.Registry) error {
+	if swag.IsZero(m.Moves) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Moves); i++ {
+		if swag.IsZero(m.Moves[i]) { // not required
+			continue
+		}
+
+		if m.Moves[i] != nil {
+			if err := m.Moves[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("moves" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("moves" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
 func (m *ReplicationRebalancePlan) validateNodes(formats strfmt.Registry) error {
 	if swag.IsZero(m.Nodes) { // not required
 		return nil
@@ -175,7 +253,7 @@ var replicationRebalancePlanTypeStatePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["PLANNING","PROPOSED","NOT_NEEDED","NO_ACCEPTABLE_PLAN","PLANNING_FAILED","RUNNING","STOPPING","STOPPED","COMPLETED","FAILED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["PLANNING","PROPOSED","EXPIRED","NOT_NEEDED","NO_ACCEPTABLE_PLAN","PLANNING_FAILED","RUNNING","STOPPING","STOPPED","COMPLETED","FAILED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -190,6 +268,9 @@ const (
 
 	// ReplicationRebalancePlanStatePROPOSED captures enum value "PROPOSED"
 	ReplicationRebalancePlanStatePROPOSED string = "PROPOSED"
+
+	// ReplicationRebalancePlanStateEXPIRED captures enum value "EXPIRED"
+	ReplicationRebalancePlanStateEXPIRED string = "EXPIRED"
 
 	// ReplicationRebalancePlanStateNOTNEEDED captures enum value "NOT_NEEDED"
 	ReplicationRebalancePlanStateNOTNEEDED string = "NOT_NEEDED"
@@ -249,6 +330,14 @@ func (m *ReplicationRebalancePlan) ContextValidate(ctx context.Context, formats 
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateGoal(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateMoves(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateNodes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -289,6 +378,46 @@ func (m *ReplicationRebalancePlan) contextValidateDrafting(ctx context.Context, 
 					return ve.ValidateName("drafting" + "." + strconv.Itoa(i))
 				} else if ce, ok := err.(*errors.CompositeError); ok {
 					return ce.ValidateName("drafting" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *ReplicationRebalancePlan) contextValidateGoal(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Goal); i++ {
+
+		if m.Goal[i] != nil {
+			if err := m.Goal[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("goal" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("goal" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *ReplicationRebalancePlan) contextValidateMoves(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Moves); i++ {
+
+		if m.Moves[i] != nil {
+			if err := m.Moves[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("moves" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("moves" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -468,6 +597,101 @@ func (m *ReplicationRebalancePlanDraftingItems0) MarshalBinary() ([]byte, error)
 // UnmarshalBinary interface implementation
 func (m *ReplicationRebalancePlanDraftingItems0) UnmarshalBinary(b []byte) error {
 	var res ReplicationRebalancePlanDraftingItems0
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// ReplicationRebalancePlanGoalItems0 One node's expected load.
+//
+// swagger:model ReplicationRebalancePlanGoalItems0
+type ReplicationRebalancePlanGoalItems0 struct {
+
+	// The node's used disk bytes divided by its disk usage warning threshold in bytes.
+	DiskUtilisation float64 `json:"diskUtilisation"`
+
+	// The name of the node.
+	Node string `json:"node"`
+
+	// The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.
+	ReplicaCount int64 `json:"replicaCount"`
+}
+
+// Validate validates this replication rebalance plan goal items0
+func (m *ReplicationRebalancePlanGoalItems0) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this replication rebalance plan goal items0 based on context it is used
+func (m *ReplicationRebalancePlanGoalItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *ReplicationRebalancePlanGoalItems0) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *ReplicationRebalancePlanGoalItems0) UnmarshalBinary(b []byte) error {
+	var res ReplicationRebalancePlanGoalItems0
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// ReplicationRebalancePlanMovesItems0 One replica move.
+//
+// swagger:model ReplicationRebalancePlanMovesItems0
+type ReplicationRebalancePlanMovesItems0 struct {
+
+	// The name of the collection the shard belongs to.
+	Collection string `json:"collection"`
+
+	// The estimated number of bytes the move copies.
+	EstimatedBytes int64 `json:"estimatedBytes"`
+
+	// The unique identifier (ID) of the move within the plan.
+	ID string `json:"id"`
+
+	// The name of the shard whose replica moves.
+	Shard string `json:"shard"`
+
+	// The name of the node the replica moves away from.
+	SourceNode string `json:"sourceNode"`
+
+	// The name of the node the replica moves to.
+	TargetNode string `json:"targetNode"`
+}
+
+// Validate validates this replication rebalance plan moves items0
+func (m *ReplicationRebalancePlanMovesItems0) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this replication rebalance plan moves items0 based on context it is used
+func (m *ReplicationRebalancePlanMovesItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *ReplicationRebalancePlanMovesItems0) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *ReplicationRebalancePlanMovesItems0) UnmarshalBinary(b []byte) error {
+	var res ReplicationRebalancePlanMovesItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

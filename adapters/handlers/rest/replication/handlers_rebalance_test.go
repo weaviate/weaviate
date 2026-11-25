@@ -458,6 +458,8 @@ func TestRebalanceHandlers(t *testing.T) {
 						}, {Node: "node-2", Error: "measurement unavailable"}},
 						Baseline: []*models.ReplicationRebalancePlanBaselineItems0{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
 						Drafting: []*models.ReplicationRebalancePlanDraftingItems0{},
+						Goal:     []*models.ReplicationRebalancePlanGoalItems0{},
+						Moves:    []*models.ReplicationRebalancePlanMovesItems0{},
 					}, response.(*replication.GetRebalancePlanOK).Payload)
 				},
 			},
@@ -722,6 +724,136 @@ func TestRebalanceHandlers(t *testing.T) {
 					assert.Equal(t, tt.draftReads, manager.draftReads, "draft task reads")
 				})
 			}
+		}
+	})
+
+	// The two moves have different bytes, and each move's source differs from
+	// its target. The goal differs from the baseline. So a swapped or dropped
+	// field changes the payload.
+	proposedPlan := func(approveBeforeUnixMs int64) *rebalance.Plan {
+		return &rebalance.Plan{
+			ID:          "plan-1",
+			State:       rebalance.PlanStateProposed,
+			SourceNodes: []string{"node-1"},
+			TargetNodes: []string{"node-2", "node-3"},
+			Baseline: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 0.9, ReplicaCount: 6},
+				{Node: "node-2", DiskUtilisation: 0.1, ReplicaCount: 1},
+			},
+			Goal: []types.RebalanceNodeBalance{
+				{Node: "node-1", DiskUtilisation: 0.6, ReplicaCount: 4},
+				{Node: "node-2", DiskUtilisation: 0.3, ReplicaCount: 2},
+			},
+			MoveCount:           2,
+			PlanHash:            "sha256:9f1e",
+			ApproveBeforeUnixMs: approveBeforeUnixMs,
+			Moves: []rebalance.PlanMove{
+				{ID: "move-1", Collection: "Books", Shard: "shard-a", SourceNode: "node-1", TargetNode: "node-2", EstimatedBytes: 100},
+				{ID: "move-2", Collection: "Films", Shard: "shard-b", SourceNode: "node-1", TargetNode: "node-3", EstimatedBytes: 250},
+			},
+		}
+	}
+
+	t.Run("get renders a proposed plan's moves and goal", func(t *testing.T) {
+		hour := time.Hour.Milliseconds()
+		tests := []struct {
+			name      string
+			deadline  int64
+			wantState string
+		}{
+			{"before the approval deadline", time.Now().UnixMilli() + hour, models.ReplicationRebalancePlanStatePROPOSED},
+			{"after the approval deadline", time.Now().UnixMilli() - hour, models.ReplicationRebalancePlanStateEXPIRED},
+		}
+		for _, path := range readPaths {
+			for _, tt := range tests {
+				t.Run(fmt.Sprintf("%s on %s", tt.name, path.name), func(t *testing.T) {
+					manager := path.manager(proposedPlan(tt.deadline), nil)
+					handler, _, _ := createRebalanceHandlerWithFakes(t, true, true, manager, liveNodes)
+
+					response := path.call(handler)
+
+					require.IsType(t, &replication.GetRebalancePlanOK{}, response)
+					assert.Equal(t, &models.ReplicationRebalancePlan{
+						ID:          "plan-1",
+						State:       tt.wantState,
+						SourceNodes: []string{"node-1"},
+						TargetNodes: []string{"node-2", "node-3"},
+						Nodes:       []*models.ReplicationRebalancePlanNodesItems0{},
+						Baseline: []*models.ReplicationRebalancePlanBaselineItems0{
+							{Node: "node-1", DiskUtilisation: 0.9, ReplicaCount: 6},
+							{Node: "node-2", DiskUtilisation: 0.1, ReplicaCount: 1},
+						},
+						Drafting: []*models.ReplicationRebalancePlanDraftingItems0{},
+						Goal: []*models.ReplicationRebalancePlanGoalItems0{
+							{Node: "node-1", DiskUtilisation: 0.6, ReplicaCount: 4},
+							{Node: "node-2", DiskUtilisation: 0.3, ReplicaCount: 2},
+						},
+						Moves: []*models.ReplicationRebalancePlanMovesItems0{
+							{ID: "move-1", Collection: "Books", Shard: "shard-a", SourceNode: "node-1", TargetNode: "node-2", EstimatedBytes: 100},
+							{ID: "move-2", Collection: "Films", Shard: "shard-b", SourceNode: "node-1", TargetNode: "node-3", EstimatedBytes: 250},
+						},
+						MoveCount:           2,
+						EstimatedBytes:      350,
+						PlanHash:            "sha256:9f1e",
+						ApproveBeforeUnixMs: tt.deadline,
+					}, response.(*replication.GetRebalancePlanOK).Payload)
+					assert.Equal(t, 1, manager.calls, "manager calls")
+				})
+			}
+		}
+	})
+
+	t.Run("get renders [] for a plan without moves or goal", func(t *testing.T) {
+		for _, state := range []rebalance.PlanState{rebalance.PlanStatePlanning, rebalance.PlanStateStopped, rebalance.PlanStateNotNeeded} {
+			for _, path := range readPaths {
+				t.Run(fmt.Sprintf("%s on %s", state, path.name), func(t *testing.T) {
+					manager := path.manager(listedPlan(state), nil)
+					handler, _, _ := createRebalanceHandlerWithFakes(t, true, true, manager, liveNodes)
+
+					response := path.call(handler)
+
+					require.IsType(t, &replication.GetRebalancePlanOK{}, response)
+					body, err := json.Marshal(response.(*replication.GetRebalancePlanOK).Payload)
+					require.NoError(t, err)
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(body, &fields))
+					assert.Equal(t, `[]`, string(fields["moves"]))
+					assert.Equal(t, `[]`, string(fields["goal"]))
+				})
+			}
+		}
+	})
+
+	t.Run("the response shows EXPIRED only for a proposed plan at or past its deadline", func(t *testing.T) {
+		const deadline = int64(1_700_000_000_000)
+		tests := []struct {
+			name      string
+			state     rebalance.PlanState
+			deadline  int64
+			now       int64
+			wantState string
+		}{
+			{"proposed one millisecond before the deadline", rebalance.PlanStateProposed, deadline, deadline - 1, models.ReplicationRebalancePlanStatePROPOSED},
+			{"proposed at the deadline", rebalance.PlanStateProposed, deadline, deadline, models.ReplicationRebalancePlanStateEXPIRED},
+			{"planning with no deadline", rebalance.PlanStatePlanning, 0, deadline, models.ReplicationRebalancePlanStatePLANNING},
+			{"not needed with no deadline", rebalance.PlanStateNotNeeded, 0, deadline, models.ReplicationRebalancePlanStateNOTNEEDED},
+			{"not needed past its deadline", rebalance.PlanStateNotNeeded, deadline, deadline + 1, models.ReplicationRebalancePlanStateNOTNEEDED},
+			{"no acceptable plan past its deadline", rebalance.PlanStateNoAcceptablePlan, deadline, deadline + 1, models.ReplicationRebalancePlanStateNOACCEPTABLEPLAN},
+			{"planning failed with no deadline", rebalance.PlanStatePlanningFailed, 0, deadline, models.ReplicationRebalancePlanStatePLANNINGFAILED},
+			{"stopped with no deadline", rebalance.PlanStateStopped, 0, deadline, models.ReplicationRebalancePlanStateSTOPPED},
+			{"running past its deadline", rebalance.PlanStateRunning, deadline, deadline + 1, models.ReplicationRebalancePlanStateRUNNING},
+			{"stopping past its deadline", rebalance.PlanStateStopping, deadline, deadline + 1, models.ReplicationRebalancePlanStateSTOPPING},
+			{"completed with no deadline", rebalance.PlanStateCompleted, 0, deadline, models.ReplicationRebalancePlanStateCOMPLETED},
+			{"failed with no deadline", rebalance.PlanStateFailed, 0, deadline, models.ReplicationRebalancePlanStateFAILED},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				plan := rebalance.Plan{ID: "plan-1", State: tt.state, ApproveBeforeUnixMs: tt.deadline}
+
+				response := rebalancePlanResponse(plan, nil, tt.now)
+
+				assert.Equal(t, tt.wantState, response.State)
+			})
 		}
 	})
 }

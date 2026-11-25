@@ -11298,6 +11298,11 @@ func init() {
       "description": "The cluster's rebalance plan: the request it was created from, its current state, the per-node drafting status while it is planning, and the node measurements and baseline balance taken by its planning run.",
       "type": "object",
       "properties": {
+        "approveBeforeUnixMs": {
+          "description": "The UNIX timestamp in ms when the approval window of a ` + "`" + `PROPOSED` + "`" + ` plan ends, set by the applied planning run.",
+          "type": "integer",
+          "format": "int64"
+        },
         "baseline": {
           "description": "The measured load of each listed node before any move.",
           "type": "array",
@@ -11360,6 +11365,36 @@ func init() {
             }
           }
         },
+        "estimatedBytes": {
+          "description": "The sum of the estimated bytes of every move in the plan.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "goal": {
+          "description": "The expected load of each listed node after every move of the plan, taken from the applied planning run.",
+          "type": "array",
+          "items": {
+            "description": "One node's expected load.",
+            "type": "object",
+            "properties": {
+              "diskUtilisation": {
+                "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+                "type": "number",
+                "x-omitempty": false
+              },
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "replicaCount": {
+                "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+                "type": "integer",
+                "x-omitempty": false
+              }
+            }
+          }
+        },
         "id": {
           "description": "The unique identifier (ID) of the rebalance plan.",
           "type": "string"
@@ -11368,6 +11403,52 @@ func init() {
           "description": "The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.",
           "type": "integer",
           "format": "int64"
+        },
+        "moveCount": {
+          "description": "The number of moves in the plan.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "moves": {
+          "description": "The replica moves of the plan. The list is empty unless the plan is ` + "`" + `PROPOSED` + "`" + ` or ` + "`" + `EXPIRED` + "`" + `.",
+          "type": "array",
+          "items": {
+            "description": "One replica move.",
+            "type": "object",
+            "properties": {
+              "collection": {
+                "description": "The name of the collection the shard belongs to.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "estimatedBytes": {
+                "description": "The estimated number of bytes the move copies.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "id": {
+                "description": "The unique identifier (ID) of the move within the plan.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "shard": {
+                "description": "The name of the shard whose replica moves.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "sourceNode": {
+                "description": "The name of the node the replica moves away from.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "targetNode": {
+                "description": "The name of the node the replica moves to.",
+                "type": "string",
+                "x-omitempty": false
+              }
+            }
+          }
         },
         "nodes": {
           "description": "The resource measurement of each listed node, taken by the applied planning run.",
@@ -11417,6 +11498,10 @@ func init() {
             }
           }
         },
+        "planHash": {
+          "description": "The hash of the plan, set by the applied planning run.",
+          "type": "string"
+        },
         "reason": {
           "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
           "type": "string"
@@ -11429,11 +11514,12 @@ func init() {
           }
         },
         "state": {
-          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `.",
+          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `. A ` + "`" + `PROPOSED` + "`" + ` plan is reported as ` + "`" + `EXPIRED` + "`" + ` once the time reaches ` + "`" + `approveBeforeUnixMs` + "`" + `, when its approval window has passed. ` + "`" + `EXPIRED` + "`" + ` is never stored.",
           "type": "string",
           "enum": [
             "PLANNING",
             "PROPOSED",
+            "EXPIRED",
             "NOT_NEEDED",
             "NO_ACCEPTABLE_PLAN",
             "PLANNING_FAILED",
@@ -25030,6 +25116,11 @@ func init() {
       "description": "The cluster's rebalance plan: the request it was created from, its current state, the per-node drafting status while it is planning, and the node measurements and baseline balance taken by its planning run.",
       "type": "object",
       "properties": {
+        "approveBeforeUnixMs": {
+          "description": "The UNIX timestamp in ms when the approval window of a ` + "`" + `PROPOSED` + "`" + ` plan ends, set by the applied planning run.",
+          "type": "integer",
+          "format": "int64"
+        },
         "baseline": {
           "description": "The measured load of each listed node before any move.",
           "type": "array",
@@ -25056,6 +25147,18 @@ func init() {
             "$ref": "#/definitions/ReplicationRebalancePlanDraftingItems0"
           }
         },
+        "estimatedBytes": {
+          "description": "The sum of the estimated bytes of every move in the plan.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "goal": {
+          "description": "The expected load of each listed node after every move of the plan, taken from the applied planning run.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanGoalItems0"
+          }
+        },
         "id": {
           "description": "The unique identifier (ID) of the rebalance plan.",
           "type": "string"
@@ -25065,12 +25168,28 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "moveCount": {
+          "description": "The number of moves in the plan.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "moves": {
+          "description": "The replica moves of the plan. The list is empty unless the plan is ` + "`" + `PROPOSED` + "`" + ` or ` + "`" + `EXPIRED` + "`" + `.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanMovesItems0"
+          }
+        },
         "nodes": {
           "description": "The resource measurement of each listed node, taken by the applied planning run.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ReplicationRebalancePlanNodesItems0"
           }
+        },
+        "planHash": {
+          "description": "The hash of the plan, set by the applied planning run.",
+          "type": "string"
         },
         "reason": {
           "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
@@ -25084,11 +25203,12 @@ func init() {
           }
         },
         "state": {
-          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `.",
+          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `. A ` + "`" + `PROPOSED` + "`" + ` plan is reported as ` + "`" + `EXPIRED` + "`" + ` once the time reaches ` + "`" + `approveBeforeUnixMs` + "`" + `, when its approval window has passed. ` + "`" + `EXPIRED` + "`" + ` is never stored.",
           "type": "string",
           "enum": [
             "PLANNING",
             "PROPOSED",
+            "EXPIRED",
             "NOT_NEEDED",
             "NO_ACCEPTABLE_PLAN",
             "PLANNING_FAILED",
@@ -25146,6 +25266,64 @@ func init() {
             "DRAFTING",
             "FAILED"
           ],
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalancePlanGoalItems0": {
+      "description": "One node's expected load.",
+      "type": "object",
+      "properties": {
+        "diskUtilisation": {
+          "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "replicaCount": {
+          "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+          "type": "integer",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalancePlanMovesItems0": {
+      "description": "One replica move.",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "The name of the collection the shard belongs to.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "estimatedBytes": {
+          "description": "The estimated number of bytes the move copies.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the move within the plan.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "shard": {
+          "description": "The name of the shard whose replica moves.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "sourceNode": {
+          "description": "The name of the node the replica moves away from.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "targetNode": {
+          "description": "The name of the node the replica moves to.",
+          "type": "string",
           "x-omitempty": false
         }
       }
