@@ -22,6 +22,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -36,17 +37,21 @@ func (s *Raft) LeaderWithID() (string, string) {
 // StorageCandidates return the nodes in the raft configuration or memberlist storage nodes
 // based on the current configuration of the cluster if it does have  MetadataVoterOnly nodes.
 func (s *Raft) StorageCandidates() []string {
-	rn := s.store.raft.Load()
+	return s.store.storageCandidatesFrom(s.nodeSelector)
+}
+
+func (st *Store) storageCandidatesFrom(selector cluster.NodeSelector) []string {
+	rn := st.raft.Load()
 	if rn == nil {
 		// get candidates from memberlist
-		return s.nodeSelector.StorageCandidates()
+		return selector.StorageCandidates()
 	}
 
 	var (
 		existedRaftCandidates []string
 		raftStorageCandidates []string
-		memStorageCandidates  = s.nodeSelector.StorageCandidates()
-		nonStorageCandidates  = s.nodeSelector.NonStorageNodes()
+		memStorageCandidates  = selector.StorageCandidates()
+		nonStorageCandidates  = selector.NonStorageNodes()
 	)
 
 	for _, server := range rn.GetConfiguration().Configuration().Servers {
@@ -68,7 +73,7 @@ func (s *Raft) StorageCandidates() []string {
 		return memStorageCandidates
 	}
 
-	return s.nodeSelector.SortCandidates(raftStorageCandidates)
+	return selector.SortCandidates(raftStorageCandidates)
 }
 
 func (s *Raft) Join(ctx context.Context, id, addr string, voter bool) error {
