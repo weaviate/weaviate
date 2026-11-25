@@ -714,11 +714,17 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 		ObjectsReferencesDeleteHandlerFunc(h.deleteObjectReferenceDeprecated)
 }
 
+// objectIDEndpointsWithoutClassDisabled reports whether the *Deprecated
+// handlers answer 410 Gone instead of serving the request.
+func (h *objectHandlers) objectIDEndpointsWithoutClassDisabled() bool {
+	return h.config.Namespaces.Enabled || h.config.DisableObjectIDEndpointsWithoutClass.Get()
+}
+
 func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "GET "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsGetGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("getting an object without a class is not supported; use /objects/{className}/{id}")))
@@ -735,7 +741,7 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "HEAD "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsHeadGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("checking an object without a class is not supported; use /objects/{className}/{id}")))
@@ -749,7 +755,7 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 
 func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PATCH "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsPatchGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("patching an object without a class is not supported; use /objects/{className}/{id}")))
@@ -769,7 +775,7 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsUpdateGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("updating an object without a class is not supported; use /objects/{className}/{id}")))
@@ -787,7 +793,7 @@ func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeletePara
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsDeleteGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("deleting an object without a class is not supported; use /objects/{className}/{id}")))
@@ -803,7 +809,7 @@ func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsRefe
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "POST "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesCreateGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
@@ -821,7 +827,7 @@ func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.Objects
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesUpdateGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("replacing references without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
@@ -839,7 +845,7 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesDeleteGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))

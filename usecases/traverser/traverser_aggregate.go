@@ -23,16 +23,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
-// Aggregate resolves meta queries
+// Aggregate resolves meta queries. params.ClassName must be a collection name
+// the caller has already resolved from any alias and authorized.
 func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal, params *aggregation.Params) (any, error) {
-	// TODO(dyma): if the collection is referenced by its alias, the metric may underestimate the true number of queries.
-	// Do we want to resolve the alias before recording this query?
 	t.metrics.QueriesAggregateInc(params.ClassName.String())
 	defer t.metrics.QueriesAggregateDec(params.ClassName.String())
-
-	if cls := t.schemaGetter.ResolveAlias(params.ClassName.String()); cls != "" {
-		params.ClassName = schema.ClassName(cls)
-	}
 
 	// validate here, because filters can contain references that need to be authorized
 	if err := t.validateFilters(ctx, principal, params.Filters); err != nil {

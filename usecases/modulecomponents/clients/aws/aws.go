@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
@@ -545,9 +546,9 @@ func (c *Client) getAwsAccessKey(ctx context.Context) (string, error) {
 	if c.awsAccessKey != "" {
 		return c.awsAccessKey, nil
 	}
-	return "", errors.New("no access key found " +
+	return "", enterrors.NewErrModulePrecondition(errors.New("no access key found " +
 		"neither in request header: X-AWS-Access-Key " +
-		"nor in environment variable under AWS_ACCESS_KEY_ID or AWS_ACCESS_KEY")
+		"nor in environment variable under AWS_ACCESS_KEY_ID or AWS_ACCESS_KEY"))
 }
 
 func (c *Client) getAwsAccessSecret(ctx context.Context) (string, error) {
@@ -557,9 +558,9 @@ func (c *Client) getAwsAccessSecret(ctx context.Context) (string, error) {
 	if c.awsSecret != "" {
 		return c.awsSecret, nil
 	}
-	return "", errors.New("no secret found " +
+	return "", enterrors.NewErrModulePrecondition(errors.New("no secret found " +
 		"neither in request header: X-AWS-Secret-Key " +
-		"nor in environment variable under AWS_SECRET_ACCESS_KEY or AWS_SECRET_KEY")
+		"nor in environment variable under AWS_SECRET_ACCESS_KEY or AWS_SECRET_KEY"))
 }
 
 func (c *Client) getAwsSessionToken(ctx context.Context) (string, error) {

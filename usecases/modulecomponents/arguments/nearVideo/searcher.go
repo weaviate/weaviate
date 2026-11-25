@@ -13,8 +13,8 @@ package nearVideo
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -32,7 +32,7 @@ func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
 		// find vector for given search query
 		vector, err := vectorizer.VectorizeVideo(ctx, params.(*NearVideoParams).Video, cfg)
 		if err != nil {
-			return nil, errors.Errorf("vectorize video: %v", err)
+			return nil, fmt.Errorf("vectorize video: %w", err)
 		}
 
 		return vector, nil
