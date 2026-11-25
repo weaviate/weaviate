@@ -14,12 +14,13 @@
 // idle_ttl, and the next request reloads them; tenant status never changes.
 //
 // It implements [db.ShardUnloader]. Loads are never refused or delayed, and
-// nothing caps how many shards are loaded. Only data reads and writes count
-// as access; comparisons, status reads and TTL finds do not. A background loop
-// sweeps the loaded shards every check_interval and hands the idle ones to the
-// unload workers, at most unload_rate per check. Every unload goes through
-// [db.LazyLoadShard.TryUnload], which only try-locks, so nothing here waits on
-// a request, a load or a RAFT apply.
+// nothing caps how many shards are loaded. Data reads and writes count as
+// access, and so does a load not marked as background work (startup warmup,
+// drop-vector, reindex); comparisons, status reads and TTL finds do not. A
+// background loop sweeps the loaded shards every check_interval and hands the
+// idle ones to the unload workers, at most unload_rate per check. Every unload
+// goes through [db.LazyLoadShard.TryUnload], which only try-locks, so nothing
+// here waits on a request, a load or a RAFT apply.
 package idleshardcollector
 
 import (
