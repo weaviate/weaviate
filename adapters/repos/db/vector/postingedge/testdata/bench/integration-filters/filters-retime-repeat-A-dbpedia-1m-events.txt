@@ -1,0 +1,738 @@
+gc 1 @0.006s 3%: 0.021+0.71+0.16 ms clock, 0.21+0/1.0/0.35+1.6 ms cpu, 3->4->2 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 2 @0.010s 4%: 0.023+0.62+0.19 ms clock, 0.23+0.10/1.1/0.73+1.9 ms cpu, 5->6->4 MB, 6 MB goal, 0 MB stacks, 0 MB globals, 10 P
+=== RUN   TestIntegrationFilters
+gc 3 @0.016s 4%: 0.029+0.59+0.003 ms clock, 0.29+0.012/1.2/1.0+0.030 ms cpu, 7->8->5 MB, 8 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 4 @0.019s 4%: 0.027+0.70+0.002 ms clock, 0.27+0.22/1.6/1.4+0.029 ms cpu, 5806->5806->5806 MB, 5806 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:696: filters: 5, from the cache, in 1s
+gc 5 @8.653s 0%: 0.081+5.5+0.091 ms clock, 0.81+0.50/15/4.5+0.91 ms cpu, 11610->11612->728 MB, 11612 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 6 @9.562s 0%: 0.17+3.7+0.083 ms clock, 1.7+0/10/0+0.83 ms cpu, 1452->1452->735 MB, 1457 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 7 @10.354s 0%: 0.17+4.6+0.10 ms clock, 1.7+0/13/0.12+1.0 ms cpu, 1467->1467->739 MB, 1472 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, random 50 %, ef 10: recall 0.9963 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 5.7 s
+gc 8 @11.267s 0%: 0.12+3.9+0.051 ms clock, 1.2+1.2/10/4.0+0.51 ms cpu, 1475->1479->724 MB, 1479 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 9 @12.233s 0%: 0.13+4.7+0.094 ms clock, 1.3+1.4/12/1.5+0.94 ms cpu, 1444->1448->732 MB, 1449 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 10 @12.800s 0%: 0.20+7.5+0.13 ms clock, 2.0+0/18/0+1.3 ms cpu, 1459->1465->752 MB, 1464 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 11 @13.369s 0%: 0.20+7.1+0.12 ms clock, 2.0+0.67/16/0+1.2 ms cpu, 1501->1505->747 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 12 @13.937s 0%: 0.21+3.6+0.10 ms clock, 2.1+0.097/9.2/0+1.0 ms cpu, 1489->1491->741 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 13 @14.556s 0%: 0.10+5.0+0.064 ms clock, 1.0+0/12/5.7+0.64 ms cpu, 1478->1482->731 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, random 50 %, ef 20: recall 0.9963 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.5 s
+gc 14 @15.160s 0%: 0.20+5.4+0.16 ms clock, 2.0+0/14/0+1.6 ms cpu, 1459->1463->747 MB, 1464 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 15 @15.875s 0%: 0.16+4.1+0.10 ms clock, 1.6+0/11/0+1.0 ms cpu, 1490->1491->737 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 16 @16.584s 0%: 0.17+5.2+0.14 ms clock, 1.7+0/14/0+1.4 ms cpu, 1471->1472->737 MB, 1475 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 17 @17.243s 0%: 0.19+6.3+0.16 ms clock, 1.9+0/12/0+1.6 ms cpu, 1471->1476->745 MB, 1475 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 18 @17.902s 0%: 0.13+3.9+0.11 ms clock, 1.3+2.9/10/0+1.1 ms cpu, 1486->1488->737 MB, 1490 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, random 50 %, ef 40: recall 0.9963 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.5 s
+gc 19 @18.825s 0%: 0.11+4.7+0.090 ms clock, 1.1+0/13/0.35+0.90 ms cpu, 1471->1476->733 MB, 1475 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 20 @19.475s 0%: 0.19+6.2+0.081 ms clock, 1.9+0.23/12/0+0.81 ms cpu, 1463->1467->747 MB, 1468 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 21 @20.036s 0%: 0.19+5.5+0.14 ms clock, 1.9+0/14/0+1.4 ms cpu, 1489->1489->750 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 22 @20.628s 0%: 0.23+5.5+0.11 ms clock, 2.3+0.26/15/0+1.1 ms cpu, 1497->1501->750 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 23 @21.219s 0%: 0.18+6.5+0.11 ms clock, 1.8+0.12/17/0+1.1 ms cpu, 1497->1501->747 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, random 50 %, ef 80: recall 0.9963 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.3 s
+gc 24 @21.859s 0%: 0.22+30+0.14 ms clock, 2.2+0.64/24/0.53+1.4 ms cpu, 1490->1528->777 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 25 @22.539s 0%: 0.17+4.4+0.084 ms clock, 1.7+0.11/12/0+0.84 ms cpu, 1518->1522->737 MB, 1555 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 26 @23.236s 0%: 0.17+5.5+0.13 ms clock, 1.7+0/14/0+1.3 ms cpu, 1438->1442->745 MB, 1475 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 27 @23.884s 0%: 0.16+4.5+0.10 ms clock, 1.6+0/12/0+1.0 ms cpu, 1453->1455->739 MB, 1490 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 28 @24.504s 0%: 0.16+5.6+0.076 ms clock, 1.6+0/15/0.079+0.76 ms cpu, 1442->1448->735 MB, 1479 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, random 50 %, ef 160: recall 0.9963 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.5 s
+gc 29 @25.312s 0%: 0.20+5.1+0.13 ms clock, 2.0+0/13/0+1.3 ms cpu, 1435->1437->747 MB, 1472 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 30 @26.105s 0%: 0.15+5.8+0.12 ms clock, 1.5+0/16/0+1.2 ms cpu, 1489->1491->737 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 31 @26.656s 0%: 0.18+14+0.14 ms clock, 1.8+0.27/15/0+1.4 ms cpu, 1470->1478->754 MB, 1475 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 32 @27.250s 0%: 0.18+5.8+0.13 ms clock, 1.8+0/11/0+1.3 ms cpu, 1503->1512->750 MB, 1509 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 33 @27.832s 0%: 0.24+45+0.16 ms clock, 2.4+0/11/0+1.6 ms cpu, 1493->1539->792 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, random 50 %, ef 320: recall 0.9963 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.3 s
+gc 34 @28.535s 0%: 0.20+5.6+0.13 ms clock, 2.0+0/15/0.032+1.3 ms cpu, 1540->1542->741 MB, 1586 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 35 @29.139s 0%: 0.11+4.9+0.12 ms clock, 1.1+0/13/0.27+1.2 ms cpu, 1439->1441->730 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 36 @29.875s 0%: 0.16+4.9+0.10 ms clock, 1.6+0.33/13/0+1.0 ms cpu, 1416->1424->739 MB, 1460 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 37 @30.582s 0%: 0.16+3.6+0.11 ms clock, 1.6+0/10/0+1.1 ms cpu, 1435->1435->735 MB, 1479 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 38 @31.254s 0%: 0.13+4.6+0.058 ms clock, 1.3+0/12/0.065+0.58 ms cpu, 1427->1427->735 MB, 1472 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 39 @32.030s 0%: 0.096+3.0+0.040 ms clock, 0.96+0/8.2/5.2+0.40 ms cpu, 1466->1466->720 MB, 1472 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, random 50 %, ef 640: recall 0.9972 | 0.0 loads, 640.0 vectors read, 495000 codes scored, flat 1.00 | 3.9 s
+gc 40 @32.961s 0%: 0.19+4.1+0.091 ms clock, 1.9+1.7/11/0+0.91 ms cpu, 1435->1437->737 MB, 1441 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 41 @33.699s 0%: 0.15+5.2+0.11 ms clock, 1.5+0.32/14/0.010+1.1 ms cpu, 1470->1473->735 MB, 1476 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 42 @34.385s 0%: 0.16+5.3+0.12 ms clock, 1.6+0.33/14/0+1.2 ms cpu, 1469->1472->741 MB, 1472 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 43 @35.081s 0%: 0.17+6.1+0.13 ms clock, 1.7+3.5/15/1.0+1.3 ms cpu, 1481->1489->743 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 44 @35.793s 0%: 0.15+5.2+0.12 ms clock, 1.5+0.006/13/0+1.2 ms cpu, 1477->1481->739 MB, 1487 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, random 50 %, ef 1024: recall 0.9992 | 0.0 loads, 1024.0 vectors read, 495000 codes scored, flat 1.00 | 3.9 s
+    bench_filters_test.go:967: ours flat, random 50 % at recall 0.95: ef 10, recall 0.9963, 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:967: ours flat, random 50 % at recall 0.99: ef 10, recall 0.9963, 0.0 loads, 507.0 vectors read
+gc 45 @36.600s 0%: 0.16+4.5+0.12 ms clock, 1.6+0.047/12/0+1.2 ms cpu, 1470->1473->743 MB, 1479 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 46 @37.334s 0%: 0.18+6.3+0.12 ms clock, 1.8+0.25/14/0+1.2 ms cpu, 1476->1484->745 MB, 1487 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 47 @38.073s 0%: 0.20+5.0+0.11 ms clock, 2.0+0/14/0.032+1.1 ms cpu, 1480->1482->739 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 48 @38.797s 0%: 0.21+4.5+0.14 ms clock, 2.1+0.40/12/0.011+1.4 ms cpu, 1469->1471->735 MB, 1479 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 49 @39.506s 0%: 0.19+5.5+0.078 ms clock, 1.9+0/15/0+0.78 ms cpu, 1465->1471->739 MB, 1472 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 10: recall 0.9953 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.8 s
+gc 50 @40.269s 0%: 0.18+6.0+0.23 ms clock, 1.8+0/15/0+2.3 ms cpu, 1473->1475->747 MB, 1479 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 51 @40.916s 0%: 0.24+4.9+0.13 ms clock, 2.4+0/13/0+1.3 ms cpu, 1487->1488->741 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 52 @41.560s 0%: 0.22+6.8+0.15 ms clock, 2.2+3.1/15/0+1.5 ms cpu, 1478->1482->743 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 53 @42.189s 0%: 0.23+5.8+0.14 ms clock, 2.3+0.85/15/0.10+1.4 ms cpu, 1482->1490->739 MB, 1487 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 54 @42.823s 0%: 0.20+4.9+0.12 ms clock, 2.0+0/13/0+1.2 ms cpu, 1473->1474->747 MB, 1479 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 20: recall 0.9953 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.3 s
+gc 55 @43.524s 0%: 0.18+6.1+0.12 ms clock, 1.8+0.073/11/0+1.2 ms cpu, 1488->1492->745 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 56 @44.167s 0%: 0.18+7.5+0.12 ms clock, 1.8+0/14/0+1.2 ms cpu, 1484->1486->747 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 57 @44.840s 0%: 0.19+5.6+0.12 ms clock, 1.9+0/13/0+1.2 ms cpu, 1488->1491->741 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 58 @45.516s 0%: 0.19+5.4+0.14 ms clock, 1.9+0/14/0+1.4 ms cpu, 1476->1480->741 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 59 @46.190s 0%: 0.22+7.9+0.093 ms clock, 2.2+0.49/19/1.8+0.93 ms cpu, 1480->1482->743 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 40: recall 0.9953 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.4 s
+gc 60 @46.875s 0%: 0.19+6.3+0.12 ms clock, 1.9+0/16/0+1.2 ms cpu, 1484->1488->749 MB, 1487 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 61 @47.507s 0%: 0.26+6.4+0.12 ms clock, 2.6+5.4/17/1.5+1.2 ms cpu, 1495->1495->737 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 62 @48.128s 0%: 0.24+14+0.12 ms clock, 2.4+0/22/0+1.2 ms cpu, 1472->1486->758 MB, 1475 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 63 @48.764s 0%: 0.22+12+0.15 ms clock, 2.2+0/18/0+1.5 ms cpu, 1505->1509->750 MB, 1517 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 64 @49.387s 0%: 0.22+8.1+0.13 ms clock, 2.2+0/20/0+1.3 ms cpu, 1489->1499->752 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 80: recall 0.9953 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.3 s
+gc 65 @50.083s 0%: 0.18+14+0.17 ms clock, 1.8+0.60/28/0+1.7 ms cpu, 1494->1515->760 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 66 @50.715s 0%: 0.23+11+0.16 ms clock, 2.3+0/19/0+1.6 ms cpu, 1503->1512->754 MB, 1521 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 67 @51.345s 0%: 0.22+10+0.17 ms clock, 2.2+0/20/0+1.7 ms cpu, 1491->1516->762 MB, 1510 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 68 @51.993s 0%: 0.19+16+0.15 ms clock, 1.9+0/18/0+1.5 ms cpu, 1501->1520->766 MB, 1525 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 69 @52.628s 0%: 0.21+32+0.16 ms clock, 2.1+0/19/0+1.6 ms cpu, 1508->1541->775 MB, 1532 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 160: recall 0.9953 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.3 s
+gc 70 @53.361s 0%: 0.22+10+0.12 ms clock, 2.2+0/14/0+1.2 ms cpu, 1520->1532->758 MB, 1551 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 71 @53.987s 0%: 0.20+7.5+0.24 ms clock, 2.0+0/18/0+2.4 ms cpu, 1486->1495->752 MB, 1517 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 72 @54.603s 0%: 0.24+22+0.26 ms clock, 2.4+0.10/24/0+2.6 ms cpu, 1474->1497->758 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 73 @55.238s 0%: 0.22+14+0.16 ms clock, 2.2+0/22/0+1.6 ms cpu, 1486->1503->760 MB, 1517 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 74 @55.868s 0%: 0.20+6.2+0.14 ms clock, 2.0+0/16/0+1.4 ms cpu, 1489->1495->745 MB, 1521 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 75 @56.589s 0%: 0.073+2.8+0.010 ms clock, 0.73+0/7.7/7.8+0.10 ms cpu, 1469->1469->714 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 320: recall 0.9953 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.4 s
+gc 76 @57.280s 0%: 0.16+5.9+0.12 ms clock, 1.6+0/13/0+1.2 ms cpu, 1408->1410->741 MB, 1430 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 77 @58.029s 0%: 0.18+5.0+0.13 ms clock, 1.8+0/13/0.88+1.3 ms cpu, 1462->1467->730 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 78 @58.768s 0%: 0.18+4.6+0.10 ms clock, 1.8+0/12/0+1.0 ms cpu, 1445->1445->733 MB, 1460 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 79 @59.485s 0%: 0.20+5.7+0.10 ms clock, 2.0+0/16/0+1.0 ms cpu, 1464->1469->748 MB, 1468 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 80 @60.180s 0%: 0.21+6.2+0.14 ms clock, 2.1+0/14/0+1.4 ms cpu, 1491->1493->747 MB, 1496 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 640: recall 0.9966 | 0.0 loads, 640.0 vectors read, 495000 codes scored, flat 1.00 | 3.8 s
+gc 81 @60.982s 0%: 0.18+4.5+0.11 ms clock, 1.8+0.66/12/0+1.1 ms cpu, 1489->1493->741 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 82 @61.726s 0%: 0.14+6.2+0.060 ms clock, 1.4+0.86/16/3.3+0.60 ms cpu, 1477->1481->732 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 83 @62.452s 0%: 0.18+5.2+0.095 ms clock, 1.8+0/14/0+0.95 ms cpu, 1460->1462->743 MB, 1464 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 84 @63.209s 0%: 0.20+6.3+0.15 ms clock, 2.0+1.0/16/0+1.5 ms cpu, 1483->1487->745 MB, 1487 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 85 @63.985s 0%: 0.22+8.0+0.17 ms clock, 2.2+0/16/0+1.7 ms cpu, 1487->1491->741 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 1024: recall 0.9985 | 0.0 loads, 1024.0 vectors read, 495000 codes scored, flat 1.00 | 4.0 s
+gc 86 @65.007s 0%: 0.16+4.9+0.071 ms clock, 1.6+1.3/13/0+0.71 ms cpu, 1480->1482->734 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 87 @65.932s 0%: 0.17+6.0+0.13 ms clock, 1.7+0/16/0+1.3 ms cpu, 1465->1467->736 MB, 1468 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 88 @66.830s 0%: 0.19+4.6+0.077 ms clock, 1.9+2.5/12/0+0.77 ms cpu, 1469->1471->732 MB, 1472 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 89 @67.676s 0%: 0.17+4.4+0.16 ms clock, 1.7+0/12/0+1.6 ms cpu, 1461->1461->734 MB, 1465 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 90 @68.538s 0%: 0.19+4.6+0.13 ms clock, 1.9+3.1/11/0+1.3 ms cpu, 1465->1467->728 MB, 1468 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 50 %, ef 2048: recall 0.9998 | 0.0 loads, 2048.0 vectors read, 495000 codes scored, flat 1.00 | 4.8 s
+    bench_filters_test.go:967: ours flat, near 50 % at recall 0.95: ef 10, recall 0.9953, 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:967: ours flat, near 50 % at recall 0.99: ef 10, recall 0.9953, 0.0 loads, 507.0 vectors read
+gc 91 @69.511s 0%: 0.25+5.9+0.12 ms clock, 2.5+2.3/12/0+1.2 ms cpu, 1453->1457->720 MB, 1457 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 10: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.1 s
+gc 92 @70.514s 0%: 0.20+27+0.11 ms clock, 2.0+2.3/19/1.4+1.1 ms cpu, 1436->1453->733 MB, 1440 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 93 @71.514s 0%: 0.097+3.2+0.039 ms clock, 0.97+0/9.1/9.4+0.39 ms cpu, 1450->1450->715 MB, 1467 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 20: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.1 s
+gc 94 @72.453s 0%: 0.21+5.4+0.14 ms clock, 2.1+0/15/0+1.4 ms cpu, 1413->1415->718 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 40: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.1 s
+gc 95 @73.428s 0%: 0.17+8.5+0.15 ms clock, 1.7+0/21/0+1.5 ms cpu, 1419->1424->722 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 80: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.1 s
+gc 96 @74.395s 0%: 0.24+49+0.18 ms clock, 2.4+0/22/0+1.8 ms cpu, 1427->1463->752 MB, 1444 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 160: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.1 s
+gc 97 @75.433s 0%: 0.15+12+0.14 ms clock, 1.5+0/17/0+1.4 ms cpu, 1469->1477->724 MB, 1505 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 320: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.1 s
+gc 98 @76.405s 0%: 0.22+14+0.15 ms clock, 2.2+0/19/0+1.5 ms cpu, 1412->1419->725 MB, 1448 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 640: recall 0.9973 | 0.0 loads, 640.0 vectors read, 99000 codes scored, flat 1.00 | 1.2 s
+gc 99 @77.538s 0%: 0.17+5.6+0.13 ms clock, 1.7+0.48/15/0+1.3 ms cpu, 1416->1418->718 MB, 1452 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 1024: recall 0.9988 | 0.0 loads, 1024.0 vectors read, 99000 codes scored, flat 1.00 | 1.5 s
+gc 100 @79.011s 0%: 0.17+4.7+0.11 ms clock, 1.7+0.36/12/0.71+1.1 ms cpu, 1401->1402->716 MB, 1437 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 101 @81.081s 0%: 0.19+4.7+0.070 ms clock, 1.9+0/12/0.075+0.70 ms cpu, 1396->1397->715 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, near 10 %, ef 2048: recall 0.9999 | 0.0 loads, 2048.0 vectors read, 99000 codes scored, flat 1.00 | 2.8 s
+    bench_filters_test.go:967: ours flat, near 10 % at recall 0.95: ef 10, recall 0.9951, 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:967: ours flat, near 10 % at recall 0.99: ef 10, recall 0.9951, 0.0 loads, 507.0 vectors read
+gc 102 @81.798s 0%: 0.19+5.3+0.12 ms clock, 1.9+0/13/0+1.2 ms cpu, 1424->1428->750 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 103 @82.415s 0%: 0.20+8.3+0.14 ms clock, 2.0+2.2/15/0+1.4 ms cpu, 1495->1505->750 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 104 @83.018s 0%: 0.24+5.8+0.10 ms clock, 2.4+0/16/0+1.0 ms cpu, 1491->1493->750 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 105 @83.658s 0%: 0.23+5.2+0.12 ms clock, 2.3+0/13/0+1.2 ms cpu, 1491->1495->741 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 106 @84.251s 0%: 0.21+8.6+0.13 ms clock, 2.1+0.32/21/0+1.3 ms cpu, 1472->1480->749 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 10: recall 0.9889 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.2 s
+gc 107 @84.922s 0%: 0.20+7.2+0.14 ms clock, 2.0+0/17/0+1.4 ms cpu, 1488->1490->747 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 108 @85.525s 0%: 0.22+6.9+0.11 ms clock, 2.2+0/16/0+1.1 ms cpu, 1484->1488->752 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 109 @86.151s 0%: 0.20+10+0.10 ms clock, 2.0+1.9/16/3.3+1.0 ms cpu, 1499->1518->752 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 110 @86.744s 0%: 0.20+5.9+0.13 ms clock, 2.0+0/16/0+1.3 ms cpu, 1484->1488->741 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 111 @87.330s 0%: 0.20+18+0.23 ms clock, 2.0+0.18/11/0+2.3 ms cpu, 1461->1480->756 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 20: recall 0.9889 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 112 @88.003s 0%: 0.18+22+0.16 ms clock, 1.8+0/12/0+1.6 ms cpu, 1492->1520->773 MB, 1513 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 113 @88.622s 0%: 0.24+7.4+0.098 ms clock, 2.4+0/18/0+0.98 ms cpu, 1520->1524->751 MB, 1548 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 114 @89.205s 0%: 0.19+7.7+0.12 ms clock, 1.9+0/19/0+1.2 ms cpu, 1474->1484->745 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 115 @89.794s 0%: 0.19+5.6+0.13 ms clock, 1.9+0/16/0+1.3 ms cpu, 1463->1467->754 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 116 @90.374s 0%: 0.18+4.8+0.15 ms clock, 1.8+0/13/0+1.5 ms cpu, 1482->1486->747 MB, 1510 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 40: recall 0.9889 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 117 @91.016s 0%: 0.20+29+0.10 ms clock, 2.0+0/16/0+1.0 ms cpu, 1467->1503->783 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 118 @91.648s 0%: 0.22+7.1+0.14 ms clock, 2.2+0/19/0+1.4 ms cpu, 1531->1537->749 MB, 1567 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 119 @92.220s 0%: 0.21+6.2+0.15 ms clock, 2.1+0.50/15/0+1.5 ms cpu, 1463->1471->750 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 120 @92.797s 0%: 0.21+25+0.16 ms clock, 2.1+0.32/13/0+1.6 ms cpu, 1467->1497->781 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 121 @93.421s 0%: 0.19+4.8+0.10 ms clock, 1.9+0/13/0+1.0 ms cpu, 1527->1533->741 MB, 1563 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 80: recall 0.9889 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 122 @94.053s 0%: 0.25+11+0.15 ms clock, 2.5+0.92/11/0+1.5 ms cpu, 1448->1461->756 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 123 @94.642s 0%: 0.23+20+0.16 ms clock, 2.3+0/20/0+1.6 ms cpu, 1484->1510->771 MB, 1513 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 124 @95.253s 0%: 0.19+7.0+0.17 ms clock, 1.9+0.12/17/0+1.7 ms cpu, 1514->1524->754 MB, 1544 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 125 @95.838s 0%: 0.20+4.7+0.16 ms clock, 2.0+0/10/0+1.6 ms cpu, 1480->1484->741 MB, 1510 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 126 @96.414s 0%: 0.17+7.0+0.10 ms clock, 1.7+0/19/0+1.0 ms cpu, 1457->1463->747 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 160: recall 0.9889 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 127 @97.067s 0%: 0.25+12+0.15 ms clock, 2.5+0/16/0+1.5 ms cpu, 1469->1490->843 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 128 @97.722s 0%: 0.25+6.7+0.15 ms clock, 2.5+0/18/0+1.5 ms cpu, 1662->1666->747 MB, 1687 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 129 @98.309s 0%: 0.21+4.9+0.13 ms clock, 2.1+0/12/0+1.3 ms cpu, 1474->1478->750 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 130 @98.897s 0%: 0.17+26+0.16 ms clock, 1.7+0.036/17/0+1.6 ms cpu, 1482->1512->773 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 131 @99.523s 0%: 0.21+4.8+0.16 ms clock, 2.1+0/13/0+1.6 ms cpu, 1518->1522->749 MB, 1548 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 320: recall 0.9889 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 132 @100.185s 0%: 0.21+17+0.13 ms clock, 2.1+0.18/16/0+1.3 ms cpu, 1469->1490->758 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 133 @100.789s 0%: 0.21+26+0.11 ms clock, 2.1+0/13/0+1.1 ms cpu, 1488->1515->773 MB, 1517 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 134 @101.422s 0%: 0.20+32+0.11 ms clock, 2.0+0/17/0+1.1 ms cpu, 1519->1553->777 MB, 1548 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 135 @102.066s 0%: 0.19+4.1+0.11 ms clock, 1.9+0/10/0+1.1 ms cpu, 1523->1527->739 MB, 1556 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 136 @102.655s 0%: 0.19+11+0.14 ms clock, 1.9+0.37/11/0+1.4 ms cpu, 1446->1458->751 MB, 1479 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 640: recall 0.9921 | 0.0 loads, 640.0 vectors read, 495000 codes scored, flat 1.00 | 3.2 s
+gc 137 @103.320s 0%: 0.20+6.2+0.12 ms clock, 2.0+0/16/0+1.2 ms cpu, 1468->1477->747 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 138 @103.948s 0%: 0.23+6.0+0.15 ms clock, 2.3+0/17/0+1.5 ms cpu, 1462->1467->745 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 139 @104.597s 0%: 0.20+12+0.13 ms clock, 2.0+0/12/0+1.3 ms cpu, 1458->1471->753 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 140 @105.267s 0%: 0.20+5.2+0.13 ms clock, 2.0+0/14/0+1.3 ms cpu, 1494->1494->741 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 141 @105.924s 0%: 0.20+5.2+0.15 ms clock, 2.0+0/13/0+1.5 ms cpu, 1471->1477->735 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 142 @106.580s 0%: 0.13+5.9+0.093 ms clock, 1.3+0/16/0.46+0.93 ms cpu, 1460->1468->734 MB, 1472 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 1024: recall 0.9969 | 0.0 loads, 1024.0 vectors read, 495000 codes scored, flat 1.00 | 3.5 s
+gc 143 @107.407s 0%: 0.17+7.1+0.12 ms clock, 1.7+1.1/11/0+1.2 ms cpu, 1455->1466->745 MB, 1468 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 144 @108.194s 0%: 0.20+5.0+0.11 ms clock, 2.0+0/13/0+1.1 ms cpu, 1479->1488->745 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 145 @108.979s 0%: 0.26+5.0+0.13 ms clock, 2.6+0.41/12/0+1.3 ms cpu, 1478->1482->743 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 146 @109.760s 0%: 0.17+5.3+0.13 ms clock, 1.7+0.017/13/0+1.3 ms cpu, 1477->1482->728 MB, 1487 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 147 @110.513s 0%: 0.16+11+0.10 ms clock, 1.6+0/17/0.038+1.0 ms cpu, 1445->1455->747 MB, 1457 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 2048: recall 0.9992 | 0.0 loads, 2048.0 vectors read, 495000 codes scored, flat 1.00 | 4.2 s
+    bench_filters_test.go:967: ours flat, far 50 % at recall 0.95: ef 10, recall 0.9889, 0.0 loads, 507.0 vectors read
+gc 148 @111.293s 0%: 0.17+5.9+0.11 ms clock, 1.7+0.53/16/0+1.1 ms cpu, 1483->1492->750 MB, 1495 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 149 @111.884s 0%: 0.18+5.6+0.11 ms clock, 1.8+0/14/0+1.1 ms cpu, 1493->1499->752 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 150 @112.483s 0%: 0.22+4.8+0.14 ms clock, 2.2+0/13/0+1.4 ms cpu, 1497->1501->747 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 151 @113.077s 0%: 0.21+3.5+0.12 ms clock, 2.1+0/9.6/0+1.2 ms cpu, 1486->1488->749 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 152 @113.667s 0%: 0.26+8.4+0.13 ms clock, 2.6+1.2/21/0.013+1.3 ms cpu, 1489->1497->750 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 480: recall 0.9889 | 0.0 loads, 507.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 153 @114.336s 0%: 0.20+5.6+0.15 ms clock, 2.0+1.3/11/0+1.5 ms cpu, 1493->1497->745 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 154 @114.930s 0%: 0.17+18+0.14 ms clock, 1.7+1.4/15/0+1.4 ms cpu, 1483->1506->768 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 155 @115.543s 0%: 0.23+3.7+0.15 ms clock, 2.3+0/9.4/0+1.5 ms cpu, 1513->1517->749 MB, 1536 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 156 @116.130s 0%: 0.22+5.2+0.11 ms clock, 2.2+0/13/0+1.1 ms cpu, 1475->1481->747 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 157 @116.710s 0%: 0.19+6.1+0.27 ms clock, 1.9+0/16/0+2.7 ms cpu, 1471->1471->745 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 560: recall 0.9905 | 0.0 loads, 560.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 158 @117.340s 0%: 0.19+29+0.11 ms clock, 1.9+0.10/16/0+1.1 ms cpu, 1468->1508->777 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 159 @117.949s 0%: 0.26+8.3+0.13 ms clock, 2.6+0/17/0+1.3 ms cpu, 1517->1527->751 MB, 1556 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 160 @118.523s 0%: 0.17+5.9+0.12 ms clock, 1.7+0.26/14/0.010+1.2 ms cpu, 1464->1469->747 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 161 @119.095s 0%: 0.18+7.5+0.14 ms clock, 1.8+0/12/0+1.4 ms cpu, 1456->1462->750 MB, 1495 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 162 @119.668s 0%: 0.22+5.5+0.16 ms clock, 2.2+0/13/0+1.6 ms cpu, 1464->1469->747 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 520: recall 0.9893 | 0.0 loads, 520.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 163 @120.307s 0%: 0.16+7.6+0.14 ms clock, 1.6+0.15/17/0+1.4 ms cpu, 1454->1468->741 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 164 @120.885s 0%: 0.20+9.1+0.13 ms clock, 2.0+0.98/23/0.66+1.3 ms cpu, 1471->1481->747 MB, 1483 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 165 @121.490s 0%: 0.20+28+0.13 ms clock, 2.0+0/15/0+1.3 ms cpu, 1483->1517->775 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 166 @122.108s 0%: 0.19+31+0.13 ms clock, 1.9+0/23/0+1.3 ms cpu, 1519->1559->783 MB, 1552 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 167 @122.737s 0%: 0.23+12+0.15 ms clock, 2.3+0/18/0+1.5 ms cpu, 1528->1547->760 MB, 1567 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 168 @123.374s 0%: 0.084+3.1+0.027 ms clock, 0.84+0/8.6/9.7+0.27 ms cpu, 1483->1483->722 MB, 1521 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 540: recall 0.9900 | 0.0 loads, 540.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 169 @123.939s 0%: 0.19+23+0.14 ms clock, 1.9+0/15/0+1.4 ms cpu, 1407->1437->768 MB, 1445 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 170 @124.531s 0%: 0.18+8.5+0.14 ms clock, 1.8+0/19/0+1.4 ms cpu, 1498->1500->747 MB, 1536 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 171 @125.102s 0%: 0.19+4.7+0.12 ms clock, 1.9+0/12/0+1.2 ms cpu, 1456->1464->752 MB, 1494 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 172 @125.679s 0%: 0.20+12+0.11 ms clock, 2.0+0.057/25/0+1.1 ms cpu, 1467->1479->753 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 173 @126.263s 0%: 0.16+4.9+0.12 ms clock, 1.6+0/13/0+1.2 ms cpu, 1477->1479->745 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 530: recall 0.9896 | 0.0 loads, 530.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 174 @126.880s 0%: 0.20+7.1+0.12 ms clock, 2.0+0/12/0+1.2 ms cpu, 1462->1468->749 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 175 @127.478s 0%: 0.38+18+0.13 ms clock, 3.8+0.30/34/0+1.3 ms cpu, 1488->1498->756 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 176 @128.085s 0%: 0.20+6.1+0.16 ms clock, 2.0+0/15/0+1.6 ms cpu, 1504->1509->749 MB, 1514 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 177 @128.675s 0%: 0.21+7.3+0.16 ms clock, 2.1+0/13/0+1.6 ms cpu, 1488->1492->751 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 178 @129.267s 0%: 0.20+17+0.15 ms clock, 2.0+0/25/0+1.5 ms cpu, 1494->1505->760 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 535: recall 0.9898 | 0.0 loads, 535.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 179 @129.922s 0%: 0.25+6.0+0.16 ms clock, 2.5+0/14/0+1.6 ms cpu, 1510->1513->749 MB, 1521 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 180 @130.510s 0%: 0.17+6.9+0.15 ms clock, 1.7+1.0/15/0+1.5 ms cpu, 1488->1502->752 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 181 @131.104s 0%: 0.18+19+0.12 ms clock, 1.8+1.6/12/0+1.2 ms cpu, 1492->1512->762 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 182 @131.702s 0%: 0.21+17+0.17 ms clock, 2.1+0/28/0+1.7 ms cpu, 1506->1517->756 MB, 1525 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 183 @132.301s 0%: 0.23+6.7+0.12 ms clock, 2.3+0/17/0+1.2 ms cpu, 1494->1496->751 MB, 1513 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 537: recall 0.9899 | 0.0 loads, 537.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+gc 184 @132.958s 0%: 0.20+5.2+0.14 ms clock, 2.0+0/13/0+1.4 ms cpu, 1483->1491->752 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 185 @133.536s 0%: 0.18+3.8+0.15 ms clock, 1.8+0/9.3/0+1.5 ms cpu, 1487->1490->745 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 186 @134.116s 0%: 0.21+5.0+0.13 ms clock, 2.1+0/13/0+1.3 ms cpu, 1471->1475->749 MB, 1491 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 187 @134.704s 0%: 0.20+6.4+0.14 ms clock, 2.0+0/17/0+1.4 ms cpu, 1488->1492->750 MB, 1498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 188 @135.298s 0%: 0.20+7.1+0.13 ms clock, 2.0+1.5/19/0+1.3 ms cpu, 1496->1502->752 MB, 1502 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 50 %, ef 538: recall 0.9900 | 0.0 loads, 538.0 vectors read, 495000 codes scored, flat 1.00 | 3.1 s
+    bench_filters_test.go:967: ours flat, far 50 % at recall 0.99: ef 538, recall 0.9900, 0.0 loads, 538.0 vectors read
+gc 189 @136.085s 0%: 0.22+5.1+0.13 ms clock, 2.2+0.41/14/0+1.3 ms cpu, 1498->1499->719 MB, 1506 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 10: recall 0.9789 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.0 s
+gc 190 @137.022s 0%: 0.18+6.0+0.11 ms clock, 1.8+1.9/14/0+1.1 ms cpu, 1434->1437->720 MB, 1438 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 20: recall 0.9789 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.0 s
+gc 191 @137.955s 0%: 0.22+27+0.16 ms clock, 2.2+1.1/14/0+1.6 ms cpu, 1436->1456->737 MB, 1440 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 40: recall 0.9789 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.0 s
+gc 192 @138.923s 0%: 0.21+18+0.15 ms clock, 2.1+1.0/9.7/0+1.5 ms cpu, 1455->1469->731 MB, 1476 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 193 @139.839s 0%: 0.14+3.6+0.10 ms clock, 1.4+0/9.3/3.3+1.0 ms cpu, 1443->1444->718 MB, 1463 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 80: recall 0.9789 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.0 s
+gc 194 @140.740s 0%: 0.17+6.7+0.14 ms clock, 1.7+0/10/0+1.4 ms cpu, 1417->1422->723 MB, 1437 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 160: recall 0.9789 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.0 s
+gc 195 @141.655s 0%: 0.23+5.4+0.19 ms clock, 2.3+0/13/0+1.9 ms cpu, 1426->1430->720 MB, 1447 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 320: recall 0.9789 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.0 s
+gc 196 @142.640s 0%: 0.18+6.9+0.13 ms clock, 1.8+0/17/0+1.3 ms cpu, 1421->1424->720 MB, 1441 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 640: recall 0.9847 | 0.0 loads, 640.0 vectors read, 99000 codes scored, flat 1.00 | 1.2 s
+gc 197 @143.828s 0%: 0.14+6.8+0.15 ms clock, 1.4+0.49/14/0+1.5 ms cpu, 1427->1429->719 MB, 1441 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 1024: recall 0.9929 | 0.0 loads, 1024.0 vectors read, 99000 codes scored, flat 1.00 | 1.5 s
+gc 198 @145.486s 0%: 0.18+7.1+0.11 ms clock, 1.8+0/18/0.009+1.1 ms cpu, 1434->1435->715 MB, 1439 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 2048: recall 0.9976 | 0.0 loads, 2048.0 vectors read, 99000 codes scored, flat 1.00 | 2.6 s
+    bench_filters_test.go:967: ours flat, far 10 % at recall 0.95: ef 10, recall 0.9789, 0.0 loads, 507.0 vectors read
+gc 199 @147.430s 0%: 0.19+5.0+0.11 ms clock, 1.9+0/13/0+1.1 ms cpu, 1427->1429->717 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 832: recall 0.9894 | 0.0 loads, 832.0 vectors read, 99000 codes scored, flat 1.00 | 1.4 s
+gc 200 @148.640s 0%: 0.18+5.7+0.13 ms clock, 1.8+0.092/16/0+1.3 ms cpu, 1432->1434->718 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 201 @149.851s 0%: 0.19+16+0.15 ms clock, 1.9+0/16/0+1.5 ms cpu, 1434->1443->725 MB, 1438 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 928: recall 0.9919 | 0.0 loads, 928.0 vectors read, 99000 codes scored, flat 1.00 | 1.4 s
+gc 202 @151.076s 0%: 0.20+5.5+0.12 ms clock, 2.0+0.39/15/0+1.2 ms cpu, 1443->1445->721 MB, 1452 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 880: recall 0.9904 | 0.0 loads, 880.0 vectors read, 99000 codes scored, flat 1.00 | 1.4 s
+gc 203 @152.252s 0%: 0.17+8.9+0.14 ms clock, 1.7+0/17/0+1.4 ms cpu, 1433->1436->722 MB, 1442 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 856: recall 0.9900 | 0.0 loads, 856.0 vectors read, 99000 codes scored, flat 1.00 | 1.4 s
+gc 204 @153.471s 0%: 0.19+15+0.10 ms clock, 1.9+0.037/24/0.13+1.0 ms cpu, 1436->1445->724 MB, 1445 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 844: recall 0.9897 | 0.0 loads, 844.0 vectors read, 99000 codes scored, flat 1.00 | 1.3 s
+gc 205 @154.657s 0%: 0.22+20+0.10 ms clock, 2.2+0/22/0+1.0 ms cpu, 1440->1451->727 MB, 1449 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 850: recall 0.9899 | 0.0 loads, 850.0 vectors read, 99000 codes scored, flat 1.00 | 1.3 s
+gc 206 @155.854s 0%: 0.18+20+0.13 ms clock, 1.8+0.55/16/0+1.3 ms cpu, 1445->1459->729 MB, 1456 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 853: recall 0.9899 | 0.0 loads, 853.0 vectors read, 99000 codes scored, flat 1.00 | 1.3 s
+gc 207 @157.055s 0%: 0.19+17+0.12 ms clock, 1.9+0/28/0+1.2 ms cpu, 1446->1456->726 MB, 1459 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: ours flat, far 10 %, ef 854: recall 0.9900 | 0.0 loads, 854.0 vectors read, 99000 codes scored, flat 1.00 | 1.4 s
+    bench_filters_test.go:967: ours flat, far 10 % at recall 0.99: ef 854, recall 0.9900, 0.0 loads, 854.0 vectors read
+    bench_filters_test.go:984: the wait before the timed rounds: waiting from 22:05 for 900 s without keyboard or trackpad
+        -- power: Current System Capabilities are: CPU Graphics Audio Network  Current Power State: 4 
+        -- assertion: pid 71154(caffeinate): [0x0025bb6900018c05] 01:29:41 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+        -- assertion: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+        -- assertion: pid 71154(caffeinate): [0x0025bb6900078c06] 01:29:41 PreventSystemSleep named: "caffeinate command-line tool"  
+        -- assertion: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+        -- keyboard and trackpad idle for 4588 s
+        keyboard and trackpad idle for 4588 s
+        the machine is quiet at 22:05
+gc 208 @158.418s 0%: 0.22+1.9+0.017 ms clock, 2.2+0/4.7/5.4+0.17 ms cpu, 1440->1440->623 MB, 1452 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 209 @164.947s 0%: 0.21+6.9+0.011 ms clock, 2.1+0/19/33+0.11 ms cpu, 1244->1246->717 MB, 1248 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 210 @168.966s 0%: 0.080+2.6+0.012 ms clock, 0.80+0/7.3/11+0.12 ms cpu, 1421->1421->715 MB, 1434 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 211 @172.918s 0%: 0.053+2.4+0.010 ms clock, 0.53+0/6.7/12+0.10 ms cpu, 1419->1419->717 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 212 @176.879s 0%: 0.053+2.8+0.011 ms clock, 0.53+0/7.6/11+0.11 ms cpu, 1421->1421->715 MB, 1434 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 213 @180.825s 0%: 0.047+2.8+0.010 ms clock, 0.47+0/7.6/12+0.10 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 214 @185.937s 0%: 0.20+6.3+0.013 ms clock, 2.0+0/18/34+0.13 ms cpu, 1417->1419->717 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 215 @189.955s 0%: 0.061+3.2+0.009 ms clock, 0.61+0/8.1/8.7+0.090 ms cpu, 1421->1421->715 MB, 1434 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 216 @193.898s 0%: 0.059+2.4+0.010 ms clock, 0.59+0/6.9/12+0.10 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 217 @197.841s 0%: 0.048+3.0+0.010 ms clock, 0.48+0/7.8/10+0.10 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 218 @201.782s 0%: 0.055+2.5+0.010 ms clock, 0.55+0/6.9/11+0.10 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 219 @205.720s 0%: 0.060+2.9+0.011 ms clock, 0.60+0/7.8/10+0.11 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 220 @209.669s 0%: 0.048+2.8+0.010 ms clock, 0.48+0/7.4/11+0.10 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 221 @213.618s 0%: 0.049+2.8+0.010 ms clock, 0.49+0/7.4/11+0.10 ms cpu, 1419->1419->717 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 222 @217.579s 0%: 0.052+2.4+0.008 ms clock, 0.52+0/6.6/12+0.089 ms cpu, 1421->1421->715 MB, 1434 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 223 @221.535s 0%: 0.049+3.0+0.011 ms clock, 0.49+0/7.9/10+0.11 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 224 @225.485s 0%: 0.046+3.1+0.014 ms clock, 0.46+0/8.2/11+0.14 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 225 @229.421s 0%: 0.051+2.4+0.015 ms clock, 0.51+0/6.5/11+0.15 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 226 @233.361s 0%: 0.064+2.3+0.010 ms clock, 0.64+0/6.5/12+0.10 ms cpu, 1419->1419->717 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 227 @237.322s 0%: 0.051+2.7+0.013 ms clock, 0.51+0/7.6/11+0.13 ms cpu, 1421->1421->715 MB, 1434 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 228 @241.263s 0%: 0.051+2.4+0.011 ms clock, 0.51+0/6.8/11+0.11 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 229 @245.199s 0%: 0.062+2.9+0.009 ms clock, 0.62+0/7.6/11+0.099 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 230 @249.142s 0%: 0.052+2.9+0.009 ms clock, 0.52+0/7.9/10+0.095 ms cpu, 1417->1417->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 1, ours flat, random 50 % (ef 10), 1 thread, warm: p50 21.411 ms, p95 21.766, p99 22.131 | 47 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 1, ours flat, random 50 %, the untimed pass: the memory of the system, untimed: decompressions +8152, compressions +0, pageins +218, swapins +0, swapouts +0 | in the compressor 1857767 → 1849547 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1446 → 1642 MB; 25.24 s on the CPU, 98.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.38 s runnable and waiting for a core, 5.47 instructions a cycle, 3.12 GHz on the CPU, 0 page-ins, 59 MB read from the disk
+    bench_filters_test.go:1138: round 1, ours flat, random 50 %, the warm passes: the memory of the system, untimed: decompressions +821, compressions +0, pageins +736, swapins +0, swapouts +0 | in the compressor 1849547 → 1848703 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1642 → 1642 MB; 75.52 s on the CPU, 98.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.10 s runnable and waiting for a core, 5.47 instructions a cycle, 3.12 GHz on the CPU, 0 page-ins, 177 MB read from the disk
+gc 231 @258.282s 0%: 0.17+1.6+0.046 ms clock, 1.7+0/4.0/3.9+0.46 ms cpu, 1429->1429->682 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 232 @267.369s 0%: 0.21+2.2+0.041 ms clock, 2.1+0/4.5/3.4+0.41 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 233 @276.456s 0%: 0.19+2.2+0.047 ms clock, 1.9+0/4.7/4.2+0.47 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 234 @286.135s 0%: 0.18+1.8+0.051 ms clock, 1.8+0/4.4/3.1+0.51 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 235 @295.387s 0%: 0.20+1.5+0.028 ms clock, 2.0+0/3.9/4.3+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 236 @304.715s 0%: 0.21+3.6+0.031 ms clock, 2.1+0/10/3.1+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 237 @313.911s 0%: 0.20+1.8+0.030 ms clock, 2.0+0/4.0/3.9+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 238 @323.139s 0%: 0.18+2.1+0.14 ms clock, 1.8+0/4.4/3.9+1.4 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 239 @332.106s 0%: 0.19+1.6+0.032 ms clock, 1.9+0/3.7/4.6+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 240 @340.976s 0%: 0.19+1.9+0.028 ms clock, 1.9+0/4.0/4.0+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 241 @350.021s 0%: 0.20+1.7+0.044 ms clock, 2.0+0/3.8/4.4+0.44 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 242 @359.069s 0%: 0.19+1.4+0.030 ms clock, 1.9+0/3.6/4.8+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 243 @368.269s 0%: 0.18+1.5+0.033 ms clock, 1.8+0/3.7/4.0+0.33 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 244 @377.332s 0%: 0.20+1.3+0.031 ms clock, 2.0+0/3.3/4.6+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 245 @386.515s 0%: 0.19+1.6+0.033 ms clock, 1.9+0/4.1/4.4+0.33 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 246 @395.656s 0%: 0.21+1.4+0.028 ms clock, 2.1+0/3.8/4.9+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 247 @404.837s 0%: 0.18+2.1+0.028 ms clock, 1.8+0/4.6/3.0+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 248 @413.911s 0%: 0.19+1.3+0.031 ms clock, 1.9+0/3.2/4.8+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 249 @422.968s 0%: 0.18+1.4+0.031 ms clock, 1.8+0/3.9/5.1+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 250 @431.992s 0%: 0.19+1.8+0.035 ms clock, 1.9+0/4.1/3.8+0.35 ms cpu, 1393->1393->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 251 @441.144s 0%: 0.18+1.5+0.029 ms clock, 1.8+0/3.7/4.0+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 252 @450.255s 0%: 0.25+2.0+0.041 ms clock, 2.5+0/4.8/3.7+0.41 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 253 @459.381s 0%: 0.18+1.5+0.027 ms clock, 1.8+0/3.6/4.3+0.27 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 254 @468.644s 0%: 0.18+1.6+0.028 ms clock, 1.8+0/4.0/4.5+0.28 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 255 @477.708s 0%: 0.19+1.9+0.034 ms clock, 1.9+0/4.2/3.4+0.34 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 1, ours flat, random 50 % (ef 10), 1 thread, cold: p50 29.490 ms, p95 30.499, p99 31.240 | 50 batches of 10, halves at p50 29.498 and 29.487 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 1, ours flat, random 50 %, the cold batches: the memory of the system, untimed: decompressions +15639, compressions +0, pageins +796326, swapins +0, swapouts +0 | in the compressor 1848703 → 1833028 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1642 → 1570 MB; 174.51 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.73 s runnable and waiting for a core, 3.59 instructions a cycle, 3.13 GHz on the CPU, 1200 page-ins, 16936 MB read from the disk
+gc 256 @487.564s 0%: 0.23+5.5+0.009 ms clock, 2.3+0/16/31+0.097 ms cpu, 1362->1364->717 MB, 1365 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 257 @492.487s 0%: 0.061+2.4+0.009 ms clock, 0.61+0/6.7/12+0.093 ms cpu, 1423->1423->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 258 @497.156s 0%: 0.045+3.2+0.012 ms clock, 0.45+0/9.0/10+0.12 ms cpu, 1421->1421->715 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 259 @501.642s 0%: 0.045+2.6+0.013 ms clock, 0.45+0/7.1/11+0.13 ms cpu, 1419->1419->717 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 260 @506.057s 0%: 0.045+3.1+0.009 ms clock, 0.45+0/8.2/10+0.099 ms cpu, 1423->1423->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 261 @511.383s 0%: 0.21+5.3+0.011 ms clock, 2.1+0/15/28+0.11 ms cpu, 1421->1423->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 262 @515.337s 0%: 0.079+2.4+0.009 ms clock, 0.79+0/7.0/11+0.099 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 263 @519.260s 0%: 0.053+2.3+0.014 ms clock, 0.53+0/6.7/11+0.14 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 264 @523.181s 0%: 0.066+2.3+0.013 ms clock, 0.66+0/6.6/11+0.13 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 265 @527.140s 0%: 0.066+2.3+0.011 ms clock, 0.66+0/6.6/12+0.11 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 266 @531.056s 0%: 0.064+2.5+0.014 ms clock, 0.64+0/6.9/12+0.14 ms cpu, 1425->1425->715 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 267 @534.959s 0%: 0.074+2.8+0.013 ms clock, 0.74+0/7.5/11+0.13 ms cpu, 1422->1422->717 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 268 @538.879s 0%: 0.052+2.5+0.012 ms clock, 0.52+0/7.0/11+0.12 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 269 @542.797s 0%: 0.064+2.8+0.011 ms clock, 0.64+0/7.5/11+0.11 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 270 @546.716s 0%: 0.048+3.3+0.017 ms clock, 0.48+0/8.4/9.4+0.17 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 271 @550.637s 0%: 0.062+2.6+0.011 ms clock, 0.62+0/6.8/12+0.11 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 272 @554.557s 0%: 0.068+3.0+0.014 ms clock, 0.68+0/7.6/11+0.14 ms cpu, 1425->1425->715 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 273 @558.460s 0%: 0.065+3.5+0.012 ms clock, 0.65+0/8.9/8.6+0.12 ms cpu, 1422->1422->717 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 274 @562.380s 0%: 0.064+2.8+0.16 ms clock, 0.64+0/7.2/9.3+1.6 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 275 @566.300s 0%: 0.060+3.9+0.020 ms clock, 0.60+0/11/2.4+0.20 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 276 @570.223s 0%: 0.062+2.9+0.010 ms clock, 0.62+0/7.2/11+0.10 ms cpu, 1426->1426->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 1, ours flat, near 50 % (ef 10), 1 thread, warm: p50 21.047 ms, p95 21.299, p99 21.585 | 47 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 1, ours flat, near 50 %, the untimed pass: the memory of the system, untimed: decompressions +68, compressions +0, pageins +553, swapins +0, swapouts +0 | in the compressor 1833027 → 1832958 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1570 → 1603 MB; 26.46 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.81 s runnable and waiting for a core, 5.32 instructions a cycle, 3.13 GHz on the CPU, 0 page-ins, 4115 MB read from the disk
+    bench_filters_test.go:1138: round 1, ours flat, near 50 %, the warm passes: the memory of the system, untimed: decompressions +980, compressions +0, pageins +26912, swapins +0, swapouts +0 | in the compressor 1832958 → 1831907 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1603 → 1607 MB; 74.99 s on the CPU, 98.4 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.07 s runnable and waiting for a core, 5.47 instructions a cycle, 3.14 GHz on the CPU, 0 page-ins, 1 MB read from the disk
+gc 277 @576.839s 0%: 0.14+1.3+0.044 ms clock, 1.4+0/3.3/4.6+0.44 ms cpu, 1490->1490->682 MB, 1490 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 278 @585.515s 0%: 0.18+1.7+0.025 ms clock, 1.8+0/4.4/4.5+0.25 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 279 @594.641s 0%: 0.22+1.9+0.033 ms clock, 2.2+0/4.3/3.8+0.33 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 280 @603.816s 0%: 0.18+1.4+0.030 ms clock, 1.8+0/3.6/4.3+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 281 @612.828s 0%: 0.19+1.7+0.030 ms clock, 1.9+0/4.2/3.8+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 282 @622.019s 0%: 0.18+1.6+0.027 ms clock, 1.8+0/3.7/4.6+0.27 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 283 @630.995s 0%: 0.18+1.9+0.032 ms clock, 1.8+0/4.4/3.6+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 284 @640.282s 0%: 0.17+1.6+0.030 ms clock, 1.7+0/3.8/4.5+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 285 @649.399s 0%: 0.19+1.4+0.030 ms clock, 1.9+0/3.7/5.2+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 286 @658.551s 0%: 0.18+1.4+0.028 ms clock, 1.8+0/3.6/4.8+0.28 ms cpu, 1393->1393->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 287 @667.664s 0%: 0.21+1.8+0.037 ms clock, 2.1+0/4.2/3.8+0.37 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 288 @676.683s 0%: 0.18+1.7+0.027 ms clock, 1.8+0/3.8/4.4+0.27 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 289 @685.755s 0%: 0.19+1.9+0.033 ms clock, 1.9+0/4.3/3.5+0.33 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 290 @694.826s 0%: 0.18+1.6+0.025 ms clock, 1.8+0/4.0/4.0+0.25 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 291 @703.921s 0%: 0.17+1.6+0.030 ms clock, 1.7+0/4.0/3.9+0.30 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 292 @712.938s 0%: 0.17+1.5+0.028 ms clock, 1.7+0/3.8/4.8+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 293 @722.185s 0%: 0.17+1.6+0.029 ms clock, 1.7+0/3.8/4.0+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 294 @731.235s 0%: 0.17+1.9+0.029 ms clock, 1.7+0/4.3/3.9+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 295 @740.351s 0%: 0.18+1.5+0.029 ms clock, 1.8+0/3.8/4.3+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 296 @749.402s 0%: 0.17+1.5+0.030 ms clock, 1.7+0/3.7/4.5+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 297 @758.286s 0%: 0.21+1.6+0.037 ms clock, 2.1+0/3.9/5.2+0.37 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 298 @767.594s 0%: 0.18+1.5+0.046 ms clock, 1.8+0/3.4/5.2+0.46 ms cpu, 1393->1393->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 299 @776.744s 0%: 0.17+1.7+0.029 ms clock, 1.7+0/4.1/4.1+0.29 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 300 @785.923s 0%: 0.18+1.5+0.030 ms clock, 1.8+0/3.9/4.6+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 301 @794.900s 0%: 0.17+1.6+0.029 ms clock, 1.7+0/4.0/4.5+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 1, ours flat, near 50 % (ef 10), 1 thread, cold: p50 28.954 ms, p95 29.984, p99 30.375 | 50 batches of 10, halves at p50 28.982 and 28.931 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 1, ours flat, near 50 %, the cold batches: the memory of the system, untimed: decompressions +1432, compressions +0, pageins +795838, swapins +0, swapouts +0 | in the compressor 1831893 → 1830811 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1607 → 1571 MB; 172.92 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.59 s runnable and waiting for a core, 3.60 instructions a cycle, 3.15 GHz on the CPU, 1200 page-ins, 16710 MB read from the disk
+gc 302 @808.237s 0%: 0.24+6.8+0.008 ms clock, 2.4+0/18/30+0.085 ms cpu, 1362->1362->714 MB, 1366 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 303 @816.523s 0%: 0.24+6.7+0.011 ms clock, 2.4+0/18/29+0.11 ms cpu, 1424->1424->714 MB, 1430 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 304 @821.553s 0%: 0.062+2.5+0.013 ms clock, 0.62+0/7.0/12+0.13 ms cpu, 1424->1424->714 MB, 1430 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 305 @826.493s 0%: 0.050+3.2+0.011 ms clock, 0.50+0/8.3/11+0.11 ms cpu, 1423->1423->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 306 @831.427s 0%: 0.057+2.6+0.011 ms clock, 0.57+0/7.0/12+0.11 ms cpu, 1423->1423->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 1, ours flat, near 10 % (ef 10), 1 thread, warm: p50 5.510 ms, p95 5.678, p99 5.760 | 180 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 1, ours flat, near 10 %, the untimed pass: the memory of the system, untimed: decompressions +12, compressions +0, pageins +223, swapins +0, swapouts +0 | in the compressor 1830811 → 1830799 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1571 → 1572 MB; 9.35 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.44 s runnable and waiting for a core, 3.96 instructions a cycle, 3.11 GHz on the CPU, 0 page-ins, 4103 MB read from the disk
+    bench_filters_test.go:1138: round 1, ours flat, near 10 %, the warm passes: the memory of the system, untimed: decompressions +11, compressions +0, pageins +163, swapins +0, swapouts +0 | in the compressor 1830799 → 1830788 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1572 → 1594 MB; 29.06 s on the CPU, 93.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.92 s runnable and waiting for a core, 3.52 instructions a cycle, 3.06 GHz on the CPU, 0 page-ins, 1 MB read from the disk
+gc 307 @841.900s 0%: 0.19+2.2+0.018 ms clock, 1.9+0/4.7/3.9+0.18 ms cpu, 1424->1424->693 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 308 @851.626s 0%: 0.18+2.8+0.009 ms clock, 1.8+0.049/7.9/11+0.097 ms cpu, 1382->1382->710 MB, 1386 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 309 @861.811s 0%: 0.73+2.6+0.021 ms clock, 7.3+0/6.1/8.5+0.21 ms cpu, 1423->1423->577 MB, 1423 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 310 @868.783s 0%: 0.17+2.3+0.009 ms clock, 1.7+0.051/6.3/10+0.099 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 311 @879.255s 0%: 0.82+4.7+0.067 ms clock, 8.2+0/11/15+0.67 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 312 @886.168s 0%: 0.16+2.1+0.006 ms clock, 1.6+0.060/6.0/10+0.067 ms cpu, 1150->1150->703 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 313 @896.457s 0%: 0.87+3.5+0.085 ms clock, 8.7+0/9.8/17+0.85 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 314 @903.460s 0%: 0.18+1.9+0.015 ms clock, 1.8+0.063/5.3/9.4+0.15 ms cpu, 1150->1150->703 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 315 @913.902s 0%: 0.57+4.1+0.19 ms clock, 5.7+0/9.9/13+1.9 ms cpu, 1430->1430->577 MB, 1430 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 316 @920.929s 0%: 0.20+2.0+0.007 ms clock, 2.0+0.053/5.7/8.8+0.079 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 317 @931.290s 0%: 0.80+3.1+0.051 ms clock, 8.0+0/8.4/11+0.51 ms cpu, 1428->1428->577 MB, 1428 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 318 @938.255s 0%: 0.17+3.0+0.012 ms clock, 1.7+0.069/7.9/8.5+0.12 ms cpu, 1150->1150->704 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 319 @948.858s 0%: 0.63+2.1+0.034 ms clock, 6.3+0/5.6/8.6+0.34 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 320 @955.910s 0%: 0.20+2.3+0.007 ms clock, 2.0+0.57/6.3/9.8+0.071 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 321 @966.476s 0%: 0.55+4.0+0.057 ms clock, 5.5+0/10/13+0.57 ms cpu, 1428->1428->577 MB, 1428 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 322 @973.371s 0%: 0.20+2.4+0.010 ms clock, 2.0+0.40/6.5/9.6+0.10 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 323 @983.752s 0%: 0.95+4.2+0.075 ms clock, 9.5+0/11/17+0.75 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 324 @990.747s 0%: 0.20+2.4+0.012 ms clock, 2.0+0.035/6.6/10+0.12 ms cpu, 1150->1151->703 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 325 @1001.100s 0%: 0.76+4.7+0.068 ms clock, 7.6+0/11/14+0.68 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 326 @1008.036s 0%: 0.19+2.4+0.012 ms clock, 1.9+0.047/6.5/9.2+0.12 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 327 @1018.481s 0%: 0.68+4.0+0.043 ms clock, 6.8+0/9.6/14+0.43 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 328 @1025.416s 0%: 0.21+2.3+0.008 ms clock, 2.1+0.042/6.2/9.8+0.084 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 329 @1035.816s 0%: 0.77+4.5+0.049 ms clock, 7.7+0/11/16+0.49 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 330 @1042.761s 0%: 0.18+3.0+0.004 ms clock, 1.8+0.045/7.6/8.7+0.046 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 1, ours flat, near 10 % (ef 10), 1 thread, cold: p50 12.865 ms, p95 13.784, p99 14.045 | 50 batches of 10, halves at p50 12.910 and 12.793 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 1, ours flat, near 10 %, the cold batches: the memory of the system, untimed: decompressions +2098, compressions +0, pageins +797358, swapins +0, swapouts +0 | in the compressor 1830788 → 1828965 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1594 → 1505 MB; 164.84 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.81 s runnable and waiting for a core, 3.48 instructions a cycle, 3.14 GHz on the CPU, 1200 page-ins, 16701 MB read from the disk
+gc 331 @1054.613s 0%: 0.27+6.5+0.019 ms clock, 2.7+0/18/32+0.19 ms cpu, 1405->1405->718 MB, 1409 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 332 @1059.870s 0%: 0.087+2.3+0.014 ms clock, 0.87+0/6.5/12+0.14 ms cpu, 1433->1433->715 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 333 @1064.749s 0%: 0.052+2.4+0.009 ms clock, 0.52+0/7.0/10+0.097 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 334 @1069.387s 0%: 0.054+2.9+0.011 ms clock, 0.54+0/7.6/12+0.11 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 335 @1073.863s 0%: 0.047+3.3+0.010 ms clock, 0.47+0/8.5/11+0.10 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 336 @1078.231s 0%: 0.046+2.5+0.009 ms clock, 0.46+0/7.1/13+0.090 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 337 @1083.497s 0%: 0.25+6.5+0.016 ms clock, 2.5+1.1/18/33+0.16 ms cpu, 1429->1431->717 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 338 @1087.469s 0%: 0.092+2.6+0.010 ms clock, 0.92+0/7.2/12+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 339 @1091.420s 0%: 0.049+2.6+0.011 ms clock, 0.49+0/7.2/11+0.11 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 340 @1095.373s 0%: 0.063+3.5+0.012 ms clock, 0.63+0/8.9/9.6+0.12 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 341 @1099.335s 0%: 0.050+2.3+0.015 ms clock, 0.50+0/6.5/12+0.15 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 342 @1103.283s 0%: 0.060+2.5+0.010 ms clock, 0.60+0/6.8/12+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 343 @1107.238s 0%: 0.061+3.0+0.013 ms clock, 0.61+0/8.2/6.8+0.13 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 344 @1111.197s 0%: 0.059+2.7+0.011 ms clock, 0.59+0/7.5/11+0.11 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 345 @1115.157s 0%: 0.055+2.2+0.012 ms clock, 0.55+0/6.4/11+0.12 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 346 @1119.108s 0%: 0.048+2.5+0.013 ms clock, 0.48+0/6.9/11+0.13 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 347 @1123.086s 0%: 0.065+2.4+0.014 ms clock, 0.65+0/6.8/12+0.14 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 348 @1127.045s 0%: 0.052+3.3+0.009 ms clock, 0.52+0/8.2/11+0.093 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 349 @1131.003s 0%: 0.053+2.8+0.010 ms clock, 0.53+0/7.6/10+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 350 @1134.961s 0%: 0.063+3.0+0.011 ms clock, 0.63+0/7.7/11+0.11 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 351 @1138.922s 0%: 0.068+3.6+0.025 ms clock, 0.68+0/8.9/10+0.25 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 352 @1142.882s 0%: 0.048+3.4+0.009 ms clock, 0.48+0/8.3/11+0.097 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 1, ours flat, far 50 % (ef 10), 1 thread, warm: p50 21.139 ms, p95 21.532, p99 21.809 | 47 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 1, ours flat, far 50 %, the untimed pass: the memory of the system, untimed: decompressions +156, compressions +0, pageins +117, swapins +4, swapouts +0 | in the compressor 1828965 → 1828809 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1506 → 1652 MB; 26.61 s on the CPU, 99.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.81 s runnable and waiting for a core, 5.29 instructions a cycle, 3.13 GHz on the CPU, 0 page-ins, 3958 MB read from the disk
+    bench_filters_test.go:1138: round 1, ours flat, far 50 %, the warm passes: the memory of the system, untimed: decompressions +99, compressions +0, pageins +2414, swapins +0, swapouts +0 | in the compressor 1828809 → 1828710 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1652 → 1652 MB; 75.59 s on the CPU, 98.3 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.03 s runnable and waiting for a core, 5.43 instructions a cycle, 3.14 GHz on the CPU, 0 page-ins, 0 MB read from the disk
+gc 353 @1152.616s 0%: 0.22+1.5+0.012 ms clock, 2.2+0.18/3.9/4.9+0.12 ms cpu, 1429->1429->577 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 354 @1160.539s 0%: 0.18+2.9+0.009 ms clock, 1.8+0/8.0/10+0.095 ms cpu, 1152->1152->717 MB, 1156 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 355 @1169.753s 0%: 0.17+2.7+0.011 ms clock, 1.7+0/7.6/11+0.11 ms cpu, 1429->1429->715 MB, 1434 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 356 @1178.942s 0%: 0.17+2.6+0.013 ms clock, 1.7+0/7.4/13+0.13 ms cpu, 1426->1426->715 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 357 @1188.095s 0%: 0.15+2.5+0.009 ms clock, 1.5+0/7.1/11+0.097 ms cpu, 1425->1425->716 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 358 @1197.220s 0%: 0.17+2.7+0.025 ms clock, 1.7+0/7.7/12+0.25 ms cpu, 1426->1426->715 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 359 @1206.235s 0%: 0.17+3.0+0.011 ms clock, 1.7+0/8.2/9.7+0.11 ms cpu, 1426->1426->719 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 360 @1215.348s 0%: 0.17+2.8+0.011 ms clock, 1.7+0/7.7/12+0.11 ms cpu, 1433->1433->715 MB, 1439 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 361 @1224.290s 0%: 0.17+2.7+0.010 ms clock, 1.7+0/7.6/12+0.10 ms cpu, 1426->1426->715 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 362 @1233.388s 0%: 0.19+2.8+0.010 ms clock, 1.9+0/8.1/12+0.10 ms cpu, 1426->1426->716 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 363 @1242.327s 0%: 0.16+2.8+0.013 ms clock, 1.6+0/7.9/12+0.13 ms cpu, 1426->1426->716 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 364 @1251.502s 0%: 0.18+3.0+0.15 ms clock, 1.8+0/8.4/13+1.5 ms cpu, 1428->1428->718 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 365 @1260.671s 0%: 0.17+3.4+0.008 ms clock, 1.7+0/8.4/12+0.089 ms cpu, 1432->1432->717 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 366 @1269.744s 0%: 0.17+2.9+0.016 ms clock, 1.7+0/7.8/12+0.16 ms cpu, 1431->1431->717 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 367 @1278.758s 0%: 0.17+2.8+0.022 ms clock, 1.7+0/7.9/12+0.22 ms cpu, 1431->1431->718 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 368 @1287.866s 0%: 0.16+2.9+0.015 ms clock, 1.6+0/7.9/12+0.15 ms cpu, 1430->1430->716 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 369 @1296.952s 0%: 0.16+3.0+0.15 ms clock, 1.6+0/8.1/12+1.5 ms cpu, 1426->1426->716 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 370 @1305.989s 0%: 0.16+2.7+0.014 ms clock, 1.6+0/7.8/13+0.14 ms cpu, 1426->1426->716 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 371 @1315.015s 0%: 0.18+2.6+0.013 ms clock, 1.8+0/7.6/13+0.13 ms cpu, 1426->1426->716 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 372 @1324.225s 0%: 0.18+2.8+0.010 ms clock, 1.8+0/7.9/13+0.10 ms cpu, 1428->1428->718 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 373 @1333.237s 0%: 0.16+3.4+0.014 ms clock, 1.6+0/8.9/11+0.14 ms cpu, 1432->1432->718 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 374 @1342.334s 0%: 0.17+2.4+0.009 ms clock, 1.7+0/6.8/11+0.095 ms cpu, 1430->1430->716 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 375 @1351.413s 0%: 0.17+2.6+0.015 ms clock, 1.7+0/7.5/12+0.15 ms cpu, 1428->1428->718 MB, 1432 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 376 @1361.568s 0%: 0.49+2.8+0.063 ms clock, 4.9+0/7.3/11+0.63 ms cpu, 1476->1476->577 MB, 1476 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 377 @1368.083s 0%: 0.21+1.8+0.007 ms clock, 2.1+0/4.4/3.7+0.078 ms cpu, 1153->1153->693 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 1, ours flat, far 50 % (ef 10), 1 thread, cold: p50 29.607 ms, p95 30.705, p99 31.690 | 50 batches of 10, halves at p50 29.655 and 29.563 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 1, ours flat, far 50 %, the cold batches: the memory of the system, untimed: decompressions +2613, compressions +0, pageins +799374, swapins +8, swapouts +0 | in the compressor 1828710 → 1819251 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1652 → 1517 MB; 174.29 s on the CPU, 99.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.71 s runnable and waiting for a core, 3.59 instructions a cycle, 3.14 GHz on the CPU, 1200 page-ins, 17156 MB read from the disk
+gc 378 @1379.872s 0%: 0.26+7.0+0.009 ms clock, 2.6+0.049/19/21+0.098 ms cpu, 1382->1383->714 MB, 1386 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 379 @1387.634s 0%: 0.23+6.1+0.019 ms clock, 2.3+0/17/35+0.19 ms cpu, 1424->1424->714 MB, 1430 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 380 @1392.897s 0%: 0.099+2.3+0.012 ms clock, 0.99+0/6.8/11+0.12 ms cpu, 1422->1422->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 381 @1399.072s 0%: 0.048+2.8+0.010 ms clock, 0.48+0/7.5/12+0.10 ms cpu, 1422->1422->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 382 @1405.287s 0%: 0.044+2.4+0.013 ms clock, 0.44+0/7.0/11+0.13 ms cpu, 1422->1422->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 1, ours flat, far 10 % (ef 10), 1 thread, warm: p50 6.839 ms, p95 8.065, p99 8.718 | 144 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 1, ours flat, far 10 %, the untimed pass: the memory of the system, untimed: decompressions +2, compressions +0, pageins +29, swapins +0, swapouts +0 | in the compressor 1819251 → 1819249 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1517 → 1599 MB; 9.32 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.41 s runnable and waiting for a core, 3.95 instructions a cycle, 3.10 GHz on the CPU, 0 page-ins, 3637 MB read from the disk
+    bench_filters_test.go:1138: round 1, ours flat, far 10 %, the warm passes: the memory of the system, untimed: decompressions +17, compressions +0, pageins +2844, swapins +0, swapouts +0 | in the compressor 1819249 → 1819232 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1599 → 1599 MB; 26.86 s on the CPU, 98.3 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.06 s runnable and waiting for a core, 3.88 instructions a cycle, 3.09 GHz on the CPU, 0 page-ins, 2560 MB read from the disk
+gc 383 @1416.500s 0%: 0.18+1.9+0.010 ms clock, 1.8+0.033/4.9/7.2+0.10 ms cpu, 1422->1422->698 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 384 @1427.231s 0%: 0.47+1.8+0.030 ms clock, 4.7+0/4.0/3.4+0.30 ms cpu, 1435->1435->577 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 385 @1434.316s 0%: 0.18+2.1+0.004 ms clock, 1.8+0.061/5.8/10+0.047 ms cpu, 1150->1150->703 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 386 @1444.935s 0%: 0.83+5.2+0.069 ms clock, 8.3+0/11/12+0.69 ms cpu, 1428->1428->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 387 @1451.919s 0%: 0.20+2.2+0.007 ms clock, 2.0+0.038/6.0/10+0.072 ms cpu, 1151->1151->703 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 388 @1462.459s 0%: 0.55+5.9+0.041 ms clock, 5.5+0/8.6/2.2+0.41 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 389 @1469.520s 0%: 0.19+2.1+0.009 ms clock, 1.9+0.036/5.9/9.7+0.096 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 390 @1479.792s 0%: 0.60+3.8+0.060 ms clock, 6.0+0/9.2/11+0.60 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 391 @1486.761s 0%: 0.18+2.0+0.010 ms clock, 1.8+0.035/5.7/9.6+0.10 ms cpu, 1151->1151->703 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 392 @1497.175s 0%: 0.55+2.9+0.040 ms clock, 5.5+0/7.5/9.9+0.40 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 393 @1504.263s 0%: 0.15+2.5+0.007 ms clock, 1.5+0.046/6.7/8.9+0.072 ms cpu, 1151->1151->703 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 394 @1514.825s 0%: 0.96+4.1+0.074 ms clock, 9.6+0/9.8/14+0.74 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 395 @1521.811s 0%: 0.18+2.9+0.004 ms clock, 1.8+0.055/7.4/8.8+0.045 ms cpu, 1151->1151->703 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 396 @1532.266s 0%: 0.35+2.6+0.036 ms clock, 3.5+0/6.6/8.4+0.36 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 397 @1539.326s 0%: 0.18+2.5+0.005 ms clock, 1.8+0.031/6.5/9.3+0.055 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 398 @1549.540s 0%: 0.59+4.3+0.054 ms clock, 5.9+0/9.9/11+0.54 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 399 @1556.453s 0%: 0.17+3.6+0.004 ms clock, 1.7+0.056/8.4/8.3+0.042 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 400 @1566.876s 0%: 0.94+5.4+0.074 ms clock, 9.4+0/13/16+0.74 ms cpu, 1429->1429->577 MB, 1430 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 401 @1573.844s 0%: 0.18+2.3+0.019 ms clock, 1.8+0.044/6.3/9.7+0.19 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 402 @1584.372s 0%: 0.89+3.7+0.082 ms clock, 8.9+0/9.6/16+0.82 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 403 @1591.388s 0%: 0.20+2.6+0.013 ms clock, 2.0+0.048/6.7/8.8+0.13 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 404 @1601.588s 0%: 0.46+4.6+0.040 ms clock, 4.6+0/10/11+0.40 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 405 @1608.633s 0%: 0.19+2.2+0.011 ms clock, 1.9+0.031/6.0/7.1+0.11 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 406 @1619.163s 0%: 0.90+4.6+0.077 ms clock, 9.0+0/11/13+0.77 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 407 @1626.109s 0%: 0.19+2.1+0.016 ms clock, 1.9+0.053/5.7/9.2+0.16 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 1, ours flat, far 10 % (ef 10), 1 thread, cold: p50 13.384 ms, p95 14.056, p99 14.230 | 50 batches of 10, halves at p50 13.403 and 13.353 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 1, ours flat, far 10 %, the cold batches: the memory of the system, untimed: decompressions +2965, compressions +0, pageins +796023, swapins +12, swapouts +0 | in the compressor 1819230 → 1816591 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1599 → 1500 MB; 165.41 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.88 s runnable and waiting for a core, 3.47 instructions a cycle, 3.14 GHz on the CPU, 1200 page-ins, 17282 MB read from the disk
+gc 408 @1633.959s 0%: 0.21+4.5+0.009 ms clock, 2.1+0/13/25+0.097 ms cpu, 1405->1405->717 MB, 1408 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 409 @1638.889s 0%: 0.067+2.3+0.009 ms clock, 0.67+0/6.7/12+0.095 ms cpu, 1432->1432->715 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 410 @1643.501s 0%: 0.052+2.6+0.009 ms clock, 0.52+0/6.9/12+0.094 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 411 @1647.933s 0%: 0.045+2.4+0.014 ms clock, 0.45+0/6.8/12+0.14 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 412 @1652.272s 0%: 0.071+2.8+0.009 ms clock, 0.71+0/8.1/12+0.099 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 413 @1658.019s 0%: 0.23+4.4+0.008 ms clock, 2.3+0/12/19+0.087 ms cpu, 1429->1429->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 414 @1662.665s 0%: 0.080+2.6+0.009 ms clock, 0.80+0/7.2/11+0.097 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 415 @1667.195s 0%: 0.045+3.0+0.011 ms clock, 0.45+0/8.0/9.5+0.11 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 416 @1671.613s 0%: 0.046+2.7+0.011 ms clock, 0.46+0/7.2/11+0.11 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 417 @1675.949s 0%: 0.049+3.0+0.013 ms clock, 0.49+0/8.1/11+0.13 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 418 @1680.373s 0%: 0.044+2.8+0.011 ms clock, 0.44+0/7.6/12+0.11 ms cpu, 1429->1429->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 419 @1684.998s 0%: 0.052+2.5+0.010 ms clock, 0.52+0/6.8/12+0.10 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 420 @1689.526s 0%: 0.049+2.7+0.023 ms clock, 0.49+0/7.4/12+0.23 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 421 @1693.954s 0%: 0.051+2.6+0.009 ms clock, 0.51+0/7.4/11+0.098 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 422 @1698.311s 0%: 0.043+2.3+0.009 ms clock, 0.43+0/6.7/12+0.094 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 423 @1702.632s 0%: 0.046+2.1+0.011 ms clock, 0.46+0/5.9/9.6+0.11 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 424 @1707.260s 0%: 0.045+2.3+0.009 ms clock, 0.45+0/6.6/12+0.090 ms cpu, 1429->1429->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 425 @1711.827s 0%: 0.050+2.6+0.011 ms clock, 0.50+0/7.4/12+0.11 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 426 @1716.273s 0%: 0.044+2.4+0.009 ms clock, 0.44+0/6.8/11+0.095 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 427 @1720.634s 0%: 0.050+2.3+0.010 ms clock, 0.50+0/6.7/12+0.10 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 428 @1724.963s 0%: 0.052+2.4+0.010 ms clock, 0.52+0/6.5/12+0.10 ms cpu, 1428->1428->715 MB, 1431 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 2, ours flat, random 50 % (ef 10), 1 thread, warm: p50 23.796 ms, p95 25.618, p99 26.335 | 42 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 2, ours flat, random 50 %, the untimed pass: the memory of the system, untimed: decompressions +11, compressions +0, pageins +391, swapins +0, swapouts +0 | in the compressor 1816591 → 1816564 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1500 → 1607 MB; 26.37 s on the CPU, 99.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.66 s runnable and waiting for a core, 5.33 instructions a cycle, 3.13 GHz on the CPU, 0 page-ins, 3724 MB read from the disk
+    bench_filters_test.go:1138: round 2, ours flat, random 50 %, the warm passes: the memory of the system, untimed: decompressions +51, compressions +0, pageins +4094, swapins +0, swapouts +0 | in the compressor 1816564 → 1816513 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1607 → 1607 MB; 77.69 s on the CPU, 99.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 4.37 s runnable and waiting for a core, 5.40 instructions a cycle, 3.12 GHz on the CPU, 0 page-ins, 6892 MB read from the disk
+gc 429 @1735.180s 0%: 0.60+4.9+0.040 ms clock, 6.0+0/11/11+0.40 ms cpu, 1437->1437->577 MB, 1437 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 430 @1741.719s 0%: 0.24+1.5+0.008 ms clock, 2.4+0/3.8/4.9+0.087 ms cpu, 1153->1153->693 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 431 @1749.129s 0%: 0.18+1.7+0.029 ms clock, 1.8+0/4.1/4.0+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 432 @1758.176s 0%: 0.20+1.5+0.15 ms clock, 2.0+0/3.6/5.1+1.5 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 433 @1767.231s 0%: 0.20+1.5+0.031 ms clock, 2.0+0/3.7/4.4+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 434 @1776.276s 0%: 0.21+1.3+0.027 ms clock, 2.1+0/3.4/4.8+0.27 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 435 @1785.418s 0%: 0.18+1.8+0.032 ms clock, 1.8+0/4.0/4.6+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 436 @1794.338s 0%: 0.19+1.6+0.027 ms clock, 1.9+0/3.9/4.6+0.27 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 437 @1803.353s 0%: 0.17+1.8+0.031 ms clock, 1.7+0/4.2/3.9+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 438 @1812.659s 0%: 0.20+1.7+0.031 ms clock, 2.0+0/4.4/3.7+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 439 @1821.879s 0%: 0.18+1.8+0.034 ms clock, 1.8+0/4.2/4.5+0.34 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 440 @1830.961s 0%: 0.18+1.9+0.029 ms clock, 1.8+0/4.1/3.8+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 441 @1839.793s 0%: 0.23+1.4+0.028 ms clock, 2.3+0/3.6/4.7+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 442 @1848.725s 0%: 0.17+2.1+0.027 ms clock, 1.7+0/4.6/2.9+0.27 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 443 @1857.763s 0%: 0.18+1.9+0.037 ms clock, 1.8+0/4.2/3.8+0.37 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 444 @1866.882s 0%: 0.19+1.2+0.15 ms clock, 1.9+0/3.2/5.2+1.5 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 445 @1875.739s 0%: 0.17+1.4+0.029 ms clock, 1.7+0/3.7/5.2+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 446 @1884.676s 0%: 0.18+1.6+0.028 ms clock, 1.8+0/3.9/5.2+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 447 @1893.748s 0%: 0.18+1.7+0.031 ms clock, 1.8+0/4.3/5.5+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 448 @1902.641s 0%: 0.18+1.4+0.031 ms clock, 1.8+0/3.6/5.0+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 449 @1911.773s 0%: 0.18+1.8+0.027 ms clock, 1.8+0/4.1/4.7+0.27 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 450 @1920.935s 0%: 0.21+1.4+0.028 ms clock, 2.1+0/3.7/4.6+0.28 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 451 @1929.860s 0%: 0.18+1.7+0.032 ms clock, 1.8+0/4.0/4.5+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 452 @1939.039s 0%: 0.19+2.0+0.033 ms clock, 1.9+0/4.6/3.5+0.33 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 453 @1948.206s 0%: 0.18+1.5+0.030 ms clock, 1.8+0/3.7/4.6+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 2, ours flat, random 50 % (ef 10), 1 thread, cold: p50 29.394 ms, p95 30.117, p99 30.424 | 50 batches of 10, halves at p50 29.382 and 29.398 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 2, ours flat, random 50 %, the cold batches: the memory of the system, untimed: decompressions +655, compressions +0, pageins +795365, swapins +0, swapouts +0 | in the compressor 1816513 → 1816222 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1607 → 1539 MB; 173.43 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.55 s runnable and waiting for a core, 3.60 instructions a cycle, 3.14 GHz on the CPU, 1200 page-ins, 16936 MB read from the disk
+gc 454 @1959.997s 0%: 0.25+6.0+0.012 ms clock, 2.5+0/17/32+0.12 ms cpu, 1363->1365->717 MB, 1366 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 455 @1965.119s 0%: 0.072+2.7+0.009 ms clock, 0.72+0/7.3/11+0.092 ms cpu, 1431->1431->717 MB, 1436 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 456 @1969.984s 0%: 0.054+2.7+0.009 ms clock, 0.54+0/7.4/11+0.097 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 457 @1974.636s 0%: 0.050+2.3+0.014 ms clock, 0.50+0/6.6/11+0.14 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 458 @1979.170s 0%: 0.048+2.4+0.011 ms clock, 0.48+0/6.8/12+0.11 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 459 @1983.708s 0%: 0.049+2.6+0.016 ms clock, 0.49+0/7.1/12+0.16 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 460 @1989.527s 0%: 0.20+6.0+0.012 ms clock, 2.0+0/17/33+0.12 ms cpu, 1431->1431->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 461 @1994.129s 0%: 0.063+2.7+0.012 ms clock, 0.63+0/7.1/11+0.12 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 462 @1998.650s 0%: 0.045+2.5+0.009 ms clock, 0.45+0/7.1/11+0.093 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 463 @2003.102s 0%: 0.047+2.2+0.021 ms clock, 0.47+0/6.4/11+0.21 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 464 @2007.546s 0%: 0.052+2.7+0.009 ms clock, 0.52+0/7.3/11+0.090 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 465 @2012.103s 0%: 0.046+2.8+0.010 ms clock, 0.46+0/7.8/12+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 466 @2016.695s 0%: 0.055+2.1+0.012 ms clock, 0.55+0/6.1/11+0.12 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 467 @2021.224s 0%: 0.051+2.4+0.014 ms clock, 0.51+0/6.9/11+0.14 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 468 @2025.681s 0%: 0.054+3.5+0.009 ms clock, 0.54+0/8.6/10+0.097 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 469 @2030.115s 0%: 0.052+2.6+0.009 ms clock, 0.52+0/7.3/11+0.095 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 470 @2034.620s 0%: 0.048+2.3+0.012 ms clock, 0.48+0/6.4/12+0.12 ms cpu, 1431->1431->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 471 @2039.224s 0%: 0.050+2.1+0.011 ms clock, 0.50+0/6.2/12+0.11 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 472 @2043.784s 0%: 0.053+2.4+0.012 ms clock, 0.53+0/7.0/11+0.12 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 473 @2048.269s 0%: 0.050+2.5+0.012 ms clock, 0.50+0/7.0/12+0.12 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 474 @2052.702s 0%: 0.049+3.3+0.014 ms clock, 0.49+0/8.3/10+0.14 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 475 @2057.132s 0%: 0.054+2.9+0.015 ms clock, 0.54+0/7.8/11+0.15 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 2, ours flat, near 50 % (ef 10), 1 thread, warm: p50 24.101 ms, p95 25.738, p99 26.613 | 41 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 2, ours flat, near 50 %, the untimed pass: the memory of the system, untimed: decompressions +5, compressions +0, pageins +157, swapins +0, swapouts +0 | in the compressor 1816218 → 1816213 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1539 → 1629 MB; 26.87 s on the CPU, 99.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.89 s runnable and waiting for a core, 5.26 instructions a cycle, 3.13 GHz on the CPU, 0 page-ins, 4256 MB read from the disk
+    bench_filters_test.go:1138: round 2, ours flat, near 50 %, the warm passes: the memory of the system, untimed: decompressions +36, compressions +0, pageins +290, swapins +0, swapouts +0 | in the compressor 1816213 → 1816177 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1629 → 1629 MB; 78.36 s on the CPU, 99.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 4.81 s runnable and waiting for a core, 5.36 instructions a cycle, 3.12 GHz on the CPU, 0 page-ins, 7688 MB read from the disk
+gc 476 @2068.671s 0%: 0.17+2.5+0.007 ms clock, 1.7+0.056/6.9/11+0.077 ms cpu, 1429->1429->709 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 477 @2077.524s 0%: 0.19+2.2+0.018 ms clock, 1.9+0.049/6.2/10+0.18 ms cpu, 1413->1414->706 MB, 1419 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 478 @2086.587s 0%: 0.18+2.1+0.010 ms clock, 1.8+0.035/5.8/8.9+0.10 ms cpu, 1409->1409->702 MB, 1413 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 479 @2095.497s 0%: 0.16+2.0+0.009 ms clock, 1.6+0.058/5.3/7.2+0.098 ms cpu, 1402->1402->697 MB, 1406 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 480 @2104.420s 0%: 0.23+1.6+0.007 ms clock, 2.3+0/4.1/4.5+0.072 ms cpu, 1393->1393->693 MB, 1395 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 481 @2111.512s 0%: 0.19+1.9+0.040 ms clock, 1.9+0/4.4/4.1+0.40 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 482 @2120.638s 0%: 0.18+1.6+0.049 ms clock, 1.8+0/4.0/4.2+0.49 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 483 @2129.575s 0%: 0.18+1.7+0.028 ms clock, 1.8+0/4.0/4.2+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 484 @2138.718s 0%: 0.20+1.5+0.15 ms clock, 2.0+0/3.6/4.9+1.5 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 485 @2147.796s 0%: 0.17+1.8+0.029 ms clock, 1.7+0/4.0/4.4+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 486 @2156.794s 0%: 0.19+1.5+0.026 ms clock, 1.9+0/3.7/4.8+0.26 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 487 @2165.924s 0%: 0.16+1.6+0.030 ms clock, 1.6+0/3.9/4.5+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 488 @2174.939s 0%: 0.17+1.5+0.031 ms clock, 1.7+0/3.7/4.7+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 489 @2184.007s 0%: 0.18+1.4+0.028 ms clock, 1.8+0/3.8/4.7+0.28 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 490 @2193.097s 0%: 0.17+1.5+0.032 ms clock, 1.7+0/3.9/4.6+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 491 @2202.114s 0%: 0.18+1.8+0.030 ms clock, 1.8+0/4.2/4.7+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 492 @2211.207s 0%: 0.18+1.4+0.030 ms clock, 1.8+0/3.5/4.6+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 493 @2220.192s 0%: 0.17+1.9+0.032 ms clock, 1.7+0/4.6/3.6+0.32 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 494 @2229.241s 0%: 0.22+1.8+0.031 ms clock, 2.2+0/4.3/3.4+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 495 @2238.260s 0%: 0.20+1.9+0.11 ms clock, 2.0+0/4.1/3.4+1.1 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 496 @2247.288s 0%: 0.21+1.5+0.028 ms clock, 2.1+0/3.6/5.5+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 497 @2256.344s 0%: 0.19+1.6+0.031 ms clock, 1.9+0/4.0/4.0+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 498 @2265.343s 0%: 0.23+1.9+0.034 ms clock, 2.3+0/4.9/3.8+0.34 ms cpu, 1393->1393->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 499 @2274.540s 0%: 0.18+1.4+0.029 ms clock, 1.8+0/3.7/4.2+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 500 @2283.781s 0%: 0.20+2.3+0.030 ms clock, 2.0+0/4.6/3.1+0.30 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 2, ours flat, near 50 % (ef 10), 1 thread, cold: p50 29.196 ms, p95 30.050, p99 30.604 | 50 batches of 10, halves at p50 29.216 and 29.190 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 2, ours flat, near 50 %, the cold batches: the memory of the system, untimed: decompressions +772, compressions +0, pageins +795155, swapins +0, swapouts +0 | in the compressor 1816176 → 1815803 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1629 → 1572 MB; 173.63 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.51 s runnable and waiting for a core, 3.60 instructions a cycle, 3.14 GHz on the CPU, 1200 page-ins, 16710 MB read from the disk
+gc 501 @2296.774s 0%: 0.25+6.5+0.045 ms clock, 2.5+0/17/25+0.45 ms cpu, 1362->1362->714 MB, 1366 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 502 @2305.551s 0%: 0.19+4.9+0.027 ms clock, 1.9+0/13/26+0.27 ms cpu, 1425->1425->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 503 @2312.994s 0%: 0.060+2.4+0.012 ms clock, 0.60+0/6.9/12+0.12 ms cpu, 1425->1425->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 504 @2320.446s 0%: 0.049+3.6+0.009 ms clock, 0.49+0/9.1/10+0.093 ms cpu, 1425->1425->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 2, ours flat, near 10 % (ef 10), 1 thread, warm: p50 8.264 ms, p95 9.864, p99 10.969 | 120 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 2, ours flat, near 10 %, the untimed pass: the memory of the system, untimed: decompressions +0, compressions +0, pageins +61, swapins +0, swapouts +0 | in the compressor 1815803 → 1815803 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1572 → 1631 MB; 9.47 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.45 s runnable and waiting for a core, 3.95 instructions a cycle, 3.09 GHz on the CPU, 0 page-ins, 4186 MB read from the disk
+    bench_filters_test.go:1138: round 2, ours flat, near 10 %, the warm passes: the memory of the system, untimed: decompressions +754, compressions +0, pageins +2813, swapins +0, swapouts +0 | in the compressor 1815803 → 1815049 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1631 → 1631 MB; 27.23 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.37 s runnable and waiting for a core, 3.99 instructions a cycle, 3.08 GHz on the CPU, 0 page-ins, 7770 MB read from the disk
+gc 505 @2328.902s 0%: 0.15+1.6+0.029 ms clock, 1.5+0/3.9/3.6+0.29 ms cpu, 1439->1439->682 MB, 1439 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 506 @2340.023s 0%: 0.21+2.4+0.012 ms clock, 2.1+0.056/6.3/7.4+0.12 ms cpu, 1360->1360->699 MB, 1364 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 507 @2350.644s 0%: 0.83+5.1+0.070 ms clock, 8.3+0/12/13+0.70 ms cpu, 1434->1434->577 MB, 1434 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 508 @2357.627s 0%: 0.17+2.2+0.014 ms clock, 1.7+0.054/6.0/9.7+0.14 ms cpu, 1150->1150->703 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 509 @2368.003s 0%: 0.31+2.1+0.047 ms clock, 3.1+0/5.1/5.7+0.47 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 510 @2374.964s 0%: 0.20+2.5+0.007 ms clock, 2.0+0.061/6.8/9.7+0.074 ms cpu, 1150->1150->703 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 511 @2385.306s 0%: 0.65+2.4+0.059 ms clock, 6.5+0/6.3/10+0.59 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 512 @2392.348s 0%: 0.21+2.4+0.010 ms clock, 2.1+0.053/6.6/7.0+0.10 ms cpu, 1151->1151->703 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 513 @2402.643s 0%: 0.30+4.5+0.031 ms clock, 3.0+0/8.6/7.9+0.31 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 514 @2409.564s 0%: 0.19+2.0+0.007 ms clock, 1.9+0.039/5.7/9.8+0.072 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 515 @2419.981s 0%: 0.36+2.0+0.028 ms clock, 3.6+0/4.8/6.0+0.28 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 516 @2427.092s 0%: 0.17+1.9+0.009 ms clock, 1.7+0.040/5.5/9.2+0.095 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 517 @2437.662s 0%: 0.56+3.8+0.039 ms clock, 5.6+0/9.5/12+0.39 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 518 @2444.641s 0%: 0.18+2.4+0.013 ms clock, 1.8+0.057/6.6/9.6+0.13 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 519 @2454.989s 0%: 0.57+3.5+0.056 ms clock, 5.7+0/9.1/14+0.56 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 520 @2461.938s 0%: 0.18+2.2+0.007 ms clock, 1.8+0.63/6.1/9.0+0.073 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 521 @2472.476s 0%: 0.73+3.6+0.074 ms clock, 7.3+0/9.8/15+0.74 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 522 @2479.538s 0%: 0.17+2.0+0.007 ms clock, 1.7+0.045/5.3/9.4+0.070 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 523 @2489.919s 0%: 0.57+4.1+0.053 ms clock, 5.7+0/10/12+0.53 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 524 @2496.927s 0%: 0.17+2.5+0.003 ms clock, 1.7+0.053/6.5/10+0.037 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 525 @2507.282s 0%: 0.86+4.6+0.064 ms clock, 8.6+0/11/11+0.64 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 526 @2514.095s 0%: 0.19+2.2+0.005 ms clock, 1.9+0.31/6.2/6.8+0.050 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 527 @2524.640s 0%: 0.65+4.6+0.058 ms clock, 6.5+0/10/14+0.58 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 528 @2531.671s 0%: 0.18+2.6+0.004 ms clock, 1.8+0.055/6.9/8.8+0.047 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 529 @2541.958s 0%: 0.29+2.4+0.026 ms clock, 2.9+0/6.2/7.6+0.26 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 2, ours flat, near 10 % (ef 10), 1 thread, cold: p50 12.992 ms, p95 13.829, p99 14.093 | 50 batches of 10, halves at p50 12.973 and 13.001 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 2, ours flat, near 10 %, the cold batches: the memory of the system, untimed: decompressions +498, compressions +0, pageins +795077, swapins +0, swapouts +0 | in the compressor 1815048 → 1814932 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1631 → 1500 MB; 165.00 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.81 s runnable and waiting for a core, 3.48 instructions a cycle, 3.14 GHz on the CPU, 1200 page-ins, 16702 MB read from the disk
+gc 530 @2549.774s 0%: 0.27+5.4+0.014 ms clock, 2.7+0/14/27+0.14 ms cpu, 1151->1153->717 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 531 @2554.851s 0%: 0.059+2.4+0.012 ms clock, 0.59+0/6.9/11+0.12 ms cpu, 1431->1431->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 532 @2559.619s 0%: 0.046+2.6+0.010 ms clock, 0.46+0/7.1/12+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 533 @2564.197s 0%: 0.048+2.3+0.013 ms clock, 0.48+0/6.5/8.3+0.13 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 534 @2568.649s 0%: 0.051+2.8+0.010 ms clock, 0.51+0/7.6/11+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 535 @2574.321s 0%: 0.23+6.2+0.015 ms clock, 2.3+0/17/31+0.15 ms cpu, 1431->1431->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 536 @2579.011s 0%: 0.078+2.7+0.010 ms clock, 0.78+0/7.1/12+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 537 @2583.589s 0%: 0.050+2.7+0.009 ms clock, 0.50+0/7.9/4.9+0.096 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 538 @2588.075s 0%: 0.050+2.5+0.010 ms clock, 0.50+0/6.9/11+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 539 @2592.503s 0%: 0.049+2.5+0.012 ms clock, 0.49+0/6.9/11+0.12 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 540 @2596.915s 0%: 0.054+2.8+0.015 ms clock, 0.54+0/7.4/11+0.15 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 541 @2601.477s 0%: 0.048+2.4+0.009 ms clock, 0.48+0/6.8/12+0.097 ms cpu, 1431->1431->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 542 @2606.077s 0%: 0.047+2.3+0.009 ms clock, 0.47+0/6.5/12+0.097 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 543 @2610.587s 0%: 0.049+3.0+0.010 ms clock, 0.49+0/8.1/11+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 544 @2615.018s 0%: 0.048+2.2+0.009 ms clock, 0.48+0/6.5/11+0.096 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 545 @2619.414s 0%: 0.052+3.1+0.009 ms clock, 0.52+0/8.0/10+0.096 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 546 @2623.900s 0%: 0.051+2.6+0.013 ms clock, 0.51+0/7.3/11+0.13 ms cpu, 1431->1431->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 547 @2628.497s 0%: 0.050+2.6+0.011 ms clock, 0.50+0/7.3/10+0.11 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 548 @2633.054s 0%: 0.052+2.3+0.010 ms clock, 0.52+0/6.6/8.9+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 549 @2637.512s 0%: 0.057+3.4+0.010 ms clock, 0.57+0/8.2/11+0.10 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 550 @2641.921s 0%: 0.052+2.5+0.013 ms clock, 0.52+0/6.9/11+0.13 ms cpu, 1430->1430->717 MB, 1435 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 2, ours flat, far 50 % (ef 10), 1 thread, warm: p50 23.922 ms, p95 25.556, p99 26.138 | 42 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 2, ours flat, far 50 %, the untimed pass: the memory of the system, untimed: decompressions +2, compressions +0, pageins +349, swapins +0, swapouts +0 | in the compressor 1814932 → 1814930 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1500 → 1613 MB; 26.74 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.92 s runnable and waiting for a core, 5.28 instructions a cycle, 3.13 GHz on the CPU, 0 page-ins, 4076 MB read from the disk
+    bench_filters_test.go:1138: round 2, ours flat, far 50 %, the warm passes: the memory of the system, untimed: decompressions +122, compressions +0, pageins +1350, swapins +0, swapouts +0 | in the compressor 1814930 → 1814808 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1613 → 1613 MB; 78.18 s on the CPU, 99.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 4.73 s runnable and waiting for a core, 5.37 instructions a cycle, 3.12 GHz on the CPU, 0 page-ins, 7515 MB read from the disk
+gc 551 @2649.760s 0%: 0.66+5.2+0.075 ms clock, 6.6+0/12/10+0.75 ms cpu, 1459->1459->576 MB, 1460 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 552 @2656.205s 0%: 0.19+1.5+0.008 ms clock, 1.9+0/4.0/5.1+0.086 ms cpu, 1152->1152->692 MB, 1153 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 553 @2663.477s 0%: 0.18+1.9+0.13 ms clock, 1.8+0/4.5/4.2+1.3 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 554 @2672.480s 0%: 0.19+1.3+0.028 ms clock, 1.9+0/3.4/5.1+0.28 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 555 @2681.481s 0%: 0.17+1.4+0.029 ms clock, 1.7+0/3.4/5.2+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 556 @2690.722s 0%: 0.17+1.9+0.032 ms clock, 1.7+0/4.5/3.5+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 557 @2699.723s 0%: 0.15+1.7+0.029 ms clock, 1.5+0/4.1/4.0+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 558 @2708.804s 0%: 0.17+1.3+0.032 ms clock, 1.7+0/3.5/5.1+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 559 @2718.074s 0%: 0.17+1.3+0.032 ms clock, 1.7+0/3.3/5.1+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 560 @2727.249s 0%: 0.28+2.3+0.043 ms clock, 2.8+0/5.7/2.4+0.43 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 561 @2736.485s 0%: 0.23+1.7+0.029 ms clock, 2.3+0/4.1/3.3+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 562 @2745.527s 0%: 0.18+1.4+0.033 ms clock, 1.8+0/3.6/4.6+0.33 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 563 @2754.702s 0%: 0.18+1.8+0.027 ms clock, 1.8+0/4.1/4.1+0.27 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 564 @2763.841s 0%: 0.17+1.6+0.032 ms clock, 1.7+0/4.0/5.1+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 565 @2772.939s 0%: 0.19+1.6+0.031 ms clock, 1.9+0/3.8/5.2+0.31 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 566 @2781.601s 0%: 0.19+1.8+0.033 ms clock, 1.9+0/4.4/4.9+0.33 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 567 @2790.838s 0%: 0.19+2.1+0.034 ms clock, 1.9+0/4.4/3.5+0.34 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 568 @2799.943s 0%: 0.18+2.0+0.028 ms clock, 1.8+0/4.3/4.0+0.28 ms cpu, 1392->1392->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 569 @2809.017s 0%: 0.18+1.6+0.029 ms clock, 1.8+0/3.9/4.6+0.29 ms cpu, 1393->1393->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 570 @2818.102s 0%: 0.18+1.9+0.025 ms clock, 1.8+0/4.1/3.8+0.25 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 571 @2827.192s 0%: 0.20+1.5+0.033 ms clock, 2.0+0/3.7/4.8+0.33 ms cpu, 1393->1393->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 572 @2836.231s 0%: 0.19+1.9+0.029 ms clock, 1.9+0/4.4/4.3+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 573 @2845.316s 0%: 0.21+2.2+0.029 ms clock, 2.1+0/4.6/3.7+0.29 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 574 @2854.395s 0%: 0.18+1.8+0.032 ms clock, 1.8+0/4.0/4.6+0.32 ms cpu, 1393->1393->682 MB, 1393 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 575 @2863.322s 0%: 0.20+1.3+0.027 ms clock, 2.0+0/3.4/5.0+0.27 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 576 @2872.444s 0%: 0.19+1.6+0.032 ms clock, 1.9+0/4.0/4.5+0.32 ms cpu, 1392->1392->682 MB, 1392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 2, ours flat, far 50 % (ef 10), 1 thread, cold: p50 29.614 ms, p95 30.266, p99 30.623 | 50 batches of 10, halves at p50 29.637 and 29.579 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 2, ours flat, far 50 %, the cold batches: the memory of the system, untimed: decompressions +2964, compressions +0, pageins +816925, swapins +0, swapouts +0 | in the compressor 1814808 → 1812228 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1613 → 1547 MB; 173.93 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.52 s runnable and waiting for a core, 3.60 instructions a cycle, 3.14 GHz on the CPU, 1200 page-ins, 17157 MB read from the disk
+gc 577 @2885.117s 0%: 0.22+5.4+0.014 ms clock, 2.2+0/15/30+0.14 ms cpu, 1362->1362->714 MB, 1365 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 578 @2893.680s 0%: 0.23+4.8+0.036 ms clock, 2.3+0/13/25+0.36 ms cpu, 1424->1424->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 579 @2900.910s 0%: 0.060+2.8+0.010 ms clock, 0.60+0/7.9/12+0.10 ms cpu, 1423->1423->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 580 @2908.046s 0%: 0.049+2.5+0.013 ms clock, 0.49+0/7.0/12+0.13 ms cpu, 1423->1423->714 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 2, ours flat, far 10 % (ef 10), 1 thread, warm: p50 7.862 ms, p95 9.551, p99 10.929 | 125 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1136: round 2, ours flat, far 10 %, the untimed pass: the memory of the system, untimed: decompressions +15, compressions +0, pageins +229, swapins +0, swapouts +0 | in the compressor 1812228 → 1812213 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1547 → 1556 MB; 9.42 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.46 s runnable and waiting for a core, 3.94 instructions a cycle, 3.08 GHz on the CPU, 0 page-ins, 3837 MB read from the disk
+    bench_filters_test.go:1138: round 2, ours flat, far 10 %, the warm passes: the memory of the system, untimed: decompressions +433, compressions +0, pageins +2844, swapins +0, swapouts +0 | in the compressor 1812213 → 1811780 pages | free 83 % → 82 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1556 → 1556 MB; 27.17 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.40 s runnable and waiting for a core, 3.99 instructions a cycle, 3.07 GHz on the CPU, 0 page-ins, 7116 MB read from the disk
+gc 581 @2916.348s 0%: 0.14+1.3+0.030 ms clock, 1.4+0/3.6/4.5+0.30 ms cpu, 1443->1443->682 MB, 1443 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 582 @2927.399s 0%: 0.17+2.3+0.005 ms clock, 1.7+0.032/6.0/7.9+0.059 ms cpu, 1360->1360->699 MB, 1364 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 583 @2938.161s 0%: 0.33+2.4+0.043 ms clock, 3.3+0/5.6/6.2+0.43 ms cpu, 1434->1434->577 MB, 1434 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 584 @2945.382s 0%: 0.18+2.1+0.008 ms clock, 1.8+0.029/6.1/9.7+0.082 ms cpu, 1150->1150->703 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 585 @2956.119s 0%: 2.3+6.2+0.30 ms clock, 23+0/13/13+3.0 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 586 @2963.178s 0%: 0.18+2.3+0.009 ms clock, 1.8+0.037/6.3/9.4+0.093 ms cpu, 1151->1151->703 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 587 @2973.519s 0%: 0.89+5.2+0.071 ms clock, 8.9+0/12/12+0.71 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 588 @2980.506s 0%: 0.18+2.3+0.012 ms clock, 1.8+0.048/6.4/9.5+0.12 ms cpu, 1150->1150->704 MB, 1154 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 589 @2990.925s 0%: 0.32+2.3+0.033 ms clock, 3.2+0/5.2/4.4+0.33 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 590 @2997.907s 0%: 0.19+2.3+0.015 ms clock, 1.9+0.035/6.4/9.8+0.15 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 591 @3008.446s 0%: 0.68+3.9+0.070 ms clock, 6.8+0/9.3/14+0.70 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 592 @3015.593s 0%: 0.18+2.3+0.004 ms clock, 1.8+0.033/6.3/10+0.046 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 593 @3025.815s 0%: 0.68+3.0+0.067 ms clock, 6.8+0/7.5/9.8+0.67 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 594 @3033.015s 0%: 0.19+3.0+0.007 ms clock, 1.9+0.035/7.7/9.6+0.070 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 595 @3043.416s 0%: 0.72+4.9+0.077 ms clock, 7.2+0/11/12+0.77 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 596 @3050.406s 0%: 0.19+2.1+0.011 ms clock, 1.9+0.038/5.9/10+0.11 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 597 @3060.774s 0%: 0.76+4.6+0.054 ms clock, 7.6+0/11/11+0.54 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 598 @3067.722s 0%: 0.17+2.1+0.011 ms clock, 1.7+0.032/5.7/9.9+0.11 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 599 @3078.011s 0%: 0.61+4.0+0.044 ms clock, 6.1+0/9.6/11+0.44 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 600 @3085.080s 0%: 0.18+2.3+0.006 ms clock, 1.8+0.032/6.7/9.6+0.065 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 601 @3095.626s 0%: 0.74+4.4+0.051 ms clock, 7.4+0/11/14+0.51 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 602 @3102.581s 0%: 0.18+2.0+0.006 ms clock, 1.8+0.045/5.7/9.5+0.061 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 603 @3113.013s 0%: 0.81+3.6+0.064 ms clock, 8.1+0/9.8/13+0.64 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 604 @3120.034s 0%: 0.18+2.1+0.004 ms clock, 1.8+0.055/5.8/10+0.045 ms cpu, 1151->1151->704 MB, 1155 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 605 @3130.615s 0%: 0.57+3.8+0.042 ms clock, 5.7+0/9.4/12+0.42 ms cpu, 1429->1429->577 MB, 1429 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1186: round 2, ours flat, far 10 % (ef 10), 1 thread, cold: p50 13.531 ms, p95 14.178, p99 16.275 | 50 batches of 10, halves at p50 13.571 and 13.504 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:1192: round 2, ours flat, far 10 %, the cold batches: the memory of the system, untimed: decompressions +596, compressions +0, pageins +795450, swapins +4, swapouts +0 | in the compressor 1811779 → 1811540 pages | free 83 % → 82 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 1556 → 1471 MB; 166.83 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 1.01 s runnable and waiting for a core, 3.46 instructions a cycle, 3.12 GHz on the CPU, 1200 page-ins, 17282 MB read from the disk
+--- PASS: TestIntegrationFilters (3135.07s)
+PASS
