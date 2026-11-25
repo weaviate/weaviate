@@ -50,7 +50,8 @@ type Manifest struct {
 	removeBucket func(ctx context.Context, bucket string) error
 	logger       logrus.FieldLogger
 
-	// mu serializes the checks and writes that record a change.
+	// mu serializes every change to the records or to the files they name,
+	// Open aside, which runs before anything else.
 	mu sync.Mutex
 	// opened holds the records Open returned that Ready has not seen yet.
 	opened map[string]record
@@ -325,6 +326,9 @@ func (m *Manifest) Reset(name string) error {
 // RemoveIndexFiles deletes the files of name's index and keeps its queue and
 // its record.
 func (m *Manifest) RemoveIndexFiles(ctx context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	records, _, err := m.records.Load()
 	if err != nil {
 		return err
@@ -362,14 +366,21 @@ func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 }
 
 // FinishDrop deletes everything name owns, its record last. A retry after a
-// partial run finds less to do.
+// partial run finds less to do. It refuses a vector BeginDrop did not mark.
 func (m *Manifest) FinishDrop(ctx context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	records, _, err := m.records.Load()
 	if err != nil {
 		return err
 	}
-	if _, ok := records[name]; !ok {
+	rec, ok := records[name]
+	if !ok {
 		return nil
+	}
+	if rec.State != stateDropping {
+		return fmt.Errorf("vector %q is %s, not %s", name, rec.State, stateDropping)
 	}
 	return m.finishDrop(ctx, name, records)
 }
