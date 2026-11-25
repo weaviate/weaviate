@@ -850,7 +850,7 @@ func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error)
 	db.indexLock.Unlock()
 
 	if err := index.drop(); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if index.dropRetry.Load() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return false, err
 		}
 		db.logger.WithField("action", "delete_index").WithField("class", className).

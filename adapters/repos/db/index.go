@@ -376,7 +376,7 @@ type Index struct {
 	// pendingDrops keeps interrupted teardowns out of the serving map, but reachable for retry.
 	pendingDrops shardMap
 	dropLock     sync.Mutex
-	dropRetry    bool // guarded by dropLock
+	dropRetry    atomic.Bool // also read by DB deletion when the error summary is truncated
 
 	// inflight counts operations admitted by enterRead. beginClose drains it
 	// instead of holding closeLock across teardown.
@@ -4324,12 +4324,12 @@ func (i *Index) drop() error {
 		return context.Canceled
 	}
 	defer i.dropLock.Unlock()
-	if !i.dropRetry {
+	if !i.dropRetry.Load() {
 		if err := i.beginClose(); err != nil {
 			return err
 		}
 	}
-	i.dropRetry = false
+	i.dropRetry.Store(false)
 	i.Config.DimensionsReindex.forget(i.ID())
 	i.Config.PropertyLengthsRecount.forget(i.ID())
 
@@ -4376,7 +4376,7 @@ func (i *Index) drop() error {
 	// otherwise leave the shard un-dropped without failing the call
 	ec.Add(eg.Wait())
 	if drainFailed.Load() {
-		i.dropRetry = true
+		i.dropRetry.Store(true)
 		return ec.ToErrorLimited(maxReportedErrors)
 	}
 
@@ -4582,7 +4582,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 		return context.Canceled
 	}
 	defer i.dropLock.Unlock()
-	if !i.dropRetry {
+	if !i.dropRetry.Load() {
 		if err := i.beginClose(); err != nil {
 			return err
 		}
@@ -4599,6 +4599,9 @@ func (i *Index) Shutdown(ctx context.Context) error {
 		defer i.backupLock.RUnlock(name)
 
 		if err := shard.Shutdown(ctx); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				i.dropRetry.Store(true)
+			}
 			if !errors.Is(err, errAlreadyShutdown) {
 				ec.AddWrapf(err, "shutdown shard %q", name)
 				return nil
@@ -4609,13 +4612,12 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	}
 	ec.Add(i.shards.RangeConcurrently(i.logger, shutdownShard))
 	ec.Add(i.pendingDrops.RangeConcurrently(i.logger, shutdownShard))
-	ec.Add(waitForCycleStops(ctx, "shutdown", cycleStops))
-
-	err := ec.ToErrorLimited(maxReportedErrors)
-	if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
-		i.dropRetry = true
+	cycleErr := waitForCycleStops(ctx, "shutdown", cycleStops)
+	ec.Add(cycleErr)
+	if errors.Is(cycleErr, context.Canceled) || errors.Is(cycleErr, context.DeadlineExceeded) {
+		i.dropRetry.Store(true)
 	}
-	return err
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 // stopCycleManagers asks every cycle to stop before waiting for any of them, so
