@@ -199,8 +199,8 @@ func (a *allowList) Close() {
 	a.h.visitedPool.Return(a.allowedPostings)
 	if a.rejectedPostings != nil {
 		size := len(a.rejectedPostings)
-		clear(a.rejectedPostings)
 		if size <= maxPooledRejectedPostings {
+			clear(a.rejectedPostings)
 			rejectedPostingsPool.Put(a.rejectedPostings)
 		}
 		a.rejectedPostings = nil

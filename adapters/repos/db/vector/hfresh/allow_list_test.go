@@ -402,13 +402,11 @@ func TestAllowListSkipsSmallRejectedPostings(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, a.Contains(1))
 	require.Len(t, a.rejectedPostings, 1)
-	// A large query may exceed the pooling cap, but must still release references.
+	// A large query may exceed the pooling cap, but must still drop its cache.
 	for range maxPooledRejectedPostings {
 		a.rejectedPostings[&PostingMetadata{}] = [5]byte{}
 	}
-	cached := a.rejectedPostings
 	a.Close()
-	require.Empty(t, cached)
 	require.Nil(t, a.rejectedPostings)
 }
 
