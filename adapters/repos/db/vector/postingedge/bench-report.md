@@ -401,6 +401,46 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - B y C, unos 17 minutos cada uno, y C acaba entre las 05:31 y las 06:46.
   - Cada hora de uso después de las 18:00 retrasa toda la cadena una hora, por la espera de 60 minutos de la reproducción.
 
+### Resultado de la noche del 24 al 25: la máquina se durmió, y la plana no se cronometró
+
+**Lo que pasó.** La cadena arrancó a las 18:00 con el marcador puesto y acabó a las 08:07, sin fallos.
+
+- **El Mac entró en reposo dos veces.** El registro de energía (`pmset -g log`) da:
+  - de 18:18 a 21:33, con un «Dark Wake Thermal Emergency» a las 18:21;
+  - desde las 23:47 hasta que volvió el usuario, hacia las 08:00.
+  - Dormido, solo despertaba en DarkWake, unos 45 s cada 15 minutos.
+- **La causa: nadie tenía puesta una aserción contra el reposo por inactividad.** La aplicación de Claude la volvió a poner cuando volvió el usuario. La noche del 23 la máquina no se durmió en ningún momento (despierta de 18:03 a 07:55), así que el reposo no explica la plana lenta de esa noche.
+- **R:**
+  - Las curvas sin cronometrar corrieron entre las 18:00 y las 21:39, en parte durante los DarkWakes. Eso no les cambia nada, porque no se cronometran.
+  - La espera fue de 21:39 a 22:42, y la ronda arrancó a las 22:42:39.
+  - El reloj del proceso no avanza mientras la máquina duerme: el reloj monótono de Go en darwin no cuenta el reposo. Con las marcas `@` de gctrace se sitúa cada celda en la hora:
+    - las 11 celdas del índice de «sin filtro» a «far 10 %» acabaron hacia las 23:41, con la máquina despierta y quieta;
+    - «far 1 %» y «far 0.1 %» se cronometraron en DarkWake y no son comparables.
+  - Las 12 celdas de la plana: «not timed, it is past 08:00».
+- **A, B y C no arrancaron:** «past the end of the window».
+- **Por la regla de la enmienda 1,** lo que no cupo no pasa a otra noche sin el usuario.
+
+**Lo que se puede leer:**
+
+- **La plana lenta sigue sin explicar.** La reproducción no llegó a la plana, y no hay contadores de memoria alrededor de ninguna medida suya.
+- **Las 11 celdas despiertas del índice, frente a la ronda 1 de la noche del 23,** en el mismo orden: en caliente, entre un 6.6 % y un 15.8 % más rápidas; en frío, entre un 4.0 % y un 14.7 %.
+  - Los ef y las cargas son idénticos en todas.
+  - En la noche del 23, la ronda 2 fue a su vez entre un −1.9 % y un +10.7 % más lenta que la ronda 1 en caliente.
+  - Es la misma dirección: el proceso del 23 iba más lento, y más cuanto más tiempo llevaba.
+  - Eso es como mucho 1.2 veces, no las 4 o 5 veces de la plana (unos 230 ns por permitido frente a unos 50).
+  - El binario no es el mismo: el de esta noche es del 24 a las 09:01, con los contadores. Lo que cambió entre los dos es el arnés.
+- **Los contadores de las celdas despiertas:**
+  - el proceso, con 13 MB comprimidos;
+  - ningún swapout;
+  - el swap del sistema, quieto toda la noche en 3 939 MB de 5 120;
+  - el compresor, en torno a 1.57 millones de páginas de 16 KB.
+- **No se puede leer** ni el cruce con las cuotas del 7, el 5 y el 3 %, ni el nuestro frente a HNSW centrado.
+
+**Para repetirla** (decisión del usuario):
+
+- la cadena bajo `caffeinate -i -w <pid de la cadena>`, que es una aserción de usuario y no cambia ningún ajuste;
+- antes de leer una noche, comprobar el registro de energía.
+
 ## La búsqueda plana: ¿pide R = 507 por ordenar con el código recortado? (pre-registro, 2026-11-24 a las 07:10)
 
 **Estado: pre-registrado antes de compilar nada.** La hipótesis y las dos dimensiones son del usuario. Lo que el encargo deja abierto lo fijo aquí, marcado como *mío*. Sin cronometrar.
