@@ -12,6 +12,7 @@
 package vectormanifest
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,6 +137,37 @@ func ownersAt(ids map[string]string) map[string]owner {
 		owners[name] = ownerAt(id)
 	}
 	return owners
+}
+
+// Every name an index with a generated ID creates fits in a file name, and no
+// longer ID is accepted.
+func TestGeneratedIDsFitInAFileName(t *testing.T) {
+	prefix := strings.Repeat("x", 100) + "-"
+	longest := ""
+	for id := prefix; validateID(id) == nil; id += "x" {
+		longest = id
+		require.Less(t, len(id), 1000, "no limit")
+	}
+	require.NotEmpty(t, longest)
+	require.ErrorContains(t, validateID(longest+"x"), "too long")
+	// the same files, so the same limit
+	require.NoError(t, validateID("vectors_"+longest))
+	require.ErrorContains(t, validateID("vectors_"+longest+"x"), "too long")
+
+	names := func(id string) []string {
+		storageID := storageIDFor(id)
+		centroids := helpers.CentroidsID(storageID)
+		return append(ownerAt(storageID).names(), helpers.HNSWCommitLogDirNameForID(centroids), centroids+".hnsw.snapshot.d")
+	}
+	atLimit := false
+	for _, n := range names(longest) {
+		assert.LessOrEqual(t, len(n), 255, n)
+		atLimit = atLimit || len(n) == 255
+	}
+	assert.True(t, atLimit, "the limit is not lower than it has to be")
+
+	// the schema caps these, and records of that length exist
+	require.NoError(t, validateID("vectors_"+strings.Repeat("n", schema.TargetVectorNameMaxLength)))
 }
 
 // A name is refused when an existing vector, or an earlier one of the same
