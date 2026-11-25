@@ -162,7 +162,7 @@ func TestReadUnloaded(t *testing.T) {
 			require.NoError(t, ns.Put([]byte("title"), []byte(tt.record)))
 			require.NoError(t, db.Close())
 
-			records, initialized, err := readUnloaded(dir)
+			records, initialized, err := readUnloaded(dir, nil)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -195,7 +195,7 @@ func TestDropUnloaded_SparesWhatEveryRecordOwns(t *testing.T) {
 	assert.NoDirExists(t, own)
 	assert.DirExists(t, shared)
 
-	records, _, err := readUnloaded(dir)
+	records, _, err := readUnloaded(dir, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"foo_muvera_vectors"}, slices.Collect(maps.Keys(records)))
 }
