@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -45,11 +44,7 @@ type classTenant struct {
 	class, tenant string
 }
 
-func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, namespacesEnabled bool) *Handler {
-	return newHandler(authorizer, batchManager, logger, authenticator, schemaManager, namespacesEnabled)
-}
-
-func newHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager schemaManager, namespacesEnabled bool) *Handler {
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager schemaManager, namespacesEnabled bool) *Handler {
 	return &Handler{
 		authorizer:        authorizer,
 		authenticator:     authenticator,
