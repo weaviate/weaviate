@@ -177,6 +177,30 @@ func TestSearch(t *testing.T) {
 			},
 		},
 		{
+			// S uses 60 of 100 usable bytes: s01 to s10 of 2 bytes each. T uses 40
+			// of 100. Each move narrows the spread by 0.04, so S is 0.20 above T at
+			// the start, 0.16 after one move, 0.12 after two and 0.08 after three.
+			// 0.08 is within 0.10, so Search stops after three moves, although two
+			// more would still narrow the spread.
+			name: "the search stops at the first balanced state",
+			in: rp.Input{
+				Nodes: []rp.Node{
+					{Name: "S", Role: rp.Source, UsedBytes: 60, UsableBytes: 100, Workers: 1},
+					{Name: "T", Role: rp.Target, UsedBytes: 40, UsableBytes: 100, Workers: 1},
+				},
+				Replicas: []rp.Replica{
+					replica("S", "s01", 2), replica("S", "s02", 2), replica("S", "s03", 2), replica("S", "s04", 2),
+					replica("S", "s05", 2), replica("S", "s06", 2), replica("S", "s07", 2), replica("S", "s08", 2),
+					replica("S", "s09", 2), replica("S", "s10", 2),
+				},
+			},
+			want: rp.Result{
+				Verdict: rp.MovesFound,
+				Moves:   []rp.Move{move("s01", "S", "T", 2), move("s02", "S", "T", 2), move("s03", "S", "T", 2)},
+				Goal:    []types.RebalanceNodeBalance{row("S", 0.54, 7), row("T", 0.46, 3)},
+			},
+		},
+		{
 			name: "three-node layout",
 			in:   rp.Input{Nodes: threeNodes, Replicas: threeReplicas},
 			want: threeResult,

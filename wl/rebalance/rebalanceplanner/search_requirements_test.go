@@ -764,13 +764,25 @@ func TestSearchRejectsInvalidInput(t *testing.T) {
 		})
 	}
 
+	// S uses 30 of 100 bytes, and its shards are drafted at 40 and 10 bytes. T
+	// is empty with 1,000 usable bytes. Moving the 40-byte shard narrows the
+	// disk spread most and would leave S at −10 bytes. Moving the 10-byte shard
+	// leaves S at 20% disk and T at 1%.
 	t.Run("shard sizes above the node's used bytes give no negative goal", func(t *testing.T) {
-		in := valid()
-		in.Nodes[0].UsedBytes = 30_000
-		res, err := rp.Search(context.Background(), in)
-		if err != nil {
-			return
+		in := rp.Input{
+			Nodes: []rp.Node{
+				{Name: "S", Role: rp.Source, UsedBytes: 30, UsableBytes: 100, Workers: 1},
+				{Name: "T", Role: rp.Target, UsedBytes: 0, UsableBytes: 1_000, Workers: 1},
+			},
+			Replicas: []rp.Replica{
+				{Collection: "c", Shard: "large", Node: "S", Bytes: 40, Eligible: true},
+				{Collection: "c", Shard: "small", Node: "S", Bytes: 10, Eligible: true},
+			},
 		}
+		require.False(t, rp.Balanced(baselineRows(in), sources(in)), "the baseline must start unbalanced")
+		res := mustSearch(t, in)
+		require.Equal(t, rp.MovesFound, res.Verdict)
+		checkResult(t, in, res)
 		for _, row := range res.Goal {
 			require.GreaterOrEqual(t, row.DiskUtilisation, 0.0, "node %s", row.Node)
 		}
