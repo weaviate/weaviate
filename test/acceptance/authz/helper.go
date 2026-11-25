@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 
 	"github.com/go-openapi/runtime"
 	clschema "github.com/weaviate/weaviate/client/schema"
@@ -48,6 +49,8 @@ const (
 
 const NumBuildInRoles = 5
 
+const beaconStart = "weaviate://localhost/"
+
 func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {
 	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, auth)
@@ -58,6 +61,35 @@ func createClass(t *testing.T, class *models.Class, auth runtime.ClientAuthInfoW
 	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, auth)
 	return err
+}
+
+// createEmployerClasses adds one Article, by an Author employed at the Company
+// "Acme". The collections are dropped by the next resetAuthzState.
+func createEmployerClasses(t *testing.T, key string) {
+	t.Helper()
+	const (
+		companyID = strfmt.UUID("00000000-0000-0000-0000-00000000000c")
+		authorID  = strfmt.UUID("00000000-0000-0000-0000-00000000000a")
+	)
+	indexTimestamps := &models.InvertedIndexConfig{IndexTimestamps: true}
+	text := schema.DataTypeText.PropString()
+	for _, class := range []*models.Class{
+		{Class: "Company", Properties: []*models.Property{{Name: "name", DataType: text}}},
+		{Class: "Author", InvertedIndexConfig: indexTimestamps, Properties: []*models.Property{{Name: "employer", DataType: []string{"Company"}}}},
+		{Class: "Article", Properties: []*models.Property{{Name: "author", DataType: []string{"Author"}}}},
+	} {
+		helper.CreateClassAuth(t, class, key)
+	}
+	refTo := func(class string, id strfmt.UUID) models.MultipleRef {
+		return models.MultipleRef{{Beacon: strfmt.URI(beaconStart + class + "/" + id.String())}}
+	}
+	for _, object := range []*models.Object{
+		{Class: "Company", ID: companyID, Properties: map[string]any{"name": "Acme"}},
+		{Class: "Author", ID: authorID, Properties: map[string]any{"employer": refTo("Company", companyID)}},
+		{Class: "Article", Properties: map[string]any{"author": refTo("Author", authorID)}},
+	} {
+		require.NoError(t, helper.CreateObjectAuth(t, object, key))
+	}
 }
 
 // requireDeniedOnce asserts that a 403 message reports action as the only

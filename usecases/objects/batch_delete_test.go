@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -467,6 +468,223 @@ func Test_BatchDelete_ValidationKeepsDenials(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantMsg)
 			require.Equal(t, tc.wantForbidden, errors.As(err, &authzerrs.Forbidden{}))
 			require.Equal(t, !tc.wantForbidden, errors.As(err, &ErrInvalidUserInput{}))
+		})
+	}
+}
+
+func Test_BatchDelete_FilterAuthorization(t *testing.T) {
+	mkClass := func(name string, props ...*models.Property) *models.Class {
+		return &models.Class{
+			Class:             name,
+			Properties:        props,
+			VectorIndexConfig: hnsw.UserConfig{},
+			Vectorizer:        config.VectorizerModuleNone,
+		}
+	}
+	mkClasses := func() []*models.Class {
+		return []*models.Class{
+			mkClass("Article",
+				&models.Property{Name: "title", DataType: schema.DataTypeText.PropString()},
+				&models.Property{Name: "author", DataType: []string{"Author"}}),
+			mkClass("Author", &models.Property{Name: "employer", DataType: []string{"Company"}}),
+			mkClass("Company", &models.Property{Name: "name", DataType: schema.DataTypeText.PropString()}),
+		}
+	}
+
+	equal := func(path ...string) *models.WhereFilter {
+		return &models.WhereFilter{Path: path, Operator: "Equal", ValueText: ptString("x")}
+	}
+	compound := func(op string, operands ...*models.WhereFilter) *models.WhereFilter {
+		return &models.WhereFilter{Operator: op, Operands: operands}
+	}
+	data := func(class string) string { return authorization.Objects(class, "") }
+	twoHops := equal("author", "Author", "employer", "Company", "name")
+	authorID := equal("author", "Author", "_id")
+
+	tests := []struct {
+		name   string
+		where  *models.WhereFilter
+		tenant string
+		// multiTenant names the classes with multi-tenancy
+		multiTenant []string
+		deny        string
+		// expectData lists the only resource of each READ check
+		expectData      []string
+		expectForbidden bool
+	}{
+		{name: "property", where: equal("title"), expectData: []string{data("Article")}},
+		{name: "two hops", where: twoHops, expectData: []string{data("Article"), data("Author"), data("Company")}},
+		{name: "_id", where: equal("_id"), expectData: []string{data("Article")}},
+		{name: "timestamp", where: equal("_creationTimeUnix"), expectData: []string{data("Article")}},
+		{name: "timestamp behind a hop", where: equal("author", "Author", "_lastUpdateTimeUnix"), expectData: []string{data("Article"), data("Author")}},
+		{
+			name:       "classes repeated across operands",
+			where:      compound("And", twoHops, compound("Not", twoHops), equal("title"), equal("_id")),
+			expectData: []string{data("Article"), data("Author"), data("Company")},
+		},
+		{
+			name: "tenant", where: equal("_id"), tenant: "tenant1", multiTenant: []string{"Article"},
+			// a collection-wide check would be denied
+			deny:       data("Article"),
+			expectData: []string{authorization.Objects("Article", "tenant1")},
+		},
+		{
+			name: "tenant on two hops", where: twoHops, tenant: "tenant1",
+			multiTenant: []string{"Article", "Author", "Company"},
+			expectData: []string{
+				authorization.Objects("Article", "tenant1"),
+				authorization.Objects("Author", "tenant1"),
+				authorization.Objects("Company", "tenant1"),
+			},
+		},
+		{
+			name: "class without multi-tenancy behind a tenant", where: authorID, tenant: "tenant1", multiTenant: []string{"Article"},
+			expectData: []string{authorization.Objects("Article", "tenant1"), authorization.Objects("Author", "tenant1"), data("Author")},
+		},
+		{
+			name: "class without multi-tenancy behind a tenant, data on the tenant only", where: authorID, tenant: "tenant1", multiTenant: []string{"Article"},
+			deny:            data("Author"),
+			expectData:      []string{authorization.Objects("Article", "tenant1"), authorization.Objects("Author", "tenant1"), data("Author")},
+			expectForbidden: true,
+		},
+		{
+			name: "tenant on a source without multi-tenancy, data on the tenant only", where: equal("_id"), tenant: "tenant1",
+			deny:            data("Article"),
+			expectData:      []string{authorization.Objects("Article", "tenant1"), data("Article")},
+			expectForbidden: true,
+		},
+		{
+			name: "_id without data on the tenant", where: equal("_id"), tenant: "tenant1", multiTenant: []string{"Article"},
+			deny:            authorization.Objects("Article", "tenant1"),
+			expectData:      []string{authorization.Objects("Article", "tenant1")},
+			expectForbidden: true,
+		},
+		{name: "_id without data on the source", where: equal("_id"), deny: data("Article"), expectData: []string{data("Article")}, expectForbidden: true},
+		{name: "timestamp without data on the source", where: equal("_creationTimeUnix"), deny: data("Article"), expectData: []string{data("Article")}, expectForbidden: true},
+		{name: "reference without data on the source", where: twoHops, deny: data("Article"), expectData: []string{data("Article")}, expectForbidden: true},
+		{name: "reference without data on the middle", where: twoHops, deny: data("Author"), expectData: []string{data("Article"), data("Author")}, expectForbidden: true},
+		{name: "reference without data on the leaf", where: twoHops, deny: data("Company"), expectData: []string{data("Article"), data("Author"), data("Company")}, expectForbidden: true},
+		{
+			name:  "denied in an operand",
+			where: compound("Or", equal("title"), twoHops), deny: data("Author"),
+			expectData: []string{data("Article"), data("Author")}, expectForbidden: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.WeaviateConfig{Config: config.Config{
+				AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(false)},
+			}}
+			classes := mkClasses()
+			for _, class := range classes {
+				class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: slices.Contains(tt.multiTenant, class.Class)}
+			}
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse: schema.Schema{Objects: &models.Schema{Classes: classes}},
+			}
+			logger, _ := test.NewNullLogger()
+			vectorRepo := &fakeObjectFinder{}
+			vectorRepo.On("BatchDeleteObjects", mock.Anything).Return(BatchDeleteResult{}, nil).Maybe()
+			authorizer := mocks.NewMockAuthorizer()
+			if tt.deny != "" {
+				authorizer.Deny(tt.deny)
+			}
+			manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, authorizer, nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
+
+			// deleteObjects starts past the DELETE check, whose data resource
+			// Deny would refuse as well
+			_, err := manager.deleteObjects(context.Background(), &models.Principal{Username: "u"},
+				&models.BatchDeleteMatch{Class: "Article", Where: tt.where}, nil, ptBool(true), ptString(verbosity.OutputMinimal), nil, tt.tenant)
+
+			if tt.expectForbidden {
+				var forbidden authzerrs.Forbidden
+				require.ErrorAs(t, err, &forbidden)
+				vectorRepo.AssertNotCalled(t, "BatchDeleteObjects", mock.Anything)
+			} else {
+				require.NoError(t, err)
+			}
+
+			var checked []string
+			for _, call := range authorizer.Calls() {
+				require.Equal(t, authorization.READ, call.Verb)
+				require.Len(t, call.Resources, 1)
+				checked = append(checked, call.Resources[0])
+			}
+			// the namespace gate reads the source collection's metadata first
+			expect := append(authorization.CollectionsMetadata("Article"), tt.expectData...)
+			assert.Equal(t, expect, checked)
+		})
+	}
+}
+
+// notAppliedSchemaManager finds no class locally until WaitForUpdate is called.
+type notAppliedSchemaManager struct {
+	fakeSchemaManager
+}
+
+func (s *notAppliedSchemaManager) ReadOnlyClass(name string) *models.Class {
+	if s.MaxWaitedSchemaVersion < s.ClassVersion {
+		return nil
+	}
+	return s.fakeSchemaManager.ReadOnlyClass(name)
+}
+
+func Test_BatchDelete_FilterClassLookup(t *testing.T) {
+	authorTo := func(class string) *models.WhereFilter {
+		return &models.WhereFilter{Path: []string{"author", class, "_id"}, Operator: "Equal", ValueText: ptString("x")}
+	}
+	tests := []struct {
+		name    string
+		where   *models.WhereFilter
+		wantErr string
+		// wantMissing counts the lookups of the class absent from the schema
+		wantMissing int
+	}{
+		{
+			name:  "local schema lags the leader",
+			where: &models.WhereFilter{Path: []string{"_id"}, Operator: "Equal", ValueText: ptString("x")},
+		},
+		{
+			name:        "missing class repeated across operands",
+			where:       &models.WhereFilter{Operator: "Or", Operands: []*models.WhereFilter{authorTo("Missing"), authorTo("Missing")}},
+			wantErr:     "could not find class Missing in schema",
+			wantMissing: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schemaManager := &notAppliedSchemaManager{fakeSchemaManager{
+				GetSchemaResponse: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+					Class: "Article", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+				}}}},
+				ClassVersion: 9,
+			}}
+			vectorRepo := &fakeObjectFinder{}
+			vectorRepo.On("BatchDeleteObjects", mock.Anything).Return(BatchDeleteResult{}, nil).Maybe()
+			cfg := &config.WeaviateConfig{}
+			logger, _ := test.NewNullLogger()
+			manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger,
+				mocks.NewMockAuthorizer(), nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
+
+			_, err := manager.DeleteObjects(context.Background(), &models.Principal{},
+				&models.BatchDeleteMatch{Class: "Article", Where: tt.where}, nil, ptBool(true), ptString(verbosity.OutputMinimal), nil, "")
+
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
+			missing := 0
+			for _, name := range schemaManager.GetClassCalls {
+				if name == "Missing" {
+					missing++
+				}
+			}
+			assert.Equal(t, tt.wantMissing, missing)
 		})
 	}
 }

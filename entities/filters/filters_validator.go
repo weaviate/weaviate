@@ -61,20 +61,15 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 
 	// validate current
 
-	className := cw.getClassName()
 	propName := cw.getPropertyName()
 
-	if IsInternalProperty(propName) {
-		return validateInternalPropertyClause(propName, cw)
-	}
-
-	class, err := authorizedGetClass(className.String())
+	class, err := authorizePath(authorizedGetClass, cw.clause.On)
 	if err != nil {
 		return err
 	}
-	if class == nil {
-		return errors.Errorf("class %q does not exist in schema",
-			className)
+
+	if IsInternalProperty(propName) {
+		return validateInternalPropertyClause(propName, cw)
 	}
 
 	propNameTyped := string(propName)
@@ -174,6 +169,23 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 	}
 
 	return nil
+}
+
+// authorizePath authorizes every class on the path, because matching a filter
+// reads all of them, and returns the innermost one.
+func authorizePath(authorizedGetClass func(string) (*models.Class, error), path *Path) (*models.Class, error) {
+	var class *models.Class
+	for p := path; p != nil; p = p.Child {
+		var err error
+		class, err = authorizedGetClass(p.Class.String())
+		if err != nil {
+			return nil, err
+		}
+		if class == nil {
+			return nil, errors.Errorf("class %q does not exist in schema", p.Class)
+		}
+	}
+	return class, nil
 }
 
 func valueNameFromDataType(dt schema.DataType) string {
@@ -295,13 +307,6 @@ func (w *clauseWrapper) getOperator() Operator {
 
 func (w *clauseWrapper) getValue() interface{} {
 	return w.clause.Value.Value
-}
-
-func (w *clauseWrapper) getClassName() schema.ClassName {
-	if w.operands != nil {
-		return ""
-	}
-	return w.clause.On.GetInnerMost().Class
 }
 
 func (w *clauseWrapper) getPropertyName() schema.PropertyName {

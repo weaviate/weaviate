@@ -86,7 +86,7 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 	match *models.BatchDeleteMatch, deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
-	params, schemaVersion, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
+	params, schemaVersion, err := b.validateBatchDelete(ctx, principal, match, dryRun, output, tenant)
 	if err != nil {
 		return nil, errors.Wrap(err, "validate")
 	}
@@ -135,7 +135,7 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 }
 
 func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	match *models.BatchDeleteMatch, dryRun *bool, output *string, tenant string,
 ) (*BatchDeleteParams, uint64, error) {
 	// Missing required match fields are caller input, so classify them as
 	// ErrInvalidUserInput (→ 422). Otherwise the REST handler maps these to a
@@ -173,7 +173,13 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, 0, NewErrInvalidUserInput("failed to parse where filter: %v", err)
 	}
 
-	err = filters.ValidateFilters(b.classGetterFunc(ctx, principal), filter)
+	// ValidateFilters reads the local schema, which may lag the leader the class came from
+	schemaVersion := vclasses[match.Class].Version
+	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, 0, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
+
+	err = filters.ValidateFilters(b.classGetterFunc(ctx, principal, tenant), filter)
 	if err != nil {
 		// The schema lookup inside validation authorizes class reads, so a
 		// Forbidden must stay a Forbidden (→ 403); everything else is a plain
@@ -197,15 +203,28 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		DryRun:    dryRunParam,
 		Output:    outputParam,
 	}
-	return params, vclasses[match.Class].Version, nil
+	return params, schemaVersion, nil
 }
 
-func (b *BatchManager) classGetterFunc(ctx context.Context, principal *models.Principal) func(string) (*models.Class, error) {
+func (b *BatchManager) classGetterFunc(ctx context.Context, principal *models.Principal, tenant string) func(string) (*models.Class, error) {
+	authorizedClasses := map[string]*models.Class{}
 	return func(name string) (*models.Class, error) {
-		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections(name)...); err != nil {
-			return nil, err
+		class, ok := authorizedClasses[name]
+		if !ok {
+			if err := b.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(name, tenant)...); err != nil {
+				return nil, err
+			}
+			class = b.schemaManager.ReadOnlyClass(name)
+			// Without multi-tenancy the tenant does not narrow what a filter reads. This
+			// second check runs after the lookup, because a lookup ahead of the first one
+			// would let a 403 reveal whether the class exists.
+			if tenant != "" && class != nil && !schema.MultiTenancyEnabled(class) {
+				if err := b.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData(name)...); err != nil {
+					return nil, err
+				}
+			}
+			authorizedClasses[name] = class
 		}
-		class := b.schemaManager.ReadOnlyClass(name)
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}

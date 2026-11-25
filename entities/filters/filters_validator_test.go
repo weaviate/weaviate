@@ -12,6 +12,7 @@
 package filters
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -303,7 +304,6 @@ func TestClauseWrapper(t *testing.T) {
 			assert.Equal(t, tc.expectedValueName, cw.getValueNameFromType())
 
 			assert.Equal(t, "someValue", cw.getValue())
-			assert.Equal(t, schema.ClassName("SomeClass"), cw.getClassName())
 			assert.Equal(t, schema.PropertyName("someProperty"), cw.getPropertyName())
 			assert.Equal(t, OperatorEqual, cw.getOperator())
 			assert.Nil(t, cw.getOperands())
@@ -317,6 +317,115 @@ func TestClauseWrapper(t *testing.T) {
 					assert.Equal(t, tc.valueType, clause.Value.Type)
 				}
 			})
+		})
+	}
+}
+
+type deniedError string
+
+func (e deniedError) Error() string { return "denied " + string(e) }
+
+func TestValidateFiltersAuthorizesWholePath(t *testing.T) {
+	classes := map[string]*models.Class{
+		"Article": {Class: "Article", Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "author", DataType: []string{"Author"}},
+		}},
+		"Author": {Class: "Author", Properties: []*models.Property{
+			{Name: "name", DataType: schema.DataTypeText.PropString()},
+			{Name: "employer", DataType: []string{"Company"}},
+		}},
+		"Company": {Class: "Company", Properties: []*models.Property{
+			{Name: "name", DataType: schema.DataTypeText.PropString()},
+		}},
+	}
+
+	// path takes the elements of a filter path with the root class prepended
+	path := func(elements ...string) *Path {
+		var p *Path
+		for i := len(elements) - 2; i >= 0; i -= 2 {
+			p = &Path{Class: schema.ClassName(elements[i]), Property: schema.PropertyName(elements[i+1]), Child: p}
+		}
+		return p
+	}
+	clause := func(dt schema.DataType, value any, elements ...string) Clause {
+		return Clause{Operator: OperatorEqual, On: path(elements...), Value: &Value{Value: value, Type: dt}}
+	}
+	text := func(elements ...string) Clause { return clause(schema.DataTypeText, "x", elements...) }
+	number := func(elements ...string) Clause { return clause(schema.DataTypeInt, 1, elements...) }
+	date := func(elements ...string) Clause { return clause(schema.DataTypeDate, "x", elements...) }
+	compound := func(op Operator, operands ...Clause) Clause { return Clause{Operator: op, Operands: operands} }
+
+	twoHops := text("Article", "author", "Author", "employer", "Company", "name")
+	oneHop := text("Article", "author", "Author", "name")
+	root := text("Article", "title")
+
+	tests := []struct {
+		name   string
+		clause Clause
+		deny   string
+		// absent is authorized but not in the schema
+		absent      string
+		expectAsked []string
+		expectErr   string
+	}{
+		{name: "root property", clause: root, expectAsked: []string{"Article"}},
+		{name: "one hop", clause: oneHop, expectAsked: []string{"Article", "Author"}},
+		{name: "two hops", clause: twoHops, expectAsked: []string{"Article", "Author", "Company"}},
+		{name: "_id at root", clause: text("Article", InternalPropID), expectAsked: []string{"Article"}},
+		{name: "id at root", clause: text("Article", InternalPropBackwardsCompatID), expectAsked: []string{"Article"}},
+		{name: "creation time at root", clause: date("Article", InternalPropCreationTimeUnix), expectAsked: []string{"Article"}},
+		{name: "update time at root", clause: date("Article", InternalPropLastUpdateTimeUnix), expectAsked: []string{"Article"}},
+		{name: "_id behind one hop", clause: text("Article", "author", "Author", InternalPropID), expectAsked: []string{"Article", "Author"}},
+		{name: "creation time behind one hop", clause: date("Article", "author", "Author", InternalPropCreationTimeUnix), expectAsked: []string{"Article", "Author"}},
+		{name: "update time behind two hops", clause: date("Article", "author", "Author", "employer", "Company", InternalPropLastUpdateTimeUnix), expectAsked: []string{"Article", "Author", "Company"}},
+		{name: "len behind one hop", clause: number("Article", "author", "Author", "len(name)"), expectAsked: []string{"Article", "Author"}},
+		{name: "reference count behind one hop", clause: number("Article", "author", "Author", "employer"), expectAsked: []string{"Article", "Author"}},
+		{name: "And", clause: compound(OperatorAnd, root, oneHop), expectAsked: []string{"Article", "Article", "Author"}},
+		{name: "Or", clause: compound(OperatorOr, oneHop, root), expectAsked: []string{"Article", "Author", "Article"}},
+		{name: "Not", clause: compound(OperatorNot, twoHops), expectAsked: []string{"Article", "Author", "Company"}},
+
+		{name: "denied at root", clause: twoHops, deny: "Article", expectAsked: []string{"Article"}, expectErr: "denied Article"},
+		{name: "denied at middle", clause: twoHops, deny: "Author", expectAsked: []string{"Article", "Author"}, expectErr: "denied Author"},
+		{name: "denied at leaf", clause: twoHops, deny: "Company", expectAsked: []string{"Article", "Author", "Company"}, expectErr: "denied Company"},
+		{name: "denied at root for _id", clause: text("Article", InternalPropID), deny: "Article", expectAsked: []string{"Article"}, expectErr: "denied Article"},
+		{name: "denied at leaf for creation time", clause: date("Article", "author", "Author", InternalPropCreationTimeUnix), deny: "Author", expectAsked: []string{"Article", "Author"}, expectErr: "denied Author"},
+		{
+			name:   "denied in a nested operand next to an invalid one",
+			clause: compound(OperatorAnd, text("Article", "unknown"), compound(OperatorNot, twoHops)), deny: "Author",
+			expectAsked: []string{"Article", "Article", "Author"}, expectErr: "denied Author",
+		},
+
+		{name: "absent at root for _id", clause: text("Article", InternalPropID), absent: "Article", expectAsked: []string{"Article"}, expectErr: `class "Article" does not exist in schema`},
+		{name: "absent at leaf for _id", clause: text("Article", "author", "Author", InternalPropID), absent: "Author", expectAsked: []string{"Article", "Author"}, expectErr: `class "Author" does not exist in schema`},
+		{name: "absent at middle", clause: twoHops, absent: "Author", expectAsked: []string{"Article", "Author"}, expectErr: `class "Author" does not exist in schema`},
+		{name: "absent at leaf", clause: twoHops, absent: "Company", expectAsked: []string{"Article", "Author", "Company"}, expectErr: `class "Company" does not exist in schema`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var asked []string
+			getClass := func(name string) (*models.Class, error) {
+				asked = append(asked, name)
+				if name == tt.deny {
+					return nil, deniedError(name)
+				}
+				if name == tt.absent {
+					return nil, nil
+				}
+				return classes[name], nil
+			}
+
+			err := ValidateFilters(getClass, &LocalFilter{Root: &tt.clause})
+
+			assert.Equal(t, tt.expectAsked, asked)
+			if tt.expectErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.expectErr)
+			}
+			var denied deniedError
+			assert.Equal(t, tt.deny != "", errors.As(err, &denied))
 		})
 	}
 }

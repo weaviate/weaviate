@@ -757,6 +757,22 @@ func TestTraverserFilterAuthorization(t *testing.T) {
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 			Properties: []*models.Property{
 				{Name: "title", DataType: schema.DataTypeText.PropString()},
+				{Name: "author", DataType: []string{"Author"}},
+				{Name: "publisher", DataType: []string{"Publisher"}},
+			},
+		},
+		{
+			Class:              "Author",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties: []*models.Property{
+				{Name: "name", DataType: schema.DataTypeText.PropString()},
+			},
+		},
+		{
+			Class:              "Publisher",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
+			Properties: []*models.Property{
+				{Name: "name", DataType: schema.DataTypeText.PropString()},
 			},
 		},
 	}}}
@@ -769,10 +785,22 @@ func TestTraverserFilterAuthorization(t *testing.T) {
 		}
 	}
 	onTitle := textClause(&filters.Path{Class: "Article", Property: "title"})
+	onAuthorID := textClause(&filters.Path{
+		Class: "Article", Property: "author",
+		Child: &filters.Path{Class: "Author", Property: filters.InternalPropID},
+	})
+	onPublisherName := textClause(&filters.Path{Class: "Publisher", Property: "name"})
+	onArticlePublisherName := textClause(&filters.Path{
+		Class: "Article", Property: "publisher", Child: onPublisherName.On,
+	})
 	onMissingClass := textClause(&filters.Path{Class: "Missing", Property: "title"})
 	titleTwice := filters.Clause{
 		Operator: filters.OperatorAnd,
 		Operands: []filters.Clause{onTitle, onTitle},
+	}
+	articlePublisherNameTwice := filters.Clause{
+		Operator: filters.OperatorAnd,
+		Operands: []filters.Clause{onArticlePublisherName, onArticlePublisherName},
 	}
 
 	tests := []struct {
@@ -788,8 +816,8 @@ func TestTraverserFilterAuthorization(t *testing.T) {
 		},
 		{
 			name:            "without tenant",
-			clause:          &onTitle,
-			expectResources: [][]string{authorization.CollectionsData("Article")},
+			clause:          &onPublisherName,
+			expectResources: [][]string{authorization.CollectionsData("Publisher")},
 		},
 		{
 			name:            "with tenant",
@@ -820,6 +848,42 @@ func TestTraverserFilterAuthorization(t *testing.T) {
 				authorization.ShardsData("Article", "tenant1"),
 			},
 			expectErr: "forbidden",
+		},
+		{
+			name:   "denied behind a reference",
+			clause: &onAuthorID,
+			tenant: "tenant1",
+			deny:   authorization.Objects("Author", "tenant1"),
+			expectResources: [][]string{
+				authorization.ShardsData("Article", "tenant1"),
+				authorization.ShardsData("Author", "tenant1"),
+			},
+			expectErr: "forbidden",
+		},
+		{
+			name:   "non-multi-tenant class behind a reference, tenant grant only",
+			clause: &articlePublisherNameTwice,
+			tenant: "tenant1",
+			deny:   authorization.Objects("Publisher", ""),
+			// a denial of the second check is not memoized either
+			expectResources: [][]string{
+				authorization.ShardsData("Article", "tenant1"),
+				authorization.ShardsData("Publisher", "tenant1"),
+				authorization.CollectionsData("Publisher"),
+				authorization.ShardsData("Publisher", "tenant1"),
+				authorization.CollectionsData("Publisher"),
+			},
+			expectErr: "forbidden",
+		},
+		{
+			name:   "non-multi-tenant class behind a reference, whole collection granted",
+			clause: &articlePublisherNameTwice,
+			tenant: "tenant1",
+			expectResources: [][]string{
+				authorization.ShardsData("Article", "tenant1"),
+				authorization.ShardsData("Publisher", "tenant1"),
+				authorization.CollectionsData("Publisher"),
+			},
 		},
 		{
 			name: "class missing from the schema",
@@ -857,7 +921,7 @@ func TestTraverserFilterAuthorization(t *testing.T) {
 				repo.On("Aggregate", mock.Anything).Return((*aggregation.Result)(nil), nil).Maybe()
 				logger, _ := logrus.NewNullLogger()
 				tr := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
-					repo, &fakeExplorer{}, &fakeSchemaGetter{testSchema}, nil, nil, -1)
+					repo, &fakeExplorer{}, &fakeSchemaGetter{schema: testSchema}, nil, nil, -1)
 
 				var filter *filters.LocalFilter
 				if tt.clause != nil {
