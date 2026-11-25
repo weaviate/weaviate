@@ -13,88 +13,63 @@ package auth_tests
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/auth"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 )
 
 const (
-	wcsUserOnAdmin    = "oidc-test-user@weaviate.io"
-	wcsUserNotOnAdmin = "oidc-test-user2@weaviate.io"
+	userOnAdminlist    = "admin-user"
+	userNotOnAdminlist = "custom-user"
+	schemaQuery        = "{__schema {queryType {fields {name}}}}"
 )
 
-func TestAuthGraphQLUnauthenticated(t *testing.T) {
-	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: os.Getenv(weaviateEndpoint)})
-	_, err := c.GraphQL().Raw().WithQuery("{__schema {queryType {fields {name}}}}").Do(ctx)
-	require.NotNil(t, err)
-}
-
-func TestAuthGraphQLValidUserNotOnAdminlist(t *testing.T) {
-	pw := os.Getenv("WCS_DUMMY_CI_PW_2")
-	if pw == "" {
-		t.Skip("No password supplied")
-	}
-
-	ctx := context.Background()
-
-	conf := client.Config{
-		Scheme:     "http",
-		Host:       os.Getenv(weaviateEndpoint),
-		AuthConfig: auth.ResourceOwnerPasswordFlow{Username: wcsUserNotOnAdmin, Password: pw},
+func newClient(t *testing.T, oidcSubject string) *client.Client {
+	t.Helper()
+	conf := client.Config{Scheme: "http", Host: os.Getenv(weaviateEndpoint)}
+	if oidcSubject != "" {
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, os.Getenv(mockOIDCHelperEndpoint), oidcSubject)
+		conf.Headers = map[string]string{"Authorization": "Bearer " + token}
 	}
 	c, err := client.NewClient(conf)
-	require.Nil(t, err)
-
-	_, err = c.GraphQL().Raw().WithQuery("{__schema {queryType {fields {name}}}}").Do(ctx)
-	require.NotNil(t, err)
+	require.NoError(t, err)
+	return c
 }
 
-func TestAuthGraphQLValidUser(t *testing.T) {
-	pwAdminUser := os.Getenv("WCS_DUMMY_CI_PW")
-	pwNoAdminUser := os.Getenv("WCS_DUMMY_CI_PW_2")
-	if pwAdminUser == "" || pwNoAdminUser == "" {
-		t.Skip("No password supplied")
-	}
-
+func TestAuthGraphQL(t *testing.T) {
 	ctx := context.Background()
-	conf := client.Config{
-		Scheme:     "http",
-		Host:       os.Getenv(weaviateEndpoint),
-		AuthConfig: auth.ResourceOwnerPasswordFlow{Username: wcsUserOnAdmin, Password: pwAdminUser},
-	}
-	c, err := client.NewClient(conf)
-	require.Nil(t, err)
 
+	admin := newClient(t, userOnAdminlist)
 	// add a class so schema is not empty
-	require.Nil(t, c.Schema().AllDeleter().Do(ctx))
-	require.Nil(t, c.Schema().ClassCreator().WithClass(&models.Class{Class: "Pizza"}).Do(ctx))
+	require.NoError(t, admin.Schema().AllDeleter().Do(ctx))
+	require.NoError(t, admin.Schema().ClassCreator().WithClass(&models.Class{Class: "Pizza"}).Do(ctx))
 
-	t.Run("returns schema without error for admin", func(t *testing.T) {
-		_, err = c.GraphQL().Raw().WithQuery("{__schema {queryType {fields {name}}}}").Do(ctx)
-		require.Nil(t, err)
-	})
-
-	t.Run("returns auth error for non-admin", func(t *testing.T) {
-		conf2 := client.Config{
-			Scheme:     "http",
-			Host:       os.Getenv(weaviateEndpoint),
-			AuthConfig: auth.ResourceOwnerPasswordFlow{Username: wcsUserNotOnAdmin, Password: pwNoAdminUser},
-		}
-		cNoAdmin, err := client.NewClient(conf2)
-		require.Nil(t, err)
-
-		_, err = cNoAdmin.GraphQL().Raw().WithQuery("{__schema {queryType {fields {name}}}}").Do(ctx)
-		require.NotNil(t, err)
-		wErr, ok := err.(*fault.WeaviateClientError)
-		require.True(t, ok)
-
-		require.Contains(t, wErr.DerivedFromError.Error(), "forbidden")
-	})
+	tests := []struct {
+		name        string
+		oidcSubject string
+		wantErr     string
+	}{
+		{name: "anonymous user", wantErr: "forbidden"},
+		{name: "valid user not on adminlist", oidcSubject: userNotOnAdminlist, wantErr: "forbidden"},
+		{name: "valid user on adminlist", oidcSubject: userOnAdminlist},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newClient(t, tt.oidcSubject).GraphQL().Raw().WithQuery(schemaQuery).Do(ctx)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			var wErr *fault.WeaviateClientError
+			require.True(t, errors.As(err, &wErr), "unexpected error: %v", err)
+			require.Contains(t, wErr.DerivedFromError.Error(), tt.wantErr)
+		})
+	}
 }
