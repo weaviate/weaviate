@@ -1098,6 +1098,9 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
+	config.DisableObjectIDEndpointsWithoutClass = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_OBJECT_ID_ENDPOINTS_WITHOUT_CLASS")))
+	config.DisableObjectsListWithoutClass = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_OBJECTS_LIST_WITHOUT_CLASS")))
+	config.DisableMultiTargetReferencesWithoutClass = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_MULTI_TARGET_REFERENCES_WITHOUT_CLASS")))
 	licenseState, err := resolveLicenseState()
 	if err != nil {
 		return err
