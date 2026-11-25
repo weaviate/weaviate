@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -182,9 +184,22 @@ func (s *Shard) removeUnrecordedVectorIndexes(ctx context.Context, dropped []str
 ) error {
 	siblings := slices.Collect(maps.Keys(active))
 	for _, name := range dropped {
-		err := s.removeVectorIndexStorage(ctx, name, vectorIndexID(name), helpers.VectorIndexArtifactsFor(name, siblings))
+		artifacts := helpers.VectorIndexArtifactsFor(name, siblings)
+		for _, bucket := range artifacts.LSMBuckets {
+			err := s.removeBucket(ctx, bucket)
+			if err != nil {
+				return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, name, err)
+			}
+		}
+		for _, dir := range artifacts.ShardDirs {
+			err := os.RemoveAll(filepath.Join(s.path(), dir))
+			if err != nil {
+				return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
+			}
+		}
+		err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), vectorIndexID(name))
 		if err != nil {
-			return err
+			return fmt.Errorf("vector %q: %w", name, err)
 		}
 	}
 	return nil

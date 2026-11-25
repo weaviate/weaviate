@@ -483,23 +483,7 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 			otherIDs = append(otherIDs, rec.PhysicalID)
 		}
 	}
-	err := s.removeVectorIndexStorage(ctx, name, physicalID, helpers.VectorIndexArtifactsForID(physicalID, otherIDs))
-	if err != nil {
-		return err
-	}
-	// the record goes last, so a failed drop keeps it for the retry
-	err = s.mapping.Delete(name)
-	if err != nil {
-		return fmt.Errorf("drop mapping record for vector %q: %w", name, err)
-	}
-	return nil
-}
-
-// removeVectorIndexStorage deletes artifacts, what name's index at physicalID
-// owns, and its dynamic state key.
-func (s *Shard) removeVectorIndexStorage(ctx context.Context, name, physicalID string,
-	artifacts helpers.VectorIndexArtifacts,
-) error {
+	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
 	for _, bucket := range artifacts.LSMBuckets {
 		err := s.removeBucket(ctx, bucket)
 		if err != nil {
@@ -515,6 +499,11 @@ func (s *Shard) removeVectorIndexStorage(ctx context.Context, name, physicalID s
 	err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", name, err)
+	}
+	// the record goes last, so a failed drop keeps it for the retry
+	err = s.mapping.Delete(name)
+	if err != nil {
+		return fmt.Errorf("drop mapping record for vector %q: %w", name, err)
 	}
 	return nil
 }
