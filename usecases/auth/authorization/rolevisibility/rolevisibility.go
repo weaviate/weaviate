@@ -75,7 +75,7 @@ func RolePoliciesVisibleToPrincipal(ctx context.Context, authorizer authorizatio
 	}
 	// List endpoints run this for every role, so stop at the first policy the caller lacks.
 	for i := range policies {
-		if AuthorizePolicies(ctx, authorizer, principal, namespace, policies[i:i+1]) != nil {
+		if AuthorizePolicies(ctx, authorizer, namespacesEnabled, principal, namespace, policies[i:i+1]) != nil {
 			return false
 		}
 	}
@@ -104,7 +104,7 @@ func AuthorizeRolePermissions(ctx context.Context, authorizer authorization.Auth
 				errs = errors.Join(errs, err)
 				continue
 			}
-			errs = errors.Join(errs, authorizeResource(ctx, authorizer, principal, policy.Verb, resource))
+			errs = errors.Join(errs, authorizeResource(ctx, authorizer, namespacesEnabled, principal, policy.Verb, resource))
 		}
 	}
 	return errs
@@ -112,7 +112,7 @@ func AuthorizeRolePermissions(ctx context.Context, authorizer authorization.Auth
 
 // AuthorizePolicies returns an error unless the caller holds every permission
 // the policies grant, projecting each resource into a non-empty namespace first.
-func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, namespace string, policies []authorization.Policy) error {
+func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer, namespacesEnabled bool, principal *models.Principal, namespace string, policies []authorization.Policy) error {
 	var errs error
 	for _, policy := range policies {
 		// Permission-less roles carry this placeholder; it grants nothing.
@@ -126,7 +126,7 @@ func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer,
 			errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
 			continue
 		}
-		errs = errors.Join(errs, authorizeResource(ctx, authorizer, principal, policy.Verb, resource))
+		errs = errors.Join(errs, authorizeResource(ctx, authorizer, namespacesEnabled, principal, policy.Verb, resource))
 	}
 	return errs
 }
@@ -135,7 +135,7 @@ func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer,
 // A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*",
 // and the result must also pass with each name at its shortest. A wildcard passes
 // all of these, and so can a pattern that excludes names, such as "[^a]*".
-func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, verb, resource string) error {
+func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, namespacesEnabled bool, principal *models.Principal, verb, resource string) error {
 	wildcard := regexSegmentsToWildcard(resource)
 	// A caller pattern such as ".." matches the text ".*" without holding
 	// every name, so the stored text must pass as well.
@@ -148,21 +148,25 @@ func authorizeResource(ctx context.Context, authorizer authorization.Authorizer,
 		return err
 	}
 	// A caller pattern such as "a.." matches the text "a.*" but not "a".
-	if shortest := shortestNames(wildcard); shortest != wildcard {
+	if shortest := shortestNames(wildcard, namespacesEnabled); shortest != wildcard {
 		return authorizePolicy(ctx, authorizer, principal, verb, shortest)
 	}
 	return nil
 }
 
-// shortestNames drops each ".*" from resource, leaving "X" where a name or
-// namespace would be empty, since none is.
-func shortestNames(resource string) string {
+// shortestNames drops each ".*" from resource, leaving "X" where a name would
+// be empty, since none is. Names end at '/', and at the ':' after a namespace
+// only when namespaces are enabled; otherwise ':' is part of an opaque ID.
+func shortestNames(resource string, namespacesEnabled bool) string {
 	if !strings.Contains(resource, ".*") {
 		return resource
 	}
 	segments := strings.Split(resource, "/")
 	for i, segment := range segments {
-		parts := strings.Split(segment, ":")
+		parts := []string{segment}
+		if namespacesEnabled {
+			parts = strings.Split(segment, ":")
+		}
 		for j, part := range parts {
 			if short := strings.ReplaceAll(part, ".*", ""); short != part {
 				parts[j] = cmp.Or(short, "X")

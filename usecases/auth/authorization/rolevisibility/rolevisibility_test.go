@@ -412,6 +412,9 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		updateUsers("customer1-a-users", "customer1:a*"),
 		updateUsers("a-and-two-colon-bob", "a..:bob"),
 		updateUsers("a-colon-bob", "a*:bob"),
+		updateUsers("a-colon-non-empty", "a:.*"),
+		updateUsers("a-colon-any", "a:*"),
+		updateUsers("customer1-users", "customer1:*"),
 		role("bob-reader", authorization.ReadUsers, users("bob")),
 		role("foreign-movies-reader", authorization.ReadCollections, collections("customer2:Movies")),
 	)
@@ -459,6 +462,8 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "an optional prefix character reaching past the caller's pattern is refused", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-optional-users"}, wantDenied: deniedAllUsers},
 		{name: "a caller wildcard covers itself and a longer prefix", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-users", "ab-users"}},
 		{name: "a caller pattern needing more before a colon does not cover the wildcard there", caller: "caller", callerRoles: []string{"a-and-two-colon-bob"}, targetRoles: []string{"a-colon-bob"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a:bob]]"},
+		{name: "a caller pattern needing more after a colon does not cover the wildcard there", caller: "caller", callerRoles: []string{"a-colon-non-empty"}, targetRoles: []string{"a-colon-any"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a:]]"},
+		{name: "a confined caller pattern matching every non-empty name covers its namespace's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"customer1-users"}, namespacesEnabled: true},
 		{name: "a caller pattern matching every non-empty name covers a wildcard and an alternation", caller: "caller", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"user-updater", "eu-or-admin-users"}},
 		{name: "a confined caller pattern needing more after a prefix does not cover the prefix's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"customer1-a-and-two-users"}, targetRoles: []string{"customer1-a-users"}, namespacesEnabled: true, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a]]"},
 		{name: "global caller: a bare user grant is checked in the target's namespace", namespacesEnabled: true, caller: "ops", callerRoles: []string{"bob-reader"}, targetNamespace: "customer1", targetRoles: []string{"bob-reader"}, wantDenied: "rbac: authorization, forbidden action: user 'ops' has insufficient permissions to read_users [[Domain: users, User: customer1:bob]]"},
