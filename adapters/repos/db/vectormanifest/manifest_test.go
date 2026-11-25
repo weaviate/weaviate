@@ -63,7 +63,7 @@ func loaded(t *testing.T, dir string, names ...string) *Manifest {
 	for _, name := range names {
 		schema[name] = enthnsw.NewDefaultUserConfig()
 	}
-	entries, firstLoad, err := m.Open(t.Context(), schema)
+	entries, firstLoad, err := m.Open(t.Context(), schema, nil)
 	require.NoError(t, err)
 	require.True(t, firstLoad)
 	for _, e := range entries {
@@ -87,7 +87,7 @@ func TestManifest_FirstLoad(t *testing.T) {
 	cfg := enthnsw.NewDefaultUserConfig()
 	schema := schemaVectors{"": cfg, "title": cfg}
 
-	entries, firstLoad, err := m.Open(t.Context(), schema)
+	entries, firstLoad, err := m.Open(t.Context(), schema, nil)
 	require.NoError(t, err)
 	assert.True(t, firstLoad)
 	assert.Equal(t, []Entry{
@@ -113,7 +113,7 @@ func TestManifest_FirstLoad(t *testing.T) {
 
 func TestManifest_FirstLoadWithoutVectors(t *testing.T) {
 	m := openTestManifest(t, t.TempDir())
-	entries, firstLoad, err := m.Open(t.Context(), nil)
+	entries, firstLoad, err := m.Open(t.Context(), nil, nil)
 	require.NoError(t, err)
 	assert.True(t, firstLoad)
 	assert.Empty(t, entries)
@@ -183,7 +183,7 @@ func TestManifest_Open(t *testing.T) {
 				buildHNSW(t, dir, tt.storage)
 			}
 
-			entries, firstLoad, err := m.Open(t.Context(), tt.schema)
+			entries, firstLoad, err := m.Open(t.Context(), tt.schema, nil)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -209,6 +209,63 @@ func TestManifest_Open(t *testing.T) {
 	}
 }
 
+// A vector that is dropped and no longer in the schema goes with its files,
+// whatever the load found recorded of it.
+func TestManifest_OpenFinishesADropItWasToldOf(t *testing.T) {
+	cfg := enthnsw.NewDefaultUserConfig()
+	tests := []struct {
+		name      string
+		firstLoad bool
+		schema    schemaVectors
+		wantFiles bool
+	}{
+		{name: "recorded ready", schema: schemaVectors{"foo_muvera_vectors": cfg}},
+		{name: "no records yet", firstLoad: true, schema: schemaVectors{"foo_muvera_vectors": cfg}},
+		{name: "still in the schema", schema: schemaVectors{"foo": cfg, "foo_muvera_vectors": cfg}, wantFiles: true},
+		{name: "still in the schema, no records yet", firstLoad: true, schema: schemaVectors{"foo": cfg, "foo_muvera_vectors": cfg}, wantFiles: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			m := openTestManifest(t, dir)
+			if !tt.firstLoad {
+				require.NoError(t, m.records.Initialize(map[string]record{
+					"foo":                recordFor("foo", cfg, stateReady),
+					"foo_muvera_vectors": recordFor("foo_muvera_vectors", cfg, stateReady),
+				}))
+			}
+			own := []string{
+				filepath.Join(dir, "lsm", "vectors_foo"),
+				filepath.Join(dir, "vectors_foo.hnsw.commitlog.d"),
+				filepath.Join(dir, "vectors_foo.queue.d"),
+			}
+			sibling := filepath.Join(dir, "lsm", "vectors_foo_muvera_vectors")
+			plant(t, append(own, sibling)...)
+			key := []byte("upgraded_foo")
+			require.NoError(t, m.state.Put(key, []byte{1}))
+
+			entries, firstLoad, err := m.Open(t.Context(), tt.schema, []string{"foo", "never existed"})
+			require.NoError(t, err)
+			assert.Equal(t, tt.firstLoad, firstLoad)
+			assert.Len(t, entries, len(tt.schema))
+
+			for _, path := range own {
+				_, err := os.Stat(path)
+				assert.Equal(t, tt.wantFiles, err == nil, path)
+			}
+			assert.DirExists(t, sibling)
+			state, err := m.state.Get(key)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantFiles, state != nil, "the dynamic index's state")
+			if !tt.firstLoad {
+				_, ok, err := m.records.Get("foo")
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantFiles, ok)
+			}
+		})
+	}
+}
+
 // Records that share a queue or files refuse the load before anything goes.
 func TestManifest_OpenRefusesSharedFiles(t *testing.T) {
 	dir := t.TempDir()
@@ -218,7 +275,7 @@ func TestManifest_OpenRefusesSharedFiles(t *testing.T) {
 	bucket := filepath.Join(dir, "lsm", "vectors_a-b")
 	plant(t, bucket)
 
-	_, _, err := m.Open(t.Context(), nil)
+	_, _, err := m.Open(t.Context(), nil, nil)
 	require.ErrorContains(t, err, `vectors "a" and "b" both name "vectors_a-b"`)
 	assert.DirExists(t, bucket)
 }
