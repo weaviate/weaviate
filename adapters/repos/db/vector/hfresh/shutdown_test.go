@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -282,4 +283,66 @@ func TestHFreshShutdownControls(t *testing.T) {
 	h := &HFresh{}
 	require.NoError(t, h.Shutdown(context.Background()))
 	require.NoError(t, h.Drop(context.Background()))
+}
+
+func TestHFreshRetriesInterruptedCentroidShutdown(t *testing.T) {
+	for _, commitlog := range []bool{false, true} {
+		for _, drop := range []bool{false, true} {
+			t.Run(fmt.Sprintf("commitlog=%t/drop=%t", commitlog, drop), func(t *testing.T) {
+				cfg, uc := makeHFreshConfig(t)
+				defer cfg.Scheduler.Close(context.Background())
+				started, release := make(chan struct{}), make(chan struct{})
+				var once sync.Once
+				unblock := func() { once.Do(func() { close(release) }) }
+				callbacks := &heldShutdownCallbacks{
+					CycleCallbackGroup: cyclemanager.NewCallbackGroup("held-centroid", cfg.Logger, 1),
+					started:            started, release: release,
+				}
+				if commitlog {
+					cfg.Centroids.HNSWConfig.MakeCommitLoggerThunk = func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+						return hnsw.NewCommitLogger(cfg.RootPath, "centroids", cfg.Logger, callbacks, opts...)
+					}
+				} else {
+					cfg.TombstoneCallbacks = callbacks
+				}
+				store := testinghelpers.NewDummyStore(t)
+				createObjectsBucket(t, store)
+				h, err := New(cfg, uc, store)
+				require.NoError(t, err)
+				done := make(chan struct{})
+				enterrors.GoWrapper(func() { callbacks.CycleCallback(func() bool { return false }); close(done) }, cfg.Logger)
+				defer func() { unblock(); <-done; h.Shutdown(context.Background()); store.Shutdown(context.Background()) }()
+				<-started
+				closeIndex := h.Shutdown
+				if drop {
+					closeIndex = h.Drop
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+				defer cancel()
+				err = closeIndex(ctx)
+				require.ErrorIs(t, err, context.DeadlineExceeded, "centroid drain interruption must be reported")
+				ctx, cancelAgain := context.WithCancel(context.Background())
+				cancelAgain()
+				require.ErrorIs(t, h.Drop(ctx), context.Canceled, "drop must retain an interrupted centroid drain")
+				unblock()
+				<-done
+				require.NoError(t, closeIndex(context.Background()), "centroid shutdown must be retryable after its callback finishes")
+				require.NoError(t, h.Drop(context.Background()))
+			})
+		}
+	}
+}
+
+type heldShutdownCallbacks struct {
+	cyclemanager.CycleCallbackGroup
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (g *heldShutdownCallbacks) Register(id string, _ cyclemanager.CycleCallback, opts ...cyclemanager.RegisterOption) cyclemanager.CycleCallbackCtrl {
+	return g.CycleCallbackGroup.Register(id, func(cyclemanager.ShouldAbortCallback) bool {
+		g.once.Do(func() { close(g.started); <-g.release })
+		return false
+	}, opts...)
 }

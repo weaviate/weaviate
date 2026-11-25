@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/entities/models"
@@ -629,4 +630,60 @@ func (d heldShutdownTask) Execute(ctx context.Context) error {
 	close(d.started)
 	<-d.release
 	return ctx.Err()
+}
+
+func TestIndexDropRetriesUndrainedShard(t *testing.T) {
+	for _, firstWholeIndex := range []bool{false, true} {
+		for _, retryWholeIndex := range []bool{false, true} {
+			if firstWholeIndex && !retryWholeIndex {
+				continue // whole-index close permanently refuses ordinary shard operations
+			}
+			for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+				t.Run(fmt.Sprintf("whole=%t/retryWhole=%t/%v", firstWholeIndex, retryWholeIndex, cause), func(t *testing.T) {
+					sl, idx := testShard(t, context.Background(), "IndexDrainFailure")
+					s := sl.(*Shard)
+					vi, release, ok := s.AcquireVectorIndex("")
+					require.True(t, ok)
+					release()
+					require.True(t, s.vectors.Replace("", &undrainedVectorIndex{VectorIndex: vi, err: cause}))
+					t.Cleanup(func() { s.vectors.Replace("", vi); s.drop() })
+					ns := s.metadataDB.Namespace("index-drain")
+					require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+					drop := func(whole bool) error {
+						if whole {
+							return idx.drop()
+						}
+						return idx.dropShards([]string{s.Name()})
+					}
+					err := drop(firstWholeIndex)
+					require.ErrorIs(t, err, cause)
+					for range 2 {
+						err = drop(retryWholeIndex)
+						require.ErrorIs(t, err, cause, "index drop must retry the retained worker's drain")
+						require.DirExists(t, s.path(), "index drop must retain an undrained shard's directory")
+						value, err := ns.Get([]byte("key"))
+						require.NoError(t, err)
+						require.Equal(t, []byte("value"), value)
+					}
+					if !retryWholeIndex {
+						idx.purgeUnloadedShardRegistry([]string{s.Name()})
+						require.ErrorIs(t, lsmkv.GlobalBucketRegistry.TryAdd(path.Join(s.pathLSM(), helpers.ObjectsBucketLSM)), lsmkv.ErrBucketAlreadyRegistered,
+							"a pending drop must keep its live bucket registration")
+						// A failed deletion is reachable only for teardown, never for reloading.
+						alloc := idx.allocChecker
+						idx.allocChecker = failingAllocChecker{}
+						_, release, err := idx.getOrInitShard(context.Background(), s.Name())
+						release()
+						idx.allocChecker = alloc
+						require.ErrorIs(t, err, errDropInProgress, "an undrained shard must not be reopened")
+						require.ErrorIs(t, idx.LoadLocalShardForMovement(context.Background(), s.Name()), errDropInProgress)
+						require.ErrorIs(t, idx.LoadLocalShardForTenantAdd(context.Background(), s.Name()), errDropInProgress)
+					}
+					require.True(t, s.vectors.Replace("", vi))
+					require.NoError(t, drop(retryWholeIndex), "index drop must finish after the retained worker drains")
+					require.NoDirExists(t, s.path())
+				})
+			}
+		}
+	}
 }
