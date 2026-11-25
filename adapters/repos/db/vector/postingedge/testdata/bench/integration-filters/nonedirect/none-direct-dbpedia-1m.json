@@ -1,0 +1,1146 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "index": "/Volumes/v40bench/v54/flatnone/pe",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 1000,
+  "k": 10,
+  "filters": [
+    {
+      "name": "random 500",
+      "kind": "random",
+      "allowed": 500,
+      "drawn": true,
+      "seed": 4005,
+      "direct": {
+        "recall": 1,
+        "reads": 500,
+        "readsMin": 500,
+        "readsMax": 500,
+        "bytes": 3072000,
+        "seconds": 0.54374
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.995,
+          "loads": 1952.33,
+          "blocks": 3904.66,
+          "blockBytes": 121683289.58,
+          "rescored": 64,
+          "routingReads": 3968.66,
+          "routingBytes": 122076505.58,
+          "noneReadsComputed": 5920.99,
+          "seconds": 32.376487917
+        },
+        {
+          "target": 0.99,
+          "ef": 10,
+          "recall": 0.995,
+          "loads": 1952.33,
+          "blocks": 3904.66,
+          "blockBytes": 121683289.58,
+          "rescored": 64,
+          "routingReads": 3968.66,
+          "routingBytes": 122076505.58,
+          "noneReadsComputed": 5920.99,
+          "seconds": 32.376487917
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.995,
+          "loads": 1952.33,
+          "blocks": 3904.66,
+          "blockBytes": 121683289.58,
+          "rescored": 64,
+          "routingReads": 3968.66,
+          "routingBytes": 122076505.58,
+          "noneReadsComputed": 5920.99,
+          "seconds": 32.376487917
+        },
+        {
+          "ef": 20,
+          "recall": 0.9994,
+          "loads": 2680.57,
+          "blocks": 5361.14,
+          "blockBytes": 165562910.06,
+          "rescored": 64,
+          "routingReads": 5425.14,
+          "routingBytes": 165956126.06,
+          "noneReadsComputed": 8105.710000000001,
+          "seconds": 44.883143167
+        }
+      ],
+      "bestRecall": 0.9994
+    },
+    {
+      "name": "random 1000",
+      "kind": "random",
+      "allowed": 1000,
+      "drawn": true,
+      "seed": 4010,
+      "direct": {
+        "recall": 1,
+        "reads": 1000,
+        "readsMin": 1000,
+        "readsMax": 1000,
+        "bytes": 6144000,
+        "seconds": 1.013024334
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.9916,
+          "loads": 1297.802,
+          "blocks": 2595.604,
+          "blockBytes": 81551711.696,
+          "rescored": 63.981,
+          "routingReads": 2659.585,
+          "routingBytes": 81944810.96,
+          "noneReadsComputed": 3957.3869999999997,
+          "seconds": 21.077916417
+        },
+        {
+          "target": 0.99,
+          "ef": 10,
+          "recall": 0.9916,
+          "loads": 1297.802,
+          "blocks": 2595.604,
+          "blockBytes": 81551711.696,
+          "rescored": 63.981,
+          "routingReads": 2659.585,
+          "routingBytes": 81944810.96,
+          "noneReadsComputed": 3957.3869999999997,
+          "seconds": 21.077916417
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.9916,
+          "loads": 1297.802,
+          "blocks": 2595.604,
+          "blockBytes": 81551711.696,
+          "rescored": 63.981,
+          "routingReads": 2659.585,
+          "routingBytes": 81944810.96,
+          "noneReadsComputed": 3957.3869999999997,
+          "seconds": 21.077916417
+        },
+        {
+          "ef": 20,
+          "recall": 0.9984,
+          "loads": 1955.906,
+          "blocks": 3911.812,
+          "blockBytes": 121954857.794,
+          "rescored": 64,
+          "routingReads": 3975.812,
+          "routingBytes": 122348073.794,
+          "noneReadsComputed": 5931.718,
+          "seconds": 31.024238042
+        },
+        {
+          "ef": 40,
+          "recall": 0.9998,
+          "loads": 2677.118,
+          "blocks": 5354.236,
+          "blockBytes": 165406919.646,
+          "rescored": 64,
+          "routingReads": 5418.236,
+          "routingBytes": 165800135.646,
+          "noneReadsComputed": 8095.353999999999,
+          "seconds": 42.063036
+        }
+      ],
+      "bestRecall": 0.9998
+    },
+    {
+      "name": "random 2000",
+      "kind": "random",
+      "allowed": 2000,
+      "drawn": true,
+      "seed": 4020,
+      "direct": {
+        "recall": 1,
+        "reads": 2000,
+        "readsMin": 2000,
+        "readsMax": 2000,
+        "bytes": 12288000,
+        "seconds": 1.987555958
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.9878,
+          "loads": 849.478,
+          "blocks": 1698.956,
+          "blockBytes": 53708725.191,
+          "rescored": 63.851,
+          "routingReads": 1762.8069999999998,
+          "routingBytes": 54101025.735,
+          "noneReadsComputed": 2612.285,
+          "seconds": 13.724248458
+        },
+        {
+          "target": 0.99,
+          "ef": 11,
+          "recall": 0.9901,
+          "loads": 905.874,
+          "blocks": 1811.748,
+          "blockBytes": 57223972.262,
+          "rescored": 63.881,
+          "routingReads": 1875.6290000000001,
+          "routingBytes": 57616457.126,
+          "noneReadsComputed": 2781.503,
+          "seconds": 14.54646975
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.9878,
+          "loads": 849.478,
+          "blocks": 1698.956,
+          "blockBytes": 53708725.191,
+          "rescored": 63.851,
+          "routingReads": 1762.8069999999998,
+          "routingBytes": 54101025.735,
+          "noneReadsComputed": 2612.285,
+          "seconds": 13.724248458
+        },
+        {
+          "ef": 20,
+          "recall": 0.9973,
+          "loads": 1346.458,
+          "blocks": 2692.916,
+          "blockBytes": 84565351.022,
+          "rescored": 64,
+          "routingReads": 2756.916,
+          "routingBytes": 84958567.022,
+          "noneReadsComputed": 4103.374,
+          "seconds": 21.211291
+        },
+        {
+          "ef": 40,
+          "recall": 0.9993,
+          "loads": 2001.266,
+          "blocks": 4002.532,
+          "blockBytes": 124696433.433,
+          "rescored": 64,
+          "routingReads": 4066.532,
+          "routingBytes": 125089649.433,
+          "noneReadsComputed": 6067.798000000001,
+          "seconds": 31.46078575
+        }
+      ],
+      "bestRecall": 0.9993
+    },
+    {
+      "name": "random 5000",
+      "kind": "random",
+      "allowed": 5000,
+      "drawn": true,
+      "seed": 4050,
+      "direct": {
+        "recall": 1,
+        "reads": 5000,
+        "readsMin": 5000,
+        "readsMax": 5000,
+        "bytes": 30720000,
+        "seconds": 4.905014625
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.984,
+          "loads": 432.746,
+          "blocks": 865.492,
+          "blockBytes": 27552354.168,
+          "rescored": 63.63,
+          "routingReads": 929.122,
+          "routingBytes": 27943296.888,
+          "noneReadsComputed": 1361.868,
+          "seconds": 7.143867334
+        },
+        {
+          "target": 0.99,
+          "ef": 15,
+          "recall": 0.9905,
+          "loads": 576.226,
+          "blocks": 1152.452,
+          "blockBytes": 36591969.005,
+          "rescored": 63.878,
+          "routingReads": 1216.33,
+          "routingBytes": 36984435.437,
+          "noneReadsComputed": 1792.556,
+          "seconds": 9.406073708
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.984,
+          "loads": 432.746,
+          "blocks": 865.492,
+          "blockBytes": 27552354.168,
+          "rescored": 63.63,
+          "routingReads": 929.122,
+          "routingBytes": 27943296.888,
+          "noneReadsComputed": 1361.868,
+          "seconds": 7.143867334
+        },
+        {
+          "ef": 20,
+          "recall": 0.9943,
+          "loads": 709.914,
+          "blocks": 1419.828,
+          "blockBytes": 44974182.226,
+          "rescored": 63.943,
+          "routingReads": 1483.771,
+          "routingBytes": 45367048.01800001,
+          "noneReadsComputed": 2193.685,
+          "seconds": 11.849573625
+        },
+        {
+          "ef": 40,
+          "recall": 0.9986,
+          "loads": 1149.362,
+          "blocks": 2298.724,
+          "blockBytes": 72384758.339,
+          "rescored": 64,
+          "routingReads": 2362.724,
+          "routingBytes": 72777974.339,
+          "noneReadsComputed": 3512.0860000000002,
+          "seconds": 18.44685125
+        },
+        {
+          "ef": 80,
+          "recall": 0.9995,
+          "loads": 1760.17,
+          "blocks": 3520.34,
+          "blockBytes": 110033441.346,
+          "rescored": 64,
+          "routingReads": 3584.34,
+          "routingBytes": 110426657.346,
+          "noneReadsComputed": 5344.51,
+          "seconds": 28.218899917
+        }
+      ],
+      "bestRecall": 0.9995
+    },
+    {
+      "name": "random 10000",
+      "kind": "random",
+      "allowed": 10000,
+      "drawn": true,
+      "seed": 4100,
+      "direct": {
+        "recall": 1,
+        "reads": 10000,
+        "readsMin": 10000,
+        "readsMax": 10000,
+        "bytes": 61440000,
+        "seconds": 9.830702958
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.9767,
+          "loads": 255.678,
+          "blocks": 511.356,
+          "blockBytes": 16373381.479,
+          "rescored": 63.593,
+          "routingReads": 574.949,
+          "routingBytes": 16764096.871000001,
+          "noneReadsComputed": 830.627,
+          "seconds": 4.292424958
+        },
+        {
+          "target": 0.99,
+          "ef": 18,
+          "recall": 0.9906,
+          "loads": 394.514,
+          "blocks": 789.028,
+          "blockBytes": 25155368.48,
+          "rescored": 63.901,
+          "routingReads": 852.929,
+          "routingBytes": 25547976.224,
+          "noneReadsComputed": 1247.443,
+          "seconds": 6.433364208
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.9767,
+          "loads": 255.678,
+          "blocks": 511.356,
+          "blockBytes": 16373381.479,
+          "rescored": 63.593,
+          "routingReads": 574.949,
+          "routingBytes": 16764096.871000001,
+          "noneReadsComputed": 830.627,
+          "seconds": 4.292424958
+        },
+        {
+          "ef": 20,
+          "recall": 0.9926,
+          "loads": 425.302,
+          "blocks": 850.604,
+          "blockBytes": 27096479.563,
+          "rescored": 63.946,
+          "routingReads": 914.5500000000001,
+          "routingBytes": 27489363.787,
+          "noneReadsComputed": 1339.852,
+          "seconds": 7.039835708
+        },
+        {
+          "ef": 40,
+          "recall": 0.9986,
+          "loads": 712.326,
+          "blocks": 1424.652,
+          "blockBytes": 45141992.08,
+          "rescored": 64,
+          "routingReads": 1488.652,
+          "routingBytes": 45535208.08,
+          "noneReadsComputed": 2200.978,
+          "seconds": 11.723713125
+        },
+        {
+          "ef": 80,
+          "recall": 0.9996,
+          "loads": 1155.222,
+          "blocks": 2310.444,
+          "blockBytes": 72751334.174,
+          "rescored": 64,
+          "routingReads": 2374.444,
+          "routingBytes": 73144550.174,
+          "noneReadsComputed": 3529.666,
+          "seconds": 18.941038416
+        }
+      ],
+      "bestRecall": 0.9996
+    },
+    {
+      "name": "random 1 %",
+      "kind": "random",
+      "allowed": 9900,
+      "drawn": false,
+      "direct": {
+        "recall": 1,
+        "reads": 9900,
+        "readsMin": 9900,
+        "readsMax": 9900,
+        "bytes": 60825600,
+        "seconds": 9.799491584
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.9756,
+          "loads": 258.462,
+          "blocks": 516.924,
+          "blockBytes": 16552761.401,
+          "rescored": 63.594,
+          "routingReads": 580.518,
+          "routingBytes": 16943482.937,
+          "noneReadsComputed": 838.98,
+          "seconds": 4.513715166
+        },
+        {
+          "target": 0.99,
+          "ef": 18,
+          "recall": 0.9913,
+          "loads": 400.558,
+          "blocks": 801.116,
+          "blockBytes": 25538732.963,
+          "rescored": 63.93,
+          "routingReads": 865.0459999999999,
+          "routingBytes": 25931518.883,
+          "noneReadsComputed": 1265.6039999999998,
+          "seconds": 7.022487291
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.9756,
+          "loads": 258.462,
+          "blocks": 516.924,
+          "blockBytes": 16552761.401,
+          "rescored": 63.594,
+          "routingReads": 580.518,
+          "routingBytes": 16943482.937,
+          "noneReadsComputed": 838.98,
+          "seconds": 4.513715166
+        },
+        {
+          "ef": 20,
+          "recall": 0.9926,
+          "loads": 432.978,
+          "blocks": 865.956,
+          "blockBytes": 27583552.856,
+          "rescored": 63.939,
+          "routingReads": 929.895,
+          "routingBytes": 27976394.071999997,
+          "noneReadsComputed": 1362.873,
+          "seconds": 7.173977584
+        },
+        {
+          "ef": 40,
+          "recall": 0.9979,
+          "loads": 721.234,
+          "blocks": 1442.468,
+          "blockBytes": 45707324.3,
+          "rescored": 64,
+          "routingReads": 1506.468,
+          "routingBytes": 46100540.3,
+          "noneReadsComputed": 2227.702,
+          "seconds": 12.437249625
+        },
+        {
+          "ef": 80,
+          "recall": 0.9995,
+          "loads": 1167.338,
+          "blocks": 2334.676,
+          "blockBytes": 73508859.887,
+          "rescored": 64,
+          "routingReads": 2398.676,
+          "routingBytes": 73902075.887,
+          "noneReadsComputed": 3566.014,
+          "seconds": 19.549425208
+        }
+      ],
+      "bestRecall": 0.9995
+    },
+    {
+      "name": "random 0.1 %",
+      "kind": "random",
+      "allowed": 990,
+      "drawn": false,
+      "direct": {
+        "recall": 1,
+        "reads": 990,
+        "readsMin": 990,
+        "readsMax": 990,
+        "bytes": 6082560,
+        "seconds": 1.024408833
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.9929,
+          "loads": 1320.398,
+          "blocks": 2640.796,
+          "blockBytes": 82918185.463,
+          "rescored": 63.898,
+          "routingReads": 2704.694,
+          "routingBytes": 83310774.775,
+          "noneReadsComputed": 4025.0919999999996,
+          "seconds": 21.697615875
+        },
+        {
+          "target": 0.99,
+          "ef": 10,
+          "recall": 0.9929,
+          "loads": 1320.398,
+          "blocks": 2640.796,
+          "blockBytes": 82918185.463,
+          "rescored": 63.898,
+          "routingReads": 2704.694,
+          "routingBytes": 83310774.775,
+          "noneReadsComputed": 4025.0919999999996,
+          "seconds": 21.697615875
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.9929,
+          "loads": 1320.398,
+          "blocks": 2640.796,
+          "blockBytes": 82918185.463,
+          "rescored": 63.898,
+          "routingReads": 2704.694,
+          "routingBytes": 83310774.775,
+          "noneReadsComputed": 4025.0919999999996,
+          "seconds": 21.697615875
+        },
+        {
+          "ef": 20,
+          "recall": 0.9988,
+          "loads": 1970.198,
+          "blocks": 3940.396,
+          "blockBytes": 122774440.324,
+          "rescored": 64,
+          "routingReads": 4004.396,
+          "routingBytes": 123167656.324,
+          "noneReadsComputed": 5974.594,
+          "seconds": 32.078710458
+        },
+        {
+          "ef": 40,
+          "recall": 0.9998,
+          "loads": 2685.694,
+          "blocks": 5371.388,
+          "blockBytes": 165860878.006,
+          "rescored": 64,
+          "routingReads": 5435.388,
+          "routingBytes": 166254094.006,
+          "noneReadsComputed": 8121.082,
+          "seconds": 41.241601292
+        }
+      ],
+      "bestRecall": 0.9998
+    },
+    {
+      "name": "near 1 %",
+      "kind": "near",
+      "allowed": 9900,
+      "drawn": false,
+      "direct": {
+        "recall": 1,
+        "reads": 9900,
+        "readsMin": 9900,
+        "readsMax": 9900,
+        "bytes": 60825600,
+        "seconds": 12.396893042
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 12,
+          "recall": 0.9513,
+          "loads": 21.7,
+          "blocks": 43.4,
+          "blockBytes": 1415113.452,
+          "rescored": 63.876,
+          "routingReads": 107.276,
+          "routingBytes": 1807567.5960000001,
+          "noneReadsComputed": 128.976,
+          "seconds": 0.4313515
+        },
+        {
+          "target": 0.99,
+          "ef": 54,
+          "recall": 0.99,
+          "loads": 60.538,
+          "blocks": 121.076,
+          "blockBytes": 3928894.437,
+          "rescored": 64,
+          "routingReads": 185.076,
+          "routingBytes": 4322110.437,
+          "noneReadsComputed": 245.61399999999998,
+          "seconds": 1.082950458
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.9409,
+          "loads": 19.276,
+          "blocks": 38.552,
+          "blockBytes": 1257011.037,
+          "rescored": 63.841,
+          "routingReads": 102.393,
+          "routingBytes": 1649250.141,
+          "noneReadsComputed": 121.669,
+          "seconds": 0.376068084
+        },
+        {
+          "ef": 20,
+          "recall": 0.9692,
+          "loads": 30.07,
+          "blocks": 60.14,
+          "blockBytes": 1960421.407,
+          "rescored": 63.982,
+          "routingReads": 124.122,
+          "routingBytes": 2353526.815,
+          "noneReadsComputed": 154.192,
+          "seconds": 0.56622675
+        },
+        {
+          "ef": 40,
+          "recall": 0.9851,
+          "loads": 48.758,
+          "blocks": 97.516,
+          "blockBytes": 3170930.296,
+          "rescored": 64,
+          "routingReads": 161.51600000000002,
+          "routingBytes": 3564146.296,
+          "noneReadsComputed": 210.27400000000003,
+          "seconds": 0.87748975
+        },
+        {
+          "ef": 80,
+          "recall": 0.9934,
+          "loads": 79.954,
+          "blocks": 159.908,
+          "blockBytes": 5178663.201,
+          "rescored": 64,
+          "routingReads": 223.908,
+          "routingBytes": 5571879.201,
+          "noneReadsComputed": 303.86199999999997,
+          "seconds": 1.409497042
+        },
+        {
+          "ef": 160,
+          "recall": 0.9961,
+          "loads": 133.494,
+          "blocks": 266.988,
+          "blockBytes": 8597410.301,
+          "rescored": 64,
+          "routingReads": 330.988,
+          "routingBytes": 8990626.301,
+          "noneReadsComputed": 464.48199999999997,
+          "seconds": 2.319848708
+        },
+        {
+          "ef": 320,
+          "recall": 0.9987,
+          "loads": 224.01,
+          "blocks": 448.02,
+          "blockBytes": 14354558.548,
+          "rescored": 64,
+          "routingReads": 512.02,
+          "routingBytes": 14747774.548,
+          "noneReadsComputed": 736.03,
+          "seconds": 3.788131792
+        },
+        {
+          "ef": 640,
+          "recall": 0.9992,
+          "loads": 383.05,
+          "blocks": 766.1,
+          "blockBytes": 24372113.215,
+          "rescored": 64,
+          "routingReads": 830.1,
+          "routingBytes": 24765329.215,
+          "noneReadsComputed": 1213.15,
+          "seconds": 6.616044916
+        }
+      ],
+      "bestRecall": 0.9992
+    },
+    {
+      "name": "near 0.1 %",
+      "kind": "near",
+      "allowed": 990,
+      "drawn": false,
+      "direct": {
+        "recall": 1,
+        "reads": 990,
+        "readsMin": 990,
+        "readsMax": 990,
+        "bytes": 6082560,
+        "seconds": 0.999492875
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.9586,
+          "loads": 50.026,
+          "blocks": 100.052,
+          "blockBytes": 3239414.336,
+          "rescored": 63.7,
+          "routingReads": 163.752,
+          "routingBytes": 3630787.136,
+          "noneReadsComputed": 213.77800000000002,
+          "seconds": 0.907010125
+        },
+        {
+          "target": 0.99,
+          "ef": 30,
+          "recall": 0.9904,
+          "loads": 107.258,
+          "blocks": 214.516,
+          "blockBytes": 6911473.024,
+          "rescored": 63.995,
+          "routingReads": 278.51099999999997,
+          "routingBytes": 7304658.3040000005,
+          "noneReadsComputed": 385.76899999999995,
+          "seconds": 1.811377083
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.9586,
+          "loads": 50.026,
+          "blocks": 100.052,
+          "blockBytes": 3239414.336,
+          "rescored": 63.7,
+          "routingReads": 163.752,
+          "routingBytes": 3630787.136,
+          "noneReadsComputed": 213.77800000000002,
+          "seconds": 0.907010125
+        },
+        {
+          "ef": 20,
+          "recall": 0.9825,
+          "loads": 79.89,
+          "blocks": 159.78,
+          "blockBytes": 5156361.607,
+          "rescored": 63.95,
+          "routingReads": 223.73000000000002,
+          "routingBytes": 5549270.407,
+          "noneReadsComputed": 303.62,
+          "seconds": 1.387434083
+        },
+        {
+          "ef": 40,
+          "recall": 0.9935,
+          "loads": 131.478,
+          "blocks": 262.956,
+          "blockBytes": 8454105.115,
+          "rescored": 64,
+          "routingReads": 326.956,
+          "routingBytes": 8847321.115,
+          "noneReadsComputed": 458.434,
+          "seconds": 2.220863875
+        },
+        {
+          "ef": 80,
+          "recall": 0.9978,
+          "loads": 218.73,
+          "blocks": 437.46,
+          "blockBytes": 13982209.286,
+          "rescored": 64,
+          "routingReads": 501.46,
+          "routingBytes": 14375425.286,
+          "noneReadsComputed": 720.1899999999999,
+          "seconds": 3.617297583
+        },
+        {
+          "ef": 160,
+          "recall": 0.999,
+          "loads": 384.014,
+          "blocks": 768.028,
+          "blockBytes": 24378864.682,
+          "rescored": 64,
+          "routingReads": 832.028,
+          "routingBytes": 24772080.682,
+          "noneReadsComputed": 1216.042,
+          "seconds": 6.195176916
+        }
+      ],
+      "bestRecall": 0.999
+    },
+    {
+      "name": "far 1 %",
+      "kind": "far",
+      "allowed": 9900,
+      "drawn": false,
+      "direct": {
+        "recall": 1,
+        "reads": 9900,
+        "readsMin": 9900,
+        "readsMax": 9900,
+        "bytes": 60825600,
+        "seconds": 9.863601459
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.969,
+          "loads": 2842.246,
+          "blocks": 5684.492,
+          "blockBytes": 174605930.475,
+          "rescored": 64,
+          "routingReads": 5748.492,
+          "routingBytes": 174999146.475,
+          "noneReadsComputed": 8590.738000000001,
+          "seconds": 45.812983625
+        },
+        {
+          "target": 0.99,
+          "ef": 73,
+          "recall": 0.99,
+          "loads": 3627.67,
+          "blocks": 7255.34,
+          "blockBytes": 220380620.362,
+          "rescored": 64,
+          "routingReads": 7319.34,
+          "routingBytes": 220773836.362,
+          "noneReadsComputed": 10947.01,
+          "seconds": 67.458935875
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.969,
+          "loads": 2842.246,
+          "blocks": 5684.492,
+          "blockBytes": 174605930.475,
+          "rescored": 64,
+          "routingReads": 5748.492,
+          "routingBytes": 174999146.475,
+          "noneReadsComputed": 8590.738000000001,
+          "seconds": 45.812983625
+        },
+        {
+          "ef": 20,
+          "recall": 0.9814,
+          "loads": 3154.186,
+          "blocks": 6308.372,
+          "blockBytes": 192977845.359,
+          "rescored": 64,
+          "routingReads": 6372.372,
+          "routingBytes": 193371061.359,
+          "noneReadsComputed": 9526.558,
+          "seconds": 50.572975167
+        },
+        {
+          "ef": 40,
+          "recall": 0.9869,
+          "loads": 3430.21,
+          "blocks": 6860.42,
+          "blockBytes": 209031945.626,
+          "rescored": 64,
+          "routingReads": 6924.42,
+          "routingBytes": 209425161.626,
+          "noneReadsComputed": 10354.630000000001,
+          "seconds": 54.376769166
+        },
+        {
+          "ef": 80,
+          "recall": 0.9906,
+          "loads": 3653.706,
+          "blocks": 7307.412,
+          "blockBytes": 221871737.435,
+          "rescored": 64,
+          "routingReads": 7371.412,
+          "routingBytes": 222264953.435,
+          "noneReadsComputed": 11025.118,
+          "seconds": 57.245213333
+        },
+        {
+          "ef": 160,
+          "recall": 0.9916,
+          "loads": 3821.054,
+          "blocks": 7642.108,
+          "blockBytes": 231359134.665,
+          "rescored": 64,
+          "routingReads": 7706.108,
+          "routingBytes": 231752350.665,
+          "noneReadsComputed": 11527.162,
+          "seconds": 59.325936625
+        },
+        {
+          "ef": 320,
+          "recall": 0.9918,
+          "loads": 3937.341,
+          "blocks": 7874.682,
+          "blockBytes": 237895172.444,
+          "rescored": 64,
+          "routingReads": 7938.682,
+          "routingBytes": 238288388.444,
+          "noneReadsComputed": 11876.023,
+          "seconds": 62.338425834
+        },
+        {
+          "ef": 640,
+          "recall": 0.9918,
+          "loads": 4011.923,
+          "blocks": 8023.846,
+          "blockBytes": 242043633.137,
+          "rescored": 64,
+          "routingReads": 8087.846,
+          "routingBytes": 242436849.137,
+          "noneReadsComputed": 12099.769,
+          "seconds": 64.484764417
+        },
+        {
+          "ef": 1024,
+          "recall": 0.9919,
+          "loads": 4042.341,
+          "blocks": 8084.682,
+          "blockBytes": 243714308.296,
+          "rescored": 64,
+          "routingReads": 8148.682,
+          "routingBytes": 244107524.296,
+          "noneReadsComputed": 12191.023,
+          "seconds": 63.913986084
+        },
+        {
+          "ef": 2048,
+          "recall": 0.9919,
+          "loads": 4065.061,
+          "blocks": 8130.122,
+          "blockBytes": 244948509.105,
+          "rescored": 64,
+          "routingReads": 8194.122,
+          "routingBytes": 245341725.105,
+          "noneReadsComputed": 12259.182999999999,
+          "seconds": 63.985183875
+        }
+      ],
+      "bestRecall": 0.9919
+    },
+    {
+      "name": "far 0.1 %",
+      "kind": "far",
+      "allowed": 990,
+      "drawn": false,
+      "direct": {
+        "recall": 1,
+        "reads": 990,
+        "readsMin": 990,
+        "readsMax": 990,
+        "bytes": 6082560,
+        "seconds": 0.985779125
+      },
+      "index": [
+        {
+          "target": 0.95,
+          "ef": 10,
+          "recall": 0.9868,
+          "loads": 3898.884,
+          "blocks": 7797.768,
+          "blockBytes": 235461402.834,
+          "rescored": 64,
+          "routingReads": 7861.768,
+          "routingBytes": 235854618.834,
+          "noneReadsComputed": 11760.652,
+          "seconds": 60.687775833
+        },
+        {
+          "target": 0.99,
+          "ef": 14,
+          "recall": 0.99,
+          "loads": 3927.779,
+          "blocks": 7855.558,
+          "blockBytes": 237098785.693,
+          "rescored": 64,
+          "routingReads": 7919.558,
+          "routingBytes": 237492001.693,
+          "noneReadsComputed": 11847.337,
+          "seconds": 63.891465833
+        }
+      ],
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.9868,
+          "loads": 3898.884,
+          "blocks": 7797.768,
+          "blockBytes": 235461402.834,
+          "rescored": 64,
+          "routingReads": 7861.768,
+          "routingBytes": 235854618.834,
+          "noneReadsComputed": 11760.652,
+          "seconds": 60.687775833
+        },
+        {
+          "ef": 20,
+          "recall": 0.9912,
+          "loads": 3954.08,
+          "blocks": 7908.16,
+          "blockBytes": 238595122.662,
+          "rescored": 64,
+          "routingReads": 7972.16,
+          "routingBytes": 238988338.662,
+          "noneReadsComputed": 11926.24,
+          "seconds": 66.418716
+        },
+        {
+          "ef": 40,
+          "recall": 0.9922,
+          "loads": 3997.115,
+          "blocks": 7994.23,
+          "blockBytes": 241050488.582,
+          "rescored": 64,
+          "routingReads": 8058.23,
+          "routingBytes": 241443704.582,
+          "noneReadsComputed": 12055.345,
+          "seconds": 65.180679292
+        },
+        {
+          "ef": 80,
+          "recall": 0.9926,
+          "loads": 4029.542,
+          "blocks": 8059.084,
+          "blockBytes": 242906588.269,
+          "rescored": 64,
+          "routingReads": 8123.084,
+          "routingBytes": 243299804.269,
+          "noneReadsComputed": 12152.626,
+          "seconds": 64.064306083
+        },
+        {
+          "ef": 160,
+          "recall": 0.9926,
+          "loads": 4052.995,
+          "blocks": 8105.99,
+          "blockBytes": 244250975.057,
+          "rescored": 64,
+          "routingReads": 8169.99,
+          "routingBytes": 244644191.057,
+          "noneReadsComputed": 12222.985,
+          "seconds": 61.384591916
+        },
+        {
+          "ef": 320,
+          "recall": 0.9926,
+          "loads": 4068.448,
+          "blocks": 8136.896,
+          "blockBytes": 245120867.589,
+          "rescored": 64,
+          "routingReads": 8200.896,
+          "routingBytes": 245514083.589,
+          "noneReadsComputed": 12269.344000000001,
+          "seconds": 61.340543
+        },
+        {
+          "ef": 640,
+          "recall": 0.9926,
+          "loads": 4073.737,
+          "blocks": 8147.474,
+          "blockBytes": 245406925.174,
+          "rescored": 64,
+          "routingReads": 8211.474,
+          "routingBytes": 245800141.174,
+          "noneReadsComputed": 12285.211,
+          "seconds": 62.156800292
+        },
+        {
+          "ef": 1024,
+          "recall": 0.9926,
+          "loads": 4074,
+          "blocks": 8148,
+          "blockBytes": 245420376,
+          "rescored": 64,
+          "routingReads": 8212,
+          "routingBytes": 245813592,
+          "noneReadsComputed": 12286,
+          "seconds": 63.710409708
+        },
+        {
+          "ef": 2048,
+          "recall": 0.9926,
+          "loads": 4074,
+          "blocks": 8148,
+          "blockBytes": 245420376,
+          "rescored": 64,
+          "routingReads": 8212,
+          "routingBytes": 245813592,
+          "noneReadsComputed": 12286,
+          "seconds": 65.156061541
+        }
+      ],
+      "bestRecall": 0.9926
+    }
+  ]
+}

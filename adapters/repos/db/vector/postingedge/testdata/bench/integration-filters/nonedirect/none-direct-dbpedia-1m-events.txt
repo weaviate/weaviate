@@ -1,0 +1,126 @@
+=== RUN   TestNoneDirectRead
+    bench_none_direct_test.go:251: random 500 (500 allowed), direct read: recall 1.0000, 500.0 vectors read a query (500 to 500), 2.9 MB (untimed, 1 s)
+    bench_none_direct_test.go:284: random 500, index, ef 10: recall 0.9950 | 1952.3 loads, 3904.7 blocks, 64.0 vectors read: 3968.7 reads with the codes in memory, 5921.0 with none (computed), 116.42 MB | 32 s
+    bench_none_direct_test.go:284: random 500, index, ef 20: recall 0.9994 | 2680.6 loads, 5361.1 blocks, 64.0 vectors read: 5425.1 reads with the codes in memory, 8105.7 with none (computed), 158.27 MB | 45 s
+    bench_none_direct_test.go:318: random 500, index at recall 0.95: ef 10, recall 0.9950, 3968.7 reads with the codes in memory, 5921.0 with none (computed), against 500.0 of the direct read
+    bench_none_direct_test.go:318: random 500, index at recall 0.99: ef 10, recall 0.9950, 3968.7 reads with the codes in memory, 5921.0 with none (computed), against 500.0 of the direct read
+    bench_none_direct_test.go:251: random 1000 (1000 allowed), direct read: recall 1.0000, 1000.0 vectors read a query (1000 to 1000), 5.9 MB (untimed, 1 s)
+    bench_none_direct_test.go:284: random 1000, index, ef 10: recall 0.9916 | 1297.8 loads, 2595.6 blocks, 64.0 vectors read: 2659.6 reads with the codes in memory, 3957.4 with none (computed), 78.15 MB | 21 s
+    bench_none_direct_test.go:284: random 1000, index, ef 20: recall 0.9984 | 1955.9 loads, 3911.8 blocks, 64.0 vectors read: 3975.8 reads with the codes in memory, 5931.7 with none (computed), 116.68 MB | 31 s
+    bench_none_direct_test.go:284: random 1000, index, ef 40: recall 0.9998 | 2677.1 loads, 5354.2 blocks, 64.0 vectors read: 5418.2 reads with the codes in memory, 8095.4 with none (computed), 158.12 MB | 42 s
+    bench_none_direct_test.go:318: random 1000, index at recall 0.95: ef 10, recall 0.9916, 2659.6 reads with the codes in memory, 3957.4 with none (computed), against 1000.0 of the direct read
+    bench_none_direct_test.go:318: random 1000, index at recall 0.99: ef 10, recall 0.9916, 2659.6 reads with the codes in memory, 3957.4 with none (computed), against 1000.0 of the direct read
+    bench_none_direct_test.go:251: random 2000 (2000 allowed), direct read: recall 1.0000, 2000.0 vectors read a query (2000 to 2000), 11.7 MB (untimed, 2 s)
+    bench_none_direct_test.go:284: random 2000, index, ef 10: recall 0.9878 | 849.5 loads, 1699.0 blocks, 63.9 vectors read: 1762.8 reads with the codes in memory, 2612.3 with none (computed), 51.59 MB | 14 s
+    bench_none_direct_test.go:284: random 2000, index, ef 20: recall 0.9973 | 1346.5 loads, 2692.9 blocks, 64.0 vectors read: 2756.9 reads with the codes in memory, 4103.4 with none (computed), 81.02 MB | 21 s
+    bench_none_direct_test.go:284: random 2000, index, ef 40: recall 0.9993 | 2001.3 loads, 4002.5 blocks, 64.0 vectors read: 4066.5 reads with the codes in memory, 6067.8 with none (computed), 119.29 MB | 31 s
+    bench_none_direct_test.go:318: random 2000, index at recall 0.95: ef 10, recall 0.9878, 1762.8 reads with the codes in memory, 2612.3 with none (computed), against 2000.0 of the direct read
+    bench_none_direct_test.go:284: random 2000, index, ef 15: recall 0.9946 | 1118.9 loads, 2237.9 blocks, 64.0 vectors read: 2301.9 reads with the codes in memory, 3420.8 with none (computed), 67.59 MB | 18 s
+    bench_none_direct_test.go:284: random 2000, index, ef 12: recall 0.9914 | 963.1 loads, 1926.3 blocks, 63.9 vectors read: 1990.2 reads with the codes in memory, 2953.3 with none (computed), 58.35 MB | 16 s
+    bench_none_direct_test.go:284: random 2000, index, ef 11: recall 0.9901 | 905.9 loads, 1811.7 blocks, 63.9 vectors read: 1875.6 reads with the codes in memory, 2781.5 with none (computed), 54.95 MB | 15 s
+    bench_none_direct_test.go:318: random 2000, index at recall 0.99: ef 11, recall 0.9901, 1875.6 reads with the codes in memory, 2781.5 with none (computed), against 2000.0 of the direct read
+    bench_none_direct_test.go:251: random 5000 (5000 allowed), direct read: recall 1.0000, 5000.0 vectors read a query (5000 to 5000), 29.3 MB (untimed, 5 s)
+    bench_none_direct_test.go:284: random 5000, index, ef 10: recall 0.9840 | 432.7 loads, 865.5 blocks, 63.6 vectors read: 929.1 reads with the codes in memory, 1361.9 with none (computed), 26.65 MB | 7 s
+    bench_none_direct_test.go:284: random 5000, index, ef 20: recall 0.9943 | 709.9 loads, 1419.8 blocks, 63.9 vectors read: 1483.8 reads with the codes in memory, 2193.7 with none (computed), 43.27 MB | 12 s
+    bench_none_direct_test.go:284: random 5000, index, ef 40: recall 0.9986 | 1149.4 loads, 2298.7 blocks, 64.0 vectors read: 2362.7 reads with the codes in memory, 3512.1 with none (computed), 69.41 MB | 18 s
+    bench_none_direct_test.go:284: random 5000, index, ef 80: recall 0.9995 | 1760.2 loads, 3520.3 blocks, 64.0 vectors read: 3584.3 reads with the codes in memory, 5344.5 with none (computed), 105.31 MB | 28 s
+    bench_none_direct_test.go:318: random 5000, index at recall 0.95: ef 10, recall 0.9840, 929.1 reads with the codes in memory, 1361.9 with none (computed), against 5000.0 of the direct read
+    bench_none_direct_test.go:284: random 5000, index, ef 15: recall 0.9905 | 576.2 loads, 1152.5 blocks, 63.9 vectors read: 1216.3 reads with the codes in memory, 1792.6 with none (computed), 35.27 MB | 9 s
+    bench_none_direct_test.go:284: random 5000, index, ef 12: recall 0.9878 | 490.4 loads, 980.8 blocks, 63.7 vectors read: 1044.5 reads with the codes in memory, 1534.9 with none (computed), 30.12 MB | 8 s
+    bench_none_direct_test.go:284: random 5000, index, ef 13: recall 0.9888 | 518.9 loads, 1037.8 blocks, 63.8 vectors read: 1101.5 reads with the codes in memory, 1620.4 with none (computed), 31.83 MB | 8 s
+    bench_none_direct_test.go:284: random 5000, index, ef 14: recall 0.9896 | 547.4 loads, 1094.9 blocks, 63.8 vectors read: 1158.7 reads with the codes in memory, 1706.1 with none (computed), 33.54 MB | 9 s
+    bench_none_direct_test.go:318: random 5000, index at recall 0.99: ef 15, recall 0.9905, 1216.3 reads with the codes in memory, 1792.6 with none (computed), against 5000.0 of the direct read
+    bench_none_direct_test.go:251: random 10000 (10000 allowed), direct read: recall 1.0000, 10000.0 vectors read a query (10000 to 10000), 58.6 MB (untimed, 10 s)
+    bench_none_direct_test.go:284: random 10000, index, ef 10: recall 0.9767 | 255.7 loads, 511.4 blocks, 63.6 vectors read: 574.9 reads with the codes in memory, 830.6 with none (computed), 15.99 MB | 4 s
+    bench_none_direct_test.go:284: random 10000, index, ef 20: recall 0.9926 | 425.3 loads, 850.6 blocks, 63.9 vectors read: 914.6 reads with the codes in memory, 1339.9 with none (computed), 26.22 MB | 7 s
+    bench_none_direct_test.go:284: random 10000, index, ef 40: recall 0.9986 | 712.3 loads, 1424.7 blocks, 64.0 vectors read: 1488.7 reads with the codes in memory, 2201.0 with none (computed), 43.43 MB | 12 s
+    bench_none_direct_test.go:284: random 10000, index, ef 80: recall 0.9996 | 1155.2 loads, 2310.4 blocks, 64.0 vectors read: 2374.4 reads with the codes in memory, 3529.7 with none (computed), 69.76 MB | 19 s
+    bench_none_direct_test.go:318: random 10000, index at recall 0.95: ef 10, recall 0.9767, 574.9 reads with the codes in memory, 830.6 with none (computed), against 10000.0 of the direct read
+    bench_none_direct_test.go:284: random 10000, index, ef 15: recall 0.9876 | 344.5 loads, 688.9 blocks, 63.9 vectors read: 752.8 reads with the codes in memory, 1097.3 with none (computed), 21.35 MB | 6 s
+    bench_none_direct_test.go:284: random 10000, index, ef 17: recall 0.9898 | 379.0 loads, 757.9 blocks, 63.9 vectors read: 821.8 reads with the codes in memory, 1200.8 with none (computed), 23.43 MB | 6 s
+    bench_none_direct_test.go:284: random 10000, index, ef 18: recall 0.9906 | 394.5 loads, 789.0 blocks, 63.9 vectors read: 852.9 reads with the codes in memory, 1247.4 with none (computed), 24.36 MB | 6 s
+    bench_none_direct_test.go:318: random 10000, index at recall 0.99: ef 18, recall 0.9906, 852.9 reads with the codes in memory, 1247.4 with none (computed), against 10000.0 of the direct read
+    bench_none_direct_test.go:251: random 1 % (9900 allowed), direct read: recall 1.0000, 9900.0 vectors read a query (9900 to 9900), 58.0 MB (untimed, 10 s)
+    bench_none_direct_test.go:284: random 1 %, index, ef 10: recall 0.9756 | 258.5 loads, 516.9 blocks, 63.6 vectors read: 580.5 reads with the codes in memory, 839.0 with none (computed), 16.16 MB | 5 s
+    bench_none_direct_test.go:284: random 1 %, index, ef 20: recall 0.9926 | 433.0 loads, 866.0 blocks, 63.9 vectors read: 929.9 reads with the codes in memory, 1362.9 with none (computed), 26.68 MB | 7 s
+    bench_none_direct_test.go:284: random 1 %, index, ef 40: recall 0.9979 | 721.2 loads, 1442.5 blocks, 64.0 vectors read: 1506.5 reads with the codes in memory, 2227.7 with none (computed), 43.96 MB | 12 s
+    bench_none_direct_test.go:284: random 1 %, index, ef 80: recall 0.9995 | 1167.3 loads, 2334.7 blocks, 64.0 vectors read: 2398.7 reads with the codes in memory, 3566.0 with none (computed), 70.48 MB | 20 s
+    bench_none_direct_test.go:318: random 1 %, index at recall 0.95: ef 10, recall 0.9756, 580.5 reads with the codes in memory, 839.0 with none (computed), against 9900.0 of the direct read
+    bench_none_direct_test.go:284: random 1 %, index, ef 15: recall 0.9873 | 349.5 loads, 699.1 blocks, 63.9 vectors read: 763.0 reads with the codes in memory, 1112.5 with none (computed), 21.65 MB | 6 s
+    bench_none_direct_test.go:284: random 1 %, index, ef 17: recall 0.9898 | 383.6 loads, 767.1 blocks, 63.9 vectors read: 831.0 reads with the codes in memory, 1214.6 with none (computed), 23.71 MB | 7 s
+    bench_none_direct_test.go:284: random 1 %, index, ef 18: recall 0.9913 | 400.6 loads, 801.1 blocks, 63.9 vectors read: 865.0 reads with the codes in memory, 1265.6 with none (computed), 24.73 MB | 7 s
+    bench_none_direct_test.go:318: random 1 %, index at recall 0.99: ef 18, recall 0.9913, 865.0 reads with the codes in memory, 1265.6 with none (computed), against 9900.0 of the direct read
+    bench_none_direct_test.go:251: random 0.1 % (990 allowed), direct read: recall 1.0000, 990.0 vectors read a query (990 to 990), 5.8 MB (untimed, 1 s)
+    bench_none_direct_test.go:284: random 0.1 %, index, ef 10: recall 0.9929 | 1320.4 loads, 2640.8 blocks, 63.9 vectors read: 2704.7 reads with the codes in memory, 4025.1 with none (computed), 79.45 MB | 22 s
+    bench_none_direct_test.go:284: random 0.1 %, index, ef 20: recall 0.9988 | 1970.2 loads, 3940.4 blocks, 64.0 vectors read: 4004.4 reads with the codes in memory, 5974.6 with none (computed), 117.46 MB | 32 s
+    bench_none_direct_test.go:284: random 0.1 %, index, ef 40: recall 0.9998 | 2685.7 loads, 5371.4 blocks, 64.0 vectors read: 5435.4 reads with the codes in memory, 8121.1 with none (computed), 158.55 MB | 41 s
+    bench_none_direct_test.go:318: random 0.1 %, index at recall 0.95: ef 10, recall 0.9929, 2704.7 reads with the codes in memory, 4025.1 with none (computed), against 990.0 of the direct read
+    bench_none_direct_test.go:318: random 0.1 %, index at recall 0.99: ef 10, recall 0.9929, 2704.7 reads with the codes in memory, 4025.1 with none (computed), against 990.0 of the direct read
+    bench_none_direct_test.go:251: near 1 % (9900 allowed), direct read: recall 1.0000, 9900.0 vectors read a query (9900 to 9900), 58.0 MB (untimed, 12 s)
+    bench_none_direct_test.go:284: near 1 %, index, ef 10: recall 0.9409 | 19.3 loads, 38.6 blocks, 63.8 vectors read: 102.4 reads with the codes in memory, 121.7 with none (computed), 1.57 MB | 0 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 20: recall 0.9692 | 30.1 loads, 60.1 blocks, 64.0 vectors read: 124.1 reads with the codes in memory, 154.2 with none (computed), 2.24 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 40: recall 0.9851 | 48.8 loads, 97.5 blocks, 64.0 vectors read: 161.5 reads with the codes in memory, 210.3 with none (computed), 3.40 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 80: recall 0.9934 | 80.0 loads, 159.9 blocks, 64.0 vectors read: 223.9 reads with the codes in memory, 303.9 with none (computed), 5.31 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 160: recall 0.9961 | 133.5 loads, 267.0 blocks, 64.0 vectors read: 331.0 reads with the codes in memory, 464.5 with none (computed), 8.57 MB | 2 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 320: recall 0.9987 | 224.0 loads, 448.0 blocks, 64.0 vectors read: 512.0 reads with the codes in memory, 736.0 with none (computed), 14.06 MB | 4 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 640: recall 0.9992 | 383.1 loads, 766.1 blocks, 64.0 vectors read: 830.1 reads with the codes in memory, 1213.2 with none (computed), 23.62 MB | 7 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 15: recall 0.9600 | 24.9 loads, 49.8 blocks, 63.9 vectors read: 113.7 reads with the codes in memory, 138.6 with none (computed), 1.92 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 12: recall 0.9513 | 21.7 loads, 43.4 blocks, 63.9 vectors read: 107.3 reads with the codes in memory, 129.0 with none (computed), 1.72 MB | 0 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 11: recall 0.9462 | 20.6 loads, 41.2 blocks, 63.9 vectors read: 105.0 reads with the codes in memory, 125.6 with none (computed), 1.65 MB | 0 s
+    bench_none_direct_test.go:318: near 1 %, index at recall 0.95: ef 12, recall 0.9513, 107.3 reads with the codes in memory, 129.0 with none (computed), against 9900.0 of the direct read
+    bench_none_direct_test.go:284: near 1 %, index, ef 60: recall 0.9911 | 65.2 loads, 130.4 blocks, 64.0 vectors read: 194.4 reads with the codes in memory, 259.6 with none (computed), 4.41 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 50: recall 0.9893 | 57.3 loads, 114.6 blocks, 64.0 vectors read: 178.6 reads with the codes in memory, 235.9 with none (computed), 3.92 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 55: recall 0.9902 | 61.3 loads, 122.6 blocks, 64.0 vectors read: 186.6 reads with the codes in memory, 247.9 with none (computed), 4.17 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 52: recall 0.9896 | 58.9 loads, 117.9 blocks, 64.0 vectors read: 181.9 reads with the codes in memory, 240.8 with none (computed), 4.02 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 53: recall 0.9898 | 59.7 loads, 119.3 blocks, 64.0 vectors read: 183.3 reads with the codes in memory, 243.0 with none (computed), 4.07 MB | 1 s
+    bench_none_direct_test.go:284: near 1 %, index, ef 54: recall 0.9900 | 60.5 loads, 121.1 blocks, 64.0 vectors read: 185.1 reads with the codes in memory, 245.6 with none (computed), 4.12 MB | 1 s
+    bench_none_direct_test.go:318: near 1 %, index at recall 0.99: ef 54, recall 0.9900, 185.1 reads with the codes in memory, 245.6 with none (computed), against 9900.0 of the direct read
+    bench_none_direct_test.go:251: near 0.1 % (990 allowed), direct read: recall 1.0000, 990.0 vectors read a query (990 to 990), 5.8 MB (untimed, 1 s)
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 10: recall 0.9586 | 50.0 loads, 100.1 blocks, 63.7 vectors read: 163.8 reads with the codes in memory, 213.8 with none (computed), 3.46 MB | 1 s
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 20: recall 0.9825 | 79.9 loads, 159.8 blocks, 64.0 vectors read: 223.7 reads with the codes in memory, 303.6 with none (computed), 5.29 MB | 1 s
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 40: recall 0.9935 | 131.5 loads, 263.0 blocks, 64.0 vectors read: 327.0 reads with the codes in memory, 458.4 with none (computed), 8.44 MB | 2 s
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 80: recall 0.9978 | 218.7 loads, 437.5 blocks, 64.0 vectors read: 501.5 reads with the codes in memory, 720.2 with none (computed), 13.71 MB | 4 s
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 160: recall 0.9990 | 384.0 loads, 768.0 blocks, 64.0 vectors read: 832.0 reads with the codes in memory, 1216.0 with none (computed), 23.62 MB | 6 s
+    bench_none_direct_test.go:318: near 0.1 %, index at recall 0.95: ef 10, recall 0.9586, 163.8 reads with the codes in memory, 213.8 with none (computed), against 990.0 of the direct read
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 30: recall 0.9904 | 107.3 loads, 214.5 blocks, 64.0 vectors read: 278.5 reads with the codes in memory, 385.8 with none (computed), 6.97 MB | 2 s
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 25: recall 0.9870 | 94.1 loads, 188.3 blocks, 64.0 vectors read: 252.2 reads with the codes in memory, 346.4 with none (computed), 6.16 MB | 2 s
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 27: recall 0.9882 | 99.5 loads, 199.0 blocks, 64.0 vectors read: 263.0 reads with the codes in memory, 362.5 with none (computed), 6.49 MB | 2 s
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 28: recall 0.9891 | 102.1 loads, 204.1 blocks, 64.0 vectors read: 268.1 reads with the codes in memory, 370.2 with none (computed), 6.65 MB | 2 s
+    bench_none_direct_test.go:284: near 0.1 %, index, ef 29: recall 0.9896 | 104.9 loads, 209.7 blocks, 64.0 vectors read: 273.7 reads with the codes in memory, 378.6 with none (computed), 6.82 MB | 2 s
+    bench_none_direct_test.go:318: near 0.1 %, index at recall 0.99: ef 30, recall 0.9904, 278.5 reads with the codes in memory, 385.8 with none (computed), against 990.0 of the direct read
+    bench_none_direct_test.go:251: far 1 % (9900 allowed), direct read: recall 1.0000, 9900.0 vectors read a query (9900 to 9900), 58.0 MB (untimed, 10 s)
+    bench_none_direct_test.go:284: far 1 %, index, ef 10: recall 0.9690 | 2842.2 loads, 5684.5 blocks, 64.0 vectors read: 5748.5 reads with the codes in memory, 8590.7 with none (computed), 166.89 MB | 46 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 20: recall 0.9814 | 3154.2 loads, 6308.4 blocks, 64.0 vectors read: 6372.4 reads with the codes in memory, 9526.6 with none (computed), 184.41 MB | 51 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 40: recall 0.9869 | 3430.2 loads, 6860.4 blocks, 64.0 vectors read: 6924.4 reads with the codes in memory, 10354.6 with none (computed), 199.72 MB | 54 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 80: recall 0.9906 | 3653.7 loads, 7307.4 blocks, 64.0 vectors read: 7371.4 reads with the codes in memory, 11025.1 with none (computed), 211.97 MB | 57 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 160: recall 0.9916 | 3821.1 loads, 7642.1 blocks, 64.0 vectors read: 7706.1 reads with the codes in memory, 11527.2 with none (computed), 221.02 MB | 59 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 320: recall 0.9918 | 3937.3 loads, 7874.7 blocks, 64.0 vectors read: 7938.7 reads with the codes in memory, 11876.0 with none (computed), 227.25 MB | 62 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 640: recall 0.9918 | 4011.9 loads, 8023.8 blocks, 64.0 vectors read: 8087.8 reads with the codes in memory, 12099.8 with none (computed), 231.21 MB | 64 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 1024: recall 0.9919 | 4042.3 loads, 8084.7 blocks, 64.0 vectors read: 8148.7 reads with the codes in memory, 12191.0 with none (computed), 232.80 MB | 64 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 2048: recall 0.9919 | 4065.1 loads, 8130.1 blocks, 64.0 vectors read: 8194.1 reads with the codes in memory, 12259.2 with none (computed), 233.98 MB | 64 s
+    bench_none_direct_test.go:318: far 1 %, index at recall 0.95: ef 10, recall 0.9690, 5748.5 reads with the codes in memory, 8590.7 with none (computed), against 9900.0 of the direct read
+    bench_none_direct_test.go:284: far 1 %, index, ef 60: recall 0.9891 | 3568.7 loads, 7137.3 blocks, 64.0 vectors read: 7201.3 reads with the codes in memory, 10770.0 with none (computed), 207.34 MB | 58 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 70: recall 0.9898 | 3615.4 loads, 7230.8 blocks, 64.0 vectors read: 7294.8 reads with the codes in memory, 10910.2 with none (computed), 209.88 MB | 63 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 75: recall 0.9904 | 3635.6 loads, 7271.2 blocks, 64.0 vectors read: 7335.2 reads with the codes in memory, 10970.7 with none (computed), 210.98 MB | 67 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 72: recall 0.9899 | 3623.6 loads, 7247.2 blocks, 64.0 vectors read: 7311.2 reads with the codes in memory, 10934.9 with none (computed), 210.33 MB | 69 s
+    bench_none_direct_test.go:284: far 1 %, index, ef 73: recall 0.9900 | 3627.7 loads, 7255.3 blocks, 64.0 vectors read: 7319.3 reads with the codes in memory, 10947.0 with none (computed), 210.55 MB | 67 s
+    bench_none_direct_test.go:318: far 1 %, index at recall 0.99: ef 73, recall 0.9900, 7319.3 reads with the codes in memory, 10947.0 with none (computed), against 9900.0 of the direct read
+    bench_none_direct_test.go:251: far 0.1 % (990 allowed), direct read: recall 1.0000, 990.0 vectors read a query (990 to 990), 5.8 MB (untimed, 1 s)
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 10: recall 0.9868 | 3898.9 loads, 7797.8 blocks, 64.0 vectors read: 7861.8 reads with the codes in memory, 11760.7 with none (computed), 224.93 MB | 61 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 20: recall 0.9912 | 3954.1 loads, 7908.2 blocks, 64.0 vectors read: 7972.2 reads with the codes in memory, 11926.2 with none (computed), 227.92 MB | 66 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 40: recall 0.9922 | 3997.1 loads, 7994.2 blocks, 64.0 vectors read: 8058.2 reads with the codes in memory, 12055.3 with none (computed), 230.26 MB | 65 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 80: recall 0.9926 | 4029.5 loads, 8059.1 blocks, 64.0 vectors read: 8123.1 reads with the codes in memory, 12152.6 with none (computed), 232.03 MB | 64 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 160: recall 0.9926 | 4053.0 loads, 8106.0 blocks, 64.0 vectors read: 8170.0 reads with the codes in memory, 12223.0 with none (computed), 233.31 MB | 61 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 320: recall 0.9926 | 4068.4 loads, 8136.9 blocks, 64.0 vectors read: 8200.9 reads with the codes in memory, 12269.3 with none (computed), 234.14 MB | 61 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 640: recall 0.9926 | 4073.7 loads, 8147.5 blocks, 64.0 vectors read: 8211.5 reads with the codes in memory, 12285.2 with none (computed), 234.41 MB | 62 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 1024: recall 0.9926 | 4074.0 loads, 8148.0 blocks, 64.0 vectors read: 8212.0 reads with the codes in memory, 12286.0 with none (computed), 234.43 MB | 64 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 2048: recall 0.9926 | 4074.0 loads, 8148.0 blocks, 64.0 vectors read: 8212.0 reads with the codes in memory, 12286.0 with none (computed), 234.43 MB | 65 s
+    bench_none_direct_test.go:318: far 0.1 %, index at recall 0.95: ef 10, recall 0.9868, 7861.8 reads with the codes in memory, 11760.7 with none (computed), against 990.0 of the direct read
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 15: recall 0.9906 | 3933.3 loads, 7866.6 blocks, 64.0 vectors read: 7930.6 reads with the codes in memory, 11864.0 with none (computed), 226.79 MB | 64 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 12: recall 0.9890 | 3915.4 loads, 7830.9 blocks, 64.0 vectors read: 7894.9 reads with the codes in memory, 11810.3 with none (computed), 225.82 MB | 69 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 13: recall 0.9897 | 3921.8 loads, 7843.6 blocks, 64.0 vectors read: 7907.6 reads with the codes in memory, 11829.4 with none (computed), 226.16 MB | 69 s
+    bench_none_direct_test.go:284: far 0.1 %, index, ef 14: recall 0.9900 | 3927.8 loads, 7855.6 blocks, 64.0 vectors read: 7919.6 reads with the codes in memory, 11847.3 with none (computed), 226.49 MB | 64 s
+    bench_none_direct_test.go:318: far 0.1 %, index at recall 0.99: ef 14, recall 0.9900, 7919.6 reads with the codes in memory, 11847.3 with none (computed), against 990.0 of the direct read
+    bench_none_direct_test.go:337: measured: random 500, random 1000, random 2000, random 5000, random 10000, random 1 %, random 0.1 %, near 1 %, near 0.1 %, far 1 %, far 0.1 %
+--- PASS: TestNoneDirectRead (2396.33s)
+PASS
