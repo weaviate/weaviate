@@ -97,6 +97,15 @@ func TestUnloadedStorageIDs(t *testing.T) {
 		assert.Equal(t, map[string]string{"": "main", "title": "vectors_" + generated, "body": "vectors_body"}, ids)
 	})
 
+	t.Run("no names, an invalid record", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMapping(t, dir, "1", map[string]string{"other": `{"physical_id":"","index_type":"hnsw","state":"ready"}`})
+		ids, locked, err := UnloadedStorageIDs(dir, nil)
+		require.NoError(t, err)
+		assert.False(t, locked)
+		assert.Empty(t, ids)
+	})
+
 	t.Run("unsupported format version", func(t *testing.T) {
 		dir := t.TempDir()
 		writeMapping(t, dir, "2", nil)
