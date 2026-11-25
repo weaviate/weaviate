@@ -31,6 +31,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -66,6 +68,9 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	legacy := s.index.GetVectorIndexConfig("")
 	targets := s.index.getTargetVectorIndexConfigs()
 	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
+	// Read after the configs: a drop marks the schema before it deletes the
+	// config, so one missing above because of a drop is marked here.
+	dropped := droppedVectorNames(s.index.getClass())
 
 	err := newCompressedVectorsMigrator(s.index.logger).removeVectorsCompressedLink(s.store.GetDir())
 	if err != nil {
@@ -73,7 +78,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	}
 
 	// The manifest says where each index lives; nothing opens before it is in order.
-	entries, firstLoad, err := s.manifest.Open(ctx, active)
+	entries, firstLoad, err := s.manifest.Open(ctx, active, dropped)
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
@@ -109,6 +114,20 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
 	return nil
+}
+
+// droppedVectorNames lists the vectors class marks as being dropped.
+func droppedVectorNames(class *models.Class) []string {
+	if class == nil {
+		return nil
+	}
+	var names []string
+	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one

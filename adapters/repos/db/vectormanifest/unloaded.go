@@ -28,7 +28,7 @@ import (
 // without records, the naming rule says what name owns, and the files of
 // siblings, the collection's other vectors, stay.
 func DropUnloaded(shardDir, name string, siblings []string) error {
-	records, initialized, err := readUnloaded(shardDir)
+	records, initialized, err := readUnloaded(shardDir, nil)
 	if shardmeta.IsLocked(err) {
 		return nil
 	}
@@ -62,17 +62,11 @@ func DropUnloaded(shardDir, name string, siblings []string) error {
 		}
 	}
 
-	for _, bucket := range artifacts.LSMBuckets {
-		err := os.RemoveAll(filepath.Join(shardDir, "lsm", bucket))
-		if err != nil {
-			return fmt.Errorf("remove bucket %q: %w", bucket, err)
-		}
-	}
-	for _, dir := range artifacts.ShardDirs {
-		err := os.RemoveAll(filepath.Join(shardDir, dir))
-		if err != nil {
-			return fmt.Errorf("remove directory %q: %w", dir, err)
-		}
+	err = removeArtifacts(shardDir, artifacts, func(bucket string) error {
+		return os.RemoveAll(filepath.Join(shardDir, "lsm", bucket))
+	})
+	if err != nil {
+		return err
 	}
 	// Whatever the index type: the drop discarded it with the vector's config.
 	for _, id := range ids {
@@ -102,7 +96,9 @@ func DropUnloaded(shardDir, name string, siblings []string) error {
 // cannot be read (err), the IDs are the naming rule's and may be wrong.
 func UnloadedStorageIDs(shardDir string, names []string) (ids map[string]string, locked bool, err error) {
 	// another vector's record must not fail the report of these
-	records, _, err := readUnloaded(shardDir, names...)
+	records, _, err := readUnloaded(shardDir, func(key string) bool {
+		return slices.ContainsFunc(names, func(name string) bool { return recordKey(name) == key })
+	})
 	ids = make(map[string]string, len(names))
 	for _, name := range names {
 		ids[name] = helpers.VectorIndexIDForTarget(name)
@@ -117,14 +113,13 @@ func UnloadedStorageIDs(shardDir string, names []string) (ids map[string]string,
 }
 
 // readUnloaded reads the records of a shard that is not loaded, refusing what
-// a load refuses, or only those of names when there are any. initialized is
-// false for a shard that has none, such as one restored from a backup older
-// than them.
-func readUnloaded(shardDir string, names ...string) (records map[string]record, initialized bool, err error) {
+// a load refuses. With keep, it reads only those under a key keep accepts.
+// initialized is false for a shard that has none, such as one restored from a
+// backup older than them.
+func readUnloaded(shardDir string, keep func(key string) bool) (records map[string]record, initialized bool, err error) {
 	records, initialized, _, err = readRecords(func(fn func(key, value []byte) error) error {
 		return shardmeta.ForEachOffline(shardDir, namespace, func(key, value []byte) error {
-			if len(names) > 0 && string(key) != formatVersionKey &&
-				!slices.ContainsFunc(names, func(name string) bool { return recordKey(name) == string(key) }) {
+			if keep != nil && string(key) != formatVersionKey && !keep(string(key)) {
 				return nil
 			}
 			return fn(key, value)

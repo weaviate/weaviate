@@ -16,9 +16,12 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 const dropVecClassName = "DropVectorWriteRejectClass"
@@ -832,6 +836,102 @@ func TestDropVectorIndex_RemovesBothIndexesOfARebuild(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, ok)
 			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
+		})
+	}
+}
+
+// classGetter serves the collection's class through read.
+type classGetter struct {
+	schemaUC.SchemaGetter
+	read func() *models.Class
+}
+
+func (g *classGetter) ReadOnlyClass(string) *models.Class {
+	return g.read()
+}
+
+// withDropMarker is class with target marked dropped, class itself unchanged.
+func withDropMarker(class *models.Class, target string) *models.Class {
+	marked := *class
+	marked.VectorConfig = maps.Clone(class.VectorConfig)
+	markDropped(&marked, target)
+	return &marked
+}
+
+// A drop that lands after a lazy load read the class, and before it read the
+// vector configs, waits for the load and finds nothing to do: the load is what
+// deletes the vector.
+func TestDropVectorIndex_DuringALazyLoad(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	idx := shard.index
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	require.NoError(t, shard.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+	require.NotEmpty(t, entriesNamed(t, shard, "foo"))
+	lazy := newColdLazyShard(ctx, shard, class)
+
+	var current atomic.Pointer[models.Class]
+	current.Store(class)
+	var apply sync.Once
+	dropErr := make(chan error, 1)
+	idx.getSchema = &classGetter{SchemaGetter: idx.getSchema, read: func() *models.Class {
+		read := current.Load()
+		apply.Do(func() {
+			// as a RAFT apply does: the schema, then the store
+			current.Store(withDropMarker(class, "foo"))
+			go func() { dropErr <- idx.dropVectorIndex(ctx, "foo") }()
+			require.Eventually(t, func() bool {
+				_, ok := idx.getTargetVectorIndexConfigs()["foo"]
+				return !ok
+			}, 5*time.Second, time.Millisecond)
+		})
+		return read
+	}}
+
+	loaded, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = loaded.Shutdown(ctx) })
+	require.NoError(t, <-dropErr)
+
+	assert.Empty(t, entriesNamed(t, loaded, "foo"))
+	assert.NotEmpty(t, entriesNamed(t, loaded, "mv"), "the sibling stays")
+	_, ok, err := recordsOf(loaded).Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A load that started from a class older than the drop, for a shard the drop
+// did not see, deletes the vector too, so the name starts clean once it is
+// free again.
+func TestDropVectorIndex_LoadWithAClassOlderThanTheDrop(t *testing.T) {
+	for _, recorded := range []bool{true, false} {
+		t.Run(fmt.Sprintf("recorded %v", recorded), func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			idx := shard.index
+			require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+			if !recorded {
+				wipeMapping(t, shard)
+			}
+			idx.vectorIndexUserConfigLock.Lock()
+			delete(idx.vectorIndexUserConfigs, "foo")
+			idx.vectorIndexUserConfigLock.Unlock()
+			idx.getSchema = &classGetter{SchemaGetter: idx.getSchema, read: func() *models.Class {
+				return withDropMarker(class, "foo")
+			}}
+
+			shard = reload(t, ctx, shard, class)
+			assert.Empty(t, entriesNamed(t, shard, "foo"))
+			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sibling stays")
+
+			require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"foo": hnsw.NewDefaultUserConfig()}))
+			found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+				assert.False(t, index.ContainsDoc(0), "the new index does not open the old one's files")
+				return nil
+			})
+			require.NoError(t, err)
+			assert.True(t, found)
 		})
 	}
 }

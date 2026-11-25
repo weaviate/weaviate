@@ -29,6 +29,20 @@ import (
 // something to sit out.
 const offlineOpenTimeout = time.Second
 
+// openOffline opens an UNLOADED shard's metadata DB read-only. ok is false when
+// the file does not exist.
+func openOffline(shardDir string) (db *bbolt.DB, ok bool, err error) {
+	path := filepath.Join(shardDir, FileName)
+	db, err = bbolt.Open(path, 0o600, &bbolt.Options{ReadOnly: true, Timeout: offlineOpenTimeout})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("open shard metadata db %q: %w", path, err)
+	}
+	return db, true, nil
+}
+
 // GetOffline reads key from ns of an UNLOADED shard's metadata DB, opening
 // the file read-only for the duration of the call and never creating it.
 // ok=false with a nil error means the file does not exist — state positively
@@ -46,13 +60,9 @@ func GetOffline(shardDir, ns string, key []byte) (val []byte, ok bool, err error
 // GetOfflineMulti is GetOffline for several keys in one open and one read
 // transaction; vals[i] is nil for an absent keys[i].
 func GetOfflineMulti(shardDir, ns string, keys ...[]byte) (vals [][]byte, ok bool, err error) {
-	path := filepath.Join(shardDir, FileName)
-	db, err := bbolt.Open(path, 0o600, &bbolt.Options{ReadOnly: true, Timeout: offlineOpenTimeout})
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("open shard metadata db %q: %w", path, err)
+	db, ok, err := openOffline(shardDir)
+	if err != nil || !ok {
+		return nil, false, err
 	}
 	defer db.Close()
 
@@ -79,13 +89,9 @@ func GetOfflineMulti(shardDir, ns string, keys ...[]byte) (vals [][]byte, ok boo
 // GetOffline's rules: a missing file iterates nothing, a locked or unreadable
 // one is an error.
 func ForEachOffline(shardDir, ns string, fn func(key, value []byte) error) error {
-	path := filepath.Join(shardDir, FileName)
-	db, err := bbolt.Open(path, 0o600, &bbolt.Options{ReadOnly: true, Timeout: offlineOpenTimeout})
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("open shard metadata db %q: %w", path, err)
+	db, ok, err := openOffline(shardDir)
+	if err != nil || !ok {
+		return err
 	}
 	defer db.Close()
 	return (&Namespace{db: db, name: []byte(ns)}).ForEach(fn)
