@@ -67,7 +67,8 @@ type Entry struct {
 	// QueueID is the ID the queue's directory is named by.
 	QueueID   string
 	IndexType string
-	Config    schemaConfig.VectorIndexConfig
+	// Config is the schema's from Open and Create, the record's from Get.
+	Config schemaConfig.VectorIndexConfig
 }
 
 func New(cfg Config) *Manifest {
@@ -341,9 +342,9 @@ func (m *Manifest) RemoveIndexFiles(ctx context.Context, name string) error {
 }
 
 // BeginDrop records that name is being dropped, so a crash before its files go
-// is finished at the next load. It refuses a vector whose files another one
-// uses. found is false for a vector without a record,
-// which owns nothing: a skipped vector, or a drop that already completed.
+// is finished at the next load. It refuses while any two vectors of the shard
+// share a queue or files a drop could take. found is false for a vector without
+// a record, which owns nothing: a skipped vector, or a drop that completed.
 func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

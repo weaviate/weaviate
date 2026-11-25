@@ -22,9 +22,9 @@ import (
 )
 
 // DropUnloaded is BeginDrop and FinishDrop for the shard at shardDir, which is
-// not loaded. A shard that a load holds is left to that load. One from before
-// the records existed is dropped from by the naming rule; siblings are the
-// collection's other vectors, whose files stay there.
+// not loaded. A shard that a load holds is left to that load. In a shard
+// without records, the naming rule says what name owns, and the files of
+// siblings, the collection's other vectors, stay.
 func DropUnloaded(shardDir, name string, siblings []string) error {
 	records, initialized, err := readUnloaded(shardDir)
 	if shardmeta.IsLocked(err) {
