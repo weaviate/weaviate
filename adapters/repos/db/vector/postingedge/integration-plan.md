@@ -1811,6 +1811,32 @@ Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce q
 - **Los ficheros de R** están en `testdata/bench/integration-filters/filters-timed-slowflat-dbpedia-1m*`. El relato completo está en `bench-report.md` de `feat/posting-edge-index` (`5ff992307c`).
 - **La PR no se abre.** Le falta lo que tenía que llevar: la explicación de la plana lenta y A, B y C. Repetir la noche lo decide el usuario.
 
+### La búsqueda plana en `none` por lectura directa (25 de noviembre)
+
+*Orden del usuario del 24 por la noche, adelantada por la del 25 por la mañana, que abrió la PR de filtros primero ([#14023](https://github.com/weaviate/weaviate/pull/14023)).* Esta rama, `feat/posting-edge-none-direct`, sale de `2ea0585696`, para que el diff que se revisa no cambie.
+
+- **Qué hace.** Con menos permitidos que su propio corte, un índice sin códigos en memoria pasa todos sus permitidos vivos al rescore. El rescore lee el vector exacto de cada uno, una vez, en paralelo dentro del presupuesto de la query, y la respuesta es la exacta.
+  - No carga ningún posting ni puntúa ningún código.
+  - `flatRankByPostings` se ha quitado.
+  - El corte es `PersistentConfig.noneFlatCutoff`, sin exportar. El de `routing` no lo gobierna, y `routing` no lo mira.
+- **Los commits:**
+  - `d42b574347`: los tests en rojo;
+  - `45b040f0eb`: el arreglo;
+  - `b990ed4976` y `d9b66bc86b`: el arnés `TestNoneDirectRead`;
+  - `fb0e13acfb`: los datos, en `testdata/bench/integration-filters/nonedirect/`.
+- **Verificación:**
+  - `go test -race` del paquete (2 730 s) y de `entities/vectorindex/postingedge`;
+  - `go test -race -tags integrationTest -run TestPostingEdge ./adapters/repos/db/`;
+  - `golangci-lint` con y sin `postingedgebench`, y `linter_go_routines.sh`.
+- **La medida, sin cronometrar sobre el clon:**
+  - recall 1 en todos los filtros;
+  - al azar, la directa deja de leer menos que el índice en `none` a 0.95 en 2 432 permitidos, interpolado entre 2 000 y 5 000. Las lecturas del índice en `none` son calculadas: un bloque de halo más por carga;
+  - el cruce cae en 1 875 contra las lecturas del índice en `routing`, y en 4 813 por bytes.
+  - El detalle está en `bench-report.md` de `feat/posting-edge-index`.
+- **El corte propuesto: 2 400** (redondeo mío).
+  - Con él solo el correlado al 0.1 % va por el camino que lee más (990 lecturas frente a 214), como con el corte de `routing`.
+  - Hasta que el usuario decida, `noneFlatCutoff` vale 40 000 por defecto. Con ese valor un filtro de hasta 40 000 permitidos lee un vector por permitido.
+
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
 *Orden del usuario del 23, al leer el backup: «Primero el test en rojo, que abra el índice sin `meta.json` y compruebe que no se borra nada. Después el arreglo: si falta, error al abrir, nunca borrado».*
