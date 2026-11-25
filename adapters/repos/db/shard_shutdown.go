@@ -352,6 +352,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	// during partial initialization cleanup)
 	if s.metricsRegistered.Load() {
 		s.metrics.baseMetrics.StartUnloadingShard(s.registration)
+		defer s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
 	}
 
 	start := time.Now()
@@ -477,11 +478,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.metadataDB != nil {
 		err = s.metadataDB.Close()
 		ec.AddWrapf(err, "stop shard metadata db")
-	}
-
-	// Track shard unloaded: unloading -> unloaded
-	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
 	}
 
 	return ec.ToError()
