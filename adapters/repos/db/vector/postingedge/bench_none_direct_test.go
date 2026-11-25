@@ -153,7 +153,14 @@ func TestNoneDirectRead(t *testing.T) {
 	defer ix.shut()
 	g := ix.p.g
 	require.False(t, g.noCodes, "the index opens with its routing codes in memory")
-	require.Equal(t, n, len(g.live), "the index holds the vectors of the dataset")
+	live := 0
+	for id, held := range g.live {
+		if held && (g.deleted == nil || !g.deleted[id]) {
+			require.Less(t, id, n, "doc %d is held and is not of the dataset", id)
+			live++
+		}
+	}
+	require.Equal(t, n, live, "the index holds the vectors of the dataset")
 	result := &noneDirectResult{
 		Dataset: data.name, Index: *benchFiltersIndex, Vectors: n, Dims: data.dims, Queries: len(queries), K: k,
 	}
