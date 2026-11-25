@@ -379,6 +379,34 @@ func TestIndexShutdownStopsCyclesBeforeShards(t *testing.T) {
 	}
 }
 
+func TestIndexShutdownRetriesInterruptedCycle(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		t.Run(fmt.Sprintf("deadline=%t", deadline), func(t *testing.T) {
+			idx := newShutdownTestIndex(t, nil)
+			releaseFlush := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(releaseFlush) })
+			t.Cleanup(unblock)
+			idx.cycleCallbacks.flushCycle = startInFlightCycle(t, idx.cycleCallbacks.flushCycle,
+				func(cyclemanager.ShouldAbortCallback) { <-releaseFlush })
+
+			ctx, cancel := context.WithCancel(context.Background())
+			want := context.Canceled
+			if deadline {
+				cancel()
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				want = context.DeadlineExceeded
+			}
+			cancel()
+			require.ErrorIs(t, idx.Shutdown(ctx), want)
+
+			unblock()
+			retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer retryCancel()
+			require.NoError(t, idx.Shutdown(retryCtx), "shutdown must retry an interrupted index cycle")
+		})
+	}
+}
+
 // startInFlightCycle replaces cycle with one running callback every millisecond,
 // and returns once callback is in flight.
 func startInFlightCycle(t *testing.T, cycle cyclemanager.CycleManager,
