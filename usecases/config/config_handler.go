@@ -343,6 +343,20 @@ type Config struct {
 	// only be enabled on newly bootstrapped clusters (enforced at startup).
 	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
 
+	// DisableObjectIDEndpointsWithoutClass makes the /objects/{id} and
+	// /objects/{id}/references/{propertyName} endpoints that leave out the
+	// class answer 410 Gone, as they do with namespaces on.
+	DisableObjectIDEndpointsWithoutClass *runtime.DynamicValue[bool] `json:"disable_object_id_endpoints_without_class" yaml:"disable_object_id_endpoints_without_class"`
+
+	// DisableObjectsListWithoutClass makes GET /objects without the class
+	// parameter answer 410 Gone, as it does with namespaces on.
+	DisableObjectsListWithoutClass *runtime.DynamicValue[bool] `json:"disable_objects_list_without_class" yaml:"disable_objects_list_without_class"`
+
+	// DisableMultiTargetReferencesWithoutClass makes writes and validation refuse
+	// a beacon without a class on a property with several target classes, as
+	// with namespaces on. Deleting such a reference still works.
+	DisableMultiTargetReferencesWithoutClass *runtime.DynamicValue[bool] `json:"disable_multi_target_references_without_class" yaml:"disable_multi_target_references_without_class"`
+
 	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
 	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
 

@@ -49,16 +49,16 @@ func testGenerativeDigitalOcean(rest, grpc string) func(t *testing.T) {
 			absentModuleConfig bool
 		}{
 			{
-				name:            "llama-4-maverick",
-				generativeModel: "llama-4-maverick",
+				name:            "nemotron-3.5-super-vl",
+				generativeModel: "nemotron-3.5-super-vl",
 			},
 			{
-				name:            "deepseek-4-flash",
-				generativeModel: "deepseek-4-flash",
+				name:            "minimax-m3.1-flash",
+				generativeModel: "minimax-m3.1-flash",
 			},
 			{
 				name:               "absent module config",
-				generativeModel:    "llama-4-maverick",
+				generativeModel:    "nemotron-3.5-super-vl",
 				absentModuleConfig: true,
 			},
 		}
@@ -111,7 +111,7 @@ func testGenerativeDigitalOcean(rest, grpc string) func(t *testing.T) {
 				t.Run("create a tweet with params using grpc", func(t *testing.T) {
 					params := &pb.GenerativeDigitalOcean{
 						Model:            grpchelper.ToPtr(tt.generativeModel),
-						MaxTokens:        grpchelper.ToPtr(int64(90)),
+						MaxTokens:        grpchelper.ToPtr(int64(900)),
 						Temperature:      grpchelper.ToPtr(0.9),
 						TopP:             grpchelper.ToPtr(0.9),
 						FrequencyPenalty: grpchelper.ToPtr(0.1),
