@@ -830,3 +830,47 @@ type heldTeardownIndex struct {
 
 func (v *heldTeardownIndex) Shutdown(context.Context) error { return v.drain() }
 func (v *heldTeardownIndex) Drop(context.Context) error     { return v.drain() }
+
+func TestClassDropRetainsDrainBeyondErrorLimit(t *testing.T) {
+	sl, idx := testShard(t, context.Background(), "LimitedDrain")
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+	s := sl.(*Shard)
+	vi, release, ok := s.AcquireVectorIndex("")
+	require.True(t, ok)
+	release()
+	defer func() { s.vectors.Replace("", vi); s.drop() }()
+	ns := s.metadataDB.Namespace("limited-drain")
+	require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+	reported := make(chan struct{}, maxReportedErrors)
+	for n := range maxReportedErrors {
+		name := fmt.Sprintf("failed-%d", n)
+		shard := NewMockShardLike(t)
+		shard.EXPECT().drop().Return(errors.New("drop failed")).Once()
+		// The drop worker asks for ID when logging, after recording its error.
+		shard.EXPECT().ID().RunAndReturn(func() string { reported <- struct{}{}; return name }).Once()
+		idx.shards.Store(name, shard)
+	}
+	var once sync.Once
+	require.True(t, s.vectors.Replace("", &heldTeardownIndex{VectorIndex: vi, drain: func() error {
+		once.Do(func() {
+			for range maxReportedErrors {
+				<-reported
+			}
+		})
+		return context.DeadlineExceeded
+	}}))
+	db := &DB{indices: map[string]*Index{idx.ID(): idx}, logger: idx.logger, promMetrics: monitoring.GetMetrics(), config: Config{RootPath: idx.Config.RootPath}}
+	_, err := db.DropOrphanedClass(idx.Config.ClassName)
+	require.Error(t, err, "a hidden drain error must still stop class deletion")
+	require.NotErrorIs(t, err, context.DeadlineExceeded, "the bounded summary must omit the last error")
+	require.DirExists(t, s.path(), "error truncation must not permit deleting an undrained shard")
+	value, err := ns.Get([]byte("key"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("value"), value)
+	_, err = db.DropOrphanedClass(idx.Config.ClassName)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "a retry must reach the retained drain")
+	require.True(t, s.vectors.Replace("", vi))
+	_, err = db.DropOrphanedClass(idx.Config.ClassName)
+	require.NoError(t, err)
+	require.NoDirExists(t, s.path())
+}
