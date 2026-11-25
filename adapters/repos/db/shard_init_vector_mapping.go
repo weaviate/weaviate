@@ -205,15 +205,14 @@ func (s *Shard) removeUnrecordedVectorIndexes(ctx context.Context, dropped []str
 	return nil
 }
 
-// droppedVectorNames lists the vectors class marks as being dropped that are
-// not active.
-func droppedVectorNames(class *models.Class, active map[string]schemaConfig.VectorIndexConfig) []string {
+// droppedVectorNames lists the vectors class marks as being dropped.
+func droppedVectorNames(class *models.Class) []string {
 	if class == nil {
 		return nil
 	}
 	var names []string
 	for name, cfg := range class.VectorConfig {
-		if _, ok := active[name]; !ok && modelsext.IsVectorIndexDropped(cfg) {
+		if modelsext.IsVectorIndexDropped(cfg) {
 			names = append(names, name)
 		}
 	}
