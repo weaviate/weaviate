@@ -455,40 +455,80 @@ func firstByUUIDLookups(ctx context.Context, objects *pinnedObjects, docIDs []ui
 	return out, nil
 }
 
+// uuidScanWindow is how many memtable keys a scan in UUID order copies at a
+// time, so a short scan never copies a whole memtable.
+const uuidScanWindow = 1024
+
 // firstByUUIDScan walks the objects bucket in UUID order and collects the
 // first keep members. It gives up after budget objects; complete reports
 // whether it finished.
 func firstByUUIDScan(ctx context.Context, objects *lsmkv.Bucket, contains func(uint64) bool,
 	keep, budget int,
 ) (out []uint64, complete bool, err error) {
-	out = make([]uint64, 0, keep)
+	s := &uuidScan{contains: contains, keep: keep, budget: budget, out: make([]uint64, 0, keep)}
 	if keep == 0 {
-		return out, true, nil
+		return s.out, true, nil
 	}
-	cursor := objects.CursorReplaceDigestReusable(9) // version and docID
+	var from []byte
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		cursor, until := objects.CursorReplaceDigestReusableFirst(9, from, uuidScanWindow) // version and docID
+		done, err := s.window(ctx, cursor, from)
+		if err != nil || done || until == nil {
+			return s.result(err)
+		}
+		from = append(bytes.Clone(until), 0) // the smallest key after until
+	}
+}
+
+type uuidScan struct {
+	contains            func(uint64) bool
+	keep, budget, steps int
+	out                 []uint64
+	stopped             bool // out of budget
+}
+
+// window scans the cursor's keys from from and closes it. It reports whether
+// the scan is done before the cursor ends.
+func (s *uuidScan) window(ctx context.Context, cursor *lsmkv.CursorReplace, from []byte) (bool, error) {
 	defer cursor.Close()
 
-	steps := 0
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		if steps == budget {
-			return nil, false, nil
+	var k, v []byte
+	if from == nil {
+		k, v = cursor.First()
+	} else {
+		k, v = cursor.Seek(from)
+	}
+	for ; k != nil; k, v = cursor.Next() {
+		if s.steps == s.budget {
+			s.stopped = true
+			return true, nil
 		}
-		if steps++; steps%4096 == 0 {
+		if s.steps++; s.steps%4096 == 0 {
 			if err := ctx.Err(); err != nil {
-				return nil, false, err
+				return true, err
 			}
 		}
 		docID, err := storobj.DocIDFromBinary(v)
 		if err != nil {
-			return nil, false, fmt.Errorf("read doc id of %x: %w", k, err)
+			return true, fmt.Errorf("read doc id of %x: %w", k, err)
 		}
-		if contains(docID) {
-			if out = append(out, docID); len(out) == keep {
-				return out, true, nil
+		if s.contains(docID) {
+			if s.out = append(s.out, docID); len(s.out) == s.keep {
+				return true, nil
 			}
 		}
 	}
-	return out, true, nil
+	return false, nil
+}
+
+func (s *uuidScan) result(err error) ([]uint64, bool, error) {
+	if err != nil || s.stopped {
+		return nil, false, err
+	}
+	return s.out, true, nil
 }
 
 func (is *invertedSorter) startNestedSort(

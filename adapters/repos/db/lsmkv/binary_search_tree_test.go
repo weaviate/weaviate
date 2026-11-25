@@ -393,6 +393,42 @@ func BenchmarkCountStats(b *testing.B) {
 }
 
 // TestBinarySearchTreeFlattenInOrderRange: bounded flatten must equal the filtered full flatten, sized exactly by countInRange.
+func TestBinarySearchTreeFlattenFirst(t *testing.T) {
+	rnd := mathrand.New(mathrand.NewSource(42))
+	randKey := func() []byte {
+		return []byte(fmt.Sprintf("key-%03d", rnd.Intn(150)))
+	}
+	for round := 0; round < 250; round++ {
+		tree := &binarySearchTree{}
+		for i, n := 0, rnd.Intn(120); i < n; i++ {
+			if rnd.Intn(5) == 0 {
+				tree.setTombstone(randKey(), nil, nil)
+			} else {
+				tree.insert(randKey(), []byte(fmt.Sprintf("v-%d", i)), nil)
+			}
+		}
+		full := tree.flattenInOrder()
+		for _, start := range [][]byte{nil, randKey(), randKey()} {
+			var from []*binarySearchNode
+			for _, node := range full {
+				if start == nil || bytes.Compare(node.key, start) >= 0 {
+					from = append(from, node)
+				}
+			}
+			for _, n := range []int{0, 1, 2, 7, 200} {
+				got, more := tree.flattenFirst(start, n)
+				taken := min(max(n, 1), len(from)) // at least one
+				if taken == 0 {
+					require.Nil(t, got, "start %q n %d", start, n)
+				} else {
+					require.Equal(t, from[:taken], got, "start %q n %d", start, n)
+				}
+				require.Equal(t, len(from) > taken, more, "start %q n %d", start, n)
+			}
+		}
+	}
+}
+
 func TestBinarySearchTreeFlattenInOrderRange(t *testing.T) {
 	rnd := mathrand.New(mathrand.NewSource(42))
 	randKey := func() []byte {

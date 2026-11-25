@@ -29,6 +29,8 @@ type CursorReplace struct {
 
 	// surface deleted keys (nil value) instead of skipping; set by CursorInMemWithTombstones
 	emitTombstones bool
+	// last key served, inclusive (nil: none); set by CursorReplaceDigestReusableFirst
+	max []byte
 }
 
 type innerCursorReplace interface {
@@ -190,6 +192,47 @@ func (b *Bucket) CursorReplaceDigestReusableRange(valuePrefixLen int, min, max [
 	}
 }
 
+// CursorReplaceDigestReusableFirst behaves like CursorReplaceDigestReusableRange
+// from min, but snapshots at most n keys of each memtable instead of a key
+// range, so a scan that stops early copies little of a large memtable. The
+// cursor ends at the returned key, inclusive; nil means it runs to the end. A
+// longer scan opens the next cursor just past that key.
+func (b *Bucket) CursorReplaceDigestReusableFirst(valuePrefixLen int, min []byte, n int) (*CursorReplace, []byte) {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	innerCursors, unlockSegmentGroup := b.disk.newDigestReusableCursors(valuePrefixLen)
+
+	var until []byte
+	if b.flushing != nil {
+		var c innerCursorReplace
+		c, until = b.flushing.newCursorFirst(min, n)
+		innerCursors = append(innerCursors, c)
+	}
+	c, last := b.active.newCursorFirst(min, n)
+	innerCursors = append(innerCursors, c)
+	if last != nil && (until == nil || bytes.Compare(last, until) < 0) {
+		until = last
+	}
+
+	return &CursorReplace{
+		innerCursors: innerCursors,
+		max:          until,
+		unlock: func() {
+			unlockSegmentGroup()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
+		},
+	}, until
+}
+
 // CursorInMem returns a cursor which scans over the primary key of entries
 // not yet persisted on disk.
 // Segment creation and compaction will be blocked until the cursor is closed.
@@ -342,6 +385,9 @@ func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 		ids := c.cursorsWithLowestKey()
 		if len(ids) == 0 {
 			return nil, nil
+		}
+		if c.max != nil && bytes.Compare(c.state[ids[0]].key, c.max) > 0 {
+			return nil, nil // stop before skipping deleted keys past max
 		}
 
 		c.copyStateIntoServeCache(ids[len(ids)-1])

@@ -68,6 +68,27 @@ func (m *Memtable) newCursorWithRange(min, max []byte) innerCursorReplace {
 	}
 }
 
+// newCursorFirst behaves like newCursor but snapshots at most n keys from min
+// (nil: unbounded). last is the largest key taken when keys remain past it,
+// nil when none do.
+func (m *Memtable) newCursorFirst(min []byte, n int) (cursor innerCursorReplace, last []byte) {
+	m.RLock()
+	defer m.RUnlock()
+
+	data, more := m.key.flattenFirst(min, n)
+	if more {
+		last = data[len(data)-1].key
+	}
+
+	return &memtableCursor{
+		data: data,
+		keyFn: func(n *binarySearchNode) []byte {
+			return n.key
+		},
+		keySorted: true,
+	}, last
+}
+
 func (m *Memtable) newBlockingCursor() (innerCursorReplace, func()) {
 	// This cursor is a really primitive approach, it actually requires
 	// flattening the entire memtable - even if the cursor were to point to the

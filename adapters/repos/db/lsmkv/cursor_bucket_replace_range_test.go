@@ -151,6 +151,188 @@ func TestCursorReplaceDigestRange_ConcurrentWritesAndFlushes(t *testing.T) {
 	}
 }
 
+// TestCursorReplaceDigestFirst_WindowsMatchUnbounded: walking the bucket in
+// windows of at most n memtable keys returns exactly what the unbounded digest
+// cursor returns, and no window copies more than n keys of a memtable.
+func TestCursorReplaceDigestFirst_WindowsMatchUnbounded(t *testing.T) {
+	ctx := context.Background()
+	const bigPrefix = 1 << 20
+
+	layouts := []struct {
+		name   string
+		layout func(t *testing.T, b *Bucket)
+	}{
+		{"live-memtable", func(t *testing.T, b *Bucket) { seedDigestBucket(t, b, false) }},
+		{"flushed", func(t *testing.T, b *Bucket) { seedDigestBucket(t, b, true) }},
+		{"flushing-and-live-memtables", func(t *testing.T, b *Bucket) {
+			seedDigestBucket(t, b, false)
+			parkFlush(t, b)
+			for i := 70; i < 95; i += 2 {
+				require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", i)), []byte(fmt.Sprintf("v4-%03d", i))))
+			}
+			for i := 61; i < 80; i += 4 {
+				require.NoError(t, b.Delete([]byte(fmt.Sprintf("key-%03d", i))))
+			}
+		}},
+		{"memtable-only", func(t *testing.T, b *Bucket) {
+			for i := 0; i < 100; i++ {
+				require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", i)), []byte(fmt.Sprintf("value-%03d", i))))
+			}
+			for i := 10; i < 90; i += 7 {
+				require.NoError(t, b.Delete([]byte(fmt.Sprintf("key-%03d", i))))
+			}
+		}},
+	}
+	for _, mode := range digestCursorModes() {
+		for _, l := range layouts {
+			t.Run(mode.name+"/"+l.name, func(t *testing.T) {
+				b := newReusableTestBucket(t, ctx, mode.opts...)
+				t.Cleanup(func() { b.Shutdown(ctx) })
+				l.layout(t, b)
+
+				want := drainWithin(b.CursorReplaceDigestReusable(bigPrefix), nil, nil)
+				require.NotEmpty(t, want)
+				for _, n := range []int{1, 2, 3, 7, 1000} {
+					require.Equal(t, want, drainWindows(t, b, bigPrefix, n), "n %d", n)
+				}
+			})
+		}
+	}
+}
+
+// TestCursorReplaceDigestFirst_StopsAtItsBound: past its bound the cursor ends
+// at once, rather than skipping a run of deleted keys that the next cursor
+// would skip again.
+func TestCursorReplaceDigestFirst_StopsAtItsBound(t *testing.T) {
+	ctx := context.Background()
+	const n, window = 1000, 10
+
+	b := newReusableTestBucket(t, ctx)
+	t.Cleanup(func() { b.Shutdown(ctx) })
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%04d", i)) }
+	for i := 0; i < n; i++ {
+		require.NoError(t, b.Put(key(i), []byte("v1")))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	for i := 0; i < n; i++ {
+		require.NoError(t, b.Delete(key(i)))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	for i := 0; i < n/10; i++ { // re-imported, not flushed yet
+		require.NoError(t, b.Put(key(i), []byte("v2")))
+	}
+
+	c, until := b.CursorReplaceDigestReusableFirst(1<<20, nil, window)
+	require.Equal(t, key(window-1), until)
+	advanced := 0
+	for i, inner := range c.innerCursors {
+		c.innerCursors[i] = countingInnerCursor{innerCursorReplace: inner, advanced: &advanced}
+	}
+	require.Len(t, drainWithin(c, nil, nil), window)
+	require.Less(t, advanced, 4*window, "walked the deleted keys past the bound")
+}
+
+type countingInnerCursor struct {
+	innerCursorReplace
+	advanced *int
+}
+
+func (c countingInnerCursor) next() ([]byte, []byte, error) {
+	*c.advanced++
+	return c.innerCursorReplace.next()
+}
+
+// TestCursorReplaceDigestFirst_ConcurrentWritesAndFlushes: while writes and
+// flushes land between windows, keys nobody touches come back exactly once,
+// and the walk stays in key order.
+func TestCursorReplaceDigestFirst_ConcurrentWritesAndFlushes(t *testing.T) {
+	ctx := context.Background()
+	const n = 400
+
+	b := newReusableTestBucket(t, ctx)
+	t.Cleanup(func() { b.Shutdown(ctx) })
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%03d", i)) }
+	for i := 0; i < n; i++ {
+		require.NoError(t, b.Put(key(i), []byte("seed")))
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	defer wg.Wait()
+	defer close(stop)
+	go func() { // rewrites and deletes odd keys only
+		defer wg.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			k := key((2*i + 1) % n)
+			var err error
+			if i%5 == 4 {
+				err = b.Delete(k)
+			} else {
+				err = b.Put(k, []byte(fmt.Sprintf("v-%d", i)))
+			}
+			if err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if err := b.FlushAndSwitch(); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+
+	for round := 0; round < 100; round++ {
+		seen := map[string]int{}
+		prev := ""
+		for _, entry := range drainWindows(t, b, 1<<20, 7) {
+			k, _, _ := strings.Cut(entry, "=")
+			require.Greater(t, k, prev)
+			prev = k
+			seen[k]++
+		}
+		for i := 0; i < n; i += 2 {
+			require.Equal(t, 1, seen[string(key(i))], "untouched %s", key(i))
+		}
+	}
+}
+
+// drainWindows walks b like a long scan does: each cursor runs to its bound,
+// and the next one starts just past it.
+func drainWindows(t *testing.T, b *Bucket, prefix, n int) []string {
+	t.Helper()
+	var out []string
+	var from []byte
+	for {
+		c, until := b.CursorReplaceDigestReusableFirst(prefix, from, n)
+		for _, inner := range c.innerCursors {
+			if m, ok := inner.(*memtableCursor); ok {
+				require.LessOrEqual(t, len(m.data), n)
+			}
+		}
+		out = append(out, drainWithin(c, from, nil)...) // the cursor ends at until
+		if until == nil {
+			return out
+		}
+		from = append(bytes.Clone(until), 0)
+	}
+}
+
 func toBound(s string) []byte {
 	if s == "" {
 		return nil

@@ -78,6 +78,7 @@ type memtable interface {
 
 	newCursor() innerCursorReplace
 	newCursorWithRange(min, max []byte) innerCursorReplace
+	newCursorFirst(min []byte, n int) (innerCursorReplace, []byte)
 	newBlockingCursor() (innerCursorReplace, func())
 	newCursorWithSecondaryIndex(pos int) innerCursorReplace
 	newCollectionCursor() innerCursorCollection

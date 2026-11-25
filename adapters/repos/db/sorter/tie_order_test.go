@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -356,22 +357,52 @@ func TestInvertedSorterBoundsTheUUIDScan(t *testing.T) {
 		binary.BigEndian.PutUint64(id[8:], uint64(i)) // ids ascend with the value
 		objects[i] = tiedObject{id: id, int: int64(i / (n - group))}
 	}
-	r := newTieReplica(t, objects, func(i int) uint64 { return uint64(i) })
-	r.flush(t)
-
 	var top []uint64
 	for i := n - group; i < n; i++ {
 		top = append(top, uint64(i))
 	}
-	_, complete, err := firstByUUIDScan(context.Background(), r.store.Bucket(helpers.ObjectsBucketLSM),
-		sliceTieGroup(top).contains, 10, group*uuidScanStepsPerLookup)
-	require.NoError(t, err)
-	require.False(t, complete, "the group starts past the budget")
 
-	got, err := NewInvertedSorter(r.store, newDataTypesHelper(dummyClass())).
-		SortDocIDs(context.Background(), 10, []filters.Sort{{Path: []string{"int"}, Order: "desc"}}, nil)
-	require.NoError(t, err)
-	require.Equal(t, top[:10], got)
+	// n spans several scan windows when the objects are still in the memtable
+	for _, flushed := range []bool{true, false} {
+		t.Run(fmt.Sprintf("flushed=%v", flushed), func(t *testing.T) {
+			r := newTieReplica(t, objects, func(i int) uint64 { return uint64(i) })
+			if flushed {
+				r.flush(t)
+			}
+
+			_, complete, err := firstByUUIDScan(context.Background(), r.store.Bucket(helpers.ObjectsBucketLSM),
+				sliceTieGroup(top).contains, 10, group*uuidScanStepsPerLookup)
+			require.NoError(t, err)
+			require.False(t, complete, "the group starts past the budget")
+
+			got, err := NewInvertedSorter(r.store, newDataTypesHelper(dummyClass())).
+				SortDocIDs(context.Background(), 10, []filters.Sort{{Path: []string{"int"}, Order: "desc"}}, nil)
+			require.NoError(t, err)
+			require.Equal(t, top[:10], got)
+		})
+	}
+}
+
+// A scan that ends early copies one window of the memtable, not all of it.
+func TestUUIDScanCopiesOneWindowOfTheMemtable(t *testing.T) {
+	const n, keep = 10 * uuidScanWindow, 5
+	objects := make([]tiedObject, n)
+	for i := range objects {
+		var id uuid.UUID
+		binary.BigEndian.PutUint64(id[8:], uint64(i))
+		objects[i] = tiedObject{id: id}
+	}
+	r := newTieReplica(t, objects, func(i int) uint64 { return uint64(i) })
+	bucket := r.store.Bucket(helpers.ObjectsBucketLSM)
+	first := sliceTieGroup([]uint64{0, 1, 2, 3, 4}) // the smallest UUIDs
+
+	allocs := testing.AllocsPerRun(5, func() {
+		got, complete, err := firstByUUIDScan(context.Background(), bucket, first.contains, keep, n)
+		require.NoError(t, err)
+		require.True(t, complete)
+		require.Equal(t, []uint64{0, 1, 2, 3, 4}, got)
+	})
+	assert.Less(t, allocs, float64(2*uuidScanWindow))
 }
 
 // A vector search sorted by a property keeps its ties in distance order, then

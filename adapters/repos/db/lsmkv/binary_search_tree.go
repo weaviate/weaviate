@@ -118,6 +118,15 @@ func (t *binarySearchTree) flattenInOrderRange(min, max []byte) []*binarySearchN
 	return t.root.copyInOrder(min, size)
 }
 
+// flattenFirst returns at most n (at least 1) nodes in key order, starting at
+// the smallest key >= min (nil: unbounded), and whether nodes remain past them.
+func (t *binarySearchTree) flattenFirst(min []byte, n int) ([]*binarySearchNode, bool) {
+	if t.root == nil {
+		return nil, false
+	}
+	return t.root.copyFirst(min, max(n, 1))
+}
+
 type countStats struct {
 	upsertKeys     [][]byte
 	tombstonedKeys [][]byte
@@ -406,11 +415,9 @@ func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byt
 	}
 }
 
-// copyInOrder copies size nodes in key order, starting at the smallest key
-// >= min, where a nil min is unbounded. The copies share one backing array.
-func (n *binarySearchNode) copyInOrder(min []byte, size int) []*binarySearchNode {
-	var buf [pendingCap]*binarySearchNode
-	pending := buf[:0]
+// pendingFrom returns the stack of an in-order walk that starts at the
+// smallest key >= min, where a nil min is unbounded.
+func (n *binarySearchNode) pendingFrom(min []byte, pending []*binarySearchNode) []*binarySearchNode {
 	for n != nil {
 		if min != nil && bytes.Compare(n.key, min) < 0 {
 			n = n.right
@@ -419,6 +426,39 @@ func (n *binarySearchNode) copyInOrder(min []byte, size int) []*binarySearchNode
 			n = n.left
 		}
 	}
+	return pending
+}
+
+// copyFirst copies at most limit nodes in key order, starting at the smallest
+// key >= min, and reports whether nodes remain past them.
+func (n *binarySearchNode) copyFirst(min []byte, limit int) ([]*binarySearchNode, bool) {
+	var buf [pendingCap]*binarySearchNode
+	pending := n.pendingFrom(min, buf[:0])
+
+	var copies []binarySearchNode
+	for len(pending) > 0 && len(copies) < limit {
+		n = pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		copies = append(copies, n.shallowCopy())
+		for n = n.right; n != nil; n = n.left {
+			pending = append(pending, n)
+		}
+	}
+	if len(copies) == 0 {
+		return nil, false
+	}
+	res := make([]*binarySearchNode, len(copies))
+	for i := range copies {
+		res[i] = &copies[i]
+	}
+	return res, len(pending) > 0
+}
+
+// copyInOrder copies size nodes in key order, starting at the smallest key
+// >= min, where a nil min is unbounded. The copies share one backing array.
+func (n *binarySearchNode) copyInOrder(min []byte, size int) []*binarySearchNode {
+	var buf [pendingCap]*binarySearchNode
+	pending := n.pendingFrom(min, buf[:0])
 
 	copies := make([]binarySearchNode, size)
 	res := make([]*binarySearchNode, size)
