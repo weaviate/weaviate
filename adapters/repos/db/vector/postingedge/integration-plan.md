@@ -1835,7 +1835,13 @@ Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce q
   - El detalle está en `bench-report.md` de `feat/posting-edge-index`.
 - **El corte propuesto: 2 400** (redondeo mío).
   - Con él solo el correlado al 0.1 % va por el camino que lee más (990 lecturas frente a 214), como con el corte de `routing`.
-  - Hasta que el usuario decida, `noneFlatCutoff` vale 40 000 por defecto. Con ese valor un filtro de hasta 40 000 permitidos lee un vector por permitido.
+- **El corte decidido: 2 400** (decisión del usuario, 25 de noviembre por la tarde). Es `defaultNoneFlatCutoff` en `persistent_filter.go`, sin exportar, y es el valor de `noneFlatCutoff` cuando no se le da otro.
+  - `TestPersistentNoneFlatCutoffDefault` lo fija: en `none`, un filtro de 2 399 permitidos va por la lectura directa y uno de 2 400 por el índice; en `routing`, los dos van por la plana, bajo el corte de 40 000.
+  - Verificado con `go test -race` de los tests de filtros, de la plana, del corte y de `none` (`-run 'Filter|Flat|Cutoff|None|Twins|KeptAside|DirectRead'`, 257 s), y con `golangci-lint` y `linter_go_routines.sh`. El paquete entero con `-race` no cabe en los 9 min 30 s de una ejecución en primer plano, y esta vez no se corrió en segundo plano.
+- **Dos salvedades del corte:**
+  - **Las lecturas del índice en `none` de la medida son calculadas, no medidas.** El clon se creció en `routing`, y los halos solo se escriben en `none`, así que el camino del índice en `none` no se pudo correr sobre él. Sus lecturas son las del índice en `routing` más un bloque de halo por carga.
+  - **El corte se revisará en Linux.** La medida cuenta lecturas, no bytes. Allí los bytes pueden pesar más que el número de lecturas, y por bytes el cruce sale en 4 813 permitidos y no en 2 432.
+- **La rama va en una PR aparte contra `feat/posting-edge-integration-m2`, cuando se mergee [#14023](https://github.com/weaviate/weaviate/pull/14023),** y no dentro de esa PR (decisión del usuario, 25 de noviembre).
 
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 

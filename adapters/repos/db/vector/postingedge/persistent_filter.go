@@ -35,6 +35,17 @@ import (
 // search is flat: the flatSearchCutoff of HNSW, compared the same way.
 const DefaultFlatSearchCutoff = 40_000
 
+// defaultNoneFlatCutoff is the cutoff of an index with no codes in memory,
+// whose flat search reads the exact vector of every allowed vector: 2 400
+// allowed, the user's decision of 2026-11-25. It is where the direct read
+// stops reading fewer vectors than the index, 2 432 by linear interpolation
+// in the untimed measure on 1M dbpedia (integration-plan.md, section 8),
+// rounded. That measure counts reads and not bytes, and the reads of the
+// index in none in it are computed from the index with its codes in memory,
+// one more read per posting loaded. It is to be checked on Linux, where the
+// bytes may weigh more than the count of reads.
+const defaultNoneFlatCutoff = 2_400
+
 // flatCutoff is the cutoff of the index: the default, the one the config
 // gives, or none at all.
 func (p *Persistent) flatCutoff() int {
@@ -49,13 +60,11 @@ func (p *Persistent) flatCutoff() int {
 
 // noneFlatCutoff is the cutoff of an index with no codes in memory, whose
 // flat search reads the exact vector of every allowed vector: the default,
-// the one the config gives, or none at all. The default is the one of an
-// index with its codes in memory until the user sets the one the measure
-// proposes.
+// defaultNoneFlatCutoff, the one the config gives, or none at all.
 func (p *Persistent) noneFlatCutoff() int {
 	switch {
 	case p.cfg.noneFlatCutoff == 0:
-		return DefaultFlatSearchCutoff
+		return defaultNoneFlatCutoff
 	case p.cfg.noneFlatCutoff < 0:
 		return 0
 	}

@@ -234,8 +234,8 @@ type PersistentConfig struct {
 	// noneFlatCutoff is flatCutoff for an index with no codes in memory
 	// (rq.cacheMode none), whose flat search reads the exact vector of every
 	// allowed vector, by the user's order of 2026-11-24: 0 for the default,
-	// which is DefaultFlatSearchCutoff until the user sets the one the
-	// measure proposes, and negative for never. flatCutoff does not govern
+	// defaultNoneFlatCutoff (2 400, the user's decision of 2026-11-25), and
+	// negative for never. flatCutoff does not govern
 	// such an index, and this does not govern one with its codes in memory.
 	// It is not a parameter of a class either.
 	noneFlatCutoff int

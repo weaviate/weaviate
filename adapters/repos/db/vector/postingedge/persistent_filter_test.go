@@ -252,9 +252,8 @@ func persistentFilteredSearch(t *testing.T, cacheMode string) {
 // An index with no codes in memory has a cutoff of its own, and the cutoff of
 // an index with its codes in memory does not govern it: with fewer allowed
 // than its cutoff it searches flat, by the direct read; with as many or more,
-// the index; negative, never flat. Its default is 40 000, as for an index
-// with its codes in memory, until the user sets the one the measure proposes.
-// An index with its codes in memory does not look at it.
+// the index; negative, never flat. Its default is 2 400; both filters here
+// allow fewer. An index with its codes in memory does not look at it.
 func TestPersistentNoneFlatCutoff(t *testing.T) {
 	const total = 3000
 	fixtures := map[string]*persistentFixture{}
@@ -307,6 +306,40 @@ func TestPersistentNoneFlatCutoff(t *testing.T) {
 			assert.Equal(t, tt.wantHalf, f.pathOf(t, half), "half: %d allowed", half.Len())
 			if tt.cacheMode == ent.CacheModeNone && tt.wantTenth {
 				f.directRead(t, tenth, tt.name)
+			}
+		})
+	}
+}
+
+// The cutoff of an index with no codes in memory is 2 400 allowed by default,
+// the user's decision of 2026-11-25: a filter of 2 399 is searched flat, by the
+// direct read, and one of 2 400 by the index. With its codes in memory both
+// are flat, under the cutoff of 40 000.
+func TestPersistentNoneFlatCutoffDefault(t *testing.T) {
+	const total = 3000
+	first := func(n int) helpers.AllowList {
+		ids := make([]uint64, n)
+		for i := range ids {
+			ids[i] = uint64(i)
+		}
+		return helpers.NewAllowList(ids...)
+	}
+	under, at := first(2_399), first(2_400)
+	tests := []struct {
+		cacheMode         string
+		wantUnder, wantAt bool
+	}{
+		{cacheMode: ent.CacheModeNone, wantUnder: true},
+		{cacheMode: ent.CacheModeRouting, wantUnder: true, wantAt: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.cacheMode, func(t *testing.T) {
+			f := newPersistentFixtureMode(t, total, tt.cacheMode, nil)
+			f.add(t, 0, total)
+			assert.Equal(t, tt.wantUnder, f.pathOf(t, under), "2 399 allowed")
+			assert.Equal(t, tt.wantAt, f.pathOf(t, at), "2 400 allowed")
+			if tt.cacheMode == ent.CacheModeNone {
+				f.directRead(t, under, "2 399 allowed")
 			}
 		})
 	}
