@@ -55,7 +55,7 @@ func makeResolveClass(authorizer authorization.Authorizer, modulesProvider Modul
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		res, err := resolveAggregate(p, authorizer, modulesProvider, class)
 		if err != nil {
-			return res, enterrors.NewErrGraphQLUser(err, "Aggregate", schema.ClassName(p.Info.FieldName).String())
+			return res, enterrors.NewErrGraphQLUser(err, "Aggregate", class.Class)
 		}
 		return res, nil
 	}
