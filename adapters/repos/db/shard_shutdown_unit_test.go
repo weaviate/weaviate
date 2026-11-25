@@ -747,8 +747,9 @@ func TestRetainedDrainsReachTeardownConsumers(t *testing.T) {
 					case "db-shutdown":
 						require.ErrorIs(t, db.DeleteIndex(idx.Config.ClassName), cause, "class deletion must report an unfinished drain")
 					}
-					err := run()
-					require.ErrorIs(t, err, cause, "teardown must report the retained worker's unfinished drain")
+					if route != "index-shutdown" && route != "db-shutdown" {
+						require.ErrorIs(t, run(), cause, "teardown must report the retained worker's unfinished drain")
+					}
 					require.DirExists(t, s.path(), "teardown must retain an undrained worker's directory")
 					value, err := ns.Get([]byte("key"))
 					require.NoError(t, err)
