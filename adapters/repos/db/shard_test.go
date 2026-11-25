@@ -299,6 +299,38 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
+// A debug reset that fails once it dropped the index leaves the record
+// creating, and the next load builds the index again.
+func TestShard_DebugResetVectorIndex_FailedRebuildIsResumed(t *testing.T) {
+	ctx := testCtx()
+	class := &models.Class{Class: "TestClass"}
+	shd, idx := testShardWithSettings(t, ctx, class, hnsw.UserConfig{}, false, true)
+	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"added": hnsw.UserConfig{}}))
+	s := underlyingShard(t, shd)
+	want, _, err := recordsOf(s).Get("added")
+	require.NoError(t, err)
+
+	setConfig := func(cfg schemaConfig.VectorIndexConfig) {
+		idx.vectorIndexUserConfigLock.Lock()
+		defer idx.vectorIndexUserConfigLock.Unlock()
+		idx.vectorIndexUserConfigs["added"] = cfg
+	}
+	setConfig(hnsw.UserConfig{Distance: "bogus"})
+	require.ErrorContains(t, shd.DebugResetVectorIndex(ctx, "added"), "bogus")
+	rec, ok, err := recordsOf(s).Get("added")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "creating", rec.State)
+
+	setConfig(hnsw.UserConfig{})
+	s = reload(t, ctx, s, class)
+	rec, _, err = recordsOf(s).Get("added")
+	require.NoError(t, err)
+	assert.Equal(t, want, rec)
+	assert.True(t, storageExistsFor(t, s, rec))
+	require.NoError(t, idx.drop())
+}
+
 // A vector added on a running shard is recorded, so the reset finds its
 // record and rebuilds at its ID; the record is ready again afterwards.
 func TestShard_DebugResetVectorIndex_AddedVector(t *testing.T) {
