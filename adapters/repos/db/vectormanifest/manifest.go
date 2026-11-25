@@ -93,9 +93,11 @@ func entryOf(name string, rec record, cfg schemaConfig.VectorIndexConfig) Entry 
 
 // Open puts the persisted state in order against schema, the vectors that own
 // storage, and returns the indexes to open, in name order. Nothing may use the
-// shard's vector indexes before it. firstLoad is true for a shard that has no
-// records yet; Ready writes them.
-func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig,
+// shard's vector indexes before it. dropped names the vectors being dropped:
+// one that schema does not have goes with its files, since the drop itself may
+// have run before this load. firstLoad is true for a shard that has no records
+// yet; Ready writes them.
+func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig, dropped []string,
 ) (entries []Entry, firstLoad bool, err error) {
 	records, initialized, stripped, err := m.records.LoadAndStrip()
 	if err != nil {
@@ -104,12 +106,20 @@ func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.Vect
 	if len(stripped) > 0 {
 		m.logger.Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
+	dropped = slices.DeleteFunc(slices.Clone(dropped), func(name string) bool {
+		_, ok := schema[name]
+		return ok
+	})
 	if initialized {
-		records, err = m.reconcile(ctx, schema, records)
+		records, err = m.reconcile(ctx, schema, dropped, records)
 		if err != nil {
 			return nil, false, err
 		}
 	} else {
+		err = m.dropUnrecorded(ctx, dropped, slices.Collect(maps.Keys(schema)))
+		if err != nil {
+			return nil, false, err
+		}
 		records = make(map[string]record, len(schema))
 		for name, cfg := range schema {
 			records[name] = recordFor(name, cfg, stateCreating)
@@ -140,10 +150,10 @@ func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.Vect
 //     missing record (a vector added while the shard was cold) are built,
 //     then marked ready.
 //
-// A dropping record is finished first. A record the schema no longer has is
-// deleted; its storage is left alone.
+// A drop is finished first, whether the record or the schema says so. Any other
+// record the schema no longer has is deleted; its storage is left alone.
 func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig,
-	records map[string]record,
+	dropped []string, records map[string]record,
 ) (map[string]record, error) {
 	// before any deletion: finishing a drop would take the other's queue
 	err := refuseSharedFiles(records)
@@ -152,10 +162,11 @@ func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(records)) {
-		if records[name].State != stateDropping {
+		// a deletion the process did not live to finish, or a drop that found
+		// this shard loading
+		if records[name].State != stateDropping && !slices.Contains(dropped, name) {
 			continue
 		}
-		// a deferred deletion the process did not live to finish
 		err := m.finishDrop(ctx, name, records)
 		if err != nil {
 			return nil, err
@@ -204,13 +215,29 @@ func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig
 		if _, ok := schema[name]; ok {
 			continue
 		}
-		// dropped or gone from the schema: the record goes, the storage stays
+		// gone from the schema without a drop: the record goes, the storage stays
 		err := m.records.Delete(name)
 		if err != nil {
 			return nil, err
 		}
 	}
 	return toBuild, nil
+}
+
+// dropUnrecorded deletes what the naming rule says dropped own, in a shard
+// without records. The files of siblings stay.
+func (m *Manifest) dropUnrecorded(ctx context.Context, dropped, siblings []string) error {
+	for _, name := range dropped {
+		err := m.removeArtifacts(ctx, helpers.VectorIndexArtifactsFor(name, siblings))
+		if err != nil {
+			return fmt.Errorf("drop vector %q: %w", name, err)
+		}
+		err = dynamic.RemoveStateKeyIn(m.state, helpers.VectorIndexIDForTarget(name))
+		if err != nil {
+			return fmt.Errorf("drop vector %q: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // Create records that name's index is about to be built under the naming rule
