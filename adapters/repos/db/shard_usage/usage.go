@@ -332,11 +332,12 @@ type VectorsMetrics struct {
 	compressedBytes map[string]uint64
 }
 
-// QuantizedVectorsExist reports whether a shard holds quantized vectors for a
-// target vector. The bucket directory alone is no proof: it is created empty as
-// soon as the schema enables quantization, so that a downgrade finds it in place.
-func (m VectorsMetrics) QuantizedVectorsExist(targetVector string) bool {
-	return m.compressedBytes[helpers.GetCompressedBucketName(targetVector)] > 0
+// QuantizedVectorsExist reports whether a shard holds quantized vectors for the
+// vector index whose files are named by indexID. The bucket directory alone is
+// no proof: older versions created it empty as soon as the schema enabled
+// quantization.
+func (m VectorsMetrics) QuantizedVectorsExist(indexID string) bool {
+	return m.compressedBytes[helpers.CompressedBucketNameForID(indexID)] > 0
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size from disk

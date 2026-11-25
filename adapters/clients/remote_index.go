@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -461,9 +462,15 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	}
 	clusterapi.IndicesPayloads.AggregationParams.SetContentTypeHeaderReq(req)
 
-	// send request
+	// An aggregation scans the whole shard, which can take far longer than the
+	// query timeout, so a caller that sets its own deadline is bounded by it alone.
+	timeout := c.timeoutUnit * QUERY_TIMEOUT_VALUE
+	if _, ok := ctx.Deadline(); ok {
+		timeout = 0
+	}
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	// Retried once only: the caller moves on to the shard's other replicas.
+	err = c.doWithCustomMarshaller(timeout, req, body, resp.decode, successCode, 1)
 	if err != nil {
 		// Rehydrate the shed's identity (429) past retry exhaustion, as in
 		// SearchShard, so it reaches the ingress mapping.
@@ -572,9 +579,14 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 	return batchDeleteResults
 }
 
+// shardStatusTimeout bounds a status or queue-size read. The read is tried once, since the caller asks the next replica.
+const shardStatusTimeout = 2 * time.Second
+
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, shardStatusTimeout)
+	defer cancel()
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName),
 		"", nil)
@@ -586,13 +598,13 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			body, err := io.ReadAll(res.Body)
+			return shouldRetry(code), stderrors.Join(fmt.Errorf("status code: %v body: (%s)", code, body), err)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -610,12 +622,14 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		}
 		return false, nil
 	}
-	return size, c.retry(ctx, MAX_RETRIES, try)
+	return size, c.retry(ctx, 0, try)
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, shardStatusTimeout)
+	defer cancel()
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
 		"", nil)
@@ -627,13 +641,13 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			body, err := io.ReadAll(res.Body)
+			return shouldRetry(code), stderrors.Join(fmt.Errorf("status code: %v body: (%s)", code, body), err)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -651,43 +665,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		}
 		return false, nil
 	}
-	return status, c.retry(ctx, MAX_RETRIES, try)
-}
-
-func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string, schemaVersion uint64,
-) error {
-	paramsBytes, err := clusterapi.IndicesPayloads.UpdateShardStatusParams.Marshal(targetStatus)
-	if err != nil {
-		return errors.Wrap(err, "marshal request payload")
-	}
-	value := []string{strconv.FormatUint(schemaVersion, 10)}
-
-	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPost, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
-			url.Values{replica.SchemaVersionKey: value}.Encode(),
-			bytes.NewReader(paramsBytes))
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-		clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
-
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
-		}
-
-		return false, nil
-	}
-
-	return c.retry(ctx, MAX_RETRIES, try)
+	return status, c.retry(ctx, 0, try)
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,

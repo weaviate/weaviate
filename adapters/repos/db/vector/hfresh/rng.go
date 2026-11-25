@@ -29,9 +29,14 @@ func (h *HFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet
 	}
 
 	for cID, cDistance := range candidates.Iter() {
-		cCenter, err := h.Centroids.Get(cID)
-		if err != nil {
-			return nil, false, errors.Wrap(err, "failed to get candidate centroid")
+		// only compared with the postings already selected: the first
+		// candidate needs no centroid, and the single posting has none
+		var cCenter *Centroid
+		if replicas.Len() > 0 {
+			cCenter, err = h.Centroids.Get(cID)
+			if err != nil {
+				return nil, false, errors.Wrap(err, "failed to get candidate centroid")
+			}
 		}
 
 		tooClose := false

@@ -47,6 +47,10 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 	if err != nil {
 		return nil, err
 	}
+	err = refuseGeneratedVectorIndexCollisions(records)
+	if err != nil {
+		return nil, err
+	}
 
 	for name, rec := range records {
 		if rec.State != vectorIndexStateDropping {
@@ -81,7 +85,7 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 		}
 		if rec.IndexType != cfg.IndexType() {
 			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
-				name, rec.IndexType, rec.PhysicalID, cfg.IndexType())
+				name, rec.IndexType, rec.recordedID(), cfg.IndexType())
 		}
 		if rec.State == vectorIndexStateReady {
 			rebuild, err := s.readyVectorIndexNeedsRebuild(name, rec)
@@ -121,6 +125,37 @@ func refuseSharedVectorIndexQueues(records map[string]vectorIndexRecord) error {
 		queues[queueID] = name
 	}
 	return nil
+}
+
+// refuseGeneratedVectorIndexCollisions fails when two records name one file
+// and either has a generated ID: both would write into it, and a drop of one
+// deletes the other's. Name-derived collisions predate it and still load.
+func refuseGeneratedVectorIndexCollisions(records map[string]vectorIndexRecord) error {
+	fileOwners := make(map[string]string)
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		rec := records[name]
+		for _, file := range ownerOf(rec).names() {
+			other, ok := fileOwners[file]
+			if !ok {
+				fileOwners[file] = name
+				continue
+			}
+			if other == name {
+				continue
+			}
+			if isGeneratedVectorIndexID(rec.storageID()) || isGeneratedVectorIndexID(rec.queueIDOrDefault()) ||
+				isGeneratedVectorIndexID(records[other].storageID()) || isGeneratedVectorIndexID(records[other].queueIDOrDefault()) {
+				return fmt.Errorf("vectors %q and %q both name %q", other, name, file)
+			}
+		}
+	}
+	return nil
+}
+
+// isGeneratedVectorIndexID reports whether id was generated rather than
+// derived from a vector name, which never contains a "-".
+func isGeneratedVectorIndexID(id string) bool {
+	return strings.Contains(id, "-")
 }
 
 // readyVectorIndexNeedsRebuild probes a ready record's storage. Present:
@@ -187,7 +222,7 @@ func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord,
 }
 
 // markVectorIndexCreating records that name's index is about to be built at
-// rec.PhysicalID. A crash from here on leaves a record the next load resumes.
+// rec's storage ID. A crash from here on leaves a record the next load resumes.
 func (s *Shard) markVectorIndexCreating(name string, rec vectorIndexRecord) error {
 	rec.State = vectorIndexStateCreating
 	return s.mapping.Put(name, rec)
@@ -248,7 +283,7 @@ func vectorIndexRecordFor(name string, cfg schemaConfig.VectorIndexConfig, state
 
 // vectorIndexStorageDirsFor lists the directories rec occupies under this shard.
 func (s *Shard) vectorIndexStorageDirsFor(rec vectorIndexRecord) ([]string, error) {
-	return vectorIndexStorageDirs(s.path(), s.metadataDB.Namespace(dynamic.StateNamespace), rec.IndexType, rec.PhysicalID)
+	return vectorIndexStorageDirs(s.path(), s.metadataDB.Namespace(dynamic.StateNamespace), rec.IndexType, rec.storageID())
 }
 
 // syncVectorIndexRecordStorage makes rec's directories durable before the
@@ -274,7 +309,7 @@ type vectorIndexOwner struct {
 
 // ownerOf is where rec's files live.
 func ownerOf(rec vectorIndexRecord) vectorIndexOwner {
-	return vectorIndexOwner{physicalID: rec.PhysicalID, queueID: rec.queueIDOrDefault()}
+	return vectorIndexOwner{physicalID: rec.storageID(), queueID: rec.queueIDOrDefault()}
 }
 
 // ownerAt is a vector whose index and queue are both at id, as the naming

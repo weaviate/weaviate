@@ -126,8 +126,9 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) (schemaConfig.VectorIndexConfig, error) {
 	config := vectorIndexConfig.(UserConfig)
-	hnswConfig, errHnsw := hnsw.ParseDefaultQuantization(config.HnswUC, compression)
-	flatConfig, errFlat := flat.ParseDefaultQuantization(config.FlatUC, compression)
+	// Both arms compress under the dynamic index's distance, not their own.
+	hnswConfig, errHnsw := hnsw.ParseDefaultQuantizationForDistance(config.HnswUC, compression, config.Distance)
+	flatConfig, errFlat := flat.ParseDefaultQuantizationForDistance(config.FlatUC, compression, config.Distance)
 
 	config.HnswUC = hnswConfig.(hnsw.UserConfig)
 	config.FlatUC = flatConfig.(flat.UserConfig)

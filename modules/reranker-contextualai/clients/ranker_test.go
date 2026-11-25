@@ -77,7 +77,7 @@ func TestClientRank(t *testing.T) {
 		},
 	}
 
-	result, err := client.Rank(context.Background(), testQuery, []string{"doc1", "doc2", "doc3"}, fakeConfig)
+	result, err := client.Rank(context.Background(), testQuery, "text", []string{"doc1", "doc2", "doc3"}, fakeConfig)
 
 	require.NoError(t, err)
 	assert.Equal(t, testQuery, result.Query)
@@ -159,7 +159,7 @@ func TestRankErrorHandling(t *testing.T) {
 				},
 			}
 
-			_, err := client.Rank(context.Background(), testQuery, []string{"doc1"}, fakeConfig)
+			_, err := client.Rank(context.Background(), testQuery, "text", []string{"doc1"}, fakeConfig)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectedErr)
@@ -231,7 +231,7 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 			}
 
 			fakeConfig := fakeClassConfig{classConfig: tt.config}
-			_, err := client.Rank(context.Background(), testQuery, []string{"doc1"}, fakeConfig)
+			_, err := client.Rank(context.Background(), testQuery, "text", []string{"doc1"}, fakeConfig)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedModel, capturedRequest.Model)

@@ -50,7 +50,6 @@ const (
 )
 
 type SplitFile struct {
-	AbsPath        string
 	RelPath        string
 	FileInfo       fs.FileInfo
 	AlreadyWritten int64
@@ -64,7 +63,7 @@ type compressor interface {
 }
 
 type zip struct {
-	sourcePath          string
+	src                 entBackup.FileSource
 	w                   *tar.Writer
 	compressorWriter    compressor
 	pipeWriter          *io.PipeWriter
@@ -122,7 +121,7 @@ func takeZstdEncoder(level CompressionLevel, w io.Writer) (*zstd.Encoder, *sync.
 //   - splitFileSize: files exceeding this size are split across multiple chunks.
 //     Must be >= bigFilesThreshold.
 //   - chunkTargetSize: the target size for chunks that pack multiple small files together.
-func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
+func NewZip(src entBackup.FileSource, level int, chunkTargetSize int64, bigFilesThreshold int64, splitFileSize int64) (zip, entBackup.ReadCloserWithError, error) {
 	pr, pw := io.Pipe()
 	reader := &readCloser{src: pr, n: 0}
 
@@ -165,7 +164,7 @@ func NewZip(sourcePath string, level int, chunkTargetSize int64, bigFilesThresho
 		splitFileSize = int64(1<<63 - 1) // effectively no limit
 	}
 	return zip{
-		sourcePath:          sourcePath,
+		src:                 src,
 		compressorWriter:    gzw,
 		w:                   tarW,
 		pipeWriter:          pw,
@@ -346,11 +345,15 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, nil, err
 	}
 
-	// open file for read, falling back to the delete-marker path if the
-	// collection was renamed during backup
-	info, err := z.statWithDeleteMarkerFallback(relPath)
+	f, err := z.src.Open(relPath)
 	if err != nil {
-		return written, nil, err
+		return written, nil, fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return written, nil, fmt.Errorf("stat: %w", err)
 	}
 	if !info.Mode().IsRegular() {
 		return 0, nil, nil // ignore directories
@@ -362,8 +365,7 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		// Compute even part size so all chunks are roughly equal.
 		numParts := ceilDiv(fileSize, z.splitFileSizeBytes)
 		partSize := ceilDiv(fileSize, numParts)
-		absPath := filepath.Join(z.sourcePath, relPath)
-		sf := &SplitFile{AbsPath: absPath, RelPath: relPath, FileInfo: info, AlreadyWritten: 0, PartSize: partSize}
+		sf := &SplitFile{RelPath: relPath, FileInfo: info, AlreadyWritten: 0, PartSize: partSize}
 		remainingSplitFile, err := z.WriteSplitFile(ctx, sd, sf, preCompressionSize, chunkKey)
 		if err != nil {
 			return 0, nil, err
@@ -377,12 +379,6 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 	if fileSize >= z.bigFilesThreshold && entBackup.IsImmutableFile(relPath) {
 		sd.TrackBigFileChunk(relPath, fileSize, info.ModTime(), chunkKey)
 	}
-
-	f, err := z.openWithDeleteMarkerFallback(relPath)
-	if err != nil {
-		return written, nil, err
-	}
-	defer f.Close()
 
 	preCompressionSize.Add(fileSize)
 
@@ -406,7 +402,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 			// we ignore in case the ctx was cancelled
 			return written, nil
 		}
-		return written, fmt.Errorf("write backup header in file %s: %s: %w", z.sourcePath, relPath, err)
+		return written, fmt.Errorf("write backup header in file %s: %w", relPath, err)
 	}
 	// write bytes
 	written, err = io.Copy(z.w, r)
@@ -446,7 +442,7 @@ func (z *zip) WriteSplitFile(ctx context.Context, sd *entBackup.ShardDescriptor,
 		return nil, fmt.Errorf("write header: %w", err)
 	}
 
-	f, err := os.Open(splitFile.AbsPath)
+	f, err := z.src.Open(splitFile.RelPath)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
@@ -472,44 +468,6 @@ func (z *zip) WriteSplitFile(ctx context.Context, sd *entBackup.ShardDescriptor,
 		return splitFile, nil
 	}
 	return nil, nil
-}
-
-// statWithDeleteMarkerFallback stats the file at relPath under the source
-// directory. If the file does not exist, it retries with the delete-marker
-// prefix in case the collection was renamed during an ongoing backup.
-func (z *zip) statWithDeleteMarkerFallback(relPath string) (os.FileInfo, error) {
-	absPath := filepath.Join(z.sourcePath, relPath)
-	info, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			info, err = os.Stat(filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath)))
-			if err != nil {
-				return nil, fmt.Errorf("stat: not found at original or delete-marker path: %w", err)
-			}
-			return info, nil
-		}
-		return nil, fmt.Errorf("stat: %w", err)
-	}
-	return info, nil
-}
-
-// openWithDeleteMarkerFallback opens the file at relPath under the source
-// directory. If the file does not exist, it retries with the delete-marker
-// prefix in case the collection was renamed during an ongoing backup.
-func (z *zip) openWithDeleteMarkerFallback(relPath string) (*os.File, error) {
-	absPath := filepath.Join(z.sourcePath, relPath)
-	f, err := os.Open(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			f, err = os.Open(filepath.Join(z.sourcePath, entBackup.DeleteMarkerAdd(relPath)))
-			if err != nil {
-				return nil, fmt.Errorf("open: not found at original or delete-marker path: %w", err)
-			}
-			return f, nil
-		}
-		return nil, fmt.Errorf("open: %w", err)
-	}
-	return f, nil
 }
 
 type zstdWrapper struct {

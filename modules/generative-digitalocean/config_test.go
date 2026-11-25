@@ -36,33 +36,33 @@ func TestValidateClass(t *testing.T) {
 	}{
 		{
 			name:      "model available",
-			cfg:       fakeClassConfig{"model": "llama-4-maverick"},
-			lister:    &fakeModelLister{models: []string{"llama-4-maverick"}},
+			cfg:       fakeClassConfig{"model": "nemotron-3.5-super-vl"},
+			lister:    &fakeModelLister{models: []string{"nemotron-3.5-super-vl"}},
 			apiKeyEnv: "dop_v1_test",
 		},
 		{
 			name:          "api key missing skips the model check",
 			cfg:           fakeClassConfig{"model": "retired-model"},
-			lister:        &fakeModelLister{models: []string{"llama-4-maverick"}},
+			lister:        &fakeModelLister{models: []string{"nemotron-3.5-super-vl"}},
 			wantNoListing: true,
 		},
 		{
 			name:          "empty model skips the model check",
 			cfg:           fakeClassConfig{"model": ""},
-			lister:        &fakeModelLister{models: []string{"llama-4-maverick"}},
+			lister:        &fakeModelLister{models: []string{"nemotron-3.5-super-vl"}},
 			apiKeyEnv:     "dop_v1_test",
 			wantNoListing: true,
 		},
 		{
 			name:        "model not available",
 			cfg:         fakeClassConfig{"model": "retired-model"},
-			lister:      &fakeModelLister{models: []string{"llama-4-maverick"}},
+			lister:      &fakeModelLister{models: []string{"nemotron-3.5-super-vl"}},
 			apiKeyEnv:   "dop_v1_test",
 			expectedErr: `model "retired-model" is not available`,
 		},
 		{
 			name:        "lister error",
-			cfg:         fakeClassConfig{"model": "llama-4-maverick"},
+			cfg:         fakeClassConfig{"model": "nemotron-3.5-super-vl"},
 			lister:      &fakeModelLister{err: errors.New("endpoint unreachable")},
 			apiKeyEnv:   "dop_v1_test",
 			expectedErr: "list DigitalOcean models: endpoint unreachable",
@@ -70,7 +70,7 @@ func TestValidateClass(t *testing.T) {
 		{
 			name:          "invalid local config fails before the model check",
 			cfg:           fakeClassConfig{"temperature": 3.0},
-			lister:        &fakeModelLister{models: []string{"llama-4-maverick"}},
+			lister:        &fakeModelLister{models: []string{"nemotron-3.5-super-vl"}},
 			apiKeyEnv:     "dop_v1_test",
 			expectedErr:   "wrong temperature configuration",
 			wantNoListing: true,

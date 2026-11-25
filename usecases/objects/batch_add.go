@@ -196,7 +196,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		objectsPerClass       = make(map[string][]*models.Object)
 		originalIndexPerClass = make(map[string][]int)
 		validator             = validation.New(b.vectorRepo.Exists, b.config, repl,
-			principal, b.qualifier)
+			principal, b.qualifier, b.metrics)
 	)
 
 	// validate each object and sort by class (==vectorizer)
@@ -265,7 +265,8 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 
 	for className, objectsForClass := range objectsPerClass {
 		class := fetchedClasses[className]
-		errorsPerObj, err := b.modulesProvider.BatchUpdateVector(ctx, class.Class, objectsForClass, b.findObject, b.logger)
+		errorsPerObj, err := b.modulesProvider.BatchUpdateVector(ctx, class.Class, objectsForClass,
+			findObjectFor(b.vectorRepo, b.qualifier, class.Class.Class), b.logger)
 		if err != nil {
 			for i := range objectsForClass {
 				origIndex := originalIndexPerClass[className][i]

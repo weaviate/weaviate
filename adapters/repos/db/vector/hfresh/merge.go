@@ -22,8 +22,6 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	start := time.Now()
 	defer h.metrics.MergeDuration(start)
 
-	defer h.taskQueue.MergeDone(postingID)
-
 	h.logger.WithField("postingID", postingID).Debug("merging posting")
 
 	var markedAsDone bool
@@ -33,6 +31,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 		h.taskQueue.MergeDone(postingID) // remove from the in-progress list
 		return h.taskQueue.EnqueueMerge(postingID)
 	}
+	defer h.taskQueue.MergeDone(postingID)
 	defer func() {
 		if !markedAsDone {
 			h.postingLocks.Unlock(postingID)
@@ -120,6 +119,11 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	if nearest.Len() <= 1 {
 		h.logger.WithField("postingID", postingID).
 			Debug("no candidates found for merge operation, skipping")
+
+		if prevLen == initialLen {
+			// no changes, just return
+			return nil
+		}
 
 		// persist the gc'ed posting
 		err = h.PostingStore.Put(ctx, postingID, newPosting)

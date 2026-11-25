@@ -120,9 +120,6 @@ func TestLoadedShardWalksPinUnderCreateLock(t *testing.T) {
 			(&nodeWideMetricsObserver{db: f.index.db}).publishVectorMetrics(ctx)
 			return nil
 		},
-		"resume maintenance cycles": func(f *addPropertyLazyFixture) error {
-			return f.index.resumeMaintenanceCycles(ctx)
-		},
 	}
 	for name, walk := range walks {
 		t.Run(name, func(t *testing.T) {

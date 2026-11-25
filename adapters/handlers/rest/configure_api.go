@@ -39,6 +39,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
+	"github.com/jonboulle/clockwork"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -80,6 +81,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -131,7 +133,9 @@ import (
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
+	modrerankeropenai "github.com/weaviate/weaviate/modules/reranker-openai"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
+	modrerankertypesafeai "github.com/weaviate/weaviate/modules/reranker-typesafeai"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
@@ -192,6 +196,7 @@ import (
 	wldbusershandlers "github.com/weaviate/weaviate/wl/dbusers/handlers"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
 	"github.com/weaviate/weaviate/wl/namespaces/suspendsweep"
+	"github.com/weaviate/weaviate/wl/rebalance"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 	srhandlers "github.com/weaviate/weaviate/wl/selfrecovery/handlers"
 )
@@ -215,21 +220,28 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
+func distributedTaskCollectionExtractors() map[string]distributedtask.CollectionExtractor {
+	return map[string]distributedtask.CollectionExtractor{
+		db.ReindexNamespace:         db.ExtractReindexTaskCollection,
+		db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
+	}
+}
+
 func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardReplicasExtractor {
 	return map[string]distributedtask.ShardReplicasExtractor{
 		db.ReindexNamespace: db.ExtractReindexTaskReplicas,
 	}
 }
 
-// rebalanceMeasure builds the RebalanceMeasure func. For a node missing from
+// rebalanceMeasure builds the planner's Measure func. For a node missing from
 // cluster membership it returns an error, never a zero measurement with a nil error.
-func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string) (replicationTypes.RebalanceNodeMeasurement, error) {
-	return func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error) {
+func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string, string, uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
+	return func(ctx context.Context, node, taskID string, version uint64) (replicationTypes.RebalanceNodeMeasurement, error) {
 		host, ok := nodeHostname(node)
 		if !ok {
 			return replicationTypes.RebalanceNodeMeasurement{}, fmt.Errorf("resolve host of node %q: node not in cluster membership", node)
 		}
-		return client.GetRebalanceMeasurement(ctx, host)
+		return client.GetRebalanceDraft(ctx, host, taskID, version)
 	}
 }
 
@@ -526,7 +538,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		LazyLoadShardWarmupMinObjects:       appState.ServerConfig.Config.LazyLoadShardWarmupMinObjects,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
-		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
@@ -545,6 +556,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		Replication: replication.GlobalConfig{
 			MinimumFactor:                             1,
 			AsyncReplicationDisabled:                  appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
+			AsyncReplicationInMaintenanceEnabled:      appState.ServerConfig.Config.Replication.AsyncReplicationInMaintenanceEnabled,
 			AsyncReplicationSchedulerWorkers:          appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers,
 			AsyncReplicationHashtreeInitConcurrency:   appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency,
 			AsyncReplicationHashtreeHeight:            appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight,
@@ -673,6 +685,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	namespacesController := appState.NamespacesController
 
+	dropVectorDetector := db.NewDropVectorIndexDetector(appState.Logger)
 	rConfig := rCluster.Config{
 		WorkDir:                     filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                      nodeName,
@@ -709,16 +722,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DynamicUserController:       appState.APIKey.Dynamic,
 		NamespacesController:        namespacesController,
 		NamespacesEnabled:           appState.ServerConfig.Config.Namespaces.Enabled,
+		Replication:                 appState.ServerConfig.Config.Replication,
 		ReplicaCopier:               replicaCopier,
 		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
-		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
-		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
-			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
-		},
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
+		},
+		DistributedTaskConflictDetectors: map[string]distributedtask.ConflictDetector{
+			db.ReindexNamespace:         db.ReindexDetector{},
+			db.DropVectorIndexNamespace: dropVectorDetector,
+		},
+		DistributedTaskSchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{
+			db.ReindexNamespace:         db.ReindexDetector{},
+			db.DropVectorIndexNamespace: dropVectorDetector,
 		},
 		DistributedTaskShardReplicasExtractors: distributedTaskShardReplicasExtractors(),
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
@@ -727,7 +744,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
 		ReplicaMovementEnabled:                 appState.ServerConfig.Config.Replication.ReplicaMovementEnabled,
 		ReplicaRebalanceEnabled:                appState.ServerConfig.Config.Replication.ReplicaRebalanceEnabled,
-		RebalanceMeasure:                       rebalanceMeasure(appState.Cluster.NodeHostname, remoteNodesClient),
+		NewRebalancePlanner: rebalancePlannerFor(rebalancePlannerModeFor(appState.ServerConfig.Config), func(deps rCluster.RebalancePlannerDeps) (rCluster.RebalancePlanner, error) {
+			p, err := rebalance.NewRebalancePlanner(rebalance.RebalancePlannerParams{
+				Logger:      deps.Logger,
+				FSM:         deps.FSM,
+				Proposer:    deps.Raft,
+				Drafting:    deps.Raft,
+				Clock:       clockwork.NewRealClock(),
+				Registerer:  prometheus.DefaultRegisterer,
+				Measure:     rebalanceMeasure(appState.Cluster.NodeHostname, remoteNodesClient),
+				Schema:      deps.Raft.SchemaReader(),
+				CurrentTerm: deps.CurrentTerm,
+				ReadyToPlan: deps.ReadyToPlan,
+				Enabled:     deps.Enabled,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return p, nil
+		}),
 		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
 		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
 		ReplicaMovementCleanupInterval:         appState.ServerConfig.Config.Replication.ReplicaMovementCleanupInterval,
@@ -768,6 +803,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
 			MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
 			OnRecoveryComplete:     appState.DB.LoadLocalShard,
+			NamespaceStateForClass: appState.DB.NamespaceStateForClass,
 			RootDataPath:           dataPath,
 			Logger:                 appState.Logger,
 			Registerer:             prometheus.DefaultRegisterer,
@@ -890,23 +926,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
-	// Discover in-flight runtime reindex tasks from disk so the static
-	// ShardReindexerV3 can re-register their double-write callbacks via
-	// OnAfterLsmInit during shard load — BEFORE any post-restart write
-	// reaches the shard. Without this, writes between shard init and the
-	// deferred swap go only to the old main bucket and are silently lost.
-	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
-		appState.ServerConfig.Config.Persistence.DataPath,
-		appState.ServerConfig.Config.RuntimeReindexEnabled,
+	reindexProvider := db.NewReindexProvider(
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
+		appState.Cluster.LocalName(),
+		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
+		serverShutdownCtx,
+	)
+	// The reindexer is set before any shard loads, so each load re-arms its mirrors before its first write.
+	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
 		appState.Logger,
 		appState.SchemaManager,
-	)
-	if recoveryErr != nil {
-		appState.Logger.WithError(recoveryErr).
-			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
-	}
-	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
-	repo.SetReindexer(reindexer)
+		reindexProvider,
+	))
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1092,7 +1123,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
+	initReindexAndDistributedTasks(appState, repo, providers, reindexProvider, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1149,44 +1180,26 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
-// initReindexAndDistributedTasks builds the reindex provider, registers it in
-// the distributedtask providers map, constructs the scheduler, and wires the
-// cross-FSM conflict + schema-mutation detectors on the cluster service.
-// Mutates appState (ReindexProvider, DistributedTaskScheduler) and the
-// providers map. The scheduler is NOT started — caller gates Start() on RAFT
-// readiness.
+// initReindexAndDistributedTasks registers the reindex and drop-vector-index
+// providers in providers, sets appState.ReindexProvider, and builds
+// appState.DistributedTaskScheduler over them.
+// The scheduler is NOT started — caller gates Start() on RAFT readiness.
 func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,
 	providers map[string]distributedtask.Provider,
-	recoveredReindexes []db.RecoveredReindex,
+	reindexProvider *db.ReindexProvider,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
 	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
-	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
-		appState.Cluster.LocalName(),
-		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
-		serverShutdownCtx,
-	)
-	// Seed re-uses the SAME task instances ShardReindexerV3 registered, so
-	// OnGroupCompleted's swap phase doesn't take the rehydrate path and try
-	// to load already-loaded ingest buckets.
-	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
 	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
-	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
-	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
-	enterrors.GoWrapper(func() {
-		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
-	}, appState.Logger)
-
-	// Drop-vector-index distributed-task provider. Added to the providers map so the
-	// conflict/schema-mutation detector loops below auto-register it.
+	// The drop-vector-index provider. Its guards are registered separately,
+	// in the rConfig DistributedTask*Detectors maps in MakeAppState.
 	// Wake the reconcile loop when a round ends with work remaining (batch
 	// chains, deferrals, failed rounds) instead of idling a full interval.
 	dropVectorReconcileNudge := make(chan struct{}, 1)
@@ -1210,6 +1223,18 @@ func initReindexAndDistributedTasks(
 		},
 	)
 	providers[db.DropVectorIndexNamespace] = dropVectorProvider
+
+	// Registered even when the rebalance flag is off. With the flag off,
+	// nothing creates tasks in this namespace.
+	providers[replicationTypes.RebalanceDraftNamespace] = db.NewRebalanceDraftProvider(
+		repo,
+		func() []*models.Class { return appState.SchemaManager.ReadOnlySchema().Classes },
+		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.Cluster.LocalName(),
+		appState.Logger,
+		serverShutdownCtx,
+	)
+
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {
@@ -1219,11 +1244,6 @@ func initReindexAndDistributedTasks(
 			appState.ClusterService.IsLeader, dropVectorReconcileNudge,
 		)
 	}, appState.Logger)
-
-	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
-		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
-			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
-	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1246,43 +1266,6 @@ func initReindexAndDistributedTasks(
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].
 	appState.ClusterService.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
-
-	// FSM-deterministic conflict reject (closes the multi-node parallel-submit
-	// race that per-node submit locks cannot cover; see
-	// weaviate/0-weaviate-issues#54 / weaviate/weaviate#10675).
-	conflictDetectors := map[string]distributedtask.ConflictDetector{}
-	for ns, p := range providers {
-		if cd, ok := p.(distributedtask.ConflictDetector); ok {
-			conflictDetectors[ns] = cd
-		}
-	}
-	appState.ClusterService.SetDistributedTaskConflictDetectors(conflictDetectors)
-
-	// Symmetric guard in the other direction: protect in-flight tasks from
-	// out-of-band schema mutations.
-	schemaMutationDetectors := map[string]distributedtask.SchemaMutationDetector{}
-	for ns, p := range providers {
-		if smd, ok := p.(distributedtask.SchemaMutationDetector); ok {
-			schemaMutationDetectors[ns] = smd
-		}
-	}
-	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
-}
-
-func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
-	// All reindex operations are now triggered via the REST API
-	// (DTM-based). The V3 startup reindexer is no longer used for
-	// kicking off new reindexes — but we still need it for restart
-	// recovery: in-flight runtime reindex tasks discovered on disk
-	// register here so that OnAfterLsmInit fires during shard load and
-	// re-installs the double-write callbacks before any post-restart
-	// write reaches the shard.
-	if len(recovered) == 0 {
-		return db.NewShardReindexerV3Noop()
-	}
-	logger.WithField("count", len(recovered)).
-		Info("reindex recovery: registering in-flight tasks discovered on disk")
-	return db.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
 // enforceNamespaceStartupInvariants decides whether the current cluster state
@@ -1314,8 +1297,10 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 	case enabled && !lsmSkipWriteClassNameEnabled:
 		return fmt.Errorf("internal invariant violated: NAMESPACES_ENABLED=true but LSMSkipWriteClassNameEnabled=false; env-var wiring in usecases/config/environment.go is broken")
 	case enabled && maxReplicationFactor != 1:
-		// Each namespace's shards are pinned to a single home_node; RF>1
-		// would either leave replicas off-namespace or contradict the pin.
+		// The leader does not yet check a namespaced class's factor or a
+		// tenant's nodes against its own home_nodes, so above factor 1 a node
+		// that lags a home_nodes or factor change can propose placements those
+		// home_nodes no longer allow.
 		return fmt.Errorf("NAMESPACES_ENABLED=true requires REPLICATION_MAXIMUM_FACTOR=1; got %d", maxReplicationFactor)
 	case enabled && nonNamespacedCount > 0:
 		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced collection(s) (e.g. %q); namespaces can only be enabled on newly bootstrapped clusters or on clusters whose collections are all already namespace-qualified", nonNamespacedCount, nonNamespacedExample)
@@ -1469,7 +1454,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
-	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
+	logUnlicensedRebalance(appState.Logger, rebalanceModeFor(appState.ServerConfig.Config))
+	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, appState.ServerConfig.Config.Replication.ReplicaRebalanceEnabled,
+		appState.ServerConfig.Config.WeaviateLicense,
+		api, appState.ClusterService.Raft, appState.ClusterService.Raft, appState.Cluster, appState.Metrics, appState.Authorizer, appState.Logger,
+		appState.ServerConfig.Config.Persistence.DataPath)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	dbUserExpirationMode := dbUserExpirationModeFor(appState.ServerConfig.Config)
@@ -1488,7 +1477,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
-		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager,
+		objects.NewMetrics(appState.Metrics, appState.Logger), appState.MemWatch, appState.AutoSchemaManager,
 		appState.NamespaceQualifier)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
 		appState.Modules, appState.Metrics)
@@ -2021,6 +2010,8 @@ func registerModules(appState *state.State) error {
 		modrerankervoyageai.Name,
 		modrerankerjinaai.Name,
 		modrerankernvidia.Name,
+		modrerankertypesafeai.Name,
+		modrerankeropenai.Name,
 	}
 
 	defaultModules := append(defaultVectorizers, defaultGenerative...)
@@ -2135,6 +2126,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankernvidia.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankertypesafeai.Name]; ok {
+		appState.Modules.Register(modrerankertypesafeai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankertypesafeai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankeropenai.Name]; ok {
+		appState.Modules.Register(modrerankeropenai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankeropenai.Name).
 			Debug("enabled module")
 	}
 

@@ -11,21 +11,55 @@
 
 package db
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+)
 
 // ReindexNamespace is the DTM namespace for reindex tasks.
 const ReindexNamespace = "reindex"
 
-// ExtractReindexTaskCollection decodes the class name a reindex task is
-// bound to. Wired into DistributedTaskCollectionExtractors (see
-// configure_api.go) so DELETE_CLASS cascades into reindex task GC
-// (weaviate/0-weaviate-issues#231).
+// ExtractReindexTaskCollection is read only by the task-list REST handler, until the task header replaces it there.
 func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	var p ReindexTaskPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return "", false
 	}
 	return p.Collection, p.Collection != ""
+}
+
+type ReindexTaskHeader struct {
+	MigrationType      ReindexMigrationType
+	Class              string
+	Properties         []string
+	TargetTokenization string
+	BucketStrategy     string
+}
+
+func (h ReindexTaskHeader) Collection() string { return h.Class }
+
+var _ distributedtask.HeaderDecoder = ReindexDetector{}
+
+// DecodeHeader unmarshals the whole payload, so a malformed field anywhere yields no header and the checks refuse.
+func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
+	var p ReindexTaskPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+	if p.Collection == "" || p.MigrationType == "" {
+		return nil, fmt.Errorf("reindex payload missing collection or migrationType")
+	}
+	return ReindexTaskHeader{
+		MigrationType: p.MigrationType, Class: p.Collection, Properties: p.Properties,
+		TargetTokenization: p.TargetTokenization, BucketStrategy: p.BucketStrategy,
+	}, nil
+}
+
+func reindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {
+	h, ok := task.Header().(ReindexTaskHeader)
+	return h, ok
 }
 
 // ExtractReindexTaskReplicas lets the leader refuse a reindex task whose units no longer match the collection's replicas.
@@ -113,4 +147,11 @@ type ReindexTaskPayload struct {
 	UnitToNode map[string]string `json:"unitToNode"`
 	// UnitToShard maps unit IDs to shard names.
 	UnitToShard map[string]string `json:"unitToShard"`
+}
+
+// ReindexTaskVisiblePayloadFields are the payload fields GET /v1/tasks shows a
+// caller without tenant read. Any other field could name tenants, shards or
+// nodes, so it stays hidden until it is listed here.
+var ReindexTaskVisiblePayloadFields = []string{
+	"migrationType", "collection", "targetTokenization", "originalTokenization", "bucketStrategy",
 }

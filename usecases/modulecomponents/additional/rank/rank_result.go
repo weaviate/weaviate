@@ -57,7 +57,7 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 	}
 
 	// rank results
-	result, err := p.client.Rank(ctx, query, documents, cfg)
+	result, err := p.client.Rank(ctx, query, rankProperty, documents, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("client rank: %w", err)
 	}
@@ -75,7 +75,7 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 	}
 
 	// sort the list
-	sort.Slice(in, func(i, j int) bool {
+	sort.SliceStable(in, func(i, j int) bool {
 		apI := in[i].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
 		apJ := in[j].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
 

@@ -55,7 +55,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 	}
 }
 
-func (c *client) Rank(ctx context.Context, query string, documents []string,
+func (c *client) Rank(ctx context.Context, query, property string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
 	eg := enterrors.NewErrorGroupWrapper(c.logger)

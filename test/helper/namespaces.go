@@ -34,12 +34,23 @@ func CreateNamespace(t *testing.T, name, key string) *models.Namespace {
 }
 
 // CreateNamespaceWithHomeNode creates a namespace pinned to homeNode. When
-// homeNode is empty, the cluster picks one automatically.
+// homeNode is empty, the cluster picks the home nodes automatically.
 func CreateNamespaceWithHomeNode(t *testing.T, name, homeNode, key string) *models.Namespace {
 	t.Helper()
-	params := namespaces.NewCreateNamespaceParams().WithNamespaceID(name)
+	var homeNodes []string
 	if homeNode != "" {
-		params = params.WithBody(&models.NamespaceCreateRequest{HomeNode: homeNode})
+		homeNodes = []string{homeNode}
+	}
+	return CreateNamespaceWithHomeNodes(t, name, homeNodes, key)
+}
+
+// CreateNamespaceWithHomeNodes creates a namespace with homeNodes as its
+// home_nodes. When homeNodes is empty, the cluster picks them automatically.
+func CreateNamespaceWithHomeNodes(t *testing.T, name string, homeNodes []string, key string) *models.Namespace {
+	t.Helper()
+	params := namespaces.NewCreateNamespaceParams().WithNamespaceID(name)
+	if len(homeNodes) > 0 {
+		params = params.WithBody(&models.NamespaceCreateRequest{HomeNodes: homeNodes})
 	}
 	resp, err := Client(t).Namespaces.CreateNamespace(params, CreateAuth(key))
 	require.NoError(t, err)
@@ -57,14 +68,14 @@ func CreateNamespaceWithHomeNode(t *testing.T, name, homeNode, key string) *mode
 	return resp.Payload
 }
 
-// UpdateNamespace updates the namespace's home_node to the supplied value.
+// UpdateNamespace replaces the namespace's home_nodes with the supplied list.
 // Returns the server's view of the namespace after the update.
-func UpdateNamespace(t *testing.T, name, homeNode, key string) *models.Namespace {
+func UpdateNamespace(t *testing.T, name string, homeNodes []string, key string) *models.Namespace {
 	t.Helper()
 	resp, err := Client(t).Namespaces.UpdateNamespace(
 		namespaces.NewUpdateNamespaceParams().
 			WithNamespaceID(name).
-			WithBody(&models.NamespaceUpdateRequest{HomeNode: &homeNode}),
+			WithBody(&models.NamespaceUpdateRequest{HomeNodes: homeNodes}),
 		CreateAuth(key),
 	)
 	require.NoError(t, err)

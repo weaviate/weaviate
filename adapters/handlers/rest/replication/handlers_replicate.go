@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/file"
 )
 
 func (h *replicationHandler) replicate(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
@@ -44,6 +45,16 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		return replication.NewReplicateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	// Only this node's filesystem is probed. Clusters whose nodes mix filesystems are unsupported.
+	supported, err := file.ProbeHardlinkSupport(h.dataPath)
+	if err != nil {
+		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("probe hardlink support: %w", err)))
+	}
+	if !supported {
+		return replication.NewReplicateNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(principal,
+			errors.New("replica movement requires a filesystem that supports hard links; the data directory of this node does not")))
+	}
+
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("could not generate uuid v4: %w", err)))
@@ -55,7 +66,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		replicationType = *params.Body.Type
 	}
 	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNode, collection, *params.Body.Shard, *params.Body.TargetNode, replicationType); err != nil {
-		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
+		if isUnprocessableMovement(err) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 		if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
@@ -76,6 +87,13 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}).Info("replicate operation registered")
 
 	return h.handleReplicationReplicateResponse(uuid)
+}
+
+// isUnprocessableMovement reports whether err refuses a replica movement for
+// the values the request names, or because the collection's namespace is
+// suspended, deleting or gone.
+func isUnprocessableMovement(err error) bool {
+	return errors.Is(err, replicationTypes.ErrInvalidRequest) || cerrors.NamespaceErrRendersUnprocessable(err)
 }
 
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
@@ -576,6 +594,27 @@ func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyR
 		)
 	}
 
+	// Only plans that add replicas create COPY ops, and COPY ops use hard links.
+	// Remove-only plans skip the probe.
+	addsReplicas := false
+	for _, actions := range modelsScalePlan.ShardScaleActions {
+		if len(actions.AddNodes) > 0 {
+			addsReplicas = true
+			break
+		}
+	}
+	if addsReplicas {
+		// Only this node's filesystem is probed. Clusters whose nodes mix filesystems are unsupported.
+		supported, err := file.ProbeHardlinkSupport(h.dataPath)
+		if err != nil {
+			return replication.NewApplyReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("probe hardlink support: %w", err)))
+		}
+		if !supported {
+			return replication.NewApplyReplicationScalePlanNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(principal,
+				errors.New("adding replicas requires a filesystem that supports hard links; the data directory of this node does not")))
+		}
+	}
+
 	scalePlan := api.ReplicationScalePlan{
 		PlanID:                       modelsScalePlan.PlanID,
 		Collection:                   modelsScalePlan.Collection,
@@ -600,6 +639,8 @@ func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyR
 		return replication.NewApplyReplicationScalePlanNotFound()
 	} else if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
 		return replication.NewApplyReplicationScalePlanConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	} else if isUnprocessableMovement(err) {
+		return replication.NewApplyReplicationScalePlanUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	} else if err != nil {
 		return replication.NewApplyReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}

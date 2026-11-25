@@ -39,6 +39,12 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
+	// checkIDOrAssignNew would pass an empty class to Exists, which searches every
+	// collection for the id. resolveNS turns a namespaced caller's "" into "<ns>:".
+	if object.Class == "" {
+		return nil, NewErrInvalidUserInput("invalid object: %s", validation.ErrorMissingClass)
+	}
+
 	className, _, err := m.resolveNS(principal, object.Class)
 	if err != nil {
 		return nil, userInputOrForbidden(err)
@@ -132,7 +138,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	err = m.modulesProvider.UpdateVector(ctx, object, class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, class, findObjectFor(m.vectorRepo, m.qualifier, class.Class), m.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +216,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.qualifier).
+		principal, m.qualifier, m.metrics).
 		Object(ctx, class, incoming, existing)
 }
 

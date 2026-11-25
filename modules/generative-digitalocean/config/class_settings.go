@@ -36,7 +36,7 @@ const (
 
 var (
 	DefaultBaseURL = "https://inference.do-ai.run"
-	DefaultModel   = "llama-4-maverick"
+	DefaultModel   = "nemotron-3.5-super-vl"
 )
 
 // ModelLister returns the set of available model ids from a DigitalOcean

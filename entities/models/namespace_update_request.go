@@ -30,16 +30,19 @@ import (
 // swagger:model NamespaceUpdateRequest
 type NamespaceUpdateRequest struct {
 
-	// Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.
-	// Required: true
-	HomeNode *string `json:"home_node"`
+	// Deprecated: use home_nodes. A value is taken as a one-entry `home_nodes`. Sending it with a non-empty `home_nodes` is a 422, even when it equals the first entry.
+	HomeNode *string `json:"home_node,omitempty"`
+
+	// Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least `REPLICATION_MINIMUM_FACTOR` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor `home_node` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.
+	// Max Items: 64
+	HomeNodes []string `json:"home_nodes"`
 }
 
 // Validate validates this namespace update request
 func (m *NamespaceUpdateRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateHomeNode(formats); err != nil {
+	if err := m.validateHomeNodes(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -49,9 +52,14 @@ func (m *NamespaceUpdateRequest) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *NamespaceUpdateRequest) validateHomeNode(formats strfmt.Registry) error {
+func (m *NamespaceUpdateRequest) validateHomeNodes(formats strfmt.Registry) error {
+	if swag.IsZero(m.HomeNodes) { // not required
+		return nil
+	}
 
-	if err := validate.Required("home_node", "body", m.HomeNode); err != nil {
+	iHomeNodesSize := int64(len(m.HomeNodes))
+
+	if err := validate.MaxItems("home_nodes", "body", iHomeNodesSize, 64); err != nil {
 		return err
 	}
 

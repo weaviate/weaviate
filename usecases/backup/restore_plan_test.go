@@ -510,7 +510,7 @@ func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
 		}
 		var lastChunk atomic.Int32
 		chunks := map[int32][]string{}
-		results, err := u.processShard(context.Background(), sd, e.className, &lastChunk, "", "", u.backend.SourceDataPath())
+		results, err := u.processShard(context.Background(), sd, e.className, &lastChunk, "", "", backup.NewTreeFileSource(u.backend.SourceDataPath()))
 		require.NoError(t, err)
 		for _, res := range results {
 			chunks[res.chunk] = res.shards
@@ -574,7 +574,7 @@ func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
 		}
 		var lastChunk atomic.Int32
 		chunks := map[int32][]string{}
-		results, err := u.processShard(context.Background(), sd, e.className, &lastChunk, "", "", u.backend.SourceDataPath())
+		results, err := u.processShard(context.Background(), sd, e.className, &lastChunk, "", "", backup.NewTreeFileSource(u.backend.SourceDataPath()))
 		require.NoError(t, err)
 		for _, res := range results {
 			chunks[res.chunk] = res.shards
@@ -591,7 +591,7 @@ func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
 	incrSd := e.makeShardDesc("s1", nil)
 	incrSd.Node = "nodeA"
 	require.NoError(t, incrSd.FillFileInfo([]string{"s1/big-segment.db", "s1/changed.db"},
-		[]backup.ShardAndID{{ShardDesc: &backup.BaseShardDescriptor{Name: baseSd.Name, BigFilesChunk: baseSd.BigFilesChunk}, BackupID: baseID}}, e.sourceDir))
+		[]backup.ShardAndID{{ShardDesc: &backup.BaseShardDescriptor{Name: baseSd.Name, BigFilesChunk: baseSd.BigFilesChunk}, BackupID: baseID}}, backup.NewTreeFileSource(e.sourceDir)))
 	require.Equal(t, []string{"s1/changed.db"}, incrSd.Files)
 	require.NotEmpty(t, incrSd.IncrementalBackupInfo.FilesPerBackup[baseID])
 	incrChunks := upload(incrID+"/nodeA", incrSd)

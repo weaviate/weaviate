@@ -43,15 +43,23 @@ type ClientOption func(*runtime.ClientOperation)
 type ClientService interface {
 	ApplyReplicationScalePlan(params *ApplyReplicationScalePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ApplyReplicationScalePlanOK, error)
 
+	ApproveRebalancePlan(params *ApproveRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) error
+
 	CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error)
 
+	CreateRebalancePlan(params *CreateRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateRebalancePlanAccepted, error)
+
 	DeleteAllReplications(params *DeleteAllReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteAllReplicationsNoContent, error)
+
+	DeleteRebalancePlan(params *DeleteRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteRebalancePlanNoContent, error)
 
 	DeleteReplication(params *DeleteReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteReplicationNoContent, error)
 
 	ForceDeleteReplications(params *ForceDeleteReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ForceDeleteReplicationsOK, error)
 
 	GetCollectionShardingState(params *GetCollectionShardingStateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetCollectionShardingStateOK, error)
+
+	GetRebalancePlan(params *GetRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRebalancePlanOK, error)
 
 	GetReplicationScalePlan(params *GetReplicationScalePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetReplicationScalePlanOK, error)
 
@@ -60,6 +68,8 @@ type ClientService interface {
 	Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error)
 
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
+
+	StopRebalancePlan(params *StopRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*StopRebalancePlanAccepted, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -106,6 +116,40 @@ func (a *Client) ApplyReplicationScalePlan(params *ApplyReplicationScalePlanPara
 }
 
 /*
+ApproveRebalancePlan approves the rebalance plan
+
+Approves a `PROPOSED` rebalance plan for execution. Approval is not implemented yet and always answers 501.
+*/
+func (a *Client) ApproveRebalancePlan(params *ApproveRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) error {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewApproveRebalancePlanParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "approveRebalancePlan",
+		Method:             "POST",
+		PathPattern:        "/replication/rebalance/approve",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ApproveRebalancePlanReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	_, err := a.transport.Submit(op)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+/*
 CancelReplication cancels a replication operation
 
 Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the `CANCELLED` state (can't be resumed) and will not be automatically deleted.
@@ -147,6 +191,47 @@ func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo run
 }
 
 /*
+CreateRebalancePlan creates a rebalance plan
+
+Creates the cluster's rebalance plan in the `PLANNING` state and starts an asynchronous planning run. The run measures the listed source and target nodes and decides whether their shard replicas need rebalancing. GET /replication/rebalance reports the plan and its outcome. A new plan replaces a finished one; an unfinished plan blocks it.
+*/
+func (a *Client) CreateRebalancePlan(params *CreateRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateRebalancePlanAccepted, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewCreateRebalancePlanParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "createRebalancePlan",
+		Method:             "POST",
+		PathPattern:        "/replication/rebalance",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &CreateRebalancePlanReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*CreateRebalancePlanAccepted)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for createRebalancePlan: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
 DeleteAllReplications deletes all replication operations
 
 Schedules all replication operations for deletion across all collections, shards, and nodes.
@@ -184,6 +269,47 @@ func (a *Client) DeleteAllReplications(params *DeleteAllReplicationsParams, auth
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for deleteAllReplications: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+DeleteRebalancePlan deletes the rebalance plan
+
+Removes the cluster's rebalance plan. Only a `PROPOSED` plan or a plan in an end state can be deleted; stop a `PLANNING` plan first. Succeeds when no plan exists.
+*/
+func (a *Client) DeleteRebalancePlan(params *DeleteRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteRebalancePlanNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewDeleteRebalancePlanParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "deleteRebalancePlan",
+		Method:             "DELETE",
+		PathPattern:        "/replication/rebalance",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &DeleteRebalancePlanReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*DeleteRebalancePlanNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for deleteRebalancePlan: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
@@ -307,6 +433,47 @@ func (a *Client) GetCollectionShardingState(params *GetCollectionShardingStatePa
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for getCollectionShardingState: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetRebalancePlan gets the rebalance plan
+
+Returns the cluster's rebalance plan, including the node measurements and baseline balance taken by its planning run.
+*/
+func (a *Client) GetRebalancePlan(params *GetRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRebalancePlanOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetRebalancePlanParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getRebalancePlan",
+		Method:             "GET",
+		PathPattern:        "/replication/rebalance",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetRebalancePlanReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetRebalancePlanOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getRebalancePlan: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
@@ -471,6 +638,47 @@ func (a *Client) ReplicationDetails(params *ReplicationDetailsParams, authInfo r
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for replicationDetails: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+StopRebalancePlan stops the rebalance plan
+
+Stops the cluster's rebalance plan while it is `PLANNING`. The plan ends `STOPPED` and the result of its planning run is discarded.
+*/
+func (a *Client) StopRebalancePlan(params *StopRebalancePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*StopRebalancePlanAccepted, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewStopRebalancePlanParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "stopRebalancePlan",
+		Method:             "POST",
+		PathPattern:        "/replication/rebalance/stop",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &StopRebalancePlanReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*StopRebalancePlanAccepted)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for stopRebalancePlan: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

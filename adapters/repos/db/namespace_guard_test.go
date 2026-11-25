@@ -1747,7 +1747,7 @@ func TestGuardRequestPath(t *testing.T) {
 
 // The cleanup entry points act on a shard the caller already opened, so a
 // namespace that is not active must not refuse them: that would leave a
-// change-capture log registered, or a shard halted with nothing to resume it.
+// change-capture log registered.
 func TestCleanupPathsSkipTheGuard(t *testing.T) {
 	const (
 		class     = "alpha:Product"
@@ -1769,27 +1769,6 @@ func TestCleanupPathsSkipTheGuard(t *testing.T) {
 		require.NoError(t, idx.IncomingStopChangeCapture(ctx, shardName, opID))
 	})
 
-	t.Run("the transfer inactivity timer resets without a namespace lookup", func(t *testing.T) {
-		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
-		shard := NewMockShardLike(t)
-		shard.On("MayResetTransferInactivityTimer").Once()
-		idx.shards.Store(shardName, shard)
-		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
-
-		idx.mayResetReplicaSnapshotInactivity(opID)
-	})
-
-	t.Run("the snapshot release resumes the shard without a namespace lookup", func(t *testing.T) {
-		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
-		shard := NewMockShardLike(t)
-		shard.On("preventShutdown").Return(func() {}, nil).Once()
-		shard.On("resumeMaintenanceCycles", mock.Anything).Return(nil).Once()
-		idx.shards.Store(shardName, shard)
-		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
-
-		require.NoError(t, idx.releaseReplicaSnapshot(ctx, opID, nil))
-	})
-
 	// The same shard a teardown may reach is still refused to a request.
 	t.Run("a request for the same shard is still refused", func(t *testing.T) {
 		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
@@ -1809,11 +1788,8 @@ func TestCleanupPathsSkipTheGuard(t *testing.T) {
 		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
 		lazy := &LazyLoadShard{}
 		idx.shards.Store(shardName, lazy)
-		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
 
 		require.NoError(t, idx.IncomingStopChangeCapture(ctx, shardName, opID))
-		idx.mayResetReplicaSnapshotInactivity(opID)
-		require.NoError(t, idx.releaseReplicaSnapshot(ctx, opID, nil))
 		assert.False(t, lazy.isLoaded(), "cleanup must not load the shard")
 	})
 
@@ -2161,8 +2137,8 @@ func TestGuardBoot(t *testing.T) {
 		})
 	}
 
-	// No Read expectation is registered, so the test fails if boot walks the
-	// tenants when nothing may be open.
+	// No Read expectation is registered, so the test fails if a node without
+	// self-recovery walks the tenants when nothing may be open.
 	for _, state := range []api.NamespaceState{
 		api.NamespaceStateSuspended, api.NamespaceStateDeleting,
 	} {
