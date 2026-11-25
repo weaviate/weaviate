@@ -15,13 +15,17 @@ import (
 	"context"
 	"math/rand/v2"
 	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 // testFilter is a filter of the tests, as the measure draws them
@@ -181,9 +185,10 @@ func TestGrowFilteredSearchEqualsMemory(t *testing.T) {
 // codes and rescores the best ones. With no more allowed than it rescores it
 // is the exact answer among them, and with more it rescores as many as it is
 // told. It never returns a doc id the filter leaves out, nor one marked
-// deleted. An index with no codes in memory ranks them by the full codes of
-// the postings that hold them, which it loads once each (integration-plan.md,
-// section 8, amendment 3). How much of the answer it finds with real vectors
+// deleted. An index with no codes in memory reads the exact vector of every
+// allowed vector, in parallel within the budget of the query, and is the
+// exact answer (the user's order of 2026-11-24). How much of the answer it
+// finds with real vectors
 // is for the tests of the index a shard opens: the tight clusters of these
 // vectors have near ties a code cannot tell apart.
 func TestGrowFlatSearch(t *testing.T) {
@@ -254,12 +259,11 @@ func TestGrowFlatSearch(t *testing.T) {
 	_, _, err = g.flatSearch(ctx, query[:dims-1], k, 40, everything, nil)
 	require.Error(t, err, "a query of another length")
 
-	// With no codes in memory the flat search ranks the allowed vectors by the
-	// full codes their postings hold (integration-plan.md, section 8,
-	// amendment 3): the posting map gives the posting of each, and each of
-	// those postings is loaded once, its row of members alone, and no other.
-	// It answers exactly where it rescores every allowed vector, and returns
-	// nothing the filter leaves out nor the vector marked deleted.
+	// With no codes in memory the flat search reads the exact vector of every
+	// allowed vector the index holds and has not marked deleted, once each,
+	// and is the exact answer, whatever it is told to rescore: no code ranks
+	// them and no posting is loaded (the user's order of 2026-11-24). It
+	// returns nothing the filter leaves out nor the vector marked deleted.
 	f.how.noCodes = true
 	f.reopen(t)
 	g = f.g
@@ -268,14 +272,12 @@ func TestGrowFlatSearch(t *testing.T) {
 	held := func(id uint64) bool { return id != marked }
 	for _, tt := range tests {
 		for _, filter := range filters {
-			postings, allowed := map[uint32]bool{}, 0
+			allowed := 0
 			for id := range uint64(total) {
 				if filter.allow.Contains(id) && held(id) {
-					postings[g.st.side.postingOf[id]] = true
 					allowed++
 				}
 			}
-			hits, want := 0, 0
 			for i, query := range f.queries {
 				at := errors.Errorf("no codes in memory, %s, %s, query %d", tt.name, filter.name, i).Error()
 				stats := &diskSearchStats{}
@@ -291,26 +293,40 @@ func TestGrowFlatSearch(t *testing.T) {
 				truth := filteredTruth(t, f.provider, f.all, query, k, func(id uint64) bool {
 					return filter.allow.Contains(id) && held(id)
 				})
-				if tt.exact {
-					require.Equal(t, truth, ids, "%s: the exact answer", at)
-					require.Zero(t, stats.Scored, "%s: nothing is ranked by its code", at)
-					require.Zero(t, stats.Postings, "%s: no posting is loaded", at)
-				} else {
-					require.Equal(t, min(tt.rescore, allowed), stats.Rescored, at)
-					if allowed > tt.rescore {
-						require.Equal(t, allowed, stats.Scored, "%s: every allowed vector is ranked by its code", at)
-						require.Equal(t, len(postings), stats.Postings, "%s: each posting of an allowed vector loaded once", at)
-					}
-				}
-				for _, id := range truth {
-					if slices.Contains(ids, id) {
-						hits++
-					}
-				}
-				want += len(truth)
+				require.Equal(t, truth, ids, "%s: the exact answer", at)
+				require.Zero(t, stats.Scored, "%s: nothing is ranked by its code", at)
+				require.Zero(t, stats.Postings, "%s: no posting is loaded", at)
+				require.Equal(t, allowed, stats.Rescored, "%s: the vector of every allowed vector held is read, once", at)
 			}
-			t.Logf("no codes in memory, %s, %s: recall %.3f, %d allowed in %d postings",
-				tt.name, filter.name, float64(hits)/float64(want), allowed, len(postings))
 		}
 	}
+
+	// The reads of the direct read go in parallel, within the concurrency
+	// budget of the query: never more in flight than the budget, and more
+	// than one at a time.
+	read := g.ix.cfg.TempVectorForIDWithViewThunk
+	var inFlight, most atomic.Int64
+	g.ix.cfg.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice,
+		view common.BucketView,
+	) ([]float32, error) {
+		now := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			seen := most.Load()
+			if now <= seen || most.CompareAndSwap(seen, now) {
+				break
+			}
+		}
+		time.Sleep(200 * time.Microsecond)
+		return read(ctx, id, container, view)
+	}
+	defer func() { g.ix.cfg.TempVectorForIDWithViewThunk = read }()
+	const budget = 3
+	half := randomFilter(total, 0.5, 31)
+	stats := &diskSearchStats{}
+	_, _, err = g.flatSearch(concurrency.CtxWithBudget(ctx, budget), f.queries[0], k, 40, half, stats)
+	require.NoError(t, err)
+	require.Greater(t, stats.Rescored, 100)
+	require.LessOrEqual(t, most.Load(), int64(budget), "reads in flight")
+	require.Greater(t, most.Load(), int64(1), "the reads go in parallel")
 }

@@ -61,6 +61,50 @@ func (f *persistentFixture) filteredAnswers(t *testing.T, n, k int, allow helper
 	return answers, float64(hits) / float64(want)
 }
 
+// setCutoff sets both cutoffs of the index: the one of an index with its
+// codes in memory and the one of an index with none.
+func (f *persistentFixture) setCutoff(cutoff int) {
+	f.index.cfg.flatCutoff = cutoff
+	f.index.cfg.noneFlatCutoff = cutoff
+}
+
+// withCutoff is a change of the config of a fixture that sets both cutoffs.
+func withCutoff(cutoff int) func(cfg *PersistentConfig) {
+	return func(cfg *PersistentConfig) {
+		cfg.flatCutoff = cutoff
+		cfg.noneFlatCutoff = cutoff
+	}
+}
+
+// directRead checks that an index with no codes in memory searches the
+// filter flat by reading the exact vector of every allowed vector its base
+// holds and has not marked deleted, once each, and nothing else: no posting
+// loaded and no code scored (the user's order of 2026-11-24).
+func (f *persistentFixture) directRead(t *testing.T, allow helpers.AllowList, at string) {
+	t.Helper()
+	f.index.mu.RLock()
+	defer f.index.mu.RUnlock()
+	g := f.index.g
+	require.True(t, g.noCodes, at)
+	live := 0
+	it := allow.Iterator()
+	for id, ok := it.Next(); ok; id, ok = it.Next() {
+		if id < uint64(len(g.live)) && g.live[id] && (g.deleted == nil || !g.deleted[id]) {
+			live++
+		}
+	}
+	it.Stop()
+	for i, query := range f.queries[:5] {
+		stats := &diskSearchStats{}
+		_, _, err := f.index.searchIndex(context.Background(), query, 10, allow, stats)
+		require.NoError(t, err, "%s, query %d", at, i)
+		require.True(t, stats.Flat, "%s, query %d", at, i)
+		require.Zero(t, stats.Postings, "%s, query %d: no posting is loaded", at, i)
+		require.Zero(t, stats.Scored, "%s, query %d: no code is scored", at, i)
+		require.Equal(t, live, stats.Rescored, "%s, query %d: the vector of every allowed vector held is read, once", at, i)
+	}
+}
+
 // pathOf tells whether the index searches the given filter flat.
 func (f *persistentFixture) pathOf(t *testing.T, allow helpers.AllowList) bool {
 	t.Helper()
@@ -80,8 +124,9 @@ func (f *persistentFixture) pathOf(t *testing.T, allow helpers.AllowList) bool {
 // where the filter leaves a tenth or more at random, as the measure asks. An
 // empty filter finds nothing. Opened again the index answers the same. So in
 // both ways of keeping the codes: with no codes in memory the flat search
-// ranks the allowed vectors by the full codes of their postings
-// (integration-plan.md, section 8, amendment 3).
+// reads the exact vector of every allowed vector and is the exact answer,
+// with no posting loaded (the user's order of 2026-11-24), also with vectors
+// deleted and after the restart.
 func TestPersistentFilteredSearch(t *testing.T) {
 	for _, cacheMode := range cacheModes {
 		t.Run(cacheMode, func(t *testing.T) { persistentFilteredSearch(t, cacheMode) })
@@ -94,7 +139,8 @@ func persistentFilteredSearch(t *testing.T, cacheMode string) {
 	// Under the cutoff of the test, a tenth of the vectors is searched flat
 	// and half of them through the index.
 	const cutoff = 500
-	f := newPersistentFixtureMode(t, total, cacheMode, func(cfg *PersistentConfig) { cfg.flatCutoff = cutoff })
+	f := newPersistentFixtureMode(t, total, cacheMode, withCutoff(cutoff))
+	direct := cacheMode == ent.CacheModeNone
 	near, far := f.normalized[0], f.normalized[0]
 	worst := float32(0)
 	for _, vector := range f.normalized {
@@ -129,14 +175,17 @@ func persistentFilteredSearch(t *testing.T, cacheMode string) {
 		return cutoff == math.MaxInt || cutoff > 0 && allow.Len() < cutoff
 	}
 	for _, path := range paths {
-		f.index.cfg.flatCutoff = path.cutoff
+		f.setCutoff(path.cutoff)
 		for _, filter := range filters {
 			at := path.name + ", " + filter.name
 			flat := flatOn(path.cutoff, filter.allow)
 			require.Equal(t, flat, f.pathOf(t, filter.allow), "%s: %d allowed", at, filter.allow.Len())
 			_, recall := f.filteredAnswers(t, total, k, filter.allow, nil, at)
 			t.Logf("%s: recall %.3f, flat %v", at, recall, flat)
-			if flat {
+			if flat && direct {
+				assert.Equal(t, 1.0, recall, "%s: the direct read is the exact answer", at)
+				f.directRead(t, filter.allow, at)
+			} else if flat {
 				assert.GreaterOrEqual(t, recall, 0.95, at)
 			} else if filter.name == "0.5 at random" || filter.name == "0.1 at random" {
 				assert.GreaterOrEqual(t, recall, 0.9, at)
@@ -159,12 +208,16 @@ func persistentFilteredSearch(t *testing.T, cacheMode string) {
 	require.NoError(t, f.index.Delete(ids...))
 	held := func(id uint64) bool { return !deleted[id] }
 	for _, path := range paths[1:] {
-		f.index.cfg.flatCutoff = path.cutoff
+		f.setCutoff(path.cutoff)
 		for _, filter := range filters {
 			at := path.name + ", deleted, " + filter.name
 			_, recall := f.filteredAnswers(t, total, k, filter.allow, held, at)
 			t.Logf("%s: recall %.3f", at, recall)
-			if flatOn(path.cutoff, filter.allow) {
+			switch flat := flatOn(path.cutoff, filter.allow); {
+			case flat && direct:
+				assert.Equal(t, 1.0, recall, "%s: the direct read is the exact answer", at)
+				f.directRead(t, filter.allow, at)
+			case flat:
 				assert.GreaterOrEqual(t, recall, 0.95, at)
 			}
 		}
@@ -173,7 +226,7 @@ func persistentFilteredSearch(t *testing.T, cacheMode string) {
 	// Opened again, the same answers, by both ways.
 	before := map[string][][]uint64{}
 	for _, path := range paths[1:] {
-		f.index.cfg.flatCutoff = path.cutoff
+		f.setCutoff(path.cutoff)
 		for _, filter := range filters {
 			at := path.name + ", " + filter.name
 			before[at], _ = f.filteredAnswers(t, total, k, filter.allow, held, "before the restart, "+at)
@@ -181,29 +234,96 @@ func persistentFilteredSearch(t *testing.T, cacheMode string) {
 	}
 	f.restart(t)
 	for _, path := range paths[1:] {
-		f.index.cfg.flatCutoff = path.cutoff
+		f.setCutoff(path.cutoff)
 		for _, filter := range filters {
 			at := path.name + ", " + filter.name
-			require.Equal(t, flatOn(path.cutoff, filter.allow), f.pathOf(t, filter.allow), "after the restart, %s", at)
-			after, _ := f.filteredAnswers(t, total, k, filter.allow, held, "after the restart, "+at)
+			flat := flatOn(path.cutoff, filter.allow)
+			require.Equal(t, flat, f.pathOf(t, filter.allow), "after the restart, %s", at)
+			after, recall := f.filteredAnswers(t, total, k, filter.allow, held, "after the restart, "+at)
 			assert.Equal(t, before[at], after, "%s: the same answers after a restart", at)
+			if flat && direct {
+				assert.Equal(t, 1.0, recall, "after the restart, %s: the direct read is the exact answer", at)
+				f.directRead(t, filter.allow, "after the restart, "+at)
+			}
 		}
 	}
 }
 
-// The flat search finds about as much with no codes in memory as with them.
-// Two indexes of the same vectors, one each way, search flat with a filter at
-// random and with one in a ball near a vector and far from it, at shares that
-// allow more than they rescore: their recall against brute force is the same
-// within 0.02, and at least 0.95. With no codes in memory the flat search
-// ranks by the full codes of the postings (integration-plan.md, section 8,
-// amendment 3); at the 64 dimensions of the fixture the routing code is the
-// full code, so they differ only in how ties of the code fall.
+// An index with no codes in memory has a cutoff of its own, and the cutoff of
+// an index with its codes in memory does not govern it: with fewer allowed
+// than its cutoff it searches flat, by the direct read; with as many or more,
+// the index; negative, never flat. Its default is 40 000, as for an index
+// with its codes in memory, until the user sets the one the measure proposes.
+// An index with its codes in memory does not look at it.
+func TestPersistentNoneFlatCutoff(t *testing.T) {
+	const total = 3000
+	fixtures := map[string]*persistentFixture{}
+	for _, cacheMode := range cacheModes {
+		f := newPersistentFixtureMode(t, total, cacheMode, nil)
+		f.add(t, 0, total)
+		fixtures[cacheMode] = f
+	}
+	tenth, half := randomFilter(total, 0.1, 21), randomFilter(total, 0.5, 22)
+	tests := []struct {
+		name                string
+		cacheMode           string
+		flatCutoff          int
+		noneCutoff          int
+		wantTenth, wantHalf bool
+	}{
+		{name: "none, the defaults", cacheMode: ent.CacheModeNone, wantTenth: true, wantHalf: true},
+		{
+			name: "none, its cutoff between the two filters, the other never", cacheMode: ent.CacheModeNone,
+			flatCutoff: -1, noneCutoff: 1000, wantTenth: true,
+		},
+		{
+			name: "none, its cutoff at the filter: the index", cacheMode: ent.CacheModeNone,
+			flatCutoff: math.MaxInt, noneCutoff: tenth.Len(),
+		},
+		{
+			name: "none, its cutoff one over the filter: flat", cacheMode: ent.CacheModeNone,
+			flatCutoff: -1, noneCutoff: tenth.Len() + 1, wantTenth: true,
+		},
+		{name: "none, never flat, the other always", cacheMode: ent.CacheModeNone, flatCutoff: math.MaxInt, noneCutoff: -1},
+		{
+			name: "none, always flat, the other never", cacheMode: ent.CacheModeNone,
+			flatCutoff: -1, noneCutoff: math.MaxInt, wantTenth: true, wantHalf: true,
+		},
+		{
+			name: "routing, the cutoff of none never", cacheMode: ent.CacheModeRouting,
+			flatCutoff: math.MaxInt, noneCutoff: -1, wantTenth: true, wantHalf: true,
+		},
+		{
+			name: "routing, its cutoff between the two filters", cacheMode: ent.CacheModeRouting,
+			flatCutoff: 1000, noneCutoff: math.MaxInt, wantTenth: true,
+		},
+		{name: "routing, the defaults", cacheMode: ent.CacheModeRouting, wantTenth: true, wantHalf: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := fixtures[tt.cacheMode]
+			f.index.cfg.flatCutoff, f.index.cfg.noneFlatCutoff = tt.flatCutoff, tt.noneCutoff
+			assert.Equal(t, tt.wantTenth, f.pathOf(t, tenth), "a tenth: %d allowed", tenth.Len())
+			assert.Equal(t, tt.wantHalf, f.pathOf(t, half), "half: %d allowed", half.Len())
+			if tt.cacheMode == ent.CacheModeNone && tt.wantTenth {
+				f.directRead(t, tenth, tt.name)
+			}
+		})
+	}
+}
+
+// The flat search finds at least as much with no codes in memory as with
+// them. Two indexes of the same vectors, one each way, search flat with a
+// filter at random and with one in a ball near a vector and far from it, at
+// shares that allow more than they rescore. With the codes in memory the
+// recall against brute force is at least 0.95. With none the flat search
+// reads the exact vector of every allowed vector (the user's order of
+// 2026-11-24) and is the exact answer, with no posting loaded.
 func TestPersistentFlatSearchTwins(t *testing.T) {
 	const total, k = 3000, 10
 	twins := map[string]*persistentFixture{}
 	for _, cacheMode := range cacheModes {
-		f := newPersistentFixtureMode(t, total, cacheMode, func(cfg *PersistentConfig) { cfg.flatCutoff = math.MaxInt })
+		f := newPersistentFixtureMode(t, total, cacheMode, withCutoff(math.MaxInt))
 		f.add(t, 0, total)
 		twins[cacheMode] = f
 	}
@@ -225,11 +345,15 @@ func TestPersistentFlatSearchTwins(t *testing.T) {
 			at := cacheMode + ", " + filter.name
 			require.True(t, f.pathOf(t, filter.allow), at)
 			_, recall[cacheMode] = f.filteredAnswers(t, total, k, filter.allow, nil, at)
-			assert.GreaterOrEqual(t, recall[cacheMode], 0.95, at)
+			if cacheMode == ent.CacheModeNone {
+				assert.Equal(t, 1.0, recall[cacheMode], "%s: the direct read is the exact answer", at)
+				f.directRead(t, filter.allow, at)
+			} else {
+				assert.GreaterOrEqual(t, recall[cacheMode], 0.95, at)
+			}
 		}
 		t.Logf("%s: recall %.3f with the codes in memory, %.3f with none", filter.name,
 			recall[ent.CacheModeRouting], recall[ent.CacheModeNone])
-		assert.InDelta(t, recall[ent.CacheModeRouting], recall[ent.CacheModeNone], 0.02, filter.name)
 	}
 }
 
@@ -238,7 +362,8 @@ func TestPersistentFlatSearchTwins(t *testing.T) {
 // came as it was built still aside, a search with a filter returns only what
 // the filter allows, finds each of those vectors that the filter allows as
 // its own nearest, and finds what brute force does; and so once the index has
-// taken them all.
+// taken them all. With no codes in memory that is the exact answer, the
+// direct read of the base merged with the exact search of the vectors aside.
 func TestPersistentFlatSearchWithVectorsKeptAside(t *testing.T) {
 	for _, cacheMode := range cacheModes {
 		t.Run(cacheMode, func(t *testing.T) {
@@ -253,7 +378,7 @@ func TestPersistentFlatSearchWithVectorsKeptAside(t *testing.T) {
 			f := newPersistentFixtureMode(t, total, cacheMode, func(cfg *PersistentConfig) {
 				cfg.baseHook = steps.hook
 				cfg.drainHook = func() { holding.Do(func() { close(held); <-hold }) }
-				cfg.flatCutoff = math.MaxInt
+				withCutoff(math.MaxInt)(cfg)
 			})
 			// A check that fails leaves the build stopped: it is let go before
 			// the index closes, or the close waits for it forever.
@@ -282,7 +407,12 @@ func TestPersistentFlatSearchWithVectorsKeptAside(t *testing.T) {
 				}
 				_, recall := f.filteredAnswers(t, total, k, filter, nil, at)
 				t.Logf("%s: recall %.3f", at, recall)
-				assert.GreaterOrEqual(t, recall, 0.95, at)
+				if cacheMode == ent.CacheModeNone {
+					assert.Equal(t, 1.0, recall, "%s: the exact answer", at)
+					f.directRead(t, filter, at)
+				} else {
+					assert.GreaterOrEqual(t, recall, 0.95, at)
+				}
 			}
 
 			f.addBatches(t, 0, base)
