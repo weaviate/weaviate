@@ -69,7 +69,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// Read after the configs: a drop marks the schema before it deletes the
 	// config, so one missing above because of a drop is marked here, and one
 	// still above is about to be deleted.
-	dropped := droppedVectorNames(s.index.getClass())
+	dropped := s.droppedVectorNames()
 	for _, name := range dropped {
 		delete(targets, name)
 	}

@@ -22,7 +22,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -205,8 +204,9 @@ func (s *Shard) removeUnrecordedVectorIndexes(ctx context.Context, dropped []str
 	return nil
 }
 
-// droppedVectorNames lists the vectors class marks as being dropped.
-func droppedVectorNames(class *models.Class) []string {
+// droppedVectorNames lists the vectors the class marks as being dropped.
+func (s *Shard) droppedVectorNames() []string {
+	class := s.index.getClass()
 	if class == nil {
 		return nil
 	}
