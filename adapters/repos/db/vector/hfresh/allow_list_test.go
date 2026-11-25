@@ -406,8 +406,12 @@ func TestAllowListSkipsSmallRejectedPostings(t *testing.T) {
 	for range maxPooledRejectedPostings {
 		a.rejectedPostings[&PostingMetadata{}] = [5]byte{}
 	}
+	cached := a.rejectedPostings
 	a.Close()
 	require.Nil(t, a.rejectedPostings)
+	// Pooling clears the map first; an oversized map must bypass that path.
+	// Inspect the retained alias because sync.Pool may discard any stored item.
+	require.Len(t, cached, maxPooledRejectedPostings+1)
 }
 
 func TestAllowListRechecksAppendToPaddedMetadata(t *testing.T) {
