@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -70,7 +69,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// Read after the configs: a drop marks the schema before it deletes the
 	// config, so one missing above because of a drop is marked here, and one
 	// still above is about to be deleted.
-	dropped := droppedVectorNames(s.index.getClass())
+	dropped := s.droppedVectorNames()
 	for _, name := range dropped {
 		delete(targets, name)
 	}
@@ -120,8 +119,9 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	return nil
 }
 
-// droppedVectorNames lists the vectors class marks as being dropped.
-func droppedVectorNames(class *models.Class) []string {
+// droppedVectorNames lists the vectors the class marks as being dropped.
+func (s *Shard) droppedVectorNames() []string {
+	class := s.index.getClass()
 	if class == nil {
 		return nil
 	}
