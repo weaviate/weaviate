@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -66,6 +67,9 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	legacy := s.index.GetVectorIndexConfig("")
 	targets := s.index.getTargetVectorIndexConfigs()
 	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
+	// Read after the configs: a drop marks the schema before it deletes the
+	// config, so one missing above because of a drop is marked here.
+	dropped := droppedVectorNames(s.index.getClass(), active)
 
 	// The mapping decides the physical ID of each index. A shard without one
 	// creates everything under the naming rule; a shard with one checks its
@@ -78,11 +82,15 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		s.index.logger.WithField("shard", s.ID()).Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
 	if initialized {
-		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
+		records, err = s.reconcileVectorIndexMapping(ctx, active, dropped, records)
 		if err != nil {
 			return fmt.Errorf("shard %q: %w", s.ID(), err)
 		}
 	} else {
+		err = s.removeUnrecordedVectorIndexes(ctx, dropped, active)
+		if err != nil {
+			return fmt.Errorf("shard %q: %w", s.ID(), err)
+		}
 		records = make(map[string]vectorIndexRecord, len(active))
 		for name, cfg := range active {
 			records[name] = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
@@ -475,7 +483,23 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 			otherIDs = append(otherIDs, rec.PhysicalID)
 		}
 	}
-	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
+	err := s.removeVectorIndexStorage(ctx, name, physicalID, helpers.VectorIndexArtifactsForID(physicalID, otherIDs))
+	if err != nil {
+		return err
+	}
+	// the record goes last, so a failed drop keeps it for the retry
+	err = s.mapping.Delete(name)
+	if err != nil {
+		return fmt.Errorf("drop mapping record for vector %q: %w", name, err)
+	}
+	return nil
+}
+
+// removeVectorIndexStorage deletes artifacts, what name's index at physicalID
+// owns, and its dynamic state key.
+func (s *Shard) removeVectorIndexStorage(ctx context.Context, name, physicalID string,
+	artifacts helpers.VectorIndexArtifacts,
+) error {
 	for _, bucket := range artifacts.LSMBuckets {
 		err := s.removeBucket(ctx, bucket)
 		if err != nil {
@@ -491,11 +515,6 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 	err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", name, err)
-	}
-	// the record goes last, so a failed drop keeps it for the retry
-	err = s.mapping.Delete(name)
-	if err != nil {
-		return fmt.Errorf("drop mapping record for vector %q: %w", name, err)
 	}
 	return nil
 }
