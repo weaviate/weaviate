@@ -22,8 +22,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -480,6 +482,17 @@ func TestShardTeardownKeepsResourcesForUndrainedWorkers(t *testing.T) {
 				ctx := context.Background()
 				sl, _ := testShard(t, ctx, "DrainFailure")
 				s := sl.(*Shard)
+				metrics := *monitoring.GetMetrics()
+				metrics.ShardsLoaded = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_loaded"})
+				metrics.ShardsLoading = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_loading"})
+				metrics.ShardsUnloaded = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_unloaded"})
+				metrics.ShardsUnloading = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_unloading"})
+				metrics.Shards = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "weaviate_shards"}, []string{"state", "registration"})
+				s.metrics.baseMetrics = &metrics
+				metrics.NewLoadedShard()
+				gauges := shardMetricsHarness{metrics: &metrics}
+				require.Equal(t, shardGauges{loaded: 1}, gauges.gauges())
+				require.Equal(t, shardGauges{loaded: 1}, gauges.gaugesFor(s.registration))
 				vi, releaseIndex, ok := s.AcquireVectorIndex("")
 				require.True(t, ok)
 				releaseIndex()
@@ -513,6 +526,14 @@ func TestShardTeardownKeepsResourcesForUndrainedWorkers(t *testing.T) {
 					_, err = ns.Get([]byte("key"))
 					require.Error(t, err, "ordinary teardown errors still close metadata")
 				}
+				if !drop {
+					assert.Equal(t, shardGauges{unloaded: 1}, gauges.gauges(), "a failed shutdown must finish the unloading transition")
+					assert.Equal(t, shardGauges{unloaded: 1}, gauges.gaugesFor(s.registration), "a failed shutdown must finish the labeled unloading transition")
+				}
+				require.True(t, s.vectors.Replace("", vi))
+				require.NoError(t, s.drop())
+				assert.Equal(t, shardGauges{}, gauges.gauges(), "dropping the shard must remove its count exactly once")
+				assert.Equal(t, shardGauges{}, gauges.gaugesFor(s.registration), "dropping the shard must remove its labeled count exactly once")
 			})
 		}
 	}
