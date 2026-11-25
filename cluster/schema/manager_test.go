@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1622,84 +1623,86 @@ func TestPreApplyFilter_ClassFactorAgainstHomeNodes(t *testing.T) {
 	}
 }
 
-// TestPreApplyFilter_TenantNodesAreHomeNodes pins the leader's refusal of a
-// tenant add or explicit unfreeze whose nodes are not HomeNodes entries of n1,
-// n2, n3 in list order.
-func TestPreApplyFilter_TenantNodesAreHomeNodes(t *testing.T) {
-	const (
-		hot      = models.TenantActivityStatusHOT
-		cold     = models.TenantActivityStatusCOLD
-		frozen   = models.TenantActivityStatusFROZEN
-		freezing = models.TenantActivityStatusFREEZING
-	)
+// TestSchemaManager_WriteTenantNodes pins the list the leader writes into a
+// tenant command for alpha:Foo, whose namespace has home nodes n1, n2 and n3.
+func TestSchemaManager_WriteTenantNodes(t *testing.T) {
 	tests := []struct {
-		name      string
-		class     string // alpha:Foo when empty
-		held      string // t1's status in the schema; a tenant add when empty
-		requested string
-		implicit  bool
-		coldFirst bool // a HOT t0 moving to COLD goes ahead of t1 in the update
-		sent      []string
-		wantErr   bool
+		name       string
+		class      string // alpha:Foo when empty
+		unfreeze   bool   // an update moving FROZEN t1 and t2 to HOT; an add otherwise
+		candidates []string
+		sent       []string // n1, n2 and n3 when nil
+		want       []string
+		wantErr    string // the refusal's text; req stays unchanged
 	}{
-		{name: "add: an empty list is left for apply to fill"},
-		{name: "add: the first entries are admitted", sent: []string{"n1", "n2"}},
-		{name: "add: entries in list order with one skipped are admitted", sent: []string{"n1", "n3"}},
-		{name: "add: entries out of list order are refused", sent: []string{"n2", "n1"}, wantErr: true},
-		{name: "add: a node that is not a home node is refused", sent: []string{"n4"}, wantErr: true},
-		{name: "add: an unqualified class is not checked", class: "Foo", sent: []string{"n4"}},
-		{name: "unfreeze: a stale list is refused", held: frozen, requested: hot, sent: []string{"n4"}, wantErr: true},
-		{name: "unfreeze: a stale list is refused when the tenant goes to COLD", held: frozen, requested: cold, sent: []string{"n4"}, wantErr: true},
-		{name: "unfreeze: entries in list order are admitted", held: frozen, requested: hot, sent: []string{"n2"}},
-		{name: "unfreeze: an empty list is left for apply to fill", held: frozen, requested: hot},
 		{
-			name: "unfreeze: an implicit activation with every storage node is admitted",
-			held: frozen, requested: hot, implicit: true, sent: []string{"n4", "n1", "n2", "n3"},
+			name:       "a sent list longer than the factor is replaced by the first home nodes",
+			candidates: []string{"n1", "n2", "n3"}, want: []string{"n1", "n2"},
 		},
-		{name: "unfreeze: a FREEZING tenant with a stale list is refused", held: freezing, requested: hot, sent: []string{"n4"}, wantErr: true},
 		{
-			name: "unfreeze: a stale list is refused when another tenant in the update does not unfreeze",
-			held: frozen, requested: hot, coldFirst: true, sent: []string{"n4"}, wantErr: true,
+			name:       "a home node that is not a storage candidate is skipped, not filled",
+			candidates: []string{"n3"}, want: []string{"n3"},
 		},
-		{name: "update: a freeze with a stale list is admitted", held: hot, requested: frozen, sent: []string{"n4"}},
-		{name: "update: a freeze re-sent for a FROZEN tenant with a stale list is admitted", held: frozen, requested: frozen, sent: []string{"n4"}},
-		{name: "update: a change to COLD with a stale list is admitted", held: hot, requested: cold, sent: []string{"n4"}},
-		{name: "update: an activation of a COLD tenant with a stale list is admitted", held: cold, requested: hot, sent: []string{"n4"}},
+		{
+			name:       "an add with no home node among the candidates is refused",
+			candidates: []string{"n4"}, wantErr: `none of the 3 home node(s) of namespace "alpha"`,
+		},
+		{
+			name: "an unfreeze that sends no list takes the leader's list", unfreeze: true,
+			candidates: []string{"n2", "n3"}, sent: []string{}, want: []string{"n2", "n3"},
+		},
+		{
+			name: "a class without a namespace keeps its list", class: "Foo",
+			candidates: []string{"n1", "n2", "n3"}, sent: []string{"n1", "n2"}, want: []string{"n1", "n2"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			hot, frozen := models.TenantActivityStatusHOT, models.TenantActivityStatusFROZEN
+			if tt.sent == nil {
+				tt.sent = []string{"n1", "n2", "n3"}
+			}
+			tenants := []*cmd.Tenant{{Name: "t1", Status: hot}, {Name: "t2", Status: hot}}
 			var (
 				physical map[string]sharding.Physical
 				req      *cmd.ApplyRequest
-			)
-			if tt.held == "" {
-				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT,
-					&cmd.AddTenantsRequest{ClusterNodes: tt.sent, Tenants: []*cmd.Tenant{{Name: "t1"}}})
-			} else {
-				physical = map[string]sharding.Physical{"t1": {Name: "t1", Status: tt.held, BelongsToNodes: []string{"n1"}}}
-				tenants := []*cmd.Tenant{{Name: "t1", Status: tt.requested}}
-				if tt.coldFirst {
-					physical["t0"] = sharding.Physical{Name: "t0", Status: hot, BelongsToNodes: []string{"n1"}}
-					tenants = append([]*cmd.Tenant{{Name: "t0", Status: cold}}, tenants...)
+				got      interface {
+					gproto.Message
+					GetClusterNodes() []string
 				}
-				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_UPDATE_TENANT, &cmd.UpdateTenantsRequest{
-					ClusterNodes:          tt.sent,
-					Tenants:               tenants,
-					ImplicitUpdateRequest: tt.implicit,
-				})
+			)
+			if tt.unfreeze {
+				physical = map[string]sharding.Physical{
+					"t1": {Name: "t1", Status: frozen, BelongsToNodes: []string{"n1"}},
+					"t2": {Name: "t2", Status: frozen, BelongsToNodes: []string{"n1"}},
+				}
+				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_UPDATE_TENANT, &cmd.UpdateTenantsRequest{ClusterNodes: tt.sent, Tenants: tenants})
+				got = &cmd.UpdateTenantsRequest{}
+			} else {
+				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT, &cmd.AddTenantsRequest{ClusterNodes: tt.sent, Tenants: tenants})
+				got = &cmd.AddTenantsRequest{}
 			}
-			sm := newManagerWithNamespacedClass(t, 1, []string{"n1", "n2", "n3"}, physical)
-			if tt.class != "" {
-				req.Class = tt.class
-			}
+			sm := newManagerWithNamespacedClass(t, 2, []string{"n1", "n2", "n3"}, physical)
+			require.NoError(t, sm.schema.addClass(&models.Class{
+				Class:              "Foo",
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+			}, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{}}, 1))
+			req.Class = cmp.Or(tt.class, req.Class)
+			sentSub := slices.Clone(req.SubCommand)
 
-			err := sm.PreApplyFilter(req)
-			if !tt.wantErr {
-				require.NoError(t, err)
+			err := sm.WriteTenantNodes(req, func() []string { return tt.candidates })
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				for _, node := range []string{"n1", "n2", "n3"} {
+					assert.NotContains(t, err.Error(), node)
+				}
+				assert.Equal(t, sentSub, req.SubCommand)
 				return
 			}
-			require.ErrorIs(t, err, ErrBadRequest)
-			assert.ErrorContains(t, err, notHomeNodes)
+			require.NoError(t, err)
+			require.NoError(t, gproto.Unmarshal(req.SubCommand, got))
+			assert.Equal(t, tt.want, got.GetClusterNodes())
 		})
 	}
 }

@@ -76,6 +76,12 @@ func (st *Store) storageCandidatesFrom(selector cluster.NodeSelector) []string {
 	return selector.SortCandidates(raftStorageCandidates)
 }
 
+// storageCandidates reads the storage candidates through the store's own
+// NodeSelector, which production also hands NewRaft.
+func (st *Store) storageCandidates() []string {
+	return st.storageCandidatesFrom(st.cfg.NodeSelector)
+}
+
 func (s *Raft) Join(ctx context.Context, id, addr string, voter bool) error {
 	s.log.WithFields(logrus.Fields{
 		"id":      id,

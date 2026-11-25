@@ -34,6 +34,22 @@ type Namespace struct {
 	StateChangeIndex uint64
 }
 
+// PlacementNodes returns the HomeNodes entries that available holds, in
+// HomeNodes order, cut to the first factor of them. A factor of 0 or less
+// returns nil. The caller decides what a list shorter than factor means.
+func (n Namespace) PlacementNodes(available []string, factor int) []string {
+	var nodes []string
+	for _, node := range n.HomeNodes {
+		if len(nodes) >= factor {
+			break
+		}
+		if slices.Contains(available, node) {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
+}
+
 // MissingHomeNodes returns the HomeNodes entries not in candidates, in stored
 // order.
 func (n Namespace) MissingHomeNodes(candidates []string) []string {

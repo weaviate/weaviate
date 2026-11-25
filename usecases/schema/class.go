@@ -314,10 +314,9 @@ func (h *Handler) candidateHomeNodes(qualifiedClass string, factor int64) ([]str
 	if err := h.checkNamespaceFactor(got, factor); err != nil {
 		return nil, err
 	}
-	missing := got.MissingHomeNodes(h.membership.StorageCandidates())
-	present := slices.DeleteFunc(slices.Clone(got.HomeNodes), func(node string) bool {
-		return slices.Contains(missing, node)
-	})
+	candidates := h.membership.StorageCandidates()
+	missing := got.MissingHomeNodes(candidates)
+	present := got.PlacementNodes(candidates, len(got.HomeNodes))
 	if int64(len(present)) < factor {
 		return refuse(logger.WithField("home_nodes", missing), fmt.Errorf(
 			"only %d of the namespace's %d home node(s) are storage candidates, fewer than "+
