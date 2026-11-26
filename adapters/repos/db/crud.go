@@ -208,7 +208,6 @@ func (db *DB) objectsByID(ctx context.Context, id strfmt.UUID,
 		if check != nil {
 			allowed, err := check(string(index.Config.ClassName))
 			if err != nil {
-				db.indexLock.RUnlock()
 				return nil, err
 			}
 			if !allowed {

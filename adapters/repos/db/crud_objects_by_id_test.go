@@ -14,7 +14,7 @@ package db
 import (
 	"context"
 	"errors"
-  "testing"
+	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
