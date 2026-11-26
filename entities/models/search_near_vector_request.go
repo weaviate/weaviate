@@ -49,7 +49,7 @@ type SearchNearVectorRequest struct {
 	Vector interface{} `json:"vector,omitempty"`
 
 	// One query vector per target vector, keyed by target vector name, e.g. `{"title": [0.1, 0.2], "body": [0.3, 0.4, 0.5]}`. The keys must be exactly the request's target vectors. Each value has the form of `vector`. Exactly one of `vector` and `vectorPerTarget` must be set.
-	VectorPerTarget interface{} `json:"vectorPerTarget,omitempty"`
+	VectorPerTarget map[string]interface{} `json:"vectorPerTarget,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -75,7 +75,7 @@ func (m *SearchNearVectorRequest) UnmarshalJSON(raw []byte) error {
 
 		Vector interface{} `json:"vector,omitempty"`
 
-		VectorPerTarget interface{} `json:"vectorPerTarget,omitempty"`
+		VectorPerTarget map[string]interface{} `json:"vectorPerTarget,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -120,7 +120,7 @@ func (m SearchNearVectorRequest) MarshalJSON() ([]byte, error) {
 
 		Vector interface{} `json:"vector,omitempty"`
 
-		VectorPerTarget interface{} `json:"vectorPerTarget,omitempty"`
+		VectorPerTarget map[string]interface{} `json:"vectorPerTarget,omitempty"`
 	}
 
 	dataAO1.Certainty = m.Certainty

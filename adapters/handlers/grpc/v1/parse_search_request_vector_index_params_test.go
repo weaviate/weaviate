@@ -446,8 +446,9 @@ func TestGRPCSearchRequestVectorIndexParamsFields(t *testing.T) {
 }
 
 func TestValidateVectorIndexParamsUnsetCaps(t *testing.T) {
-	// unresolved caps (0) fall back to the default QUERY_MAXIMUM_RESULTS
-	// instead of rejecting every ef and search_probe
+	// unresolved caps (0) fall back to the caps' own defaults
+	// (DefaultHNSWMaxSearchEF / DefaultHFreshMaxSearchProbe) instead of
+	// rejecting every ef and search_probe
 	got, err := validateVectorIndexParams(&pb.VectorIndexParams{Ef: ptr(uint32(500)), SearchProbe: ptr(uint32(64))}, 0, 0, "vector_index_params.")
 	require.NoError(t, err)
 	require.Equal(t, searchparams.VectorIndexParams{EF: 500, SearchProbe: 64}, got)

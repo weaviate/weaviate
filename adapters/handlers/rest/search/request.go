@@ -558,8 +558,10 @@ func parseNearVectorVectors(body *models.SearchNearVectorRequest, targetVectors 
 		return vectors, nil
 	}
 
-	byTarget, ok := body.VectorPerTarget.(map[string]any)
-	if !ok || len(byTarget) == 0 {
+	// A non-object value never gets here: the model types the field as a map,
+	// so the body decoder rejects it with 400.
+	byTarget := body.VectorPerTarget
+	if len(byTarget) == 0 {
 		return nil, newAPIError(http.StatusBadRequest,
 			"vectorPerTarget must be a non-empty object mapping target vector names to vectors")
 	}

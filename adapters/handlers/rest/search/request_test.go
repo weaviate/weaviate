@@ -1672,8 +1672,9 @@ func TestNearVectorPerTarget(t *testing.T) {
 			status: http.StatusBadRequest, want: "vectorPerTarget must be a non-empty object",
 		},
 		{
+			// the model types the field as a map, so the body decoder rejects it
 			name: "not an object", body: `{"vectorPerTarget":[0.1],"targetVector":"title_vec"}`,
-			status: http.StatusBadRequest, want: "vectorPerTarget must be a non-empty object",
+			status: http.StatusBadRequest, want: "cannot unmarshal array",
 		},
 		{
 			name: "bad vector value names the target", body: `{"vectorPerTarget":{"title_vec":["x"]},"targetVector":"title_vec"}`,

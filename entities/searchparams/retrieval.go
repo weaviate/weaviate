@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type SelectionMMR struct {
@@ -30,12 +31,13 @@ type Selection struct {
 	MMR *SelectionMMR `json:"mmr,omitempty"`
 }
 
-// Per-request HNSW filter strategies, the vectorIndexConfig.filterStrategy
-// values (defined here because the index packages import this one).
+// Per-request HNSW filter strategies: the vectorIndexConfig.filterStrategy
+// values, aliased so a request can never name a strategy the index does not
+// know (an unknown string would silently run as sweeping).
 const (
-	FilterStrategySweeping = "sweeping"
-	FilterStrategyAcorn    = "acorn"
-	FilterStrategyPathseer = "pathseer"
+	FilterStrategySweeping = hnsw.FilterStrategySweeping
+	FilterStrategyAcorn    = hnsw.FilterStrategyAcorn
+	FilterStrategyPathseer = hnsw.FilterStrategyPathseer
 )
 
 // VectorIndexParams overrides the collection's vector index config for one

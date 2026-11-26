@@ -12309,7 +12309,9 @@ func init() {
             "vectorPerTarget": {
               "description": "One query vector per target vector, keyed by target vector name, e.g. ` + "`" + `{\"title\": [0.1, 0.2], \"body\": [0.3, 0.4, 0.5]}` + "`" + `. The keys must be exactly the request's target vectors. Each value has the form of ` + "`" + `vector` + "`" + `. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set.",
               "type": "object",
-              "additionalProperties": false
+              "additionalProperties": {
+                "description": "A query vector for the named target, in the form of ` + "`" + `vector` + "`" + `: a non-empty array of numbers (or, for a multi-vector target, an array of such arrays)."
+              }
             }
           }
         }
@@ -26172,7 +26174,9 @@ func init() {
             "vectorPerTarget": {
               "description": "One query vector per target vector, keyed by target vector name, e.g. ` + "`" + `{\"title\": [0.1, 0.2], \"body\": [0.3, 0.4, 0.5]}` + "`" + `. The keys must be exactly the request's target vectors. Each value has the form of ` + "`" + `vector` + "`" + `. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set.",
               "type": "object",
-              "additionalProperties": false
+              "additionalProperties": {
+                "description": "A query vector for the named target, in the form of ` + "`" + `vector` + "`" + `: a non-empty array of numbers (or, for a multi-vector target, an array of such arrays)."
+              }
             }
           }
         }

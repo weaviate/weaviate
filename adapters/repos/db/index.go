@@ -1737,11 +1737,10 @@ func (i *Index) DeletionStrategy() string {
 
 type IndexConfig struct {
 	// NodeName is the local node name.
-	NodeName            string
-	RootPath            string
-	ClassName           schema.ClassName
-	QueryMaximumResults int64
-	// HNSW_MAX_SEARCH_EF and HFRESH_MAX_SEARCH_PROBE, for incoming searches
+	NodeName                            string
+	RootPath                            string
+	ClassName                           schema.ClassName
+	QueryMaximumResults                 int64
 	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
