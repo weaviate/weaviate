@@ -172,6 +172,7 @@ func (g *growIndex) retirePosting(p uint32) error {
 	if err := g.st.centroids.graph.Delete(uint64(p)); err != nil {
 		return errors.Wrapf(err, "delete the centroid of posting %d", p)
 	}
+	g.st.centroids.release(p)
 	g.retiredMu.Lock()
 	g.retired[p] = true
 	g.retiredMu.Unlock()
@@ -184,7 +185,7 @@ func (g *growIndex) retirePosting(p uint32) error {
 func (g *growIndex) nearestPosting(ctx context.Context, p uint32) (uint32, error) {
 	centroids := g.st.centroids
 	for limit := 4; limit <= 4096; limit *= 4 {
-		ids, err := centroids.nearest(ctx, centroids.vectors[p], limit)
+		ids, err := centroids.nearest(ctx, centroids.vector(p), limit)
 		if err != nil {
 			return 0, err
 		}

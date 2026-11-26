@@ -13,7 +13,7 @@ package postingedge
 
 import (
 	"context"
-	"sync/atomic"
+	"sync"
 
 	"github.com/pkg/errors"
 
@@ -35,36 +35,59 @@ func (noopBucketView) ReleaseView() {}
 // vectors were assigned to their centroids in. Graph node ids are posting
 // ids.
 type centroidIndex struct {
-	// vectors are the centroids, by posting, for whoever holds the lock of
-	// the index they belong to.
+	// vectors are the centroids, by posting, each its own allocation: that
+	// of a retired posting is nil (release), so that the memory of the
+	// centroids follows the live postings. Whoever changes vectors holds the
+	// lock of the index they belong to and mu; whoever reads them holds one
+	// of the two.
 	vectors [][]float32
-	// published is vectors as the graph of an index on disk reads them
-	// (publish), which it does from goroutines that hold no lock of the index.
-	published atomic.Pointer[[][]float32]
-	graph     *hnsw.HNSW
+	// mu is for the graph of an index on disk, which reads a centroid from
+	// the goroutines of the index, which hold its lock, and from others that
+	// hold none: the one that fills its cache once it is opened, and the
+	// cycle of the node that takes its deleted centroids out.
+	mu    sync.RWMutex
+	graph *hnsw.HNSW
 }
 
-// publish hands the centroids, as they are now, to the graph of an index on
-// disk. That graph reads a centroid from the goroutines of the index, which
-// hold its lock, and from others that hold none: the one that fills its cache
-// once it is opened, and the cycle of the node that takes its deleted
-// centroids out. A posting that splits appends its two centroids to vectors
-// with the index locked, which keeps none of those out: they would read the
-// slice while it is replaced. So they read the one that was published last,
-// which nobody writes to. Whoever appends to vectors publishes them before
-// the graph hears of the new ones.
-func (c *centroidIndex) publish() {
-	vectors := c.vectors
-	c.published.Store(&vectors)
+// appendVectors adds the centroids of new postings. Whoever calls it holds
+// the lock of the index, and adds them to the graph after.
+func (c *centroidIndex) appendVectors(vectors ...[]float32) {
+	c.mu.Lock()
+	c.vectors = append(c.vectors, vectors...)
+	c.mu.Unlock()
+}
+
+// release lets the centroid of a retired posting go, once the graph has
+// deleted it. The graph may still hold it in its cache, with its tombstone,
+// until its cleanup takes the node out. Whoever calls it holds the lock of
+// the index.
+func (c *centroidIndex) release(p uint32) {
+	c.mu.Lock()
+	if int(p) < len(c.vectors) {
+		c.vectors[p] = nil
+	}
+	c.mu.Unlock()
+}
+
+// vector is the centroid of a live posting, for whoever holds the lock of
+// the index and asks the graph about it.
+func (c *centroidIndex) vector(p uint32) []float32 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.vectors[p]
 }
 
 // publishedVector is how the graph of an index on disk reads a centroid.
 func (c *centroidIndex) publishedVector(_ context.Context, id uint64) ([]float32, error) {
-	vectors := *c.published.Load()
-	if id >= uint64(len(vectors)) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if id >= uint64(len(c.vectors)) {
 		return nil, storobj.NewErrNotFoundf(id, "centroid out of range")
 	}
-	return vectors[id], nil
+	if c.vectors[id] == nil {
+		return nil, storobj.NewErrNotFoundf(id, "the centroid of a retired posting")
+	}
+	return c.vectors[id], nil
 }
 
 // newCentroidIndex builds the graph over the centroids. dir is where the hnsw

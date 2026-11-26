@@ -190,7 +190,6 @@ func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir s
 		cycles.commitLogs = cyclemanager.NewCallbackGroupNoop()
 	}
 	index := &centroidIndex{vectors: vectors}
-	index.publish()
 	vectorForID := index.publishedVector
 	uc := centroidUserConfig(centroidEF)
 	if cycles.everyCycle {

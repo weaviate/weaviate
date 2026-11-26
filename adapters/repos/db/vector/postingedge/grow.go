@@ -1244,9 +1244,11 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if err != nil {
 		return nil, errors.Wrap(err, "read the centroids")
 	}
+	// Every centroid is its own allocation, so that those of the retired
+	// postings can go once the index knows which they are (below).
 	centroids := make([][]float32, meta.Postings)
 	for p := range centroids {
-		centroids[p] = flat[p*meta.Dims : (p+1)*meta.Dims : (p+1)*meta.Dims]
+		centroids[p] = slices.Clone(flat[p*meta.Dims : (p+1)*meta.Dims])
 	}
 	graph, err := openCentroidGraphWith(ctx, logger, path(diskGraphDir), centroids, opts.cycles)
 	if err != nil {
@@ -1357,6 +1359,9 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	g.retired = make([]bool, meta.Postings)
 	for p, size := range g.size {
 		g.retired[p] = size == 0
+		if g.retired[p] {
+			g.st.centroids.release(uint32(p))
+		}
 	}
 	g.haloAdded, g.haloWholeSeq = make([]uint32, meta.Postings), make([]uint64, meta.Postings)
 	g.listSeq = make([]uint64, meta.Postings)
@@ -2674,8 +2679,7 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 		return err
 	}
 	centroids := st.centroids
-	centroids.vectors = append(centroids.vectors, means[0], means[1])
-	centroids.publish()
+	centroids.appendVectors(means[0], means[1])
 	for c := range 2 {
 		if err := centroids.graph.Add(ctx, uint64(first)+uint64(c), means[c]); err != nil {
 			return errors.Wrap(err, "add a centroid")
@@ -2684,6 +2688,7 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 	if err := centroids.graph.Delete(uint64(p)); err != nil {
 		return errors.Wrap(err, "delete the centroid")
 	}
+	centroids.release(p)
 
 	g.retiredMu.Lock()
 	g.retired = append(g.retired, false, false)
