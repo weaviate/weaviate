@@ -436,7 +436,7 @@ func TestSinglePostingMode(t *testing.T) {
 		vectors := insert(t, &tf, 1600)
 		require.Greater(t, uint32(1600), 5*tf.Index.maxPostingSize)
 		require.True(t, tf.Index.Centroids.Built(), "the insert splits the posting when its queued split is that late")
-		requireSelfSearchEvery(t, tf.Index, vectors, 1)
+		requireSelfSearchExcept(t, tf.Index, vectors, -1)
 	})
 
 	t.Run("deleted entries do not count toward the limit", func(t *testing.T) {
