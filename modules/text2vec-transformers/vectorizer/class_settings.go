@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -60,6 +61,15 @@ func (ic *classSettings) getSetting(property string) string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
+	if err := modulecomponents.ValidateCollectionBaseURL(ic.InferenceURL()); err != nil {
+		return err
+	}
+	if err := modulecomponents.ValidateCollectionBaseURL(ic.PassageInferenceURL()); err != nil {
+		return err
+	}
+	if err := modulecomponents.ValidateCollectionBaseURL(ic.QueryInferenceURL()); err != nil {
+		return err
+	}
 	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}

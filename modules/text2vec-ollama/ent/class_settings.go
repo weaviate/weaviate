@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -43,6 +44,9 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
+	if err := modulecomponents.ValidateCollectionBaseURL(ic.ApiEndpoint(), DefaultApiEndpoint); err != nil {
+		return err
+	}
 	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}

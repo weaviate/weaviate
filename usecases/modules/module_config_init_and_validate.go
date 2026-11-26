@@ -14,6 +14,8 @@ package modules
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -161,8 +163,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 	case 0:
 		// legacy configuration
 		if class.Vectorizer == "none" {
-			// the class does not use a vectorizer, nothing to do for us
-			return nil
+			return p.validateEnabledNonVectorizers(ctx, class)
 		}
 		if err := p.validateClassesModuleConfig(ctx, class, class.ModuleConfig); err != nil {
 			return err
@@ -207,6 +208,24 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 		}
 		return nil
 	}
+}
+
+// validateEnabledNonVectorizers validates the class-level settings of the enabled generative, reranker and other
+// non-vectorizer modules of a class without a vectorizer. Settings of vectorizers and of modules that are not enabled
+// are left alone: such a class never reads them.
+func (p *Provider) validateEnabledNonVectorizers(ctx context.Context, class *models.Class) error {
+	modConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	for _, modName := range slices.Sorted(maps.Keys(modConfig)) {
+		if mod := p.GetByName(modName); mod != nil && !p.isVectorizerModule(mod.Type()) {
+			if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (p *Provider) validateClassesModuleConfigNoneVectorizers(ctx context.Context,

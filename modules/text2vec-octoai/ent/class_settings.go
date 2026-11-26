@@ -14,6 +14,7 @@ package ent
 import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -44,6 +45,9 @@ func (cs *classSettings) BaseURL() string {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
+	if err := modulecomponents.ValidateCollectionBaseURL(cs.BaseURL(), DefaultBaseURL); err != nil {
+		return err
+	}
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}

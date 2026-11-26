@@ -21,9 +21,11 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
+	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "https://foo.bar.com")
 	maxTokens42 := 42
 
 	tests := []struct {

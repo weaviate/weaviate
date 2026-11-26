@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -73,6 +74,9 @@ func NewClassSettings(cfg moduletools.ClassConfig) ClassSettings {
 func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.cfg == nil {
 		return errors.New("empty config")
+	}
+	if err := modulecomponents.ValidateCollectionBaseURL(ic.BaseURL(), DefaultDeepSeekBaseURL); err != nil {
+		return err
 	}
 
 	if err := ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL()); err != nil {

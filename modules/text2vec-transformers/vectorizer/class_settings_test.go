@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
@@ -215,6 +216,7 @@ func TestClassSettings(t *testing.T) {
 }
 
 func Test_classSettings_Validate(t *testing.T) {
+	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "http://inference.url,http://passage.inference.url,http://query.inference.url")
 	tests := []struct {
 		name       string
 		vectorizer map[string]interface{}

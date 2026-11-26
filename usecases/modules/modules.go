@@ -175,6 +175,7 @@ func (p *Provider) Init(ctx context.Context,
 	if err := p.validate(); err != nil {
 		return errors.Wrap(err, "validate modules")
 	}
+	modulecomponents.WarnInvalidAllowedBaseURLs(logger)
 	if p.HasMultipleVectorizers() {
 		logger.Warn("Multiple vector spaces are present, GraphQL Explore and REST API list objects endpoint module include params has been disabled as a result.")
 	}

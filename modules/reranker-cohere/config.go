@@ -14,6 +14,8 @@ package modrerankercohere
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/modules/reranker-cohere/config"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -33,7 +35,7 @@ func (m *ReRankerCohereModule) PropertyConfigDefaults(
 func (m *ReRankerCohereModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
-	return nil
+	return config.NewClassSettings(cfg).Validate(class)
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())

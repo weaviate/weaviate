@@ -286,10 +286,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	// Raft apply must stay deterministic across versions, so the changed settings are not validated here.
-	allowed, err := mutableSettingsChanges(p.modules, class, update, func(string, string) error { return nil })
-	if err != nil {
-		return nil, err
-	}
+	allowed := mutableSettingsChanges(p.modules, class, update)
 	if err := validateImmutableFields(class, update, p.modules, allowed); err != nil {
 		return nil, err
 	}

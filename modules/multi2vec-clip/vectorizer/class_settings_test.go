@@ -16,9 +16,11 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
+	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "http://inference.url")
 	type fields struct {
 		cfg moduletools.ClassConfig
 	}
