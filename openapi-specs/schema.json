@@ -4403,13 +4403,13 @@
       "type": "object",
       "properties": {
         "ef": {
-          "description": "HNSW layer-0 beam width for this request only, floored at the request's limit. Omitted or 0 uses the collection's vectorIndexConfig. On a compressed index it also caps the candidates that are rescored, including in the flat search used when a filter matches fewer objects than flatSearchCutoff, so a low ef can lower recall there. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
+          "description": "HNSW layer-0 beam width for this request only, floored at the request's limit (in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates, 100 by default, so a lower ef has no effect there). Omitted or 0 uses the collection's vectorIndexConfig. On a compressed index it also caps the candidates that are rescored, including in the flat search used when a filter matches fewer objects than flatSearchCutoff, so a low ef can lower recall there. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
         "searchProbe": {
-          "description": "HFresh number of centroid postings visited for this request only, floored at the request's limit. Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HFresh indexes. Must be between 0 and HFRESH_MAX_SEARCH_PROBE.",
+          "description": "HFresh number of centroid postings visited for this request only, floored at the request's limit (in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates, 100 by default, so a lower searchProbe has no effect there). Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HFresh indexes. Must be between 0 and HFRESH_MAX_SEARCH_PROBE.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true

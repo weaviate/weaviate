@@ -103,8 +103,11 @@ var (
 // own prefix) against the HNSW_MAX_SEARCH_EF and HFRESH_MAX_SEARCH_PROBE caps
 // and the known filter strategies. It is the only copy of these rules: the
 // gRPC and REST parsers call it with their field names and map the error to
-// their status code. The caps come resolved from the server config; a cap
-// <= 0 is unbounded. A nil p is valid.
+// their status code. The caps are the server config's resolved values
+// (config.SearchCapOrDefault supplies the built-in default to a handler
+// built without a config, so in the server a cap is always > 0); Validate
+// itself treats a cap <= 0 as "no cap" rather than rejecting every value.
+// A nil p is valid.
 func (p *VectorIndexParams) Validate(maxEF, maxProbe int, names FieldNames) error {
 	if p == nil {
 		return nil

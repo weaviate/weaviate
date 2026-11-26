@@ -483,9 +483,12 @@ type VectorIndexParams struct {
 	// HNSW layer-0 beam width, floored at the limit; 0/unset = collection
 	// default, at most HNSW_MAX_SEARCH_EF. On a compressed index it also caps
 	// the rescored candidates, including in the flat search below
-	// flatSearchCutoff, so a low ef can lower recall there.
+	// flatSearchCutoff, so a low ef can lower recall there. In a hybrid search
+	// the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates
+	// (100 by default), so a lower ef has no effect there.
 	Ef *uint32 `protobuf:"varint,1,opt,name=ef,proto3,oneof" json:"ef,omitempty"`
-	// HFresh centroid postings visited, floored at the limit; 0/unset =
+	// HFresh centroid postings visited, floored at the limit (and at
+	// QUERY_HYBRID_MAXIMUM_RESULTS in a hybrid search, as ef); 0/unset =
 	// collection default, at most HFRESH_MAX_SEARCH_PROBE.
 	SearchProbe *uint32 `protobuf:"varint,2,opt,name=search_probe,json=searchProbe,proto3,oneof" json:"search_probe,omitempty"`
 	// HNSW strategy for the filtered layer-0 walk. No effect without a filter
