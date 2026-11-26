@@ -1938,9 +1938,10 @@ func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *m
 }
 
 // validateChangedModuleConfigs runs module validation on every module config that updated adds or changes: a
-// generative or reranker module set or replaced, a module added to the class-level moduleConfig, a vectorizer whose
-// settings the module allows to change, and the vectorizer of a named vector the update adds. Settings left as
-// initial holds them are not validated again, so a stored class keeps accepting updates that leave them alone.
+// generative or reranker module set or replaced, a module added to the class-level moduleConfig, and a vectorizer whose
+// settings the module allows to change. A named vector the update adds is validated as create validates it, name
+// included. Settings left as initial holds them are not validated again, so a stored class keeps accepting updates
+// that leave them alone.
 func (h *Handler) validateChangedModuleConfigs(ctx context.Context, initial, updated *models.Class) error {
 	initialModuleConfig, updatedModuleConfig := structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)
 	for _, module := range slices.Sorted(maps.Keys(updatedModuleConfig)) {
@@ -1949,6 +1950,12 @@ func (h *Handler) validateChangedModuleConfigs(ctx context.Context, initial, upd
 		}
 	}
 	for _, targetVector := range slices.Sorted(maps.Keys(updated.VectorConfig)) {
+		if _, ok := initial.VectorConfig[targetVector]; !ok {
+			if err := h.moduleConfig.ValidateNamedVector(ctx, updated, targetVector); err != nil {
+				return err
+			}
+			continue
+		}
 		initialVectorizer := structToMap(initial.VectorConfig[targetVector].Vectorizer)
 		updatedVectorizer := structToMap(updated.VectorConfig[targetVector].Vectorizer)
 		for _, module := range slices.Sorted(maps.Keys(updatedVectorizer)) {
