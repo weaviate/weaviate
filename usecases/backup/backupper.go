@@ -193,10 +193,13 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	return ret, nil
 }
 
-// validateBaseChunkKeys refuses bases whose chunk keys would be copied into the new backup unrestorable.
+// validateBaseChunkKeys refuses bases whose backup ids or chunk keys would be copied into the new backup unrestorable.
 func validateBaseChunkKeys(baseDescrs []*backup.BaseBackupDescriptor) error {
 	for _, d := range baseDescrs {
 		for _, cls := range d.Classes {
+			if err := validateID(cls.BackupID); err != nil {
+				return fmt.Errorf("base backup class=%q: backup id %q: %w", cls.Name, cls.BackupID, err)
+			}
 			for _, shard := range cls.Shards {
 				for file, info := range shard.BigFilesChunk {
 					for _, k := range info.ChunkKeys {

@@ -2019,14 +2019,16 @@ func TestIsChunkKeyOf(t *testing.T) {
 }
 
 func TestValidateBaseChunkKeys(t *testing.T) {
-	baseWith := func(key string) *backup.BaseBackupDescriptor {
+	baseOf := func(backupID, key string) *backup.BaseBackupDescriptor {
 		return &backup.BaseBackupDescriptor{Classes: []backup.BaseClassDescriptor{{
-			Name: "Class",
+			Name:     "Class",
+			BackupID: backupID,
 			Shards: []backup.BaseShardDescriptor{{Name: "s1", BigFilesChunk: map[string]backup.BigFileInfo{
 				"s1/big.db": {ChunkKeys: []string{"Class/chunk-1", key}},
 			}}},
 		}}}
 	}
+	baseWith := func(key string) *backup.BaseBackupDescriptor { return baseOf("backup-1", key) }
 	tests := []struct {
 		name    string
 		descrs  []*backup.BaseBackupDescriptor
@@ -2036,6 +2038,9 @@ func TestValidateBaseChunkKeys(t *testing.T) {
 		{name: "canonical", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2")}},
 		{name: "traversal", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2"), baseWith("../../evil")}, wantErr: "../../evil"},
 		{name: "other class", descrs: []*backup.BaseBackupDescriptor{baseWith("Other/chunk-2")}, wantErr: "Other/chunk-2"},
+		{name: "backup id traversal", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2"), baseOf("../escape", "Class/chunk-2")}, wantErr: "../escape"},
+		{name: "empty backup id", descrs: []*backup.BaseBackupDescriptor{baseOf("", "Class/chunk-2")}, wantErr: `backup id ""`},
+		{name: "uppercase backup id", descrs: []*backup.BaseBackupDescriptor{baseOf("UPPER", "Class/chunk-2")}, wantErr: "UPPER"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

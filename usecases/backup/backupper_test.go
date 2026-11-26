@@ -341,16 +341,17 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 	t.Run("BaseWithCraftedRefsFails", func(t *testing.T) {
 		gz := backup.CompressionGZIP
-		base := func(baseID, key string) []byte {
+		baseOf := func(baseID, classBackupID, key string) []byte {
 			return marshalMeta(backup.BackupDescriptor{
 				ID: "base-1", StartedAt: time.Now().UTC().Add(-time.Hour), Status: backup.Success,
 				Version: Version, ServerVersion: "1.39.0", CompressionType: &gz, BaseBackupID: baseID,
-				Classes: []backup.ClassDescriptor{{Name: cls, Shards: []*backup.ShardDescriptor{{
+				Classes: []backup.ClassDescriptor{{Name: cls, BackupID: classBackupID, Shards: []*backup.ShardDescriptor{{
 					Name: "s1", Node: nodeName,
 					BigFilesChunk: map[string]backup.BigFileInfo{"s1/big.db": {ChunkKeys: []string{chunkKey(cls, 1), key}}},
 				}}}},
 			})
 		}
+		base := func(baseID, key string) []byte { return baseOf(baseID, "base-1", key) }
 		tests := []struct {
 			name    string
 			body    []byte
@@ -358,6 +359,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		}{
 			{name: "chunk key outside class", body: base("", "../../evil"), wantErr: "../../evil"},
 			{name: "base id outside backups", body: base("../x", chunkKey(cls, 2)), wantErr: "../x"},
+			{name: "class backup id outside backups", body: baseOf("", "../escape", chunkKey(cls, 2)), wantErr: "../escape"},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
