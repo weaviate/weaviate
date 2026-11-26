@@ -84,11 +84,7 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 
 	var unaryInterceptors []grpc.UnaryServerInterceptor
 	unaryInterceptors = append(unaryInterceptors, makeAuthInterceptor())
-
-	if state.Metrics != nil {
-		unaryInterceptors = append(unaryInterceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
-	}
-
+	unaryInterceptors = append(unaryInterceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
 	unaryInterceptors = append(unaryInterceptors, clientTrackingUnaryInterceptor(conf.ClientTracker, conf.IntegrationTracker))
 	unaryInterceptors = append(unaryInterceptors, serverStateUnaryInterceptor((*serverState)(state)))
 
@@ -132,7 +128,7 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		if info.FullMethod != "/weaviate.v1.Weaviate/BatchObjects" {
+		if info.FullMethod != pbv1.Weaviate_BatchObjects_FullMethodName {
 			return handler(ctx, req)
 		}
 
@@ -147,17 +143,21 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 		// Measure duration
 		duration := time.Since(startTime)
 
-		logger.WithFields(logrus.Fields{
-			"action":             "grpc_batch_objects",
-			"method":             info.FullMethod,
-			"request_size_bytes": reqSizeBytes,
-			"duration":           duration,
-		}).Debugf("grpc BatchObjects request (%fMB) took %s", reqSizeMB, duration)
+		if logger != nil {
+			logger.WithFields(logrus.Fields{
+				"action":             "grpc_batch_objects",
+				"method":             info.FullMethod,
+				"request_size_bytes": reqSizeBytes,
+				"duration":           duration,
+			}).Debugf("grpc BatchObjects request (%fMB) took %s", reqSizeMB, duration)
+		}
 
-		// Metric uses non-standard base unit ms, use ms for backwards compatibility
-		metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
-			Observe(float64(duration.Milliseconds()))
-		metrics.BatchSizeBytes.WithLabelValues("grpc", batchNamespace.Namespace).Observe(reqSizeBytes)
+		if metrics != nil {
+			// Metric uses non-standard base unit ms, use ms for backwards compatibility
+			metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
+				Observe(float64(duration.Milliseconds()))
+			metrics.BatchSizeBytes.WithLabelValues("grpc", batchNamespace.Namespace).Observe(reqSizeBytes)
+		}
 
 		return resp, err
 	}
