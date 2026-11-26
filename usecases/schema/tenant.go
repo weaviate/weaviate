@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -384,15 +383,17 @@ func inRequestedOrder(found []*models.Tenant, requested []string) []*models.Tena
 // maskUnauthorizedTenantsErr hides a missing or non-multi-tenant collection
 // from callers without READ on the collection's metadata or on all of its
 // tenants: they get the empty list an existing multi-tenant collection yields
-// when no tenant is visible. Errors on a collection that exists with
-// multi-tenancy, such as an unreachable leader, are returned to every caller.
+// when no tenant is visible. Other errors, such as an unreachable leader, are
+// returned to every caller.
+//
+// The error is classified rather than this node's schema, which can lag the
+// leader. The sentinels survive the leader hop: cluster/rpc maps class-not-found
+// to ErrNotFound and keeps ErrMTDisabled.
 func (h *Handler) maskUnauthorizedTenantsErr(ctx context.Context, principal *models.Principal,
 	class string, err error,
 ) ([]*models.Tenant, error) {
-	if errors.As(err, &authzerrors.Forbidden{}) {
-		return nil, err
-	}
-	if info := h.schemaReader.ClassInfo(class); info.Exists && info.MultiTenancy.Enabled {
+	if !errors.Is(err, ErrNotFound) && !errors.Is(err, clusterSchema.ErrClassNotFound) &&
+		!errors.Is(err, clusterSchema.ErrMTDisabled) {
 		return nil, err
 	}
 	if h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.CollectionsMetadata(class)...) == nil ||
@@ -440,7 +441,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 		return info, fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
 	if !info.MultiTenancy.Enabled {
-		return info, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+		return info, fmt.Errorf("%w for class %q", clusterSchema.ErrMTDisabled, class)
 	}
 	return info, nil
 }

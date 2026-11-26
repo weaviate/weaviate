@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,18 +31,21 @@ import (
 func TestGetConsistentTenants_NoExistenceOracle(t *testing.T) {
 	const class = "Secret"
 	var (
-		errNotFound = errors.New("class not found")
-		errNotMT    = errors.New("multi-tenancy is not enabled for class \"Secret\"")
-		errLeader   = errors.New("leader not found")
-		missing     = clusterSchema.ClassInfo{}
-		singleT     = clusterSchema.ClassInfo{Exists: true}
-		multiT      = clusterSchema.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{Enabled: true}}
-		allTenants  = []*models.Tenant{{Name: "t1"}, {Name: "t2"}}
-		collections = authorization.CollectionsMetadata(class)[0]
-		allShards   = authorization.ShardsMetadata(class)[0]
-		shardT1     = authorization.ShardsMetadata(class, "t1")[0]
-		shardT2     = authorization.ShardsMetadata(class, "t2")[0]
-		noGrants    = []string{collections, allShards, shardT1, shardT2}
+		// errNotFound is class-not-found as it arrives from a remote leader,
+		// errLocalNotFound as the leader itself returns it.
+		errNotFound      = errors.Join(errors.New("rpc error: code = NotFound desc = could not get tenants: class not found"), ErrNotFound)
+		errLocalNotFound = fmt.Errorf("could not get tenants: %w", clusterSchema.ErrClassNotFound)
+		errNotMT         = fmt.Errorf("could not get tenants: %w", fmt.Errorf("%w for class %q", clusterSchema.ErrMTDisabled, class))
+		errLeader        = errors.New("leader not found")
+		missing          = clusterSchema.ClassInfo{}
+		singleT          = clusterSchema.ClassInfo{Exists: true}
+		multiT           = clusterSchema.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{Enabled: true}}
+		allTenants       = []*models.Tenant{{Name: "t1"}, {Name: "t2"}}
+		collections      = authorization.CollectionsMetadata(class)[0]
+		allShards        = authorization.ShardsMetadata(class)[0]
+		shardT1          = authorization.ShardsMetadata(class, "t1")[0]
+		shardT2          = authorization.ShardsMetadata(class, "t2")[0]
+		noGrants         = []string{collections, allShards, shardT1, shardT2}
 	)
 
 	tests := []struct {
@@ -56,6 +60,9 @@ func TestGetConsistentTenants_NoExistenceOracle(t *testing.T) {
 		{name: "unauthorized, missing class", info: missing, queryErr: errNotFound, deny: noGrants, wantTenant: []string{}},
 		{name: "unauthorized, single-tenant class", info: singleT, queryErr: errNotMT, deny: noGrants, wantTenant: []string{}},
 		{name: "unauthorized, multi-tenant class", info: multiT, queryRet: allTenants, deny: noGrants, wantTenant: []string{}},
+		{name: "unauthorized, missing class on the leader itself", info: missing, queryErr: errLocalNotFound, deny: noGrants, wantTenant: []string{}},
+		{name: "unauthorized, deleted class this node still sees as multi-tenant", info: multiT, queryErr: errNotFound, deny: noGrants, wantTenant: []string{}},
+		{name: "unauthorized, leader error on a class this node does not see yet", info: missing, queryErr: errLeader, deny: noGrants, wantErr: errLeader},
 		{name: "collection metadata grant, missing class", info: missing, queryErr: errNotFound, deny: []string{allShards, shardT1, shardT2}, wantErr: errNotFound},
 		{name: "collection metadata grant, single-tenant class", info: singleT, queryErr: errNotMT, deny: []string{allShards, shardT1, shardT2}, wantErr: errNotMT},
 		{name: "wildcard tenant grant, missing class", info: missing, queryErr: errNotFound, deny: []string{collections}, wantErr: errNotFound},
@@ -94,17 +101,19 @@ func TestGetConsistentTenants_NoExistenceOracle(t *testing.T) {
 		})
 	}
 
-	t.Run("unauthorized, non-consistent read of missing class", func(t *testing.T) {
-		authorizer := mocks.NewMockAuthorizer()
-		authorizer.Deny(noGrants...)
-		handler, sm := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
-		handler.config.Authorization.Rbac.Enabled = true
-		sm.On("ClassInfo", class).Return(clusterSchema.ClassInfo{})
+	for name, info := range map[string]clusterSchema.ClassInfo{"missing": missing, "single-tenant": singleT} {
+		t.Run("unauthorized, non-consistent read of "+name+" class", func(t *testing.T) {
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.Deny(noGrants...)
+			handler, sm := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+			handler.config.Authorization.Rbac.Enabled = true
+			sm.On("ClassInfo", class).Return(info)
 
-		got, err := handler.GetConsistentTenants(context.Background(), &models.Principal{}, class, false, nil)
-		require.NoError(t, err)
-		assert.Empty(t, got)
-	})
+			got, err := handler.GetConsistentTenants(context.Background(), &models.Principal{}, class, false, nil)
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+	}
 }
 
 func TestGetAliases_NoClassLookupBeforeAuthz(t *testing.T) {

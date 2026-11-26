@@ -260,10 +260,8 @@ func TestAuthZTenants(t *testing.T) {
 
 		res, err := readTenantsGRPC(t, ctx, className, customKey)
 		require.Nil(t, err)
-		require.Len(t, res.Tenants, 3)
-		for _, tenant := range res.Tenants {
-			require.Equal(t, tenants[0].Name, tenant.Name)
-		}
+		require.Len(t, res.Tenants, 1)
+		require.Equal(t, tenants[0].Name, res.Tenants[0].Name)
 	})
 
 	t.Run("Delete specific tenant with needed permission", func(t *testing.T) {
