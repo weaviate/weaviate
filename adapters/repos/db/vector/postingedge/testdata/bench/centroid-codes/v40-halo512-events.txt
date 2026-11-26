@@ -1,0 +1,9 @@
+=== RUN   TestDiskCentroidCodes
+    bench_centroid_codes_test.go:142: cell halo512, codes false, at 0.95 (ef 21): recall 0.9513, 18.59 loads | the manifest: 0.9513, 18.59
+    bench_centroid_codes_test.go:142: cell halo512, codes false, at 0.99 (ef 187): recall 0.9900, 76.30 loads | the manifest: 0.9900, 76.30
+    bench_centroid_codes_test.go:145: cell halo512, codes false (graph compressed false): heap in use 74.9 MB after opening; 4195 centroids, 25.8 MB
+    bench_centroid_codes_test.go:142: cell halo512, codes true, at 0.95 (ef 21): recall 0.9513, 18.61 loads | the manifest: 0.9513, 18.59
+    bench_centroid_codes_test.go:142: cell halo512, codes true, at 0.99 (ef 187): recall 0.9900, 76.30 loads | the manifest: 0.9900, 76.30
+    bench_centroid_codes_test.go:145: cell halo512, codes true (graph compressed true): heap in use 58.3 MB after opening; 4195 centroids, 6.5 MB
+--- PASS: TestDiskCentroidCodes (135.83s)
+PASS

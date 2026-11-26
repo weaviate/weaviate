@@ -1,0 +1,54 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "cell": "halo512",
+  "queries": 5000,
+  "k": 10,
+  "modes": [
+    {
+      "codes": false,
+      "compressed": false,
+      "heapInuse": 74858496,
+      "centroids": 4195,
+      "centroidBytes": 25774080,
+      "points": [
+        {
+          "target": 0.95,
+          "ef": 21,
+          "rescoreLimit": 64,
+          "recall": 0.95128,
+          "loads": 18.5926
+        },
+        {
+          "target": 0.99,
+          "ef": 187,
+          "rescoreLimit": 64,
+          "recall": 0.99,
+          "loads": 76.302
+        }
+      ]
+    },
+    {
+      "codes": true,
+      "compressed": true,
+      "heapInuse": 58302464,
+      "centroids": 4195,
+      "centroidBytes": 6510640,
+      "points": [
+        {
+          "target": 0.95,
+          "ef": 21,
+          "rescoreLimit": 64,
+          "recall": 0.9513,
+          "loads": 18.6078
+        },
+        {
+          "target": 0.99,
+          "ef": 187,
+          "rescoreLimit": 64,
+          "recall": 0.99,
+          "loads": 76.3028
+        }
+      ]
+    }
+  ]
+}

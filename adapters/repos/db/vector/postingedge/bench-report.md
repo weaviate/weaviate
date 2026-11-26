@@ -18,9 +18,9 @@
 | lo mismo, con HFresh leyendo de 8 en 8 | 35.62 ms: 8.86 y 5.42 veces. El pre-registro pedía 3 | 10M |
 | en caliente a 0.95 | 1.17 y 1.82 ms frente a 17.16 | 10M |
 | en frío a 0.99 | 16.21 y 31.43 ms; HFresh 595.74, o 176.00 de 8 en 8: llega, y le sale muy caro | 10M |
-| RAM y disco | 956 MB y 33 GB la celda de ruteo; 236 MB y 38 GB la de halo; 415 MB y 39 GB HFresh | 10M |
+| RAM y disco | 859 MB y 33 GB la celda de ruteo; 138 MB y 38 GB la de halo; 415 MB y 39 GB HFresh. Con los centroides en RQ8 (26 de noviembre); en `float32` eran 956 y 236 MB | 10M |
 | en memoria frente a HNSW | la mitad del heap; HNSW da 2.0 veces el QPS a 0.95 y empata a 0.99 | 10M, 768d |
-| frente a HNSW con RQ de 1 bit y los vectores en disco, en frío a 0.95 | por defecto, HNSW tarda 7.71 ms, 1.9 veces la celda de ruteo; centrado, 3.2 a 4.1 ms, un empate, y a 0.99 unos 8 ms frente a 12.22. HNSW usa 4.8 GB de heap, cinco veces la celda de ruteo | 10M |
+| frente a HNSW con RQ de 1 bit y los vectores en disco, en frío a 0.95 | por defecto, HNSW tarda 7.71 ms, 1.9 veces la celda de ruteo; centrado, 3.2 a 4.1 ms, un empate, y a 0.99 unos 8 ms frente a 12.22. HNSW usa 4.8 GB de heap: 5.6 veces la celda de ruteo y 35 veces la de halo, con los centroides en RQ8 | 10M |
 | inserts en disco | el índice crecido es el gemelo en memoria; reorganizado, 1.10 veces el lote en frío y 1.21 en caliente | 1M |
 | velocidad de insert | 184 por segundo con un escritor, 663 con 8 búsquedas a la vez; HFresh, 2 089 | 1M |
 | deletes, en memoria | 30 rondas de churn con el 90 % de la base renovado: −0.0011 de recall, +1.6 % de cargas | 1M |
@@ -284,7 +284,34 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - 2.5 de vivos y tombstones;
   - unos 2 de que los mapas por docID cubren 1.24 M ids, no los 990 000 vivos.
 
-**Después:** el usuario pidió que los centroides retirados se liberen (`4470f2cd1a` en `feat/posting-edge-integration-m2`) y los centroides en RQ8 (abajo). La tabla se rehará con los dos.
+**Después:** el usuario pidió que los centroides retirados se liberen (`4470f2cd1a` en `feat/posting-edge-integration-m2`) y los centroides en RQ8 (abajo).
+
+### La misma tabla con los centroides retirados liberados y en RQ8 (26 de noviembre, sin cronometrar)
+
+*El mismo método.*
+- Las celdas de v4.0 se abren de los clones APFS que convirtió la medida del RQ8, con `TestDiskTimed -bench.diskcentroidcodes`.
+- `filter1m` se abre de un clon propio. La primera apertura convierte el clon; la tabla es la segunda.
+- Todo con el código de `feat/posting-edge-integration` tras la fusión de `m2` (`93442ad5ac`).
+
+| componente | `tenm` `none` (10M) | `tenm` `routing` | `filter1m` `routing` (1M) | `filter1m` `none` (calculado) | v4.0 `none` 1M |
+|---|---:|---:|---:|---:|---:|
+| centroides: códigos RQ8 y su caché | 34.7 (era 131.2 en `float32`) | 34.7 | 7.0 (era 50.0) | 7.0 | 6.8 (era 25.9) |
+| grafo HNSW de los centroides | 5.3 | 5.3 | 0.7 | 0.7 | 0.6 |
+| docID → posting | 80.2 (con el slot) | 80.2 (con el slot) | 5.0 | 5.0 | 7.9 (con el slot) |
+| docID → slot, y cuándo se hicieron sus aristas | — | — | 9.9 | 9.9 | — |
+| vivos por docID, tamaño por posting y tombstones | — | — | 2.5 | 2.5 | — |
+| códigos de ruteo | — | 720.0 | 89.1 | — | — |
+| cambios de aristas pendientes de consolidar | — | — | 25.2 | 25.2 | — |
+| `lsmkv` | 0.2 | 0.2 | 10.6 | 10.6 | 0.0 |
+| resto, cada parte por debajo de 1 MB | 0.2 | 0.1 | 0.7 | 0.7 | 0.5 |
+| **el índice** | **120.6** | **840.6** | **150.9** | **≈ 61.8** | **15.8** |
+| arnés: queries y manifiesto | 3.3 | 3.3 | 0 | — | 31.7 |
+| asignado fuera del perfil, y hueco libre en spans | 14.2 | 15.2 | 22.4 | — | 7.9 |
+| **heap en uso medido** | **138.1** (era 236.3) | **859.0** (era 956.4) | **173.3** (era 216.1) | — | **55.4** (era 74.7) |
+
+- **Los centroides pasan a la cuarta parte:** 34.7 MB a 10M en lugar de 131.2; 6.8 a 1M en lugar de 25.9. Los códigos son de unos 784 B a 768 dimensiones y 1 552 a 1 536, y lo demás es su caché.
+- **En `filter1m` caen además los retirados:** 7.0 MB para los 4 239 nodos del grafo (4 074 vivos y 165 tombstones), donde antes había 50.0 MB para los 8 105 posting ids dados.
+- **Lo que queda en `none` a 10M:** el mapa de docID a posting y slot, 80.2 de 120.6 MB, dos tercios del índice.
 
 ## Centroides en RQ8, sin rescore, como HFresh (pre-registro, 2026-11-26)
 
@@ -341,6 +368,26 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Heap de los centroides:**
   - a 1M, de 25.9 MB a unos 6.5 MB (4 195 × unos 1 552 B);
   - a 10M, de 131.2 MB a unos 33 MB (42 373 × unos 784 B), más lo que tenga la caché comprimida además del código.
+
+### Resultados (26 de noviembre, de 12:21 a 12:26)
+
+*El código es `7a5d8a8b38` y el arnés `b1aaf4c8b9`, los dos en `feat/posting-edge-integration-m2`. Los datos están en `<scratch>/codes/*.json`, copiados con este commit en `testdata/bench/centroid-codes/`. A igual ef, el de los puntos del manifiesto.*
+
+| celda | a 0.95: recall | cargas | a 0.99: recall | cargas | centroides | heap tras abrir |
+|---|---|---|---|---|---|---|
+| 1M `r512` (`routing`) | 0.9513 → 0.9513 | 18.59 → 18.61 | 0.9900 → 0.9900 | 76.30 → 76.30 | 25.8 → 6.5 MB | 146.1 → 129.7 MB |
+| 1M `halo512` (`none`) | 0.9513 → 0.9513 | 18.59 → 18.61 | 0.9900 → 0.9900 | 76.30 → 76.30 | 25.8 → 6.5 MB | 74.9 → 58.3 MB |
+| 10M `r512` | 0.9520 → 0.9532 | 21.25 → 21.16 | 0.9900 → 0.9900 | 141.58 → 141.58 | 130.2 → 33.2 MB | 956.9 → 876.3 MB |
+| 10M `halo512` | 0.9520 → 0.9532 | 21.25 → 21.16 | 0.9900 → 0.9900 | 141.58 → 141.58 | 130.2 → 33.2 MB | 236.6 → 152.8 MB |
+
+- **El criterio se cumple en las cuatro celdas y los dos puntos.** Lo que más se separa:
+  - el recall a 0.95 a 10M: +0.13 %, 0.0012 en absoluto;
+  - las cargas a 0.95 a 10M: −0.42 %.
+  - A 0.99 no cambia nada.
+- **RQ8 queda por defecto,** como decía el pre-registro.
+- **Lo esperado se cumple:** el recall a menos de 0.002, las cargas a menos del 1 %, y los centroides en 6.5 y 33.2 MB.
+- **El heap de la tabla es el de la medida,** abierta una vez en `float32` y luego con códigos en el mismo proceso. Cae algo menos que los centroides (84 MB frente a 97 a 10M). Con un proceso por apertura (la tabla del heap de arriba) la celda de halo da 138.1 MB.
+- **Las cargas cambian a 10M porque el grafo de centroides con códigos da otro orden de entrada,** no porque falle nada: el recall sube un poco a la vez.
 
 ## La plana en `none` por lectura directa, y el corte de `none` (pre-registro, 2026-11-24 a las 21:50)
 
