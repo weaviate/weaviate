@@ -12,206 +12,74 @@
 package postingedge
 
 import (
-	"context"
-	"sync/atomic"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// deletedCentroids tells how many centroids of postings that were split or
-// merged the graph still holds, deleted and not taken out.
-func (f *persistentFixture) deletedCentroids(t *testing.T) int {
-	t.Helper()
-	f.index.mu.RLock()
-	defer f.index.mu.RUnlock()
-	stats, err := f.index.g.st.centroids.graph.Stats()
-	require.NoError(t, err)
-	return stats.NumTombstones
+// heldCentroids counts the centroid vectors the index holds, and their bytes.
+func heldCentroids(c *centroidIndex) (n, bytes int) {
+	for _, v := range c.vectors {
+		if v != nil {
+			n++
+			bytes += 4 * len(v)
+		}
+	}
+	return n, bytes
 }
 
-// The graph over the centroids is kept by the cycles of the node that keep
-// every HNSW graph: a posting that splits leaves its centroid deleted in the
-// graph, and the cycle of the tombstones takes it out for good. Without the
-// cycles they stay, one for every split there ever was. The index finds what
-// it holds as before, and opens again with a graph that has none.
-func TestPersistentKeepsItsCentroidGraph(t *testing.T) {
-	ctx := context.Background()
-	const k = 10
-	const total = persistentBase + 1500
-	never := func() bool { return false }
-	tests := []struct {
-		name string
-		// kept gives the index the cycles.
-		kept bool
-	}{
-		{name: "with the cycles of the node", kept: true},
-		{name: "without them"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tombstones := cyclemanager.NewCallbackGroup("tombstones", testLogger(), 1)
-			commitLogs := cyclemanager.NewCallbackGroup("commitlogs", testLogger(), 1)
-			f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) {
-				if tt.kept {
-					cfg.TombstoneCallbacks, cfg.CommitLogCallbacks = tombstones, commitLogs
-				}
-			})
+// The memory of the centroids follows the live postings, not every posting
+// there ever was. A posting that splits retires, and its centroid goes with
+// it: an index grown by many splits holds one centroid vector per live
+// posting, and so does the same index opened again. The graph over the
+// centroids keeps nothing of a retired one but its tombstone, which its
+// cleanup takes out.
+func TestPersistentCentroidsFollowTheLivePostings(t *testing.T) {
+	for _, cacheMode := range cacheModes {
+		t.Run(cacheMode, func(t *testing.T) {
+			const total = 6000
+			f := newPersistentFixtureMode(t, total, cacheMode, nil)
 			f.add(t, 0, total)
-			require.NoError(t, f.index.Settle(ctx))
-			f.index.mu.RLock()
-			splits := f.index.g.meta.Splits
-			f.index.mu.RUnlock()
-			require.Positive(t, splits)
-			require.Equal(t, splits, f.deletedCentroids(t), "a deleted centroid for every posting that split")
-
-			// The cycles of the node, once.
-			tombstones.CycleCallback(never)
-			commitLogs.CycleCallback(never)
-			if !tt.kept {
-				require.Equal(t, splits, f.deletedCentroids(t), "nothing takes them out")
-				return
+			livePostings := func() int {
+				g := f.index.g
+				g.retiredMu.Lock()
+				defer g.retiredMu.Unlock()
+				live := 0
+				for _, retired := range g.retired {
+					if !retired {
+						live++
+					}
+				}
+				return live
 			}
-			require.Zero(t, f.deletedCentroids(t), "the cycle of the tombstones took them out")
-			f.covered(t, "with its graph cleaned")
-			assert.Greater(t, f.recall(t, total, k, nil), 0.9)
-
+			check := func(at string) int {
+				f.index.mu.RLock()
+				defer f.index.mu.RUnlock()
+				g := f.index.g
+				live := livePostings()
+				require.Greater(t, g.meta.Splits, 10, "%s: the index split many times", at)
+				require.Greater(t, g.meta.Postings, live, "%s: some postings retired", at)
+				held, bytes := heldCentroids(g.st.centroids)
+				assert.Equal(t, live, held, "%s: the centroid vectors held, against %d live postings of the %d given out",
+					at, live, g.meta.Postings)
+				assert.Equal(t, 4*live*g.meta.Dims, bytes, "%s: the bytes of the centroid vectors held", at)
+				return live
+			}
+			check("grown")
 			f.restart(t)
-			require.Zero(t, f.deletedCentroids(t), "opened again, the graph has none")
-			f.covered(t, "opened again")
-			assert.Greater(t, f.recall(t, total, k, nil), 0.9)
-		})
-	}
-}
+			live := check("opened again")
 
-// The graph of an index on disk reads its centroids from goroutines that
-// hold no lock of the index: the one that fills its cache once it is opened,
-// and the cycle of the node that takes its deleted centroids out. A posting
-// that splits meanwhile gives the index two centroids more, and the graph
-// reads the ones it was told of, each the one it was.
-func TestCentroidGraphReadsItsCentroidsWhileTheyGrow(t *testing.T) {
-	ctx := context.Background()
-	const dims, first, more = 8, 16, 4000
-	centroid := func(id int) []float32 {
-		vector := make([]float32, dims)
-		for i := range vector {
-			vector[i] = float32(id*dims + i)
-		}
-		return vector
-	}
-	vectors := make([][]float32, 0, first)
-	for id := range first {
-		vectors = append(vectors, centroid(id))
-	}
-	index, err := openCentroidGraphWith(ctx, testLogger(), t.TempDir(), vectors, centroidCycles{})
-	require.NoError(t, err)
-	defer func() { require.NoError(t, index.shutdown(ctx)) }()
-
-	// told is how many centroids the graph has been told of.
-	var told atomic.Int64
-	told.Store(first)
-	var done atomic.Bool
-	readers := enterrors.NewErrorGroupWrapper(testLogger())
-	for range 4 {
-		readers.Go(func() error {
-			for id := 0; !done.Load(); id++ {
-				id %= int(told.Load())
-				vector, err := index.publishedVector(ctx, uint64(id))
-				if err != nil {
-					return errors.Wrapf(err, "centroid %d", id)
-				}
-				if len(vector) != dims || vector[0] != float32(id*dims) {
-					return errors.Errorf("centroid %d read as another one: %v", id, vector)
-				}
+			graph := f.index.g.st.centroids.graph
+			require.NoError(t, graph.CleanUpTombstonedNodes(func() bool { return false }))
+			stats, err := graph.Stats()
+			require.NoError(t, err)
+			nodes := 0
+			for _, n := range stats.DistributionLayers {
+				nodes += int(n)
 			}
-			return nil
+			assert.Zero(t, stats.NumTombstones, "the graph keeps no tombstone once it is cleaned")
+			assert.Equal(t, live, nodes, "the graph keeps one node per live posting once it is cleaned")
 		})
 	}
-	// As a split does, with the index locked: the two centroids, and then the
-	// graph hears of them.
-	for id := first; id < first+more; id += 2 {
-		index.vectors = append(index.vectors, centroid(id), centroid(id+1))
-		index.publish()
-		told.Store(int64(id + 2))
-	}
-	done.Store(true)
-	require.NoError(t, readers.Wait())
-	_, err = index.publishedVector(ctx, first+more)
-	require.Error(t, err, "a centroid the index does not have")
-}
-
-// The cycles of the node run when the node says, in goroutines of theirs,
-// with the index adding, splitting its postings, deleting and searching: they
-// hold none of its locks. The index is opened again halfway, so that the
-// graph has to read its centroids from the index, which its cycle then does
-// while a split gives the index two more.
-func TestPersistentCentroidGraphIsKeptWhileTheIndexWrites(t *testing.T) {
-	ctx := context.Background()
-	const k = 10
-	const half = persistentBase + 800
-	const total = persistentBase + 2400
-	never := func() bool { return false }
-	tombstones := cyclemanager.NewCallbackGroup("tombstones", testLogger(), 1)
-	commitLogs := cyclemanager.NewCallbackGroup("commitlogs", testLogger(), 1)
-	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) {
-		cfg.TombstoneCallbacks, cfg.CommitLogCallbacks = tombstones, commitLogs
-		// A file of the commit log is closed every few splits, so that the
-		// cycle of the logs has files to condense and combine.
-		cfg.CommitLogThreshold = 4096
-		cfg.centroidsEveryCycle = true
-	})
-	f.add(t, 0, half)
-	f.restart(t)
-
-	var done atomic.Bool
-	cycles := enterrors.NewErrorGroupWrapper(testLogger())
-	cycles.Go(func() error {
-		for !done.Load() {
-			tombstones.CycleCallback(never)
-			commitLogs.CycleCallback(never)
-		}
-		return nil
-	})
-	readers := enterrors.NewErrorGroupWrapper(testLogger())
-	for range 2 {
-		readers.Go(func() error {
-			for q := 0; !done.Load(); q++ {
-				if _, _, err := f.index.SearchByVector(ctx, f.queries[q%len(f.queries)], k, nil); err != nil {
-					return errors.Wrapf(err, "query %d", q)
-				}
-			}
-			return nil
-		})
-	}
-	const batch = 50
-	var deleted [total]bool
-	for from := half; from < total; from += batch {
-		require.NoError(t, f.index.AddBatch(ctx, sequentialIDs(batch, uint64(from)), f.vectors[from:from+batch]))
-		// Deletes too: the pass that takes them out merges postings, which
-		// leaves deleted centroids as a split does.
-		for id := from - half; id < from-half+batch/2; id++ {
-			require.NoError(t, f.index.Delete(uint64(id)))
-			deleted[id] = true
-		}
-	}
-	done.Store(true)
-	require.NoError(t, cycles.Wait())
-	require.NoError(t, readers.Wait())
-
-	require.NoError(t, f.index.Settle(ctx))
-	tombstones.CycleCallback(never)
-	require.Zero(t, f.deletedCentroids(t), "the cycle of the tombstones took them out")
-	f.covered(t, "at the end")
-	f.vectorsIntact(t, "at the end")
-	held := func(id uint64) bool { return !deleted[id] }
-	assert.Greater(t, f.recall(t, total, k, held), 0.9)
-	before := f.answers(t, k)
-	f.restart(t)
-	assert.Equal(t, before, f.answers(t, k), "the same answers")
-	f.covered(t, "opened again")
 }
