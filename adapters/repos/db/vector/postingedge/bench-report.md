@@ -424,6 +424,26 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - A unos 2 ms por insert, como a 60 000, son unas 6 h con un llamador; con varios, menos.
   - El índice ocupa unos 40 GB. Hoy hay unos 45 GB libres en el disco interno y 20 en `/Volumes/v40bench`.
 
+### El tope de 64 MB frente al de 128 MB, en tiempo de crecer (pre-registro, 2026-11-26 a las 22:10, antes de correr nada)
+
+**El encargo (del usuario):**
+- Repetir la medida de crecimiento a 60 000 vectores con 64 MB y con 128 MB, tres pasadas de cada uno, alternadas y pre-registradas.
+- Si con 64 MB el tiempo de crecer sale un 15 % o más por encima del de 128 MB, 128 MB queda por defecto en `m2` y para la noche de 10M.
+
+**Cómo lo aplico (*mío*):**
+- **El montaje** es el de la medida anterior (`TestMeasurePendingBudget`), sin la pasada sin tope.
+  - Un índice como el de un shard, con los valores por defecto y coseno, a 768 dimensiones.
+  - Crece por inserts, en lotes de 100, de la base de 10 000 hasta 60 000.
+- **Los topes son absolutos:** 372 800 y 745 600 B. Son los 1 600 y 3 200 B por posting multiplicados por los 233 postings vivos de la pasada sin tope de antes, y a 10M equivalen a 64 y 128 MB.
+- **Seis procesos, uno por pasada,** en el orden 64, 128, 64, 128, 64, 128, con un binario compilado antes una sola vez.
+- **El tiempo de crecer** va desde el primer lote hasta que `Settle` vuelve. No cuenta abrir el índice ni compilar.
+- **El estadístico (*mío*):** la mediana de las tres pasadas de cada tope.
+  - La regla: si la mediana con 64 MB es al menos 1.15 veces la de 128 MB, queda 128 MB.
+  - Doy también cada pasada, la media y las filas escritas por insert.
+- **La máquina tiene otras aplicaciones gastando CPU** (las de escritorio de Claude y de ChatGPT). No las cierro; las alternancias reparten lo que varíen.
+
+**Lo que espero (*mío*):** por la pasada única de antes (151 frente a 112 s), que con 64 MB tarde un 20–35 % más y que la regla elija 128 MB.
+
 ### El mapa docID → posting y slot: ¿se puede bajar sin coste en la búsqueda? (análisis, 2026-11-26, sin cambiar nada)
 
 **Qué es.** Dos tablas de 4 B por doc id: el posting de cada vector (`postingOf`) y su posición en el fichero de vectores (`slotOf`). En un índice crecido tienen `keys` entradas, 1.25 veces el mayor doc id dado. A 10M son 50 + 50 MB en el crecido y 80 MB en el lote (8 B × 10M, sin holgura).
