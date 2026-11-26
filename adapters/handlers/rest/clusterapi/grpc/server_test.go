@@ -116,7 +116,11 @@ func Test_ServerReplicationService(t *testing.T) {
 			defer s.Close(ctx)
 
 			if tt.wantUnauthenticated {
-				_, err := client.DigestObjects(context.Background(), host, "C", "S", []strfmt.UUID{"id1"}, 9)
+				// bound the call: if the server wrongly accepts it, the test fails
+				// fast instead of waiting for the client's own query timeout
+				callCtx, callCancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer callCancel()
+				_, err := client.DigestObjects(callCtx, host, "C", "S", []strfmt.UUID{"id1"}, 9)
 				require.Equal(t, codes.Unauthenticated, status.Code(err))
 				return
 			}

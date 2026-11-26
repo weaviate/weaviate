@@ -994,6 +994,10 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// unset the var so the process env cannot leak in; t.Setenv
+			// first so the original value is restored after the test
+			t.Setenv("CLUSTER_BASIC_AUTH_SEND_ONLY", "")
+			os.Unsetenv("CLUSTER_BASIC_AUTH_SEND_ONLY")
 			for k, v := range test.envVars {
 				t.Setenv(k, v)
 			}
