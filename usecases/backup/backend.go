@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1032,6 +1033,37 @@ func (fw *fileWriter) readAndUnzipChunk(classTempDir string, compressionType bac
 
 func chunkKey(class string, id int32) string {
 	return fmt.Sprintf("%s/chunk-%d", class, id)
+}
+
+// isChunkKeyOf reports whether key is exactly what chunkKey produces for class.
+func isChunkKeyOf(class, key string) bool {
+	rest, ok := strings.CutPrefix(key, class+"/chunk-")
+	if !ok {
+		return false
+	}
+	n, err := strconv.ParseInt(rest, 10, 32)
+	return err == nil && n >= 0 && chunkKey(class, int32(n)) == key
+}
+
+// validateIncrementalRefs rejects base ids and chunk keys that could address objects outside the backups.
+func validateIncrementalRefs(desc *backup.BackupDescriptor) error {
+	for _, c := range desc.Classes {
+		for _, s := range c.Shards {
+			for baseID, infos := range s.IncrementalBackupInfo.FilesPerBackup {
+				if err := validateID(baseID); err != nil {
+					return fmt.Errorf("class=%q shard=%q: base backup id %q: %w", c.Name, s.Name, baseID, err)
+				}
+				for _, info := range infos {
+					for _, key := range info.ChunkKeys {
+						if !isChunkKeyOf(c.Name, key) {
+							return fmt.Errorf("class=%q shard=%q base=%q: invalid chunk key %q", c.Name, s.Name, baseID, key)
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func routinePoolSize(percentage int) int {

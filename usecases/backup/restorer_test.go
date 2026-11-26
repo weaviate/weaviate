@@ -218,6 +218,41 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, time.Duration(0), resp.Timeout)
 	})
 
+	t.Run("RejectIncrementalRefsOutsideBackup", func(t *testing.T) {
+		tests := []struct {
+			name, baseID, key string
+		}{
+			{name: "chunk key", baseID: "base-1", key: "../../../secret.tar"},
+			{name: "base id", baseID: "../escape", key: chunkKey(cls, 1)},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				shard := *metadata.Classes[0].Shards[0]
+				shard.IncrementalBackupInfo = backup.IncrementalBackupInfos{FilesPerBackup: map[string][]backup.IncrementalBackupInfo{
+					tc.baseID: {{File: "dir3/big", ChunkKeys: []string{tc.key}}},
+				}}
+				crafted := metadata
+				crafted.Classes = []backup.ClassDescriptor{metadata.Classes[0]}
+				crafted.Classes[0].Shards = []*backup.ShardDescriptor{&shard}
+				req := req
+				req.Duration = time.Hour
+				backend := newFakeBackend()
+				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(crafted), nil)
+				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				backend.On("SourceDataPath").Return(t.TempDir())
+				backend.On("Read", any, any, any, any).Return(int64(0), ErrAny)
+				m := createManager(&fakeSourcer{}, nil, backend, nil)
+				resp := m.OnCanCommit(ctx, &req)
+				assert.Contains(t, resp.Err, "corrupted backup file")
+				assert.Contains(t, resp.Err, tc.baseID)
+				assert.Equal(t, time.Duration(0), resp.Timeout)
+				assert.Error(t, m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend}))
+				m.restorer.waitForCompletion(req.Backend, req.ID, 10, 20)
+				backend.AssertNotCalled(t, "Read", any, any, any, any)
+			})
+		}
+	})
+
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
