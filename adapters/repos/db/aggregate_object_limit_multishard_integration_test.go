@@ -39,10 +39,13 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 )
 
 const (
@@ -351,15 +354,15 @@ func Test_Aggregate_RankedSelection_MultiShardMatchesSingleShard(t *testing.T) {
 
 	// BM25 scores do depend on the split (each shard has its own IDF, as for
 	// Get), so a hybrid aggregation is checked against a hybrid search over the
-	// same collection instead: it must cover exactly the union of the BM25 top
-	// n and the vector top n of the whole collection, which is what fusion
-	// keeps.
+	// same collection instead: it must cover exactly the fused top n of the
+	// whole collection, what a hybrid Get with limit n returns.
 	hybridCases := []struct {
 		name   string
 		alpha  float64
 		limit  *int
 		filter *filters.LocalFilter
 	}{
+		{name: "hybrid alpha=0.5, objectLimit=1", alpha: 0.5, limit: limit(1)},
 		{name: "hybrid alpha=0", alpha: 0, limit: limit(10)},
 		{name: "hybrid alpha=0.5", alpha: 0.5, limit: limit(10)},
 		{name: "hybrid alpha=1", alpha: 1, limit: limit(10)},
@@ -389,60 +392,80 @@ func Test_Aggregate_RankedSelection_MultiShardMatchesSingleShard(t *testing.T) {
 		}
 	}
 
-	t.Run("three shards, hybrid with groupBy", func(t *testing.T) {
-		wantRanks := hybridSearchRanks(t, multi, "even", query, 0.5, 10, nil)
-		p := objectLimitAggregateParams(10, nil, &searchparams.HybridSearch{Query: "even", Alpha: 0.5, Vector: query})
-		p.GroupBy = &filters.Path{Class: objectLimitTestClass, Property: "name"}
-		p.Limit = limit(100)
-		res, err := multi.Aggregate(ctx, p, nil)
-		require.NoError(t, err)
+	for _, repoCase := range []struct {
+		name string
+		repo *DB
+	}{{"single shard", single}, {"three shards", multi}} {
+		for _, n := range []int{1, 10} {
+			t.Run(fmt.Sprintf("%s, hybrid alpha=0.5 with groupBy, objectLimit=%d", repoCase.name, n), func(t *testing.T) {
+				wantRanks := hybridSearchRanks(t, repoCase.repo, "even", query, 0.5, n, nil)
+				p := objectLimitAggregateParams(n, nil, &searchparams.HybridSearch{Query: "even", Alpha: 0.5, Vector: query})
+				p.GroupBy = &filters.Path{Class: objectLimitTestClass, Property: "name"}
+				p.Limit = limit(100)
+				res, err := repoCase.repo.Aggregate(ctx, p, nil)
+				require.NoError(t, err)
 
-		total := 0
-		for _, g := range res.Groups {
-			total += g.Count
+				// every object has its own name, so one group per object
+				gotRanks := make([]int, 0, len(res.Groups))
+				for _, g := range res.Groups {
+					require.Equal(t, 1, g.Count, "group %v", g.GroupedBy.Value)
+					gotRanks = append(gotRanks, int(g.Properties["rank"].NumericalAggregations["sum"].(float64)))
+				}
+				sort.Ints(gotRanks)
+				assert.Equal(t, wantRanks, gotRanks, "objects aggregated over all groups")
+			})
 		}
-		assert.Equal(t, len(wantRanks), total, "objects counted over all groups")
-	})
+	}
 }
 
 // hybridSearchRanks is the reference for a hybrid aggregation: the ranks of
-// the union of the BM25 top n (alpha < 1) and the vector top n (alpha > 0) of
-// the whole collection, found with the same searches as Get.
+// the fused top n of a hybrid search over the whole collection, built from the
+// same BM25 and vector searches as Get (alpha decides which legs run).
 func hybridSearchRanks(t *testing.T, repo *DB, query string, vector []float32,
 	alpha float64, n int, filter *filters.LocalFilter,
 ) []int {
 	t.Helper()
 	ctx := context.Background()
-	ranks := map[int]struct{}{}
 
-	if alpha < 1 {
-		objs, _, err := repo.SparseObjectSearch(ctx, dto.GetParams{
+	sparse := func() ([]*storobj.Object, []float32, error) {
+		return repo.SparseObjectSearch(ctx, dto.GetParams{
 			ClassName:      objectLimitTestClass,
 			Filters:        filter,
 			KeywordRanking: &searchparams.KeywordRanking{Type: "bm25", Query: query, Properties: []string{"name"}},
 			Pagination:     &filters.Pagination{Limit: n},
 		})
-		require.NoError(t, err)
-		for _, obj := range objs {
-			ranks[rankOf(t, obj.Properties())] = struct{}{}
-		}
 	}
-	if alpha > 0 {
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 		res, err := repo.VectorSearch(ctx, dto.GetParams{
 			ClassName:  objectLimitTestClass,
 			Filters:    filter,
 			Pagination: &filters.Pagination{Limit: n},
 			Properties: search.SelectProperties{{Name: "rank"}},
 		}, []string{""}, []models.Vector{vector})
-		require.NoError(t, err)
-		for _, r := range res {
-			ranks[rankOf(t, r.Schema)] = struct{}{}
+		if err != nil {
+			return nil, nil, err
 		}
+		objs := make([]*storobj.Object, len(res))
+		dists := make([]float32, len(res))
+		for i, r := range res {
+			objs[i] = storobj.FromObject(r.Object(), r.Vector, nil, nil)
+			dists[i] = r.Dist
+		}
+		return objs, dists, nil
 	}
 
-	out := make([]int, 0, len(ranks))
-	for r := range ranks {
-		out = append(out, r)
+	fused, err := hybrid.Search(ctx, &hybrid.Params{
+		HybridSearch: &searchparams.HybridSearch{Query: query, Alpha: alpha, Vector: vector},
+		Class:        objectLimitTestClass,
+	}, logrus.New(), sparse, dense, nil, nil, repo.schemaGetter, traverser.NewTargetParamHelper())
+	require.NoError(t, err)
+	if len(fused) > n {
+		fused = fused[:n]
+	}
+
+	out := make([]int, len(fused))
+	for i, r := range fused {
+		out[i] = rankOf(t, r.Schema)
 	}
 	sort.Ints(out)
 	return out

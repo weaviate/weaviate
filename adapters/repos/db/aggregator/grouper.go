@@ -160,6 +160,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modul
 	if err != nil {
 		return nil, err
 	}
+	res = CapFusedResults(res, *g.params.ObjectLimit)
 
 	ids := make([]uint64, len(res))
 	for i, r := range res {

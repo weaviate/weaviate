@@ -105,6 +105,9 @@ func (i *Index) withGloballySelectedObjects(ctx context.Context,
 	return selected, nil
 }
 
+// The selection searches below need only ids and ranking scores, never the
+// properties (NoProps): the second pass reads what the aggregation needs.
+
 // vectorAggregationIDs returns the ids of the limit objects of the whole index
 // that are closest to the search vector, trimmed by certainty like a shard
 // trims its own (see aggregator.searchByVector).
@@ -113,7 +116,7 @@ func (i *Index) vectorAggregationIDs(ctx context.Context,
 ) ([]strfmt.UUID, error) {
 	objs, dists, err := i.objectVectorSearch(ctx, []models.Vector{params.SearchVector},
 		[]string{params.TargetVector}, 0, limit, params.Filters, nil, nil,
-		additional.Properties{}, replProps, params.Tenant, nil, nil)
+		additional.Properties{NoProps: true}, replProps, params.Tenant, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("vector search: %w", err)
 	}
@@ -147,7 +150,7 @@ func (i *Index) hybridAggregationIDs(ctx context.Context,
 		kw := aggregator.HybridKeywordRanking(params.Hybrid, class)
 		kw.ChooseSearchableProperties(class)
 		objs, scores, err := i.objectSearch(ctx, limit, params.Filters, kw, nil, nil,
-			additional.Properties{}, replProps, params.Tenant, 0, nil)
+			additional.Properties{NoProps: true}, replProps, params.Tenant, 0, nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate sparse search: %w", err)
 		}
@@ -157,7 +160,7 @@ func (i *Index) hybridAggregationIDs(ctx context.Context,
 	denseSearch := func(vec models.Vector) ([]*storobj.Object, []float32, error) {
 		objs, dists, err := i.objectVectorSearch(ctx, []models.Vector{vec},
 			[]string{params.TargetVector}, 0, limit, params.Filters, nil, nil,
-			additional.Properties{}, replProps, params.Tenant, nil, nil)
+			additional.Properties{NoProps: true}, replProps, params.Tenant, nil, nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate dense search: %w", err)
 		}
@@ -172,6 +175,7 @@ func (i *Index) hybridAggregationIDs(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	res = aggregator.CapFusedResults(res, limit)
 
 	ids := make([]strfmt.UUID, len(res))
 	for j, r := range res {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -52,6 +53,18 @@ func HybridKeywordRanking(h *searchparams.HybridSearch, class *models.Class) *se
 	}
 
 	return kw
+}
+
+// CapFusedResults keeps the limit best results of a hybrid search. Fusion
+// returns the union of the BM25 and vector results, sorted best first, so a
+// mixed search (0 < alpha < 1) can return up to twice the limit; a hybrid
+// aggregation must cover at most limit objects, the top limit of the fused
+// ranking, like a hybrid Get with that limit.
+func CapFusedResults(res []search.Result, limit int) []search.Result {
+	if limit >= 0 && len(res) > limit {
+		return res[:limit]
+	}
+	return res
 }
 
 // setDefaultObjectLimit fills in the limit a hybrid request may omit. Both legs
