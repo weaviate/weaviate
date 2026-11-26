@@ -108,6 +108,21 @@ func TestAuthzGRPCSearch(t *testing.T) {
 				require.NotNil(t, resp)
 				require.Len(t, resp.Results, 1)
 			})
+
+			t.Run("filter on a property with read_data only", func(t *testing.T) {
+				ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+				resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
+					Collection: articles.ArticlesClass().Class,
+					Tenant:     tt.tenantName,
+					Filters: &protocol.Filters{
+						Operator:  protocol.Filters_OPERATOR_EQUAL,
+						On:        []string{"title"},
+						TestValue: &protocol.Filters_ValueText{ValueText: "git"},
+					},
+				})
+				require.NoError(t, err)
+				require.Len(t, resp.Results, 1)
+			})
 		})
 	}
 }
@@ -170,4 +185,59 @@ func TestAuthzGRPCSearchWithMT(t *testing.T) {
 		require.NotNil(t, resp)
 		require.Len(t, resp.Results, 1)
 	})
+}
+
+func TestAuthzGRPCSearchReferenceFilter(t *testing.T) {
+	adminKey := "admin-key"
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	_, down := composeUpShared(t)
+	defer down()
+
+	createEmployerClasses(t, adminKey)
+	grpcClient := helper.ClientGRPC(t)
+	readData := func(collection string) *models.Permission {
+		return helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(collection).Permission()
+	}
+
+	tests := []struct {
+		name    string
+		filters *protocol.Filters
+	}{
+		{
+			name: "two hops",
+			filters: &protocol.Filters{
+				Operator:  protocol.Filters_OPERATOR_EQUAL,
+				On:        []string{"author", "Author", "employer", "Company", "name"},
+				TestValue: &protocol.Filters_ValueText{ValueText: "Acme"},
+			},
+		},
+		{
+			name: "timestamp behind one hop",
+			filters: &protocol.Filters{
+				Operator:  protocol.Filters_OPERATOR_GREATER_THAN,
+				On:        []string{"author", "Author", "_creationTimeUnix"},
+				TestValue: &protocol.Filters_ValueText{ValueText: "2020-01-01T00:00:00Z"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			roleName := "reference-filter-role"
+			helper.CreateRoleAndAssign(t, adminKey, customUser, roleName, readData("Article"), readData("Company"))
+
+			ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+			request := &protocol.SearchRequest{Collection: "Article", Filters: tt.filters}
+
+			_, err := grpcClient.Search(ctx, request)
+			require.Equal(t, codes.PermissionDenied, status.Code(err), "got %v", err)
+			require.ErrorContains(t, err, "Author")
+
+			helper.AddPermissions(t, adminKey, roleName, readData("Author"))
+			resp, err := grpcClient.Search(ctx, request)
+			require.NoError(t, err)
+			require.Len(t, resp.Results, 1)
+		})
+	}
 }

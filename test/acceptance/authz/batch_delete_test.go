@@ -36,9 +36,8 @@ import (
 )
 
 const (
-	UUIDTo      = strfmt.UUID("00000000-0000-0000-0000-000000000001")
-	UUIDFrom    = strfmt.UUID("00000000-0000-0000-0000-000000000002")
-	beaconStart = "weaviate://localhost/"
+	UUIDTo   = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	UUIDFrom = strfmt.UUID("00000000-0000-0000-0000-000000000002")
 )
 
 func TestAuthZBatchDelete(t *testing.T) {
@@ -197,12 +196,12 @@ func TestAuthZBatchDelete(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
-			Action:      &readCollectionsAction,
-			Collections: &models.PermissionCollections{Collection: &classNameSource},
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
 			Action:      &readCollectionsAction,
-			Collections: &models.PermissionCollections{Collection: &classNameTarget},
+			Collections: &models.PermissionCollections{Collection: &classNameSource},
 		},
 		{
 			Action: &readDataAction,
@@ -255,6 +254,49 @@ func TestAuthZBatchDelete(t *testing.T) {
 			require.Nil(t, err)
 			helper.DeleteRole(t, adminKey, testRoleName)
 		}
+	})
+
+	t.Run("filter on _id without read_data on the source", func(t *testing.T) {
+		helper.DeleteRole(t, adminKey, testRoleName)
+		helper.CreateRoleAndAssign(t, adminKey, customUser, testRoleName,
+			helper.NewDataPermission().WithAction(authorization.DeleteData).WithCollection(classNameSource).Permission(),
+			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(classNameSource).Permission(),
+		)
+
+		params := getBatchDelete(classNameSource, []string{"_id"}, UUIDTo.String(), true, nil)
+		_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+		var forbidden *batch.BatchObjectsDeleteForbidden
+		require.ErrorAs(t, err, &forbidden)
+
+		helper.AddPermissions(t, adminKey, testRoleName,
+			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(classNameSource).Permission())
+		resp, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), resp.Payload.Results.Matches)
+	})
+
+	t.Run("two-hop reference without read_data on the middle collection", func(t *testing.T) {
+		createEmployerClasses(t, adminKey)
+		helper.DeleteRole(t, adminKey, testRoleName)
+		permissions := []*models.Permission{
+			helper.NewDataPermission().WithAction(authorization.DeleteData).WithCollection("Article").Permission(),
+			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("Article").Permission(),
+			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection("Article").Permission(),
+			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection("Company").Permission(),
+		}
+		helper.CreateRoleAndAssign(t, adminKey, customUser, testRoleName, permissions...)
+
+		params := getBatchDelete("Article", []string{"author", "Author", "employer", "Company", "name"}, "something", true, nil)
+		_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+		var forbidden *batch.BatchObjectsDeleteForbidden
+		require.ErrorAs(t, err, &forbidden)
+		require.Contains(t, forbidden.Payload.Error[0].Message, "Author")
+
+		helper.AddPermissions(t, adminKey, testRoleName,
+			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection("Author").Permission())
+		resp, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), resp.Payload.Results.Matches)
 	})
 }
 
@@ -377,5 +419,21 @@ func TestAuthZBatchDeleteWithMT(t *testing.T) {
 			})
 		require.NotNil(t, err)
 		require.Equal(t, status.Code(err), codes.PermissionDenied)
+	})
+
+	t.Run(fmt.Sprintf("filter on _id in %s", tenant1), func(t *testing.T) {
+		helper.AddPermissions(t, adminKey, testRoleName,
+			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(className).Permission())
+
+		params := getBatchDelete(className, []string{"_id"}, UUIDTo.String(), true, &tenant1)
+		_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+		var forbidden *batch.BatchObjectsDeleteForbidden
+		require.ErrorAs(t, err, &forbidden)
+
+		helper.AddPermissions(t, adminKey, testRoleName,
+			helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(className).WithTenant(tenant1).Permission())
+		resp, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), resp.Payload.Results.Matches)
 	})
 }

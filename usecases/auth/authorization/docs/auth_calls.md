@@ -45,7 +45,7 @@ go run generator.go
 | autoSchema | usecases/objects/auto_schema.go | CREATE → CollectionsMetadata<br>UPDATE → CollectionsMetadata |
 | AddObjects | usecases/objects/batch_add.go | UPDATE → ShardsData<br>CREATE → ShardsData |
 | DeleteObjects | usecases/objects/batch_delete.go | DELETE → ShardsData |
-| classGetterFunc | usecases/objects/batch_delete.go | READ → Collections |
+| classGetterFunc | usecases/objects/batch_delete.go | READ → ShardsData<br>READ → CollectionsData |
 | AddReferences | usecases/objects/batch_references_add.go | UPDATE → pathsData<br>READ → pathsMetadata |
 | addReferences | usecases/objects/batch_references_add.go | READ → shardsDataPaths |
 | DeleteObject | usecases/objects/delete.go | READ → CollectionsMetadata<br>DELETE → Objects |
@@ -77,4 +77,4 @@ go run generator.go
 | DeleteTenants | usecases/schema/tenant.go | DELETE → ShardsMetadata |
 | GetConsistentTenants | usecases/schema/tenant.go | READ → ShardsMetadata |
 | ConsistentTenantExists | usecases/schema/tenant.go | READ → ShardsMetadata |
-| validateFilters | usecases/traverser/traverser_get.go | READ → CollectionsMetadata |
+| validateFilters | usecases/traverser/traverser_get.go | READ → ShardsData<br>READ → CollectionsData |
