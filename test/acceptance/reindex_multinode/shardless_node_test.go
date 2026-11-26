@@ -66,8 +66,8 @@ func TestMultiNode_ShardlessNodeBlockmaxFromRAFT(t *testing.T) {
 			"node %d: class flag must stay deferred while 'body' is on WAND", i)
 	}
 
-	// Shardless node must derive title=blockmax, body=WAND from the RAFT task
-	// list (no local bucket to probe).
+	// Shardless node must derive title=blockmax from its stamp, and body=WAND
+	// from its missing stamp with the class flag off (no local bucket to probe).
 	for _, tc := range []struct {
 		label string
 		uri   string

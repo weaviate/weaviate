@@ -154,7 +154,7 @@ func TestCollectionsCount_ThroughSchemaManager(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 			tt.replay(t, sm)
 

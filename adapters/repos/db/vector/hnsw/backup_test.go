@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -116,7 +117,10 @@ func TestBackup_ListFiles(t *testing.T) {
 	})
 
 	t.Run("SnapshotMutableFiles returns nil (hnsw seals files in PrepareForBackup)", func(t *testing.T) {
-		relPaths, err := idx.SnapshotMutableFiles(ctx, dirName, t.TempDir())
+		staging := t.TempDir()
+		relPaths, err := idx.SnapshotMutableFiles(ctx, dirName, func(relPath string) string {
+			return filepath.Join(staging, relPath)
+		})
 		assert.Nil(t, err)
 		assert.Nil(t, relPaths)
 	})

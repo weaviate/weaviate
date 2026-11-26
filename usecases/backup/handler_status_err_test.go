@@ -319,7 +319,6 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
 			backend := newFakeBackend()
-			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(tc.metaErr)
 
 			logger, _ := test.NewNullLogger()
@@ -365,7 +364,6 @@ func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 	sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
 	backend := newFakeBackend()
-	backend.On("SourceDataPath").Return(t.TempDir())
 	backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
 
 	logger, _ := test.NewNullLogger()
@@ -399,6 +397,10 @@ type abortingSnapshotter struct {
 func (s *abortingSnapshotter) Snapshot(roles ...string) ([]byte, error) {
 	s.cancel()
 	return nil, s.err
+}
+
+func (s *abortingSnapshotter) ScopedSnapshot(_ []string, roles ...string) ([]byte, error) {
+	return s.Snapshot(roles...)
 }
 
 func (s *abortingSnapshotter) Restore(snapshot []byte, stripNamespaces bool) error {

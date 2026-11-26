@@ -91,6 +91,7 @@ func CreateSimpleSchema(vectorizer string) schema.SchemaWithAliases {
 
 // CarSchema contains a car which has every primitive field and a ref field there is
 var CarSchema = schema.SchemaWithAliases{
+	Aliases: map[string]string{"CarAlias": "Car"},
 	Schema: schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{

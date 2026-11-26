@@ -37,7 +37,7 @@ var (
 )
 
 func TestValidationReferencesInObject(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, namespacing.Disabled)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, namespacing.Disabled, nil)
 
 	class := &models.Class{
 		Class: "From",
@@ -61,7 +61,7 @@ func TestValidationReferencesInObject(t *testing.T) {
 }
 
 func TestValidationReference(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, namespacing.Disabled)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, namespacing.Disabled, nil)
 
 	cref := &models.SingleRef{Beacon: strfmt.URI(BEACON + "To/" + UuidUpper)}
 	ref, err := validator.ValidateSingleRef(cref)
@@ -105,7 +105,7 @@ func TestValidateExistence(t *testing.T) {
 				}
 				return false, tenantErr
 			}
-			validator := New(stub, &config.WeaviateConfig{}, nil, nil, namespacing.Disabled)
+			validator := New(stub, &config.WeaviateConfig{}, nil, nil, namespacing.Disabled, nil)
 			ref := &crossref.Ref{Class: "To", TargetID: strfmt.UUID(UuidLower)}
 
 			err := validator.ValidateExistence(context.Background(), ref, "ref", "tenantA")

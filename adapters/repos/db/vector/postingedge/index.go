@@ -430,7 +430,7 @@ func (ix *Index) ResumeAfterBackup(ctx context.Context) error {
 
 // SnapshotMutableFiles fails for the same reason PrepareForBackup does.
 // TODO: implement together with persistence.
-func (ix *Index) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (ix *Index) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	return nil, errors.Wrap(ErrNotSupported, "backup")
 }
 
@@ -439,11 +439,11 @@ func (ix *Index) Shutdown(ctx context.Context) error {
 	return ix.teardown(ctx, func(c *centroidIndex) error { return c.shutdown(ctx) })
 }
 
-// Drop releases the index and, unless keepFiles is set, removes its directory
-// under Config.RootPath. It must not run concurrently with searches.
-func (ix *Index) Drop(ctx context.Context, keepFiles bool) error {
-	err := ix.teardown(ctx, func(c *centroidIndex) error { return c.drop(ctx, keepFiles) })
-	if err != nil || keepFiles {
+// Drop releases the index and removes its directory under Config.RootPath. It
+// must not run concurrently with searches.
+func (ix *Index) Drop(ctx context.Context) error {
+	err := ix.teardown(ctx, func(c *centroidIndex) error { return c.drop(ctx) })
+	if err != nil {
 		return err
 	}
 	return errors.Wrap(os.RemoveAll(ix.dir()), "remove index directory")

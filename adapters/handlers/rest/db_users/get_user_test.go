@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -461,4 +462,63 @@ func TestGetUser_ResolveThenAuthorize(t *testing.T) {
 	res := h.getUser(users.GetUserInfoParams{UserID: "bob", HTTPRequest: req}, principal)
 	_, ok := res.(*users.GetUserInfoOK)
 	require.True(t, ok, "expected 200, got %T", res)
+}
+
+// TestUserLookups_NamespacedCallerQualifiedID requires a 422 from every lookup
+// whose ID, sent by a namespaced caller, holds a ':'. The mocks hold no
+// expectations, so an authorize or store call fails the case.
+func TestUserLookups_NamespacedCallerQualifiedID(t *testing.T) {
+	principal := &models.Principal{Namespace: "customer1"}
+	tests := []struct {
+		name string
+		call func(h *dynUserHandler) middleware.Responder
+		want middleware.Responder
+	}{
+		{
+			name: "get",
+			call: func(h *dynUserHandler) middleware.Responder {
+				return h.getUser(users.GetUserInfoParams{UserID: "x:bob", HTTPRequest: req}, principal)
+			},
+			want: &users.GetUserInfoUnprocessableEntity{},
+		},
+		{
+			name: "rotate key",
+			call: func(h *dynUserHandler) middleware.Responder {
+				return h.rotateKey(users.RotateUserAPIKeyParams{UserID: "x:bob", HTTPRequest: req}, principal)
+			},
+			want: &users.RotateUserAPIKeyUnprocessableEntity{},
+		},
+		{
+			name: "delete",
+			call: func(h *dynUserHandler) middleware.Responder {
+				return h.deleteUser(users.DeleteUserParams{UserID: "x:bob", HTTPRequest: req}, principal)
+			},
+			want: &users.DeleteUserUnprocessableEntity{},
+		},
+		{
+			name: "deactivate",
+			call: func(h *dynUserHandler) middleware.Responder {
+				return h.deactivateUser(users.DeactivateUserParams{UserID: "x:bob", HTTPRequest: req}, principal)
+			},
+			want: &users.DeactivateUserUnprocessableEntity{},
+		},
+		{
+			name: "activate",
+			call: func(h *dynUserHandler) middleware.Responder {
+				return h.activateUser(users.ActivateUserParams{UserID: "x:bob", HTTPRequest: req}, principal)
+			},
+			want: &users.ActivateUserUnprocessableEntity{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &dynUserHandler{
+				dbUsers:           NewMockDbUserAndRolesGetter(t),
+				authorizer:        authorization.NewMockAuthorizer(t),
+				dbUserEnabled:     true,
+				namespacesEnabled: true,
+			}
+			assert.IsType(t, tt.want, tt.call(h))
+		})
+	}
 }

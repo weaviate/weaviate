@@ -76,7 +76,7 @@ type ObjectsValidateParams struct {
 
 	/* Body.
 
-	   The object definition to validate.
+	   The object definition to validate. `class` is required.
 	*/
 	Body *models.Object
 

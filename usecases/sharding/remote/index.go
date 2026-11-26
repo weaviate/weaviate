@@ -96,7 +96,6 @@ type IndexClient interface {
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
-	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName, targetStatus string, schemaVersion uint64) error
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
@@ -322,23 +321,17 @@ func (ri *Index) SearchShard(ctx context.Context, shard string,
 	return r.objects, r.scores, r.queryProfiles, node, err
 }
 
+// Aggregate aggregates the shard on the given node, without trying any other.
 func (ri *Index) Aggregate(
 	ctx context.Context,
-	shard string,
+	node, shard string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	f := func(_, host string) (interface{}, error) {
-		r, err := ri.client.Aggregate(ctx, host, ri.class, shard, params)
-		if err != nil {
-			return nil, err
-		}
-		return r, nil
+	host, ok := ri.nodeResolver.NodeHostname(node)
+	if !ok || host == "" {
+		return nil, fmt.Errorf("resolve node name %q to host", node)
 	}
-	rr, _, err := ri.queryReplicas(ctx, shard, f)
-	if err != nil {
-		return nil, err
-	}
-	return rr.(*aggregation.Result), err
+	return ri.client.Aggregate(ctx, host, ri.class, shard, params)
 }
 
 func (ri *Index) FindUUIDs(ctx context.Context, shardName string,
@@ -375,15 +368,10 @@ func (ri *Index) DeleteObjectBatch(ctx context.Context, shardName string,
 	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion)
 }
 
-func (ri *Index) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
-	if err != nil {
-		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
-	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
+func (ri *Index) GetShardQueueSize(ctx context.Context, shardName, nodeName string) (int64, error) {
+	host, ok := ri.nodeResolver.NodeHostname(nodeName)
 	if !ok {
-		return 0, fmt.Errorf("resolve node name %q to host", owner)
+		return 0, fmt.Errorf("resolve node name %q to host", nodeName)
 	}
 
 	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)
@@ -396,20 +384,6 @@ func (ri *Index) GetShardStatus(ctx context.Context, shardName, nodeName string)
 	}
 
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
-}
-
-func (ri *Index) UpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
-	if err != nil {
-		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
-	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus, schemaVersion)
 }
 
 func (ri *Index) queryAllReplicas(
@@ -525,4 +499,34 @@ func (ri *Index) queryReplicas(
 		return queryUntil(replicas[:first])
 	}
 	return resp, node, err
+}
+
+// TimedOutPeers holds the peers whose status or queue-size read timed out during one listing, so later reads skip them.
+type TimedOutPeers struct{ nodes sync.Map }
+
+func (p *TimedOutPeers) Has(node string) bool {
+	_, ok := p.nodes.Load(node)
+	return ok
+}
+
+// Record keeps node only when its own call timed out while the listing's context is still live.
+func (p *TimedOutPeers) Record(ctx context.Context, node string, err error) {
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		p.nodes.Store(node, struct{}{})
+	}
+}
+
+type timedOutPeersKey struct{}
+
+// WithTimedOutPeers shares one TimedOutPeers between the lookups of a listing.
+func WithTimedOutPeers(ctx context.Context) context.Context {
+	return context.WithValue(ctx, timedOutPeersKey{}, &TimedOutPeers{})
+}
+
+// TimedOutPeersFrom returns ctx's TimedOutPeers, or a new one when ctx has none.
+func TimedOutPeersFrom(ctx context.Context) *TimedOutPeers {
+	if p, ok := ctx.Value(timedOutPeersKey{}).(*TimedOutPeers); ok {
+		return p
+	}
+	return &TimedOutPeers{}
 }

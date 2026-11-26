@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
@@ -184,10 +185,10 @@ func TestGRPC_Batching(t *testing.T) {
 
 		require.Equal(t, uuid0, msg.GetResults().GetSuccesses()[0].GetUuid(), "First object UUID should match")
 		require.Equal(t, objects[1].Uuid, msg.GetResults().GetSuccesses()[1].GetUuid(), "Second object UUID should match")
-		require.Equal(t, toBeacon(references[0]), msg.GetResults().GetSuccesses()[2].GetBeacon(), "First reference beacon should match")
+		require.Equal(t, batch.ReferenceUUID(references[0]), msg.GetResults().GetSuccesses()[2].GetBeacon(), "First reference beacon should match")
 
 		require.Equal(t, "property hasParagraphss does not exist for class Article", msg.GetResults().GetErrors()[0].GetError())
-		require.Equal(t, toBeacon(references[1]), msg.GetResults().GetErrors()[0].GetBeacon(), "Second reference beacon should match")
+		require.Equal(t, batch.ReferenceUUID(references[1]), msg.GetResults().GetErrors()[0].GetBeacon(), "Second reference beacon should match")
 
 		obj, err := helper.GetObject(t, clsA.Class, strfmt.UUID(uuid0))
 		require.NoError(t, err, "ListObjects should not return an error")
@@ -967,10 +968,6 @@ func stop(stream pb.Weaviate_BatchStreamClient) {
 		Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}},
 	})
 	require.NoError(nil, err, "sending Stop over the stream should not return an error")
-}
-
-func toBeacon(ref *pb.BatchReference) string {
-	return fmt.Sprintf("weaviate://localhost/%s/%s/%s", ref.FromCollection, ref.FromUuid, ref.Name)
 }
 
 func randomByteVector(dim int) []byte {

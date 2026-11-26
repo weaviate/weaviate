@@ -21,9 +21,10 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func testRerankerCohere(host string) func(t *testing.T) {
+func testRerankerCohere(host, grpcHost string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
+		helper.SetupGRPCClient(t, grpcHost)
 		booksClass := books.ClassModel2VecVectorizer()
 		booksClass.ModuleConfig.(map[string]any)["reranker-cohere"] = map[string]any{}
 		helper.CreateClass(t, booksClass)
@@ -34,6 +35,10 @@ func testRerankerCohere(host string) func(t *testing.T) {
 				helper.CreateObject(t, book)
 				helper.AssertGetObjectEventually(t, book.Class, book.ID)
 			}
+		})
+
+		t.Run("rerank request checks", func(t *testing.T) {
+			helper.AssertRerankRequestChecks(t, booksClass.Class, "description", "tags")
 		})
 
 		t.Run("rerank", func(t *testing.T) {

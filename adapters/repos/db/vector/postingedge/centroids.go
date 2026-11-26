@@ -253,8 +253,8 @@ func (c *centroidIndex) shutdown(ctx context.Context) error {
 	return c.closeCodes(ctx, c.graph.Shutdown(ctx))
 }
 
-func (c *centroidIndex) drop(ctx context.Context, keepFiles bool) error {
-	return c.closeCodes(ctx, c.graph.Drop(ctx, keepFiles))
+func (c *centroidIndex) drop(ctx context.Context) error {
+	return c.closeCodes(ctx, c.graph.Drop(ctx))
 }
 
 // closeCodes closes, after the graph, the file of the centroids it read and

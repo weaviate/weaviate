@@ -36,12 +36,11 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distribu
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	response := distributedtask.ListDistributedTasksResponse{}
-	if err = json.Unmarshal(queryResp.Payload, &response); err != nil {
+	tasks, err := s.store.distributedTasksManager.DecodeTaskList(queryResp.Payload)
+	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
-
-	return response.Tasks, nil
+	return tasks, nil
 }
 
 // GetDistributedTask is leader-routed. Returns (nil, nil) when the task

@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func TestBucketWalReload(t *testing.T) {
@@ -416,5 +417,96 @@ func TestBucketRecoveryWithWALShorterThanChecksum(t *testing.T) {
 			testBucketContent(t, StrategyReplace, b, 3)
 			require.NoError(t, b.Shutdown(ctx))
 		})
+	}
+}
+
+// TestBucketRecoveryRoaringSetWALWithCorruptRecord opens a RoaringSet or
+// RoaringSetRange bucket whose write-ahead-log ends in a damaged v0 record, the
+// state a volume returning I/O errors left behind in production. The bucket
+// must open with the records written before the damaged one.
+func TestBucketRecoveryRoaringSetWALWithCorruptRecord(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	nodes := []struct {
+		name string
+		node []byte
+	}{
+		{name: "total length 0", node: le64(0)},
+		{name: "total length 7", node: le64(7)},
+		{name: "total length beyond int64", node: append(le64(1<<63+16), make([]byte, 32)...)},
+		{name: "additions length beyond the record", node: withTotalLen(le64(1<<40), make([]byte, 8))},
+		{name: "key length beyond the record", node: withTotalLen(le64(0), le64(0), le32(1<<20))},
+	}
+	strategies := []struct {
+		strategy string
+		write    func(t *testing.T, b *Bucket, key, value uint64)
+		check    func(t *testing.T, b *Bucket, key, value uint64)
+	}{
+		{
+			strategy: StrategyRoaringSet,
+			write: func(t *testing.T, b *Bucket, key, value uint64) {
+				require.NoError(t, b.RoaringSetAddOne(le64(key), value))
+			},
+			check: func(t *testing.T, b *Bucket, key, value uint64) {
+				bm, release, err := b.RoaringSetGet(ctx, le64(key))
+				require.NoError(t, err)
+				defer release()
+				require.Equal(t, []uint64{value}, bm.ToArray())
+			},
+		},
+		{
+			strategy: StrategyRoaringSetRange,
+			write: func(t *testing.T, b *Bucket, key, value uint64) {
+				require.NoError(t, b.RoaringSetRangeAdd(key, value))
+			},
+			check: func(t *testing.T, b *Bucket, key, value uint64) {
+				reader := b.ReaderRoaringSetRange()
+				defer reader.Close()
+				bm, release, err := reader.Read(ctx, key, filters.OperatorEqual)
+				require.NoError(t, err)
+				defer release()
+				require.Equal(t, []uint64{value}, bm.ToArray())
+			},
+		},
+	}
+	commitTypes := []CommitType{CommitTypeRoaringSet, CommitTypeRoaringSetList}
+
+	openBucket := func(t *testing.T, dir, strategy string) *Bucket {
+		t.Helper()
+		b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(strategy), WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+		require.NoError(t, err)
+		return b
+	}
+
+	for _, s := range strategies {
+		for _, ct := range commitTypes {
+			for _, n := range nodes {
+				t.Run(fmt.Sprintf("%s/%s/%s", s.strategy, ct, n.name), func(t *testing.T) {
+					dir := t.TempDir()
+					b := openBucket(t, dir, s.strategy)
+					for k := uint64(1); k <= 3; k++ {
+						s.write(t, b, k, 100+k)
+					}
+					require.NoError(t, b.Shutdown(ctx))
+
+					wals := filesWithExt(t, dir, ".wal")
+					require.Len(t, wals, 1)
+					f, err := os.OpenFile(filepath.Join(dir, wals[0]), os.O_APPEND|os.O_WRONLY, 0o644)
+					require.NoError(t, err)
+					_, err = f.Write(append([]byte{byte(ct), 0}, n.node...))
+					require.NoError(t, err)
+					require.NoError(t, f.Close())
+
+					b = openBucket(t, dir, s.strategy)
+					for k := uint64(1); k <= 3; k++ {
+						s.check(t, b, k, 100+k)
+					}
+					require.NoError(t, b.Shutdown(ctx))
+				})
+			}
+		}
 	}
 }

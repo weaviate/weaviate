@@ -212,7 +212,7 @@ func TestGenerateRequest(t *testing.T) {
 			params:       digitaloceanparams.Params{},
 			expectedPath: "/v1/chat/completions",
 			expectedPayload: map[string]any{
-				"model":    "llama-4-maverick",
+				"model":    "nemotron-3.5-super-vl",
 				"messages": []any{map[string]any{"role": "user", "content": `task: [{"prop":"value"}]`}},
 			},
 		},

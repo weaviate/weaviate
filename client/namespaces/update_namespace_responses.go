@@ -343,7 +343,7 @@ func NewUpdateNamespaceUnprocessableEntity() *UpdateNamespaceUnprocessableEntity
 /*
 UpdateNamespaceUnprocessableEntity describes a response with status code 422, with default header values.
 
-The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the `deleting` state).
+The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or the namespace being in the `deleting` state). A `home_nodes` list the cluster refuses, a body that sets both `home_nodes` and `home_node`, or a body that sets neither also answers 422.
 */
 type UpdateNamespaceUnprocessableEntity struct {
 	Payload *models.ErrorResponse

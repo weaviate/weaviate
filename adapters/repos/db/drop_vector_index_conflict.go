@@ -13,10 +13,23 @@ package db
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
+
+// DropVectorIndexDetector decides whether a RAFT apply refuses a new
+// drop-vector task or a vector config removal. It holds only a logger, so
+// MakeAppState builds it before the cluster service opens RAFT.
+type DropVectorIndexDetector struct {
+	logger logrus.FieldLogger
+}
+
+func NewDropVectorIndexDetector(logger logrus.FieldLogger) *DropVectorIndexDetector {
+	return &DropVectorIndexDetector{logger: logger}
+}
 
 // CheckConflict implements distributedtask.ConflictDetector. Called under the
 // Manager lock on the RAFT-apply AddTask path before a new task is stored, it
@@ -24,11 +37,14 @@ import (
 // collection, and (2) a payload whose inherited CleanedShards claim has no
 // surviving source records — the enqueue-to-commit TOCTOU guard.
 // FSM-deterministic: a pure function of (newPayload, existingTasks).
-func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
 	newP, err := decodeDropVectorIndexPayload(newPayload)
 	if err != nil {
 		return fmt.Errorf("unmarshal new drop-vector payload: %w", err)
 	}
+	existingTasks = slices.DeleteFunc(slices.Clone(existingTasks), func(t *distributedtask.Task) bool {
+		return t.OnKnownOtherCollection(newP.Collection)
+	})
 
 	if task, existP, overlap := FirstActiveOverlappingDrop(
 		existingTasks, "", newP.Collection, newP.Targets, p.logger); task != nil {
@@ -62,7 +78,7 @@ func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks
 // CheckPropertyUpdate implements distributedtask.SchemaMutationDetector. A
 // drop-vector task touches named vectors, not inverted properties, so a property
 // update never conflicts with it.
-func (p *DropVectorIndexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
 	return nil
 }
 
@@ -72,7 +88,7 @@ func (p *DropVectorIndexProvider) CheckPropertyUpdate(className, propertyName st
 // cascade-deletes the namespace's tasks via DeleteTasksForCollection, so the
 // in-flight task is cleaned up rather than left blocking the delete. Always
 // returns nil.
-func (p *DropVectorIndexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
 	return nil
 }
 
@@ -87,7 +103,7 @@ func (p *DropVectorIndexProvider) CheckClassMutation(className string, existingT
 // once it activates again. The schema marker stays the source of truth
 // throughout, so no path here can lose data; blocking would only trade tenant
 // availability for one round's bookkeeping. Always returns nil.
-func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	return nil
 }
 
@@ -100,7 +116,23 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 // the name a stale record would remove the new drop's marker over unstripped
 // vectors. A marker whose finalize was missed heals through reconciliation
 // (fresh-epoch re-clean), not through record replay.
-func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
+	return p.checkVectorConfigRemoval(className, removedVectors, shards, existingTasks, true)
+}
+
+// CheckVectorConfigRemovalAtPropose implements
+// distributedtask.VectorConfigRemovalProposeGate. It is CheckVectorConfigRemoval
+// without the deletion-resolved voucher: that proof cannot show the surviving
+// shards are drained, so a leader running this version refuses to propose a
+// removal that rests on it alone. Its own enqueuer finalizes such a drop
+// through a verify-only round, whose SWAPPING task vouches here.
+func (p *DropVectorIndexDetector) CheckVectorConfigRemovalAtPropose(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
+	return p.checkVectorConfigRemoval(className, removedVectors, shards, existingTasks, false)
+}
+
+func (p *DropVectorIndexDetector) checkVectorConfigRemoval(className string, removedVectors, shards []string,
+	existingTasks []*distributedtask.Task, deletionResolvedVouches bool,
+) error {
 	for _, targetVector := range removedVectors {
 		if id, active := p.dropCovers(className, targetVector, existingTasks, stillStrippingStatus); active {
 			return fmt.Errorf(
@@ -121,13 +153,13 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 			continue
 		}
 		// A terminal round may also vouch, but only on the one proof that a
-		// stale record cannot fabricate: it covers every shard that still
+		// stale record cannot fabricate: it stripped every shard that still
 		// exists AND it recorded owing a shard that has since been deleted.
 		// Re-cleaning that collection would rewrite already-stripped shards for
 		// work that no longer has anywhere to happen. A record that owed
 		// nothing stays refused — that is the closed-epoch residue shape, where
 		// full coverage says nothing about the current marker's data.
-		if p.deletionResolvedDropVoucher(className, targetVector, shards, existingTasks) {
+		if deletionResolvedVouches && p.deletionResolvedDropVoucher(className, targetVector, shards, existingTasks) {
 			continue
 		}
 		if coversVec {
@@ -161,7 +193,7 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 // tasks cover the vector but none covers all shards, uncovered holds the
 // missing shards of the closest task — mirroring the finalize deferral, which
 // keeps the marker until a single task covers everyone.
-func (p *DropVectorIndexProvider) completedDropVoucher(className, targetVector string, shards []string,
+func (p *DropVectorIndexDetector) completedDropVoucher(className, targetVector string, shards []string,
 	existingTasks []*distributedtask.Task,
 ) (vouched, coversVec bool, uncovered []string) {
 	swappingOnly := func(s distributedtask.TaskStatus) bool { return s == distributedtask.TaskStatusSwapping }
@@ -182,19 +214,32 @@ func (p *DropVectorIndexProvider) completedDropVoucher(className, targetVector s
 }
 
 // deletionResolvedDropVoucher reports whether a terminal round of this drop
-// proves the cleanup is done for the collection as it now stands: it covers
-// every current shard, and it recorded owing a shard that no longer exists.
+// proves the cleanup is done for the collection as it now stands: it owed a
+// shard that no longer exists, and its epoch stripped every current shard.
 //
-// This is the one case where a non-SWAPPING record may remove a marker. It is
-// safe where a bare FINISHED voucher is not, because a finalized drop's residue
-// owes nothing — it covered everything before it finalized — so it can never
-// satisfy the deleted-shard half. Terminal-with-partial-work rounds count too:
-// a round that failed after completing its units still recorded what it owed.
+// This is the one case where a non-SWAPPING record may remove a marker. A
+// finalized drop's earlier rounds can have owed a shard that is now deleted.
+// The purge of the previous drop's records when a marker is introduced
+// (cluster/schema/manager.go) keeps those rounds from vouching for a new
+// marker.
 //
-// Mirrors the enqueuer, which finalizes on the same proof
-// (EpochAndInheritedCoverage); the two must agree or the enqueuer would
-// propose removals this apply refuses.
-func (p *DropVectorIndexProvider) deletionResolvedDropVoucher(className, targetVector string,
+// Only a round of the drop's newest epoch vouches (newestDropEpoch), the epoch
+// the enqueuer reads. An older epoch was closed because a shard had to be
+// stripped again, so its records prove nothing about that shard. The round's
+// epoch must also span every current shard (EpochCoveredShards), as
+// ResolvedByShardDeletion asks of its callers.
+//
+// Accepts the proof an older leader's enqueuer finalizes on directly, so
+// those removals still apply during a rolling upgrade. The enqueuer here asks
+// more: it re-cleans an epoch with a record under another op
+// (epochHasForeignOp).
+//
+// The enqueuer does not remove the marker on this proof itself; it submits a
+// verify-only round so each node first confirms its shards are drained. This
+// voucher cannot see that, so the leader refuses to propose a removal resting
+// on it alone (CheckVectorConfigRemovalAtPropose). Only a removal an older
+// leader proposed reaches the apply on this proof.
+func (p *DropVectorIndexDetector) deletionResolvedDropVoucher(className, targetVector string,
 	shards []string, existingTasks []*distributedtask.Task,
 ) bool {
 	terminal := func(s distributedtask.TaskStatus) bool {
@@ -203,11 +248,19 @@ func (p *DropVectorIndexProvider) deletionResolvedDropVoucher(className, targetV
 	var vouched bool
 	p.eachDropCovering(className, targetVector, existingTasks, terminal,
 		func(task *distributedtask.Task, existP *DropVectorIndexTaskPayload) bool {
-			if existP.ResolvedByShardDeletion(shards) {
-				vouched = true
-				return false // done
+			newestEpoch, ok := newestDropEpoch(existingTasks, existP.Collection, existP.Targets, nil)
+			if !ok || existP.DropEpochID != newestEpoch {
+				return true
 			}
-			return true
+			if !existP.ResolvedByShardDeletion(task, shards) {
+				return true
+			}
+			stripped := EpochCoveredShards(existingTasks, existP.Collection, existP.Targets, existP.DropEpochID)
+			if len(ShardsNotCovered(shards, stripped)) > 0 {
+				return true
+			}
+			vouched = true
+			return false // done
 		})
 	return vouched
 }
@@ -219,7 +272,7 @@ func stillStrippingStatus(s distributedtask.TaskStatus) bool {
 
 // dropCovers reports whether a drop-vector task matching statusMatch covers targetVector
 // on className. Unparseable payloads warn and are skipped (fail-open).
-func (p *DropVectorIndexProvider) dropCovers(className, targetVector string, existingTasks []*distributedtask.Task,
+func (p *DropVectorIndexDetector) dropCovers(className, targetVector string, existingTasks []*distributedtask.Task,
 	statusMatch func(distributedtask.TaskStatus) bool,
 ) (id string, found bool) {
 	p.eachDropCovering(className, targetVector, existingTasks, statusMatch,
@@ -233,7 +286,7 @@ func (p *DropVectorIndexProvider) dropCovers(className, targetVector string, exi
 // eachDropCovering invokes fn for every task matching statusMatch whose payload
 // covers targetVector on className, until fn returns false. Unparseable payloads warn
 // and are skipped (fail-open).
-func (p *DropVectorIndexProvider) eachDropCovering(className, targetVector string,
+func (p *DropVectorIndexDetector) eachDropCovering(className, targetVector string,
 	existingTasks []*distributedtask.Task, statusMatch func(distributedtask.TaskStatus) bool,
 	fn func(*distributedtask.Task, *DropVectorIndexTaskPayload) bool,
 ) {
