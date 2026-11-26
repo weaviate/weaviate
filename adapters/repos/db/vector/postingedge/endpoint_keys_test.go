@@ -242,9 +242,10 @@ func (r *endpointReplay) reset() {
 // The replay scores exactly the endpoints the searches scored, whatever the
 // keying, with the same estimates, and leaves its scratch as it found it.
 func TestEndpointKeysReplay(t *testing.T) {
+	t.Parallel()
 	const k = 10
-	all := clusteredVectors(3100, 24, 30, 515)
-	vectors, queries := all[:3000], all[3000:]
+	all := clusteredVectors(208, 24, 4, 515)
+	vectors, queries := all[:200], all[200:]
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, distancer.NewL2SquaredProvider(), uc)
@@ -309,6 +310,7 @@ func TestEndpointKeysReplay(t *testing.T) {
 // keyedBy moves every code and posting to the key of its slot, and nothing
 // else.
 func TestKeyedBy(t *testing.T) {
+	t.Parallel()
 	st := &state{
 		postings: &postingStore{docIDs: []uint64{2, 0, 1}, start: []uint32{0, 2, 3}},
 		side: &sidecar{

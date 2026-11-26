@@ -21,6 +21,7 @@ import (
 )
 
 func TestPartitionClustersCoverEveryVectorOnce(t *testing.T) {
+	t.Parallel()
 	logger, _ := test.NewNullLogger()
 	identical := make([][]float32, 97)
 	for i := range identical {
@@ -88,22 +89,24 @@ func TestPartitionClustersCoverEveryVectorOnce(t *testing.T) {
 }
 
 func TestPartitionIsDeterministicForASeed(t *testing.T) {
+	t.Parallel()
 	logger, _ := test.NewNullLogger()
-	vectors := clusteredVectors(2000, 16, 20, 9)
+	vectors := clusteredVectors(600, 16, 10, 9)
 
-	first, firstDistances, err := partition(context.Background(), logger, vectors, 16, 40, 11)
+	first, firstDistances, err := partition(context.Background(), logger, vectors, 16, 20, 11)
 	require.NoError(t, err)
-	second, secondDistances, err := partition(context.Background(), logger, vectors, 16, 40, 11)
+	second, secondDistances, err := partition(context.Background(), logger, vectors, 16, 20, 11)
 	require.NoError(t, err)
 	assert.Equal(t, first, second, "the same seed must give the same centroids")
 	assert.Equal(t, firstDistances, secondDistances, "and take the same work")
 
-	other, _, err := partition(context.Background(), logger, vectors, 16, 40, 12)
+	other, _, err := partition(context.Background(), logger, vectors, 16, 20, 12)
 	require.NoError(t, err)
 	assert.NotEqual(t, first, other, "the seed must actually drive the splits")
 }
 
 func TestPartitionCentroidIsTheClusterMean(t *testing.T) {
+	t.Parallel()
 	logger, _ := test.NewNullLogger()
 	vectors := [][]float32{{0, 0}, {2, 4}, {4, 2}}
 
@@ -114,12 +117,14 @@ func TestPartitionCentroidIsTheClusterMean(t *testing.T) {
 }
 
 func TestPartitionRejectsEmptyInput(t *testing.T) {
+	t.Parallel()
 	logger, _ := test.NewNullLogger()
 	_, _, err := partition(context.Background(), logger, nil, 4, 3, 1)
 	require.Error(t, err)
 }
 
 func TestPartitionStopsOnCancelledContext(t *testing.T) {
+	t.Parallel()
 	logger, _ := test.NewNullLogger()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -131,6 +136,7 @@ func TestPartitionStopsOnCancelledContext(t *testing.T) {
 // splitLeaves must hand both children at least one leaf and never more
 // leaves than they have vectors, for every split bisect can produce.
 func TestSplitLeavesKeepsBothSidesFeasible(t *testing.T) {
+	t.Parallel()
 	for n := 2; n <= 60; n++ {
 		for nLeft := 1; nLeft < n; nLeft++ {
 			nRight := n - nLeft

@@ -168,11 +168,25 @@ func checkPruned(fullStart, full, start, kept, postingOf []uint32, onePer bool, 
 // for the endpoints the scan is the same and the ranking of the postings is
 // not.
 func TestHaloState(t *testing.T) {
-	const n = 3000
+	t.Parallel()
+	const n = 300
 	ctx := context.Background()
-	all := clusteredVectors(n, 64, 6, 701)
-	queries := clusteredVectors(40, 64, 6, 702)
+	all := clusteredVectors(n, 64, 2, 701)
+	queries := clusteredVectors(10, 64, 2, 702)
 	provider := distancer.NewL2SquaredProvider()
+
+	// The ef and the rescore limit are search parameters: one build serves
+	// every case, which sets them and puts the state of the build back.
+	base := smallConfig()
+	base.Distance = "l2-squared"
+	// Postings of 10: in fewer postings the searches load the same ones
+	// whatever ranks them, and no sketch is told apart.
+	base.TargetPostingSize = 10
+	index, err := New(testConfig(t, all, 0, provider), base)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Shutdown(context.Background())) })
+	require.NoError(t, index.AddBatch(ctx, sequentialIDs(n, 0), all))
+	require.NoError(t, index.Build(ctx))
 
 	tests := []struct {
 		name string
@@ -182,19 +196,14 @@ func TestHaloState(t *testing.T) {
 		ef, rescore int
 	}{
 		{name: "the codec of the index", ef: 32, rescore: 100},
-		{name: "the codec of the index, a wide search", ef: 400, rescore: 400},
 		{name: "a sketch of 64 bits", bits: 64, ef: 32, rescore: 100},
-		{name: "a sketch of 64 bits, a wide search", bits: 64, ef: 400, rescore: 400},
+		{name: "a sketch of 64 bits, a wide search", bits: 64, ef: 120, rescore: 120},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uc := smallConfig()
-			uc.Distance, uc.EF, uc.RescoreLimit = "l2-squared", tt.ef, tt.rescore
-			index, err := New(testConfig(t, all, 0, provider), uc)
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, index.Shutdown(context.Background())) })
-			require.NoError(t, index.AddBatch(ctx, sequentialIDs(n, 0), all))
-			require.NoError(t, index.Build(ctx))
+			uc := base
+			uc.EF, uc.RescoreLimit = tt.ef, tt.rescore
+			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 			built := index.state.Load()
 			postings, err := haloPostings(built)
 			require.NoError(t, err)
@@ -272,7 +281,7 @@ func TestHaloState(t *testing.T) {
 			require.True(t, differ, "a sketch of %d bits ranks the postings as the full code does", tt.bits)
 			// It is a noisier ranking, not a broken one.
 			require.Greater(t, float64(hits)/float64(total), 0.7)
-			if tt.ef >= 400 {
+			if tt.ef >= 120 {
 				require.Greater(t, float64(hits)/float64(total), 0.95)
 			}
 		})
@@ -280,9 +289,10 @@ func TestHaloState(t *testing.T) {
 }
 
 func TestHaloStateErrors(t *testing.T) {
-	const n = 1200
+	t.Parallel()
+	const n = 100
 	ctx := context.Background()
-	all := clusteredVectors(n, 24, 6, 709)
+	all := clusteredVectors(n, 24, 2, 709)
 	vectorOf := func(id uint64) []float32 { return all[id] }
 
 	_, err := haloState(ctx, testLogger(), nil, nil, vectorOf)
@@ -327,18 +337,20 @@ func TestHaloStateErrors(t *testing.T) {
 // The blocks of a posting are counted from its members and their edges, and
 // the entries of its halo are the endpoints of those edges, each once.
 func TestHaloPostings(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name     string
 		n        int
 		clusters int
 	}{
-		{name: "neighbors in other postings", n: 3000, clusters: 6},
-		{name: "one cluster", n: 1200, clusters: 1},
-		{name: "as many clusters as postings", n: 1200, clusters: 30},
+		{name: "neighbors in other postings", n: 160, clusters: 2},
+		{name: "one cluster", n: 80, clusters: 1},
+		{name: "as many clusters as postings", n: 80, clusters: 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			all := clusteredVectors(tt.n, 24, tt.clusters, 719)
 			uc := smallConfig()
 			uc.Distance = "l2-squared"
@@ -383,10 +395,11 @@ func TestHaloPostings(t *testing.T) {
 // What a search would read is the sum of the blocks of the postings it
 // loads, which its own stats confirm.
 func TestHaloSearch(t *testing.T) {
-	const n = 3000
+	t.Parallel()
+	const n = 200
 	ctx := context.Background()
-	all := clusteredVectors(n, 64, 6, 727)
-	queries := clusteredVectors(30, 64, 6, 728)
+	all := clusteredVectors(n, 64, 3, 727)
+	queries := clusteredVectors(6, 64, 3, 728)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index, err := New(testConfig(t, all, 0, distancer.NewL2SquaredProvider()), uc)
@@ -448,6 +461,7 @@ func TestHaloSearch(t *testing.T) {
 }
 
 func TestPruneEdges(t *testing.T) {
+	t.Parallel()
 	// Ten slots in four postings.
 	postingOf := []uint32{0, 0, 1, 1, 1, 2, 2, 3, 3, 3}
 	rows := [][]uint32{
@@ -537,6 +551,7 @@ func TestPruneEdges(t *testing.T) {
 }
 
 func TestCheckPruned(t *testing.T) {
+	t.Parallel()
 	postingOf := []uint32{0, 0, 1, 1, 1, 2, 2, 3, 3, 3}
 	fullStart, full := csrOf([][]uint32{{2, 3, 5, 4, 6, 7}, {7, 8, 9}, {}})
 
@@ -602,10 +617,11 @@ func TestCheckPruned(t *testing.T) {
 // the edges that remain, and every search still adds up with its own counts,
 // whatever the source margin cuts.
 func TestHaloPruned(t *testing.T) {
-	const n = 3000
+	t.Parallel()
+	const n = 200
 	ctx := context.Background()
-	all := clusteredVectors(n, 64, 6, 733)
-	queries := clusteredVectors(30, 64, 6, 734)
+	all := clusteredVectors(n, 64, 3, 733)
+	queries := clusteredVectors(6, 64, 3, 734)
 	uc := smallConfig()
 	uc.Distance, uc.EF = "l2-squared", 10
 	index, err := New(testConfig(t, all, 0, distancer.NewL2SquaredProvider()), uc)

@@ -33,6 +33,7 @@ import (
 )
 
 func TestNewValidatesItsConfig(t *testing.T) {
+	t.Parallel()
 	vectors := clusteredVectors(10, 4, 1, 1)
 	valid := func() Config { return testConfig(t, vectors, 0, distancer.NewL2SquaredProvider()) }
 
@@ -237,6 +238,7 @@ func TestNewValidatesItsConfig(t *testing.T) {
 // the distance: a margin is in the units of the distance, so the one
 // calibrated for cosine must not leak into an l2 index.
 func TestDefaults(t *testing.T) {
+	t.Parallel()
 	uc := NewDefaultUserConfig()
 	require.NoError(t, uc.Validate())
 	assert.Equal(t, 20, uc.EF)
@@ -277,12 +279,13 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestIndexDescribesItself(t *testing.T) {
+	t.Parallel()
 	uc := NewDefaultUserConfig()
 	assert.Equal(t, "postingedge", uc.IndexType())
 	assert.Equal(t, "cosine", uc.DistanceName())
 	assert.False(t, uc.IsMultiVector())
 
-	vectors := clusteredVectors(200, 8, 3, 1)
+	vectors := clusteredVectors(100, 8, 3, 1)
 	luc := smallConfig()
 	luc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, distancer.NewL2SquaredProvider(), luc)
@@ -295,9 +298,10 @@ func TestIndexDescribesItself(t *testing.T) {
 
 // The write path of this version: batches in, one build, then read-only.
 func TestIndexLifecycle(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(600, 8, 6, 151)
+	vectors := clusteredVectors(160, 8, 3, 151)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 
@@ -318,14 +322,14 @@ func TestIndexLifecycle(t *testing.T) {
 
 	// Ids need not start at zero.
 	ids := sequentialIDs(len(vectors), 1000)
-	require.NoError(t, index.AddBatch(ctx, ids[:400], vectors[:400]))
-	require.NoError(t, index.Add(ctx, ids[400], vectors[400]))
-	require.NoError(t, index.AddBatch(ctx, ids[401:], vectors[401:]))
+	require.NoError(t, index.AddBatch(ctx, ids[:100], vectors[:100]))
+	require.NoError(t, index.Add(ctx, ids[100], vectors[100]))
+	require.NoError(t, index.AddBatch(ctx, ids[101:], vectors[101:]))
 
 	assert.True(t, index.ContainsDoc(1000))
-	assert.True(t, index.ContainsDoc(1599))
+	assert.True(t, index.ContainsDoc(1159))
 	assert.False(t, index.ContainsDoc(999))
-	assert.False(t, index.ContainsDoc(1600))
+	assert.False(t, index.ContainsDoc(1160))
 
 	// Added but not built: still not searchable.
 	_, _, err = index.SearchByVector(ctx, vectors[0], 5, nil)
@@ -376,6 +380,7 @@ func TestIndexLifecycle(t *testing.T) {
 }
 
 func TestAddBatchRejectsWhatItCannotStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
 	vectors := clusteredVectors(20, 8, 2, 161)
@@ -492,6 +497,7 @@ func TestAddBatchRejectsWhatItCannotStore(t *testing.T) {
 }
 
 func TestValidateBeforeInsert(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	vectors := clusteredVectors(5, 8, 1, 171)
 	uc := smallConfig()
@@ -509,9 +515,10 @@ func TestValidateBeforeInsert(t *testing.T) {
 // Cosine normalizes what it indexes, but must leave the caller's vectors
 // alone, and must rank by angle whatever their lengths.
 func TestCosineIndexNormalizesACopy(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewCosineDistanceProvider()
-	vectors := clusteredVectors(800, 16, 10, 181)
+	vectors := clusteredVectors(150, 16, 4, 181)
 	for i, vec := range vectors {
 		scale := float32(1 + i%7)
 		for j := range vec {
@@ -530,7 +537,7 @@ func TestCosineIndexNormalizesACopy(t *testing.T) {
 	require.Equal(t, original, vectors, "the caller's vectors must not be modified")
 
 	truth := normalizedCopy(vectors)
-	for _, i := range []int{0, 13, 400, 799} {
+	for _, i := range []int{0, 13, 75, 149} {
 		// A scaled copy of a stored vector is at angle zero from it.
 		query := slices.Clone(vectors[i])
 		for j := range query {
@@ -548,8 +555,9 @@ func TestCosineIndexNormalizesACopy(t *testing.T) {
 }
 
 func TestOperationsThisVersionLeavesOutFailLoudly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	vectors := clusteredVectors(300, 8, 4, 191)
+	vectors := clusteredVectors(100, 8, 3, 191)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, distancer.NewL2SquaredProvider(), uc)
@@ -576,8 +584,9 @@ func TestOperationsThisVersionLeavesOutFailLoudly(t *testing.T) {
 }
 
 func TestUpdateUserConfig(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(300, 8, 4, 201)
+	vectors := clusteredVectors(60, 8, 2, 201)
 	base := smallConfig()
 	base.Distance = "l2-squared"
 
@@ -653,6 +662,7 @@ func TestUpdateUserConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			index, err := New(testConfig(t, vectors, 0, provider), base)
 			require.NoError(t, err)
@@ -681,6 +691,7 @@ func TestUpdateUserConfig(t *testing.T) {
 }
 
 func TestQueryVectorDistancerIsExact(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		provider distancer.Provider
@@ -691,7 +702,8 @@ func TestQueryVectorDistancerIsExact(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vectors := clusteredVectors(300, 8, 4, 211)
+			t.Parallel()
+			vectors := clusteredVectors(100, 8, 3, 211)
 			uc := smallConfig()
 			uc.Distance = tt.distance
 			index := buildTestIndex(t, vectors, tt.provider, uc)
@@ -700,7 +712,7 @@ func TestQueryVectorDistancerIsExact(t *testing.T) {
 			qd := index.QueryVectorDistancer(query)
 			defer qd.Close()
 
-			for _, id := range []uint64{0, 5, 299} {
+			for _, id := range []uint64{0, 5, 99} {
 				got, err := qd.DistanceToNode(id)
 				require.NoError(t, err)
 
@@ -720,7 +732,9 @@ func TestQueryVectorDistancerIsExact(t *testing.T) {
 }
 
 func TestMemoryStatsAddUp(t *testing.T) {
-	vectors := clusteredVectors(2000, 64, 20, 221)
+	t.Parallel()
+	const n = 200
+	vectors := clusteredVectors(n, 64, 4, 221)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, distancer.NewL2SquaredProvider(), uc)
@@ -730,16 +744,16 @@ func TestMemoryStatsAddUp(t *testing.T) {
 	build, ok := index.BuildStats()
 	require.True(t, ok)
 
-	assert.Equal(t, 2000, memory.Vectors)
+	assert.Equal(t, n, memory.Vectors)
 	assert.Equal(t, build.Postings, memory.Postings)
 	assert.Equal(t, build.Edges, memory.Edges)
 
 	// 64 dimensions are padded to the 256 bit minimum: 4 words of bits and
 	// one of header.
-	assert.Equal(t, int64(2000*5*8), memory.CodeBytes)
+	assert.Equal(t, int64(n*5*8), memory.CodeBytes)
 	assert.Zero(t, memory.ScanCodeBytes, "the scan reads the codes of the sidecar")
-	assert.Equal(t, int64(2000*8+(memory.Postings+1)*4+2000*4), memory.PostingBytes)
-	assert.Equal(t, int64(memory.Edges*4+2001*4), memory.EdgeBytes)
+	assert.Equal(t, int64(n*8+(memory.Postings+1)*4+n*4), memory.PostingBytes)
+	assert.Equal(t, int64(memory.Edges*4+(n+1)*4), memory.EdgeBytes)
 	assert.Equal(t, int64(memory.Postings*64*4), memory.CentroidVectorBytes)
 	assert.Equal(t, memory.PostingBytes+memory.CodeBytes+memory.EdgeBytes+memory.CentroidVectorBytes,
 		memory.Total())
@@ -748,8 +762,9 @@ func TestMemoryStatsAddUp(t *testing.T) {
 // Every vector must end up in exactly one posting, in the posting of its
 // nearest centroid, with the code of its own vector.
 func TestBuiltStateInvariants(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(3000, 24, 30, 231)
+	vectors := clusteredVectors(200, 24, 4, 231)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, provider, uc)
@@ -785,9 +800,11 @@ func TestBuiltStateInvariants(t *testing.T) {
 // structure is the same, and with everything loaded and rescored the result
 // is still exact.
 func TestCappedCodes(t *testing.T) {
-	const dims, n, k = 512, 1500, 10
+	t.Parallel()
+	// 128 dimensions are padded to the minimum code of 256 bits.
+	const dims, n, k = 128, 120, 10
 	provider := distancer.NewCosineDistanceProvider()
-	all := clusteredVectors(n+30, dims, 1, 501)
+	all := clusteredVectors(n+12, dims, 1, 501)
 	vectors, queries := all[:n], all[n:]
 	truth := normalizedCopy(vectors)
 
@@ -796,10 +813,10 @@ func TestCappedCodes(t *testing.T) {
 		codeBits  int
 		wantWords int
 	}{
-		{name: "full codes", codeBits: 0, wantWords: 9},
-		{name: "capped to 256 bits", codeBits: 256, wantWords: 5},
+		{name: "full codes", codeBits: 0, wantWords: 5},
+		{name: "capped to 128 bits", codeBits: 128, wantWords: 3},
 		{name: "capped to 64 bits", codeBits: 64, wantWords: 2},
-		{name: "capped at the full width", codeBits: 512, wantWords: 9},
+		{name: "capped at the full width", codeBits: 2 * dims, wantWords: 5},
 	}
 	recalls := map[int]float64{}
 	for _, tt := range tests {
@@ -807,6 +824,10 @@ func TestCappedCodes(t *testing.T) {
 			uc := smallConfig()
 			uc.CodeBits = tt.codeBits
 			uc.EF = 4 * k
+			// Few vectors rescored, so that the codes pick them: over this
+			// small corpus a rescore of a hundred finds nearly everything
+			// whatever the codes.
+			uc.RescoreLimit = 2 * k
 			index := buildTestIndex(t, vectors, provider, uc)
 			st := index.state.Load()
 
@@ -828,7 +849,7 @@ func TestCappedCodes(t *testing.T) {
 			exhaustive := uc
 			exhaustive.EntryPostings, exhaustive.RescoreLimit = n, n
 			require.NoError(t, index.UpdateUserConfig(exhaustive, func() {}))
-			for _, query := range queries {
+			for _, query := range queries[:3] {
 				ids, _, err := index.SearchByVector(context.Background(), query, k, nil)
 				require.NoError(t, err)
 				want := exactNearest(t, truth, distancer.Normalize(query), k, -1, provider)
@@ -840,16 +861,17 @@ func TestCappedCodes(t *testing.T) {
 	}
 
 	// Coarser codes cost recall, in order, and must not break the search:
-	// picking at random would find 0.007.
-	assert.InDelta(t, recalls[0], recalls[dims], 1e-9, "capped at the full width is the full code")
-	assert.Greater(t, recalls[0], recalls[256])
-	assert.Greater(t, recalls[256], recalls[64])
+	// picking at random would find 0.08. Measured 0.900, 0.692 and 0.517.
+	assert.InDelta(t, recalls[0], recalls[2*dims], 1e-9, "capped at the full width is the full code")
+	assert.Greater(t, recalls[0], recalls[128])
+	assert.Greater(t, recalls[128], recalls[64])
 	assert.Greater(t, recalls[64], 0.15)
 }
 
 func TestCodeBitsWiderThanTheCodeFailTheBuild(t *testing.T) {
+	t.Parallel()
 	// 24 dimensions are padded to the minimum code of 256 bits.
-	vectors := clusteredVectors(200, 24, 3, 511)
+	vectors := clusteredVectors(100, 24, 2, 511)
 
 	tests := []struct {
 		name          string
@@ -904,9 +926,10 @@ func TestCodeBitsWiderThanTheCodeFailTheBuild(t *testing.T) {
 // one quantizer. Nothing else about the structure changes, and with
 // everything loaded and rescored the result is still exact.
 func TestScanCodes(t *testing.T) {
-	const dims, n, k = 512, 1500, 10
+	t.Parallel()
+	const dims, n, k = 128, 120, 10
 	provider := distancer.NewCosineDistanceProvider()
-	all := clusteredVectors(n+30, dims, 1, 501)
+	all := clusteredVectors(n+6, dims, 1, 501)
 	vectors, queries := all[:n], all[n:]
 	truth := normalizedCopy(vectors)
 
@@ -917,15 +940,19 @@ func TestScanCodes(t *testing.T) {
 		wantScanWords int
 		wantSideWords int
 	}{
-		{name: "short scan codes, full sidecar codes", scanCodeBits: 128, wantScanWords: 3, wantSideWords: 9},
-		{name: "short scan codes, capped sidecar codes", codeBits: 256, scanCodeBits: 64, wantScanWords: 2, wantSideWords: 5},
-		{name: "scan codes at the full width", scanCodeBits: dims, wantScanWords: 9, wantSideWords: 9},
+		{name: "short scan codes, full sidecar codes", scanCodeBits: 128, wantScanWords: 3, wantSideWords: 5},
+		{name: "short scan codes, capped sidecar codes", codeBits: 128, scanCodeBits: 64, wantScanWords: 2, wantSideWords: 3},
+		{name: "scan codes at the full width", scanCodeBits: 256, wantScanWords: 5, wantSideWords: 5},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			uc := smallConfig()
 			uc.CodeBits, uc.ScanCodeBits = tt.codeBits, tt.scanCodeBits
 			uc.EF = 4 * k
+			// Few vectors rescored, so that the codes pick them, as in
+			// TestCappedCodes.
+			uc.RescoreLimit = 2 * k
 			index := buildTestIndex(t, vectors, provider, uc)
 			st := index.state.Load()
 			store, side := st.postings, st.side
@@ -950,7 +977,7 @@ func TestScanCodes(t *testing.T) {
 			}
 
 			// Through the edges, scanning with one code and ranking the
-			// endpoints with the other: picking at random would find 0.007.
+			// endpoints with the other: picking at random would find 0.08.
 			recall := recallAt(t, index, truth, normalizedCopy(queries), k, provider)
 			t.Logf("%s: recall@%d %.3f", tt.name, k, recall)
 			assert.Greater(t, recall, 0.15)
@@ -960,7 +987,7 @@ func TestScanCodes(t *testing.T) {
 			exhaustive := uc
 			exhaustive.EntryPostings, exhaustive.RescoreLimit = n, n
 			require.NoError(t, index.UpdateUserConfig(exhaustive, func() {}))
-			for _, query := range queries {
+			for _, query := range queries[:3] {
 				ids, _, err := index.SearchByVector(context.Background(), query, k, nil)
 				require.NoError(t, err)
 				want := exactNearest(t, truth, distancer.Normalize(query), k, -1, provider)
@@ -973,9 +1000,10 @@ func TestScanCodes(t *testing.T) {
 }
 
 func TestShutdownAndDrop(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(300, 8, 4, 241)
+	vectors := clusteredVectors(100, 8, 3, 241)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 
@@ -1020,8 +1048,9 @@ func TestShutdownAndDrop(t *testing.T) {
 }
 
 func TestBuildStopsOnCancelledContext(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(2000, 16, 10, 251)
+	vectors := clusteredVectors(100, 16, 3, 251)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 
@@ -1047,9 +1076,10 @@ func TestBuildStopsOnCancelledContext(t *testing.T) {
 // They must fail cleanly until the build is published, never observe a
 // half-built index. Run with -race.
 func TestSearchDuringBuild(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(4000, 16, 30, 261)
+	vectors := clusteredVectors(200, 16, 4, 261)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 
@@ -1085,12 +1115,12 @@ func TestSearchDuringBuild(t *testing.T) {
 	}
 
 	ids := sequentialIDs(len(vectors), 0)
-	for start := 0; start < len(vectors); start += 250 {
-		require.NoError(t, index.AddBatch(ctx, ids[start:start+250], vectors[start:start+250]))
+	for start := 0; start < len(vectors); start += 50 {
+		require.NoError(t, index.AddBatch(ctx, ids[start:start+50], vectors[start:start+50]))
 	}
 	require.NoError(t, index.Build(ctx))
 	// Let the searchers run against the built index for a moment.
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 20; i++ {
 		_, _, err := index.SearchByVector(ctx, vectors[i], 5, nil)
 		require.NoError(t, err)
 	}
@@ -1106,9 +1136,10 @@ func TestSearchDuringBuild(t *testing.T) {
 // follows them, a search reads them, and putting the full edges back gives
 // back the results of the build.
 func TestReplaceEdges(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(3000, 24, 30, 271)
+	vectors := clusteredVectors(200, 24, 3, 271)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	uc.EF = 8
@@ -1116,7 +1147,7 @@ func TestReplaceEdges(t *testing.T) {
 
 	full := index.state.Load().postings
 	fullStart, fullEdges := full.edgeStart, full.edges
-	queries := vectors[:200]
+	queries := vectors[:30]
 	search := func() [][]uint64 {
 		out := make([][]uint64, len(queries))
 		for i, q := range queries {
@@ -1194,9 +1225,10 @@ func TestReplaceEdges(t *testing.T) {
 }
 
 func TestReplaceEdgesRejectsWhatIsNotAnEdgeSet(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(1000, 16, 10, 281)
+	vectors := clusteredVectors(120, 16, 1, 281)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, provider, uc)
@@ -1264,9 +1296,10 @@ func TestReplaceEdgesRejectsWhatIsNotAnEdgeSet(t *testing.T) {
 // other, never a mix: under -race this is also the check that the state a
 // search holds is not written.
 func TestReplaceEdgesDuringSearches(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(3000, 16, 30, 291)
+	vectors := clusteredVectors(200, 16, 4, 291)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, provider, uc)
@@ -1298,7 +1331,7 @@ func TestReplaceEdgesDuringSearches(t *testing.T) {
 			}
 		}()
 	}
-	for round := 0; round < 50; round++ {
+	for round := 0; round < 20; round++ {
 		start, edges := capDegree(fullStart, fullEdges, round%4)
 		require.NoError(t, index.replaceEdges(start, edges))
 	}

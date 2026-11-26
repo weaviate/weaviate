@@ -201,6 +201,7 @@ func (r *edgeRedundancy) report() string {
 }
 
 func TestEdgeRedundancyOf(t *testing.T) {
+	t.Parallel()
 	// Slots 0..7 live in postings 0,0,1,1,2,2,3,3.
 	postingOf := []uint32{0, 0, 1, 1, 2, 2, 3, 3}
 	tests := []struct {
@@ -273,6 +274,7 @@ func TestEdgeRedundancyOf(t *testing.T) {
 }
 
 func TestEdgeRedundancyDiagnostics(t *testing.T) {
+	t.Parallel()
 	// Postings 0,0,1,1,2,2,3,3. Slot 0 -> postings 1, 1, 2; slot 1 -> 3, 2,
 	// 3, 2; slot 2 -> nothing: 7 edges, 4 distinct targets, 3 shared.
 	r := edgeRedundancyOf([]uint32{0, 3, 7, 7}, []uint32{2, 3, 4, 6, 4, 7, 5}, []uint32{0, 0, 1, 1, 2, 2, 3, 3})
@@ -290,6 +292,7 @@ func TestEdgeRedundancyDiagnostics(t *testing.T) {
 }
 
 func TestHistPercentile(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		hist []int
@@ -313,7 +316,8 @@ func TestHistPercentile(t *testing.T) {
 // counted once by rank and once by degree, and the shared edges are what is
 // left over the distinct targets.
 func TestEdgeRedundancyOfABuild(t *testing.T) {
-	vectors := clusteredVectors(3000, 24, 30, 914)
+	t.Parallel()
+	vectors := clusteredVectors(200, 24, 4, 914)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, distancer.NewL2SquaredProvider(), uc)

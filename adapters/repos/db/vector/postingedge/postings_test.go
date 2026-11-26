@@ -25,6 +25,7 @@ import (
 )
 
 func TestSlotLayoutGroupsVectorsByPosting(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		primary    []uint32
@@ -85,6 +86,7 @@ func TestSlotLayoutGroupsVectorsByPosting(t *testing.T) {
 }
 
 func TestPostingStoreLoadsOnePostingAtATime(t *testing.T) {
+	t.Parallel()
 	// 3 postings of 2, 0 and 3 members, codes of 2 words.
 	store := &postingStore{
 		codeWords: 2,
@@ -137,6 +139,7 @@ func TestPostingStoreLoadsOnePostingAtATime(t *testing.T) {
 // Scoring a batch of slots must give, bit for bit, what scoring them one by
 // one gives: the batch only changes when the codes are fetched.
 func TestSidecarScoreMatchesScoringOneByOne(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		dims     int
@@ -153,7 +156,7 @@ func TestSidecarScoreMatchesScoringOneByOne(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const n = 300
+			const n = 100
 			vectors := clusteredVectors(n+1, tt.dims, 3, 401)
 			query, vectors := vectors[n], vectors[:n]
 			if tt.provider.Type() == "cosine-dot" {
@@ -214,6 +217,7 @@ func (f failingEstimator) Distance(code []uint64) (float32, error) {
 }
 
 func TestSidecarScoreReportsTheSlotThatFailed(t *testing.T) {
+	t.Parallel()
 	side := &sidecar{codeWords: 2, codes: []uint64{10, 0, 11, 0, 12, 0, 13, 0}}
 	dists := make([]float32, 3)
 
@@ -229,6 +233,7 @@ func TestSidecarScoreReportsTheSlotThatFailed(t *testing.T) {
 // and checks that the hints for a slot cover its whole code. A code that
 // starts late in a cache line ends one line further than its size says.
 func TestSidecarPrefetchCoversTheWholeCode(t *testing.T) {
+	t.Parallel()
 	const line = 64
 	tests := []struct {
 		name      string
@@ -328,6 +333,7 @@ func BenchmarkSidecarScore(b *testing.B) {
 }
 
 func TestTargetPostingSize(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		configured int
