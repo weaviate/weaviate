@@ -743,6 +743,10 @@ type growOpen struct {
 	// cycles are the cycles of the node that keep the centroid graph: none
 	// in the experiments.
 	cycles centroidCycles
+	// centroidsID, with a store, has the centroid graph keep the centroids as
+	// 8-bit RQ codes in a bucket of that store, named by it, and nothing of
+	// them in float32 in memory (centroidCodes). Empty, they are in float32.
+	centroidsID string
 	// journal has every write of the index go through its journal
 	// (grow_journal.go), so that what a process that dies leaves on disk is
 	// the index as it was after its last whole write. An index opened
@@ -753,6 +757,16 @@ type growOpen struct {
 	// its halo, and a write reads the codes it needs from their bucket. Only
 	// an index whose postings carry their halo opens so (growMeta.Halo).
 	noCodes bool
+}
+
+// centroidCodes is how the centroid graph of an index opened so keeps its
+// centroids: as codes in the store it was given, if it has a centroidsID, and
+// in float32 otherwise.
+func (o growOpen) centroidCodes(file string, dims int) centroidCodes {
+	if o.store == nil || o.centroidsID == "" {
+		return centroidCodes{}
+	}
+	return centroidCodes{store: o.store, makeOptions: o.makeOptions, id: o.centroidsID, file: file, dims: dims}
 }
 
 // growBlock is a row of edges decoded: the members it has a list of, in its
@@ -1240,17 +1254,21 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		}
 	}
 
-	flat, err := readArray(path(diskCentroidFile), 4, meta.Postings*meta.Dims, getFloat32)
-	if err != nil {
-		return nil, errors.Wrap(err, "read the centroids")
+	codes := opts.centroidCodes(path(diskCentroidFile), meta.Dims)
+	var centroids [][]float32
+	if codes.store == nil {
+		flat, err := readArray(path(diskCentroidFile), 4, meta.Postings*meta.Dims, getFloat32)
+		if err != nil {
+			return nil, errors.Wrap(err, "read the centroids")
+		}
+		// Every centroid is its own allocation, so that those of the retired
+		// postings can go once the index knows which they are (below).
+		centroids = make([][]float32, meta.Postings)
+		for p := range centroids {
+			centroids[p] = slices.Clone(flat[p*meta.Dims : (p+1)*meta.Dims])
+		}
 	}
-	// Every centroid is its own allocation, so that those of the retired
-	// postings can go once the index knows which they are (below).
-	centroids := make([][]float32, meta.Postings)
-	for p := range centroids {
-		centroids[p] = slices.Clone(flat[p*meta.Dims : (p+1)*meta.Dims])
-	}
-	graph, err := openCentroidGraphWith(ctx, logger, path(diskGraphDir), centroids, opts.cycles)
+	graph, err := openCentroidGraphWith(ctx, logger, path(diskGraphDir), centroids, opts.cycles, codes)
 	if err != nil {
 		return nil, err
 	}

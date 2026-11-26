@@ -185,7 +185,11 @@ func (g *growIndex) retirePosting(p uint32) error {
 func (g *growIndex) nearestPosting(ctx context.Context, p uint32) (uint32, error) {
 	centroids := g.st.centroids
 	for limit := 4; limit <= 4096; limit *= 4 {
-		ids, err := centroids.nearest(ctx, centroids.vector(p), limit)
+		centroid, err := centroids.vector(p)
+		if err != nil {
+			return 0, err
+		}
+		ids, err := centroids.nearest(ctx, centroid, limit)
 		if err != nil {
 			return 0, err
 		}
