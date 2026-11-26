@@ -310,9 +310,10 @@ func TestMuveraSearchBudgets(t *testing.T) {
 // narrow-probe misses is precisely such a feature's job.
 func TestSearchProbeChangesResults(t *testing.T) {
 	const (
-		nDocs  = 1000
-		tokens = 2
-		dim    = 16
+		nDocs    = 1000
+		tokens   = 2
+		dim      = 16
+		lowProbe = 16
 	)
 	tf := createMuveraHFreshIndex(t, withDistanceProvider(distancer.NewCosineDistanceProvider()))
 	rng := rand.New(rand.NewSource(21))
@@ -321,11 +322,11 @@ func TestSearchProbeChangesResults(t *testing.T) {
 	}
 
 	// wait for background splits so the posting layout is stable and wide
-	// enough (>16 postings) for the routing budget to matter
+	// enough (more postings than lowProbe) for the routing budget to matter
 	require.Eventually(t, func() bool {
 		return tf.Index.taskQueue.Size() == 0
 	}, 60*time.Second, 100*time.Millisecond, "background tasks did not drain")
-	require.Greater(t, tf.Index.PostingSizes.Count(), uint64(16))
+	require.Greater(t, tf.Index.PostingSizes.Count(), uint64(lowProbe))
 
 	probe := randomMultiVector(rng, tokens, dim)
 	queryFDE := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
@@ -339,17 +340,17 @@ func TestSearchProbeChangesResults(t *testing.T) {
 	require.Equal(t, nDocs, len(fullCandidates),
 		"a routing budget above the posting count must cover the whole corpus")
 
-	lowProbeCandidates, err := tf.Index.searchByFDE(t.Context(), queryFDE, 16, wideOpen, nil)
+	lowProbeCandidates, err := tf.Index.searchByFDE(t.Context(), queryFDE, lowProbe, wideOpen, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, lowProbeCandidates)
 	require.Less(t, len(lowProbeCandidates), len(fullCandidates),
-		"routingBudget=16 must scan fewer postings than full routing; "+
-			"equal coverage means the probe is being silently floored")
+		"routingBudget=%d must scan fewer postings than full routing; "+
+			"equal coverage means the probe is being silently floored", lowProbe)
 
 	// end to end: the collection-level searchProbe drives the same budgets
-	updateSearchProbe(t, &tf, 16)
+	updateSearchProbe(t, &tf, lowProbe)
 	routing, rerank := tf.Index.muveraSearchBudgets(10)
-	require.Equal(t, 16, routing)
+	require.Equal(t, lowProbe, routing)
 	require.Equal(t, 350, rerank)
 	ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 10, nil)
 	require.NoError(t, err)
