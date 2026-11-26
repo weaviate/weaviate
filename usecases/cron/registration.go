@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	gocron "github.com/netresearch/go-cron"
 	"github.com/sirupsen/logrus"
@@ -301,4 +302,14 @@ func (c *cronsRegistration[T]) RuntimeConfigHook() error {
 	}
 	c.valueCh <- newValue
 	return nil
+}
+
+// intervalOrDefault returns def for a configured interval at or below zero, so
+// no interval value turns a job off.
+func intervalOrDefault(configured, def time.Duration, logger logrus.FieldLogger) time.Duration {
+	if configured > 0 {
+		return configured
+	}
+	logger.Warnf("interval %s is at or below zero, applying the default %s", configured, def)
+	return def
 }

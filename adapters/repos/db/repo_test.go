@@ -19,12 +19,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -289,7 +292,7 @@ func TestDB_scanStartupProgressDuringLoad(t *testing.T) {
 	}
 }
 
-// listAnswer holds what LocalIndexClassNames or GetLocalShardNames returned, sent
+// listAnswer holds what LocalIndexClassNames or OpenLocalShardNames returned, sent
 // out of the goroutine that called it.
 type listAnswer struct {
 	names []string
@@ -476,14 +479,14 @@ func TestLocalIndexClassNames(t *testing.T) {
 	})
 }
 
-func TestGetLocalShardNames(t *testing.T) {
+func TestOpenLocalShardNames(t *testing.T) {
 	dbWithShards := func(t *testing.T, collection string, shardNames ...string) (*DB, *Index) {
 		t.Helper()
 
 		logger, _ := test.NewNullLogger()
 		shards := make(map[string]ShardLike, len(shardNames))
 		for _, name := range shardNames {
-			// GetLocalShardNames reads only the shard names, so these mocks expect no call.
+			// OpenLocalShardNames reads only the shard names, so these mocks expect no call.
 			shards[name] = NewMockShardLike(t)
 		}
 		idx := newTestIndex(t, logger, collection, nil, shards)
@@ -502,7 +505,7 @@ func TestGetLocalShardNames(t *testing.T) {
 		idx.signalCloseRequested(errIndexDropped)
 		require.NoError(t, idx.beginClose())
 
-		got, err := db.GetLocalShardNames("Product")
+		got, err := db.OpenLocalShardNames("Product")
 
 		require.ErrorIs(t, err, ErrIndexClosing)
 		require.NotErrorIs(t, err, clusterSchema.ErrClassNotFound)
@@ -521,7 +524,7 @@ func TestGetLocalShardNames(t *testing.T) {
 		db, idx := dbWithShards(t, "Product", "s1", "s2")
 		idx.signalCloseRequested(errIndexDropped)
 
-		got, err := db.GetLocalShardNames("Product")
+		got, err := db.OpenLocalShardNames("Product")
 
 		require.ErrorIs(t, err, ErrIndexClosing)
 		require.ErrorIs(t, err, errIndexDropped)
@@ -529,15 +532,16 @@ func TestGetLocalShardNames(t *testing.T) {
 		assert.Nil(t, got, "a refusal carries no names a caller could diff against")
 	})
 
-	// ForEachLoadedShard would skip this never-loaded shard.
-	t.Run("it lists a resident shard that has never loaded", func(t *testing.T) {
+	// ForEachLoadedShard would skip both unloaded shards.
+	t.Run("it lists a never-loaded shard and a recovering placeholder", func(t *testing.T) {
 		db, idx := dbWithShards(t, "Product", "s1")
-		idx.shards.Store("cold", &LazyLoadShard{})
+		idx.shards.Store("lazy", &LazyLoadShard{})
+		idx.shards.Store("recovering", &RecoveringShard{LazyLoadShard: &LazyLoadShard{}})
 
-		got, err := db.GetLocalShardNames("Product")
+		got, err := db.OpenLocalShardNames("Product")
 
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"s1", "cold"}, got)
+		assert.ElementsMatch(t, []string{"s1", "lazy", "recovering"}, got)
 	})
 
 	// A schema change holds indexLock while DB.Shutdown begins, so DB.GetIndex returns
@@ -546,8 +550,8 @@ func TestGetLocalShardNames(t *testing.T) {
 		db, _ := dbWithShards(t, "Product", "s1")
 
 		db.indexLock.Lock()
-		done := callParkedOnIndexLock(t, "GetLocalShardNames", func() ([]string, error) {
-			return db.GetLocalShardNames("Product")
+		done := callParkedOnIndexLock(t, "OpenLocalShardNames", func() ([]string, error) {
+			return db.OpenLocalShardNames("Product")
 		})
 
 		close(db.shutdown)
@@ -569,7 +573,7 @@ func TestGetLocalShardNames(t *testing.T) {
 		db, _ := dbWithShards(t, "Product", "s1")
 		close(db.shutdown)
 
-		got, err := db.GetLocalShardNames("Product")
+		got, err := db.OpenLocalShardNames("Product")
 
 		require.ErrorIs(t, err, ErrIndexClosing)
 		require.ErrorIs(t, err, errIndexShutdown)
@@ -579,7 +583,7 @@ func TestGetLocalShardNames(t *testing.T) {
 	t.Run("a collection with no index wraps ErrClassNotFound", func(t *testing.T) {
 		db, _ := dbWithShards(t, "Product", "s1")
 
-		got, err := db.GetLocalShardNames("Absent")
+		got, err := db.OpenLocalShardNames("Absent")
 
 		require.ErrorIs(t, err, clusterSchema.ErrClassNotFound)
 		require.NotErrorIs(t, err, ErrIndexClosing)
@@ -603,7 +607,7 @@ func TestGetLocalShardNames(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				db, _ := dbWithShards(t, "Product", tc.shards...)
 
-				got, err := db.GetLocalShardNames("Product")
+				got, err := db.OpenLocalShardNames("Product")
 
 				require.NoError(t, err)
 				assert.NotNil(t, got, "a caller ranging over this needs no nil check")
@@ -616,7 +620,7 @@ func TestGetLocalShardNames(t *testing.T) {
 	// inflight.Wait.
 	t.Run("the index is still closable after a successful call", func(t *testing.T) {
 		db, idx := dbWithShards(t, "Product", "s1")
-		_, err := db.GetLocalShardNames("Product")
+		_, err := db.OpenLocalShardNames("Product")
 		require.NoError(t, err)
 
 		closed := make(chan error, 1)
@@ -645,6 +649,27 @@ func TestUnloadShard(t *testing.T) {
 			indices:  map[string]*Index{indexID(idx.Config.ClassName): idx},
 			shutdown: make(chan struct{}),
 		}, idx
+	}
+
+	// installOp gives idx a replication FSM holding one FINALIZING op on s1.
+	installOp := func(t *testing.T, idx *Index, source, target string) {
+		t.Helper()
+		fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+		require.NoError(t, fsm.Replicate(1, &api.ReplicationReplicateShardRequest{
+			Version:          api.ReplicationCommandVersionV0,
+			Uuid:             "00000000-0000-0000-0000-000000000001",
+			SourceNode:       source,
+			SourceCollection: idx.Config.ClassName.String(),
+			SourceShard:      "s1",
+			TargetNode:       target,
+			TransferType:     api.COPY.String(),
+		}))
+		require.NoError(t, fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Id:      1,
+			State:   api.FINALIZING,
+		}))
+		idx.SetReplicationFSMReader(fsm)
 	}
 
 	t.Run("a class with no local index fails the whole call", func(t *testing.T) {
@@ -702,5 +727,117 @@ func TestUnloadShard(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
 		assert.Nil(t, idx.shards.Load("s1"))
+	})
+
+	// Promotion finds the shard through the placeholder and fails without it.
+	// It leaves the bare lazy shard, which the next call unloads.
+	t.Run("a self-recovery placeholder stays until it is promoted", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			shard       ShardLike
+			wantOutcome ShardUnloadOutcome
+			wantErr     error
+			wantKept    bool
+		}{
+			{
+				name:        "placeholder",
+				shard:       &RecoveringShard{LazyLoadShard: &LazyLoadShard{}},
+				wantOutcome: ShardUnloadOutcomeRecovering,
+				wantErr:     enterrors.ErrShardRecovering,
+				wantKept:    true,
+			},
+			{
+				name:        "promoted",
+				shard:       &LazyLoadShard{},
+				wantOutcome: ShardUnloadOutcomeUnloaded,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				db, idx := dbWithShard(t, "Product", "s1")
+				idx.shards.Store("s1", tc.shard)
+
+				outcome, err := db.UnloadShard(context.Background(), "Product", "s1")
+
+				if tc.wantErr != nil {
+					require.ErrorIs(t, err, tc.wantErr)
+				} else {
+					require.NoError(t, err)
+				}
+				assert.Equal(t, tc.wantOutcome, outcome)
+				if tc.wantKept {
+					assert.Same(t, tc.shard, idx.shards.Load("s1"))
+				} else {
+					assert.Nil(t, idx.shards.Load("s1"))
+				}
+			})
+		}
+	})
+
+	// The FSM's own tests cover which op states hold a shard, so every row seeds a
+	// FINALIZING op.
+	t.Run("a replication op keeps the shards it copies out of and into", func(t *testing.T) {
+		sweepUnload := func(db *DB, _ *Index) (ShardUnloadOutcome, error) {
+			return db.UnloadShard(context.Background(), namespacedClass, "s1")
+		}
+		tests := []struct {
+			name           string
+			source, target string
+			unload         func(db *DB, idx *Index) (ShardUnloadOutcome, error)
+			notInMap       bool
+			wantOutcome    ShardUnloadOutcome
+		}{
+			{
+				name:   "the sweep keeps this node's target",
+				source: "node2", target: "node1", unload: sweepUnload,
+				wantOutcome: ShardUnloadOutcomeMovementTarget,
+			},
+			{
+				name:   "the sweep keeps this node's source",
+				source: "node1", target: "node2", unload: sweepUnload,
+				wantOutcome: ShardUnloadOutcomeMovementSource,
+			},
+			{
+				name:   "the sweep unloads a shard whose op moves other nodes' replicas",
+				source: "node2", target: "node3", unload: sweepUnload,
+				wantOutcome: ShardUnloadOutcomeUnloaded,
+			},
+			{
+				name:   "UnloadLocalShard unloads this node's target",
+				source: "node2", target: "node1",
+				unload: func(_ *DB, idx *Index) (ShardUnloadOutcome, error) {
+					return idx.UnloadLocalShard(context.Background(), "s1")
+				},
+				wantOutcome: ShardUnloadOutcomeUnloaded,
+			},
+			{
+				name:   "a target missing from the map reports unloaded",
+				source: "node2", target: "node1", unload: sweepUnload, notInMap: true,
+				wantOutcome: ShardUnloadOutcomeUnloaded,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				db, idx := dbWithShard(t, namespacedClass, "s1")
+				shard := idx.shards.Load("s1").(*MockShardLike)
+				if tc.notInMap {
+					idx.shards.LoadAndDelete("s1")
+				}
+				installOp(t, idx, tc.source, tc.target)
+
+				outcome, err := tc.unload(db, idx)
+
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantOutcome, outcome)
+				if tc.wantOutcome == ShardUnloadOutcomeUnloaded {
+					assert.Nil(t, idx.shards.Load("s1"))
+				} else {
+					assert.Same(t, shard, idx.shards.Load("s1"))
+					shard.AssertNotCalled(t, "Shutdown", mock.Anything)
+				}
+			})
+		}
 	})
 }

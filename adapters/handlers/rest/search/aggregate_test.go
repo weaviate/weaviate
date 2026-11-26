@@ -28,7 +28,9 @@ import (
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // mustAggregateModel is mustModel for the aggregate request model.
@@ -387,6 +389,8 @@ func TestAggregateHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastAggregateParams.Tenant)
 }
 
@@ -401,7 +405,7 @@ func TestAggregateHandlerResolvesAliases(t *testing.T) {
 
 func TestAggregateHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection
@@ -646,7 +650,7 @@ func TestAggregateGroupByRefDetection(t *testing.T) {
 	qualified := movieClass()
 	qualified.Class = "ns1:Movie"
 	deps := newTestHandlerWithClass(t, qualified)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 	deps.searcher.aggregateRes = &aggregation.Result{Groups: []aggregation.Group{
 		{

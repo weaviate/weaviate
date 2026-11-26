@@ -430,6 +430,62 @@ func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) RunAndReturn(run fu
 	return _c
 }
 
+// ReplicationLocalOpCancelState provides a mock function with given fields: opID
+func (_m *MockFSMUpdater) ReplicationLocalOpCancelState(opID uint64) (OpCancelState, error) {
+	ret := _m.Called(opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplicationLocalOpCancelState")
+	}
+
+	var r0 OpCancelState
+	var r1 error
+	if rf, ok := ret.Get(0).(func(uint64) (OpCancelState, error)); ok {
+		return rf(opID)
+	}
+	if rf, ok := ret.Get(0).(func(uint64) OpCancelState); ok {
+		r0 = rf(opID)
+	} else {
+		r0 = ret.Get(0).(OpCancelState)
+	}
+
+	if rf, ok := ret.Get(1).(func(uint64) error); ok {
+		r1 = rf(opID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_ReplicationLocalOpCancelState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationLocalOpCancelState'
+type MockFSMUpdater_ReplicationLocalOpCancelState_Call struct {
+	*mock.Call
+}
+
+// ReplicationLocalOpCancelState is a helper method to define mock.On call
+//   - opID uint64
+func (_e *MockFSMUpdater_Expecter) ReplicationLocalOpCancelState(opID interface{}) *MockFSMUpdater_ReplicationLocalOpCancelState_Call {
+	return &MockFSMUpdater_ReplicationLocalOpCancelState_Call{Call: _e.mock.On("ReplicationLocalOpCancelState", opID)}
+}
+
+func (_c *MockFSMUpdater_ReplicationLocalOpCancelState_Call) Run(run func(opID uint64)) *MockFSMUpdater_ReplicationLocalOpCancelState_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationLocalOpCancelState_Call) Return(_a0 OpCancelState, _a1 error) *MockFSMUpdater_ReplicationLocalOpCancelState_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationLocalOpCancelState_Call) RunAndReturn(run func(uint64) (OpCancelState, error)) *MockFSMUpdater_ReplicationLocalOpCancelState_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReplicationRegisterError provides a mock function with given fields: ctx, id, errorToRegister
 func (_m *MockFSMUpdater) ReplicationRegisterError(ctx context.Context, id uint64, errorToRegister string) error {
 	ret := _m.Called(ctx, id, errorToRegister)

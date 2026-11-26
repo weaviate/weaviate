@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"sync"
 
@@ -40,22 +39,8 @@ func acquireSegmentCursorReader(r io.Reader) *bufio.Reader {
 	return br
 }
 
-// offsetReader adapts an io.ReaderAt into a sequential io.Reader by tracking
-// the current read position. Used by segmentCursorReplaceReusable to avoid
-// allocating a new SectionReader on every node read.
-type offsetReader struct {
-	ra  readerAt
-	off int64
-}
-
 type readerAt interface {
 	ReadAt(p []byte, off int64) (n int, err error)
-}
-
-func (r *offsetReader) Read(p []byte) (int, error) {
-	n, err := r.ra.ReadAt(p, r.off)
-	r.off += int64(n)
-	return n, err
 }
 
 type segmentCursorReplace struct {
@@ -317,9 +302,9 @@ type segmentCursorReplaceReusable struct {
 	// valuePrefixLen > 0 enables digest mode: retain only that many value bytes.
 	// 0 means full-value parsing.
 	valuePrefixLen int
-	// pread-path: pre-allocated reader chain reused across all node reads to
-	// avoid allocating a MeteredReader+SectionReader+nodeReader per iteration.
-	preadOffset *offsetReader
+	// pread-path: one reader chain reused across all node reads, metered like
+	// the reads of segmentCursorReplace.
+	preadOffset *meteredOffsetReader
 	preadReader *bufio.Reader
 	// preadPos is the position preadReader is parked at (-1 = unknown); parses
 	// landing exactly there keep the buffer instead of resetting it.
@@ -348,7 +333,10 @@ func (s *segment) newReplaceCursorReusableWithPrefix(valuePrefixLen int) *segmen
 		valuePrefixLen: valuePrefixLen,
 	}
 	if !s.readFromMemory && s.contentFile != nil {
-		or := &offsetReader{ra: s.contentFile}
+		or := &meteredOffsetReader{
+			ra:      s.contentFile,
+			observe: readObserver.GetOrCreate(readMetricName(segmentCursorReplaceOp), s.metrics),
+		}
 		c.preadOffset = or
 		c.preadReader = acquireSegmentCursorReader(or)
 		c.preadPos = -1
@@ -446,7 +434,7 @@ type reusableInnerCursorReplace struct {
 }
 
 func nodeToKV(n *segmentReplaceNode, err error) ([]byte, []byte, error) {
-	if errors.Is(err, lsmkv.Deleted) {
+	if lsmkv.IsDeleted(err) {
 		// tombstone: key with nil value, so the merge can advance past it
 		return n.primaryKey, nil, err
 	}

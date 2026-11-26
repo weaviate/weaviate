@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	moduleadditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
@@ -387,7 +388,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		sort = filters.ExtractSortFromArgs(sortArg.([]interface{}))
 	}
 
-	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+	filters, err := common_filters.ExtractFilters(p.Args, className)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract filters: %w", err)
 	}
@@ -458,11 +459,14 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	}
 
 	var replProps *additional.ReplicationProperties
+	var level string
 	if cl, ok := p.Args["consistencyLevel"]; ok {
+		level = cl.(string)
 		replProps = &additional.ReplicationProperties{
-			ConsistencyLevel: cl.(string),
+			ConsistencyLevel: level,
 		}
 	}
+	monitoring.GetMetrics().IncConsistencyLevelRequest(monitoring.ConsistencyLevelRead, level)
 
 	group := extractGroup(p.Args)
 

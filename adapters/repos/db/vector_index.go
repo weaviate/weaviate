@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -31,13 +32,15 @@ type VectorIndex interface {
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error
-	Drop(ctx context.Context, keepFiles bool) error
+	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Flush() error
 	PrepareForBackup(ctx context.Context) error
 	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
-	SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error)
+	// SnapshotMutableFiles copies each file this index owns and mutates in
+	// place to dstFor(relPath) and returns those relPaths, relative to basePath.
+	SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
 	Multivector() bool
@@ -53,6 +56,36 @@ type VectorIndex interface {
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	// CompressionStats returns the compression statistics for this index
 	CompressionStats() compressionhelpers.CompressionStats
+}
+
+// checkVectorKind refuses a payload whose shape does not match what the
+// target's index is configured for. Every hnsw implements VectorIndexMulti,
+// so the configured capability is what counts; a mismatch that slips past
+// here is only caught after the object is stored, or never with async
+// indexing. The noop index stands in for skipped indexing and takes anything.
+func checkVectorKind(index VectorIndex, targetVector string, multi bool) error {
+	if index.Type() == common.IndexTypeNoop || index.Multivector() == multi {
+		return nil
+	}
+	if multi {
+		return fmt.Errorf("target vector %q: %s index does not support multi-vectors", targetVector, index.Type())
+	}
+	return fmt.Errorf("target vector %q: %s index is configured for multi-vectors and does not accept single vectors",
+		targetVector, index.Type())
+}
+
+// asMultiVectorIndex is checkVectorKind for a multi-vector operation, also
+// guarding the type assertion for indexes that never implement the interface.
+func asMultiVectorIndex(index VectorIndex, targetVector string) (VectorIndexMulti, error) {
+	err := checkVectorKind(index, targetVector, true)
+	if err != nil {
+		return nil, err
+	}
+	multiIndex, ok := index.(VectorIndexMulti)
+	if !ok {
+		return nil, fmt.Errorf("target vector %q: %s index does not support multi-vectors", targetVector, index.Type())
+	}
+	return multiIndex, nil
 }
 
 // VectorIndexMulti is a VectorIndex that supports multi-vector indexing.

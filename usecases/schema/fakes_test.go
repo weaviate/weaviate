@@ -42,8 +42,8 @@ func (f *fakeSchemaManager) RestoreClass(_ context.Context, cls *models.Class, s
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
-	args := f.Called(cls, ss)
+func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss *sharding.State, origin command.ClassUpdateOrigin) (uint64, error) {
+	args := f.Called(cls, ss, origin)
 	return 0, args.Error(0)
 }
 
@@ -62,7 +62,7 @@ func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, prop
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdatePropertyFromMigration(_ context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+func (f *fakeSchemaManager) UpdatePropertyFromMigration(_ context.Context, class string, _ command.MigrationRun, property *models.Property, fields ...string) (uint64, error) {
 	args := f.Called(class, property, fields)
 	return 0, args.Error(0)
 }
@@ -152,9 +152,9 @@ func (f *fakeSchemaManager) SchemaFromLeader() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeSchemaManager) CollectionsCountFromLeader(namespace string) (int, error) {
+func (f *fakeSchemaManager) CollectionsCount(namespace string) int {
 	args := f.Called(namespace)
-	return args.Get(0).(int), args.Error(1)
+	return args.Int(0)
 }
 
 func (f *fakeSchemaManager) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
@@ -191,11 +191,8 @@ func (f *fakeSchemaManager) ShardOwnerFromLeader(class, shard string) (string, u
 
 func (f *fakeSchemaManager) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
 	args := f.Called(class, tenants)
-	res := map[string]string{}
-	for idx := range tenants {
-		res[args.String(idx+1)] = ""
-	}
-	return res, 0, nil
+	held, _ := args.Get(0).(map[string]string)
+	return held, 0, args.Error(1)
 }
 
 func (f *fakeSchemaManager) ShardingStateFromLeader(class string) (*sharding.State, uint64, error) {
@@ -372,6 +369,10 @@ func (f *fakeStore) UpdateClass(cls *models.Class) error {
 
 	cls.VectorIndexConfig = u.VectorIndexConfig
 	cls.InvertedIndexConfig = u.InvertedIndexConfig
+	cls.VectorConfig = u.VectorConfig
+	if u.ModuleConfig != nil {
+		cls.ModuleConfig = u.ModuleConfig
+	}
 	return nil
 }
 

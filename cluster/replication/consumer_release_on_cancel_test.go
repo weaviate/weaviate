@@ -76,7 +76,7 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager(
-				"test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(),
+				"test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New(),
 			)
 			schemaReader := schemaManager.NewSchemaReader()
 			schemaManager.AddClass(

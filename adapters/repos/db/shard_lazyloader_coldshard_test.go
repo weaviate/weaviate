@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema/local"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -36,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -70,17 +72,17 @@ type addPropertyLazyFixture struct {
 // newLazyLoadRepo wires a lazy-load-enabled repo whose shards start cold and
 // stay cold, so a test decides when each one loads.
 // It registers no Shutdown cleanup — callers own the repo's lifecycle.
-func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, *fakeSchemaGetter) {
+func newLazyLoadRepo(t *testing.T, shardState *sharding.State, opts ...func(*Config)) (*DB, *Migrator, *fakeSchemaGetter) {
 	t.Helper()
-	repo, migrator, schemaGetter, _ := newLazyLoadRepoWithConfig(t, shardState, true, -1)
+	repo, migrator, schemaGetter, _ := newLazyLoadRepoWithConfig(t, shardState, true, -1, opts...)
 	return repo, migrator, schemaGetter
 }
 
 // newLazyLoadRepoWithConfig wires a repo with EnableLazyLoadShards and
-// LazyLoadShardWarmupMinObjects set as given, returning the log hook so a test
-// can read what startup logged.
+// LazyLoadShardWarmupMinObjects set as given, then applies opts, returning the
+// log hook so a test can read what startup logged.
 func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
-	lazyLoad bool, warmupMinObjects int64,
+	lazyLoad bool, warmupMinObjects int64, opts ...func(*Config),
 ) (*DB, *Migrator, *fakeSchemaGetter, *test.Hook) {
 	t.Helper()
 	ctx := testCtx()
@@ -110,14 +112,19 @@ func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
-	repo, err := New(logger, "node1", Config{
+	cfg := Config{
 		RootPath:                      t.TempDir(),
 		QueryMaximumResults:           10000,
 		MaxImportGoroutinesFactor:     1,
 		EnableLazyLoadShards:          boolPtr(lazyLoad),
 		LazyLoadShardWarmupMinObjects: warmupMinObjects,
 		MemtablesFlushDirtyAfter:      int(time.Hour.Seconds()),
-	},
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	repo, err := New(logger, "node1", cfg,
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
@@ -133,10 +140,10 @@ func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
 	return repo, NewMigrator(repo, logger, "node1"), schemaGetter, hook
 }
 
-func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State) *addPropertyLazyFixture {
+func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State, opts ...func(*Config)) *addPropertyLazyFixture {
 	t.Helper()
 	ctx := testCtx()
-	repo, migrator, schemaGetter := newLazyLoadRepo(t, shardState)
+	repo, migrator, schemaGetter := newLazyLoadRepo(t, shardState, opts...)
 	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
 	require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
@@ -614,20 +621,6 @@ func TestMigratorAddClass_LogsBackgroundWarmup(t *testing.T) {
 	}
 }
 
-// Resuming maintenance cycles after a backup must not force-load cold shards:
-// an unloaded shard has no running cycles to resume.
-func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
-	ctx := testCtx()
-	f := newAddPropertyLazyFixture(t, "ResumeMaintenance", multiShardState())
-	cold := f.coldShards(t)
-
-	require.NoError(t, f.index.resumeMaintenanceCycles(ctx))
-
-	for name, shard := range cold {
-		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
-	}
-}
-
 // noLoadReaders lists the LazyLoadShard readers that never load the shard, each
 // with the answer it must return while the shard is cold.
 var noLoadReaders = []struct {
@@ -744,31 +737,163 @@ func TestLazyLoadShard_NoLoadReadersAcrossLoadAndShutdown(t *testing.T) {
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
-// A shutdown stops the shard's halt watchdog, so MayResetTransferInactivityTimer
-// must not push forward the deadline of a shard that was shut down.
-func TestLazyLoadShard_TransferTimerNotResetAfterShutdown(t *testing.T) {
-	ctx := context.Background()
-	repo, index := newReplConfigDeadlockFixture(t, "TransferTimerAfterShutdown")
-	lazy := soleColdShard(t, index)
+// The shards status endpoint reports on cold shards without loading them,
+// locally and for a remote node asking this one.
+func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	const className = "ShardsStatusCold"
+	f := newAddPropertyLazyFixture(t, className, multiShardState())
+	cold := f.coldShards(t)
 
-	_, _, err := lazy.loadIfCold(ctx)
+	perNode, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
 	require.NoError(t, err)
-	shard := lazy.loadedShard()
-	require.NotNil(t, shard)
+	sizes, err := f.migrator.GetShardsQueueSize(ctx, className, "")
+	require.NoError(t, err)
 
-	// Without a timeout no path sets the deadline, and the assertion below
-	// would pass regardless.
-	shard.haltForTransferMux.Lock()
-	shard.haltForTransferInactivityTimeout = time.Hour
-	shard.haltForTransferMux.Unlock()
+	for name, shard := range cold {
+		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		for node, status := range perNode[name] {
+			require.Equal(t, storagestate.StatusLazyLoading.String(), status, "node %s", node)
+		}
+		require.Zero(t, sizes[name])
 
-	require.NoError(t, lazy.Shutdown(ctx))
-	lazy.MayResetTransferInactivityTimer()
+		status, err := f.index.IncomingGetShardStatus(ctx, name)
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+		size, err := f.index.IncomingGetShardQueueSize(ctx, name)
+		require.NoError(t, err)
+		require.Zero(t, size)
 
-	shard.haltForTransferMux.Lock()
-	defer shard.haltForTransferMux.Unlock()
-	require.True(t, shard.haltForTransferInactivityDeadline.IsZero(),
-		"a shut down shard's transfer deadline must not be pushed forward")
+		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
+	}
 
-	require.NoError(t, repo.Shutdown(context.Background()))
+	// a loaded shard still reports its own status, and once unloaded is not loaded again
+	for name, shard := range cold {
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
+		_, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusReady.String(), statuses[name])
+
+		// a vector-index drop holds the lazy mutex of a loaded shard for the whole drop
+		shard.mutex.Lock()
+		var (
+			listed   map[string]string
+			incoming string
+			size     int64
+			errs     [3]error
+		)
+		done := make(chan struct{})
+		logger, _ := test.NewNullLogger()
+		enterrors.GoWrapper(func() {
+			defer close(done)
+			_, listed, errs[0] = f.migrator.GetShardsStorageStatus(ctx, className, "")
+			incoming, errs[1] = f.index.IncomingGetShardStatus(ctx, name)
+			size, errs[2] = f.index.IncomingGetShardQueueSize(ctx, name)
+		}, logger)
+		waited := false
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			waited = true
+		}
+		shard.mutex.Unlock()
+		<-done
+		require.False(t, waited, "a status read waited on the mutex of a loaded lazy shard")
+		require.NoError(t, errors.Join(errs[:]...))
+		require.Equal(t, storagestate.StatusReady.String(), listed[name])
+		require.Equal(t, storagestate.StatusReady.String(), incoming)
+		require.Zero(t, size)
+
+		require.NoError(t, shard.Shutdown(ctx))
+		_, statuses, err = f.migrator.GetShardsStorageStatus(ctx, className, "")
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		require.False(t, shard.isLoaded(), "unloaded shard %q must not be loaded again", name)
+		break
+	}
+}
+
+// Activation is applied from the replicated log and that apply is serial, so a
+// shard loaded here delays every entry behind it on every node.
+func TestUpdateTenants_ActivationDoesNotForceLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "TenantActivation", multiShardState())
+	cold := f.coldShards(t)
+
+	updates := make([]*schemaUC.UpdateTenantPayload, 0, len(cold))
+	for name := range cold {
+		updates = append(updates, &schemaUC.UpdateTenantPayload{
+			Name:   name,
+			Status: models.TenantActivityStatusHOT,
+		})
+	}
+
+	require.NoError(t, f.migrator.UpdateTenants(ctx, f.schemaClass, updates, false))
+
+	for name, shard := range cold {
+		require.False(t, shard.isLoaded(),
+			"activating tenant %q must not materialise its shard inside the apply", name)
+	}
+
+	// Still usable: the first touch loads it.
+	for name, shard := range cold {
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err, "shard %q must load on demand", name)
+		require.True(t, shard.isLoaded(), "shard %q should be loaded after use", name)
+		break
+	}
+}
+
+// With lazy loading off nothing defers the load, so activation must still open the
+// shard rather than leave it registered with nobody to open it.
+func TestUpdateTenants_ActivationStillLoadsWhenLazyLoadingIsOff(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "TenantActivationEager", multiShardState(),
+		func(c *Config) { c.EnableLazyLoadShards = boolPtr(false) })
+
+	names := []string{}
+	f.index.shards.Range(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	})
+	require.NotEmpty(t, names)
+
+	updates := make([]*schemaUC.UpdateTenantPayload, 0, len(names))
+	for _, name := range names {
+		updates = append(updates, &schemaUC.UpdateTenantPayload{
+			Name:   name,
+			Status: models.TenantActivityStatusHOT,
+		})
+	}
+
+	require.NoError(t, f.migrator.UpdateTenants(ctx, f.schemaClass, updates, false))
+
+	for _, name := range names {
+		shard := f.index.shards.Load(name)
+		require.NotNil(t, shard, "shard %q should be registered", name)
+		require.True(t, shardIsLoaded(shard),
+			"with lazy loading off, activating tenant %q must open its shard", name)
+	}
+}
+
+// The DB reload after startup catch-up runs from the apply too, so reconciling
+// tenant status must not open every HOT shard it walks.
+func TestUpdateIndex_TenantReconcileDoesNotForceLoadHotShards(t *testing.T) {
+	ctx := testCtx()
+	state := NewMultiTenantShardingStateBuilder().
+		WithIndexName("TenantReconcile").
+		AddTenant("t1", models.TenantActivityStatusHOT).
+		AddTenant("t2", models.TenantActivityStatusHOT).
+		Build()
+
+	f := newAddPropertyLazyFixture(t, "TenantReconcile", state)
+	cold := f.coldShards(t)
+
+	require.NoError(t, f.migrator.UpdateIndex(ctx, f.schemaClass, state))
+
+	for name, shard := range cold {
+		require.False(t, shard.isLoaded(),
+			"reconciling tenant %q must not open its shard inside the apply", name)
+	}
 }

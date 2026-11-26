@@ -14,6 +14,8 @@ package objects
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -29,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -89,13 +92,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
-	var pathsData []string
-	for _, val := range uniqueClassShard {
-		pathsData = append(pathsData, authorization.ShardsData(val.Class, val.Shard)...)
+	pathsByClass := map[string][]string{}
+	for _, key := range slices.Sorted(maps.Keys(uniqueClassShard)) {
+		val := uniqueClassShard[key]
+		pathsByClass[val.Class] = append(pathsByClass[val.Class], authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
-	if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, pathsData...); err != nil {
-		return nil, err
+	// One source class in a non-active namespace refuses the whole batch. Sorted
+	// order returns the same error on every run.
+	for _, class := range slices.Sorted(maps.Keys(pathsByClass)) {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, class, pathsByClass[class]...); err != nil {
+			return nil, err
+		}
 	}
 
 	b.metrics.BatchRefInc()
@@ -133,7 +141,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		var qualifiedTarget string
 		if ref.To != nil && ref.To.Class != "" {
 			qualified, short, err := namespacing.QualifyRefTarget(
-				principal, b.config.Config.Namespaces.Enabled,
+				principal, b.qualifier,
 				ref.From.Class.String(), ref.To.Class)
 			if err != nil {
 				refs[i].Err = err
@@ -161,18 +169,19 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		if qualifiedTarget == "" {
 			// Classless beacon on a multi-target prop (autodetect can't pick).
 			// On NS clusters the persisted ref would be un-deletable via the
-			// delete handler's gate — reject. Non-NS keeps the legacy
-			// behaviour (byte-exact compare on delete handles it).
-			if b.config.Config.Namespaces.Enabled {
-				refs[i].Err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+			// delete handler's gate.
+			if err := validation.CheckMultiTargetRefWithoutClass(b.config, b.metrics); err != nil {
+				refs[i].Err = err
 			}
 			continue
 		}
 		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
 	}
 
+	// Sorted so a denial names the same target shard on every run.
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
-	for _, val := range uniqueClassShard {
+	for _, key := range slices.Sorted(maps.Keys(uniqueClassShard)) {
+		val := uniqueClassShard[key]
 		shardsDataPaths = append(shardsDataPaths, authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
@@ -371,7 +380,7 @@ func getReferenceClasses(ctx context.Context,
 		}
 
 		if len(refProp.DataType) != 1 {
-			err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+			err = validation.ErrMultiTargetRefWithoutClass
 			return sourceClass, targetClass, schemaVersion, err
 		}
 		toClassName = refProp.DataType[0]
@@ -388,7 +397,7 @@ func getReferenceClasses(ctx context.Context,
 		fetchedClasses[toClassName] = toClass
 	}
 	if toClass.Class == nil {
-		err = fmt.Errorf("target class %q not found in schema", classFrom)
+		err = fmt.Errorf("target class %q not found in schema", toClassName)
 		return sourceClass, targetClass, schemaVersion, err
 	}
 	targetClass = toClass.Class

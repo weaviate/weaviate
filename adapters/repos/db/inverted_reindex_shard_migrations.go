@@ -18,9 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// shardMigrations is one shard's side of migration-record reconciliation.
-// Detached from its index, or before the cutover installs real answers, it
-// falls back to safe defaults: no local task list, and every seal granted.
+// A shard detached from its index falls back to safe defaults rather than failing.
 type shardMigrations struct {
 	shard *Shard
 }
@@ -31,7 +29,20 @@ func (m shardMigrations) ReconcileWithClusterTasks(ctx context.Context, tasks []
 	if m.shard.migrationRecords == nil {
 		return
 	}
-	m.liveReconciler().ReconcileWithClusterTasks(ctx, tasks)
+	reconciler := m.liveReconciler()
+	reconciler.ReconcileWithClusterTasks(ctx, tasks)
+	if released := reconciler.RedecideOverrides(ctx); len(released) > 0 {
+		if class := reconciler.deps.Class(); class != nil {
+			m.shard.retireReleasedOverlays(released, class)
+		}
+	}
+}
+
+func (m shardMigrations) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
+	if m.shard.migrationRecords == nil {
+		return nil
+	}
+	return m.liveReconciler().DiscardTask(ctx, task)
 }
 
 func (m shardMigrations) RetireSuperseded(ctx context.Context) {
@@ -48,11 +59,11 @@ func (m shardMigrations) liveReconciler() *migrationReconciler {
 	})
 }
 
-func (m shardMigrations) LocalTasks() ([]*distributedtask.Task, bool) {
+func (m shardMigrations) LocalTasks() ([]distributedtask.TaskStatusEntry, bool) {
 	if m.shard.index == nil || m.shard.index.db == nil {
 		return nil, false
 	}
-	return m.shard.index.db.migrationCluster.LocalTasks()
+	return m.shard.index.db.migrationCluster.LocalTasks(m.shard.name)
 }
 
 func (m shardMigrations) SealUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {

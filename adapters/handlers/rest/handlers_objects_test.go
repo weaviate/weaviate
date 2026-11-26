@@ -14,18 +14,28 @@ package rest
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -443,6 +453,22 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
+	t.Run("add object with too few reachable replicas", func(t *testing.T) {
+		fakeManager := &fakeManager{
+			addObjectErr: fmt.Errorf("put object: %w",
+				replicaerrors.NewNotEnoughReplicasError(stderrors.New("2 of 3 nodes down"))),
+		}
+		h := &objectHandlers{manager: fakeManager, metricRequestsTotal: &fakeMetricRequestsTotal{}}
+		res := h.addObject(objects.ObjectsCreateParams{
+			HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+			Body:        &models.Object{Class: "Foo"},
+		}, nil)
+		parsed, ok := res.(*objects.ObjectsCreateInternalServerError)
+		require.True(t, ok, "unexpected result %T", res)
+		require.Len(t, parsed.Payload.Error, 1)
+		assert.Contains(t, parsed.Payload.Error[0].Message, "cannot reach enough replicas")
+	})
+
 	t.Run("get objects", func(t *testing.T) {
 		type test struct {
 			name           string
@@ -694,6 +720,8 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			object         *models.Object
 			err            error
 			expectedResult *models.Object
+			// nil skips the responder type check
+			expectedErrResponse any
 		}
 
 		tests := []test{
@@ -744,8 +772,9 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				err:  uco.ErrNotFound{},
 			},
 			{
-				name: "any other error",
-				err:  stderrors.New("unknown error"),
+				name:                "any other error",
+				err:                 stderrors.New("unknown error"),
+				expectedErrResponse: &objects.ObjectsClassGetInternalServerError{},
 			},
 		}
 
@@ -765,6 +794,9 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				parsed, ok := res.(*objects.ObjectsClassGetOK)
 				if test.err != nil {
 					require.False(t, ok)
+					if test.expectedErrResponse != nil {
+						require.IsType(t, test.expectedErrResponse, res)
+					}
 					return
 				}
 				require.True(t, ok)
@@ -1060,6 +1092,156 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	})
 }
 
+// A namespace refusal answers 422 and the metric counts it as a user error, so
+// it logs nothing. POST /v1/objects is covered end to end by
+// TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart.
+func TestObjectHandlers_NamespaceRefusal(t *testing.T) {
+	err := fmt.Errorf("repo: object by id: %w", namespaces.ErrNamespaceSuspended)
+	logger, hook := logrustest.NewNullLogger()
+	h := &objectHandlers{
+		manager:             &fakeManager{getObjectErr: err, updateObjectErr: err, deleteObjectReturn: err},
+		metricRequestsTotal: newObjectsRequestsTotal(nil, logger),
+	}
+	r := httptest.NewRequest(http.MethodGet, "/v1/objects/alpha:Movies/123", nil)
+
+	assert.IsType(t, &objects.ObjectsClassGetUnprocessableEntity{},
+		h.getObject(objects.ObjectsClassGetParams{HTTPRequest: r, ClassName: "alpha:Movies", ID: "123"}, nil))
+	assert.IsType(t, &objects.ObjectsClassPutUnprocessableEntity{},
+		h.updateObject(objects.ObjectsClassPutParams{
+			HTTPRequest: r, ClassName: "alpha:Movies", ID: "123", Body: &models.Object{Class: "alpha:Movies"},
+		}, nil))
+	assert.IsType(t, &objects.ObjectsClassDeleteUnprocessableEntity{},
+		h.deleteObject(objects.ObjectsClassDeleteParams{HTTPRequest: r, ClassName: "alpha:Movies", ID: "123"}, nil))
+	assert.Empty(t, hook.AllEntries())
+}
+
+// The deprecated handlers read the flag on every request, so a runtime override
+// takes effect without a restart. With namespaces enabled they answer 410
+// whatever the flag says.
+func TestObjectIDEndpointsWithoutClassGone(t *testing.T) {
+	id := strfmt.UUID("85f78e29-5937-4390-a121-5379f262b4e5")
+	body := &models.Object{Class: "Foo"}
+	endpoints := []struct {
+		name string
+		call func(h *objectHandlers, r *http.Request) middleware.Responder
+	}{
+		{"GET", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.getObjectDeprecated(objects.ObjectsGetParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"HEAD", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.headObjectDeprecated(objects.ObjectsHeadParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"PUT", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.updateObjectDeprecated(objects.ObjectsUpdateParams{HTTPRequest: r, ID: id, Body: body}, nil)
+		}},
+		{"PATCH", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.patchObjectDeprecated(objects.ObjectsPatchParams{HTTPRequest: r, ID: id, Body: body}, nil)
+		}},
+		{"DELETE", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.deleteObjectDeprecated(objects.ObjectsDeleteParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"POST reference", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.addObjectReferenceDeprecated(objects.ObjectsReferencesCreateParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: new(models.SingleRef),
+			}, nil)
+		}},
+		{"PUT references", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.updateObjectReferencesDeprecated(objects.ObjectsReferencesUpdateParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: models.MultipleRef{},
+			}, nil)
+		}},
+		{"DELETE reference", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.deleteObjectReferenceDeprecated(objects.ObjectsReferencesDeleteParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: new(models.SingleRef),
+			}, nil)
+		}},
+	}
+	status := func(res middleware.Responder) int {
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		return rec.Code
+	}
+	newHandler := func(cfg config.Config) *objectHandlers {
+		return &objectHandlers{
+			manager:             &fakeManager{getObjectReturn: &models.Object{Class: "Foo"}},
+			logger:              &logrus.Logger{},
+			config:              cfg,
+			metricRequestsTotal: &fakeMetricRequestsTotal{},
+		}
+	}
+
+	for _, e := range endpoints {
+		t.Run(e.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects/"+id.String(), nil)
+
+			disabled := configRuntime.NewDynamicValue(false)
+			h := newHandler(config.Config{DisableObjectIDEndpointsWithoutClass: disabled})
+			assert.NotEqual(t, http.StatusGone, status(e.call(h, req)))
+
+			require.NoError(t, disabled.SetValue(true))
+			assert.Equal(t, http.StatusGone, status(e.call(h, req)))
+
+			h = newHandler(config.Config{Namespaces: config.Namespaces{Enabled: true}})
+			assert.Equal(t, http.StatusGone, status(e.call(h, req)))
+		})
+	}
+}
+
+func TestObjectsListWithoutClassCounter(t *testing.T) {
+	empty, set, badInclude := "", "MyClass", "unknown"
+	tests := []struct {
+		name      string
+		class     *string
+		include   *string
+		listErr   error
+		wantResp  middleware.Responder
+		wantCount float64
+	}{
+		{name: "class omitted", wantResp: &objects.ObjectsListOK{}, wantCount: 1},
+		{name: "class empty", class: &empty, wantResp: &objects.ObjectsListOK{}, wantCount: 1},
+		{name: "class set", class: &set, wantResp: &objects.ObjectsListOK{}, wantCount: 0},
+		{
+			name: "rejected for a bad include", include: &badInclude,
+			wantResp: &objects.ObjectsListBadRequest{}, wantCount: 1,
+		},
+		{
+			name: "rejected while namespaces are enabled", listErr: uco.NewErrEndpointGone("gone"),
+			wantResp: &objects.ObjectsListGone{}, wantCount: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter, err := newObjectsListWithoutClassCounter(
+				&monitoring.PrometheusMetrics{Registerer: prometheus.NewPedanticRegistry()})
+			require.NoError(t, err)
+			h := &objectHandlers{
+				manager:                &fakeManager{getObjectsErr: tt.listErr},
+				logger:                 &logrus.Logger{},
+				metricRequestsTotal:    &fakeMetricRequestsTotal{},
+				metricListWithoutClass: counter,
+			}
+
+			res := h.getObjects(objects.ObjectsListParams{
+				HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil),
+				Class:       tt.class,
+				Include:     tt.include,
+			}, nil)
+
+			require.IsType(t, tt.wantResp, res)
+			require.Equal(t, tt.wantCount, testutil.ToFloat64(counter))
+		})
+	}
+
+	t.Run("monitoring disabled", func(t *testing.T) {
+		counter, err := newObjectsListWithoutClassCounter(nil)
+		require.NoError(t, err)
+		require.Nil(t, counter)
+		h := &objectHandlers{manager: &fakeManager{}, metricRequestsTotal: &fakeMetricRequestsTotal{}}
+		res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
+		require.IsType(t, &objects.ObjectsListOK{}, res)
+	})
+}
+
 // A stray qualified class on a beacon never leaks into the Href URL.
 func TestExtendReferenceWithAPILink_StripsQualifiedClass(t *testing.T) {
 	cases := []struct {
@@ -1141,11 +1323,15 @@ func TestExtendProperties(t *testing.T) {
 }
 
 type fakeManager struct {
-	getObjectReturn *models.Object
-	getObjectErr    error
+	getObjectReturn           *models.Object
+	getObjectErr              error
+	getObjectClassFromNameErr error
+	getObjectsClassErr        error
 
 	addObjectReturn    *models.Object
+	addObjectErr       error
 	queryResult        []*models.Object
+	getObjectsErr      error
 	queryErr           *uco.Error
 	updateObjectReturn *models.Object
 	updateObjectErr    error
@@ -1167,6 +1353,9 @@ func (f *fakeManager) HeadObject(context.Context, *models.Principal,
 func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal,
 	object *models.Object, _ *additional.ReplicationProperties,
 ) (*models.Object, error) {
+	if f.addObjectErr != nil {
+		return nil, f.addObjectErr
+	}
 	return object, nil
 }
 
@@ -1185,6 +1374,9 @@ func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class st
 func (f *fakeManager) GetObjectsClass(ctx context.Context,
 	principal *models.Principal, id strfmt.UUID,
 ) (*models.Class, error) {
+	if f.getObjectsClassErr != nil {
+		return nil, f.getObjectsClassErr
+	}
 	class := &models.Class{
 		Class:      f.getObjectReturn.Class,
 		Vectorizer: "text2vec-contextionary",
@@ -1195,6 +1387,9 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context,
 func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
+	if f.getObjectClassFromNameErr != nil {
+		return nil, f.getObjectClassFromNameErr
+	}
 	class := &models.Class{
 		Class:      f.getObjectReturn.Class,
 		Vectorizer: "text2vec-contextionary",
@@ -1203,7 +1398,7 @@ func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *mod
 }
 
 func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenant string) ([]*models.Object, error) {
-	return f.queryResult, nil
+	return f.queryResult, f.getObjectsErr
 }
 
 func (f *fakeManager) Query(_ context.Context,

@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -297,6 +298,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 	defaultPagination := &filters.Pagination{Limit: 10}
 	quorum := pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM
 	someString1 := "a word"
+	rerankProperty := "name"
 	someString2 := "other"
 
 	tests := []struct {
@@ -2313,33 +2315,42 @@ func TestGRPCSearchRequest(t *testing.T) {
 			name: "Rerank without query",
 			req: &pb.SearchRequest{
 				Collection: classname,
-				Rerank:     &pb.Rerank{Property: someString1},
+				Rerank:     &pb.Rerank{Property: rerankProperty},
 			},
-			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination,
-				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
-				AdditionalProperties: additional.Properties{
-					NoProps:      false,
-					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1}},
-				},
-			},
-			error: false,
+			error: true,
 		},
 		{
 			name: "Rerank with query",
 			req: &pb.SearchRequest{
 				Collection: classname,
-				Rerank:     &pb.Rerank{Property: someString1, Query: &someString2},
+				Properties: &pb.PropertiesRequest{NonRefProperties: []string{"int"}},
+				Rerank:     &pb.Rerank{Property: rerankProperty, Query: &someString2},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
+				Properties: search.SelectProperties{{Name: "int", IsPrimitive: true}, {Name: rerankProperty, IsPrimitive: true}},
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
-					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1, Query: &someString2}},
+					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &rerankProperty, Query: &someString2}},
 				},
 			},
 			error: false,
+		},
+		{
+			name: "Rerank on a property the class does not have",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Rerank:     &pb.Rerank{Property: someString1, Query: &someString2},
+			},
+			error: true,
+		},
+		{
+			name: "Rerank on an int property",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Rerank:     &pb.Rerank{Property: "int", Query: &someString2},
+			},
+			error: true,
 		},
 
 		{
@@ -2958,7 +2969,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(false, getClass, nil, false)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -3017,7 +3028,7 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 		{"numeric_decay on nested path errors", numericDecay("number.foo"), true},
 	}
 
-	parser := NewParser(false, getClass, nil, false)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &pb.SearchRequest{
@@ -3030,6 +3041,77 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 			} else {
 				require.Nil(t, err)
 			}
+		})
+	}
+}
+
+func TestGRPCSearchRequestRerank(t *testing.T) {
+	class := &models.Class{
+		Class: "RerankClass",
+		Properties: []*models.Property{
+			{Name: "text", DataType: schema.DataTypeText.PropString()},
+			{Name: "photo", DataType: schema.DataTypeBlob.PropString()},
+			{Name: "count", DataType: schema.DataTypeInt.PropString()},
+		},
+		VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
+	}
+	getClass := func(string) (*models.Class, error) { return class, nil }
+	query := "any"
+	blank := "  "
+	selected := search.SelectProperty{Name: "count", IsPrimitive: true}
+	tests := []struct {
+		name           string
+		rerank         *pb.Rerank
+		wantProperties search.SelectProperties
+		wantErr        string
+	}{
+		{
+			name:           "a text property that is not selected is added to the selection",
+			rerank:         &pb.Rerank{Property: "text", Query: &query},
+			wantProperties: search.SelectProperties{selected, {Name: "text", IsPrimitive: true}},
+		},
+		{
+			name:           "a blob property is added to the selection as not primitive",
+			rerank:         &pb.Rerank{Property: "photo", Query: &query},
+			wantProperties: search.SelectProperties{selected, {Name: "photo", IsPrimitive: false}},
+		},
+		{
+			name:    "an int property",
+			rerank:  &pb.Rerank{Property: "count", Query: &query},
+			wantErr: `rerank: property "count" of collection "RerankClass" is of type int; a rerank reads a text or blob property`,
+		},
+		{
+			name:    "no query",
+			rerank:  &pb.Rerank{Property: "text"},
+			wantErr: "rerank: query is required",
+		},
+		{
+			name:    "a query of whitespace",
+			rerank:  &pb.Rerank{Property: "text", Query: &blank},
+			wantErr: "rerank: query is required",
+		},
+		{
+			name:    "a property the class does not have",
+			rerank:  &pb.Rerank{Property: "nope", Query: &query},
+			wantErr: "rerank: no such prop with name 'nope' found in class 'RerankClass'",
+		},
+	}
+	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := parser.Search(&pb.SearchRequest{
+				Collection: class.Class,
+				Properties: &pb.PropertiesRequest{NonRefProperties: []string{"count"}},
+				Rerank:     tt.rerank,
+			}, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantProperties, out.Properties)
+			require.Equal(t, tt.rerank.Property, out.AdditionalProperties.ModuleParams["rerank"].(*rank.Params).GetProperty())
 		})
 	}
 }

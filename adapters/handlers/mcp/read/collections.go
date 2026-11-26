@@ -34,7 +34,7 @@ func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallTo
 	// whatever GetConsistentSchema (RBAC-filtered) yields, so there is no
 	// user-supplied name to qualify.
 	if args.CollectionName != "" {
-		resolved, _, err := namespacing.Resolve(principal, r.schemaManager, r.namespacesEnabled, args.CollectionName)
+		resolved, _, err := namespacing.Resolve(principal, r.schemaManager, r.qualifier, args.CollectionName)
 		if err != nil {
 			return nil, err
 		}

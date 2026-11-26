@@ -213,7 +213,7 @@ func NewCreateNamespaceForbidden() *CreateNamespaceForbidden {
 /*
 CreateNamespaceForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node
 */
 type CreateNamespaceForbidden struct {
 	Payload *models.ErrorResponse
@@ -417,7 +417,7 @@ func NewCreateNamespaceUnprocessableEntity() *CreateNamespaceUnprocessableEntity
 /*
 CreateNamespaceUnprocessableEntity describes a response with status code 422, with default header values.
 
-The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).
+The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name). A `home_nodes` list the cluster refuses, or a body that sets both `home_nodes` and `home_node`, also answers 422.
 */
 type CreateNamespaceUnprocessableEntity struct {
 	Payload *models.ErrorResponse

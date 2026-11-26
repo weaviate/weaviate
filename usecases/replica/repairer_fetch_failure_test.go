@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -72,15 +73,21 @@ func newRepairProbe(t *testing.T, f *fakeFactory, thisNode, deletionStrategy str
 
 func (p *repairProbe) counter(t *testing.T, name string) float64 {
 	t.Helper()
-	families, err := p.reg.Gather()
+	return gatheredMetric(t, p.reg, name).GetCounter().GetValue()
+}
+
+// gatheredMetric returns the one series of the named metric in reg, or nil
+// where reg holds none.
+func gatheredMetric(t require.TestingT, reg *prometheus.Registry, name string) *dto.Metric {
+	families, err := reg.Gather()
 	require.NoError(t, err)
 	for _, fam := range families {
 		if fam.GetName() == name {
 			require.Len(t, fam.GetMetric(), 1)
-			return fam.GetMetric()[0].GetCounter().GetValue()
+			return fam.GetMetric()[0]
 		}
 	}
-	return 0
+	return nil
 }
 
 // repairBatchLogs returns the messages the batch repair path logged. The log

@@ -45,8 +45,10 @@ type Config struct {
 	FileReplicationRepo                remote.IncomingRepo
 	FileReplicationSchema              local.VersionedReader
 	MaintenanceModeEnabledForLocalhost func() bool
-	NodeReady                          func() bool
-	GRPCServerOptions                  []grpc.ServerOption
+	// AsyncReplicationInMaintenanceEnabled lets async replication RPCs through while in maintenance mode.
+	AsyncReplicationInMaintenanceEnabled func() bool
+	NodeReady                            func() bool
+	GRPCServerOptions                    []grpc.ServerOption
 }
 
 const (
@@ -85,7 +87,8 @@ func NewServer(
 			basicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 	}
-	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(config.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(
+		config.MaintenanceModeEnabledForLocalhost, config.AsyncReplicationInMaintenanceEnabled)))
 	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(config.MaintenanceModeEnabledForLocalhost)))
 
 	replicationPrefixes := []string{"/clusterapi.ReplicationService"}
@@ -95,7 +98,9 @@ func NewServer(
 
 	s := grpc.NewServer(o...)
 
-	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize)
+	// Donor-side aggregate transfer cap; concurrent ops share the headroom instead of saturating the disk.
+	transferConcurrency := 2 * config.State.ServerConfig.Config.ReplicationEngineFileCopyWorkers
+	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize, transferConcurrency)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
 	replicationService := NewReplicationService(config.Replicator)
@@ -210,13 +215,34 @@ func GetInitialConnWindowSize(state *state.State) int {
 	return min(state.ServerConfig.Config.GRPC.MaxMsgSize/8, math.MaxInt32)
 }
 
-func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
+// asyncReplicationMethods are the unary RPCs async replication needs; none of them stream.
+var asyncReplicationMethods = map[string]struct{}{
+	pb.ReplicationService_CompareHashTreeRoots_FullMethodName:      {},
+	pb.ReplicationService_CompareHashTreeRootsMulti_FullMethodName: {},
+	pb.ReplicationService_HashTreeLevel_FullMethodName:             {},
+	pb.ReplicationService_CompareDigests_FullMethodName:            {},
+	pb.ReplicationService_DigestObjectsInRange_FullMethodName:      {},
+	pb.ReplicationService_OverwriteObjects_FullMethodName:          {},
+	pb.ReplicationService_CreateAsyncCheckpoint_FullMethodName:     {},
+	pb.ReplicationService_DeleteAsyncCheckpoint_FullMethodName:     {},
+	pb.ReplicationService_GetAsyncCheckpointStatus_FullMethodName:  {},
+}
+
+func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost, asyncReplicationInMaintenanceEnabled func() bool) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if maintenanceModeEnabledForLocalhost() {
+		if maintenanceModeEnabledForLocalhost() && !asyncReplicationAllowedInMaintenance(asyncReplicationInMaintenanceEnabled, info.FullMethod) {
 			return nil, status.Error(codes.FailedPrecondition, "server is in maintenance mode")
 		}
 		return handler(ctx, req)
 	}
+}
+
+func asyncReplicationAllowedInMaintenance(enabled func() bool, fullMethod string) bool {
+	if enabled == nil || !enabled() {
+		return false
+	}
+	_, ok := asyncReplicationMethods[fullMethod]
+	return ok
 }
 
 func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {

@@ -223,8 +223,9 @@ func testDB(t *testing.T, root string, classes []*models.Class, states map[strin
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	return &DB{
-		config: Config{RootPath: root},
-		logger: logger,
+		localNodeName: "node1",
+		config:        Config{RootPath: root},
+		logger:        logger,
 		schemaGetter: &fakeMigrationSchemaGetter{
 			sch:    schema.Schema{Objects: &models.Schema{Classes: classes}},
 			states: states,
@@ -284,8 +285,11 @@ type fakeMigrationSchemaGetter struct {
 	states map[string]*sharding.State
 }
 
-func (sg *fakeMigrationSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return sg.sch
+func (sg *fakeMigrationSchemaGetter) ReadOnlySchema() models.Schema {
+	if sg.sch.Objects == nil {
+		return models.Schema{}
+	}
+	return *sg.sch.Objects
 }
 
 func (sg *fakeMigrationSchemaGetter) ReadOnlyClass(class string) *models.Class {

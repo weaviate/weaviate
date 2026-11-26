@@ -81,14 +81,14 @@ func IsLocked(err error) bool {
 	return errors.Is(err, bolterrors.ErrTimeout)
 }
 
-// DeleteOffline removes key from ns of an UNLOADED shard's metadata DB,
-// opening the file briefly. The open itself never creates the file: its
-// OpenFile hook strips O_CREATE, so a concurrent shard drop racing between a
-// stat and the open can no longer resurrect an empty file (bbolt.Open's
-// default flags include O_CREATE). A missing file, a missing namespace, or a
+// DeleteOffline removes keys from ns of an UNLOADED shard's metadata DB in
+// one transaction, opening the file briefly. The open itself never creates
+// the file: its OpenFile hook strips O_CREATE, so a concurrent shard drop
+// racing between a stat and the open can no longer resurrect an empty file
+// (bbolt.Open's default flags include O_CREATE). A missing file, a missing namespace, or a
 // file locked by a loaded shard is success: nothing was recorded, or the
 // loaded owner deletes through its own handle.
-func DeleteOffline(shardDir, ns string, key []byte) error {
+func DeleteOffline(shardDir, ns string, keys ...[]byte) error {
 	path := filepath.Join(shardDir, FileName)
 	db, err := bbolt.Open(path, 0o600, &bbolt.Options{
 		Timeout: offlineOpenTimeout,
@@ -109,9 +109,14 @@ func DeleteOffline(shardDir, ns string, key []byte) error {
 		if b == nil {
 			return nil
 		}
-		return b.Delete(key)
+		for _, key := range keys {
+			if err := b.Delete(key); err != nil {
+				return fmt.Errorf("delete %q: %w", key, err)
+			}
+		}
+		return nil
 	}); err != nil {
-		return fmt.Errorf("delete %q from shard metadata namespace %q: %w", key, ns, err)
+		return fmt.Errorf("delete from shard metadata namespace %q: %w", ns, err)
 	}
 	return nil
 }

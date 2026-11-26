@@ -124,14 +124,13 @@ func GetUserWithLastUsedTime(t *testing.T, userId, key string, lastUsedTime bool
 
 func CreateUser(t *testing.T, userId, key string) string {
 	t.Helper()
-	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId), CreateAuth(key))
-	AssertRequestOk(t, resp, err, nil)
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.NotNil(t, resp.Payload)
-	require.NotNil(t, resp.Payload.Apikey)
-	return *resp.Payload.Apikey
+	return CreateUserWithExpiry(t, userId, key, nil)
 }
+
+// DBUserKeyTimeout bounds a wait whose first attempt runs Argon2id on a DB user's
+// new key, to create it or to check it on a node for the first time. On the
+// race-enabled CI server, four parallel creates take about 10s.
+const DBUserKeyTimeout = time.Minute
 
 func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
 	t.Helper()
@@ -140,7 +139,7 @@ func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) s
 	var apikey string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp, err := Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
+			users.NewCreateUserParamsWithTimeout(DBUserKeyTimeout).WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
 			CreateAuth(adminKey),
 		)
 		if !assert.NoError(c, err) {
@@ -150,8 +149,18 @@ func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) s
 			return
 		}
 		apikey = *resp.Payload.Apikey
-	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created in namespace %q", userId, namespace)
+	}, DBUserKeyTimeout, 50*time.Millisecond, "user %q could not be created in namespace %q", userId, namespace)
 	return apikey
+}
+
+// WaitForAPIKeyRecognized polls GetOwnInfo with apikey until the node the test
+// client talks to authenticates it.
+func WaitForAPIKeyRecognized(t *testing.T, apikey, userID string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(apikey))
+		assert.NoError(c, err)
+	}, DBUserKeyTimeout, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
 }
 
 func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
@@ -168,6 +177,36 @@ func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time
 	require.NotNil(t, resp.Payload)
 	require.NotNil(t, resp.Payload.Apikey)
 	return *resp.Payload.Apikey
+}
+
+// ExpiryIn returns the time d from now in UTC, truncated to the millisecond
+// precision a DB user's expiresAt is stored with.
+func ExpiryIn(d time.Duration) time.Time {
+	return time.Now().Add(d).UTC().Truncate(time.Millisecond)
+}
+
+func CreateUserWithExpiry(t *testing.T, userId, key string, expiresAt *time.Time) string {
+	t.Helper()
+	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{ExpiresAt: (*strfmt.DateTime)(expiresAt)}), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
+// SetUserExpiration sends neverExpires when expiresAt is nil, which clears the
+// user's expiry.
+func SetUserExpiration(t *testing.T, userId, key string, expiresAt *time.Time) {
+	t.Helper()
+	body := users.SetUserExpirationBody{ExpiresAt: (*strfmt.DateTime)(expiresAt)}
+	if expiresAt == nil {
+		body.NeverExpires = new(true)
+	}
+	resp, err := Client(t).Users.SetUserExpiration(users.NewSetUserExpirationParams().WithUserID(userId).WithBody(body), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.NoError(t, err)
 }
 
 func RotateKey(t *testing.T, userId, key string) string {
@@ -284,7 +323,7 @@ func WaitForOwnRole(t *testing.T, apikey, roleName string) {
 			}
 		}
 		assert.Fail(c, "role not yet leader-visible", "role %q not in own-info roles", roleName)
-	}, 10*time.Second, 50*time.Millisecond, "role %q binding did not become leader-visible via GetOwnInfo", roleName)
+	}, DBUserKeyTimeout, 50*time.Millisecond, "role %q binding did not become leader-visible via GetOwnInfo", roleName)
 
 	if roleName != authorization.Admin && roleName != authorization.Viewer {
 		return

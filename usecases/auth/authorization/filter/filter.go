@@ -14,6 +14,7 @@ package filter
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -66,8 +67,10 @@ func (f *ResourceFilter[T]) Filter(
 		}
 	}
 
-	// If all items have the same parent, we can do a single authorization check
-	if allSameParent {
+	// If all items have the same parent, we can do a single authorization check.
+	// A lone collection is checked per item instead, because WildcardPath turns its
+	// "/shards/#" into "/shards/*", a tenants resource.
+	if allSameParent && !strings.HasSuffix(firstResource, "/shards/#") {
 		if err := f.authorizer.Authorize(ctx, principal, verb, authorization.WildcardPath(firstResource)); err == nil {
 			return items
 		}

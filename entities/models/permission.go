@@ -33,7 +33,7 @@ type Permission struct {
 
 	// Allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate create_aliases read_aliases update_aliases delete_aliases assign_and_revoke_groups read_groups create_mcp read_mcp update_mcp manage_namespaces]
+	// Enum: [manage_backups read_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate create_aliases read_aliases update_aliases delete_aliases assign_and_revoke_groups read_groups create_mcp read_mcp update_mcp manage_namespaces]
 	Action *string `json:"action"`
 
 	// aliases
@@ -132,7 +132,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","create_replicate","read_replicate","update_replicate","delete_replicate","create_aliases","read_aliases","update_aliases","delete_aliases","assign_and_revoke_groups","read_groups","create_mcp","read_mcp","update_mcp","manage_namespaces"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_backups","read_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","create_replicate","read_replicate","update_replicate","delete_replicate","create_aliases","read_aliases","update_aliases","delete_aliases","assign_and_revoke_groups","read_groups","create_mcp","read_mcp","update_mcp","manage_namespaces"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -144,6 +144,9 @@ const (
 
 	// PermissionActionManageBackups captures enum value "manage_backups"
 	PermissionActionManageBackups string = "manage_backups"
+
+	// PermissionActionReadBackups captures enum value "read_backups"
+	PermissionActionReadBackups string = "read_backups"
 
 	// PermissionActionReadCluster captures enum value "read_cluster"
 	PermissionActionReadCluster string = "read_cluster"
@@ -741,7 +744,7 @@ func (m *Permission) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionAliases
 type PermissionAliases struct {
 
-	// A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value `*` applies the permission to all aliases.
+	// A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value `*` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '"' and control characters.
 	Alias *string `json:"alias,omitempty"`
 
 	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
@@ -898,7 +901,7 @@ func (m *PermissionData) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionGroups
 type PermissionGroups struct {
 
-	// A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value `*` applies the permission to all groups.
+	// A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value `*` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '"' and control characters.
 	Group *string `json:"group,omitempty"`
 
 	// group type
@@ -987,7 +990,7 @@ func (m *PermissionGroups) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionNamespaces
 type PermissionNamespaces struct {
 
-	// A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value `*` applies the permission to all namespaces.
+	// A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value `*` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '"' and control characters.
 	Namespace *string `json:"namespace,omitempty"`
 }
 
@@ -1119,7 +1122,7 @@ type PermissionReplicate struct {
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
 
-	// string or regex. if a specific shard name, if left empty it will be ALL or *
+	// string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '"' and control characters.
 	Shard *string `json:"shard,omitempty"`
 }
 
@@ -1156,7 +1159,7 @@ func (m *PermissionReplicate) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionRoles
 type PermissionRoles struct {
 
-	// A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value `*` applies the permission to all roles.
+	// A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value `*` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '"' and control characters.
 	Role *string `json:"role,omitempty"`
 
 	// Set the scope for the manage role permission.
@@ -1288,7 +1291,7 @@ func (m *PermissionTenants) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionUsers
 type PermissionUsers struct {
 
-	// A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value `*` applies the permission to all users.
+	// A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value `*` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '"' and control characters.
 	Users *string `json:"users,omitempty"`
 }
 

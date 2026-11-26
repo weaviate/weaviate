@@ -14,6 +14,7 @@ package schema
 import (
 	"sort"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	libschema "github.com/weaviate/weaviate/entities/schema"
@@ -32,31 +33,21 @@ import (
 // as:
 // - Person, friendsWith, Person, friendsWith, Person, ..., drives Car
 type RefFinder struct {
-	schemaGetter schemaGetterForRefFinder
+	schemaReader local.ClassReader
 	depthLimit   int
 }
 
-// NewRefFinder with SchemaGetter and depth limit
-func NewRefFinder(getter schemaGetterForRefFinder, depthLimit int) *RefFinder {
+// NewRefFinder with a local schema reader and depth limit
+func NewRefFinder(reader local.ClassReader, depthLimit int) *RefFinder {
 	return &RefFinder{
-		schemaGetter: getter,
+		schemaReader: reader,
 		depthLimit:   depthLimit,
 	}
 }
 
-type schemaGetterForRefFinder interface {
-	GetSchemaSkipAuth() libschema.Schema
-}
-
 func (r *RefFinder) Find(className libschema.ClassName) []filters.Path {
-	schema := r.schemaGetter.GetSchemaSkipAuth()
-
-	var classes []*models.Class
-	if schema.Objects != nil {
-		classes = append(classes, schema.Objects.Classes...)
-	}
-
-	return r.findInClassList(className, classes, schema)
+	objects := r.schemaReader.ReadOnlySchema()
+	return r.findInClassList(className, objects.Classes, libschema.Schema{Objects: &objects})
 }
 
 func (r *RefFinder) findInClassList(needle libschema.ClassName, classes []*models.Class,

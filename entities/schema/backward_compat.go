@@ -15,6 +15,7 @@ import (
 	errors_ "errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -168,18 +169,16 @@ func IsValidValueDataType(dt string) bool {
 // stored DataType — qualified "<namespace>:Class" or bare "Class".
 // User-supplied DataType must go through FindPropertyDataTypeWithRefsAndAuth.
 func IsRefDataType(dt []string) bool {
-	if len(dt) == 0 || len(dt[0]) == 0 {
-		return false
-	}
-	name := dt[0]
+	return len(dt) > 0 && ClassPartStartsUpper(dt[0])
+}
+
+// ClassPartStartsUpper reports whether the class part of name, after any
+// "<namespace>:" prefix, is non-empty and does not start lowercase.
+func ClassPartStartsUpper(name string) bool {
 	if _, cls, ok := strings.Cut(name, NamespaceSeparator); ok {
-		if cls == "" {
-			return false
-		}
 		name = cls
 	}
-	firstLetter := string(name[0])
-	return strings.ToUpper(firstLetter) == firstLetter
+	return name != "" && !unicode.IsLower(rune(name[0]))
 }
 
 func IsBlobDataType(dt []string) bool {

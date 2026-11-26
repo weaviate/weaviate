@@ -38,13 +38,13 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var lookups atomic.Int64
-			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
-			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			db := &DB{localNodeName: "node1", config: Config{RuntimeReindexDisabled: tt.disabled}}
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 				lookups.Add(1)
-				return func(string, string) bool { return true }
+				return func(string, string) bool { return true }, nil
 			})
 
-			require.Equal(t, tt.wantBlock, db.AnyLiveReindexForShard("MyClass", "shard1"))
+			require.Equal(t, tt.wantBlock, anyLiveReindex(t, db, "MyClass", "shard1"))
 			require.Equal(t, tt.wantLookup, lookups.Load() > 0,
 				"the backup path must make no reindex lookup while the feature is off")
 		})

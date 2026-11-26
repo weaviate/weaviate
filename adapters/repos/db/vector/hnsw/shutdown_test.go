@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -135,6 +136,7 @@ func TestShutdownReleasesVectors(t *testing.T) {
 			compressor := &dropCompressor{err: test.compressorErr}
 			index := &hnsw{
 				shutdownCtxCancel:            func() {},
+				compressActionLock:           &sync.RWMutex{},
 				commitLog:                    &failingCommitLogger{shutdownErr: test.commitLogErr},
 				tombstoneCleanupCallbackCtrl: &unregisterCallbackCtrl{err: test.unregisterErr},
 				cache:                        cache,
@@ -147,7 +149,7 @@ func TestShutdownReleasesVectors(t *testing.T) {
 				err = index.Shutdown(context.Background())
 			}
 			if test.dropAfterShutdown {
-				require.NoError(t, index.Drop(context.Background(), true))
+				require.NoError(t, index.Drop(context.Background()))
 			}
 
 			if test.compressed {

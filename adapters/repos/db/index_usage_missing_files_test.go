@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +167,9 @@ type usageIndexParams struct {
 	// for every object under every configured named vector.
 	vectorDimensions  int
 	dimensionTracking dimensionTracking
+	// generatedIDs builds every vector index and queue under a generated ID, as
+	// a rebuild names them, instead of the naming rule's.
+	generatedIDs bool
 }
 
 // setupPopulatedLazyIndex creates an index for a multi-tenant class, populates
@@ -243,9 +247,8 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 	}).Maybe()
 
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
 	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantName).Maybe().
 		Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
@@ -263,6 +266,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 
 	newIndexFn := func(lazy, trackDimensions bool) *Index {
 		idx, err := NewIndex(ctx, nil, IndexConfig{
+			NodeName:              "test-node",
 			RootPath:              dirName,
 			ClassName:             schema.ClassName(className),
 			ReplicationFactor:     1,
@@ -294,6 +298,12 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 		)
 		require.NoError(t, err)
 		return idx
+	}
+
+	if params.generatedIDs {
+		configs := maps.Clone(namedVectorConfigs)
+		configs[""] = legacyVectorConfig
+		seedGeneratedVectorIndexRecords(t, shardPath(filepath.Join(dirName, indexID(schema.ClassName(className))), tenantName), configs)
 	}
 
 	// Phase 1: eagerly-loaded index, populate and flush to disk.

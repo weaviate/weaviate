@@ -32,7 +32,7 @@ type PostingSizes struct {
 func NewPostingSizes(bucket bucketRef, metrics *Metrics) *PostingSizes {
 	return &PostingSizes{
 		metrics: metrics,
-		data:    common.NewGroupedPagedArray[uint32](16*1024, 64*1024), // 1 billion entries with 64k per page
+		data:    common.NewGroupedPagedArray[uint32](postingPages, postingPageSize),
 		store:   NewPostingSizesStore(bucket, postingSizesBucketPrefix),
 	}
 }
@@ -54,6 +54,13 @@ func (p *PostingSizes) FastIncrement(postingID uint64) uint32 {
 	p.metrics.SetSize(int(p.totalSize.Load()))
 
 	return newSize
+}
+
+// Increment increases the size of the posting and persists the new size, for
+// a posting whose size no analyze task persists.
+func (p *PostingSizes) Increment(ctx context.Context, postingID uint64) (uint32, error) {
+	size := p.FastIncrement(postingID)
+	return size, p.store.Set(ctx, postingID, size)
 }
 
 // Get returns the size of the posting with the given ID. If the posting does not exist, it returns 0.

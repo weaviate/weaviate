@@ -20,6 +20,34 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
+# Prints the highest stable release among origin's tags and the current version, without "v".
+# Reads origin because CI checkouts have no local tags.
+function highest_stable_release() {
+  local current="${1#v}"
+  {
+    git ls-remote --tags --refs origin 'v*' \
+      | sed -En 's|.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$|\1|p' || return 1
+    if [ -n "$current" ]; then
+      printf '%s\n' "$current"
+    fi
+  } | sort -V | tail -n 1
+}
+
+# Succeeds if the version is stable and no higher stable tag exists on origin.
+function should_tag_latest() {
+  local version="$1"
+  local highest
+
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+
+  if ! highest="$(highest_stable_release "$version")"; then
+    echo "::warning::Not tagging latest: could not list release tags on origin." >&2
+    return 1
+  fi
+
+  [[ "$version" == "$highest" ]]
+}
+
 function release() {
   DOCKER_REPO=$DOCKER_REPO_WEAVIATE
 
@@ -28,11 +56,13 @@ function release() {
     docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   fi
 
-  # Reuse existing builder if exists
+  # Reuse the existing builder, if any. The build sets no remote cache, so only
+  # this builder's local cache applies. In the Multi-Arch-Docker-Build job it holds
+  # the scanned image, and the amd64 image reuses its `apk upgrade` layer.
   docker buildx inspect >/dev/null 2>&1 || docker buildx create --use
 
-  # nightly tag was added to be pushed on merges to main branch, latest tag is used to get latest released version
-  tag_latest="${DOCKER_REPO}:latest"
+  # Main branch builds include nightly; eligible stable releases include latest.
+  # Check latest eligibility before building, then push all selected tags together.
   tag_exact=
   tag_preview=
   tag_preview_semver=
@@ -41,7 +71,8 @@ function release() {
   git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
   git_branch="$GITHUB_HEAD_REF"
   build_user="ci"
-  build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  # Commit timestamp, not wall clock, so the binary is reproducible (docs/reproducible-builds.md).
+  build_date=$(TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$GITHUB_SHA")
 
   # Determine architecture and platform
   arch=""
@@ -92,19 +123,6 @@ function release() {
     fi
   fi
 
-  # BuildKit cache (GHA): use explicit scopes to avoid cache collisions.
-  # Per-arch scopes (weaviate-amd64/arm64); use "weaviate-multi" for multi-arch.
-  # GHA restores caches from the current ref, its base branch, and the default branch.
-  # Flags: --cache-from=type=gha,scope=... restores;
-  #        --cache-to=type=gha,scope=...,mode=max exports all layers (incl. intermediates).
-  # Result: layers are cached per-arch and reused across eligible refs, improving cache
-  # hit rate.
-  cache_scope="weaviate-multi"
-  if [ -n "$arch" ]; then
-    cache_scope="weaviate-$arch"
-  fi
-  echo "Using BuildKit cache scope: ${cache_scope}"
-
   args=("--build-arg=GIT_REVISION=$git_revision"
         "--build-arg=GIT_BRANCH=$git_branch"
         "--build-arg=BUILD_USER=$build_user"
@@ -117,7 +135,9 @@ function release() {
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
-    args+=("-t=$tag_latest")
+    if should_tag_latest "$weaviate_version"; then
+      args+=("-t=${DOCKER_REPO}:latest")
+    fi
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds

@@ -638,13 +638,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 
 func countDbAndWalFiles(t *testing.T, path string) (int, int) {
 	t.Helper()
-	fileTypes := map[string]int{}
-	entries, err := os.ReadDir(path)
-	require.NoError(t, err)
-	for _, entry := range entries {
-		fileTypes[filepath.Ext(entry.Name())] += 1
-	}
-	return fileTypes[".db"], fileTypes[".wal"]
+	return len(filesWithExt(t, path, ".db")), len(filesWithExt(t, path, ".wal"))
 }
 
 func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo bool, level int) []string {
@@ -2473,8 +2467,8 @@ func flushRoaringSetTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 	// NOTE: This fake pretends only additions exist, it ignores deletes
 	allEntries := m.(*testMemtable).roaringSet.FlattenInOrder()
 	data := map[string]*sroar.Bitmap{}
-	for _, e := range allEntries {
-		data[string(e.Key)] = e.Value.Additions.Clone()
+	for i := range allEntries {
+		data[string(allEntries[i].Key)] = allEntries[i].Value.Additions.Clone()
 	}
 	return newFakeRoaringSetSegment(data)
 }

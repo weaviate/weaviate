@@ -13,6 +13,9 @@ package objects
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,10 +31,15 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // zooAnimalNSSchema returns a Zoo/Animal schema. When qualify is true both
@@ -148,9 +156,83 @@ func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool,
 	authorizer := mocks.NewMockAuthorizer()
 	modulesProvider := getFakeModulesProvider()
 	autoSchema := NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry())
-	m := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, &fakeMetrics{}, nil, autoSchema)
-	b := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil, autoSchema)
+	qualifier := qualifierFor(cfg.Config.Namespaces.Enabled)
+	m := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, &fakeMetrics{}, nil, autoSchema, qualifier)
+	b := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil, autoSchema, qualifier)
 	return m, b, vectorRepo, modulesProvider, authorizer
+}
+
+// withMultiTargetRefsWithoutClassDisabled sets DisableMultiTargetReferencesWithoutClass.
+func withMultiTargetRefsWithoutClassDisabled(disabled bool) func(*config.WeaviateConfig, *fakeSchemaManager) {
+	return func(cfg *config.WeaviateConfig, _ *fakeSchemaManager) {
+		cfg.Config.DisableMultiTargetReferencesWithoutClass = runtime.NewDynamicValue(disabled)
+	}
+}
+
+// countMultiTargetRefs gives m and b Metrics built on one registry, as the
+// server builds them, and returns a reader of the exported
+// multi_target_references_without_class_total.
+func countMultiTargetRefs(t *testing.T, m *Manager, b *BatchManager) func() float64 {
+	t.Helper()
+	reg := prometheus.NewPedanticRegistry()
+	logger, _ := test.NewNullLogger()
+	newMetrics := func() *Metrics {
+		return NewMetrics(&monitoring.PrometheusMetrics{
+			Registerer:       reg,
+			QueriesCount:     prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "queries"}, []string{"class_name", "query_type"}),
+			BatchTime:        prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "batch_time"}, []string{"operation", "class_name", "shard_name"}),
+			BatchSizeTenants: prometheus.NewSummary(prometheus.SummaryOpts{Name: "batch_size_tenants"}),
+			BatchSizeObjects: prometheus.NewSummary(prometheus.SummaryOpts{Name: "batch_size_objects"}),
+		}, logger)
+	}
+	m.metrics, b.metrics = newMetrics(), newMetrics()
+	return func() float64 {
+		families, err := reg.Gather()
+		require.NoError(t, err)
+		for _, f := range families {
+			if f.GetName() == "multi_target_references_without_class_total" {
+				return f.GetMetric()[0].GetCounter().GetValue()
+			}
+		}
+		return 0
+	}
+}
+
+// Test_InlineObjectWrites_CountMultiTargetRefsWithoutClass pins that object
+// writes hand the Manager's and BatchManager's Metrics to the validator.
+func Test_InlineObjectWrites_CountMultiTargetRefsWithoutClass(t *testing.T) {
+	inlineClasslessObject := func() *models.Object {
+		return &models.Object{Class: "Source", ID: "11111111-1111-4111-8111-111111111111", Properties: map[string]any{"hasOther": []any{map[string]any{
+			"beacon": "weaviate://localhost/8e555f0d-8590-48c2-a9a6-70772ed14c0a",
+		}}}}
+	}
+	t.Run("ValidateObject", func(t *testing.T) {
+		m, b, _, _, _ := newNSManagers(t, multiTargetNSSchema(false), false, withMultiTargetRefsWithoutClassDisabled(true))
+		counted := countMultiTargetRefs(t, m, b)
+		err := m.ValidateObject(context.Background(), &models.Principal{Username: "admin"}, inlineClasslessObject(), nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), validation.ErrMultiTargetRefWithoutClass.Error())
+		assert.Equal(t, 1.0, counted())
+	})
+	t.Run("AddObjects", func(t *testing.T) {
+		m, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false, withMultiTargetRefsWithoutClassDisabled(true))
+		counted := countMultiTargetRefs(t, m, b)
+		repo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		res, err := b.AddObjects(context.Background(), &models.Principal{Username: "admin"}, []*models.Object{inlineClasslessObject()}, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, res, 1)
+		require.Error(t, res[0].Err)
+		assert.Contains(t, res[0].Err.Error(), validation.ErrMultiTargetRefWithoutClass.Error())
+		assert.Equal(t, 1.0, counted())
+	})
+}
+
+// qualifierFor returns the Qualifier a node with the given namespaces flag runs.
+func qualifierFor(namespacesEnabled bool) namespacing.Qualifier {
+	if namespacesEnabled {
+		return wlnamespaces.NewPrefixing()
+	}
+	return namespacing.Disabled
 }
 
 // Test_References_NamespaceResolution_Add covers AddObjectReference's two-view
@@ -294,27 +376,39 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("non-NS: classless beacon on multi-target ref property is not gated", func(t *testing.T) {
-		// Non-NS clusters keep byte-exact compare on delete: a classless
-		// stored beacon only matches a classless delete, so the gate is
-		// NS-only. Preserve the legacy behaviour. Exists is called with
-		// Class=="" (the existing pre-fix behaviour) and we let it through.
-		m, _, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false)
-		repo.On("Exists", "", refID).Return(true, nil).Once()
-		repo.On("Exists", "Source", id).Return(true, nil).Once()
-		repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Once()
-		mp.On("UsingRef2Vec", mock.Anything).Return(false)
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("non-NS: classless beacon on multi-target ref property, DisableMultiTargetReferencesWithoutClass=%t", disabled), func(t *testing.T) {
+			// Without namespaces the flag decides. Unset, Exists runs with
+			// Class=="", which searches every collection. Either way the
+			// beacon is counted.
+			m, b, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false,
+				withMultiTargetRefsWithoutClassDisabled(disabled))
+			counted := countMultiTargetRefs(t, m, b)
+			if !disabled {
+				repo.On("Exists", "", refID).Return(true, nil).Once()
+				repo.On("Exists", "Source", id).Return(true, nil).Once()
+				repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Once()
+				mp.On("UsingRef2Vec", mock.Anything).Return(false)
+			}
 
-		input := &AddReferenceInput{
-			Class: "Source", ID: id, Property: "hasOther",
-			Ref: models.SingleRef{
-				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
-			},
-		}
-		err := m.AddObjectReference(context.Background(), &models.Principal{Username: "admin"}, input, nil, "")
-		require.Nil(t, err, "non-NS classless on multi-target must pass the gate (it's NS-only)")
-		repo.AssertExpectations(t)
-	})
+			input := &AddReferenceInput{
+				Class: "Source", ID: id, Property: "hasOther",
+				Ref: models.SingleRef{
+					Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+				},
+			}
+			err := m.AddObjectReference(context.Background(), &models.Principal{Username: "admin"}, input, nil, "")
+			if disabled {
+				require.NotNil(t, err)
+				assert.Equal(t, StatusBadRequest, err.Code)
+				assert.ErrorIs(t, err.Err, validation.ErrMultiTargetRefWithoutClass)
+			} else {
+				require.Nil(t, err)
+			}
+			assert.Equal(t, 1.0, counted())
+			repo.AssertExpectations(t)
+		})
+	}
 
 	t.Run("NS: classless multi-target gate fires for global admin too", func(t *testing.T) {
 		// Item 2 lock-in: before the explicit gate, root callers were only
@@ -360,6 +454,19 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 		assert.Equal(t, StatusUnprocessableEntity, err.Code)
 		assert.Contains(t, err.Msg, "is not a valid class name")
 		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
+		m, _, _, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		m.qualifier = refTargetRefusing{wlnamespaces.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		input := &AddReferenceInput{
+			Class: "Zoo", ID: id, Property: "hasAnimals",
+			Ref: models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID))},
+		}
+		err := m.AddObjectReference(context.Background(),
+			&models.Principal{Username: "u", Namespace: "customer1"}, input, nil, "")
+		require.ErrorAs(t, errOf(err), &autherrs.Forbidden{})
+		assert.Equal(t, StatusForbidden, err.Code)
 	})
 
 	t.Run("NS: admin short target qualifies into source namespace (Matrix A row 4)", func(t *testing.T) {
@@ -469,6 +576,40 @@ func Test_References_NamespaceResolution_Update(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("non-NS: classless beacon on multi-target ref property, DisableMultiTargetReferencesWithoutClass=%t", disabled), func(t *testing.T) {
+			m, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false,
+				withMultiTargetRefsWithoutClassDisabled(disabled))
+			counted := countMultiTargetRefs(t, m, b)
+			repo.On("Object", "Source", id, mock.Anything, mock.Anything, mock.Anything).
+				Return(&search.Result{
+					ClassName: "Source",
+					Schema:    map[string]interface{}{"name": "src"},
+				}, nil).Once()
+			if !disabled {
+				repo.On("Exists", "", refID).Return(true, nil).Once()
+				repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+			}
+
+			input := &PutReferenceInput{
+				Class: "Source", ID: id, Property: "hasOther",
+				Refs: models.MultipleRef{&models.SingleRef{
+					Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+				}},
+			}
+			err := m.UpdateObjectReferences(context.Background(), &models.Principal{Username: "admin"}, input, nil, "")
+			if disabled {
+				require.NotNil(t, err)
+				assert.Equal(t, StatusBadRequest, err.Code)
+				assert.ErrorIs(t, err.Err, validation.ErrMultiTargetRefWithoutClass)
+			} else {
+				require.Nil(t, err)
+			}
+			assert.Equal(t, 1.0, counted())
+			repo.AssertExpectations(t)
+		})
+	}
+
 	t.Run("NS: classless multi-target gate fires for global admin too", func(t *testing.T) {
 		// Item 2 lock-in (PUT side): same gate must fire for root callers,
 		// not just namespaced. Without the explicit gate root would have
@@ -517,6 +658,22 @@ func Test_References_NamespaceResolution_Update(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, StatusUnprocessableEntity, err.Code)
 		assert.Contains(t, err.Msg, "is not a valid class name")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
+		m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		m.qualifier = refTargetRefusing{wlnamespaces.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{ClassName: "customer1:Zoo"}, nil).Once()
+		input := &PutReferenceInput{
+			Class: "Zoo", ID: id, Property: "hasAnimals",
+			Refs: models.MultipleRef{{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID))}},
+		}
+		err := m.UpdateObjectReferences(context.Background(),
+			&models.Principal{Username: "u", Namespace: "customer1"}, input, nil, "")
+		require.ErrorAs(t, errOf(err), &autherrs.Forbidden{})
+		assert.Equal(t, StatusForbidden, err.Code)
 		repo.AssertExpectations(t)
 	})
 
@@ -607,6 +764,22 @@ func Test_References_NamespaceResolution_Delete(t *testing.T) {
 		assert.Equal(t, StatusUnprocessableEntity, err.Code)
 	})
 
+	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
+		m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		m.qualifier = refTargetRefusing{wlnamespaces.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{ClassName: "customer1:Zoo"}, nil).Once()
+		input := &DeleteReferenceInput{
+			Class: "Zoo", ID: id, Property: "hasAnimals",
+			Reference: models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID))},
+		}
+		err := m.DeleteObjectReference(context.Background(),
+			&models.Principal{Username: "u", Namespace: "customer1"}, input, nil, "")
+		require.ErrorAs(t, errOf(err), &autherrs.Forbidden{})
+		assert.Equal(t, StatusForbidden, err.Code)
+		repo.AssertExpectations(t)
+	})
+
 	t.Run("NS: classless beacon on multi-target property is rejected with 400", func(t *testing.T) {
 		// removeReference's NS path strips classes on both sides for the
 		// structural compare, so an empty supplied class would wildcard
@@ -674,32 +847,32 @@ func Test_References_NamespaceResolution_Delete(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("non-NS: classless beacon on multi-target property is NOT rejected by the gate", func(t *testing.T) {
-		// The gate is NS-only. Non-NS clusters use byte-exact compare in
-		// removeReference, where a classless supplied beacon only matches a
-		// classless stored beacon — no wildcard, no need for the gate.
-		// Pin that the existing behavior survives: the call passes the gate
-		// and reaches removeReference (which finds no match, returns nil).
-		m, _, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false)
-		repo.On("Object", "Source", id, mock.Anything, mock.Anything, mock.Anything).
-			Return(&search.Result{
-				ClassName: "Source",
-				Schema:    map[string]interface{}{"name": "src"},
-			}, nil).Once()
-		mp.On("UsingRef2Vec", mock.Anything).Return(false)
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("non-NS: classless beacon on multi-target property is NOT rejected, DisableMultiTargetReferencesWithoutClass=%t", disabled), func(t *testing.T) {
+			// removeReferenceByteExact compares bytes without namespaces, so a
+			// classless beacon stored before the flag was set can still be
+			// deleted. It finds no match here and returns nil.
+			m, _, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false,
+				withMultiTargetRefsWithoutClassDisabled(disabled))
+			repo.On("Object", "Source", id, mock.Anything, mock.Anything, mock.Anything).
+				Return(&search.Result{
+					ClassName: "Source",
+					Schema:    map[string]interface{}{"name": "src"},
+				}, nil).Once()
+			mp.On("UsingRef2Vec", mock.Anything).Return(false)
 
-		input := &DeleteReferenceInput{
-			Class: "Source", ID: id, Property: "hasOther",
-			Reference: models.SingleRef{
-				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
-			},
-		}
-		err := m.DeleteObjectReference(context.Background(),
-			&models.Principal{Username: "admin"}, input, nil, "")
-		require.Nil(t, err,
-			"non-NS classless on multi-target must pass the gate (it's NS-only)")
-		repo.AssertExpectations(t)
-	})
+			input := &DeleteReferenceInput{
+				Class: "Source", ID: id, Property: "hasOther",
+				Reference: models.SingleRef{
+					Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+				},
+			}
+			err := m.DeleteObjectReference(context.Background(),
+				&models.Principal{Username: "admin"}, input, nil, "")
+			require.Nil(t, err)
+			repo.AssertExpectations(t)
+		})
+	}
 }
 
 // Test_References_NamespaceResolution_Batch proves BatchManager.AddReferences
@@ -1032,28 +1205,36 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("non-NS: classless beacon on multi-target ref property is not gated", func(t *testing.T) {
-		// Non-NS clusters do byte-exact beacon matching on delete, so a
-		// classless write CAN be matched by a classless delete. Preserve the
-		// legacy behaviour: the ref reaches AddBatchReferences with no Err
-		// and no class on the target. (The NS gate above is the only new
-		// rejection introduced.)
-		_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false)
-		repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
-			return len(refs) == 1 && refs[0].Err == nil &&
-				refs[0].To != nil && refs[0].To.Class == ""
-		})).Return(nil).Once()
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("non-NS: classless beacon on multi-target ref property, DisableMultiTargetReferencesWithoutClass=%t", disabled), func(t *testing.T) {
+			// Without namespaces the flag decides. Unset, the ref reaches
+			// AddBatchReferences with no Err and no class on the target.
+			// Either way the beacon is counted.
+			m, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false,
+				withMultiTargetRefsWithoutClassDisabled(disabled))
+			counted := countMultiTargetRefs(t, m, b)
+			repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+				if len(refs) != 1 || refs[0].To == nil || refs[0].To.Class != "" {
+					return false
+				}
+				if disabled {
+					return errors.Is(refs[0].Err, validation.ErrMultiTargetRefWithoutClass)
+				}
+				return refs[0].Err == nil
+			})).Return(nil).Once()
 
-		refs := []*models.BatchReference{
-			{
-				From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
-				To:   strfmt.URI("weaviate://localhost/" + string(refID)),
-			},
-		}
-		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
-		require.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
+			refs := []*models.BatchReference{
+				{
+					From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
+					To:   strfmt.URI("weaviate://localhost/" + string(refID)),
+				},
+			}
+			_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+			require.NoError(t, err)
+			assert.Equal(t, 1.0, counted())
+			repo.AssertExpectations(t)
+		})
+	}
 
 	t.Run("missing READ on target shard: 403 even when MT validation also fails per-ref", func(t *testing.T) {
 		// Acceptance-test mirror for TestAuthZBatchRefAuthZTenantFiltering's
@@ -1107,33 +1288,75 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("NS: admin cannot address namespaced source class in batch URI (architectural note)", func(t *testing.T) {
-		// Reachability documentation, not behaviour-under-test: on the
-		// batch path the source class is encoded in the URI path, and
-		// crossref.ParseSource rejects URIs whose class segment starts
-		// with a lowercase character — which "customer1:Zoo" does. Admin
-		// also doesn't get implicit qualification from resolveNS
-		// (principal.Namespace is ""), so a short "Zoo" wouldn't match
-		// the "customer1:Zoo" schema entry either. There is therefore no
-		// reachable admin → NS-qualified-source batch flow today; items
-		// 2/3/4 from the audit are covered by the Add and Update tests
-		// above (which take input.Class as a Go field that bypasses the
-		// URI constraint), plus the existing namespaced-principal batch
-		// tests in this function. Pin the parse rejection so a future
-		// loosening of ParseSource trips this test and forces a fresh
-		// look at the admin-on-batch coverage gap.
-		_, b, _, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+	t.Run("admin: qualified source class in the batch URI", func(t *testing.T) {
+		tests := []struct {
+			name, target string
+			wantErr      bool
+		}{
+			{name: "short target", target: "Alpha"},
+			{name: "target in the source's namespace", target: "customer1:Alpha"},
+			{name: "target in another namespace", target: "customer2:Alpha", wantErr: true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				_, b, repo, _, authz := newNSManagers(t, multiTargetNSSchema(true), true)
+				repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+					if len(refs) != 1 {
+						return false
+					}
+					r := refs[0]
+					if tc.wantErr {
+						return r.Err != nil
+					}
+					return r.Err == nil &&
+						string(r.From.Class) == "customer1:Source" &&
+						r.To != nil && r.To.Class == "Alpha"
+				})).Return(nil).Once()
+
+				refs := []*models.BatchReference{{
+					From: strfmt.URI("weaviate://localhost/customer1:Source/" + string(id) + "/hasOther"),
+					To:   strfmt.URI("weaviate://localhost/" + tc.target + "/" + string(refID)),
+				}}
+				_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+				require.NoError(t, err)
+				repo.AssertExpectations(t)
+
+				sourcePath := authorization.Objects("customer1:Source", "")
+				assert.True(t, slices.ContainsFunc(authz.Calls(), func(c mocks.AuthZReq) bool {
+					return c.Verb == authorization.UPDATE && slices.Contains(c.Resources, sourcePath)
+				}), "expected UPDATE on %s, got %+v", sourcePath, authz.Calls())
+			})
+		}
+	})
+
+	t.Run("NS-disabled: qualified source class in the batch URI fails that ref", func(t *testing.T) {
+		_, b, _, _, _ := newNSManagers(t, multiTargetNSSchema(false), false)
 		refs := []*models.BatchReference{{
 			From: strfmt.URI("weaviate://localhost/customer1:Source/" + string(id) + "/hasOther"),
 			To:   strfmt.URI("weaviate://localhost/Alpha/" + string(refID)),
 		}}
-		out, err := b.AddReferences(context.Background(),
-			&models.Principal{Username: "admin"}, refs, nil)
+		out, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
 		require.NoError(t, err)
 		require.Len(t, out, 1)
-		require.Error(t, out[0].Err,
-			"ParseSource must reject qualified source class in batch URI today")
-		assert.Contains(t, out[0].Err.Error(), "uppercase")
+		require.ErrorContains(t, out[0].Err, "is not a valid class name")
+	})
+
+	t.Run("namespaced principal: qualified source class in the batch URI fails that ref", func(t *testing.T) {
+		for _, source := range []string{"customer1:Source", "customer2:Source"} {
+			t.Run(source, func(t *testing.T) {
+				_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+				refs := []*models.BatchReference{{
+					From: strfmt.URI("weaviate://localhost/" + source + "/" + string(id) + "/hasOther"),
+					To:   strfmt.URI("weaviate://localhost/Alpha/" + string(refID)),
+				}}
+				out, err := b.AddReferences(context.Background(),
+					&models.Principal{Username: "u", Namespace: "customer1"}, refs, nil)
+				require.NoError(t, err)
+				require.Len(t, out, 1)
+				require.ErrorContains(t, out[0].Err, "is not a valid class name")
+				repo.AssertExpectations(t)
+			})
+		}
 	})
 }
 
@@ -1197,6 +1420,10 @@ func (a *denyContainingAuthorizer) Authorize(ctx context.Context, principal *mod
 		}
 	}
 	return nil
+}
+
+func (a *denyContainingAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
 }
 
 func (a *denyContainingAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {

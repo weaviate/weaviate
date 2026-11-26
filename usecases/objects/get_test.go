@@ -30,6 +30,8 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_GetAction(t *testing.T) {
@@ -67,7 +69,7 @@ func Test_GetAction(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -696,7 +698,7 @@ func Test_GetThing(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -1053,6 +1055,30 @@ func Test_GetObject(t *testing.T) {
 	})
 }
 
+// GetObjects reads the flag on every call, so a runtime override takes effect
+// without a restart. With namespaces enabled it answers gone whatever the flag says.
+func Test_GetObjectsWithoutClassGone(t *testing.T) {
+	list := func(m fakeGetManager) error {
+		_, err := m.GetObjects(context.Background(), nil, nil, nil, nil, nil, nil, additional.Properties{}, "")
+		return err
+	}
+
+	m := newFakeGetManager(schema.Schema{})
+	m.repo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]search.Result{}, nil)
+	disabled := runtime.NewDynamicValue(false)
+	m.config.Config.DisableObjectsListWithoutClass = disabled
+	require.NoError(t, list(m))
+
+	require.NoError(t, disabled.SetValue(true))
+	require.ErrorAs(t, list(m), &ErrEndpointGone{})
+	m.repo.AssertNumberOfCalls(t, "ObjectSearch", 1)
+
+	m = newFakeGetManager(schema.Schema{})
+	m.config.Config.Namespaces.Enabled = true
+	require.ErrorAs(t, list(m), &ErrEndpointGone{})
+}
+
 func ptInt64(in int64) *int64 {
 	return &in
 }
@@ -1093,7 +1119,7 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(schemaManager, cfg, logger,
 		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil,
-		NewAutoSchemaManager(schemaManager, r.repo, cfg, logger, prometheus.NewPedanticRegistry()))
+		NewAutoSchemaManager(schemaManager, r.repo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 	return r
 }

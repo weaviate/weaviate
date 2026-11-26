@@ -32,7 +32,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 	authorizer := mocks.NewMockAuthorizer()
 	vectorRepo := &fakeVectorRepo{}
 	explorer := &fakeExplorer{}
-	schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
+	schemaGetter := &fakeSchemaGetter{schema: aggregateTestSchema}
 
 	traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 		vectorRepo, explorer, schemaGetter, nil, nil, -1)
@@ -365,4 +365,23 @@ var aggregateTestSchema = schema.Schema{
 			},
 		},
 	},
+}
+
+func Test_Traverser_Aggregate_UsesGivenClassName(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	vectorRepo := &fakeVectorRepo{}
+	// the alias entry proves the given name is not resolved again
+	schemaGetter := &aliasSchemaGetter{
+		fakeSchemaGetter: &fakeSchemaGetter{schema: aggregateTestSchema},
+		aliases:          map[string]string{"MyClass": "OtherClass"},
+	}
+	traverser := NewTraverser(&config.WeaviateConfig{}, logger, mocks.NewMockAuthorizer(),
+		vectorRepo, &fakeExplorer{}, schemaGetter, nil, nil, -1)
+
+	params := aggregation.Params{ClassName: "MyClass", IncludeMetaCount: true}
+	vectorRepo.On("Aggregate", params).Return(&aggregation.Result{}, nil).Once()
+
+	_, err := traverser.Aggregate(context.Background(), &models.Principal{}, &params)
+	require.NoError(t, err)
+	vectorRepo.AssertExpectations(t)
 }

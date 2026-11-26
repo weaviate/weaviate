@@ -315,12 +315,12 @@ func (c *CursorReplace) seekAll(target []byte) {
 	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			state[i].err = err
 			continue
 		}
 
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			state[i].err = err
 			state[i].key = key
 			continue
@@ -339,14 +339,10 @@ func (c *CursorReplace) seekAll(target []byte) {
 
 func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 	for {
-		id, err := c.cursorWithLowestKey()
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				return nil, nil
-			}
+		ids := c.cursorsWithLowestKey()
+		if len(ids) == 0 {
+			return nil, nil
 		}
-
-		ids, _ := c.haveDuplicatesInState(id)
 
 		c.copyStateIntoServeCache(ids[len(ids)-1])
 
@@ -357,7 +353,7 @@ func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 			c.advanceInner(id)
 		}
 
-		if errors.Is(c.serveCache.err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(c.serveCache.err) {
 			if c.emitTombstones {
 				// literal nil, not the reused serveCache.value, so callers can detect the tombstone
 				return c.serveCache.key, nil
@@ -368,25 +364,6 @@ func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 
 		return c.serveCache.key, c.serveCache.value
 	}
-}
-
-func (c *CursorReplace) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
-	key := c.state[idWithLowestKey].key
-
-	c.reusableIDList = c.reusableIDList[:0]
-
-	for i, cur := range c.state {
-		if i == idWithLowestKey {
-			c.reusableIDList = append(c.reusableIDList, i)
-			continue
-		}
-
-		if bytes.Equal(key, cur.key) {
-			c.reusableIDList = append(c.reusableIDList, i)
-		}
-	}
-
-	return c.reusableIDList, len(c.reusableIDList) > 1
 }
 
 func (c *CursorReplace) copyStateIntoServeCache(pos int) {
@@ -413,40 +390,46 @@ func (c *CursorReplace) Seek(key []byte) ([]byte, []byte) {
 	return c.serveCurrentStateAndAdvance()
 }
 
-func (c *CursorReplace) cursorWithLowestKey() (int, error) {
-	err := lsmkv.NotFound
-	pos := -1
+// cursorsWithLowestKey returns the inner cursors positioned at the lowest key,
+// in segment order, so the last one holds the newest version. It finds them in
+// one pass, as a scan pays it for every key it serves and every segment.
+func (c *CursorReplace) cursorsWithLowestKey() []int {
+	c.reusableIDList = c.reusableIDList[:0]
 	var lowest []byte
 
-	for i, res := range c.state {
-		if errors.Is(res.err, lsmkv.NotFound) {
+	for i := range c.state {
+		res := &c.state[i]
+		if lsmkv.IsNotFound(res.err) {
 			continue
 		}
 
-		if lowest == nil || bytes.Compare(res.key, lowest) <= 0 {
-			pos = i
-			err = res.err
-			lowest = res.key
+		if len(c.reusableIDList) > 0 {
+			cmp := bytes.Compare(res.key, lowest)
+			if cmp > 0 {
+				continue
+			}
+			if cmp < 0 {
+				c.reusableIDList = c.reusableIDList[:0]
+			}
 		}
+
+		c.reusableIDList = append(c.reusableIDList, i)
+		lowest = res.key
 	}
 
-	if err != nil {
-		return pos, err
-	}
-
-	return pos, nil
+	return c.reusableIDList
 }
 
 func (c *CursorReplace) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if errors.Is(err, lsmkv.NotFound) {
+	if lsmkv.IsNotFound(err) {
 		c.state[id].err = err
 		c.state[id].key = nil
 		c.state[id].value = nil
 		return
 	}
 
-	if errors.Is(err, lsmkv.Deleted) {
+	if lsmkv.IsDeleted(err) {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil
@@ -470,11 +453,11 @@ func (c *CursorReplace) firstAll() {
 	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			state[i].err = err
 			continue
 		}
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			state[i].err = err
 			state[i].key = key
 			continue

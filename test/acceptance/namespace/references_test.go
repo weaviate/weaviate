@@ -219,6 +219,88 @@ func TestNamespaces_References(t *testing.T) {
 			"expected a batch-level error for cross-namespace target, got none")
 	})
 
+	t.Run("global admin batch references from a qualified source class", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			animalKey string
+			toClass   string
+			wantErr   string
+		}{
+			{name: "target in the source's namespace", animalKey: user1Key, toClass: ns1 + ":Animal"},
+			{
+				name: "target in another namespace", animalKey: user2Key, toClass: ns2 + ":Animal",
+				wantErr: "'" + ns2 + ":Animal' is not a valid class name",
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				zooID, animalID := newID(), newID()
+				createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z"})
+				createIn(t, tc.animalKey, "Animal", animalID, map[string]any{"name": "a"})
+
+				refs := []*models.BatchReference{{
+					From: strfmt.URI("weaviate://localhost/" + ns1 + ":Zoo/" + string(zooID) + "/hasAnimals"),
+					To:   strfmt.URI("weaviate://localhost/" + tc.toClass + "/" + string(animalID)),
+				}}
+				resp, err := helper.Client(t).Batch.BatchReferencesCreate(
+					batch.NewBatchReferencesCreateParams().WithBody(refs),
+					helper.CreateAuth(adminKey),
+				)
+				require.NoError(t, err)
+				require.Len(t, resp.Payload, 1)
+
+				if tc.wantErr != "" {
+					require.NotNil(t, resp.Payload[0].Result.Errors)
+					require.NotEmpty(t, resp.Payload[0].Result.Errors.Error)
+					assert.Contains(t, resp.Payload[0].Result.Errors.Error[0].Message, tc.wantErr)
+					return
+				}
+				require.Nil(t, resp.Payload[0].Result.Errors,
+					"expected no batch errors, got %+v", resp.Payload[0].Result.Errors)
+
+				got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
+				require.NoError(t, err)
+				stored, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+				require.True(t, ok, "hasAnimals should be a list, got %T", got.Properties.(map[string]any)["hasAnimals"])
+				require.Len(t, stored, 1)
+				beaconStr, _ := stored[0].(map[string]any)["beacon"].(string)
+				assert.Equal(t, "weaviate://localhost/Animal/"+string(animalID), beaconStr,
+					"stored beacon must carry the short class name")
+			})
+		}
+	})
+
+	t.Run("gRPC BatchReferences from a global admin's qualified source class", func(t *testing.T) {
+		zooID, animalID, foreignID := newID(), newID(), newID()
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z"})
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "a"})
+		createIn(t, user2Key, "Animal", foreignID, map[string]any{"name": "a2"})
+
+		sameNS, otherNS := ns1+":Animal", ns2+":Animal"
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		resp, err := grpcClient.BatchReferences(authCtx(adminKey), &pb.BatchReferencesRequest{
+			References: []*pb.BatchReference{
+				{Name: "hasAnimals", FromCollection: ns1 + ":Zoo", FromUuid: zooID.String(), ToCollection: &sameNS, ToUuid: animalID.String()},
+				{Name: "hasAnimals", FromCollection: ns1 + ":Zoo", FromUuid: zooID.String(), ToCollection: &otherNS, ToUuid: foreignID.String()},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Errors, 1, "only the reference to another namespace must fail; got %+v", resp.Errors)
+		assert.Equal(t, int32(1), resp.Errors[0].Index)
+		assert.Contains(t, resp.Errors[0].Error, "'"+otherNS+"' is not a valid class name")
+
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		stored, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.True(t, ok, "hasAnimals should be a list, got %T", got.Properties.(map[string]any)["hasAnimals"])
+		require.Len(t, stored, 1)
+		beaconStr, _ := stored[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t, "weaviate://localhost/Animal/"+string(animalID), beaconStr,
+			"stored beacon must carry the short class name")
+	})
+
 	t.Run("update and delete reference resolve through caller namespace", func(t *testing.T) {
 		zooID, animalAID, animalBID := newID(), newID(), newID()
 		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z"})
@@ -736,6 +818,98 @@ func TestNamespaces_References(t *testing.T) {
 					"user view: DataType strips namespace via StripClassResponse")
 			}
 		}
+	})
+
+	t.Run("global admin's cross-ref DataType is confined to the class's namespace", func(t *testing.T) {
+		// A global admin declares ref targets on ns1's class. A short target
+		// takes the class's namespace and a target in ns2 is rejected, on both
+		// the add-property and the update-class path.
+		const host = "AdminRefHost"
+		qualifiedHost := ns1 + ":" + host
+		helper.CreateClassAuth(t, &models.Class{
+			Class: host,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasAnimals", DataType: []string{"Animal"}},
+			},
+		}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, qualifiedHost, adminKey) })
+		foreignErr := "'" + ns2 + ":Animal' is not a valid class name"
+
+		t.Run("add property", func(t *testing.T) {
+			tests := []struct {
+				name, prop   string
+				dataType     []string
+				wantDataType []string
+				wantErr      string
+			}{
+				{
+					name: "short target gets the class's namespace", prop: "shortRef",
+					dataType: []string{"Animal"}, wantDataType: []string{ns1 + ":Animal"},
+				},
+				{
+					name: "target in the class's namespace kept", prop: "ownRef",
+					dataType: []string{ns1 + ":Animal"}, wantDataType: []string{ns1 + ":Animal"},
+				},
+				{
+					name: "target in another namespace rejected", prop: "foreignRef",
+					dataType: []string{ns2 + ":Animal"}, wantErr: foreignErr,
+				},
+				{
+					name: "one of several targets in another namespace rejected", prop: "mixedRef",
+					dataType: []string{ns1 + ":Animal", ns2 + ":Animal"}, wantErr: foreignErr,
+				},
+			}
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					_, err := addPropertyAuthWithReturn(t, qualifiedHost,
+						&models.Property{Name: tc.prop, DataType: tc.dataType}, adminKey)
+					got := helper.GetClassAuth(t, qualifiedHost, adminKey)
+					if tc.wantErr != "" {
+						var unproc *schemaCli.SchemaObjectsPropertiesAddUnprocessableEntity
+						require.True(t, errors.As(err, &unproc), "expected 422, got %T: %v", err, err)
+						require.NotEmpty(t, unproc.Payload.Error)
+						assert.Contains(t, unproc.Payload.Error[0].Message, tc.wantErr)
+						assert.Nil(t, findProp(got, tc.prop), "a rejected property must not be stored")
+						return
+					}
+					require.NoError(t, err)
+					require.NotNil(t, findProp(got, tc.prop))
+					assert.Equal(t, tc.wantDataType, findProp(got, tc.prop).DataType)
+				})
+			}
+		})
+
+		t.Run("update class", func(t *testing.T) {
+			tests := []struct {
+				name     string
+				dataType []string
+				wantErr  string
+			}{
+				{name: "short target matches the stored target", dataType: []string{"Animal"}},
+				{name: "target in another namespace rejected", dataType: []string{ns2 + ":Animal"}, wantErr: foreignErr},
+			}
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					body := helper.GetClassAuth(t, qualifiedHost, adminKey)
+					body.Description = tc.name
+					findProp(body, "hasAnimals").DataType = tc.dataType
+					_, err := helper.UpdateClassAuthWithReturn(t, qualifiedHost, body, adminKey)
+					got := helper.GetClassAuth(t, qualifiedHost, adminKey)
+					assert.Equal(t, []string{ns1 + ":Animal"}, findProp(got, "hasAnimals").DataType)
+					if tc.wantErr != "" {
+						var unproc *schemaCli.SchemaObjectsUpdateUnprocessableEntity
+						require.True(t, errors.As(err, &unproc), "expected 422, got %T: %v", err, err)
+						require.NotEmpty(t, unproc.Payload.Error)
+						assert.Contains(t, unproc.Payload.Error[0].Message, tc.wantErr)
+						assert.NotEqual(t, tc.name, got.Description, "a rejected update must not be stored")
+						return
+					}
+					require.NoError(t, err)
+					assert.Equal(t, tc.name, got.Description)
+				})
+			}
+		})
 	})
 
 	t.Run("self-referencing class on NS cluster (Zoo.relatedTo -> Zoo)", func(t *testing.T) {

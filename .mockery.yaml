@@ -61,6 +61,11 @@ packages:
     interfaces:
       OpProducer:
       OpConsumer:
+  github.com/weaviate/weaviate/wl/rebalance:
+    interfaces:
+      rebalanceDrafting:
+      rebalanceProposer:
+      rebalanceSchemaReader:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:

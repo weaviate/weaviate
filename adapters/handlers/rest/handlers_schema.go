@@ -63,7 +63,7 @@ type schemaHandlers struct {
 	reindexTaskLister  distributedtask.TaskLister
 	reindexSubmitLocks reindexSubmitLockProvider
 	logger             logrus.FieldLogger
-	namespacesEnabled  bool
+	qualifier          namespacing.Qualifier
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -204,9 +204,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 
 	// Conflict check and submit lock key on the qualified class (the reindex-task
 	// key); the manager delete call qualifies internally, so it gets the raw name.
-	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
+	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.qualifier, params.ClassName)
 	if qErr != nil {
 		s.metricRequestsTotal.logError(params.ClassName, qErr)
+		if errors.As(qErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, qErr))
+		}
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
@@ -255,7 +259,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// UpdateProperty apply ([MutationGuard]) still closes the
 	// multi-node race that this per-node check cannot — they are
 	// complementary, not redundant.
-	if conflict := s.checkReindexConflictForPropertyMutation(ctx, qualifiedClass, params.PropertyName); conflict != "" {
+	tenantCounts := s.authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
+		authorization.ShardsMetadata(qualifiedClass)...) == nil
+	if conflict := s.checkReindexConflictForPropertyMutation(ctx, qualifiedClass, params.PropertyName, tenantCounts); conflict != "" {
 		s.metricRequestsTotal.logError(params.ClassName, fmt.Errorf("reindex conflict: %s", conflict))
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
@@ -294,7 +300,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // earlier in the request lifecycle for operator UX.
 //
 // "Same epistemics" is meant literally: it has to reject on the same arms
-// as [db.ReindexProvider.CheckPropertyUpdate], in the same order, or the
+// as [db.ReindexDetector.CheckPropertyUpdate], in the same order, or the
 // caller gets told ok here and FAILED at the apply.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
@@ -308,7 +314,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // detected) so the request proceeds to RAFT and the apply-time guard
 // handles correctness. We never spuriously reject due to a transient
 // local error.
-func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
+func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string,
+	tenantCounts bool,
+) string {
 	if s.reindexTaskLister == nil {
 		return ""
 	}
@@ -365,7 +373,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			db.MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	return ""
+	return db.ReindexPartialRunConflict(tasksByNamespace[db.ReindexNamespace], className, propertyName, nil, tenantCounts)
 }
 
 func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVectorsDeleteParams,
@@ -375,24 +383,34 @@ func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVecto
 	err := s.manager.DeleteClassVectorIndex(ctx, principal, params.ClassName, params.VectorIndexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsVectorsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrValidation):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return vectorIndexDeleteErrResponder(principal, err)
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsVectorsDeleteOK()
+}
+
+// vectorIndexDeleteErrResponder maps a failed vector index drop to its response.
+// A namespace that refuses the drop answers 422 rather than the 500 an
+// unrecognized error gets, so a suspended instance does not read as a fault.
+func vectorIndexDeleteErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsVectorsDeleteForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
@@ -485,7 +503,7 @@ func shardStatusErrResponder(principal *models.Principal, err error) middleware.
 }
 
 // shardsStorageStatusErrResponder maps a failed shard status read to its
-// response. An invalid class name answers 422.
+// response. An invalid class name or a namespace refusal answers 422.
 func shardsStorageStatusErrResponder(principal *models.Principal, err error) middleware.Responder {
 	switch {
 	case errors.As(err, &authzerrors.Forbidden{}):
@@ -494,7 +512,7 @@ func shardsStorageStatusErrResponder(principal *models.Principal, err error) mid
 	case errors.Is(err, schemaUC.ErrNotFound):
 		return schema.NewSchemaObjectsShardsGetNotFound().
 			WithPayload(errPayloadFromSingleErr(principal, err))
-	case errors.Is(err, schemaUC.ErrValidation):
+	case errors.Is(err, schemaUC.ErrValidation), cerrors.NamespaceErrRendersUnprocessable(err):
 		return schema.NewSchemaObjectsShardsGetUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	default:
@@ -651,7 +669,7 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister distributedtask.TaskLister, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister distributedtask.TaskLister, reindexSubmitLocks reindexSubmitLockProvider, qualifier namespacing.Qualifier) {
 	h := &schemaHandlers{
 		manager:             manager,
 		authorizer:          authorizer,
@@ -659,7 +677,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
 		logger:              logger,
-		namespacesEnabled:   namespacesEnabled,
+		qualifier:           qualifier,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.

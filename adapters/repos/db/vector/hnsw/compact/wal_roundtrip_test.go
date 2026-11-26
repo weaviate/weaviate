@@ -889,3 +889,78 @@ func TestWALRoundTrip_ReplaceLinksAtLevel_MaxUint16Truncation(t *testing.T) {
 	// So we check that the length is the reader's max (4096)
 	assert.Equal(t, maxConnectionsPerNodeReader, len(replaceLinks.Targets))
 }
+
+// A crash can cut the last commit of a raw log anywhere, including exactly
+// between two of its fields. Only a cut on a commit boundary is a clean end of
+// the log; any other cut must surface as io.ErrUnexpectedEOF so the loader
+// truncates the fragment instead of leaving it for the next writer to append to.
+func TestWALReader_TornTailAtEveryOffset(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWALWriter(&buf)
+	var boundaries []int
+	write := func(err error) {
+		t.Helper()
+		require.NoError(t, err)
+		boundaries = append(boundaries, buf.Len())
+	}
+
+	pq := &compression.PQData{
+		Dimensions: 8, EncoderType: compression.UseTileEncoder, Ks: 256, M: 2,
+		EncoderDistribution: 1, Encoders: make([]compression.PQSegmentEncoder, 2),
+	}
+	for i := uint16(0); i < pq.M; i++ {
+		pq.Encoders[i] = compressionhelpers.RestoreTileEncoder(256, 0.5, 1, 1000, 0.1, 0.9, i, pq.EncoderDistribution)
+	}
+	brq := &compression.BRQData{
+		InputDim: 4,
+		Rotation: makeTestRQData(4, 1, 4, 1, nil).Rotation,
+		Rounding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+	muvera := &multivector.MuveraData{
+		KSim: 1, NumClusters: 2, Dimensions: 2, DProjections: 1, Repetitions: 1,
+		Gaussians: [][][]float32{{{1, 2}}},
+		S:         [][][]float32{{{3, 4}}},
+	}
+
+	write(w.WriteAddNode(1, 2))
+	write(w.WriteSetEntryPointMaxLevel(1, 2))
+	write(w.WriteAddLinkAtLevel(1, 0, 2))
+	write(w.WriteAddLinksAtLevel(1, 0, []uint64{2, 3}))
+	write(w.WriteAddLinksAtLevel(1, 1, nil))
+	write(w.WriteReplaceLinksAtLevel(2, 0, []uint64{1, 3, 4}))
+	write(w.WriteAddTombstone(3))
+	write(w.WriteRemoveTombstone(3))
+	write(w.WriteClearLinks(4))
+	write(w.WriteClearLinksAtLevel(4, 1))
+	write(w.WriteDeleteNode(4))
+	write(w.WriteResetIndex())
+	write(w.WriteAddSQ(&compression.SQData{A: 1, B: 2, Dimensions: 8}))
+	write(w.WriteAddPQ(pq))
+	write(w.WriteAddRQ(makeTestRQData(4, 8, 4, 1, nil)))
+	write(w.WriteAddRQ(makeTestRQData(4, 8, 4, 1, []float32{1, 2, 3, 4})))
+	write(w.WriteAddBRQ(brq))
+	write(w.WriteAddMuvera(muvera))
+
+	data := buf.Bytes()
+	for cut := 0; cut <= len(data); cut++ {
+		lastBoundary := 0
+		for _, b := range boundaries {
+			if b <= cut {
+				lastBoundary = b
+			}
+		}
+
+		r := NewWALCommitReader(bytes.NewReader(data[:cut]), testLogger())
+		var err error
+		for err == nil {
+			_, err = r.ReadNextCommit()
+		}
+
+		if cut == lastBoundary {
+			require.ErrorIs(t, err, io.EOF, "cut at %d is a commit boundary", cut)
+		} else {
+			require.ErrorIs(t, err, io.ErrUnexpectedEOF, "cut at %d is inside a commit", cut)
+		}
+		require.Equal(t, int64(lastBoundary), r.LastValidOffset(), "cut at %d", cut)
+	}
+}

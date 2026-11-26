@@ -47,10 +47,10 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 		schemaMap = maybeSchemaMap
 	}
 
-	// add nil for all properties that are not part of the object so that they can be added to the inverted index for
-	// the null state (if enabled)
+	// nilProps lists the indexed properties the object lacks, so each is recorded as null under IndexNullState
+	// and, for a type with a length, as length 0 under IndexPropertyLength
 	var nilProps []inverted.NilProperty
-	if s.index.invertedIndexConfig.IndexNullState {
+	if s.index.invertedIndexConfig.IndexNullState || s.index.invertedIndexConfig.IndexPropertyLength {
 		for _, prop := range c.Properties {
 			dt := schema.DataType(prop.DataType[0])
 			switch dt {

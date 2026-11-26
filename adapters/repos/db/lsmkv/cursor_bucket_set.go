@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -102,7 +101,7 @@ func (c *CursorSet) seekAll(target []byte) {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			state[i].err = err
 			continue
 		}
@@ -124,7 +123,7 @@ func (c *CursorSet) firstAll() {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			state[i].err = err
 			continue
 		}
@@ -146,7 +145,7 @@ func (c *CursorSet) serveCurrentStateAndAdvance() ([]byte, [][]byte) {
 	for {
 		id, err := c.cursorWithLowestKey()
 		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
+			if lsmkv.IsNotFound(err) {
 				return nil, nil
 			}
 		}
@@ -183,7 +182,7 @@ func (c *CursorSet) cursorWithLowestKey() (int, error) {
 	var lowest []byte
 
 	for i, res := range c.state {
-		if errors.Is(res.err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(res.err) {
 			continue
 		}
 
@@ -222,7 +221,7 @@ func (c *CursorSet) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 
 func (c *CursorSet) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if errors.Is(err, lsmkv.NotFound) {
+	if lsmkv.IsNotFound(err) {
 		c.state[id].err = err
 		c.state[id].key = nil
 		if !c.keyOnly {
@@ -231,7 +230,7 @@ func (c *CursorSet) advanceInner(id int) {
 		return
 	}
 
-	if errors.Is(err, lsmkv.Deleted) {
+	if lsmkv.IsDeleted(err) {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil

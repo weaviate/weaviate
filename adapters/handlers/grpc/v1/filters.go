@@ -32,7 +32,7 @@ import (
 // extractPathNew stitches parent NS onto each nested linked class.
 // SingleTarget uses pre-qualified Property.DataType; MultiTarget routes
 // caller-supplied TargetCollection through QualifyRefTarget.
-func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string, namespacesEnabled bool, principal *models.Principal) (filters.Clause, error) {
+func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string, qualifier namespacing.Qualifier, principal *models.Principal) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
 
 	switch filterIn.Operator {
@@ -49,7 +49,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 
 		clauses := make([]filters.Clause, len(filterIn.Filters))
 		for i, clause := range filterIn.Filters {
-			retClause, err := ExtractFilters(clause, authorizedGetClass, className, tenant, namespacesEnabled, principal)
+			retClause, err := ExtractFilters(clause, authorizedGetClass, className, tenant, qualifier, principal)
 			if err != nil {
 				return filters.Clause{}, err
 			}
@@ -65,7 +65,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 			)
 		}
 
-		if namespacesEnabled && filterIn.Target == nil && len(filterIn.On) > 1 {
+		if qualifier.NamespacesEnabled() && filterIn.Target == nil && len(filterIn.On) > 1 {
 			return filters.Clause{}, fmt.Errorf(
 				"reference-path filters via Filters.on are not supported on namespace-enabled clusters; use Filters.target with a SingleTarget instead",
 			)
@@ -113,7 +113,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 				return filters.Clause{}, err
 			}
 		} else {
-			path, dataType2, err := extractPathNew(authorizedGetClass, className, tenant, filterIn.Target, returnFilter.Operator, namespacesEnabled, principal)
+			path, dataType2, err := extractPathNew(authorizedGetClass, className, tenant, filterIn.Target, returnFilter.Operator, qualifier, principal)
 			if err != nil {
 				return filters.Clause{}, err
 			}
@@ -322,7 +322,7 @@ func extractPath(className string, on []string) (*filters.Path, error) {
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: nil}, nil
 }
 
-func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tenant string, target *pb.FilterTarget, operator filters.Operator, namespacesEnabled bool, principal *models.Principal) (*filters.Path, schema.DataType, error) {
+func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tenant string, target *pb.FilterTarget, operator filters.Operator, qualifier namespacing.Qualifier, principal *models.Principal) (*filters.Path, schema.DataType, error) {
 	class, err := authorizedGetClass(className)
 	if err != nil {
 		return nil, "", err
@@ -346,7 +346,7 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 		}
 		// DataType is pre-qualified; see namespacing.QualifyPropertyDataTypes.
 		linkedClassName := refProp.DataType[0]
-		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, singleTarget.Target, operator, namespacesEnabled, principal)
+		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, singleTarget.Target, operator, qualifier, principal)
 		if err != nil {
 			return nil, "", err
 		}
@@ -355,11 +355,11 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 		multiTarget := target.GetMultiTarget()
 		// className is pre-qualified upstream; QualifyRefTarget normalises
 		// caller-supplied TargetCollection against the source NS.
-		linkedClassName, _, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, className, multiTarget.TargetCollection)
+		linkedClassName, _, err := namespacing.QualifyRefTarget(principal, qualifier, className, multiTarget.TargetCollection)
 		if err != nil {
 			return nil, "", err
 		}
-		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, multiTarget.Target, operator, namespacesEnabled, principal)
+		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, multiTarget.Target, operator, qualifier, principal)
 		if err != nil {
 			return nil, "", err
 		}

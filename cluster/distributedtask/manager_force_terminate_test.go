@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,9 +59,7 @@ func TestForceTerminateTask(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 	}
 
@@ -214,9 +211,7 @@ func TestRecordUnitCompletionRetry(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 	}
 
@@ -334,9 +329,7 @@ func TestTaskAlreadyRunningSentinel(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 	}
 
@@ -426,27 +419,17 @@ func TestCrossNamespaceConflict(t *testing.T) {
 		taskID = "task-1"
 	)
 
-	newManager := func(t *testing.T) *Manager {
+	newManager := func(t *testing.T, ns2Detector ConflictDetector) *Manager {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger:            logger,
+			ConflictDetectors: map[string]ConflictDetector{ns2: ns2Detector},
 		})
 	}
 
 	t.Run("full map visibility for CrossNamespaceConflictDetector", func(t *testing.T) {
-		m := newManager(t)
-
-		err := m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace: ns1, Id: "existing",
-			UnitIds:               []string{"u1"},
-			SubmittedAtUnixMillis: time.Now().UnixMilli(),
-		}), 1)
-		require.NoError(t, err)
-
-		detector := &fakeCrossNamespaceDetector{
+		m := newManager(t, &fakeCrossNamespaceDetector{
 			checkCross: func(_ []byte, allTasks map[string]map[string]*Task) error {
 				for _, t := range allTasks[ns1] {
 					if t.Status.IsActive() {
@@ -455,8 +438,14 @@ func TestCrossNamespaceConflict(t *testing.T) {
 				}
 				return nil
 			},
-		}
-		m.SetConflictDetectors(map[string]ConflictDetector{ns2: detector})
+		})
+
+		err := m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace: ns1, Id: "existing",
+			UnitIds:               []string{"u1"},
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		}), 1)
+		require.NoError(t, err)
 
 		err = m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace: ns2, Id: taskID,
@@ -468,7 +457,8 @@ func TestCrossNamespaceConflict(t *testing.T) {
 	})
 
 	t.Run("same-namespace-only for non-cross detector", func(t *testing.T) {
-		m := newManager(t)
+		detector := &fakeConflictDetector{rejectWith: nil}
+		m := newManager(t, detector)
 
 		err := m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace: ns1, Id: "existing",
@@ -476,9 +466,6 @@ func TestCrossNamespaceConflict(t *testing.T) {
 			SubmittedAtUnixMillis: time.Now().UnixMilli(),
 		}), 1)
 		require.NoError(t, err)
-
-		detector := &fakeConflictDetector{rejectWith: nil}
-		m.SetConflictDetectors(map[string]ConflictDetector{ns2: detector})
 
 		err = m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace: ns2, Id: taskID,
@@ -534,9 +521,7 @@ func TestTaskWireCompat(t *testing.T) {
 	t.Run("FormatVersion stamped by AddTask", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		m := NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 
 		err := m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -594,9 +579,7 @@ func TestGetDistributedTaskAccessor(t *testing.T) {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
 		return NewManager(ManagerParameters{
-			Clock:            clockwork.NewFakeClock(),
-			CompletedTaskTTL: 24 * time.Hour,
-			Logger:           logger,
+			Logger: logger,
 		})
 	}
 

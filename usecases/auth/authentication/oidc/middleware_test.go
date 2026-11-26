@@ -189,11 +189,12 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 // check runs last: only a token that passes every other check reaches it.
 func TestValidateAndExtract_NamespaceState(t *testing.T) {
 	tests := []struct {
-		name      string
-		state     api.NamespaceState // empty = namespace missing
-		rootUsers []string
-		wantAuthN bool
-		wantMsg   string
+		name                      string
+		state                     api.NamespaceState // empty = namespace missing
+		rootUsers                 []string
+		namespaceSuspendedMessage string
+		wantAuthN                 bool
+		wantMsg                   string
 	}{
 		{name: "active authenticates", state: api.NamespaceStateActive, wantAuthN: true},
 		{
@@ -210,6 +211,12 @@ func TestValidateAndExtract_NamespaceState(t *testing.T) {
 			wantMsg: "unauthorized: instance suspended",
 		},
 		{
+			name:                      "suspended renders NAMESPACE_SUSPENDED_MESSAGE",
+			state:                     api.NamespaceStateSuspended,
+			namespaceSuspendedMessage: "paused",
+			wantMsg:                   "unauthorized: paused",
+		},
+		{
 			name:    "resuming is denied, distinguishably",
 			state:   api.NamespaceStateResuming,
 			wantMsg: "unauthorized: instance resuming, retry shortly",
@@ -218,11 +225,11 @@ func TestValidateAndExtract_NamespaceState(t *testing.T) {
 			// deleting must be denied too, not fall through to a default pass.
 			name:    "deleting is denied without confirming the namespace exists",
 			state:   api.NamespaceStateDeleting,
-			wantMsg: "unauthorized",
+			wantMsg: "unauthorized: instance unavailable",
 		},
 		{
 			name:    "missing is denied without confirming the namespace exists",
-			wantMsg: "unauthorized",
+			wantMsg: "unauthorized: instance unavailable",
 		},
 	}
 
@@ -245,6 +252,7 @@ func TestValidateAndExtract_NamespaceState(t *testing.T) {
 				Authorization: config.Authorization{
 					Rbac: rbacconf.Config{Enabled: true, RootUsers: tc.rootUsers},
 				},
+				Namespaces: config.Namespaces{Enabled: true, SuspendedMessage: tc.namespaceSuspendedMessage},
 			}
 
 			exister := newFakeExister()

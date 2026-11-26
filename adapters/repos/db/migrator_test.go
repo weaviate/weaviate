@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -73,7 +74,6 @@ func TestUpdateIndexTenants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-			mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 			class := &models.Class{
 				Class:               "TestClass",
@@ -109,6 +109,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 			}).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			index, err := NewIndex(context.Background(), nil, IndexConfig{
+				NodeName:          "node1",
 				ClassName:         schema.ClassName("TestClass"),
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
@@ -128,7 +129,8 @@ func TestUpdateIndexTenants(t *testing.T) {
 
 			migrator := &Migrator{
 				db: &DB{
-					schemaGetter: mockSchemaGetter,
+					localNodeName: "node1",
+					schemaGetter:  mockSchemaGetter,
 				},
 				nodeId: "node1",
 			}
@@ -193,7 +195,7 @@ func droppableShard(t *testing.T, idx *Index, name string, dropErr error) string
 
 	dir := shardDirWithData(t, idx, name)
 	shard := NewMockShardLike(t)
-	shard.EXPECT().drop(false).RunAndReturn(func(bool) error {
+	shard.EXPECT().drop().RunAndReturn(func() error {
 		if dropErr != nil {
 			return dropErr
 		}
@@ -371,7 +373,6 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 
 			idx, _ := newDropTestIndex(t)
 			sg := schemaUC.NewMockSchemaGetter(t)
-			sg.EXPECT().NodeName().Return("node1").Maybe()
 			sg.EXPECT().ReadOnlyClass(mock.Anything).
 				Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
 			idx.getSchema = sg
@@ -381,7 +382,7 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 				idx.metrics = metrics
 				idx.allocChecker = failingAllocChecker{}
 			}
-			m := &Migrator{db: &DB{schemaGetter: sg}, logger: idx.logger}
+			m := &Migrator{db: &DB{localNodeName: "node1", schemaGetter: sg}, logger: idx.logger}
 
 			residentDirs := make(map[string]string, len(tt.resident))
 			for _, name := range tt.resident {
@@ -444,8 +445,8 @@ func TestUpdateIndexShards(t *testing.T) {
 		expectedShards []string
 		mustLoad       bool
 		lazyLoading    bool
-		// protectedShards are held by a backup, so their load fails.
-		protectedShards []string
+		// refusedShards are refused by the alloc checker, so their load fails.
+		refusedShards []string
 		// wantErrFor is a substring of the error the reconcile must return.
 		wantErrFor string
 	}{
@@ -524,12 +525,12 @@ func TestUpdateIndexShards(t *testing.T) {
 		{
 			// The requested shards are loaded in sorted order, so shard3 only gets
 			// loaded if the failure on shard2 did not end the loop.
-			name:            "a shard a backup holds does not skip the shards after it",
-			initialShards:   []string{"shard1"},
-			newShards:       []string{"shard1", "shard2", "shard3"},
-			expectedShards:  []string{"shard1", "shard3"},
-			protectedShards: []string{"shard2"},
-			wantErrFor:      "add missing shard shard2",
+			name:           "a refused load does not skip the shards after it",
+			initialShards:  []string{"shard1"},
+			newShards:      []string{"shard1", "shard2", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			refusedShards:  []string{"shard2"},
+			wantErrFor:     "add missing shard shard2",
 		},
 	}
 
@@ -539,7 +540,6 @@ func TestUpdateIndexShards(t *testing.T) {
 			logger := logrus.New()
 
 			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-			mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 			// Create a test class
 			class := &models.Class{
@@ -589,6 +589,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, nil, IndexConfig{
+				NodeName:             "node1",
 				ClassName:            schema.ClassName("TestClass"),
 				RootPath:             rootPath,
 				ReplicationFactor:    1,
@@ -608,7 +609,8 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			migrator := &Migrator{
 				db: &DB{
-					schemaGetter: mockSchemaGetter,
+					localNodeName: "node1",
+					schemaGetter:  mockSchemaGetter,
 				},
 				nodeId: "node1",
 			}
@@ -626,9 +628,13 @@ func TestUpdateIndexShards(t *testing.T) {
 			}
 			newState.SetLocalName("node1")
 
-			for _, shardName := range tt.protectedShards {
-				index.backupProtectedShards.Store(shardName, struct{}{})
+			// Shards load in sorted order, so the refused shards make the first
+			// len(refusedShards) load attempts.
+			refused := make([]int, len(tt.refusedShards))
+			for i := range refused {
+				refused[i] = i + 1
 			}
+			index.allocChecker = newRefusingAllocChecker(refused)
 
 			// Update shards
 			err = migrator.updateIndexShards(ctx, index, newState)
@@ -663,9 +669,9 @@ func TestUpdateIndexShards(t *testing.T) {
 				}
 			}
 
-			for _, protectedShard := range tt.protectedShards {
-				shard := index.shards.Load(protectedShard)
-				require.Nil(t, shard, "shard %s is held by a backup", protectedShard)
+			for _, refusedShard := range tt.refusedShards {
+				shard := index.shards.Load(refusedShard)
+				require.Nil(t, shard, "shard %s was refused", refusedShard)
 			}
 
 			mockSchemaGetter.AssertExpectations(t)
@@ -677,7 +683,7 @@ func TestUpdateIndexShards(t *testing.T) {
 // and must not be reported as a success.
 //
 // A per-shard failure is driven either by a loaded shard whose shutdown fails,
-// for the unload branch, or by a backup holding the shard, for the load branch.
+// for the unload branch, or by a refused load, for the load branch.
 func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 	shutdownRefused := errors.New("shutdown refused")
 
@@ -692,8 +698,8 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 		// alreadyShutShutdown are shards already in the index whose shutdown
 		// reports them already shut — the outcome the unload asked for.
 		alreadyShutShutdown []string
-		// backupProtected are shards a backup holds, so their load fails.
-		backupProtected []string
+		// refusedLoads are shards the alloc checker refuses, so their load fails.
+		refusedLoads []string
 		// closed shuts the index, which fails every shard for the same reason.
 		closed bool
 		// cancelCtx hands the reconcile an already cancelled context.
@@ -728,7 +734,7 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 		{
 			name:             "a failing unload still runs the loads",
 			incoming:         []string{"new1"},
-			backupProtected:  []string{"new1"},
+			refusedLoads:     []string{"new1"},
 			refusingShutdown: []string{"gone1"},
 			wantErrFor: []string{
 				"shutdown shard gone1",
@@ -736,15 +742,15 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			},
 		},
 		{
-			name:            "a failing load is reported",
-			incoming:        []string{"new1"},
-			backupProtected: []string{"new1"},
-			wantErrFor:      []string{"add missing shard new1"},
+			name:         "a failing load is reported",
+			incoming:     []string{"new1"},
+			refusedLoads: []string{"new1"},
+			wantErrFor:   []string{"add missing shard new1"},
 		},
 		{
-			name:            "every failing load is reported, not just the first",
-			incoming:        []string{"new1", "new2", "new3"},
-			backupProtected: []string{"new1", "new2", "new3"},
+			name:         "every failing load is reported, not just the first",
+			incoming:     []string{"new1", "new2", "new3"},
+			refusedLoads: []string{"new1", "new2", "new3"},
 			wantErrFor: []string{
 				"add missing shard new1",
 				"add missing shard new2",
@@ -766,7 +772,7 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 		{
 			name:             "a cancelled context still attempts every shard",
 			incoming:         []string{"new1"},
-			backupProtected:  []string{"new1"},
+			refusedLoads:     []string{"new1"},
 			refusingShutdown: []string{"gone1"},
 			cancelCtx:        true,
 			wantErrFor: []string{
@@ -835,9 +841,11 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			for _, name := range tt.alreadyShutShutdown {
 				storeShard(name, errAlreadyShutdown)
 			}
-			for _, name := range tt.backupProtected {
-				idx.backupProtectedShards.Store(name, struct{}{})
+			refused := make([]int, len(tt.refusedLoads))
+			for i := range refused {
+				refused[i] = i + 1
 			}
+			idx.allocChecker = newRefusingAllocChecker(refused)
 			idx.closed = tt.closed
 
 			err := m.updateIndexShards(ctx, idx, localShardingState(tt.incoming))
@@ -876,8 +884,8 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 				require.NotNil(t, idx.shards.Load(name),
 					"a shard whose shutdown failed is restored to the sharding state, %q", name)
 			}
-			for _, name := range tt.backupProtected {
-				require.Nil(t, idx.shards.Load(name), "shard %q is held by a backup", name)
+			for _, name := range tt.refusedLoads {
+				require.Nil(t, idx.shards.Load(name), "shard %q was refused", name)
 			}
 		})
 	}
@@ -913,13 +921,13 @@ func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
 			}
 
 			sg := schemaUC.NewMockSchemaGetter(t)
-			sg.EXPECT().NodeName().Return("node1").Maybe()
 			sg.EXPECT().ReadOnlyClass(mock.Anything).Return(class).Maybe()
 			idx.getSchema = sg
 			m := &Migrator{
 				db: &DB{
-					schemaGetter: sg,
-					indices:      map[string]*Index{indexID(idx.Config.ClassName): idx},
+					localNodeName: "node1",
+					schemaGetter:  sg,
+					indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
 				},
 				logger: idx.logger,
 			}
@@ -928,16 +936,18 @@ func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
 			// fails; keep1 stays, so it is the shard the property add must reach.
 			gone := NewMockShardLike(t)
 			gone.EXPECT().Shutdown(mock.Anything).Return(errors.New("shutdown refused")).Maybe()
-			gone.EXPECT().drop(false).Return(errors.New("drop refused")).Maybe()
+			gone.EXPECT().drop().Return(errors.New("drop refused")).Maybe()
 			gone.EXPECT().ID().Return("gone1").Maybe()
 			// A shard whose removal failed is restored to the map, so the
 			// property-add probe reaches it too. It answers "has the index" so
 			// the probe keeps walking to keep1 instead of stopping here.
 			gone.EXPECT().hasGeoIndexForProp("location").Return(true).Maybe()
+			gone.EXPECT().preventShutdown().Return(func() {}, nil).Maybe()
 			idx.shards.Store("gone1", gone)
 
 			keep := NewMockShardLike(t)
 			keep.EXPECT().hasGeoIndexForProp("location").Return(true)
+			keep.EXPECT().preventShutdown().Return(func() {}, nil)
 			idx.shards.Store("keep1", keep)
 
 			incomingSS := localShardingState([]string{"keep1"})
@@ -982,7 +992,9 @@ func numberedShards(n int) []string {
 // schemaUC.ErrNotFound so the REST handler maps them to 404 rather than 500.
 func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 	logger := logrus.New()
-	migrator := NewMigrator(&DB{}, logger, "node1")
+	schemaReader := local.NewMockSchemaReader(t)
+	schemaReader.EXPECT().ReadOnlyVersionedClass("DoesNotExist").Return(versioned.Class{}).Maybe()
+	migrator := NewMigrator(&DB{localNodeName: "node1", schemaReader: schemaReader}, logger, "node1")
 
 	tests := []struct {
 		name string
@@ -1021,7 +1033,6 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 
 func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.On("NodeName").Return("node1")
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -1056,6 +1067,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	}).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
+		NodeName:          "node1",
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
@@ -1314,14 +1326,14 @@ func storeDroppableShard(t *testing.T, idx *Index, name string, dropErr error) {
 	t.Helper()
 	shard := NewMockShardLike(t)
 	shard.EXPECT().ID().Return(name).Maybe()
-	shard.EXPECT().drop(false).Return(dropErr).Once()
+	shard.EXPECT().drop().Return(dropErr).Once()
 	idx.shards.Store(name, shard)
 }
 
 // newDropTestMigrator returns a migrator serving idx under className, offloading
 // to cloud unless it is nil.
 func newDropTestMigrator(idx *Index, className string, cloud modulecapabilities.OffloadCloud) *Migrator {
-	db := &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
+	db := &DB{localNodeName: "node1", indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
 	m := NewMigrator(db, idx.logger, "node1")
 	m.nodeId = "node1"
 	m.cloud = cloud

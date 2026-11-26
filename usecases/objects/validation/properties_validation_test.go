@@ -27,6 +27,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func TestValidator_extractAndValidateProperty(t *testing.T) {
@@ -210,7 +213,7 @@ func TestProperties(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			validator := &Validator{exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
+			validator := &Validator{qualifier: namespacing.Disabled, exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
 				return true, nil
 			}}
 			gotErr := validator.properties(context.Background(), spec.class, spec.obj, nil)
@@ -229,20 +232,14 @@ func TestProperties(t *testing.T) {
 	}
 }
 
-// TestProperties_MultiTargetClasslessBeacon_NSGate pins the symmetric write
-// gate added in batch_references_add.go and references_delete.go. Inline
-// refs submitted through the Properties payload (POST/PUT/PATCH /v1/objects)
-// went through autodetect, which short-circuits on multi-target props (line
-// 117 of properties_validation.go) and left the beacon classless. Downstream
-// the existence check would key on Class=="" and hit DB.anyExists — scanning
-// every index across every namespace (cross-namespace existence oracle) —
-// and the stored beacon would be wildcard-deletable because removeReference's
-// short-class match treats classless as "any class with this TargetID".
-//
-// On NS-enabled clusters the gate must reject this per-row with the same
-// wording the other write paths use. Non-NS clusters keep the legacy
-// pass-through (byte-exact compare on delete makes classless writes safe).
-func TestProperties_MultiTargetClasslessBeacon_NSGate(t *testing.T) {
+type countingRefCounter struct{ n int }
+
+func (c *countingRefCounter) MultiTargetRefWithoutClassInc() { c.n++ }
+
+// An inline classless beacon on a multi-target property is always counted.
+// Namespaces or DisableMultiTargetReferencesWithoutClass refuse it before
+// Exists, which otherwise runs with an empty class and searches every collection.
+func TestProperties_MultiTargetClasslessBeacon(t *testing.T) {
 	const refID = "8e555f0d-8590-48c2-a9a6-70772ed14c0a"
 	classWithMulti := &models.Class{
 		Class: "Source",
@@ -250,47 +247,61 @@ func TestProperties_MultiTargetClasslessBeacon_NSGate(t *testing.T) {
 			{Name: "hasOther", DataType: []string{"Alpha", "Beta"}}, // multi-target
 		},
 	}
-	classlessBeacon := "weaviate://localhost/" + refID
 
-	makeObj := func() *models.Object {
-		return &models.Object{
-			Class: "Source",
-			Properties: map[string]any{"hasOther": []any{map[string]any{
-				"beacon": classlessBeacon,
-			}}},
-		}
+	tests := []struct {
+		name        string
+		config      config.Config
+		qualifier   namespacing.Qualifier
+		wantRefused bool
+	}{
+		{
+			name:        "namespaces enabled",
+			config:      config.Config{Namespaces: config.Namespaces{Enabled: true}},
+			qualifier:   wlnamespaces.NewPrefixing(),
+			wantRefused: true,
+		},
+		{
+			name:        "DisableMultiTargetReferencesWithoutClass set",
+			config:      config.Config{DisableMultiTargetReferencesWithoutClass: runtime.NewDynamicValue(true)},
+			wantRefused: true,
+		},
+		{name: "neither"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.qualifier == nil {
+				tt.qualifier = namespacing.Disabled
+			}
+			var existsClasses []string
+			counter := &countingRefCounter{}
+			v := &Validator{
+				config:     &config.WeaviateConfig{Config: tt.config},
+				qualifier:  tt.qualifier,
+				refCounter: counter,
+				exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
+					existsClasses = append(existsClasses, class)
+					return true, nil
+				},
+			}
+			obj := &models.Object{
+				Class: "Source",
+				Properties: map[string]any{"hasOther": []any{map[string]any{
+					"beacon": "weaviate://localhost/" + refID,
+				}}},
+			}
 
-	t.Run("NS-enabled: classless multi-target ref is rejected before existence check", func(t *testing.T) {
-		existsCalled := false
-		v := &Validator{
-			namespacesEnabled: true,
-			exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
-				existsCalled = true
-				return true, nil
-			},
-		}
-		err := v.properties(context.Background(), classWithMulti, makeObj(), nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "multi-target references require the class name in the target beacon url")
-		assert.False(t, existsCalled,
-			"existence check must NOT run for a classless multi-target beacon — "+
-				"would otherwise reach DB.anyExists, a cross-namespace oracle")
-	})
+			err := v.properties(context.Background(), classWithMulti, obj, nil)
 
-	t.Run("non-NS: classless multi-target ref still passes through (legacy)", func(t *testing.T) {
-		// Non-NS clusters do byte-exact beacon compare on delete, so a
-		// classless stored beacon is matched only by a classless delete.
-		// Preserve the legacy behaviour to avoid breaking pre-NS callers.
-		v := &Validator{
-			namespacesEnabled: false,
-			exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
-				return true, nil
-			},
-		}
-		err := v.properties(context.Background(), classWithMulti, makeObj(), nil)
-		require.NoError(t, err)
-	})
+			assert.Equal(t, 1, counter.n)
+			if tt.wantRefused {
+				require.ErrorIs(t, err, ErrMultiTargetRefWithoutClass)
+				assert.Empty(t, existsClasses)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, []string{""}, existsClasses)
+		})
+	}
 }
 
 func extractBeacon(t *testing.T, props models.PropertySchema) strfmt.URI {

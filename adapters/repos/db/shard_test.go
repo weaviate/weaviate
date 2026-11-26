@@ -31,8 +31,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	dynamicindex "github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -42,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func TestShard_UpdateStatus(t *testing.T) {
@@ -246,6 +249,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject(className)
+		obj.Vector = randVector(3)
 		objs = append(objs, obj)
 	}
 
@@ -266,28 +270,29 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "")
 	require.Nil(t, err)
 
-	newIdx, q := getVectorIndexAndQueue(t, shd, "")
+	newIdx, _ := getVectorIndexAndQueue(t, shd, "")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
-	// queue should be empty after reset
-	require.EqualValues(t, 0, q.Size())
-
-	// make sure the new index does not contain any of the objects
-	for _, obj := range objs {
-		if newIdx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+	// the reset refills the new index from the object store in the background
+	require.Eventually(t, func() bool {
+		for _, obj := range objs {
+			if !newIdx.ContainsDoc(obj.DocID) {
+				return false
+			}
 		}
-	}
+		return true
+	}, time.Minute, 100*time.Millisecond, "not every object made it into the rebuilt index")
+	waitForVectorQueue(t, shd, "")
 
 	// the reset rebuilt at the recorded ID: record ready, storage present
 	s := underlyingShard(t, shd)
 	rec, ok, err := s.mapping.Get("")
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}, rec)
+	assert.Equal(t, recorded(s, "", "main", "ready"), rec)
 	assert.True(t, storageExistsFor(t, s, rec))
 
 	require.Nil(t, idx.drop())
@@ -414,91 +419,22 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "foo")
 	require.Nil(t, err)
 
-	newIdx, q := getVectorIndexAndQueue(t, shd, "foo")
+	newIdx, _ := getVectorIndexAndQueue(t, shd, "foo")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
-	// queue should be empty after reset
-	require.EqualValues(t, 0, q.Size())
-
-	// make sure the new index does not contain any of the objects
-	for _, obj := range objs {
-		if newIdx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+	// the reset refills the new index from the object store in the background
+	require.Eventually(t, func() bool {
+		for _, obj := range objs {
+			if !newIdx.ContainsDoc(obj.DocID) {
+				return false
+			}
 		}
-	}
-
-	require.Nil(t, idx.drop())
-	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-}
-
-func TestShard_resetDimensionsLSM(t *testing.T) {
-	ctx := testCtx()
-	className := "TestClass"
-	shd, idx := testShard(t, ctx, className)
-
-	amount := 10
-	shd.Index().Config.TrackVectorDimensions = true
-	shd.resetDimensionsLSM(ctx)
-
-	t.Run("count dimensions before insert", func(t *testing.T) {
-		dims, err := shd.Dimensions(ctx, "")
-		require.NoError(t, err)
-		require.Equal(t, 0, dims)
-	})
-
-	t.Run("insert data into shard", func(t *testing.T) {
-		for i := 0; i < amount; i++ {
-			obj := testObject(className)
-			obj.Vector = randVector(3)
-
-			err := shd.PutObject(ctx, obj)
-			require.Nil(t, err)
-		}
-
-		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
-		require.Nil(t, err)
-		require.Equal(t, amount, len(objs))
-	})
-
-	t.Run("count dimensions", func(t *testing.T) {
-		dims, err := shd.Dimensions(ctx, "")
-		require.NoError(t, err)
-		require.Equal(t, 3*amount, dims)
-	})
-
-	t.Run("reset dimensions lsm", func(t *testing.T) {
-		err := shd.resetDimensionsLSM(ctx)
-		require.Nil(t, err)
-	})
-
-	t.Run("count dimensions after reset", func(t *testing.T) {
-		dims, err := shd.Dimensions(ctx, "")
-		require.NoError(t, err)
-		require.Equal(t, 0, dims)
-	})
-
-	t.Run("insert data into shard after reset", func(t *testing.T) {
-		for i := 0; i < amount; i++ {
-			obj := testObject(className)
-			obj.Vector = randVector(3)
-
-			err := shd.PutObject(ctx, obj)
-			require.Nil(t, err)
-		}
-
-		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
-		require.Nil(t, err)
-		require.Equal(t, amount, len(objs))
-	})
-
-	t.Run("count dimensions after reset and insert", func(t *testing.T) {
-		dims, err := shd.Dimensions(ctx, "")
-		require.NoError(t, err)
-		require.Equal(t, 3*amount, dims)
-	})
+		return true
+	}, time.Minute, 100*time.Millisecond, "not every object made it into the rebuilt index")
+	waitForVectorQueue(t, shd, "foo")
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
@@ -781,4 +717,165 @@ func TestShard_OpensMetadataDBForEveryShard(t *testing.T) {
 	// the loaded shard holds the lock
 	_, _, err = shardmeta.GetOffline(s.path(), dynamicindex.StateNamespace, []byte("upgraded"))
 	require.Error(t, err)
+}
+
+func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className},
+		hnsw.UserConfig{}, false, false,
+		func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"foo": hnsw.UserConfig{
+					CleanupIntervalSeconds: 1,
+					MaxConnections:         16,
+					EFConstruction:         64,
+					VectorCacheMaxObjects:  100000,
+				},
+			}
+			// the helper installs noop cycle callbacks; the real ticker is under test
+			i.initCycleCallbacks()
+		},
+	)
+	defer func() {
+		require.NoError(t, idx.drop())
+		require.NoError(t, os.RemoveAll(idx.Config.RootPath))
+	}()
+
+	amount := 100
+	objs := make([]*storobj.Object, 0, amount)
+	for i := 0; i < amount; i++ {
+		obj := testObject(className)
+		obj.Vectors = map[string][]float32{
+			"foo": {float32(i), float32(i % 7), float32(i % 3)},
+		}
+		objs = append(objs, obj)
+	}
+	for _, err := range shd.PutObjectBatch(ctx, objs) {
+		require.NoError(t, err)
+	}
+
+	deleted := 20
+	for _, obj := range objs[:deleted] {
+		require.NoError(t, shd.DeleteObject(ctx, obj.ID(), time.Now()))
+	}
+
+	vi, release, ok := shd.AcquireVectorIndex("foo")
+	require.True(t, ok)
+	defer release()
+	hnswIdx, ok := vi.(*hnswindex.HNSW)
+	require.True(t, ok)
+
+	numTombstones := func() int {
+		stats, err := hnswIdx.Stats()
+		require.NoError(t, err)
+		return stats.NumTombstones
+	}
+
+	// Cleanup runs every second, so the tombstones must drain well before the
+	// 300s default would have fired.
+	require.Eventually(t, func() bool { return numTombstones() == 0 },
+		20*time.Second, 200*time.Millisecond,
+		"tombstones did not drain: %d remaining", numTombstones())
+}
+
+// A vector payload whose shape does not match the target's index must be
+// refused before anything is written, never panic or fail later in indexing.
+// Flat, dynamic and hfresh never take multi-vectors; hnsw only takes the kind
+// its multivector setting selects.
+func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
+	singleVector := []float32{0.1, 0.2, 0.3, 0.4}
+	multiVector := [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}}
+
+	// The dynamic index can only be created with async indexing enabled.
+	indexes := []struct {
+		name    string
+		cfg     schemaConfig.VectorIndexConfig
+		async   []bool
+		payload models.Vector
+	}{
+		{name: "flat", cfg: flat.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
+		{name: "dynamic", cfg: dynamic.NewDefaultUserConfig(), async: []bool{true}, payload: multiVector},
+		{name: "hfresh", cfg: hfresh.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
+		{name: "hnsw", cfg: hnsw.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
+		{name: "hnsw multivector", cfg: hnsw.NewDefaultMultiVectorUserConfig(), async: []bool{false, true}, payload: singleVector},
+	}
+
+	objWith := func(payload models.Vector) *storobj.Object {
+		obj := testObject("TestClass")
+		switch v := payload.(type) {
+		case []float32:
+			obj.Vectors = map[string][]float32{"foo": v}
+		case [][]float32:
+			obj.MultiVectors = map[string][][]float32{"foo": v}
+		}
+		return obj
+	}
+
+	ops := map[string]func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error{
+		"put": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			return shd.PutObject(ctx, objWith(payload))
+		},
+		"merge": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			return shd.MergeObject(ctx, objects.MergeDocument{
+				Class:   "TestClass",
+				ID:      strfmt.UUID(uuid.NewString()),
+				Vectors: models.Vectors{"foo": payload},
+			})
+		},
+		"batch": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			errs := shd.PutObjectBatch(ctx, []*storobj.Object{objWith(payload)})
+			require.Len(t, errs, 1)
+			return errs[0]
+		},
+		"search": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			_, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{payload}, []string{"foo"}, 0, 10,
+				nil, nil, nil, additional.Properties{}, nil, nil)
+			return err
+		},
+		"search by distance": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			_, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{payload}, []string{"foo"}, 0.5, -1,
+				nil, nil, nil, additional.Properties{}, nil, nil)
+			return err
+		},
+		"distance for query": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			_, err := shd.VectorDistanceForQuery(ctx, 0, []models.Vector{payload}, []string{"foo"})
+			return err
+		},
+		"aggregate": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			limit := 10
+			_, err := shd.Aggregate(ctx, aggregation.Params{
+				ClassName: "TestClass", IncludeMetaCount: true,
+				SearchVector: payload, TargetVector: "foo", ObjectLimit: &limit,
+			}, nil)
+			return err
+		},
+		"aggregate by distance": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			_, err := shd.Aggregate(ctx, aggregation.Params{
+				ClassName: "TestClass", IncludeMetaCount: true,
+				SearchVector: payload, TargetVector: "foo", Certainty: 0.5,
+			}, nil)
+			return err
+		},
+	}
+
+	for _, index := range indexes {
+		for _, async := range index.async {
+			for opName, op := range ops {
+				t.Run(fmt.Sprintf("%s/async=%t/%s", index.name, async, opName), func(t *testing.T) {
+					ctx := testCtx()
+					class := &models.Class{Class: "TestClass"}
+					shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, async,
+						func(i *Index) {
+							i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"foo": index.cfg}
+						})
+					defer func() { require.NoError(t, idx.drop()) }()
+
+					err := op(t, ctx, shd, index.payload)
+					require.ErrorContains(t, err, "multi-vector")
+					require.Equal(t, 0, int(shd.Counter().Get()))
+				})
+			}
+		}
+	}
 }

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -58,7 +59,7 @@ func PathToPermission(verb, path string) (*models.Permission, error) {
 	return permission([]string{"", path, verb, parts[0]}, false)
 }
 
-func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permission, error) {
+func PoliciesToPermission(logger logrus.FieldLogger, policies ...authorization.Policy) ([]*models.Permission, error) {
 	permissions := []*models.Permission{}
 	for idx := range policies {
 		// 1st empty string to replace casbin pattern of having policy name as 1st place
@@ -66,7 +67,8 @@ func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permissio
 		// see newPolicy()
 		perm, err := permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain}, true)
 		if err != nil {
-			return nil, err
+			logger.Errorf("failed to convert policy %v to permission: %v", policies[idx], err)
+			continue
 		}
 		if perm.Action == nil {
 			continue
@@ -76,7 +78,7 @@ func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permissio
 	return permissions, nil
 }
 
-func CasbinPolicies(namespacesEnabled bool, casbinPolicies ...[][]string) (map[string][]authorization.Policy, error) {
+func CasbinPolicies(logger logrus.FieldLogger, namespacesEnabled bool, casbinPolicies ...[][]string) (map[string][]authorization.Policy, error) {
 	builtIn := authorization.BuiltInPermissionsFor(namespacesEnabled)
 	rolesPermissions := make(map[string][]authorization.Policy)
 	for _, p := range casbinPolicies {
@@ -94,11 +96,13 @@ func CasbinPolicies(namespacesEnabled bool, casbinPolicies ...[][]string) (map[s
 			} else {
 				perm, err := permission(policyParts, true)
 				if err != nil {
-					return nil, fmt.Errorf("permission: %w", err)
+					logger.Errorf("failed to convert policy parts %v to permission: %v", policyParts, err)
+					continue
 				}
 				weaviatePerm, err := policy(perm)
 				if err != nil {
-					return nil, fmt.Errorf("policy: %w", err)
+					logger.Errorf("failed to convert permission %v to policy: %v", *perm, err)
+					continue
 				}
 				rolesPermissions[name] = append(rolesPermissions[name], *weaviatePerm)
 			}

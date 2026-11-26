@@ -99,6 +99,39 @@ func TestWALRecovery_FlushesLastWALUnderLiveOps(t *testing.T) {
 	require.Equal(t, []byte("v1"), v, "recovered data must still be readable after the flush")
 }
 
+// TestWALRecovery_ChunkedReplayPendsEveryChunkUnderLiveOps extends the
+// contract above to a replay that cuts its WAL into several segments: every
+// chunk may hold pre-arm bytes, so every chunk must be pended, not just the
+// one named after the WAL.
+func TestWALRecovery_ChunkedReplayPendsEveryChunkUnderLiveOps(t *testing.T) {
+	ctx := context.Background()
+
+	var tc chunkedWALCase
+	for _, c := range chunkedWALCases() {
+		if c.strategy == StrategyReplace {
+			tc = c
+		}
+	}
+	require.Equal(t, StrategyReplace, tc.strategy)
+	entries := tc.entryCount()
+	dir := newChunkTestDir(t, tc, entries, chunkTestPayload)
+
+	ext := newSegmentEditOps(dir, "TestClass")
+	require.NoError(t, ext.RegisterOp("op1", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, ext.Close())
+
+	b := openChunkTestBucket(t, dir, StrategyReplace, chunkTestThreshold, WithClassName("TestClass"))
+	defer closeChunkTestBucket(t, ctx, b)
+
+	segs := segIDsOf(b)
+	require.Greater(t, len(segs), 1, "the WAL must be replayed as more than one chunk for this test to mean anything")
+	require.Empty(t, filesWithExt(t, dir, ".wal"))
+
+	pending, err := b.disk.editOps.Pending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, segs, pending, "every chunk of a WAL replayed under a live op must be pended")
+}
+
 // TestWALRecovery_TornSidecarStallsNotBricks pins the stall-not-brick policy
 // for a torn (corrupt but unlocked) sidecar next to a live WAL: the shard
 // must still LOAD (bricking it would trade data availability for cleanup

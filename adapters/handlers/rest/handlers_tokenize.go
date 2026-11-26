@@ -35,7 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, namespacesEnabled bool, logger logrus.FieldLogger) {
+func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, qualifier namespacing.Qualifier, logger logrus.FieldLogger) {
 	api.TokenizeTokenizeHandler = tokenizeops.TokenizeHandlerFunc(
 		func(params tokenizeops.TokenizeParams, principal *models.Principal) middleware.Responder {
 			return genericTokenize(principal, params)
@@ -43,7 +43,7 @@ func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.
 
 	api.SchemaSchemaObjectsPropertiesTokenizeHandler = schemaops.SchemaObjectsPropertiesTokenizeHandlerFunc(
 		func(params schemaops.SchemaObjectsPropertiesTokenizeParams, principal *models.Principal) middleware.Responder {
-			return propertyTokenize(params, principal, schemaManager, namespacesEnabled, logger)
+			return propertyTokenize(params, principal, schemaManager, qualifier, logger)
 		})
 }
 
@@ -157,12 +157,16 @@ func genericTokenize(principal *models.Principal, params tokenizeops.TokenizePar
 }
 
 func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
-	principal *models.Principal, schemaManager *schemaUC.Manager, namespacesEnabled bool, logger logrus.FieldLogger,
+	principal *models.Principal, schemaManager *schemaUC.Manager, qualifier namespacing.Qualifier, logger logrus.FieldLogger,
 ) middleware.Responder {
 	// Resolve before authorization so authz uses the real collection name
 	// for permissions and error UX.
-	className, _, err := namespacing.Resolve(principal, schemaManager, namespacesEnabled, params.ClassName)
+	className, _, err := namespacing.Resolve(principal, schemaManager, qualifier, params.ClassName)
 	if err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return schemaops.NewSchemaObjectsPropertiesTokenizeForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		}
 		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}

@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"context"
 	"runtime"
 	"testing"
 	"time"
@@ -43,11 +44,11 @@ func TestReloadReleasesShardingStateCopies(t *testing.T) {
 	}}
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := NewSchemaManager("node1", idx, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 	addClass(t, sm, "A")
 	addClass(t, sm, "B")
 
-	sm.ReloadDBFromSchema()
+	sm.ReloadDBFromSchema(context.Background())
 
 	require.Len(t, states, 2)
 	require.Eventually(t, func() bool {

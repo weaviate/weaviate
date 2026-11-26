@@ -1,7 +1,6 @@
-before:
-  hooks:
-    # You may remove this if you don't use go modules.
-    - go mod tidy
+# Reproducible builds (docs/reproducible-builds.md): no `go mod tidy` hook, because a
+# hook that touches go.mod/go.sum flips vcs.modified in the embedded build info; no
+# wall-clock date anywhere; -trimpath so the checkout path is not embedded.
 builds:
   - env:
       - CGO_ENABLED=0
@@ -12,13 +11,16 @@ builds:
     goarch:
       - amd64
       - arm64
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -w
       - -extldflags "-static"
       - -X github.com/weaviate/weaviate/usecases/build.Branch={{ .Env.GIT_BRANCH }}
       - -X github.com/weaviate/weaviate/usecases/build.Revision={{ .Env.GIT_REVISION }}
       - -X github.com/weaviate/weaviate/usecases/build.BuildUser={{ .Env.BUILD_USER }}
-      - -X github.com/weaviate/weaviate/usecases/build.BuildDate={{ .Env.BUILD_DATE }}
+      - -X github.com/weaviate/weaviate/usecases/build.BuildDate={{ .CommitDate }}
 
 # create a "fat" binary for MacOS
 universal_binaries:

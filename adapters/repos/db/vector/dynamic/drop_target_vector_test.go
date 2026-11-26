@@ -99,10 +99,10 @@ func TestDropTargetVector_LeavesTheSharedStateDBUsable(t *testing.T) {
 }
 
 // TestDropTargetVector_ClearsOnlyItsOwnKey pins both halves of the key
-// handling: the dropped vector's upgrade verdict must go, or a re-created
-// vector of the same name inherits "already upgraded" and boots straight into
-// an empty hnsw, skipping its flat stage; and the sibling's verdict must stay,
-// or the sibling silently restarts its own upgrade.
+// handling: the dropped vector's upgrade verdict and upgrading marker must go,
+// or a re-created vector of the same name inherits "already upgraded" (booting
+// straight into an empty hnsw) or "interrupted upgrade"; and the sibling's
+// keys must stay, or the sibling silently restarts its own upgrade.
 func TestDropTargetVector_ClearsOnlyItsOwnKey(t *testing.T) {
 	ctx := context.Background()
 	rootPath := t.TempDir()
@@ -115,26 +115,32 @@ func TestDropTargetVector_ClearsOnlyItsOwnKey(t *testing.T) {
 
 	// Both have been upgraded, as the shard would have recorded.
 	ns := meta.Namespace(StateNamespace)
-	require.NoError(t, ns.Put(dropped.dbKey(), []byte("1")))
-	require.NoError(t, ns.Put(sibling.dbKey(), []byte("1")))
+	for _, k := range [][]byte{dropped.dbKey(), sibling.dbKey(), dropped.upgradingKey(), sibling.upgradingKey()} {
+		require.NoError(t, ns.Put(k, []byte("1")))
+	}
 
 	require.NoError(t, dropped.DropTargetVector(ctx))
 
-	droppedState, err := ns.Get(dropped.dbKey())
-	require.NoError(t, err)
-	assert.Empty(t, droppedState,
+	get := func(k []byte) []byte {
+		v, err := ns.Get(k)
+		require.NoError(t, err)
+		return v
+	}
+	assert.Empty(t, get(dropped.dbKey()),
 		"the dropped vector's upgrade verdict must go, or a re-created name skips its flat stage")
-	siblingState, err := ns.Get(sibling.dbKey())
-	require.NoError(t, err)
-	assert.Equal(t, []byte("1"), siblingState,
+	assert.Equal(t, []byte("1"), get(sibling.dbKey()),
 		"a sibling's upgrade verdict must survive")
+	assert.Empty(t, get(dropped.upgradingKey()),
+		"the dropped vector's upgrading marker must go, or a re-created name loads as an interrupted upgrade")
+	assert.Equal(t, []byte("1"), get(sibling.upgradingKey()),
+		"a sibling's upgrading marker must survive")
 }
 
 // TestDrop_ToleratesClosedMetadataDB pins the shutdown-then-drop journey: the
 // shard's shutdown closes the metadata DB before the drop runs, so the state
-// key deletion in Drop(keepFiles=false) hits a closed handle. That must read
-// as "nothing left to update" (the whole shard directory, key included, is
-// removed right after), not fail the drop.
+// key deletion in Drop hits a closed handle. That must read as "nothing left
+// to update" (the whole shard directory, key included, is removed right
+// after), not fail the drop.
 func TestDrop_ToleratesClosedMetadataDB(t *testing.T) {
 	ctx := context.Background()
 	rootPath := t.TempDir()
@@ -144,14 +150,13 @@ func TestDrop_ToleratesClosedMetadataDB(t *testing.T) {
 	idx := newDynamicForDrop(t, meta, rootPath, "a")
 
 	require.NoError(t, meta.Close())
-	require.NoError(t, idx.Drop(ctx, false))
+	require.NoError(t, idx.Drop(ctx))
 }
 
 // TestDrop_LeavesTheSharedMetadataDBUsable pins the ownership boundary that
-// DebugResetVectorIndex depends on: Drop(keepFiles=false) must neither close
-// nor delete the shard-owned metadata DB. It once did both, which broke every
-// sibling dynamic vector and made the reset's re-init fail on the shard's
-// stale closed handle.
+// DebugResetVectorIndex depends on: Drop must neither close nor delete the
+// shard-owned metadata DB. It once did both, which broke every sibling dynamic
+// vector and made the reset's re-init fail on the shard's stale closed handle.
 func TestDrop_LeavesTheSharedMetadataDBUsable(t *testing.T) {
 	ctx := context.Background()
 	rootPath := t.TempDir()
@@ -162,8 +167,10 @@ func TestDrop_LeavesTheSharedMetadataDBUsable(t *testing.T) {
 	dropped := newDynamicForDrop(t, meta, rootPath, "a")
 	sibling := newDynamicForDrop(t, meta, rootPath, "b")
 	ns := meta.Namespace(StateNamespace)
+	require.NoError(t, ns.Put(dropped.dbKey(), []byte{1}))
+	require.NoError(t, ns.Put(dropped.upgradingKey(), []byte{1}))
 
-	require.NoError(t, dropped.Drop(ctx, false))
+	require.NoError(t, dropped.Drop(ctx))
 
 	// the file is still there and the handle still works: a sibling can read
 	// and write its own state
@@ -171,30 +178,12 @@ func TestDrop_LeavesTheSharedMetadataDBUsable(t *testing.T) {
 	assert.NoError(t, statErr, "the shard-owned metadata DB must survive a vector index drop")
 	require.NoError(t, ns.Put(sibling.dbKey(), []byte{1}))
 
-	// the dropped vector's own verdict is gone, so a re-created name starts
-	// from its flat stage
+	// the dropped vector's own verdict and marker are gone, so a re-created
+	// name starts from a clean flat stage
 	v, err := ns.Get(dropped.dbKey())
 	require.NoError(t, err)
 	assert.Empty(t, v)
-}
-
-// TestDrop_KeepFilesKeepsTheStateKey pins the backup journey: a drop that
-// keeps files (backup in flight) must also keep the upgrade verdict, or the
-// backed-up shard restores into an empty hnsw with its flat data unread.
-func TestDrop_KeepFilesKeepsTheStateKey(t *testing.T) {
-	ctx := context.Background()
-	rootPath := t.TempDir()
-	meta, err := shardmeta.Open(rootPath, time.Second)
+	v, err = ns.Get(dropped.upgradingKey())
 	require.NoError(t, err)
-	t.Cleanup(func() { meta.Close() })
-
-	idx := newDynamicForDrop(t, meta, rootPath, "a")
-	ns := meta.Namespace(StateNamespace)
-	require.NoError(t, ns.Put(idx.dbKey(), []byte{1}))
-
-	require.NoError(t, idx.Drop(ctx, true))
-
-	v, err := ns.Get(idx.dbKey())
-	require.NoError(t, err)
-	assert.Equal(t, []byte{1}, v, "keepFiles must keep the upgrade verdict")
+	assert.Empty(t, v)
 }

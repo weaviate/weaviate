@@ -23,11 +23,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	modulesProvider ModulesProvider, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+	modulesProvider ModulesProvider, licenseState *license.State, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
 	metricRequestsTotal := newMiscRequestsTotal(metrics, logger)
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
@@ -49,6 +50,18 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			Version:            config.ServerVersion,
 			Modules:            metaInfos,
 			GrpcMaxMessageSize: int64(serverConfig.Config.GRPC.MaxMsgSize),
+		}
+		if licenseState != nil {
+			// A Community Edition node has no license, so it has no license
+			// status or id; those fields only exist for Enterprise Edition.
+			res.License = &models.MetaLicense{
+				Edition:           string(licenseState.Edition()),
+				DocumentationHref: license.EnterpriseDocsURL,
+			}
+			if licenseState.Edition() == license.EditionEnterprise {
+				res.License.Status = string(licenseState.Status)
+				res.License.LicenseID = licenseState.LicenseID
+			}
 		}
 		metricRequestsTotal.logOk("")
 		return meta.NewMetaGetOK().WithPayload(res)
@@ -86,6 +99,11 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 					{
 						Name: "Meta information about this instance/cluster",
 						Href: fmt.Sprintf("%s/v1/meta", origin),
+					},
+					{
+						Name:              "Edition and license state of this instance (part of /v1/meta)",
+						Href:              fmt.Sprintf("%s/v1/meta", origin),
+						DocumentationHref: license.EnterpriseDocsURL,
 					},
 					{
 						Name:              "view complete schema",

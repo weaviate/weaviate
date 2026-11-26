@@ -184,7 +184,7 @@ func (a *Client) GetNamespace(params *GetNamespaceParams, authInfo runtime.Clien
 /*
 ListNamespaces lists namespaces
 
-Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable `manage_namespaces` permission receive an empty list (never 403).
+Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable `manage_namespaces` permission receive an empty list rather than 403.
 */
 func (a *Client) ListNamespaces(params *ListNamespacesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListNamespacesOK, error) {
 	// TODO: Validate the params before sending
@@ -307,7 +307,7 @@ func (a *Client) SuspendNamespace(params *SuspendNamespaceParams, authInfo runti
 /*
 UpdateNamespace updates a namespace
 
-Update a namespace's `home_node`. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.
+Update a namespace's `home_nodes`. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.
 */
 func (a *Client) UpdateNamespace(params *UpdateNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*UpdateNamespaceOK, error) {
 	// TODO: Validate the params before sending

@@ -70,6 +70,7 @@ type Metrics struct {
 	asyncCheckpointCreateCount        prometheus.Counter
 	asyncCheckpointCreateFailureCount prometheus.Counter
 	asyncCheckpointDeleteCount        prometheus.Counter
+	asyncCheckpointExpiredCount       prometheus.Counter
 	asyncCheckpointActive             prometheus.Gauge
 	asyncCheckpointLifetimeSeconds    prometheus.Histogram
 
@@ -477,6 +478,20 @@ func NewMetrics(
 		m.asyncCheckpointDeleteCount.Add(0)
 	}
 
+	m.asyncCheckpointExpiredCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_checkpoint_expired_total",
+			Help:      "Checkpoints cleared for outliving the max lifetime without a delete (e.g. the planning coordinator crashed).",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_checkpoint_expired_total: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncCheckpointExpiredCount.Add(0)
+	}
+
 	m.asyncCheckpointActive, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "weaviate",
@@ -495,7 +510,7 @@ func NewMetrics(
 		prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "weaviate",
 			Name:      "async_checkpoint_lifetime_seconds",
-			Help:      "Time a checkpoint stayed active before being cleared (explicit delete, replacement, or stop/disable).",
+			Help:      "Time a checkpoint stayed active before being cleared (explicit delete, replacement, stop/disable, or expiry).",
 			Buckets:   defaultDurationBuckets,
 		}),
 	)
@@ -612,6 +627,8 @@ func NewMetrics(
 	return m, nil
 }
 
+// UpdateShardStatus moves a shard between status buckets; an empty old
+// registers, an empty new releases.
 func (m *Metrics) UpdateShardStatus(old, new string) {
 	if m.shardsCount == nil {
 		return
@@ -621,7 +638,9 @@ func (m *Metrics) UpdateShardStatus(old, new string) {
 		m.shardsCount.WithLabelValues(old).Dec()
 	}
 
-	m.shardsCount.WithLabelValues(new).Inc()
+	if new != "" {
+		m.shardsCount.WithLabelValues(new).Inc()
+	}
 }
 
 func (m *Metrics) ObserveUpdateShardStatus(status string, duration time.Duration) {
@@ -997,6 +1016,13 @@ func (m *Metrics) IncAsyncCheckpointDeleteCount() {
 		return
 	}
 	m.asyncCheckpointDeleteCount.Inc()
+}
+
+func (m *Metrics) IncAsyncCheckpointExpiredCount() {
+	if m == nil || !m.monitoring {
+		return
+	}
+	m.asyncCheckpointExpiredCount.Inc()
 }
 
 // IncAsyncCheckpointActive fires on inactive→active transitions only (replace doesn't change the count).

@@ -13,7 +13,6 @@ package rbac
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -23,6 +22,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -34,8 +34,7 @@ func newTestManager(t *testing.T) *Manager {
 
 func newTestManagerWithNamespaces(t *testing.T, namespaces rbac.NamespaceLister) *Manager {
 	t.Helper()
-	policyPath := filepath.Join(t.TempDir(), "policy.csv")
-	authZ, err := rbac.New(policyPath, rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
+	authZ, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
 	require.NoError(t, err)
 	return NewManager(authZ, config.Authentication{}, logrus.New())
 }
@@ -202,5 +201,73 @@ func TestAddRolesForUserIgnoresTheNamespace(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, assigned, tc.role, "the apply must persist the assignment")
 		})
+	}
+}
+
+func TestAddRolesForUser(t *testing.T) {
+	t.Run("an env admin grant entry replays into a restart without the env var", func(t *testing.T) {
+		authNconf := config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"alice"}}}
+		boot := func(conf rbacconf.Config) *Manager {
+			authZ, err := rbac.New(t.TempDir(), conf, authNconf, false, nil, logrus.New())
+			require.NoError(t, err)
+			return NewManager(authZ, authNconf, logrus.New())
+		}
+		aliceRoles := func(m *Manager) map[string][]authorization.Policy {
+			roles, err := m.authZ.GetRolesForUserOrGroup("alice", authentication.AuthTypeDb, false)
+			require.NoError(t, err)
+			return roles
+		}
+
+		// The first boot's grant writer appends one entry per env grant.
+		envConf := rbacconf.Config{Enabled: true, AdminUsers: []string{"alice"}}
+		grants := rbac.AdminViewerGrants(envConf, authNconf)
+		require.NotEmpty(t, grants)
+		first := boot(envConf)
+		var log []*cmd.ApplyRequest
+		for _, g := range grants {
+			sub, err := json.Marshal(&cmd.AddRolesForUsersRequest{
+				User: g.Subject, Roles: []string{g.Role}, Version: cmd.RBACAssignRevokeLatestCommandPolicyVersion,
+			})
+			require.NoError(t, err)
+			entry := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_ADD_ROLES_FOR_USER, SubCommand: sub}
+			require.NoError(t, first.AddRolesForUser(entry))
+			log = append(log, entry)
+		}
+
+		// Restart with the env var removed and no snapshot: only the log replays.
+		restarted := boot(rbacconf.Config{Enabled: true})
+		require.NotContains(t, aliceRoles(restarted), authorization.Admin, "Init alone must not grant admin")
+		for _, entry := range log {
+			require.NoError(t, restarted.AddRolesForUser(entry))
+		}
+
+		assert.Contains(t, aliceRoles(restarted), authorization.Admin)
+	})
+}
+
+// TestRestoreDropsRowsPolicyFileCannotStore pins that a RAFT snapshot holding a
+// row the policy file cannot store still restores, without that row. The raft
+// library stops the node from starting when no snapshot restores.
+func TestRestoreDropsRowsPolicyFileCannotStore(t *testing.T) {
+	m := newTestManager(t)
+	require.NoError(t, applyCreateRole(m, "roleA"))
+	blob, err := json.Marshal(map[string]any{
+		"roles_policies": [][]string{{"role:roleB", authorization.Cluster(), authorization.READ, authorization.ClusterDomain}},
+		"grouping_policies": [][]string{
+			{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), "role:roleB"},
+			{"oidc:Doe, John", "role:roleB"},
+			{"oidc:Jane", "role:roleB"},
+		},
+		"version": rbac.SnapshotVersionLatest,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, m.Restore(blob))
+
+	assert.ElementsMatch(t, []string{"roleB"}, customRoleNames(t, m))
+	for user, want := range map[string]int{"Jane": 1, "Doe, John": 0} {
+		roles, err := m.authZ.GetRolesForUserOrGroup(user, authentication.AuthTypeOIDC, false)
+		require.NoError(t, err)
+		assert.Len(t, roles, want, user)
 	}
 }

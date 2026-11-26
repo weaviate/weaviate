@@ -33,8 +33,8 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 		lsmkv.WithSegmentsCleanupInterval(
 			time.Duration(s.index.Config.SegmentsCleanupIntervalSeconds) * time.Second),
 		lsmkv.WithDynamicMemtableSizing(
-			s.index.Config.MemtablesInitialSizeMB,
-			s.index.Config.MemtablesMaxSizeMB,
+			s.index.Config.MemtablesInitialSizeMB*1024*1024,
+			s.index.Config.MemtablesMaxSizeMB*1024*1024,
 			s.index.Config.MemtablesMinActiveSeconds,
 			s.index.Config.MemtablesMaxActiveSeconds,
 		),

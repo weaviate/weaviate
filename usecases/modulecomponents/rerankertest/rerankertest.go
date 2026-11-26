@@ -346,7 +346,7 @@ func AssertBatchScores(t *testing.T, documents []string, resp *ent.RankResult, f
 // Ranker is the minimal shape every reranker client exposes, letting
 // RunRankTest drive a module's own client generically.
 type Ranker interface {
-	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Rank(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
 // RunRankTest exercises the three subtests every reranker client's TestRank
@@ -385,7 +385,7 @@ func RunRankTest[T ResultItem](
 			Query: "Where do I work?",
 		}
 
-		res, err := client.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, cfg)
+		res, err := client.Rank(context.Background(), "Where do I work?", "text", []string{"I work at Apple"}, cfg)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -398,7 +398,7 @@ func RunRankTest[T ResultItem](
 
 		cfg := FakeClassConfig{ClassConfig: map[string]interface{}{"baseURL": server.URL}}
 
-		_, err := client.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, cfg)
+		_, err := client.Rank(context.Background(), "I work at Apple", "text", []string{"Where do I work?"}, cfg)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")
@@ -423,7 +423,7 @@ func RunRankTest[T ResultItem](
 			"Response 5", "Response 6", "Response 7",
 		}
 
-		resp, err := batchClient.Rank(context.Background(), query, documents, cfg)
+		resp, err := batchClient.Rank(context.Background(), query, "text", documents, cfg)
 
 		require.Nil(t, err)
 		AssertBatchScores(t, documents, resp, 0.99, 0.0001)

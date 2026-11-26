@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -69,6 +70,8 @@ func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen 
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
+	// Tag ctx so the SELF_RECOVERY hook treats these as startup loads of pre-existing classes, not new ones.
+	ctx = enterrors.WithStartupDBLoad(ctx)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	g.SetLimit(_NUMCPU * 2)
 
@@ -396,17 +399,27 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 }
 
 func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
+	ctx = remote.WithTimedOutPeers(ctx) // a peer that timed out on status is skipped for queue size
 	shardsStatus, legacyStatus, err := e.migrator.GetShardsStorageStatus(ctx, class, tenant)
+	if err != nil {
+		return nil, err
+	}
+	shardsQueueSize, err := e.migrator.GetShardsQueueSize(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}
 
 	resp := make(models.ShardStatusList, 0, len(shardsStatus))
 	for shardName, status := range shardsStatus {
+		queueSize, ok := shardsQueueSize[shardName]
+		if !ok {
+			continue // tenant deleted after the status lookup
+		}
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:          shardName,
-			Status:        legacyStatus[shardName],
-			PerNodeStatus: status,
+			Name:            shardName,
+			Status:          legacyStatus[shardName],
+			PerNodeStatus:   status,
+			VectorQueueSize: queueSize,
 		})
 	}
 

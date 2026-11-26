@@ -229,3 +229,12 @@ func TestZeroLengthNamedVectorDecodesNonNil(t *testing.T) {
 		require.Equal(t, []float32{1, 2}, full.Vectors["full"])
 	})
 }
+
+func TestVectorFromBinaryLegacyObjectWithoutVector(t *testing.T) {
+	data, err := legacyVectorTestObject(1, nil).MarshalBinary()
+	require.NoError(t, err)
+
+	got, err := VectorFromBinary(data, nil, "")
+	require.ErrorIs(t, err, ErrNoVector)
+	require.Nil(t, got)
+}

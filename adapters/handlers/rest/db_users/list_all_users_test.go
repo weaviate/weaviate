@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/usecases/schema"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
@@ -39,7 +39,8 @@ import (
 )
 
 // TestSuccessListAll pins that listed roles come from the node's local RBAC
-// state, and that no user has roles when RBAC is disabled.
+// state, and that with RBAC disabled the local state is not read and no user
+// has roles.
 func TestSuccessListAll(t *testing.T) {
 	dbUser := "user1"
 	staticUser := "static"
@@ -83,24 +84,25 @@ func TestSuccessListAll(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			localUsers := NewMockDbUserAndRolesGetter(t)
 			localUsers.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser}}, nil)
-
-			h := dynUserHandler{
-				dbUsers:              dynUser,
-				localUsers:           localUsers,
-				authorizer:           authorizer,
-				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
-				rbacConfig:           rbacconf.Config{Enabled: !tt.rbacDisabled, RootUsers: []string{"root"}},
-				dbUserEnabled:        true,
-			}
+			// With RBAC disabled localRoles has no expectations, so a role read fails the test.
+			localRoles := authorization.NewMockController(t)
 			if !tt.rbacDisabled {
-				localRoles := authorization.NewMockController(t)
 				localRoles.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(
 					map[string][]authorization.Policy{"db-role": {}}, nil)
 				if tt.includeStatic {
 					localRoles.On("GetRolesForUserOrGroup", staticUser, authentication.AuthTypeDb, false).Return(
 						map[string][]authorization.Policy{"static-role": {}}, nil)
 				}
-				h.localRoles = localRoles
+			}
+
+			h := dynUserHandler{
+				dbUsers:              dynUser,
+				localUsers:           localUsers,
+				localRoles:           localRoles,
+				authorizer:           authorizer,
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
+				rbacConfig:           rbacconf.Config{Enabled: !tt.rbacDisabled, RootUsers: []string{"root"}},
+				dbUserEnabled:        true,
 			}
 
 			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, tt.principal)
@@ -361,7 +363,6 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			schemaGetter := schema.NewMockSchemaGetter(t)
 
 			usersRet := make(map[string]apikey.UserView)
 			for _, user := range tt.userIds {
@@ -379,7 +380,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 			for i := range tt.nodeResponses {
 				nodes = append(nodes, string(rune(i)))
 			}
-			schemaGetter.On("Nodes").Return(nodes)
+			nodeLister := clustermocks.NewMockNodeSelector(nodes...)
 
 			server := httptest.NewServer(&fakeHandler{t: t, counter: atomic.Int32{}, nodeResponses: tt.nodeResponses})
 			defer server.Close()
@@ -393,7 +394,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dbUserEnabled: true,
-				nodesGetter: schemaGetter,
+				nodesGetter: nodeLister,
 				remoteUser:  remote,
 			}
 
@@ -489,13 +490,11 @@ func TestListUsers_Namespaces(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			localUsers := NewMockDbUserAndRolesGetter(t)
 			localUsers.On("GetUsers").Return(map[string]apikey.UserView{storedUser.Id: storedUser}, nil)
-			localRoles := authorization.NewMockController(t)
-			localRoles.On("GetRolesForUserOrGroup", storedUser.Id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 			h := dynUserHandler{
 				dbUsers:           dynUser,
 				localUsers:        localUsers,
-				localRoles:        localRoles,
+				localRoles:        authorization.NewMockController(t),
 				authorizer:        authorizer,
 				dbUserEnabled:     true,
 				namespacesEnabled: true,
@@ -511,51 +510,81 @@ func TestListUsers_Namespaces(t *testing.T) {
 	}
 }
 
-// TestListUsers_CrossNamespaceIsolation pins that a namespaced caller sees only
-// users in its own namespace: both customer1:bob and customer2:bob exist in
-// storage, but the resource filter (driven by the matcher's users/<id>
-// specialization, exercised here via FilterAuthorizedResources) returns only
-// the caller's customer1:bob, stripped to the short name.
+// TestListUsers_CrossNamespaceIsolation pins that a confined caller sees only
+// users in its own namespace, even when RBAC allows every user, and that RBAC
+// still filters within that namespace.
 func TestListUsers_CrossNamespaceIsolation(t *testing.T) {
 	stored := map[string]apikey.UserView{
-		"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true},
-		"customer2:bob": {Id: "customer2:bob", Namespace: "customer2", Active: true},
+		"customer1:alice": {Id: "customer1:alice", Namespace: "customer1", Active: true},
+		"customer1:bob":   {Id: "customer1:bob", Namespace: "customer1", Active: true},
+		"customer2:bob":   {Id: "customer2:bob", Namespace: "customer2", Active: true},
+		"admin":           {Id: "admin", Active: true},
 	}
-	principal := &models.Principal{Namespace: "customer1", UserType: models.UserTypeInputDb}
-	nullLogger, _ := test.NewNullLogger()
+	confined := &models.Principal{Username: "customer1:carol", Namespace: "customer1", UserType: models.UserTypeInputDb}
 
-	authorizer := authorization.NewMockAuthorizer(t)
-	// Wildcard-parent shortcut path fails (no users/* grant), forcing the
-	// filter to fall through to per-item filtering.
-	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, "users/*").Return(errors.New("not allowed on wildcard"))
-	// Per-item filter returns only the caller's own-ns resource — what the
-	// matcher's users/<id> specialization produces in production.
-	authorizer.On("FilterAuthorizedResources", mock.Anything, principal, authorization.READ, mock.Anything, mock.Anything).
-		Return([]string{"users/customer1:bob"}, nil)
-
-	dynUser := NewMockDbUserAndRolesGetter(t)
-	localUsers := NewMockDbUserAndRolesGetter(t)
-	localUsers.On("GetUsers").Return(stored, nil)
-	// callerHasAdminRole reads the caller's roles through RAFT.
-	dynUser.On("GetRolesForUserOrGroup", "", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
-	localRoles := authorization.NewMockController(t)
-	localRoles.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
-
-	h := dynUserHandler{
-		dbUsers:           dynUser,
-		localUsers:        localUsers,
-		localRoles:        localRoles,
-		authorizer:        authorizer,
-		dbUserEnabled:     true,
-		namespacesEnabled: true,
-		rbacConfig:        rbacconf.Config{Enabled: true},
-		logger:            nullLogger,
+	tests := []struct {
+		name      string
+		principal *models.Principal
+		// rbacAllowed is what the per-item RBAC filter returns once the users/*
+		// check fails. Empty means users/* is granted.
+		rbacAllowed []string
+		wantIDs     []string
+	}{
+		{
+			name:      "confined caller gets only its own namespace",
+			principal: confined,
+			wantIDs:   []string{"alice", "bob"},
+		},
+		{
+			name:        "RBAC still hides an own-namespace user",
+			principal:   confined,
+			rbacAllowed: []string{authorization.Users("customer1:bob")[0]},
+			wantIDs:     []string{"bob"},
+		},
 	}
 
-	res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, principal)
-	parsed, ok := res.(*users.ListAllUsersOK)
-	require.True(t, ok)
-	require.Len(t, parsed.Payload, 1)
-	require.Equal(t, "bob", *parsed.Payload[0].UserID, "expected short id, no namespace prefix")
-	require.Empty(t, parsed.Payload[0].Namespace, "namespace field must be hidden for non-operator")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nullLogger, _ := test.NewNullLogger()
+			authorizer := authorization.NewMockAuthorizer(t)
+			if len(tt.rbacAllowed) == 0 {
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
+			} else {
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(errors.New("not allowed on wildcard"))
+				// Only the caller's two own users reach the filter, so it gets two resources.
+				authorizer.On("FilterAuthorizedResources", mock.Anything, tt.principal, authorization.READ, mock.Anything, mock.Anything).
+					Return(tt.rbacAllowed, nil)
+			}
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			localUsers := NewMockDbUserAndRolesGetter(t)
+			localUsers.On("GetUsers").Return(stored, nil)
+			// callerHasAdminRole reads the caller's roles through RAFT.
+			dynUser.On("GetRolesForUserOrGroup", tt.principal.Username, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+			localRoles := authorization.NewMockController(t)
+			for id := range stored {
+				localRoles.On("GetRolesForUserOrGroup", id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil).Maybe()
+			}
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				localUsers:        localUsers,
+				localRoles:        localRoles,
+				authorizer:        authorizer,
+				dbUserEnabled:     true,
+				namespacesEnabled: true,
+				rbacConfig:        rbacconf.Config{Enabled: true},
+				logger:            nullLogger,
+			}
+
+			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, tt.principal)
+			parsed, ok := res.(*users.ListAllUsersOK)
+			require.True(t, ok, "got %T", res)
+			gotIDs := make([]string, 0, len(parsed.Payload))
+			for _, user := range parsed.Payload {
+				gotIDs = append(gotIDs, *user.UserID)
+			}
+			require.ElementsMatch(t, tt.wantIDs, gotIDs)
+		})
+	}
 }

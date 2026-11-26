@@ -147,6 +147,81 @@ func TestNullArrayClass(t *testing.T) {
 	}
 }
 
+// An object lacking a property matches len(prop) == 0 and IsNull with either
+// flag on alone, through updates that drop or add the property and a reindex.
+func TestMissingPropertyIndexedUnderEachFlag(t *testing.T) {
+	tests := []struct {
+		name                string
+		indexNullState      bool
+		indexPropertyLength bool
+		filter              *filters.LocalFilter
+	}{
+		{
+			name:                "len(strings) == 0 with only IndexPropertyLength",
+			indexPropertyLength: true,
+			filter:              buildFilter("len(strings)", 0, eq, dtInt),
+		},
+		{
+			name:           "strings IsNull with only IndexNullState",
+			indexNullState: true,
+			filter:         buildFilter("strings", true, null, dtBool),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			class := createClassWithEverything(tc.indexNullState, tc.indexPropertyLength)
+			migrator, repo, schemaGetter := createRepo(t)
+			defer repo.Shutdown(ctx)
+			require.NoError(t, migrator.AddClass(ctx, class))
+			schemaGetter.schema = schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{class}},
+			}
+
+			put := func(id strfmt.UUID, props map[string]interface{}) {
+				t.Helper()
+				obj := &models.Object{ID: id, Class: class.Class, Properties: props}
+				require.NoError(t, repo.PutObject(ctx, obj, []float32{1}, nil, nil, nil, 0))
+			}
+			matching := func() []strfmt.UUID {
+				t.Helper()
+				res, err := repo.Search(ctx, dto.GetParams{
+					ClassName:  class.Class,
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    tc.filter,
+				})
+				require.NoError(t, err)
+				ids := make([]strfmt.UUID, len(res))
+				for i := range res {
+					ids[i] = res[i].ID
+				}
+				return ids
+			}
+
+			missingID := strfmt.UUID(uuid.NewString())
+			emptyID := strfmt.UUID(uuid.NewString())
+			presentID := strfmt.UUID(uuid.NewString())
+
+			put(missingID, map[string]interface{}{})
+			put(emptyID, map[string]interface{}{"strings": []string{}})
+			put(presentID, map[string]interface{}{"strings": []string{"a"}})
+			require.ElementsMatch(t, []strfmt.UUID{missingID, emptyID}, matching(), "after insert")
+
+			put(presentID, map[string]interface{}{})
+			put(missingID, map[string]interface{}{"strings": []string{"b"}})
+			require.ElementsMatch(t, []strfmt.UUID{presentID, emptyID}, matching(),
+				"after one update drops strings and another adds it")
+
+			require.NoError(t, migrator.InvertedReindex(ctx, map[string]any{
+				"ShardInvertedReindexTask_SpecifiedIndex": map[string][]string{class.Class: {"strings"}},
+			}))
+			require.ElementsMatch(t, []strfmt.UUID{presentID, emptyID}, matching(),
+				"after reindexing strings")
+		})
+	}
+}
+
 func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{

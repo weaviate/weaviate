@@ -152,8 +152,10 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	return &result, err
 }
 
-func (s *nodeStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
-	var result *backup.BackupDescriptor
+// BaseMetaForBackupID reads this node's metadata in backup backupID for an incremental
+// backup built on it.
+func (s *nodeStore) BaseMetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BaseBackupDescriptor, error) {
+	var result *backup.BaseBackupDescriptor
 
 	cs := &objectStore{s.backend, fmt.Sprintf("%s/%s", backupID, s.node), overrideBucket, overridePath, ""} // for backward compatibility
 	if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err != nil {
@@ -246,7 +248,7 @@ type statusPublisher interface {
 
 // snapshotSelection is what the scheduler resolved from includeUsers and
 // includeRoles. Empty users/roles mean the whole-cluster snapshot; the skip
-// flags mean the selector matched nothing and no snapshot is uploaded.
+// flags exclude snapshots for empty lists or unmatched wildcards.
 type snapshotSelection struct {
 	users, roles         []string
 	skipUsers, skipRoles bool
@@ -283,7 +285,7 @@ func (u *uploader) withShardDesignations(designations map[string]map[string]stri
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BaseBackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
 	// all owns the producer's context so it can be stopped before any index is
@@ -462,10 +464,19 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.selection.skipRoles {
-		u.log.Info("includeRoles matched no role, skipping RBAC backup")
+		u.log.Info("includeRoles selects no roles, skipping RBAC backup")
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
-		descrp, err := u.rbacSourcer.Snapshot(u.selection.roles...)
+		// A backup that selects users carries dynamic-user assignments only for
+		// those users. A selection that matched no users (skipUsers) carries none.
+		// With no user selection, the backup covers the whole cluster unfiltered.
+		var descrp []byte
+		var err error
+		if len(u.selection.users) > 0 || u.selection.skipUsers {
+			descrp, err = u.rbacSourcer.ScopedSnapshot(u.selection.users, u.selection.roles...)
+		} else {
+			descrp, err = u.rbacSourcer.Snapshot(u.selection.roles...)
+		}
 		if err != nil {
 			return err
 		}
@@ -477,7 +488,7 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.selection.skipUsers {
-		u.log.Info("includeUsers matched no user, skipping dynamic user backup")
+		u.log.Info("includeUsers selects no users, skipping dynamic user backup")
 	} else if u.dynUserSourcer != nil {
 		u.log.Info("start uploading dynamic user backups")
 		descrp, err := u.dynUserSourcer.Snapshot(u.selection.users...)
@@ -604,13 +615,6 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 		}).Warn("class left out of the backup, not all of its shards uploaded")
 	}
 
-	// Determine source path: use staging dir (hard-linked snapshot) if available,
-	// otherwise fall back to live data path for backward compatibility.
-	sourcePath := u.backend.SourceDataPath()
-	if cdesc.StagingDir != "" {
-		sourcePath = cdesc.StagingDir
-	}
-
 	u.log.WithField("class", cu.desc.Name).Info("start uploading files")
 
 	nShards := len(cu.desc.Shards)
@@ -630,7 +634,7 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 					cu.finish()
 				}
 			}()
-			return u.uploadShard(ctx, cu, shard, overrideBucket, overridePath, sourcePath)
+			return u.uploadShard(ctx, cu, shard, overrideBucket, overridePath, cdesc.ShardFileSource(shard.Name))
 		})
 	}
 	return cu
@@ -638,14 +642,14 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 
 // uploadShard compresses one shard into chunks and records them on its class.
 func (u *uploader) uploadShard(ctx context.Context, cu *classUpload, shard *backup.ShardDescriptor,
-	overrideBucket, overridePath, sourcePath string,
+	overrideBucket, overridePath string, src backup.FileSource,
 ) error {
 	// a failing job cancels ctx, but jobs already queued behind it still start
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	chunks, err := u.processShard(ctx, shard, cu.desc.Name, &cu.lastChunk, overrideBucket, overridePath, sourcePath)
+	chunks, err := u.processShard(ctx, shard, cu.desc.Name, &cu.lastChunk, overrideBucket, overridePath, src)
 	if err != nil {
 		return err
 	}
@@ -676,9 +680,10 @@ func (u *uploader) processShard(
 	shard *backup.ShardDescriptor,
 	className string,
 	lastChunk *atomic.Int32,
-	overrideBucket, overridePath, sourcePath string,
+	overrideBucket, overridePath string,
+	src backup.FileSource,
 ) ([]chunkShards, error) {
-	filesInShard, err := u.createFileList(shard, sourcePath)
+	filesInShard, err := u.createFileList(shard, src)
 	if err != nil {
 		return nil, fmt.Errorf("create file list for shard %q: %w", shard.Name, err)
 	}
@@ -687,7 +692,7 @@ func (u *uploader) processShard(
 	firstChunk := true
 	for {
 		chunk := lastChunk.Add(1)
-		fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, className, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath, sourcePath)
+		fileSizeExceededTmp, preCompressionSize, err := u.compress(ctx, className, chunk, shard, filesInShard, firstChunk, fileSizeExceeded, overrideBucket, overridePath, src)
 		if err != nil {
 			return results, err
 		}
@@ -709,7 +714,7 @@ func (u *uploader) compress(ctx context.Context,
 	firstChunkForShard bool, // is this the first chunk for the shard, which means that the metadata needs to be included
 	fileSizeExceededWrite *SplitFile, // if not nil, continue from previous split
 	overrideBucket, overridePath string, // bucket name and path
-	sourcePath string, // root path for reading source files (staging dir or live data path)
+	src backup.FileSource, // resolves shard.Files to the files the class staged
 ) (*SplitFile, int64, error) {
 	var (
 		chunkKey           = chunkKey(class, chunk)
@@ -721,7 +726,7 @@ func (u *uploader) compress(ctx context.Context,
 	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFilesThreshold.
 	bigFilesThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFilesThreshold)
 	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFilesThreshold)
-	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
+	zip, reader, err := NewZip(src, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}
@@ -786,54 +791,20 @@ func (u *uploader) compress(ctx context.Context,
 		errors.Join(labelErr("producer", producerErr), labelErr("consumer", consumerErr))
 }
 
-// calculateShardPreCompressionSize calculates the total size of a shard before compression
-// Since shards are paused and memtables are flushed during backup, we only need to calculate
-// the size of files on disk, not in-memory data.
-func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescriptor) int64 {
-	var totalSize int64
-	sourceDataPath := u.backend.SourceDataPath()
-	// Add size of files on disk (in-memory data is flushed to disk during backup preparation)
-	for _, filePath := range shard.Files {
-		fullPath := filepath.Join(sourceDataPath, filePath)
-		if info, err := os.Stat(fullPath); err == nil {
-			totalSize += info.Size()
-		}
-	}
-
-	u.log.WithFields(logrus.Fields{
-		"shard":          shard.Name,
-		"filesCount":     len(shard.Files),
-		"totalSize":      totalSize,
-		"sourceDataPath": sourceDataPath,
-	}).Debug("calculated pre-compression size for shard")
-
-	return totalSize
-}
-
 // createFileList creates a FileList from a ShardDescriptor with Files copied,
 // FileSizes map populated, and BigFilesThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
-// Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
-func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
-	sourceDataPath := sourcePath
+// Returns an error if any file in the shard doesn't exist.
+func (u *uploader) createFileList(shard *backup.ShardDescriptor, src backup.FileSource) (*backup.FileList, error) {
 	files := shard.Files
 	fileSizes := make(map[string]int64, len(files))
 
 	for _, relPath := range files {
-		fullPath := filepath.Join(sourceDataPath, relPath)
-		if info, err := os.Stat(fullPath); err == nil {
-			fileSizes[relPath] = info.Size()
-		} else if os.IsNotExist(err) {
-			// Check if the file exists with the delete marker prefix
-			deletedPath := filepath.Join(sourceDataPath, backup.DeleteMarkerAdd(relPath))
-			if info, err := os.Stat(deletedPath); err == nil {
-				fileSizes[relPath] = info.Size()
-			} else {
-				return nil, fmt.Errorf("file %q not found at %q or %q: %w", relPath, fullPath, deletedPath, err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to stat file %q: %w", fullPath, err)
+		info, err := src.Stat(relPath)
+		if err != nil {
+			return nil, fmt.Errorf("stat file: %w", err)
 		}
+		fileSizes[relPath] = info.Size()
 	}
 
 	// Copy files slice
@@ -911,7 +882,6 @@ type fileWriter struct {
 	destDir        string
 	movedFiles     []string // files successfully moved to destination folder
 	GoPoolSize     int
-	migrator       func(classPath string) error
 	stagedRecorder func(string) // notified before a class staging dir is (re)created
 	attemptID      string       // stamped into the staging marker so cleanup never removes a sibling attempt's dir
 	logger         logrus.FieldLogger
@@ -952,8 +922,6 @@ func stagingMarkerMatches(dir, attemptID string) bool {
 	raw, err := os.ReadFile(path.Join(dir, stagingMarkerFile))
 	return err == nil && string(raw) == attemptID
 }
-
-func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files into the staging directory. materializedName keys the
 // staging dir; it differs from desc.Name only under namespace-graduation
@@ -1036,7 +1004,7 @@ func (fw *fileWriter) fetch(ctx context.Context, classTempDir string, desc *back
 	return eg.Wait()
 }
 
-// finalize applies the namespace-strip rename and pre-1.23 migrator, once per class after every fetch pass.
+// finalize applies the namespace-strip rename, once per class after every fetch pass.
 func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) error {
 	if materializedName != descName {
 		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(descName))
@@ -1045,12 +1013,6 @@ func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) 
 			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
 				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
 			}
-		}
-	}
-
-	if fw.migrator != nil {
-		if err := fw.migrator(classTempDir); err != nil {
-			return fmt.Errorf("migrate from pre 1.23: %w", err)
 		}
 	}
 	return nil

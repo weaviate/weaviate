@@ -54,16 +54,8 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 			withModuleConfig   map[string]any
 		}{
 			{
-				name:            "gpt-3.5-turbo",
-				generativeModel: "gpt-3.5-turbo",
-			},
-			{
-				name:            "gpt-4",
-				generativeModel: "gpt-4",
-			},
-			{
 				name:               "absent module config",
-				generativeModel:    "gpt-4",
+				generativeModel:    "gpt-4o-mini",
 				absentModuleConfig: true,
 			},
 			{
@@ -93,7 +85,8 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				if tt.absentModuleConfig {
-					t.Log("skipping adding module config configuration to class")
+					// The rows share class: drop the config a previous row set.
+					class.ModuleConfig = nil
 				} else {
 					settings := map[string]any{}
 					if tt.withModuleConfig != nil {

@@ -48,6 +48,28 @@ func (e ErrDeleted) Unwrap() error {
 	return Deleted
 }
 
+// IsNotFound and its siblings settle the bare sentinels and nil by comparison
+// before calling errors.Is: segments return the sentinels unwrapped, and a merge
+// cursor checks every segment's state for every key it serves, so errors.Is on
+// those values is a measurable share of a full scan.
+func IsNotFound(err error) bool {
+	if err == nil || err == Deleted { //nolint:errorlint // fast path, errors.Is follows
+		return false
+	}
+	return err == NotFound || errors.Is(err, NotFound) //nolint:errorlint // fast path, errors.Is follows
+}
+
+func IsDeleted(err error) bool {
+	if err == nil || err == NotFound { //nolint:errorlint // fast path, errors.Is follows
+		return false
+	}
+	return err == Deleted || errors.Is(err, Deleted) //nolint:errorlint // fast path, errors.Is follows
+}
+
 func IsDeletedOrNotFound(err error) bool {
-	return errors.Is(err, Deleted) || errors.Is(err, NotFound)
+	if err == nil {
+		return false
+	}
+	return err == NotFound || err == Deleted || //nolint:errorlint // fast path, errors.Is follows
+		errors.Is(err, NotFound) || errors.Is(err, Deleted)
 }

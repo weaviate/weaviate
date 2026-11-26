@@ -42,6 +42,9 @@ type ClassReader interface {
 	// The copy must not be modified.
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlyVersionedClass(name string) versioned.Class
+	// ReadOnlySchema returns the local schema without authorization checks. Never
+	// return it to a user request, it could leak classes the principal may not read;
+	// it is meant for non-user processes such as startup and maintenance.
 	ReadOnlySchema() models.Schema
 	ClassInfo(class string) ClassInfo
 	// ClassEqual returns the name of the existing class that matches name
@@ -54,6 +57,9 @@ type ClassReader interface {
 	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
 	// ReadSchema calls reader for every class with its version.
 	ReadSchema(reader func(models.Class, uint64)) error
+	// CollectionsCount counts the locally stored classes. An empty namespace counts
+	// the whole cluster; a non-empty one restricts the count to that namespace.
+	CollectionsCount(namespace string) int
 }
 
 // AliasReader reads collection aliases.

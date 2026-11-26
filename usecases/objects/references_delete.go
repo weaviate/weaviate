@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -51,17 +52,17 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
 	// We are fetching the existing object and get to know if the UUID exists
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 
 	// Parse + prefix-validate AFTER authz so unauthorized callers get 403
@@ -142,7 +143,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	// removeReferenceStructural's silent no-op. Non-NS keeps byte-exact
 	// compare, which already handles classless on both sides safely.
 	if m.config.Config.Namespaces.Enabled && beacon.Class == "" {
-		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
+		err := validation.ErrMultiTargetRefWithoutClass
 		return &Error{err.Error(), StatusBadRequest, err}
 	}
 
@@ -151,9 +152,9 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	// silent no-op.
 	if beacon.Class != "" {
 		qualifiedTarget, _, err := namespacing.QualifyRefTarget(
-			principal, m.config.Config.Namespaces.Enabled, input.Class, beacon.Class)
+			principal, m.qualifier, input.Class, beacon.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return forbiddenOrUnprocessable(err)
 		}
 		beacon.Class = qualifiedTarget
 	}

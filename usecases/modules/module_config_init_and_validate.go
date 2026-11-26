@@ -263,24 +263,35 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 	class *models.Class, moduleName, targetVector string,
 ) error {
 	mod := p.GetByName(moduleName)
-	cc, ok := mod.(modulecapabilities.ClassConfigurator)
-	if !ok {
+	if _, ok := mod.(modulecapabilities.ClassConfigurator); !ok {
 		// the module exists, but is not a class configurator, nothing to do for us
 		return nil
 	}
 
-	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector, &p.cfg)
-	err := cc.ValidateClass(ctx, class, cfg)
-	if err != nil {
-		return errors.Wrapf(err, "module '%s'", moduleName)
+	if err := p.ValidateModuleConfig(ctx, class, moduleName, targetVector); err != nil {
+		return err
 	}
 
+	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector, &p.cfg)
 	if err := p.validateBlobHashNotMixedWithOtherFields(mod, class, cfg, targetVector); err != nil {
 		return errors.Wrapf(err, "targetVector '%s'", targetVector)
 	}
 
 	p.validateVectorConfig(class, moduleName, targetVector)
 
+	return nil
+}
+
+// ValidateModuleConfig validates the module's settings for targetVector, or its class-level settings if empty.
+func (p *Provider) ValidateModuleConfig(ctx context.Context, class *models.Class, moduleName, targetVector string) error {
+	cc, ok := p.GetByName(moduleName).(modulecapabilities.ClassConfigurator)
+	if !ok {
+		return nil
+	}
+	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector, &p.cfg)
+	if err := cc.ValidateClass(ctx, class, cfg); err != nil {
+		return errors.Wrapf(err, "module '%s'", moduleName)
+	}
 	return nil
 }
 

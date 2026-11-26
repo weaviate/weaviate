@@ -73,7 +73,24 @@ func (t *binarySearchTreeMulti) flattenInOrder() []*binarySearchNodeMulti {
 		return nil
 	}
 
-	return t.root.flattenInOrder()
+	size := t.root.subtreeSize()
+	copies := make([]binarySearchNodeMulti, size)
+	res := make([]*binarySearchNodeMulti, size)
+	var buf [pendingCap]*binarySearchNodeMulti
+	pending := buf[:0]
+	for n := t.root; n != nil; n = n.left {
+		pending = append(pending, n)
+	}
+	for i := range res {
+		n := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		copies[i] = n.shallowCopy()
+		res[i] = &copies[i]
+		for n = n.right; n != nil; n = n.left {
+			pending = append(pending, n)
+		}
+	}
+	return res
 }
 
 type binarySearchNodeMulti struct {
@@ -165,56 +182,49 @@ func addNewSearchNodeMultiReceiver(nodePtr **binarySearchNodeMulti) {
 }
 
 func (n *binarySearchNodeMulti) insert(key []byte, values []value) *binarySearchNodeMulti {
-	if bytes.Equal(key, n.key) {
-		n.values = append(n.values, values...)
-		return nil
-	}
-
-	if bytes.Compare(key, n.key) < 0 {
-		if n.left != nil {
-			return n.left.insert(key, values)
-		} else {
-			n.left = &binarySearchNodeMulti{
-				key:         key,
-				values:      values,
-				parent:      n,
-				colourIsRed: true,
+	for {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
+			n.values = append(n.values, values...)
+			return nil
+		case c < 0:
+			if n.left == nil {
+				n.left = &binarySearchNodeMulti{
+					key:         key,
+					values:      values,
+					parent:      n,
+					colourIsRed: true,
+				}
+				return binarySearchNodeMultiFromRB(rbtree.Rebalance(n.left))
 			}
-			return binarySearchNodeMultiFromRB(rbtree.Rebalance(n.left))
-		}
-	} else {
-		if n.right != nil {
-			return n.right.insert(key, values)
-		} else {
-			n.right = &binarySearchNodeMulti{
-				key:         key,
-				values:      values,
-				parent:      n,
-				colourIsRed: true,
+			n = n.left
+		default:
+			if n.right == nil {
+				n.right = &binarySearchNodeMulti{
+					key:         key,
+					values:      values,
+					parent:      n,
+					colourIsRed: true,
+				}
+				return binarySearchNodeMultiFromRB(rbtree.Rebalance(n.right))
 			}
-			return binarySearchNodeMultiFromRB(rbtree.Rebalance(n.right))
+			n = n.right
 		}
 	}
 }
 
 func (n *binarySearchNodeMulti) get(key []byte) ([]value, error) {
-	if bytes.Equal(n.key, key) {
-		return n.values, nil
-	}
-
-	if bytes.Compare(key, n.key) < 0 {
-		if n.left == nil {
-			return nil, lsmkv.NotFound
+	for n != nil {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
+			return n.values, nil
+		case c < 0:
+			n = n.left
+		default:
+			n = n.right
 		}
-
-		return n.left.get(key)
-	} else {
-		if n.right == nil {
-			return nil, lsmkv.NotFound
-		}
-
-		return n.right.get(key)
 	}
+	return nil, lsmkv.NotFound
 }
 
 func binarySearchNodeMultiFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMulti) {
@@ -259,27 +269,6 @@ func binarySearchNodeMultiFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMu
 // 	}
 // }
 
-func (n *binarySearchNodeMulti) flattenInOrder() []*binarySearchNodeMulti {
-	// preallocate capacity to avoid repeated reallocations
-	size := n.subtreeSize()
-	res := make([]*binarySearchNodeMulti, 0, size)
-	return n.appendInOrder(res)
-}
-
-func (n *binarySearchNodeMulti) appendInOrder(dst []*binarySearchNodeMulti) []*binarySearchNodeMulti {
-	if n == nil {
-		return dst
-	}
-	if n.left != nil {
-		dst = n.left.appendInOrder(dst)
-	}
-	dst = append(dst, n.shallowCopy())
-	if n.right != nil {
-		dst = n.right.appendInOrder(dst)
-	}
-	return dst
-}
-
 func (n *binarySearchNodeMulti) subtreeSize() int {
 	if n == nil {
 		return 0
@@ -294,14 +283,14 @@ func (n *binarySearchNodeMulti) subtreeSize() int {
 	return s
 }
 
-func (n *binarySearchNodeMulti) shallowCopy() *binarySearchNodeMulti {
+func (n *binarySearchNodeMulti) shallowCopy() binarySearchNodeMulti {
 	var values []value
 	if ln := len(n.values); ln > 0 {
 		values = make([]value, ln)
 		copy(values, n.values)
 	}
 
-	return &binarySearchNodeMulti{
+	return binarySearchNodeMulti{
 		key:         n.key,
 		values:      values,
 		colourIsRed: n.colourIsRed,

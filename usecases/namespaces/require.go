@@ -56,6 +56,16 @@ func AdmitDestructiveApply(e Exister, name string) error {
 	}
 }
 
+// AdmitNamespaceUpdate returns ErrNamespaceDeleting for a deleting namespace
+// and nil for every other state. A missing namespace passes too, because
+// Controller.Update answers it with ErrNotFound.
+func AdmitNamespaceUpdate(e Exister, name string) error {
+	if ns, ok := e.GetNamespace(name); ok && ns.State == cmd.NamespaceStateDeleting {
+		return ErrNamespaceDeleting
+	}
+	return nil
+}
+
 // stateError returns nil for the active state and the sentinel for every other.
 func stateError(state cmd.NamespaceState) error {
 	switch state {

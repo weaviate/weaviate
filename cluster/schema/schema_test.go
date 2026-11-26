@@ -598,7 +598,7 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 	// run registers oldClass, then applies an UpdateClass whose parser yields newClass.
 	run := func(t *testing.T, oldClass, newClass *models.Class, movementActive bool) (*SchemaManager, error) {
 		t.Helper()
-		sm := NewSchemaManager("testNode", nil, &fixedParser{updated: newClass}, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("testNode", nil, &fixedParser{updated: newClass}, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		fsm := NewMockreplicationFSM(t)
 		fsm.On("HasActiveReplicationForCollection", mock.Anything).Return(movementActive).Maybe()
 		sm.SetReplicationFSM(fsm)
@@ -627,8 +627,7 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 			{"named vector added", &models.Class{Class: className}, named(map[string]any{"v1": hnswent.UserConfig{}})},
 			{"named vector removed", named(map[string]any{"v1": hnswent.UserConfig{}}), &models.Class{Class: className}},
 			{"named vector structural change", named(map[string]any{"v1": hnswent.UserConfig{}}), named(map[string]any{"v1": hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}})},
-			// hfresh is an unclassified (experimental) index type: any real change fails closed.
-			{"hfresh field change", legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48}), legacy(hfreshent.UserConfig{MaxPostingSizeKB: 64})},
+			{"hfresh structural param", legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48}), legacy(hfreshent.UserConfig{MaxPostingSizeKB: 64})},
 			{"hfresh distance change", legacy(hfreshent.UserConfig{Distance: "cosine"}), legacy(hfreshent.UserConfig{Distance: "l2-squared"})},
 		}
 		for _, tc := range cases {
@@ -649,8 +648,9 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 			// Test_vectorConfigClassificationComplete. dynamic-threshold and a deferred-safe field
 			// are kept explicitly because both are deliberate, contestable classifications.
 			{"no vector change", legacy(hnswent.UserConfig{Distance: "cosine"}), legacy(hnswent.UserConfig{Distance: "cosine"})},
-			// A no-op update on an unclassified (hfresh) config must pass — nothing changed on disk.
 			{"hfresh no-op", legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48, Distance: "cosine"}), legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48, Distance: "cosine"})},
+			{"hfresh searchProbe", legacy(hfreshent.UserConfig{SearchProbe: 64}), legacy(hfreshent.UserConfig{SearchProbe: 256})},
+			{"hfresh rescoreLimit", legacy(hfreshent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 350}}), legacy(hfreshent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 500}})},
 			{"hnsw query-time knob", legacy(hnswent.UserConfig{EF: 10}), legacy(hnswent.UserConfig{EF: 20})},
 			{"hnsw deferred-safe field", legacy(hnswent.UserConfig{MaxConnections: 16}), legacy(hnswent.UserConfig{MaxConnections: 32})},
 			{"dynamic threshold", legacy(dynamicent.UserConfig{Threshold: 1000}), legacy(dynamicent.UserConfig{Threshold: 2000})},
@@ -687,12 +687,16 @@ var (
 	querySafeLeaves = []string{
 		"hnsw.Skip", "hnsw.CleanupIntervalSeconds", "hnsw.MaxConnections", "hnsw.EFConstruction", "hnsw.EF",
 		"hnsw.DynamicEFMin", "hnsw.DynamicEFMax", "hnsw.DynamicEFFactor", "hnsw.VectorCacheMaxObjects", "hnsw.FlatSearchCutoff",
-		"hnsw.FilterStrategy", "hnsw.SkipDefaultQuantization", "hnsw.TrackDefaultQuantization", "hnsw.SQ.RescoreLimit", "hnsw.RQ.RescoreLimit",
+		"hnsw.FilterStrategy", "hnsw.SkipDefaultQuantization", "hnsw.TrackDefaultQuantization",
+		"hnsw.PQ.RescoreLimit", "hnsw.BQ.RescoreLimit", "hnsw.SQ.RescoreLimit", "hnsw.RQ.RescoreLimit",
+		"hnsw.PQ.RescoreFactor", "hnsw.BQ.RescoreFactor", "hnsw.SQ.RescoreFactor", "hnsw.RQ.RescoreFactor",
 		"hnsw.Multivector.Enabled", "hnsw.Multivector.Aggregation", "hnsw.Multivector.MuveraConfig.Enabled",
 		"hnsw.Multivector.MuveraConfig.KSim", "hnsw.Multivector.MuveraConfig.DProjections", "hnsw.Multivector.MuveraConfig.Repetitions",
 		"flat.VectorCacheMaxObjects", "flat.SkipDefaultQuantization", "flat.TrackDefaultQuantization",
 		"flat.PQ.RescoreLimit", "flat.PQ.Cache", "flat.BQ.RescoreLimit", "flat.BQ.Cache",
 		"flat.SQ.RescoreLimit", "flat.SQ.Cache", "flat.RQ.RescoreLimit", "flat.RQ.Cache", "dynamic.Threshold",
+		"flat.PQ.RescoreFactor", "flat.BQ.RescoreFactor", "flat.SQ.RescoreFactor", "flat.RQ.RescoreFactor",
+		"hfresh.SearchProbe", "hfresh.RQ.RescoreLimit", "hfresh.RQ.RescoreFactor",
 	}
 	structuralLeaves = []string{
 		"hnsw.Distance", "hnsw.PQ.Enabled", "hnsw.PQ.BitCompression", "hnsw.PQ.Segments", "hnsw.PQ.Centroids",
@@ -701,6 +705,10 @@ var (
 		"hnsw.RQ.Centering", "hnsw.RQ.TrainingLimit",
 		"flat.Distance", "flat.PQ.Enabled", "flat.BQ.Enabled", "flat.SQ.Enabled", "flat.RQ.Enabled", "flat.RQ.Bits",
 		"dynamic.Distance",
+		"hfresh.MaxPostingSizeKB", "hfresh.Replicas", "hfresh.Distance", "hfresh.RQ.Enabled", "hfresh.RQ.Bits",
+		"hfresh.RQ.Centering", "hfresh.RQ.TrainingLimit", "hfresh.Multivector.Enabled", "hfresh.Multivector.Aggregation",
+		"hfresh.Multivector.MuveraConfig.Enabled", "hfresh.Multivector.MuveraConfig.KSim",
+		"hfresh.Multivector.MuveraConfig.DProjections", "hfresh.Multivector.MuveraConfig.Repetitions",
 	}
 )
 
@@ -753,6 +761,7 @@ func Test_vectorConfigClassificationComplete(t *testing.T) {
 		{"hnsw", reflect.TypeOf(hnswent.UserConfig{})},
 		{"flat", reflect.TypeOf(flatent.UserConfig{})},
 		{"dynamic", reflect.TypeOf(dynamicent.UserConfig{})},
+		{"hfresh", reflect.TypeOf(hfreshent.UserConfig{})},
 	} {
 		filled := reflect.New(root.typ).Elem()
 		fillNonZero(filled)
@@ -780,6 +789,8 @@ func fillNonZero(v reflect.Value) {
 			f.SetInt(1)
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			f.SetUint(1)
+		case reflect.Float32, reflect.Float64:
+			f.SetFloat(1)
 		default:
 			panic(fmt.Sprintf("fillNonZero: unhandled leaf kind %s (add a case)", f.Kind()))
 		}
@@ -793,7 +804,7 @@ func Test_UpdateProperty_MovementRejection(t *testing.T) {
 	const className = "TestClass"
 	build := func(t *testing.T, movementActive bool) *SchemaManager {
 		t.Helper()
-		sm := NewSchemaManager("testNode", nil, &fixedParser{}, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("testNode", nil, &fixedParser{}, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		fsm := NewMockreplicationFSM(t)
 		fsm.On("HasActiveReplicationForCollection", mock.Anything).Return(movementActive).Maybe()
 		sm.SetReplicationFSM(fsm)
@@ -1209,6 +1220,25 @@ func TestAliasNamespacePrefixPreserved(t *testing.T) {
 	require.Equal(t, "delhappy:Movies", sc.ResolveAlias("delhappy:Films"))
 }
 
+func TestSchema_ClassFactorsInNamespace(t *testing.T) {
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+	for i, c := range []struct {
+		class  string
+		factor int64
+	}{
+		{"alpha:A", 3},
+		{"alphabet:B", 2},
+		{"C", 2},
+	} {
+		require.NoError(t, sc.addClass(&models.Class{
+			Class:             c.class,
+			ReplicationConfig: &models.ReplicationConfig{Factor: c.factor},
+		}, &sharding.State{Physical: make(map[string]sharding.Physical)}, uint64(i+1)))
+	}
+
+	assert.Equal(t, map[string]int64{"alpha:A": 3}, sc.ClassFactorsInNamespace("alpha"))
+}
+
 func TestCollectionsCount_Namespaced(t *testing.T) {
 	newState := func() *sharding.State {
 		return &sharding.State{Physical: make(map[string]sharding.Physical)}
@@ -1480,6 +1510,7 @@ func TestCollectionsCount_ConcurrentAccess(t *testing.T) {
 		for i := 0; i < 2000; i++ {
 			sc.CollectionsCount("customer1")
 			sc.CollectionsCount("")
+			sc.ClassFactorsInNamespace("customer1")
 		}
 	}()
 	go func() {

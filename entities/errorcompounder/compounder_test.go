@@ -12,10 +12,12 @@
 package errorcompounder
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestErrorCompounder(t *testing.T) {
@@ -78,7 +80,7 @@ func TestErrorCompounder(t *testing.T) {
 		run(t, NewSafe())
 	})
 
-	t.Run("a limited error only exposes the errors it reports", func(t *testing.T) {
+	t.Run("a limited error caps its message and its chain together", func(t *testing.T) {
 		run := func(t *testing.T, ec ErrorCompounder) {
 			t.Helper()
 
@@ -90,7 +92,7 @@ func TestErrorCompounder(t *testing.T) {
 			assert.EqualError(t, err, "111, 222 (and 1 more)")
 			assert.ErrorIs(t, err, err1)
 			assert.ErrorIs(t, err, err2)
-			assert.NotErrorIs(t, err, err3)
+			assert.NotErrorIs(t, err, err3, "the third is counted, not kept")
 		}
 
 		run(t, New())
@@ -318,6 +320,12 @@ func TestErrorCompounder(t *testing.T) {
 			assert.ErrorContains(t, ec2.ToError(), "555, \"lvl1\": {111, 222, 333}")
 			// the count covers the errors left out inside the group as well
 			assert.EqualError(t, ec2.ToErrorLimited(2), "555, \"lvl1\": {111} (and 2 more)")
+			// the chain holds what the message named, nested groups included
+			limited := ec2.ToErrorLimited(2)
+			assert.ErrorIs(t, limited, err5)
+			assert.ErrorIs(t, limited, err1)
+			assert.NotErrorIs(t, limited, err2)
+			assert.NotErrorIs(t, limited, err3)
 
 			ec3 := create()
 			ec3.AddGroups(err1, "lvl1", "lvl2")
@@ -438,4 +446,45 @@ func TestErrorCompounder(t *testing.T) {
 		run(t, func() ErrorCompounder { return New() })
 		run(t, func() ErrorCompounder { return NewSafe() })
 	})
+}
+
+// TestLimitedMessageIsDeterministic guards that a limit names the same subset
+// every render, whatever the map iteration order.
+func TestLimitedMessageIsDeterministic(t *testing.T) {
+	run := func(t *testing.T, create func() ErrorCompounder) {
+		t.Helper()
+
+		build := func() ErrorCompounder {
+			ec := create()
+			for _, group := range []string{"Books", "Movies", "Games", "Music", "Photos"} {
+				for i := 0; i < 3; i++ {
+					ec.AddGroups(fmt.Errorf("%s failure %d", group, i), group)
+				}
+			}
+			return ec
+		}
+
+		chain := func(err error) []string {
+			var compound *compoundError
+			require.ErrorAs(t, err, &compound)
+			out := make([]string, 0, len(compound.errs))
+			for _, e := range compound.errs {
+				out = append(out, e.Error())
+			}
+			return out
+		}
+
+		first := build().ToErrorLimited(10)
+		for i := 0; i < 20; i++ {
+			next := build().ToErrorLimited(10)
+			require.Equal(t, first.Error(), next.Error(),
+				"the same failure must render the same message")
+			require.Equal(t, chain(first), chain(next),
+				"the chain must hold the same errors the message names")
+		}
+		require.Contains(t, first.Error(), "(and 5 more)")
+	}
+
+	run(t, func() ErrorCompounder { return New() })
+	run(t, func() ErrorCompounder { return NewSafe() })
 }

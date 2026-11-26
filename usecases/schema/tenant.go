@@ -42,7 +42,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return 0, err
 	}
@@ -97,12 +97,12 @@ func (h *Handler) AddTenants(ctx context.Context,
 		}
 	}
 
-	candidates, err := h.namespaceCandidates(class)
+	nodes, err := h.tenantClusterNodes(class)
 	if err != nil {
 		return 0, err
 	}
 	request := api.AddTenantsRequest{
-		ClusterNodes: candidates,
+		ClusterNodes: nodes,
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
 	for i, tenant := range validated {
@@ -113,6 +113,41 @@ func (h *Handler) AddTenants(ctx context.Context,
 	}
 
 	return h.schemaManager.AddTenants(ctx, class, &request)
+}
+
+// tenantClusterNodes returns namespaceCandidates at the replication factor of
+// qualifiedClass.
+func (h *Handler) tenantClusterNodes(qualifiedClass string) ([]string, error) {
+	if !h.config.Namespaces.Enabled {
+		return h.membership.StorageCandidates(), nil
+	}
+	// TODO(v1.42): send nil for SchemaManager to fill from HomeNodes at apply.
+	// v1.38 to v1.40 nodes refuse a tenant with no nodes. The fill cannot skip
+	// home nodes that are not storage candidates, so nil gives up that skip.
+	factor := h.schemaReader.ClassInfo(qualifiedClass).ReplicationFactor
+	return h.namespaceCandidates(qualifiedClass, int64(factor))
+}
+
+// updateTenantsClusterNodes returns tenantClusterNodes for a tenant update. For a
+// namespaced class it returns them only when a tenant the leader holds FROZEN or
+// FREEZING requests another status, and nil otherwise. It asks the leader because
+// a node that lags a freeze reads the tenant as HOT.
+func (h *Handler) updateTenantsClusterNodes(qualifiedClass string,
+	tenants []*models.Tenant, names []string,
+) ([]string, error) {
+	if namespacing.NamespaceFromQualified(qualifiedClass) == "" {
+		return h.tenantClusterNodes(qualifiedClass)
+	}
+	held, _, err := h.schemaManager.TenantsShardsFromLeader(qualifiedClass, names...)
+	if err != nil {
+		return nil, err
+	}
+	for _, tenant := range tenants {
+		if schema.TenantIsFrozenOrFreezing(held[tenant.Name]) && tenant.ActivityStatus != models.TenantActivityStatusFROZEN {
+			return h.tenantClusterNodes(qualifiedClass)
+		}
+	}
+	return nil, nil
 }
 
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
@@ -189,7 +224,7 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return nil, err
 	}
@@ -216,16 +251,15 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		return nil, err
 	}
 
-	// ClusterNodes is only consulted on unfreeze. Pinning to [home_node]
-	// makes the unfrozen tenant land back on its namespace's home_node;
-	// HOT↔COLD ignore the list and stay no-ops.
-	candidates, err := h.namespaceCandidates(class)
+	// ClusterNodes is read only on unfreeze, so only an unfreeze checks the home
+	// nodes.
+	nodes, err := h.updateTenantsClusterNodes(class, tenants, shardNames)
 	if err != nil {
 		return nil, err
 	}
 	req := api.UpdateTenantsRequest{
 		Tenants:      make([]*api.Tenant, len(tenants)),
-		ClusterNodes: candidates,
+		ClusterNodes: nodes,
 	}
 	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
@@ -258,7 +292,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}
@@ -288,7 +322,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	var allTenants []*models.Tenant
 	var err error
 
-	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class); err != nil {
+	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.qualifier, class); err != nil {
 		return nil, err
 	}
 	if consistency {
@@ -316,7 +350,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
-	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, class)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +395,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, class)
 	if err != nil {
 		return err
 	}

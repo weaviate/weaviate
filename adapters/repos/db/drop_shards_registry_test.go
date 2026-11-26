@@ -49,7 +49,6 @@ func newEmptyMTIndex(t *testing.T) *Index {
 	logger := logrus.New()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -74,6 +73,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 	shardResolver := resolver.NewShardResolver(class.Class, true, mockSchemaGetter)
 
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
+		NodeName:          "node1",
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          rootPath,
 		ReplicationFactor: 1,

@@ -38,8 +38,8 @@ func (t *Traverser) validateExploreDistance(params ExploreParams) error {
 // if all classes are configured with the same type, said type is returned.
 // otherwise an error indicating which classes are configured differently.
 func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []string) (distType string, err error) {
-	s := t.schemaGetter.GetSchemaSkipAuth()
-	if s.Objects == nil {
+	classes := t.schemaGetter.ReadOnlySchema().Classes
+	if len(classes) == 0 {
 		return common.DefaultDistanceMetric, nil
 	}
 
@@ -56,7 +56,7 @@ func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []stri
 		classDistanceConfigs = make(map[string]string)
 	)
 
-	for _, class := range s.Objects.Classes {
+	for _, class := range classes {
 		if class == nil {
 			continue
 		}

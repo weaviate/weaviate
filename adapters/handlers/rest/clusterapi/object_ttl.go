@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -121,15 +120,14 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 		var body []objectttl.ObjectsExpiredPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			d.localStatus.ResetRunning("bad request")
+			d.localStatus.Finish()
 			http.Error(w, "Error parsing JSON body", http.StatusBadRequest)
 			return
 		}
 
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
-			// make sure to unlock the requestRunning flag when all deletions are done
-			defer d.localStatus.ResetRunning("finished")
+			defer d.localStatus.Finish()
 
 			started := time.Now()
 
@@ -177,13 +175,18 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 			for _, classPayload := range body {
 				className := classPayload.Class
-				objsDeletedCounters[className] = &atomic.Int32{}
-				countDeleted := func(count int32) { objsDeletedCounters[className].Add(count) }
+				countDeleted := objsDeletedCounters.CounterFor(className)
 
 				// TODO aliszka:ttl handle graceful index close / drop
-				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
+				idx, err := d.remoteIndex.IndexForIncomingWrite(ttlCtx, className, classPayload.ClassVersion)
 				if err != nil {
-					ec.AddGroups(fmt.Errorf("get index: %w", err), className)
+					// an abort still fails the schema wait as "local index not found:
+					// deadline exceeded", so report the abort instead
+					if cause := context.Cause(ttlCtx); cause != nil {
+						ec.AddGroups(cause, className)
+					} else {
+						ec.AddGroups(fmt.Errorf("get index: %w", err), className)
+					}
 					continue
 				}
 
@@ -191,7 +194,9 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 					time.UnixMilli(classPayload.DelMilli), countDeleted, classPayload.ClassVersion)
 			}
 
-			eg.Wait() // ignore errors from goroutines, they are collected in ec
+			// every closure returns nil, so a recovered panic is all Wait can report,
+			// and the collector files it beside the errors the closures added themselves
+			_ = eg.WaitAndCollect(ec.AddGroups)
 
 			err = ec.ToError()
 		}, d.logger)
@@ -205,7 +210,7 @@ func (d *ObjectTTL) incomingAbort() http.Handler {
 		defer r.Body.Close()
 
 		response := objectttl.ObjectsExpiredAbortResponse{
-			Aborted: d.localStatus.ResetRunning("aborted"),
+			Aborted: d.localStatus.Abort(),
 		}
 
 		d.logger.WithFields(logrus.Fields{

@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	backupusecase "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -93,15 +94,15 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
+	readOnly := models.Schema{
+		Classes: []*models.Class{class},
+	}
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{class},
-		},
-	})
+	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 	mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
 	mockSchemaGetter.EXPECT().ShardFromUUID(class.Class, mock.Anything).Return(shardName)
-	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
@@ -116,7 +117,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -196,15 +197,15 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	}
 	shardingState.SetLocalName(nodeName)
 
-	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				class,
-			},
+	readOnly := models.Schema{
+		Classes: []*models.Class{
+			class,
 		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
+	}
+	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class).Maybe()
 	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, className, hotTenant).
 		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
@@ -237,7 +238,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -306,11 +307,11 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	class2 := "Class2"
 	class3 := "Class3"
 
+	readOnly := models.Schema{Classes: []*models.Class{}}
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
+	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{},
@@ -349,7 +350,7 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -391,11 +392,11 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	class1 := "Class1"
 	class2 := "Class2"
 
+	readOnly := models.Schema{Classes: []*models.Class{}}
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
+	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{},
@@ -433,7 +434,7 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -466,11 +467,11 @@ func TestService_Usage_WithDedupedBackup(t *testing.T) {
 	nodeName := "test-node-2"
 	size1GB := int64(1073741824)
 
+	readOnly := models.Schema{Classes: []*models.Class{}}
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
+	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 
 	shardingState := &sharding.State{Physical: map[string]sharding.Physical{}}
 	shardingState.SetLocalName(nodeName)
@@ -497,7 +498,7 @@ func TestService_Usage_WithDedupedBackup(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -511,11 +512,11 @@ func TestService_Usage_EmptyCollections(t *testing.T) {
 
 	nodeName := "test-node"
 
+	readOnly := models.Schema{Classes: []*models.Class{}}
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
+	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{},
@@ -528,7 +529,7 @@ func TestService_Usage_EmptyCollections(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -547,11 +548,11 @@ func TestService_Usage_BackupError(t *testing.T) {
 
 	nodeName := "test-node"
 
+	readOnly := models.Schema{Classes: []*models.Class{}}
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
+	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{},
@@ -567,7 +568,7 @@ func TestService_Usage_BackupError(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	_, err := service.Usage(ctx, false)
 
@@ -593,13 +594,13 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 		ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
 	}
 
+	readOnly := models.Schema{
+		Classes: []*models.Class{class},
+	}
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{class},
-		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
+	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
@@ -631,7 +632,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -712,15 +713,15 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
+	readOnly := models.Schema{Classes: classes}
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: classes},
-	})
+	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 	for _, class := range classes {
 		mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
 	}
 	mockSchemaGetter.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).Return(shardName)
-	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
@@ -737,7 +738,7 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 	repo.SetSchemaReader(mockSchemaReader)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
-	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 	service.SetShardConcurrency(len(classes))
 
 	usageStarted.Store(true)
@@ -802,15 +803,15 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
+	readOnly := models.Schema{Classes: classes}
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: classes},
-	})
+	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 	for _, class := range classes {
 		mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
 	}
 	mockSchemaGetter.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).Return(shardName)
-	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 
@@ -825,7 +826,7 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 	repo.SetSchemaReader(mockSchemaReader)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
-	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 	service.SetShardConcurrency(len(classes))
 
 	usageStarted.Store(true)

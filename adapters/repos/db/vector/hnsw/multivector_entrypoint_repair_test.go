@@ -119,7 +119,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 	t.Run("entrypoint doc deleted externally", func(t *testing.T) {
 		store := &mvDeletableStore{docs: map[uint64][][]float32{}}
 		idx := newIndex(t, store)
-		defer idx.Drop(ctx, false)
+		defer idx.Drop(ctx)
 
 		epVec := idx.entryPointID
 		epDoc, _ := idx.cache.GetKeys(epVec)
@@ -154,7 +154,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 	t.Run("dead vec tombstones the whole doc", func(t *testing.T) {
 		store := &mvDeletableStore{docs: map[uint64][][]float32{}}
 		idx := newIndex(t, store)
-		defer idx.Drop(ctx, false)
+		defer idx.Drop(ctx)
 
 		deadDoc := docIDs[1]
 		deadVecs := append([]uint64{}, idx.docIDVectors[deadDoc]...)
@@ -180,7 +180,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 	t.Run("live doc never loses siblings to expansion", func(t *testing.T) {
 		store := &mvDeletableStore{docs: map[uint64][][]float32{}}
 		idx := newIndex(t, store)
-		defer idx.Drop(ctx, false)
+		defer idx.Drop(ctx)
 
 		// the doc is still live in the store (e.g. a phantom vec slot):
 		// expansion must probe siblings and leave the live ones alone
@@ -198,7 +198,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 	t.Run("cache miss errors are keyed by the requested vec id", func(t *testing.T) {
 		store := &mvDeletableStore{docs: map[uint64][][]float32{}}
 		idx := newIndex(t, store)
-		defer idx.Drop(ctx, false)
+		defer idx.Drop(ctx)
 
 		deadDoc := docIDs[1]
 		deadVec := idx.docIDVectors[deadDoc][0]
@@ -214,7 +214,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 	t.Run("stale vec to doc mapping only tombstones the probed vec", func(t *testing.T) {
 		store := &mvDeletableStore{docs: map[uint64][][]float32{}}
 		idx := newIndex(t, store)
-		defer idx.Drop(ctx, false)
+		defer idx.Drop(ctx)
 
 		probed := idx.docIDVectors[docIDs[0]][0]
 		// corrupt the mapping: point the probed vec at another doc
@@ -232,7 +232,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 	t.Run("all docs deleted externally", func(t *testing.T) {
 		store := &mvDeletableStore{docs: map[uint64][][]float32{}}
 		idx := newIndex(t, store)
-		defer idx.Drop(ctx, false)
+		defer idx.Drop(ctx)
 
 		for _, docID := range docIDs {
 			deleteDocExternally(idx, store, docID)

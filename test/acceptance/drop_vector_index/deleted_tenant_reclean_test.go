@@ -37,11 +37,12 @@ import (
 // a full re-snapshot, and every segment of the surviving tenants rewritten a
 // second time. Nothing is dirty here — those tenants were stripped by round 1
 // and no write has touched them since — so the drop should finalize on the
-// coverage it already recorded.
+// coverage it already recorded, through a verify-only round that strips
+// nothing.
 //
 // Deliberately a whole-collection observation rather than a tenant-level one:
 // the redundant pass is invisible in the data (it converges either way), so the
-// only black-box evidence is a cleanup round that had no work to do.
+// only black-box evidence is a stripping round that had no work to do.
 func testDeletedColdTenantFinalizesWithoutReclean() func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
@@ -107,23 +108,36 @@ func testDeletedColdTenantFinalizesWithoutReclean() func(t *testing.T) {
 		})
 
 		t.Run("deleting the cold tenant finalizes without re-cleaning", func(t *testing.T) {
+			withoutDropped := helper.GetClass(t, className)
+			delete(withoutDropped.VectorConfig, dropped)
+
 			require.NoError(t, helper.DeleteTenants(t, className, []string{coldTenant}))
+
+			// A class update must not remove the entry on the recorded coverage
+			// alone. It is refused unless the verify-only round got there
+			// first; the check below fails if this update did the removal.
+			_, err := helper.Client(t).Schema.SchemaObjectsUpdate(
+				clschema.NewSchemaObjectsUpdateParams().WithClassName(className).WithObjectClass(withoutDropped), nil)
+			if err != nil {
+				require.Contains(t, errorResponseText(err), "cannot remove dropped vector")
+			}
 
 			eventuallyTargetVectorRemoved(t, className, dropped)
 
-			after, err := dropTaskIDsErr()
+			after, err := dropTaskVerifyOnlyErr()
 			require.NoError(t, err)
-			var appeared []string
-			for id, status := range after {
-				if _, known := before[id]; !known {
-					appeared = append(appeared, fmt.Sprintf("%s(%s)", id, status))
+			var stripping []string
+			for id, verifyOnly := range after {
+				if _, known := before[id]; !known && !verifyOnly {
+					stripping = append(stripping, id)
 				}
 			}
-			sort.Strings(appeared)
-			require.Emptyf(t, appeared,
-				"the finalize must run on the coverage round one already recorded; cleanup round(s) %v "+
+			sort.Strings(stripping)
+			require.Emptyf(t, stripping,
+				"the finalize must run on the coverage round one already recorded; stripping round(s) %v "+
 					"re-strip tenants that were cleaned before the deletion and never written to since",
-				appeared)
+				stripping)
+			require.Greater(t, len(after), len(before), "a verify-only round must have driven the finalize")
 		})
 
 		t.Run("the surviving tenants are intact", func(t *testing.T) {

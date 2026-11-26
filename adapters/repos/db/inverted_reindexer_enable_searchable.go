@@ -41,5 +41,6 @@ func NewRuntimeEnableSearchableTask(
 		},
 		blockmaxSearchableTaskConfig(propNames, collectionName),
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 }

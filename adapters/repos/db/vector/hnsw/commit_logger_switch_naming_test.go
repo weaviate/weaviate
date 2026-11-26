@@ -14,6 +14,8 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -42,16 +44,13 @@ func TestNextCommitLogFileName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			next, derived := nextCommitLogFileName(tc.current)
+			nextTS, derived := nextCommitLogFileName(tc.current)
 			require.Equal(t, tc.wantDerived, derived)
-
-			nextTS, err := strconv.ParseInt(next, 10, 64)
-			require.NoError(t, err, "the new name is always a bare timestamp")
 
 			if !derived {
 				// nothing to advance past, but the name still has to be usable and
 				// must not reopen the file that was just rotated out
-				assert.NotEqual(t, tc.current, next)
+				assert.NotEqual(t, tc.current, strconv.FormatInt(nextTS, 10))
 				return
 			}
 
@@ -98,5 +97,51 @@ func TestSwitchCommitLogsBurst(t *testing.T) {
 		info, err := entry.Info()
 		require.NoError(t, err)
 		assert.NotZero(t, info.Size(), "%s: rotated-out log lost its writes", entry.Name())
+	}
+}
+
+// A rotation must never append to a log that already exists under the name it
+// picks: that log may end in a torn commit, and the rotated-in writes would be
+// read misaligned behind it.
+func TestSwitchCommitLogs_SkipsExistingNames(t *testing.T) {
+	ctx := context.Background()
+	rootDir := t.TempDir()
+	id := "switch-existing"
+
+	cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	require.NoError(t, cl.AddNode(1, 0))
+	require.NoError(t, cl.Flush())
+
+	dir := commitLogDirectory(rootDir, id)
+	current, err := strconv.ParseInt(filepath.Base(cl.currentFileName), 10, 64)
+	require.NoError(t, err)
+	// occupy every name the rotation could pick, whether it follows the clock
+	// or the current log
+	existing := map[string]struct{}{}
+	for _, base := range []int64{current, time.Now().Unix()} {
+		for i := int64(1); i <= 3; i++ {
+			existing[strconv.FormatInt(base+i, 10)] = struct{}{}
+		}
+	}
+	existing[strconv.FormatInt(time.Now().Unix(), 10)] = struct{}{}
+	delete(existing, filepath.Base(cl.currentFileName))
+	for name := range existing {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("existing"), 0o644))
+	}
+
+	switched, err := cl.switchCommitLogs(true)
+	require.NoError(t, err)
+	require.True(t, switched)
+	require.NotContains(t, existing, filepath.Base(cl.currentFileName))
+
+	require.NoError(t, cl.AddNode(2, 0))
+	require.NoError(t, cl.Flush())
+	require.NoError(t, cl.Shutdown(ctx))
+
+	for name := range existing {
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		require.NoError(t, err)
+		assert.Equal(t, "existing", string(content), "%s was written to", name)
 	}
 }

@@ -32,6 +32,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeReindexTaskLister struct {
@@ -138,6 +139,26 @@ func TestShardsStorageStatusErrResponder(t *testing.T) {
 			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
 		},
 		{
+			name: "suspended namespace is unprocessable",
+			err:  namespaces.ErrNamespaceSuspended,
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "deleting namespace is unprocessable",
+			err:  namespaces.ErrNamespaceDeleting,
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "missing namespace is unprocessable",
+			err:  namespaces.ErrNamespaceGone,
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "resuming namespace falls through",
+			err:  namespaces.ErrNamespaceResuming,
+			want: schema.NewSchemaObjectsShardsGetInternalServerError(),
+		},
+		{
 			name: "anything else stays a server error",
 			err:  errors.New("boom"),
 			want: schema.NewSchemaObjectsShardsGetInternalServerError(),
@@ -147,6 +168,33 @@ func TestShardsStorageStatusErrResponder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.IsType(t, tt.want, shardsStorageStatusErrResponder(nil, tt.err))
+		})
+	}
+}
+
+// A vector index drop refused by the namespace is the caller's problem too. One
+// state stands for the rest, which TestNamespaceErrRendersUnprocessable walks.
+func TestVectorIndexDeleteErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "suspended namespace is unprocessable",
+			err:  namespaces.ErrNamespaceSuspended,
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsVectorsDeleteInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, vectorIndexDeleteErrResponder(nil, tt.err))
 		})
 	}
 }
@@ -163,7 +211,7 @@ func TestDeleteClassPropertyIndex_NamespaceConflictPreflight(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &schemaHandlers{
-		namespacesEnabled:   true,
+		qualifier:           wlnamespaces.NewPrefixing(),
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: this test is about class qualification, not authz
 		authorizer: &authorization.DummyAuthorizer{},
@@ -203,7 +251,7 @@ func TestDeleteClassPropertyIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) 
 
 	rec := &recordingLockProvider{}
 	h := &schemaHandlers{
-		namespacesEnabled:   true,
+		qualifier:           wlnamespaces.NewPrefixing(),
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: this test is about the lock key, not authz
 		authorizer:         &authorization.DummyAuthorizer{},

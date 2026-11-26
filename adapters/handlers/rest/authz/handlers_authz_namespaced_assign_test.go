@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // nsAssignRoles is the role fixture for assignment tests: a namespaced caller's
@@ -99,9 +100,10 @@ func TestAssignRoleToUserNamespaced(t *testing.T) {
 	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
 
 	tests := []struct {
-		name   string
-		role   string
-		assert func(t *testing.T, res any)
+		name        string
+		role        string
+		staticUsers []string
+		assert      func(t *testing.T, res any)
 	}{
 		{
 			name: "own local role",
@@ -128,6 +130,15 @@ func TestAssignRoleToUserNamespaced(t *testing.T) {
 			},
 		},
 		{
+			name:        "global template role for a static API-key user, which holds it in every namespace",
+			role:        "viewer",
+			staticUsers: []string{"customer1:bob"},
+			assert: func(t *testing.T, res any) {
+				_, ok := res.(*authz.AssignRoleToUserForbidden)
+				require.True(t, ok, "got %T", res)
+			},
+		},
+		{
 			name: "unknown role",
 			role: "ghost",
 			assert: func(t *testing.T, res any) {
@@ -139,6 +150,7 @@ func TestAssignRoleToUserNamespaced(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h, _ := nsAssignHandler(t, "customer1")
+			h.apiKeysConfigs = config.StaticAPIKey{Enabled: true, Users: tt.staticUsers}
 			res := h.assignRoleToUser(authz.AssignRoleToUserParams{
 				HTTPRequest: req,
 				ID:          "bob",
@@ -164,6 +176,61 @@ func TestAssignRoleToUserNamespacedMixedEnvelope(t *testing.T) {
 	require.True(t, ok, "got %T", res)
 }
 
+// assignRoleToUser checks each permission a global caller assigns as the
+// assignee holds it, in a namespaced user's namespace and unchanged for a
+// static API-key user.
+func TestAssignRoleToUserGlobalCallerTargetNamespace(t *testing.T) {
+	readUser := func(user string) authorization.Policy {
+		return authorization.Policy{Resource: authorization.Users(user)[0], Verb: authorization.READ, Domain: authorization.UsersDomain}
+	}
+	tests := []struct {
+		name           string
+		userID         string
+		userType       models.UserTypeInput
+		staticUsers    []string
+		staticDisabled bool
+		callerHolds    authorization.Policy
+	}{
+		{name: "static API-key user: the grant in the namespace its id suggests is not enough", userID: "customer1:svc", staticUsers: []string{"customer1:svc"}, callerHolds: readUser("customer1:bob")},
+		{name: "OIDC user sharing a static user's id is checked in its namespace", userID: "customer1:svc", userType: models.UserTypeInputOidc, staticUsers: []string{"customer1:svc"}, callerHolds: readUser("bob")},
+		{name: "static API-key auth disabled: a listed user is checked in its namespace", userID: "customer1:svc", staticUsers: []string{"customer1:svc"}, staticDisabled: true, callerHolds: readUser("bob")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.userType == "" {
+				tt.userType = models.UserTypeInputDb
+			}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, mock.Anything, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.userID)[0]).Return(nil)
+			authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(func(_ context.Context, _ *models.Principal, verb string, resources ...string) error {
+					if verb == tt.callerHolds.Verb && resources[0] == tt.callerHolds.Resource {
+						return nil
+					}
+					return fmt.Errorf("forbidden")
+				})
+			controller := NewMockControllerAndGetUsers(t)
+			controller.On("GetRoles", "reader").Return(map[string][]authorization.Policy{"reader": {readUser("bob")}}, nil)
+
+			logger, _ := test.NewNullLogger()
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				logger:            logger,
+				apiKeysConfigs:    config.StaticAPIKey{Enabled: !tt.staticDisabled, Users: tt.staticUsers},
+				rbacconfig:        rbacconf.Config{Enabled: true},
+				namespacesEnabled: true,
+			}
+			res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+				HTTPRequest: req,
+				ID:          tt.userID,
+				Body:        authz.AssignRoleToUserBody{Roles: []string{"reader"}, UserType: tt.userType},
+			}, &models.Principal{Username: "ops", UserType: models.UserTypeInputDb})
+			require.IsType(t, &authz.AssignRoleToUserForbidden{}, res)
+		})
+	}
+}
+
 func TestAssignRoleToUserNamespacedUserTypeRequired(t *testing.T) {
 	h, _ := nsAssignHandler(t, "customer1")
 	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
@@ -186,6 +253,65 @@ func TestRevokeRoleFromUserNamespacedUserTypeRequired(t *testing.T) {
 	}, principal)
 	_, ok := res.(*authz.RevokeRoleFromUserBadRequest)
 	require.True(t, ok, "got %T", res)
+}
+
+// TestUserHandlers_NamespacedCallerQualifiedID requires a 400 from every user
+// handler whose user ID, sent by a namespaced caller, holds a ':'. The mocks
+// hold no expectations, so an authorize or controller call fails the case.
+func TestUserHandlers_NamespacedCallerQualifiedID(t *testing.T) {
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	tests := []struct {
+		name string
+		call func(h *authZHandlers) middleware.Responder
+		want middleware.Responder
+	}{
+		{
+			name: "assign",
+			call: func(h *authZHandlers) middleware.Responder {
+				return h.assignRoleToUser(authz.AssignRoleToUserParams{
+					HTTPRequest: req,
+					ID:          "x:bob",
+					Body:        authz.AssignRoleToUserBody{Roles: []string{"editor"}, UserType: models.UserTypeInputDb},
+				}, principal)
+			},
+			want: &authz.AssignRoleToUserBadRequest{},
+		},
+		{
+			name: "revoke",
+			call: func(h *authZHandlers) middleware.Responder {
+				return h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{
+					HTTPRequest: req,
+					ID:          "x:bob",
+					Body:        authz.RevokeRoleFromUserBody{Roles: []string{"editor"}, UserType: models.UserTypeInputDb},
+				}, principal)
+			},
+			want: &authz.RevokeRoleFromUserBadRequest{},
+		},
+		{
+			name: "get roles",
+			call: func(h *authZHandlers) middleware.Responder {
+				return h.getRolesForUser(authz.GetRolesForUserParams{
+					HTTPRequest: req,
+					ID:          "x:bob",
+					UserType:    string(models.UserTypeInputDb),
+				}, principal)
+			},
+			want: &authz.GetRolesForUserBadRequest{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			h := &authZHandlers{
+				authorizer:        authorization.NewMockAuthorizer(t),
+				controller:        NewMockControllerAndGetUsers(t),
+				logger:            logger,
+				rbacconfig:        rbacconf.Config{Enabled: true},
+				namespacesEnabled: true,
+			}
+			require.IsType(t, tt.want, tt.call(h))
+		})
+	}
 }
 
 func TestRevokeRoleFromUserNamespaced(t *testing.T) {

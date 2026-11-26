@@ -54,6 +54,10 @@ func (a *allowlistAuthorizer) Authorize(ctx context.Context, principal *models.P
 	return nil
 }
 
+func (a *allowlistAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
+}
+
 func (a *allowlistAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	return a.Authorize(ctx, principal, verb, resources...)
 }

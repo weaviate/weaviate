@@ -193,6 +193,26 @@ func TestSnapshotReader_BlockBuffersCappedByBlockCount(t *testing.T) {
 	}
 }
 
+// The metadata size is read before the checksum that covers it can be
+// verified, so a corrupt size must be rejected against the file's length rather
+// than allocated.
+func TestSnapshotReader_CorruptMetadataSizeNotAllocated(t *testing.T) {
+	const blockSize = 4096
+	full := snapshotMetadataHeader(t, blockSize, 1)
+	full = append(full, snapshotBlock(t, blockSize, 0, 1)...)
+	binary.LittleEndian.PutUint32(full[5:9], 0xFFFFFFF0)
+
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := NewSnapshotReaderWithBlockSize(logrus.New(), blockSize).Read(bytes.NewReader(full))
+	runtime.ReadMemStats(&after)
+	require.Error(t, err)
+
+	allocated := after.TotalAlloc - before.TotalAlloc
+	require.Lessf(t, allocated, uint64(64<<20), "Read allocated %d bytes for a %d-byte snapshot", allocated, len(full))
+}
+
 // snapshotMetadataHeader returns the version+checksum+metadata prefix of a real
 // V3 snapshot with the given node count, so tests can pair valid metadata with a
 // hand-crafted body.

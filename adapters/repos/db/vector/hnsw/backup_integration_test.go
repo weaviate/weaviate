@@ -48,7 +48,7 @@ func TestBackup_Integration(t *testing.T) {
 		cyclemanager.HnswCommitLoggerCycleTicker(false),
 		parentCommitLoggerCallbacks.CycleCallback, logger)
 	parentCommitLoggerCycle.Start()
-	defer parentCommitLoggerCycle.StopAndWait(ctx)
+	defer func() { cyclemanager.WaitForStop(ctx, parentCommitLoggerCycle.Stop(ctx)) }()
 	commitLoggerCallbacks := cyclemanager.NewCallbackGroup("childCommitLogger", logger, 1)
 	commitLoggerCallbacksCtrl := parentCommitLoggerCallbacks.Register("commitLogger", commitLoggerCallbacks.CycleCallback)
 
@@ -58,7 +58,7 @@ func TestBackup_Integration(t *testing.T) {
 		cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
 		parentTombstoneCleanupCallbacks.CycleCallback, logger)
 	parentTombstoneCleanupCycle.Start()
-	defer parentTombstoneCleanupCycle.StopAndWait(ctx)
+	defer func() { cyclemanager.WaitForStop(ctx, parentTombstoneCleanupCycle.Stop(ctx)) }()
 	tombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("childTombstoneCleanup", logger, 1)
 	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", tombstoneCleanupCallbacks.CycleCallback)
 

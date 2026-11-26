@@ -70,7 +70,7 @@ func indexForNamespace(t *testing.T, className string, e namespaces.Exister) (*I
 
 	logger, hook := logrustest.NewNullLogger()
 	return &Index{
-		Config: IndexConfig{ClassName: schema.ClassName(className)},
+		Config: IndexConfig{NodeName: "node1", ClassName: schema.ClassName(className)},
 		// the same parse NewIndex does, so these exercise the production value
 		namespace:         namespacing.NamespaceFromQualified(className),
 		namespacesExister: e,
@@ -91,7 +91,6 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 
 	sg := schemaUC.NewMockSchemaGetter(t)
 	sg.On("ReadOnlyClass", className).Return(class).Maybe()
-	sg.On("NodeName").Return("node1").Maybe()
 
 	ss := &sharding.State{Physical: map[string]sharding.Physical{}}
 	ss.SetLocalName("node1")
@@ -104,6 +103,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})
 
 	idx, err := NewIndex(context.Background(), nil, IndexConfig{
+		NodeName:          "node1",
 		ClassName:         schema.ClassName(className),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
@@ -306,6 +306,7 @@ func dbForDesiredOpen(t *testing.T, className string, e namespaces.Exister, shar
 
 	logger, _ := logrustest.NewNullLogger()
 	return &DB{
+		localNodeName:     "node1",
 		logger:            logger,
 		schemaReader:      readerForShards(t, className, shards),
 		namespacesExister: e,
@@ -468,7 +469,7 @@ func TestDesiredOpenLocalShardCount(t *testing.T) {
 		e.EXPECT().GetNamespace("alpha").
 			Return(api.Namespace{Name: "alpha", State: api.NamespaceStateSuspended}, true)
 		logger, _ := logrustest.NewNullLogger()
-		db := &DB{logger: logger, schemaReader: local.NewMockSchemaReader(t), namespacesExister: e}
+		db := &DB{localNodeName: "node1", logger: logger, schemaReader: local.NewMockSchemaReader(t), namespacesExister: e}
 
 		got, err := db.DesiredOpenLocalShardCount(class)
 		require.NoError(t, err)
@@ -517,7 +518,7 @@ func TestDesiredOpenLocalShardCountReadFailures(t *testing.T) {
 			reader := local.NewMockSchemaReader(t)
 			tc.read(reader)
 
-			db := &DB{logger: logger, schemaReader: reader, namespacesExister: e}
+			db := &DB{localNodeName: "node1", logger: logger, schemaReader: reader, namespacesExister: e}
 
 			got, err := db.DesiredOpenLocalShardCount(class)
 			require.Error(t, err)
@@ -717,7 +718,7 @@ func indexForGuardTestWithHook(t *testing.T, className string, e namespaces.Exis
 	require.NoError(t, err)
 
 	idx := &Index{
-		Config:                 IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName(className)},
+		Config:                 IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: schema.ClassName(className)},
 		namespace:              namespacing.NamespaceFromQualified(className),
 		namespacesExister:      e,
 		logger:                 logger,
@@ -859,6 +860,17 @@ func TestGuardLoadPath(t *testing.T) {
 
 		err := idx.initLocalShardWithForcedLoading(ctx, &models.Class{Class: class}, "t1", true, false, callerUserRequest)
 		require.ErrorIs(t, err, ErrNamespaceUnknownLocally)
+	})
+
+	// Status reads skip loading a cold shard, but not the guard.
+	t.Run("suspended refuses a status read of a cold shard", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx.shards.Store("t1", &LazyLoadShard{})
+
+		_, err := idx.IncomingGetShardStatus(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+		_, err = idx.IncomingGetShardQueueSize(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
 	})
 
 	// The allow side: without it, a guard that refused every in-band load would
@@ -1735,7 +1747,7 @@ func TestGuardRequestPath(t *testing.T) {
 
 // The cleanup entry points act on a shard the caller already opened, so a
 // namespace that is not active must not refuse them: that would leave a
-// change-capture log registered, or a shard halted with nothing to resume it.
+// change-capture log registered.
 func TestCleanupPathsSkipTheGuard(t *testing.T) {
 	const (
 		class     = "alpha:Product"
@@ -1757,27 +1769,6 @@ func TestCleanupPathsSkipTheGuard(t *testing.T) {
 		require.NoError(t, idx.IncomingStopChangeCapture(ctx, shardName, opID))
 	})
 
-	t.Run("the transfer inactivity timer resets without a namespace lookup", func(t *testing.T) {
-		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
-		shard := NewMockShardLike(t)
-		shard.On("MayResetTransferInactivityTimer").Once()
-		idx.shards.Store(shardName, shard)
-		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
-
-		idx.mayResetReplicaSnapshotInactivity(opID)
-	})
-
-	t.Run("the snapshot release resumes the shard without a namespace lookup", func(t *testing.T) {
-		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
-		shard := NewMockShardLike(t)
-		shard.On("preventShutdown").Return(func() {}, nil).Once()
-		shard.On("resumeMaintenanceCycles", mock.Anything).Return(nil).Once()
-		idx.shards.Store(shardName, shard)
-		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
-
-		require.NoError(t, idx.releaseReplicaSnapshot(ctx, opID, nil))
-	})
-
 	// The same shard a teardown may reach is still refused to a request.
 	t.Run("a request for the same shard is still refused", func(t *testing.T) {
 		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
@@ -1797,11 +1788,8 @@ func TestCleanupPathsSkipTheGuard(t *testing.T) {
 		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
 		lazy := &LazyLoadShard{}
 		idx.shards.Store(shardName, lazy)
-		idx.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
 
 		require.NoError(t, idx.IncomingStopChangeCapture(ctx, shardName, opID))
-		idx.mayResetReplicaSnapshotInactivity(opID)
-		require.NoError(t, idx.releaseReplicaSnapshot(ctx, opID, nil))
 		assert.False(t, lazy.isLoaded(), "cleanup must not load the shard")
 	})
 
@@ -2034,6 +2022,7 @@ func indexForBootTest(t *testing.T, className string, e namespaces.Exister, read
 
 	idx := &Index{
 		Config: IndexConfig{
+			NodeName:             "node1",
 			ClassName:            schema.ClassName(className),
 			RootPath:             t.TempDir(),
 			EnableLazyLoadShards: true,
@@ -2148,8 +2137,8 @@ func TestGuardBoot(t *testing.T) {
 		})
 	}
 
-	// No Read expectation is registered, so the test fails if boot walks the
-	// tenants when nothing may be open.
+	// No Read expectation is registered, so the test fails if a node without
+	// self-recovery walks the tenants when nothing may be open.
 	for _, state := range []api.NamespaceState{
 		api.NamespaceStateSuspended, api.NamespaceStateDeleting,
 	} {
@@ -2323,8 +2312,7 @@ func TestEmptyTenantStatusBootVsReload(t *testing.T) {
 		idx.shards.Store("empty1", shard)
 
 		sg := schemaUC.NewMockSchemaGetter(t)
-		sg.EXPECT().NodeName().Return("node1")
-		m := &Migrator{db: &DB{schemaGetter: sg}}
+		m := &Migrator{db: &DB{localNodeName: "node1", schemaGetter: sg}}
 
 		incoming := &sharding.State{Physical: map[string]sharding.Physical{"empty1": localPhysical("empty1")}}
 		require.NoError(t, m.updateIndexTenantsStatus(ctx, idx, incoming))
@@ -2444,8 +2432,11 @@ func TestGuardReload(t *testing.T) {
 
 		// Which tenants a reload opens is decided by the check boot uses rather
 		// than the request-path one, so the multi-tenant arm walks the same table.
+		// With lazy loading on a reload only registers the tenant, so it is off
+		// here to make the reload open it.
 		t.Run(tc.name+" opens the tenants that stay open", func(t *testing.T) {
 			m, idx := migratorForReload(t, tc.className, tc.exister(t))
+			idx.Config.EnableLazyLoadShards = false
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
 			state := reloadState(true, map[string]sharding.Physical{"t1": hotPhysical("t1")})
@@ -2505,6 +2496,7 @@ func TestLocalShardsToLoad(t *testing.T) {
 		// this the row is red whether or not localShardsToLoad logs.
 		logger.SetLevel(logrus.DebugLevel)
 		db := &DB{
+			localNodeName:     "node1",
 			logger:            logger,
 			schemaReader:      readerForShards(t, class, mixed),
 			namespacesExister: e,
@@ -2529,11 +2521,10 @@ func dbForReopen(t *testing.T, className string, e namespaces.Exister) (*DB, *In
 	idx := indexForGuardTest(t, className, e)
 	sg := schemaUC.NewMockSchemaGetter(t)
 	sg.EXPECT().ReadOnlyClass(className).Return(&models.Class{Class: className}).Maybe()
-	sg.EXPECT().NodeName().Return("node1").Maybe()
 	idx.getSchema = sg
 
 	logger, _ := logrustest.NewNullLogger()
-	return &DB{logger: logger, schemaGetter: sg, indices: map[string]*Index{idx.ID(): idx}}, idx
+	return &DB{localNodeName: "node1", logger: logger, schemaGetter: sg, indices: map[string]*Index{idx.ID(): idx}}, idx
 }
 
 // ReopenShard is the entry point a resuming namespace's shards come back

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-digitalocean/config"
 	digitaloceanparams "github.com/weaviate/weaviate/modules/generative-digitalocean/parameters"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -100,6 +101,11 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
 	req.Header.Set("Content-Type", "application/json")
+	if weaviateUUID := config.NewClassSettings(cfg).WeaviateUUID(); weaviateUUID != "" {
+		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/%s %s", weaviateUUID, build.Version))
+	} else {
+		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/unknown %s", build.Version))
+	}
 
 	res, err := c.httpClient.Do(req)
 	if res != nil {

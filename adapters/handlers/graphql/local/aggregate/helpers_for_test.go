@@ -36,6 +36,10 @@ func (m *mockAuthorizer) Authorize(ctx context.Context, principal *models.Princi
 	return nil
 }
 
+func (m *mockAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, action string, class string, resource ...string) error {
+	return nil
+}
+
 func (m *mockAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, action string, resource ...string) error {
 	return nil
 }

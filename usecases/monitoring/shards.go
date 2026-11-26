@@ -81,6 +81,8 @@ const (
 	WarmupSkippedAlreadyLoaded WarmupOutcome = "skipped_already_loaded"
 	// WarmupSkippedEmpty: the shard has never held an object.
 	WarmupSkippedEmpty WarmupOutcome = "skipped_empty"
+	// WarmupSkippedRecovering: being restored from a peer; the promote loads it, not the sweep.
+	WarmupSkippedRecovering WarmupOutcome = "skipped_recovering"
 	// WarmupSkippedBelowThreshold: the shard holds too few objects for
 	// LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS.
 	WarmupSkippedBelowThreshold WarmupOutcome = "skipped_below_threshold"

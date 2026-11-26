@@ -68,7 +68,7 @@ Data path DB → Index → Shard → Store:
 - **Shard** is the unit of storage: an LSM store for objects and properties, vector index(es), and the inverted index.
 - **LSM store** (`lsmkv`) bucket strategies: **Replace** (one value per key), **SetCollection** (unordered values per key), **MapCollection** (key-value pairs per key; legacy BM25 index), **RoaringSet** (bitmaps; filterable index), **RoaringSetRange** (range filters), **Inverted** (BM25 with BlockMax WAND).
 
-Vector indexes (`adapters/repos/db/vector/`): **HNSW** (primary; PQ/BQ/SQ/RQ compression, multi-vector, tombstone cleanup), **Flat** (brute force for small datasets), **Dynamic** (switches between flat and HNSW based on data size), **HFresh** (SPFresh algorithm, work in progress).
+Vector indexes (`adapters/repos/db/vector/`): **HNSW** (primary; PQ/BQ/SQ/RQ compression, multi-vector, tombstone cleanup), **Flat** (brute force for small datasets), **Dynamic** (switches between flat and HNSW based on data size), **HFresh** (SPFresh algorithm, disk-resident postings).
 
 Modules implement `Module` (`Name()`, `Init()`, `Type()`) and optionally provide HTTP handlers, vectorization, generative capabilities or reranking. `MakeAppState()` in `adapters/handlers/rest/configure_api.go` does all startup wiring: DB, schema manager, cluster/RAFT services, module registration, gRPC server and monitoring.
 

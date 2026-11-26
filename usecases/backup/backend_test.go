@@ -37,54 +37,6 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-func TestCalculateShardPreCompressionSize(t *testing.T) {
-	// Create a temporary directory for test files
-	tempDir := t.TempDir()
-
-	// Create test files with known sizes
-	testFiles := []string{
-		"test1.db",
-		"test2.db",
-		"test3.db",
-	}
-
-	// Create files with specific content
-	fileSizes := make(map[string]int64)
-	for i, filename := range testFiles {
-		content := make([]byte, 100*(i+1)) // 100, 200, 300 bytes
-		filePath := filepath.Join(tempDir, filename)
-		err := os.WriteFile(filePath, content, 0o644)
-		require.NoError(t, err)
-		fileSizes[filename] = int64(len(content))
-	}
-
-	// Create a test shard descriptor
-	shard := &backup.ShardDescriptor{
-		Name:  "test-shard",
-		Node:  "test-node",
-		Files: testFiles,
-	}
-
-	// Create a mock backend with expectations
-	mockBackend := modulecapabilities.NewMockBackupBackend(t)
-	mockBackend.EXPECT().SourceDataPath().Return(tempDir)
-
-	// Create a mock uploader with the temp directory as source path
-	uploader := &uploader{
-		backend: nodeStore{
-			objectStore: objectStore{
-				backend: mockBackend,
-			},
-		},
-		log: logrus.New(),
-	}
-
-	// Calculate pre-compression size
-	preCompressionSize := uploader.calculateShardPreCompressionSize(shard)
-
-	assert.Equal(t, int64(100+200+300), preCompressionSize)
-}
-
 func TestCreateFileList(t *testing.T) {
 	t.Run("success with existing files", func(t *testing.T) {
 		t.Parallel()
@@ -107,7 +59,7 @@ func TestCreateFileList(t *testing.T) {
 			log: logrus.New(),
 		}
 
-		fileList, err := u.createFileList(shard, tempDir)
+		fileList, err := u.createFileList(shard, backup.NewTreeFileSource(tempDir))
 		require.NoError(t, err)
 		require.NotNil(t, fileList)
 		assert.Equal(t, testFiles, fileList.Files)
@@ -115,33 +67,7 @@ func TestCreateFileList(t *testing.T) {
 		assert.Equal(t, int64(200), fileList.FileSizes["file2.db"])
 	})
 
-	t.Run("success with delete marker file", func(t *testing.T) {
-		t.Parallel()
-		tempDir := t.TempDir()
-
-		// Create a file with delete marker prefix
-		deletedFile := "deleted.db"
-		deletedFilePath := filepath.Join(tempDir, backup.DeleteMarkerAdd(deletedFile))
-		err := os.WriteFile(deletedFilePath, make([]byte, 150), 0o644)
-		require.NoError(t, err)
-
-		shard := &backup.ShardDescriptor{
-			Name:  "test-shard",
-			Node:  "test-node",
-			Files: []string{deletedFile},
-		}
-
-		u := &uploader{
-			log: logrus.New(),
-		}
-
-		fileList, err := u.createFileList(shard, tempDir)
-		require.NoError(t, err)
-		require.NotNil(t, fileList)
-		assert.Equal(t, int64(150), fileList.FileSizes[deletedFile])
-	})
-
-	t.Run("error when file not found at either path", func(t *testing.T) {
+	t.Run("error when a file is missing", func(t *testing.T) {
 		t.Parallel()
 		tempDir := t.TempDir()
 
@@ -162,11 +88,11 @@ func TestCreateFileList(t *testing.T) {
 			log: logrus.New(),
 		}
 
-		fileList, err := u.createFileList(shard, tempDir)
+		fileList, err := u.createFileList(shard, backup.NewTreeFileSource(tempDir))
 		require.Error(t, err)
 		require.Nil(t, fileList)
+		require.ErrorIs(t, err, os.ErrNotExist)
 		assert.Contains(t, err.Error(), "missing.db")
-		assert.Contains(t, err.Error(), "not found")
 	})
 
 	// Three files sized 100/200/300 with MinChunkSize=0, so BigFilesThreshold is the n-th
@@ -220,7 +146,7 @@ func TestCreateFileList(t *testing.T) {
 				cfg: config.Backup{MaxIndividualFiles: tc.maxIndividualFiles},
 			}
 
-			fileList, err := u.createFileList(shard, tempDir)
+			fileList, err := u.createFileList(shard, backup.NewTreeFileSource(tempDir))
 			require.NoError(t, err)
 			assert.Equal(t, tc.expected, fileList.BigFilesThreshold)
 		})
@@ -236,13 +162,13 @@ func TestCreateFileList(t *testing.T) {
 		cfg := config.Backup{MaxIndividualFiles: configRuntime.NewDynamicValue(3)}
 		u := &uploader{log: logrus.New(), cfg: cfg}
 
-		fileList, err := u.createFileList(shard, tempDir)
+		fileList, err := u.createFileList(shard, backup.NewTreeFileSource(tempDir))
 		require.NoError(t, err)
 		require.Equal(t, int64(100), fileList.BigFilesThreshold)
 
 		require.NoError(t, cfg.MaxIndividualFiles.SetValue(1))
 
-		fileList, err = u.createFileList(shard, tempDir)
+		fileList, err = u.createFileList(shard, backup.NewTreeFileSource(tempDir))
 		require.NoError(t, err)
 		assert.Equal(t, int64(300), fileList.BigFilesThreshold)
 	})
@@ -510,7 +436,7 @@ func TestProcessShard(t *testing.T) {
 			}
 
 			var lastChunk atomic.Int32
-			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
+			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", backup.NewTreeFileSource(u.backend.SourceDataPath()))
 			require.NoError(t, err)
 			require.Len(t, results, tt.expectChunks, "expected %d chunks", tt.expectChunks)
 
@@ -618,7 +544,7 @@ func TestProcessShard(t *testing.T) {
 				PropLengthTrackerPath: "s1/p.bin", PropLengthTracker: inMemData,
 				ShardVersionPath: "s1/v.bin", Version: inMemData,
 			},
-			"TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
+			"TestClass", &lastChunk, "", "", backup.NewTreeFileSource(u.backend.SourceDataPath()))
 		require.NoError(t, err)
 
 		results2, err := u.processShard(context.Background(),
@@ -628,7 +554,7 @@ func TestProcessShard(t *testing.T) {
 				PropLengthTrackerPath: "s2/p.bin", PropLengthTracker: inMemData,
 				ShardVersionPath: "s2/v.bin", Version: inMemData,
 			},
-			"TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
+			"TestClass", &lastChunk, "", "", backup.NewTreeFileSource(u.backend.SourceDataPath()))
 		require.NoError(t, err)
 
 		assert.Equal(t, int32(1), results1[0].chunk)
@@ -732,7 +658,7 @@ func TestProcessShardEvenSplitSizes(t *testing.T) {
 			}
 
 			var lastChunk atomic.Int32
-			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
+			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", backup.NewTreeFileSource(u.backend.SourceDataPath()))
 			require.NoError(t, err)
 
 			// First chunk has small files + in-memory data; skip it.
@@ -1167,6 +1093,11 @@ func (e *incrementalTestEnv) makeShardDesc(name string, files []string) *backup.
 	}
 }
 
+// baseShard keeps the part of sd that FillFileInfo reads once sd's backup is a base.
+func baseShard(sd *backup.ShardDescriptor) *backup.BaseShardDescriptor {
+	return &backup.BaseShardDescriptor{Name: sd.Name, BigFilesChunk: sd.BigFilesChunk}
+}
+
 func (e *incrementalTestEnv) storeWriterFn(backupID string) func(context.Context, string, string, string, string, backup.ReadCloserWithError) (int64, error) {
 	return func(_ context.Context, _ string, key string, _ string, _ string, r backup.ReadCloserWithError) (int64, error) {
 		data, err := io.ReadAll(r)
@@ -1219,7 +1150,7 @@ func (e *incrementalTestEnv) backup(backupID string, shardDescs []*backup.ShardD
 	var lastChunk atomic.Int32
 	chunksMap := make(map[int32][]string)
 	for _, sd := range shardDescs {
-		results, err := u.processShard(context.Background(), sd, e.className, &lastChunk, "", "", u.backend.SourceDataPath())
+		results, err := u.processShard(context.Background(), sd, e.className, &lastChunk, "", "", backup.NewTreeFileSource(u.backend.SourceDataPath()))
 		require.NoError(e.t, err)
 		for _, r := range results {
 			chunksMap[r.chunk] = r.shards
@@ -1345,8 +1276,8 @@ func testIncrementalBackupWithChanges(t *testing.T, numShards int) {
 
 		sd := env.makeShardDesc(ss.name, nil)
 		require.NoError(t, sd.FillFileInfo(allFiles, []backup.ShardAndID{
-			{ShardDesc: baseShardDescs[si], BackupID: "base-backup"},
-		}, env.sourceDir))
+			{ShardDesc: baseShard(baseShardDescs[si]), BackupID: "base-backup"},
+		}, backup.NewTreeFileSource(env.sourceDir)))
 
 		t.Logf("shard %s: %d new files, %d skipped",
 			ss.name, len(sd.Files), sd.IncrementalBackupInfo.NumFilesSkipped)
@@ -1407,8 +1338,8 @@ func TestIncrementalBackupSplitFileVariants(t *testing.T) {
 		allFiles := []string{s + "/small.db", s + "/big.db"}
 		incrSd := env.makeShardDesc(s, nil)
 		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
-			{ShardDesc: baseSd, BackupID: "base"},
-		}, env.sourceDir))
+			{ShardDesc: baseShard(baseSd), BackupID: "base"},
+		}, backup.NewTreeFileSource(env.sourceDir)))
 
 		// big.db size changed → must be re-backed-up, not skipped.
 		require.Contains(t, incrSd.Files, s+"/big.db")
@@ -1454,8 +1385,8 @@ func TestIncrementalBackupSplitFileVariants(t *testing.T) {
 		allFiles := []string{s + "/small.db", s + "/medium.db"}
 		incrSd := env.makeShardDesc(s, nil)
 		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
-			{ShardDesc: baseSd, BackupID: "base"},
-		}, env.sourceDir))
+			{ShardDesc: baseShard(baseSd), BackupID: "base"},
+		}, backup.NewTreeFileSource(env.sourceDir)))
 
 		// medium.db was never in BigFilesChunk → FillFileInfo always includes it.
 		require.Contains(t, incrSd.Files, s+"/medium.db")
@@ -1493,8 +1424,8 @@ func TestIncrementalBackupSplitFileVariants(t *testing.T) {
 		allFiles := []string{s + "/small.db", s + "/new-big.db"}
 		incrSd := env.makeShardDesc(s, nil)
 		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
-			{ShardDesc: baseSd, BackupID: "base"},
-		}, env.sourceDir))
+			{ShardDesc: baseShard(baseSd), BackupID: "base"},
+		}, backup.NewTreeFileSource(env.sourceDir)))
 
 		// new-big.db not in base → must be in Files.
 		require.Contains(t, incrSd.Files, s+"/new-big.db")
@@ -1621,8 +1552,8 @@ func TestIncrementalBackupChainWithManySplitFiles(t *testing.T) {
 	for i := range shardNames {
 		sd := env.makeShardDesc(shardNames[i], nil)
 		require.NoError(t, sd.FillFileInfo(allFiles[i], []backup.ShardAndID{
-			{ShardDesc: baseDescs[i], BackupID: "backup-1"},
-		}, env.sourceDir))
+			{ShardDesc: baseShard(baseDescs[i]), BackupID: "backup-1"},
+		}, backup.NewTreeFileSource(env.sourceDir)))
 		incrDescs2[i] = sd
 	}
 
@@ -1652,9 +1583,9 @@ func TestIncrementalBackupChainWithManySplitFiles(t *testing.T) {
 	for i := range shardNames {
 		sd := env.makeShardDesc(shardNames[i], nil)
 		require.NoError(t, sd.FillFileInfo(allFiles[i], []backup.ShardAndID{
-			{ShardDesc: incrDescs2[i], BackupID: "backup-2"},
-			{ShardDesc: baseDescs[i], BackupID: "backup-1"},
-		}, env.sourceDir))
+			{ShardDesc: baseShard(incrDescs2[i]), BackupID: "backup-2"},
+			{ShardDesc: baseShard(baseDescs[i]), BackupID: "backup-1"},
+		}, backup.NewTreeFileSource(env.sourceDir)))
 		incrDescs3[i] = sd
 	}
 
@@ -1783,6 +1714,101 @@ func TestNodeStoreMeta(t *testing.T) {
 	}
 }
 
+func TestNodeStoreBaseMetaForBackupID(t *testing.T) {
+	var (
+		ctx       = context.Background()
+		backupID  = "base"
+		node      = "Node-1"
+		nodeHome  = backupID + "/" + node
+		zstd      = backup.CompressionZSTD
+		startedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+		bigFiles  = map[string]backup.BigFileInfo{
+			"shard1/big.db": {ChunkKeys: []string{"chunk-1", "chunk-2"}, Size: 600, ModifiedAt: startedAt},
+		}
+	)
+	full := backup.BackupDescriptor{
+		StartedAt: startedAt, CompletedAt: startedAt.Add(time.Minute), ID: backupID,
+		RbacBackups: []byte("rbac"), UserBackups: []byte("users"),
+		Status: backup.Success, Version: Version, ServerVersion: "1.39.0",
+		PreCompressionSizeBytes: 1000, CompressionType: &zstd, BaseBackupID: "older",
+		Classes: []backup.ClassDescriptor{
+			{
+				Name: "Article", BackupID: backupID, Schema: []byte("schema"),
+				ShardingState: []byte("state"), Aliases: []byte("aliases"), AliasesIncluded: true,
+				Chunks: map[int32][]string{1: {"shard1/segment-1.db"}}, PreCompressionSizeBytes: 1000,
+				Shards: []*backup.ShardDescriptor{
+					{
+						Name: "shard1", Node: node, Files: []string{"shard1/segment-1.db"}, BigFilesChunk: bigFiles,
+						IncrementalBackupInfo: backup.IncrementalBackupInfos{FilesPerBackup: map[string][]backup.IncrementalBackupInfo{
+							"older": {{File: "shard1/old.db", ChunkKeys: []string{"chunk-0"}}},
+						}},
+						DocIDCounterPath: "shard1/counter.bin", DocIDCounter: []byte("1"),
+					},
+					{Name: "shard2", Node: node, Files: []string{"shard2/segment-1.db"}},
+				},
+			},
+			{
+				Name: "Paragraph", BackupID: backupID, Schema: []byte("schema"),
+				Shards: []*backup.ShardDescriptor{{Name: "shard3", Node: node, Files: []string{"shard3/segment-1.db"}}},
+			},
+		},
+	}
+	base := backup.BaseBackupDescriptor{
+		StartedAt: startedAt, Status: backup.Success, Version: Version, ServerVersion: "1.39.0",
+		CompressionType: &zstd, BaseBackupID: "older",
+		Classes: []backup.BaseClassDescriptor{
+			{Name: "Article", BackupID: backupID, Shards: []backup.BaseShardDescriptor{
+				{Name: "shard1", BigFilesChunk: bigFiles}, {Name: "shard2"},
+			}},
+			{Name: "Paragraph", BackupID: backupID, Shards: []backup.BaseShardDescriptor{{Name: "shard3"}}},
+		},
+	}
+	fullNoCompression, baseNoCompression := full, base
+	fullNoCompression.CompressionType, baseNoCompression.CompressionType = nil, nil
+	tests := []struct {
+		name            string
+		body            []byte
+		want            *backup.BaseBackupDescriptor
+		wantCompression backup.CompressionType
+	}{
+		{name: "decodes every field an incremental backup reads", body: marshalMeta(full), want: &base, wantCompression: zstd},
+		{name: "base written without compressionType", body: marshalMeta(fullNoCompression), want: &baseNoCompression, wantCompression: backup.CompressionGZIP},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockBackend := newFakeBackend()
+			returnOrNotFound(mockBackend, ctx, nodeHome, BackupFile, tc.body)
+
+			store := nodeStore{objectStore{backend: mockBackend, node: node}}
+			got, err := store.BaseMetaForBackupID(ctx, backupID, "", "")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantCompression, got.GetCompressionType())
+		})
+	}
+}
+
+func TestNodeStoreBaseMetaChain(t *testing.T) {
+	ctx, gz, node := context.Background(), backup.CompressionGZIP, "Node-1"
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	meta := func(id, base string, at time.Time) backup.BackupDescriptor {
+		return backup.BackupDescriptor{
+			ID: id, StartedAt: at, Status: backup.Success, Version: Version,
+			ServerVersion: "1.39.0", CompressionType: &gz, BaseBackupID: base,
+		}
+	}
+	fb := newFakeBackend()
+	returnOrNotFound(fb, ctx, "inc-1/"+node, BackupFile, marshalMeta(meta("inc-1", "base-1", t0.Add(time.Hour))))
+	returnOrNotFound(fb, ctx, "base-1/"+node, BackupFile, marshalMeta(meta("base-1", "", t0)))
+	store := nodeStore{objectStore{backend: fb, node: node}}
+
+	got, err := resolveBaseBackupChain(ctx, "inc-1", t0.Add(2*time.Hour), "", "", gz, store.BaseMetaForBackupID)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "base-1", got[0].GetBaseBackupID())
+	assert.Equal(t, "", got[1].GetBaseBackupID())
+}
+
 // returnOrNotFound mocks a metadata read that succeeds with body, or reports the object
 // missing when body is nil.
 func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string, body []byte) {
@@ -1843,9 +1869,10 @@ func TestRestoreClassDirSkipsStagingMarker(t *testing.T) {
 	require.NoDirExists(t, staged)
 }
 
-// A skip flag means the coordinator's selector matched nothing. The uploader
-// must call neither snapshotter and leave both blobs absent, since restore
-// treats an absent blob as a no-op and a present one as a replacement.
+// A skip flag excludes the corresponding snapshot. Restore leaves a backend
+// untouched when its blob is absent and replaces its state when one is present.
+// A user selection, including one that matched nothing, scopes the RBAC
+// snapshot to the selected users.
 func TestUploaderSnapshotSkip(t *testing.T) {
 	const class = "Article"
 
@@ -1853,10 +1880,12 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 		name                string
 		sel                 snapshotSelection
 		wantUsers, wantRBAC bool
+		wantScoped          bool
 	}{
 		{name: "whole-cluster default", sel: snapshotSelection{}, wantUsers: true, wantRBAC: true},
-		{name: "explicit selection", sel: snapshotSelection{users: []string{"u"}, roles: []string{"r"}}, wantUsers: true, wantRBAC: true},
-		{name: "users missed", sel: snapshotSelection{skipUsers: true, roles: []string{"r"}}, wantUsers: false, wantRBAC: true},
+		{name: "roles only", sel: snapshotSelection{roles: []string{"r"}}, wantUsers: true, wantRBAC: true},
+		{name: "explicit selection", sel: snapshotSelection{users: []string{"u"}, roles: []string{"r"}}, wantUsers: true, wantRBAC: true, wantScoped: true},
+		{name: "users missed", sel: snapshotSelection{skipUsers: true, roles: []string{"r"}}, wantUsers: false, wantRBAC: true, wantScoped: true},
 		{name: "roles missed", sel: snapshotSelection{users: []string{"u"}, skipRoles: true}, wantUsers: true, wantRBAC: false},
 		{name: "both missed", sel: snapshotSelection{skipUsers: true, skipRoles: true}, wantUsers: false, wantRBAC: false},
 	}
@@ -1874,7 +1903,6 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
 			backend := newFakeBackend()
-			backend.On("SourceDataPath").Return(t.TempDir())
 			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
 
 			logger := logrus.New()
@@ -1890,17 +1918,32 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 
 			assert.Equal(t, tt.wantRBAC, rbac.calls == 1, "rbac snapshotter calls: %d", rbac.calls)
 			assert.Equal(t, tt.wantRBAC, len(desc.RbacBackups) > 0)
+			assert.Equal(t, tt.wantScoped, rbac.scopedCalls == 1, "rbac scoped snapshot calls: %d", rbac.scopedCalls)
+			if tt.wantScoped {
+				assert.Equal(t, tt.sel.users, rbac.forUsers)
+			}
 			assert.Equal(t, tt.wantUsers, users.calls == 1, "user snapshotter calls: %d", users.calls)
 			assert.Equal(t, tt.wantUsers, len(desc.UserBackups) > 0)
 		})
 	}
 }
 
-type countingSnapshotter struct{ calls int }
+// countingSnapshotter: calls counts every snapshot, scoped or not.
+// scopedCalls and forUsers record only ScopedSnapshot calls.
+type countingSnapshotter struct {
+	calls, scopedCalls int
+	forUsers           []string
+}
 
 func (s *countingSnapshotter) Snapshot(...string) ([]byte, error) {
 	s.calls++
 	return []byte(`{"v":1}`), nil
+}
+
+func (s *countingSnapshotter) ScopedSnapshot(forUsers []string, roles ...string) ([]byte, error) {
+	s.scopedCalls++
+	s.forUsers = forUsers
+	return s.Snapshot(roles...)
 }
 
 func (s *countingSnapshotter) Restore([]byte, bool) error { return nil }

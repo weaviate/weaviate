@@ -56,7 +56,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -89,7 +90,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard2": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -110,7 +112,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -131,7 +134,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1", "node2"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -152,7 +156,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -173,7 +178,7 @@ func TestManager_Replicate(t *testing.T) {
 			reg := prometheus.NewPedanticRegistry()
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 			if tt.schemaSetup != nil {
@@ -215,7 +220,8 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			requests: []*api.ReplicationReplicateShardRequest{
 				{
@@ -246,7 +252,8 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			requests: []*api.ReplicationReplicateShardRequest{
 				{
@@ -277,7 +284,8 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			requests: []*api.ReplicationReplicateShardRequest{
 				{
@@ -308,7 +316,7 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 			reg := prometheus.NewPedanticRegistry()
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 			if tt.schemaSetup != nil {
@@ -358,7 +366,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -383,7 +392,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -412,7 +422,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -440,7 +451,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -481,7 +493,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -506,7 +519,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 			reg := prometheus.NewPedanticRegistry()
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 			if tt.schemaSetup != nil {
@@ -602,7 +615,8 @@ func TestManager_SnapshotRestore(t *testing.T) {
 								"shard2": {BelongsToNodes: []string{"node1"}},
 							},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			snapshotRequests: []*api.ApplyRequest{
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
@@ -639,7 +653,8 @@ func TestManager_SnapshotRestore(t *testing.T) {
 								"shard2": {BelongsToNodes: []string{"node1"}},
 							},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			snapshotRequests:       []*api.ApplyRequest{},
 			nonSnapshottedRequests: []*api.ApplyRequest{},
@@ -656,7 +671,8 @@ func TestManager_SnapshotRestore(t *testing.T) {
 								"shard2": {BelongsToNodes: []string{"node1"}},
 							},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			snapshotRequests: []*api.ApplyRequest{
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
@@ -689,7 +705,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			reg := prometheus.NewPedanticRegistry()
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 			if tt.schemaSetup != nil {
@@ -848,7 +864,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
 		manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -920,7 +936,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
 		manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -1107,7 +1123,7 @@ func TestReplicationFSM_HasActiveReplicationForShard(t *testing.T) {
 			reg := prometheus.NewPedanticRegistry()
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
 			schemaManager.AddClass(
@@ -1116,7 +1132,8 @@ func TestReplicationFSM_HasActiveReplicationForShard(t *testing.T) {
 					State: &sharding.State{
 						Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 					},
-				}), "node1", true, false)
+				}), "node1", true, false,
+			)
 
 			// Create ApplyRequest
 			subCommand, _ := json.Marshal(&api.ReplicationReplicateShardRequest{
@@ -1490,7 +1507,7 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 			reg := prometheus.NewPedanticRegistry()
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("node1", nil, parser, reg, logrus.New())
+			schemaManager := schema.NewSchemaManager("node1", nil, parser, nil, reg, logrus.New())
 			manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("node1", "node2", "node3"), reg)
 
 			if tt.schemaSetup != nil {
@@ -1757,14 +1774,15 @@ func TestManager_SnapshotRestore_Deterministic(t *testing.T) {
 func TestReplicationDetails_ReportsOpAndStateStartTimes(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 	require.NoError(t, schemaManager.AddClass(
 		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
 				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 			},
-		}), "node1", true, false))
+		}), "node1", true, false,
+	))
 
 	manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
 

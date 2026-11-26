@@ -111,8 +111,8 @@ func newRepo(t *testing.T, p repoParams, classes ...*models.Class) (*db.DB, *fak
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
-		return func(string, string) bool { return false }
+	repo.SetShardReindexActivityLookup(func() (db.ShardReindexActivityLookup, error) {
+		return func(string, string) bool { return false }, nil
 	})
 	require.NoError(t, repo.WaitForStartup(context.Background()))
 	t.Cleanup(func() {
@@ -144,12 +144,16 @@ func singleShard(t *testing.T, repo *db.DB, className string) db.ShardLike {
 }
 
 type fakeSchemaGetter struct {
+	local.ClassReader
 	schema     schema.Schema
 	shardState *sharding.State
 }
 
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {

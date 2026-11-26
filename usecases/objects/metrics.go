@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -26,14 +28,17 @@ type Metrics struct {
 	groupClasses       bool
 	batchTenants       prometheus.Summary
 	batchObjects       prometheus.Summary
+	// multiTargetRefsWithoutClass is nil without a registerer or when its
+	// registration failed.
+	multiTargetRefsWithoutClass prometheus.Counter
 }
 
-func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
+func NewMetrics(prom *monitoring.PrometheusMetrics, logger logrus.FieldLogger) *Metrics {
 	if prom == nil {
 		return nil
 	}
 
-	return &Metrics{
+	m := &Metrics{
 		queriesCount:       prom.QueriesCount,
 		batchTime:          prom.BatchTime,
 		dimensions:         prom.QueryDimensions,
@@ -42,6 +47,30 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 		batchTenants:       prom.BatchSizeTenants,
 		batchObjects:       prom.BatchSizeObjects,
 	}
+	if prom.Registerer == nil {
+		return m
+	}
+	// The Manager and the BatchManager each build Metrics, so the second call
+	// finds the counter already registered and shares it.
+	counter, _, err := monitoring.EnsureRegisteredMetric(prom.Registerer, prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "multi_target_references_without_class_total",
+		Help: "Number of beacons without a class sent for a reference property with several target classes, POST /v1/objects/validate included. " +
+			"Adding one can make the existence check search every collection. " +
+			"Refused beacons count too, such as those refused while namespaces are enabled. A refused request counts only its first.",
+	}))
+	if err != nil {
+		logger.Errorf("register multi_target_references_without_class_total metric: %v", err)
+		return m
+	}
+	m.multiTargetRefsWithoutClass = counter
+	return m
+}
+
+func (m *Metrics) MultiTargetRefWithoutClassInc() {
+	if m == nil || m.multiTargetRefsWithoutClass == nil {
+		return
+	}
+	m.multiTargetRefsWithoutClass.Inc()
 }
 
 func (m *Metrics) queriesInc(queryType string) {

@@ -25,25 +25,20 @@ import (
 
 func TestGoWrapper(t *testing.T) {
 	cases := []struct {
-		env string
-		set bool
+		name string
+		env  string
 	}{
-		{env: "something", set: true},
-		{env: "something", set: false},
-		{env: "", set: true},
-		{env: "false", set: true},
-		// {env: "true", set: true}, // this will NOT recover the panic, but we cannot recover on a higher level and
-		// there is no way to have the test succeed
+		{name: "non-boolean", env: "something"},
+		{name: "empty or unset", env: ""},
+		{name: "false", env: "false"},
 	}
 	for _, tt := range cases {
-		t.Run(tt.env, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			log := logrus.New()
 			log.SetOutput(&buf)
 
-			if tt.set {
-				t.Setenv("DISABLE_RECOVERY_ON_PANIC", tt.env)
-			}
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", tt.env)
 			wg := sync.WaitGroup{}
 			wg.Add(1)
 			GoWrapper(func() {
@@ -64,23 +59,20 @@ func TestGoWrapper(t *testing.T) {
 
 func TestGoWrapperWithBlock(t *testing.T) {
 	cases := []struct {
-		env string
-		set bool
+		name string
+		env  string
 	}{
-		{env: "something", set: true},
-		{env: "something", set: false},
-		{env: "", set: true},
-		{env: "false", set: true},
+		{name: "non-boolean", env: "something"},
+		{name: "empty or unset", env: ""},
+		{name: "false", env: "false"},
 	}
 	for _, tt := range cases {
-		t.Run(tt.env, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			log := logrus.New()
 			log.SetOutput(&buf)
 
-			if tt.set {
-				t.Setenv("DISABLE_RECOVERY_ON_PANIC", tt.env)
-			}
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", tt.env)
 			err := GoWrapperWithBlock(func() {
 				panic("test panic")
 			}, log)
@@ -99,23 +91,20 @@ func TestGoWrapperWithBlock(t *testing.T) {
 
 func TestGoWrapperWithErrorCh(t *testing.T) {
 	cases := []struct {
-		env string
-		set bool
+		name string
+		env  string
 	}{
-		{env: "something", set: true},
-		{env: "something", set: false},
-		{env: "", set: true},
-		{env: "false", set: true},
+		{name: "non-boolean", env: "something"},
+		{name: "empty or unset", env: ""},
+		{name: "false", env: "false"},
 	}
 	for _, tt := range cases {
-		t.Run(tt.env, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			log := logrus.New()
 			log.SetOutput(&buf)
 
-			if tt.set {
-				t.Setenv("DISABLE_RECOVERY_ON_PANIC", tt.env)
-			}
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", tt.env)
 
 			var a atomic.Bool
 			a.Store(true)

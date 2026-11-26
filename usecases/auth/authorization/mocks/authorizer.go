@@ -18,13 +18,24 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
+// AuthZMethod names the Authorizer method a recorded call arrived through.
+type AuthZMethod string
+
+const (
+	MethodAuthorize                          AuthZMethod = "Authorize"
+	MethodAuthorizeAndRequireActiveNamespace AuthZMethod = "AuthorizeAndRequireActiveNamespace"
+	MethodAuthorizeSilent                    AuthZMethod = "AuthorizeSilent"
+	MethodFilterAuthorizedResources          AuthZMethod = "FilterAuthorizedResources"
+)
+
 type AuthZReq struct {
 	Principal *models.Principal
 	Verb      string
 	Resources []string
-	// Silent marks a check made through AuthorizeSilent, which writes no
-	// audit record.
-	Silent bool
+	Method    AuthZMethod
+	// Class is the class argument AuthorizeAndRequireActiveNamespace received,
+	// empty for the other methods.
+	Class string
 }
 
 type FakeAuthorizer struct {
@@ -42,16 +53,16 @@ func (a *FakeAuthorizer) SetErr(err error) {
 	a.err = err
 }
 
-// SetErrAfter allows the first n Authorize calls and returns err from the rest,
-// so a test can observe a check that only runs once an earlier one passes.
+// SetErrAfter allows the first n calls and returns err from the rest, so a
+// test can observe a check that only runs once an earlier one passes.
 func (a *FakeAuthorizer) SetErrAfter(n int, err error) {
 	a.allowedCalls = n
 	a.err = err
 }
 
-// Deny makes Authorize return Forbidden for the named resources and makes
-// FilterAuthorizedResources drop them, so a test can give one principal access
-// to part of a resource set.
+// Deny makes the authorizing methods return Forbidden for the named resources
+// and makes FilterAuthorizedResources drop them, so a test can give one
+// principal access to part of a resource set.
 func (a *FakeAuthorizer) Deny(resources ...string) {
 	if a.denied == nil {
 		a.denied = make(map[string]struct{}, len(resources))
@@ -61,32 +72,47 @@ func (a *FakeAuthorizer) Deny(resources ...string) {
 	}
 }
 
-// Authorize provides a mock function with given fields: principal, verb, resource
-func (a *FakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.record(principal, verb, false, resources)
-}
-
-func (a *FakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.record(principal, verb, true, resources)
-}
-
-func (a *FakeAuthorizer) record(principal *models.Principal, verb string, silent bool, resources []string) error {
-	a.requests = append(a.requests, AuthZReq{principal, verb, resources, silent})
+// record logs the call and applies SetErr/SetErrAfter. Its callers apply Deny.
+func (a *FakeAuthorizer) record(req AuthZReq) error {
+	a.requests = append(a.requests, req)
 	if a.err != nil && len(a.requests) > a.allowedCalls {
 		return a.err
 	}
-	for _, resource := range resources {
+	return nil
+}
+
+// authorize records the call and refuses it if it names a denied resource.
+func (a *FakeAuthorizer) authorize(req AuthZReq) error {
+	if err := a.record(req); err != nil {
+		return err
+	}
+	for _, resource := range req.Resources {
 		if _, ok := a.denied[resource]; ok {
-			return errors.NewForbidden(principal, verb, resource)
+			return errors.NewForbidden(req.Principal, req.Verb, resource)
 		}
 	}
 	return nil
 }
 
+// Authorize provides a mock function with given fields: principal, verb, resource
+func (a *FakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return a.authorize(AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: MethodAuthorize})
+}
+
+func (a *FakeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.authorize(AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: MethodAuthorizeAndRequireActiveNamespace, Class: class,
+	})
+}
+
+func (a *FakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return a.authorize(AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: MethodAuthorizeSilent})
+}
+
 func (a *FakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	a.requests = append(a.requests, AuthZReq{principal, verb, resources, false})
-	if a.err != nil && len(a.requests) > a.allowedCalls {
-		return nil, a.err
+	if err := a.record(AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: MethodFilterAuthorizedResources}); err != nil {
+		return nil, err
 	}
 	allowed := make([]string, 0, len(resources))
 	for _, resource := range resources {

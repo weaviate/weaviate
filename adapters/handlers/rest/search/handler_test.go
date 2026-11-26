@@ -32,6 +32,7 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -48,7 +49,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeSearcher struct {
@@ -185,7 +189,7 @@ func seedSchema(t *testing.T, classes []*models.Class, aliases map[string]string
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
-	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, nil, prometheus.NewPedanticRegistry(), logger)
 
 	// A reference property whose target class is not in the schema yet is
 	// rejected, and the fixtures cross-link, so retry the rejects until a pass
@@ -283,6 +287,7 @@ func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[strin
 		Traverser:    deps.searcher,
 		SchemaReader: seedSchema(t, classes, aliases),
 		Authorizer:   deps.authorizer,
+		Qualifier:    namespacing.Disabled,
 		DefaultLimit: 10,
 		// matches DefaultQueryCrossReferenceDepthLimit
 		CrossRefDepthLimit: 5,
@@ -541,6 +546,8 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
@@ -564,6 +571,10 @@ func (rbacLikeAuthorizer) Authorize(ctx context.Context, principal *models.Princ
 		p = &models.Principal{Username: "anonymous"}
 	}
 	return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+}
+
+func (a rbacLikeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
 }
 
 func (a rbacLikeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
@@ -633,16 +644,16 @@ type denyCollections struct {
 	requests []mocks.AuthZReq
 }
 
-func (a *denyCollections) authorize(principal *models.Principal, verb string, resources []string) error {
-	a.requests = append(a.requests, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
-	for _, r := range resources {
+func (a *denyCollections) authorize(req mocks.AuthZReq) error {
+	a.requests = append(a.requests, req)
+	for _, r := range req.Resources {
 		for name := range a.denied {
 			if strings.Contains(r, "/collections/"+name+"/") {
-				p := principal
+				p := req.Principal
 				if p == nil {
 					p = &models.Principal{Username: "anonymous"}
 				}
-				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, req.Verb, req.Resources...))
 			}
 		}
 	}
@@ -650,15 +661,22 @@ func (a *denyCollections) authorize(principal *models.Principal, verb string, re
 }
 
 func (a *denyCollections) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorize})
+}
+
+func (a *denyCollections) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.authorize(mocks.AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: mocks.MethodAuthorizeAndRequireActiveNamespace, Class: class,
+	})
 }
 
 func (a *denyCollections) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorizeSilent})
 }
 
 func (a *denyCollections) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.authorize(principal, verb, resources); err != nil {
+	if err := a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodFilterAuthorizedResources}); err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -856,9 +874,19 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 	}
 }
 
+const missingClusterURLMsg = "no cluster URL found in request header: X-Weaviate-Cluster-Url"
+
+// missingHeaderErr is the module's typed error the way a near-text search
+// hands it over: inside the vectorization error.
+func missingHeaderErr() error {
+	return fmt.Errorf("explorer: get class: vectorize search vector: %w",
+		enterrors.NewErrQueryVectorization(fmt.Errorf("vectorize keywords: %w",
+			enterrors.NewErrModulePrecondition(errors.New(missingClusterURLMsg)))))
+}
+
 // TestStatusFromErrorMessages: engine errors reach the client with their wrap
-// chain intact, for parity with GraphQL and gRPC. The one exception is the
-// provider response, whose credential-bearing detail stays in the log.
+// chain intact, like GraphQL and gRPC, except a provider response (it can
+// contain credentials) and a missing header (the module's own message only).
 func TestStatusFromErrorMessages(t *testing.T) {
 	wrap := func(err error) error {
 		return fmt.Errorf("explorer: get class: vector search: object search at index movie: local shard object search movie_abc: %w", err)
@@ -893,11 +921,30 @@ func TestStatusFromErrorMessages(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:       "query vector of the wrong dimensionality is a 422",
+			err:        wrap(fmt.Errorf("knn search: distance between entrypoint and query node: 2 vs 3: %w", distancer.ErrVectorLength)),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
 			name:       "provider failure is a fixed 500 with the detail as cause",
 			err:        wrap(enterrors.NewErrQueryVectorization(errors.New("OpenAI API failed with status: 401, Incorrect API key provided: sk-bad"))),
 			wantStatus: http.StatusInternalServerError,
 			wantMsg:    errVectorizationFailed.Error(),
 			wantCause:  "sk-bad",
+		},
+		{
+			name:       "missing vectorizer header shows the module's sentence, the chain as cause",
+			err:        missingHeaderErr(),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantMsg:    missingClusterURLMsg,
+			wantCause:  "vectorize keywords: " + missingClusterURLMsg,
+		},
+		{
+			name:       "server too busy answers the GraphQL rate-limit message, the detail as cause",
+			err:        wrap(queryadmission.ErrOverloaded),
+			wantStatus: http.StatusTooManyRequests,
+			wantMsg:    enterrors.NewErrRateLimit().Error(),
+			wantCause:  queryadmission.ErrOverloaded.Error(),
 		},
 		{
 			name:       "unclassified failure is a 500 carrying the chain",
@@ -933,32 +980,73 @@ func TestStatusFromErrorMessages(t *testing.T) {
 	}
 }
 
-// TestHandlerLogsFailures: server-side failures are logged with their full
-// cause, client errors only at debug level.
+// TestHandlerLogsFailures: server-side failures log at error with the full
+// cause, a missing header or an overload logs at warn, other client errors
+// only at debug.
 func TestHandlerLogsFailures(t *testing.T) {
-	deps := newTestHandler(t)
-	logger, hook := test.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-	deps.handler.logger = logger
+	tests := []struct {
+		name        string
+		searcherErr error
+		wantStatus  int
+		wantLevel   logrus.Level
+		wantLogged  string
+		wantHidden  string
+	}{
+		{
+			name:        "provider failure logs at error, hidden from the client",
+			searcherErr: enterrors.NewErrQueryVectorization(errors.New("provider said: Incorrect API key provided: sk-bad")),
+			wantStatus:  http.StatusInternalServerError,
+			wantLevel:   logrus.ErrorLevel,
+			wantLogged:  "sk-bad",
+			wantHidden:  "sk-bad",
+		},
+		{
+			name:        "missing vectorizer header logs at warn with the full chain",
+			searcherErr: missingHeaderErr(),
+			wantStatus:  http.StatusUnprocessableEntity,
+			wantLevel:   logrus.WarnLevel,
+			wantLogged:  "vectorize keywords: " + missingClusterURLMsg,
+			wantHidden:  "vectorize keywords",
+		},
+		{
+			name:        "overload logs at warn with the shard detail, hidden from the client",
+			searcherErr: fmt.Errorf("shard Movie_abc: %w", queryadmission.ErrOverloaded),
+			wantStatus:  http.StatusTooManyRequests,
+			wantLevel:   logrus.WarnLevel,
+			wantLogged:  "shard Movie_abc",
+			wantHidden:  "shard Movie_abc",
+		},
+		{
+			name: "no vectorizer configured stays at debug",
+			searcherErr: enterrors.NewErrQueryVectorization(
+				enterrors.NewErrNoVectorizerModule(errors.New("no vectorizer module configured"))),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantLevel:  logrus.DebugLevel,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := newTestHandler(t)
+			logger, hook := test.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			deps.handler.logger = logger
+			deps.searcher.err = tt.searcherErr
 
-	deps.searcher.err = enterrors.NewErrQueryVectorization(errors.New("provider said: Incorrect API key provided: sk-bad"))
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
-	assert.NotContains(t, apiErr.Error(), "sk-bad")
+			_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStatus, apiErr.Status)
+			if tt.wantHidden != "" {
+				assert.NotContains(t, apiErr.Error(), tt.wantHidden)
+			}
 
-	require.Len(t, hook.AllEntries(), 1)
-	entry := hook.LastEntry()
-	assert.Equal(t, logrus.ErrorLevel, entry.Level)
-	assert.Contains(t, entry.Message, "sk-bad")
-	assert.Equal(t, "near-text", entry.Data["op"])
-	assert.Equal(t, "Movie", entry.Data["collection"])
-
-	hook.Reset()
-	_, apiErr = doNearText(t, deps, nil, "Movie", `{"query":[]}`)
-	require.NotNil(t, apiErr)
-	require.Len(t, hook.AllEntries(), 1)
-	assert.Equal(t, logrus.DebugLevel, hook.LastEntry().Level)
+			require.Len(t, hook.AllEntries(), 1)
+			entry := hook.LastEntry()
+			assert.Equal(t, tt.wantLevel, entry.Level)
+			assert.Contains(t, entry.Message, tt.wantLogged)
+			assert.Equal(t, "near-text", entry.Data["op"])
+			assert.Equal(t, "Movie", entry.Data["collection"])
+		})
+	}
 }
 
 // TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow
@@ -1140,6 +1228,65 @@ func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 	}
 }
 
+// mustNearVectorModel is mustModel for the near-vector request model.
+func mustNearVectorModel(t *testing.T, body string) *models.SearchNearVectorRequest {
+	t.Helper()
+	var req models.SearchNearVectorRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doNearVector runs the near-vector handler the way the generated operation
+// wiring does, with the typed, already-decoded request model.
+func doNearVector(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.NearVector(context.Background(), principal, collection, mustNearVectorModel(t, body))
+}
+
+// TestNearVectorHandlerHappyPath: the near-vector wrapper drives the same
+// execute() flow as the other search types, with NearVector params instead of
+// module, keyword or hybrid params. The only near-vector handler test: the
+// shared gates are pinned once in TestExecuteIsSearchTypeAgnostic, the
+// near-text handler tests and the acceptance suite.
+func TestNearVectorHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"distance": float32(0.12),
+			},
+		},
+	}
+
+	payload, apiErr := doNearVector(t, deps, nil, "Movie",
+		`{"vector":[0.1,-0.2,0.3],"limit":5,"returnProperties":["title"],"returnMetadata":["distance"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with near-vector params, nothing else
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.NearVector)
+	require.Len(t, params.NearVector.Vectors, 1)
+	assert.Equal(t, []float32{0.1, -0.2, 0.3}, params.NearVector.Vectors[0])
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+	assert.Nil(t, params.HybridSearch)
+}
+
 // mustHybridModel is mustModel for the hybrid request model.
 func mustHybridModel(t *testing.T, body string) *models.SearchHybridRequest {
 	t.Helper()
@@ -1201,7 +1348,7 @@ func TestHybridHandlerHappyPath(t *testing.T) {
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection

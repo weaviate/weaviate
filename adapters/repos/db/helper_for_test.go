@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -247,8 +248,8 @@ func getRandomSeed() *rand.Rand {
 // exercise the gate. Tests that exercise the gate overwrite this
 // with their own lookup.
 func installNoLiveReindexLookup(db *DB) {
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) bool { return false }
+	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+		return func(string, string) bool { return false }, nil
 	})
 }
 
@@ -257,7 +258,7 @@ func installNoLiveReindexLookup(db *DB) {
 // build a bare &Index{} literal without going through New() or the
 // shard fixtures.
 func stubDBWithNoLiveReindex() *DB {
-	db := &DB{}
+	db := &DB{localNodeName: "node1"}
 	installNoLiveReindexLookup(db)
 	return db
 }
@@ -274,12 +275,34 @@ func testShardMultiTenant(t testing.TB, ctx context.Context, className string, i
 
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
+	return createTestDatabaseWithNamespaces(t, metrics, nil, classes...)
+}
+
+// createTestDatabaseWithNamespaces is createTestDatabaseWithClass with a
+// namespace lookup. Qualified class names need one: the shard guard refuses to
+// create a shard for a namespaced class it cannot look up.
+func createTestDatabaseWithNamespaces(t *testing.T, metrics *monitoring.PrometheusMetrics,
+	namespacesExister namespaces.Exister, classes ...*models.Class,
+) *DB {
+	t.Helper()
+	db := openTestDatabase(t, t.TempDir(), singleShardState(), metrics, nil, namespacesExister, classes...)
+	t.Cleanup(func() {
+		require.NoError(t, db.Shutdown(context.Background()))
+	})
+	return db
+}
+
+// openTestDatabase starts a db at dir. Reopen it with the same shardState, as that
+// names the shards. configure, if set, changes the config before the db starts.
+func openTestDatabase(t *testing.T, dir string, shardState *sharding.State, metrics *monitoring.PrometheusMetrics,
+	configure func(*Config), namespacesExister namespaces.Exister, classes ...*models.Class,
+) *DB {
+	t.Helper()
 
 	require.NotNil(t, metrics, "metrics parameter cannot be nil")
 	metricsCopy := *metrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
 
-	shardState := singleShardState()
 	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -302,14 +325,19 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	db, err := New(logrus.New(), "node1", Config{
-		RootPath:                  t.TempDir(),
+	mockNodeSelector.EXPECT().ClusterHealthScore().Return(0).Maybe()
+	config := Config{
+		RootPath:                  dir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 		EnableLazyLoadShards:      boolPtr(true),
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	}
+	if configure != nil {
+		configure(&config)
+	}
+	db, err := New(logrus.New(), "node1", config, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, namespacesExister)
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
@@ -324,10 +352,6 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	installNoLiveReindexLookup(db)
 
 	require.Nil(t, db.WaitForStartup(t.Context()))
-	t.Cleanup(func() {
-		require.NoError(t, db.Shutdown(context.Background()))
-	})
-
 	return db
 }
 
@@ -338,7 +362,10 @@ func publishVectorMetricsFromDB(t *testing.T, db *DB) {
 		t.Logf("Vector dimensions tracking is disabled, returning 0")
 		return
 	}
-	db.metricsObserver.publishVectorMetrics(t.Context())
+	// A throwaway observer, not db.metricsObserver: db.metricsObserver's own
+	// goroutine keeps prune state between passes, and a second publisher
+	// would race it.
+	(&nodeWideMetricsObserver{db: db}).publishVectorMetrics(t.Context())
 }
 
 func getSingleShardNameFromRepo(repo *DB, className string) string {
@@ -383,6 +410,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		return &models.Class{Class: name}
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -482,6 +510,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 
 	idx := &Index{
 		Config: IndexConfig{
+			NodeName:               "node1",
 			EnableLazyLoadShards:   true,
 			RootPath:               tmpDir,
 			ClassName:              schema.ClassName(class.Class),
@@ -658,7 +687,7 @@ func newTestIndex(t *testing.T, logger logrus.FieldLogger, className string,
 	t.Cleanup(closingCancel)
 
 	idx := &Index{
-		Config:        IndexConfig{ClassName: schema.ClassName(className)},
+		Config:        IndexConfig{NodeName: "node1", ClassName: schema.ClassName(className)},
 		logger:        logger,
 		schemaReader:  reader,
 		closingCtx:    closingCtx,

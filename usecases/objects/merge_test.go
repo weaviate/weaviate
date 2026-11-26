@@ -19,11 +19,17 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type stage int
@@ -568,6 +574,131 @@ func Test_MergeObject(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			m.repo.AssertExpectations(t)
+			m.modulesProvider.AssertExpectations(t)
+		})
+	}
+}
+
+// Test_MergeObject_TenantReachesVectorizer is a regression test for
+// https://github.com/weaviate/weaviate/issues/13344. PATCH hands the
+// merged object to the vectorizer, which looks up the stored object to decide
+// whether a source property changed (usecases/modules/compare.go). Without the
+// tenant on that object the lookup fails on a multi-tenant class, and every
+// PATCH re-vectorizes even when nothing changed.
+func Test_MergeObject_TenantReachesVectorizer(t *testing.T) {
+	t.Parallel()
+	var (
+		uuid        = strfmt.UUID("dd59815b-142b-4c54-9b12-482434bd54ca")
+		errNoTenant = NewErrMultiTenancy(errors.New("has multi-tenancy enabled, but request was without tenant"))
+	)
+
+	tests := []struct {
+		name   string
+		class  *models.Class
+		tenant string
+		// vectors the stored object already has
+		vector  []float32
+		vectors models.Vectors
+	}{
+		{
+			name: "multi-tenant class",
+			class: &models.Class{
+				Class:              "MultiTenantZoo",
+				Vectorizer:         config.VectorizerModuleText2VecContextionary,
+				VectorIndexConfig:  hnsw.UserConfig{},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties: []*models.Property{
+					{Name: "name", DataType: schema.DataTypeText.PropString()},
+				},
+			},
+			tenant: "tenantA",
+			vector: []float32{1, 2, 3},
+		},
+		{
+			name: "multi-tenant class with named vectors",
+			class: &models.Class{
+				Class: "MultiTenantNamedVectorZoo",
+				VectorConfig: map[string]models.VectorConfig{
+					"description": {
+						Vectorizer: map[string]interface{}{
+							config.VectorizerModuleText2VecContextionary: map[string]interface{}{},
+						},
+						VectorIndexType:   "hnsw",
+						VectorIndexConfig: hnsw.UserConfig{},
+					},
+				},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties: []*models.Property{
+					{Name: "name", DataType: schema.DataTypeText.PropString()},
+				},
+			},
+			tenant:  "tenantA",
+			vectors: models.Vectors{"description": []float32{1, 2, 3}},
+		},
+		{
+			name: "single-tenant class",
+			class: &models.Class{
+				Class:             "SingleTenantZoo",
+				Vectorizer:        config.VectorizerModuleText2VecContextionary,
+				VectorIndexConfig: hnsw.UserConfig{},
+				Properties: []*models.Property{
+					{Name: "name", DataType: schema.DataTypeText.PropString()},
+				},
+			},
+			tenant: "",
+			vector: []float32{1, 2, 3},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newFakeGetManager(schema.Schema{Objects: &models.Schema{Classes: []*models.Class{tc.class}}})
+			m.timeSource = fakeTimeSource{}
+			cls := tc.class.Class
+
+			// The stored object lives in the tenant's shard. Like the real repo,
+			// a lookup without a tenant fails on a multi-tenant class.
+			m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, tc.tenant).
+				Return(&search.Result{
+					ClassName: cls,
+					ID:        uuid,
+					Tenant:    tc.tenant,
+					Schema:    map[string]interface{}{"name": "Unchanged zoo"},
+					Vector:    tc.vector,
+					Vectors:   tc.vectors,
+				}, nil)
+			if tc.tenant != "" {
+				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
+					Maybe().Return(nil, errNoTenant)
+			}
+			m.repo.On("Merge", mock.Anything).Return(nil)
+
+			var (
+				vectorized *models.Object
+				lookupErr  error
+			)
+			m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Run(func(args mock.Arguments) {
+					vectorized = args.Get(0).(*models.Object)
+					// look up the stored object the way the re-vectorize check does
+					findObject := args.Get(1).(modulecapabilities.FindObjectFn)
+					_, lookupErr = findObject(context.Background(), cls, vectorized.ID,
+						nil, additional.Properties{}, vectorized.Tenant)
+				}).
+				Return(nil, nil)
+
+			err := m.MergeObject(context.Background(), nil, &models.Object{
+				Class:      cls,
+				ID:         uuid,
+				Tenant:     tc.tenant,
+				Properties: map[string]interface{}{"name": "Unchanged zoo"},
+			}, nil)
+			require.Nil(t, err)
+
+			require.NotNil(t, vectorized)
+			assert.Equal(t, tc.tenant, vectorized.Tenant, "vectorizer must get the request tenant")
+			assert.NoError(t, lookupErr, "stored-object lookup failed, so the vectorizer would re-vectorize")
 			m.repo.AssertExpectations(t)
 			m.modulesProvider.AssertExpectations(t)
 		})

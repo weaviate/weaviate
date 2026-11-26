@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -41,13 +42,17 @@ import (
 )
 
 type fakeSchemaGetter struct {
+	local.ClassReader
 	nodeName   string
 	schema     schema.Schema
 	shardState *sharding.State
 }
 
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
@@ -409,12 +414,6 @@ func (f *FakeRemoteClient) GetShardStatus(ctx context.Context,
 		return "", errors.New(NodeUnresponsive)
 	}
 	return status, nil
-}
-
-func (f *FakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string, schemaVersion uint64,
-) error {
-	return nil
 }
 
 func (f *FakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, shardName,

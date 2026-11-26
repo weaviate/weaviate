@@ -107,18 +107,31 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	case !recorded:
 		return nil // nothing recorded, nothing owned
 	default:
-		id = rec.PhysicalID
+		id = rec.storageID()
+		records := map[string]vectorIndexRecord{targetVector: rec}
 		var otherIDs []string
 		for _, other := range otherTargetVectors {
 			otherRec, ok, _, err := readVectorIndexRecordOffline(shardDir, other)
 			if err != nil {
 				return err
 			}
-			if ok {
-				otherIDs = append(otherIDs, otherRec.PhysicalID)
+			if !ok {
+				continue
 			}
+			records[other] = otherRec
+			otherIDs = append(otherIDs, otherRec.storageID())
+		}
+		// a sibling sharing a queue or files would lose them; a load refuses the pair
+		err := refuseSharedVectorIndexQueues(records)
+		if err != nil {
+			return err
+		}
+		err = refuseGeneratedVectorIndexCollisions(records)
+		if err != nil {
+			return err
 		}
 		artifacts = helpers.VectorIndexArtifactsForID(id, otherIDs)
+		artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))
 	}
 
 	var dirs []string

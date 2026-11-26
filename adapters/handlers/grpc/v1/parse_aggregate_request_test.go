@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func TestGRPCAggregateRequest(t *testing.T) {
@@ -292,9 +293,45 @@ func TestGRPCAggregateRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "text top occurrences without a limit",
+			req: &pb.AggregateRequest{
+				Collection: mixedVectorsClass,
+				Aggregations: []*pb.AggregateRequest_Aggregation{{
+					Property:    "first",
+					Aggregation: &pb.AggregateRequest_Aggregation_Text_{Text: &pb.AggregateRequest_Aggregation_Text{TopOccurences: true}},
+				}},
+			},
+			out: &aggregation.Params{
+				ClassName: schema.ClassName(mixedVectorsClass),
+				Properties: []aggregation.ParamProperty{{
+					Name:        "first",
+					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)},
+				}},
+			},
+		},
+		{
+			name: "text top occurrences with a limit",
+			req: &pb.AggregateRequest{
+				Collection: mixedVectorsClass,
+				Aggregations: []*pb.AggregateRequest_Aggregation{{
+					Property: "first",
+					Aggregation: &pb.AggregateRequest_Aggregation_Text_{Text: &pb.AggregateRequest_Aggregation_Text{
+						TopOccurences: true, TopOccurencesLimit: ptr(uint32(3)),
+					}},
+				}},
+			},
+			out: &aggregation.Params{
+				ClassName: schema.ClassName(mixedVectorsClass),
+				Properties: []aggregation.ParamProperty{{
+					Name:        "first",
+					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(ptr(3))},
+				}},
+			},
+		},
 	}
 
-	parser := NewAggregateParser(getClass, false, nil)
+	parser := NewAggregateParser(getClass, namespacing.Disabled, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Aggregate(tt.req)

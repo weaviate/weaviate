@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -176,7 +177,7 @@ func TestDropVectorIndex_UpdateClassAllowsExistingNoneOnStaleNode(t *testing.T) 
 	fakeSchemaManager.On("ReadOnlyClass", className).Return(stale)
 	fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{className}).
 		Return(map[string]versioned.Class{className: {Class: dropped}}, nil)
-	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 
 	updated := &models.Class{
 		Class:       className,
@@ -204,21 +205,32 @@ type denyNthAuthorizer struct {
 	deny   error
 }
 
-func (a *denyNthAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+func (a *denyNthAuthorizer) nth() error {
 	a.n++
-	_ = a.inner.Authorize(ctx, principal, verb, resources...)
 	if a.n == a.denyAt {
 		return a.deny
 	}
 	return nil
 }
 
+func (a *denyNthAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	_ = a.inner.Authorize(ctx, principal, verb, resources...)
+	return a.nth()
+}
+
+func (a *denyNthAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	_ = a.inner.AuthorizeAndRequireActiveNamespace(ctx, principal, verb, class, resources...)
+	return a.nth()
+}
+
 func (a *denyNthAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.Authorize(ctx, principal, verb, resources...)
+	_ = a.inner.AuthorizeSilent(ctx, principal, verb, resources...)
+	return a.nth()
 }
 
 func (a *denyNthAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.Authorize(ctx, principal, verb, resources...); err != nil {
+	_, _ = a.inner.FilterAuthorizedResources(ctx, principal, verb, resources...)
+	if err := a.nth(); err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -309,7 +321,7 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
 			Return(map[string]versioned.Class{"C": {Class: live}}, nil).Maybe()
 		fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(nil, nil).Maybe()
-		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil).Maybe()
 
 		// The downstream internal update may fail or panic on unrelated nil
 		// fakes; the pin is only that NO second authorize fires first.

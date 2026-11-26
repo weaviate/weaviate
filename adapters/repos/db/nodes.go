@@ -20,9 +20,11 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -31,7 +33,7 @@ import (
 func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, verbosity string) ([]*models.NodeStatus, error) {
 	// nodes join and leave while this runs, so the same read has to size the
 	// slice and drive the loop
-	nodeNames := db.schemaGetter.Nodes()
+	nodeNames := db.nodeSelector.AllNames()
 	nodeStatuses := make([]*models.NodeStatus, len(nodeNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
@@ -63,11 +65,11 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 }
 
 func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
-	if db.schemaGetter.NodeName() == nodeName {
+	if db.localNodeName == nodeName {
 		status, err := db.LocalNodeStatus(ctx, className, shardName, output)
-		if errors.Is(err, context.DeadlineExceeded) {
-			// a local scan that ran out of time times out this node alone,
-			// instead of failing the status of every node
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, types.ErrDeadlineExceeded) {
+			// a local scan or class version wait that ran out of time times out
+			// this node alone, instead of failing the status of every node
 			return timedOutNodeStatus(nodeName), nil
 		}
 		return status, err
@@ -109,17 +111,27 @@ func unavailableNodeStatus(nodeName string) *models.NodeStatus {
 	return &models.NodeStatus{Name: nodeName, Status: &unavailable}
 }
 
-// IncomingGetNodeStatus returns the index if it exists or nil if it doesn't.
-// A scan that ran out of time surfaces as an error: the node that asked has
-// timed out on its own request by then and reports this node as timed out.
+// IncomingGetNodeStatus reports this node as timed out when indexForRead hits
+// RAFT_CONSISTENCY_WAIT_TIMEOUT while the asking node still waits. A shard scan
+// runs out of time only once the asker has given up, so its error is returned.
 func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, verbosity string) (*models.NodeStatus, error) {
-	return db.LocalNodeStatus(ctx, className, shardName, verbosity)
+	status, err := db.LocalNodeStatus(ctx, className, shardName, verbosity)
+	if errors.Is(err, types.ErrDeadlineExceeded) {
+		return timedOutNodeStatus(db.localNodeName), nil
+	}
+	return status, err
 }
 
 func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error) {
-	if className != "" && db.GetIndex(schema.ClassName(className)) == nil {
-		// class not found
-		return &models.NodeStatus{}, nil
+	if className != "" {
+		index, err := db.indexForRead(ctx, schema.ClassName(className))
+		if err != nil {
+			return nil, err
+		}
+		if index == nil {
+			// class not found
+			return &models.NodeStatus{}, nil
+		}
 	}
 
 	var (
@@ -135,12 +147,12 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
-	if db.schemaGetter.ClusterHealthScore() > 0 {
+	if db.nodeSelector.ClusterHealthScore() > 0 {
 		clusterHealthStatus = models.NodeStatusStatusUNHEALTHY
 	}
 
 	status := models.NodeStatus{
-		Name:            db.schemaGetter.NodeName(),
+		Name:            db.localNodeName,
 		Version:         db.config.ServerVersion,
 		GitHash:         db.config.GitHash,
 		Status:          &clusterHealthStatus,
@@ -291,6 +303,21 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		}
 		shard := shards[name]
 
+		// Report RECOVERING without forcing a load.
+		if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
+			shardStatus := &models.NodeShardStatus{
+				Name:                 name,
+				Class:                className,
+				VectorIndexingStatus: storagestate.StatusRecovering.String(),
+				Loaded:               false,
+				ReplicationFactor:    replicationFactor,
+				NumberOfReplicas:     replicaCountOf(name),
+			}
+			*status = append(*status, shardStatus)
+			shardCount++
+			continue
+		}
+
 		// Don't force load a lazy shard to get nodes status
 		if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.isLoaded() {
 			shardStatus := &models.NodeShardStatus{
@@ -378,7 +405,7 @@ func isAnyVectorIndexCompressed(shard ShardLike) bool {
 func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {
 	// nodes join and leave while this runs, so the same read has to size the
 	// slice and drive the loop
-	nodeNames := db.schemaGetter.Nodes()
+	nodeNames := db.nodeSelector.AllNames()
 	nodeStatistics := make([]*models.Statistics, len(nodeNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
@@ -410,7 +437,7 @@ func (db *DB) IncomingGetNodeStatistics() (*models.Statistics, error) {
 }
 
 func (db *DB) localNodeStatistics() (*models.Statistics, error) {
-	stats := db.schemaGetter.Statistics()
+	stats := db.membership.Stats()
 	var raft *models.RaftStatistics
 	raftStats, ok := stats["raft"].(map[string]string)
 	if ok {
@@ -436,7 +463,7 @@ func (db *DB) localNodeStatistics() (*models.Statistics, error) {
 		}
 	}
 	status := models.StatisticsStatusHEALTHY
-	if db.schemaGetter.ClusterHealthScore() > 0 {
+	if db.nodeSelector.ClusterHealthScore() > 0 {
 		status = models.StatisticsStatusUNHEALTHY
 	}
 	statistics := &models.Statistics{
@@ -457,7 +484,7 @@ func (db *DB) localNodeStatistics() (*models.Statistics, error) {
 }
 
 func (db *DB) getNodeStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {
-	if db.schemaGetter.NodeName() == nodeName {
+	if db.localNodeName == nodeName {
 		return db.localNodeStatistics()
 	}
 	statistics, err := db.remoteNode.GetStatistics(ctx, nodeName)

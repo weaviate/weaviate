@@ -49,7 +49,7 @@ type AssignRoleToGroupParams struct {
 	  In: body
 	*/
 	Body AssignRoleToGroupBody
-	/*The name of the group.
+	/*The name of the group. Must not contain ',', '"' or control characters, and must be at most 256 bytes.
 	  Required: true
 	  In: path
 	*/

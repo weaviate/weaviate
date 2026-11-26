@@ -49,6 +49,11 @@ func Test_Validation(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name:    "rbac - root group the policy file cannot store",
+			config:  Authorization{Rbac: rbacconf.Config{Enabled: true, RootGroups: []string{"\"admins\""}}},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range configs {

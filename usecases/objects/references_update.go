@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -54,13 +55,13 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, input.Class, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return forbiddenOrUnprocessable(err)
 	}
 
 	if input.Class == "" {
@@ -101,7 +102,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled)
+		principal, m.qualifier, m.metrics)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -124,19 +125,20 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
-		// NS-enabled: classless beacon on a multi-target prop would reach
-		// validateExistence → DB.anyExists and persist a wildcard-deletable
-		// classless beacon.
-		if m.config.Config.Namespaces.Enabled && parsedTargetRefs[i].Class == "" {
-			err := fmt.Errorf("multi-target references require the class name in the target beacon url")
-			return &Error{err.Error(), StatusBadRequest, err}
+		// A classless beacon on a multi-target prop would reach
+		// validateExistence with Class=="", which scans every collection, other
+		// namespaces' included. With namespaces on, no DELETE could remove it.
+		if parsedTargetRefs[i].Class == "" {
+			if err := validation.CheckMultiTargetRefWithoutClass(m.config, m.metrics); err != nil {
+				return &Error{err.Error(), StatusBadRequest, err}
+			}
 		}
 		if parsedTargetRefs[i].Class != "" {
 			// Qualified for authz/existence, short for the stored beacon.
 			qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
-				principal, m.config.Config.Namespaces.Enabled, input.Class, parsedTargetRefs[i].Class)
+				principal, m.qualifier, input.Class, parsedTargetRefs[i].Class)
 			if err != nil {
-				return &Error{err.Error(), StatusUnprocessableEntity, err}
+				return forbiddenOrUnprocessable(err)
 			}
 			parsedTargetRefs[i].Class = qualifiedTarget
 			input.Refs[i].Class = strfmt.URI(shortTarget)
@@ -153,6 +155,9 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		}
 
 		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
+			if errors.Is(err, replicaerrors.ErrReplicas) {
+				return &Error{"validate existence", StatusInternalServerError, err}
+			}
 			return &Error{"validate existence", StatusBadRequest, err}
 		}
 	}

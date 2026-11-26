@@ -25,11 +25,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -91,7 +93,7 @@ func TestReconcile_EnqueuesMissingTasks(t *testing.T) {
 	}
 	enq := &fakeReconcileEnqueuer{active: map[string]bool{}}
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, nil, logger)
 
 	require.ElementsMatch(t, []string{"A/v1", "B/v2"}, enq.enqueued,
 		"every dropped marker without a live task is enqueued; non-dropped vectors are skipped")
@@ -116,7 +118,7 @@ func TestReconcile_ListError_SkipsRound(t *testing.T) {
 	}
 	enq := &listErrEnqueuer{fakeReconcileEnqueuer: &fakeReconcileEnqueuer{active: map[string]bool{}}}
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, nil, logger)
 
 	require.Empty(t, enq.enqueued, "an unreadable task list must skip the round, not enqueue blind")
 }
@@ -128,9 +130,30 @@ func TestReconcile_SkipsClassesWithLiveTasks(t *testing.T) {
 	}
 	enq := &fakeReconcileEnqueuer{active: map[string]bool{"A/v1": true}} // v1 already in flight
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, nil, logger)
 
 	require.Equal(t, []string{"A/v2"}, enq.enqueued, "only the marker without a live task is enqueued")
+}
+
+func TestReconcile_SkipsClassesWithoutActiveNamespace(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	classes := []*models.Class{
+		{Class: "ns1:A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+		{Class: "ns2:B", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+		{Class: "C", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+		{Class: "ns3:D", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+	}
+	exister := namespaces.NewMockExisterInState(t, map[string]api.NamespaceState{
+		"ns1": api.NamespaceStateSuspended,
+		"ns2": api.NamespaceStateActive,
+		"ns3": api.NamespaceStateDeleting,
+	})
+	enq := &fakeReconcileEnqueuer{active: map[string]bool{}}
+
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, exister, logger)
+
+	require.Equal(t, []string{"ns2:B/v1", "C/v1"}, enq.enqueued,
+		"a class whose namespace is not active is skipped, and the round continues past it")
 }
 
 // probeRecordingEnqueuer flags when the DTM probe has run, so the order test can
@@ -147,16 +170,17 @@ func (p *probeRecordingEnqueuer) ListDistributedTasks(ctx context.Context) (map[
 
 // orderLister records whether the schema was read before or after the probe.
 type orderLister struct {
+	local.ClassReader
 	probed  *bool
 	orderOK *bool
 	classes []*models.Class
 }
 
-func (l orderLister) GetSchemaSkipAuth() entschema.Schema {
+func (l orderLister) ReadOnlySchema() models.Schema {
 	if *l.probed {
 		*l.orderOK = true
 	}
-	return entschema.Schema{Objects: &models.Schema{Classes: l.classes}}
+	return models.Schema{Classes: l.classes}
 }
 
 // TestReconciliationAtStartup_ReadsSchemaAfterProbe pins the restore race fix:
@@ -177,7 +201,7 @@ func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
 	// One round: the loop exits via ctx after the first pass.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+	runDropVectorIndexReconciliation(ctx, lister, enq, nil, logger, time.Hour,
 		func() bool { return true }, nil)
 
 	require.True(t, orderOK, "schema must be read AFTER the DTM readiness probe")
@@ -201,7 +225,7 @@ func TestReconciliation_FollowerSkipsRound(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+	runDropVectorIndexReconciliation(ctx, lister, enq, nil, logger, time.Hour,
 		func() bool { return false }, nil)
 
 	require.Empty(t, enq.enqueued, "a non-leader must not enqueue")
@@ -934,7 +958,11 @@ func deferringEpochTask(t *testing.T, collection, id, epoch string, version uint
 	status distributedtask.TaskStatus, unitShards, deferred []string,
 ) *distributedtask.Task {
 	t.Helper()
-	task := epochTask(t, collection, id, epoch, version, status, unitShards, nil)
+	return withDeferredShards(t, epochTask(t, collection, id, epoch, version, status, unitShards, nil), deferred)
+}
+
+func withDeferredShards(t *testing.T, task *distributedtask.Task, deferred []string) *distributedtask.Task {
+	t.Helper()
 	var p db.DropVectorIndexTaskPayload
 	require.NoError(t, json.Unmarshal(task.Payload, &p))
 	p.DeferredShards = deferred
@@ -944,34 +972,281 @@ func deferringEpochTask(t *testing.T, collection, id, epoch string, version uint
 	return task
 }
 
+// withOpID rewrites the op a recorded round ran under.
+func withOpID(t *testing.T, task *distributedtask.Task, opID string) *distributedtask.Task {
+	t.Helper()
+	var p db.DropVectorIndexTaskPayload
+	require.NoError(t, json.Unmarshal(task.Payload, &p))
+	p.OpID = opID
+	b, err := json.Marshal(p)
+	require.NoError(t, err)
+	task.Payload = b
+	return task
+}
+
+// underEpochOps rewrites each record's OpID to its DropEpochID. A record
+// under another op makes the enqueuer re-clean whatever else the records say.
+func underEpochOps(t *testing.T, tasks []*distributedtask.Task) []*distributedtask.Task {
+	t.Helper()
+	for _, task := range tasks {
+		var p db.DropVectorIndexTaskPayload
+		require.NoError(t, json.Unmarshal(task.Payload, &p))
+		withOpID(t, task, p.DropEpochID)
+	}
+	return tasks
+}
+
+// requireVerifyOnlyRound asserts the enqueuer submitted a round of the epoch
+// that strips nothing and claims every current shard as cleaned.
+func requireVerifyOnlyRound(t *testing.T, cluster *fakeClusterDropClient, epoch string, shards []string) db.DropVectorIndexTaskPayload {
+	t.Helper()
+	require.NotEmpty(t, cluster.gotTaskID, "a verify-only round must be submitted")
+	p := decodeEnqueuedPayload(t, cluster)
+	require.True(t, p.VerifyOnly, "the round must not re-clean stripped shards")
+	require.Equal(t, epoch, p.DropEpochID)
+	require.ElementsMatch(t, shards, p.CleanedShards)
+	return p
+}
+
+// TestEnqueuerRemovalGateConsistency pins the finalize-on-recorded-coverage
+// decision against the apply-time removal gate: over each row's records and
+// shards, the gate accepts a removal exactly when the enqueuer submits a
+// verify-only round. A gate that accepts more lets a class update proposed by
+// an older leader remove a marker the enqueuer still holds for an unstripped
+// shard; a leader on this version refuses that update before it is proposed
+// (CheckVectorConfigRemovalAtPropose).
+func TestEnqueuerRemovalGateConsistency(t *testing.T) {
+	hot := sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"n1"}}
+	fin := distributedtask.TaskStatusFinished
+
+	tests := []struct {
+		name         string
+		tasks        []*distributedtask.Task
+		shards       []string
+		wantFinalize bool
+	}{
+		{
+			name: "finished round, deferred tenant deleted",
+			tasks: []*distributedtask.Task{
+				deferringEpochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, []string{"s3"}),
+			},
+			shards:       []string{"s1", "s2"},
+			wantFinalize: true,
+		},
+		{
+			name: "failed round with an unfinished shard, deferred tenant deleted",
+			tasks: []*distributedtask.Task{
+				withDeferredShards(t,
+					failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1"}, []string{"s2"}), []string{"s3"}),
+			},
+			shards: []string{"s1", "s2"},
+		},
+		{
+			name: "failed round whose only unit failed, deferred tenant deleted",
+			tasks: []*distributedtask.Task{
+				withDeferredShards(t,
+					failedEpochTask(t, "C", "t1", "E1", 1, nil, []string{"s1"}), []string{"s3"}),
+			},
+			shards: []string{"s1"},
+		},
+		{
+			name: "failed round, unfinished shard and deferred tenant both deleted",
+			tasks: []*distributedtask.Task{
+				withDeferredShards(t,
+					failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1"}, []string{"s2"}), []string{"s3"}),
+			},
+			shards:       []string{"s1"},
+			wantFinalize: true,
+		},
+		{
+			name: "failed rounds of one epoch that together stripped every shard",
+			tasks: []*distributedtask.Task{
+				withDeferredShards(t,
+					failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1"}, []string{"s2"}), []string{"s3"}),
+				withDeferredShards(t,
+					failedEpochTaskInheriting(t, "C", "t2", "E1", 2, []string{"s2"}, []string{"s4"}, []string{"s1"}),
+					[]string{"s3"}),
+			},
+			shards:       []string{"s1", "s2"},
+			wantFinalize: true,
+		},
+		{
+			name: "complete chain that owed nothing",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil),
+			},
+			shards: []string{"s1", "s2"},
+		},
+		{
+			name: "later round of the epoch, survivors stripped across both rounds",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
+				failedEpochTaskInheriting(t, "C", "t2", "E1", 2, []string{"s2"}, []string{"s3"}, []string{"s1"}),
+			},
+			shards:       []string{"s1", "s2"},
+			wantFinalize: true,
+		},
+		{
+			name: "every unit completed, deferred tenant deleted",
+			tasks: []*distributedtask.Task{
+				withDeferredShards(t, failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1", "s2"}, nil), []string{"s3"}),
+			},
+			shards:       []string{"s1", "s2"},
+			wantFinalize: true,
+		},
+		{
+			name:   "every unit completed, nothing deferred, a stripped tenant deleted",
+			tasks:  []*distributedtask.Task{failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1", "s2"}, nil)},
+			shards: []string{"s1"},
+		},
+		{
+			// The round that owed the deleted tenant did not strip s2 itself;
+			// a later round of the epoch did and owes nothing.
+			name: "owing round left a survivor unstripped, a later round stripped it",
+			tasks: []*distributedtask.Task{
+				withDeferredShards(t,
+					failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1"}, []string{"s2"}), []string{"s3"}),
+				failedEpochTaskInheriting(t, "C", "t2", "E1", 2, []string{"s2"}, nil, []string{"s1"}),
+			},
+			shards:       []string{"s1", "s2"},
+			wantFinalize: true,
+		},
+		{
+			// E1 was closed to strip s1 again, so its record of the deleted s2
+			// must not vouch while E2 still owes s1.
+			name: "older epoch resolved by a deleted tenant, newest epoch still owes a survivor",
+			tasks: []*distributedtask.Task{
+				failedEpochTask(t, "C", "t1", "E1", 1, []string{"s1"}, []string{"s2"}),
+				failedEpochTaskInheriting(t, "C", "t2", "E1", 2, []string{"s2"}, nil, []string{"s1"}),
+				failedEpochTask(t, "C", "t3", "E2", 3, nil, []string{"s1", "s2"}),
+			},
+			shards: []string{"s1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			underEpochOps(t, tt.tasks)
+			physical := make(map[string]sharding.Physical, len(tt.shards))
+			for _, shard := range tt.shards {
+				physical[shard] = hot
+			}
+			cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+				db.DropVectorIndexNamespace: tt.tasks,
+			}}
+			state := &fakeShardingState{
+				state:     shardingState(true, physical),
+				vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+			}
+			finalizer := &fakeEnqueuerFinalizer{}
+			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
+			require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+			require.Empty(t, finalizer.calls, "the marker is never removed directly while a shard exists")
+
+			logger, _ := test.NewNullLogger()
+			err := db.NewDropVectorIndexDetector(logger).
+				CheckVectorConfigRemoval("C", []string{"v1"}, tt.shards, tt.tasks)
+			if tt.wantFinalize {
+				requireVerifyOnlyRound(t, cluster, "E1", tt.shards)
+				require.NoError(t, err, "the gate must accept the removal the verify-only round leads to")
+				return
+			}
+			if cluster.gotTaskID != "" {
+				require.False(t, decodeEnqueuedPayload(t, cluster).VerifyOnly,
+					"an unstripped shard must be re-cleaned, not verified")
+			}
+			require.Error(t, err, "the gate must refuse a removal while the enqueuer still re-cleans")
+		})
+	}
+}
+
 // TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean
 // pins the tenant-deletion path: round one cleaned the hot tenants and
 // recorded owing the cold one; deleting that tenant leaves the recorded
-// coverage spanning every shard that still exists, so the drop finalizes on it
-// instead of minting a fresh epoch and re-stripping shards already clean.
+// coverage spanning every shard that still exists, so the drop finalizes
+// through a verify-only round with one unit per node, instead of minting a
+// fresh epoch and re-stripping shards already clean.
 func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t *testing.T) {
 	hot := func(nodes ...string) sharding.Physical {
 		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
 	}
 	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
 		db.DropVectorIndexNamespace: {
-			deferringEpochTask(t, "C", "t1", "E1", 1,
-				distributedtask.TaskStatusFinished, []string{"s1", "s2"}, []string{"s3"}),
+			withOpID(t, deferringEpochTask(t, "C", "t1", "E1", 1,
+				distributedtask.TaskStatusFinished, []string{"s1", "s2"}, []string{"s3"}), "E1"),
 		},
 	}}
 	// s3 deleted since round one.
 	state := &fakeShardingState{
-		state:     shardingState(true, map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")}),
+		state: shardingState(true, map[string]sharding.Physical{
+			"s1": hot("n1", "n2"), "s2": hot("n2", "n3"),
+		}),
 		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
 	}
 	finalizer := &fakeEnqueuerFinalizer{}
 	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
 
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
-	require.Empty(t, cluster.gotTaskID,
-		"no cleanup round may be enqueued: every remaining shard is already clean")
-	require.Equal(t, [][]string{{"v1"}}, finalizer.calls,
-		"the marker must be removed on the recorded coverage")
+	require.Empty(t, finalizer.calls, "the marker must not be removed before every node verified its shards")
+	p := requireVerifyOnlyRound(t, cluster, "E1", []string{"s1", "s2"})
+	require.Equal(t, map[string]string{"s1__n1": "s1", "s1__n2": "s1", "s2__n3": "s2"}, p.UnitToShard,
+		"one unit per node that holds an active shard")
+	require.Empty(t, p.DeferredShards)
+
+	logger, _ := test.NewNullLogger()
+	raw, err := json.Marshal(p)
+	require.NoError(t, err)
+	require.NoError(t, db.NewDropVectorIndexDetector(logger).
+		CheckConflict(raw, cluster.tasks[db.DropVectorIndexNamespace]),
+		"the add-task guard must accept the round's cleaned-shards claim")
+}
+
+// TestEnqueueDropVectorIndex_DeletedDeferredTenant_ForeignOpReclans pins the
+// limit of the verify-only round: it looks for leftover cleanup rows under the
+// epoch's op, so when a round of the epoch ran under an op of its own, those
+// rows cannot be checked and the drop re-cleans under a fresh epoch instead.
+func TestEnqueueDropVectorIndex_DeletedDeferredTenant_ForeignOpReclans(t *testing.T) {
+	hot := sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"n1"}}
+	fin := distributedtask.TaskStatusFinished
+	tests := []struct {
+		name  string
+		tasks []*distributedtask.Task
+	}{
+		{
+			name: "the resolving round ran under its own op",
+			tasks: []*distributedtask.Task{
+				withOpID(t, deferringEpochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, []string{"s3"}), "round-op"),
+			},
+		},
+		{
+			name: "an earlier round of the epoch ran under its own op",
+			tasks: []*distributedtask.Task{
+				withOpID(t, epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil), "round-op"),
+				withOpID(t, deferringEpochTask(t, "C", "t2", "E1", 2, fin, []string{"s1", "s2"}, []string{"s3"}), "E1"),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+				db.DropVectorIndexNamespace: tt.tasks,
+			}}
+			// s3 deleted since the rounds ran.
+			state := &fakeShardingState{
+				state:     shardingState(true, map[string]sharding.Physical{"s1": hot, "s2": hot}),
+				vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+			}
+			finalizer := &fakeEnqueuerFinalizer{}
+			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
+
+			require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+			require.Empty(t, finalizer.calls)
+			p := decodeEnqueuedPayload(t, cluster)
+			require.False(t, p.VerifyOnly, "rows under the other op cannot be verified")
+			require.NotEqual(t, "E1", p.DropEpochID, "the drop must re-clean under a fresh epoch")
+			require.Equal(t, map[string]string{"s1__n1": "s1", "s2__n1": "s2"}, p.UnitToShard)
+			require.Empty(t, p.CleanedShards)
+		})
+	}
 }
 
 // TestEnqueueDropVectorIndex_CompleteChainOwedNothing_ReclansInstead is the
@@ -998,6 +1273,7 @@ func TestEnqueueDropVectorIndex_CompleteChainOwedNothing_ReclansInstead(t *testi
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 	require.Empty(t, finalizer.calls, "a chain that owed nothing must never finalize a standing marker")
 	p := decodeEnqueuedPayload(t, cluster)
+	require.False(t, p.VerifyOnly)
 	require.NotEqual(t, "E1", p.DropEpochID, "closed-epoch residue starts a fresh epoch")
 	require.Equal(t, map[string]string{"s1__n1": "s1", "s2__n1": "s2"}, p.UnitToShard)
 }
@@ -1093,7 +1369,7 @@ func TestReconciliation_NudgeWakesBeforeInterval(t *testing.T) {
 	defer cancel()
 	// Interval far beyond the ctx timeout: a second round can only come from
 	// the nudge.
-	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+	runDropVectorIndexReconciliation(ctx, lister, enq, nil, logger, time.Hour,
 		func() bool { return true }, nudge)
 
 	require.GreaterOrEqual(t, len(enq.enqueued), 2, "the nudge must trigger a follow-up round within the interval")
@@ -1160,10 +1436,10 @@ func TestEnqueuerGuardConsistency(t *testing.T) {
 
 			// Re-prove the enqueuer's claim exactly as the raft apply would.
 			logger, _ := test.NewNullLogger()
-			provider := db.NewDropVectorIndexProvider(nil, nil, nil, nil, logger, "n1", context.Background(), nil)
+			detector := db.NewDropVectorIndexDetector(logger)
 			enc, err := json.Marshal(payload)
 			require.NoError(t, err)
-			require.NoError(t, provider.CheckConflict(enc, sc.tasks),
+			require.NoError(t, detector.CheckConflict(enc, sc.tasks),
 				"the guard must accept every claim the enqueuer composes")
 		})
 	}

@@ -164,7 +164,7 @@ func TestGet_NestedRefDepthLimit(t *testing.T) {
 
 	newTraverser := func(depth int) *Traverser {
 		logger, _ := logrus.NewNullLogger()
-		schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
+		schemaGetter := &fakeSchemaGetter{schema: aggregateTestSchema}
 		cfg := config.WeaviateConfig{
 			Config: config.Config{
 				QueryCrossReferenceDepthLimit: depth,
@@ -257,7 +257,7 @@ func Test_GetClass_WithFilters(t *testing.T) {
 
 	newTraverser := func() *Traverser {
 		logger, _ := logrus.NewNullLogger()
-		schemaGetter := &fakeSchemaGetter{schemaForFiltersValidation()}
+		schemaGetter := &fakeSchemaGetter{schema: schemaForFiltersValidation()}
 		cfg := config.WeaviateConfig{}
 		return NewTraverser(&cfg, logger, mocks.NewMockAuthorizer(),
 			&fakeVectorRepo{}, &fakeExplorer{}, schemaGetter, nil, nil, -1)

@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type replicaTask func(context.Context) interface{}
@@ -92,6 +93,9 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 			Code: replicaerrors.StatusPreconditionFailed, Msg: err.Error(),
 		}}}
 	}
+	if err := s.checkReplicaObjectCap(ctx, 1); err != nil {
+		return capRejection(err)
+	}
 	// commit assigns the DocID on the object, so in-process callers must pass an owned copy
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
@@ -147,6 +151,9 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 }
 
 func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
+	if err := s.checkReplicaObjectCap(ctx, int64(len(objects))); err != nil {
+		return capRejection(err)
+	}
 	// commit assigns DocIDs on the objects, so in-process callers must pass owned copies
 	task := func(ctx context.Context) interface{} {
 		rawErrs := s.putBatch(ctx, objects)
@@ -160,6 +167,36 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 	}
 	s.replicationMap.set(requestID, task)
 	return replica.SimpleResponse{}
+}
+
+// checkReplicaObjectCap returns CheckObjects' error, or nil while a MOVE of the
+// shard to this node is active. There a refusal can lose the put, because at
+// consistency level ONE the source alone commits it and the MOVE drops the source.
+func (s *Shard) checkReplicaObjectCap(ctx context.Context, count int64) error {
+	className := s.index.Config.ClassName.String()
+	err := s.index.usageLimits.CheckObjects(ctx, count, className)
+	if err == nil {
+		return nil
+	}
+	if fsm := s.index.getReplicationFSMReader(); fsm != nil &&
+		fsm.HasActiveMoveTargetingShard(className, s.name, s.index.Config.NodeName) {
+		return nil
+	}
+	return err
+}
+
+// capRejection answers a prepare whose CheckObjects failed. A limit refusal
+// carries only Code and Msg, the fields the HTTP and gRPC replica clients
+// decode, so a local replica answers the same as a remote one.
+func capRejection(err error) replica.SimpleResponse {
+	if le, ok := usagelimits.AsLimitExceeded(err); ok {
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusUsageLimitExceeded, Msg: le.BodyJSON(),
+		}}}
+	}
+	return replica.SimpleResponse{Errors: []replicaerrors.Error{{
+		Code: replicaerrors.StatusConflict, Msg: err.Error(),
+	}}}
 }
 
 func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,

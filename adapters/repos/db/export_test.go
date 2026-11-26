@@ -120,6 +120,7 @@ func newTestIndexForSnapshot(t *testing.T, className string) *Index {
 	t.Helper()
 	return &Index{
 		Config: IndexConfig{
+			NodeName:  "node1",
 			RootPath:  t.TempDir(),
 			ClassName: schema.ClassName(className),
 		},
@@ -230,6 +231,7 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			idx := &Index{
 				Config: IndexConfig{
+					NodeName:          "node1",
 					ReplicationFactor: tt.replicationFactor,
 					ClassName:         schema.ClassName(className),
 				},
@@ -276,7 +278,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 		if idx != nil {
 			indices[indexID(schema.ClassName(className))] = idx
 		}
-		return &DB{indices: indices}
+		return &DB{localNodeName: "node1", indices: indices}
 	}
 
 	t.Run("index not found: not exportable", func(t *testing.T) {
@@ -311,6 +313,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 		idx := &Index{
 			Config: IndexConfig{
+				NodeName:          "node1",
 				ReplicationFactor: 1,
 				ClassName:         schema.ClassName(className),
 			},
@@ -333,7 +336,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 	t.Run("RF>1 not globally disabled: exportable", func(t *testing.T) {
 		db := newDB(&Index{
-			Config: IndexConfig{ReplicationFactor: 3},
+			Config: IndexConfig{NodeName: "node1", ReplicationFactor: 3},
 			globalreplicationConfig: &replication.GlobalConfig{
 				AsyncReplicationDisabled: configRuntime.NewDynamicValue(false),
 			},
@@ -343,7 +346,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 	t.Run("RF>1 with async replication globally disabled: not exportable", func(t *testing.T) {
 		db := newDB(&Index{
-			Config: IndexConfig{ReplicationFactor: 3},
+			Config: IndexConfig{NodeName: "node1", ReplicationFactor: 3},
 			globalreplicationConfig: &replication.GlobalConfig{
 				AsyncReplicationDisabled: configRuntime.NewDynamicValue(true),
 			},
@@ -372,6 +375,24 @@ func TestSnapshotShardsForExport_EmptyShardNames(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("snapshotShardsForExport hung on empty shardNames — dispatch loop deadlock")
 	}
+}
+
+func TestSnapshotShardsForExport_HardlinksUnsupported(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	idx := newTestIndexForSnapshot(t, "TestClass")
+	shardName := "shard-0"
+	shard := NewMockShardLike(t)
+	idx.shards.Store(shardName, shard)
+
+	res, err := idx.snapshotShardsForExport(context.Background(), []string{shardName}, "export-id")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "supports hard links")
+	assert.Nil(t, res)
+
+	assert.NoDirExists(t, idx.snapshotsPath())
+	assert.Empty(t, shard.Calls, "the refusal must not touch a shard")
+	require.True(t, idx.shardCreateLocks.TryRLock(shardName), "the refusal must not hold the shard's create lock")
+	idx.shardCreateLocks.RUnlock(shardName)
 }
 
 // TestSnapshotShardsForExport_CancelUnblocksLockedShard asserts that a

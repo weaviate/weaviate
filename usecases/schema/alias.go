@@ -30,7 +30,7 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	var qClass string
 	if className != "" {
 		var err error
-		qClass, err = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+		qClass, err = namespacing.QualifyClass(principal, h.qualifier, className)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}
@@ -44,6 +44,9 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	if err != nil {
 		return nil, err
 	}
+	aliases = namespacing.KeepOwnNamespace(principal, aliases, func(alias *models.Alias) string {
+		return namespacing.NamespaceFromQualified(alias.Alias)
+	})
 
 	filteredAliases := filter.New[*models.Alias](h.Authorizer, h.config.Authorization.Rbac).Filter(
 		ctx,
@@ -64,7 +67,7 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 
 func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) (*models.Alias, error) {
 	alias = schema.UppercaseClassName(alias)
-	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, alias)
+	qAlias, err := namespacing.QualifyClass(principal, h.qualifier, alias)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -94,14 +97,14 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	// Captured for the entity-name validators, which forbid ":".
 	originalAliasName := alias.Alias
 	originalTargetName := alias.Class
-	qAlias, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Alias, "alias")
+	qAlias, err := namespacing.QualifyForCreate(principal, h.qualifier, alias.Alias, "alias")
 	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
-	qTarget, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Class, "class")
+	qTarget, err := namespacing.QualifyForCreate(principal, h.qualifier, alias.Class, "class")
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -141,11 +144,11 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 ) (*models.Alias, error) {
 	targetClassName = schema.UppercaseClassName(targetClassName)
 	aliasName = schema.UppercaseClassName(aliasName)
-	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, aliasName)
+	qAlias, err := namespacing.QualifyClass(principal, h.qualifier, aliasName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
-	qTarget, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, targetClassName)
+	qTarget, err := namespacing.QualifyClass(principal, h.qualifier, targetClassName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -155,16 +158,36 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Aliases(targetClassName, aliasName)...); err != nil {
 		return nil, err
 	}
+	if err := namespacing.ValidateAliasTarget(aliasName, targetClassName); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
 	aliases, err := h.schemaManager.AliasesFromLeader(ctx, aliasName, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(aliases) != 1 {
-		return nil, fmt.Errorf("%w, no alias found with name: %s", ErrNotFound, aliasName)
+		return nil, h.aliasNotFound(aliasName)
 	}
 
 	alias := aliases[0]
+	// Moving an alias also needs update_aliases on the collection it leaves.
+	// A caller who cannot read the alias gets the missing-alias answer.
+	current := authorization.Aliases(alias.Class, alias.Alias)
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, current...); err != nil {
+		if !errors.As(err, &authzerrors.Forbidden{}) {
+			return nil, err
+		}
+		readErr := h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, current...)
+		if readErr == nil {
+			return nil, err
+		}
+		if errors.As(readErr, &authzerrors.Forbidden{}) {
+			return nil, h.aliasNotFound(aliasName)
+		}
+		return nil, readErr
+	}
+
 	targetClass := h.schemaReader.ReadOnlyClass(targetClassName)
 	if targetClass == nil {
 		return nil, fmt.Errorf("%w: target class %q does not exist", ErrValidation, targetClassName)
@@ -183,9 +206,13 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	return &models.Alias{Alias: alias.Alias, Class: targetClass.Class}, nil
 }
 
+func (h *Handler) aliasNotFound(aliasName string) error {
+	return fmt.Errorf("%w, no alias found with name: %s", ErrNotFound, aliasName)
+}
+
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
 	aliasName = schema.UppercaseClassName(aliasName)
-	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, aliasName)
+	qAlias, err := namespacing.QualifyClass(principal, h.qualifier, aliasName)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}

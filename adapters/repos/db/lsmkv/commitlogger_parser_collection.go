@@ -26,6 +26,10 @@ func (p *commitloggerParser) doCollection() error {
 		} else if !ok {
 			break
 		}
+
+		if err := p.cutChunkIfFull(p.memtable.Size()); err != nil {
+			return err
+		}
 	}
 	return nil
 }

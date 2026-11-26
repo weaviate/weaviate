@@ -72,7 +72,11 @@ func (b *backups) canCommitHandler() http.HandlerFunc {
 }
 
 func (b *backups) Commit() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return b.auth.handleFunc(b.commitHandler())
+}
+
+func (b *backups) commitHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			status := http.StatusInternalServerError
@@ -95,11 +99,15 @@ func (b *backups) Commit() http.Handler {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-	})
+	}
 }
 
 func (b *backups) Abort() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return b.auth.handleFunc(b.abortHandler())
+}
+
+func (b *backups) abortHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			status := http.StatusInternalServerError
@@ -126,11 +134,15 @@ func (b *backups) Abort() http.Handler {
 		}
 
 		w.WriteHeader(http.StatusNoContent)
-	})
+	}
 }
 
 func (b *backups) Status() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return b.auth.handleFunc(b.statusHandler())
+}
+
+func (b *backups) statusHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			status := http.StatusInternalServerError
@@ -164,5 +176,5 @@ func (b *backups) Status() http.Handler {
 
 		w.WriteHeader(http.StatusOK)
 		w.Write(b)
-	})
+	}
 }

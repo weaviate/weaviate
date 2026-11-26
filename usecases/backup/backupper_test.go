@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -223,7 +222,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -268,7 +266,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 				sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 				sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-				backend.On("SourceDataPath").Return(sourcePath)
 				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 				backend.On("Initialize", ctx, nodeHome).Return(nil)
 				backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -308,7 +305,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -352,16 +348,15 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		// capture the base descriptors passed to the uploader to prove this
 		// node deduplicates against nothing (full upload)
-		var gotBaseDescrs []*backup.BackupDescriptor
+		var gotBaseDescrs []*backup.BaseBackupDescriptor
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
-			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
+			gotBaseDescrs = a.Get(3).([]*backup.BaseBackupDescriptor)
 		})
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		// this node has no descriptor in the base backup
 		backend.On("GetObject", any, baseHome, BackupFile).Return(nil, errNotFound)
@@ -439,7 +434,6 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 		// backend
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(sourcePath)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
 		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
@@ -495,21 +489,17 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 func genClassDescriptions(t *testing.T, sourcePath string, classes ...string) []backup.ClassDescriptor {
 	ret := make([]backup.ClassDescriptor, len(classes))
 	rawbytes := []byte("raw")
-	subDir := filepath.Join(sourcePath, "dir1")
-	if err := os.MkdirAll(subDir, os.ModePerm); err != nil {
-		t.Fatalf("create test subdirectory %s: %v", subDir, err)
-	}
 	files := []string{"dir1/file1", "dir1/file2", "counter.txt", "version.txt", "prop.txt"}
-	for _, p := range files {
-		p = filepath.Join(sourcePath, p)
-		if err := os.WriteFile(p, rawbytes, os.ModePerm); err != nil {
-			t.Fatalf("create test file %s: %v", p, err)
-		}
+	// A test may call this twice on one sourcePath, so the dir may exist.
+	shardStaging := backup.NewShardStaging(sourcePath, "Shard1", 255)
+	require.NoError(t, os.MkdirAll(shardStaging.Dir, os.ModePerm))
+	for _, relPath := range files[0:2] {
+		require.NoError(t, os.WriteFile(backup.StagedFilePath(shardStaging, relPath), rawbytes, os.ModePerm))
 	}
 
 	for i, cls := range classes {
 		ret[i] = backup.ClassDescriptor{
-			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+			Name: cls, Schema: rawbytes, ShardingState: rawbytes, StagingDir: sourcePath, StagingNameMax: 255,
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",
@@ -558,7 +548,7 @@ func createManagerWithSnapshotters(sourcer Sourcer, schema schemaManger, backend
 	logger, _ := test.NewNullLogger()
 	rbac := &fakeRbacBackupWrapper{}
 	dynUser := &fakeDynUserBackupWrapper{}
-	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, rbac, dynUser), rbac, dynUser
+	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, nodeNameOf(schema), sourcer, backends, rbac, dynUser), rbac, dynUser
 }
 
 // fakeRbacBackupWrapper satisfies RBACSnapshotter (variadic Snapshot). It records the
@@ -577,6 +567,10 @@ func (r *fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
 	r.called = true
 	r.gotRoles = roles
 	return nil, nil
+}
+
+func (r *fakeRbacBackupWrapper) ScopedSnapshot(_ []string, roles ...string) ([]byte, error) {
+	return r.Snapshot(roles...)
 }
 
 func (r *fakeRbacBackupWrapper) Restore([]byte, bool) error {
@@ -667,6 +661,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					}, nil
 				}
@@ -685,6 +680,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					},
 					"backup-2": {
@@ -692,6 +688,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t1,
 					},
 					"backup-3": {
@@ -699,6 +696,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t2,
 					},
 				}
@@ -721,6 +719,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t2,
 					}, nil
 				}
@@ -740,6 +739,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t1,
 					}, nil
 				}
@@ -759,6 +759,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					},
 					"backup-2": {
@@ -766,6 +767,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t3,
 					},
 					"backup-3": {
@@ -773,6 +775,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t2,
 					},
 				}
@@ -794,6 +797,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t1,
 					},
 					"backup-2": {
@@ -801,6 +805,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					},
 				}
@@ -834,6 +839,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					}, nil
 				}
@@ -954,4 +960,13 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			}
 		})
 	}
+}
+
+// nodeNameOf is the node the handler runs on: the fake's own name when the test set
+// one, the package default otherwise.
+func nodeNameOf(s schemaManger) string {
+	if f, ok := s.(*fakeSchemaManger); ok && f.nodeName != "" {
+		return f.nodeName
+	}
+	return nodeName
 }

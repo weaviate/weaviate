@@ -268,13 +268,11 @@ func TestCompact_ResetDiscardFailureKeepsResetSourceForCrashRecovery(t *testing.
 		name      string
 		resetFile string
 	}{
+		// Only raw files carry a ResetIndex: no condensor ever wrote one, and a
+		// .condensed reset is rejected as corruption.
 		{
 			name:      "raw reset source",
 			resetFile: "2000",
-		},
-		{
-			name:      "condensed reset source",
-			resetFile: "2000.condensed",
 		},
 	}
 

@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sync"
 	"testing"
 	"time"
 
@@ -57,7 +56,44 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	allocChecker memwatch.AllocChecker, tenants ...string,
 ) (*Index, *test.Hook) {
 	t.Helper()
-	ctx := context.Background()
+	return newWarmupIndexWithOpts(t, dirName, minObjects, allocChecker, warmupIndexOpts{}, tenants...)
+}
+
+type warmupIndexOpts struct {
+	ctx   context.Context
+	orch  SelfRecoveryOrchestrator
+	eager bool
+}
+
+func newWarmupIndexWithOpts(t *testing.T, dirName string, minObjects int64,
+	allocChecker memwatch.AllocChecker, opts warmupIndexOpts, tenants ...string,
+) (*Index, *test.Hook) {
+	t.Helper()
+	ctx := opts.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return newHotTenantsIndexWithCtx(ctx, t, dirName, IndexConfig{
+		EnableLazyLoadShards:          !opts.eager,
+		LazyLoadShardWarmupMinObjects: minObjects,
+		// A periodic flush would give the uncounted seed objects a count sidecar.
+		MemtablesFlushDirtyAfter: int(time.Hour.Seconds()),
+		SelfRecoveryOrchestrator: opts.orch,
+	}, &replication.GlobalConfig{}, allocChecker, tenants...)
+}
+
+// newHotTenantsIndex opens a multi-tenant index over dirName with every tenant HOT on this node.
+func newHotTenantsIndex(t *testing.T, dirName string, cfg IndexConfig, globalCfg *replication.GlobalConfig,
+	allocChecker memwatch.AllocChecker, tenants ...string,
+) (*Index, *test.Hook) {
+	t.Helper()
+	return newHotTenantsIndexWithCtx(context.Background(), t, dirName, cfg, globalCfg, allocChecker, tenants...)
+}
+
+func newHotTenantsIndexWithCtx(ctx context.Context, t *testing.T, dirName string, cfg IndexConfig,
+	globalCfg *replication.GlobalConfig, allocChecker memwatch.AllocChecker, tenants ...string,
+) (*Index, *test.Hook) {
+	t.Helper()
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -91,9 +127,8 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(warmupClassName).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return(warmupNodeName)
 	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, warmupClassName, mock.Anything).Maybe().
 		Return(tenantStatus, nil)
 
@@ -114,16 +149,15 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	schemaGetter := &fakeSchemaGetter{schema: fakeSchema, shardState: shardState}
 	shardResolver := resolver.NewShardResolver(warmupClassName, true, schemaGetter)
 
-	index, err := NewIndex(ctx, nil, IndexConfig{
-		RootPath:                      dirName,
-		ClassName:                     schema.ClassName(warmupClassName),
-		ReplicationFactor:             1,
-		ShardLoadLimiter:              loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		EnableLazyLoadShards:          true,
-		LazyLoadShardWarmupMinObjects: minObjects,
-	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+	cfg.NodeName = warmupNodeName
+	cfg.RootPath = dirName
+	cfg.ClassName = schema.ClassName(warmupClassName)
+	cfg.ReplicationFactor = 1
+	cfg.ShardLoadLimiter = loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1)
+
+	index, err := NewIndex(ctx, nil, cfg, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
-		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
+		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, globalCfg,
 		monitoring.GetMetrics(),
 		class, nil, scheduler, allocChecker,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
@@ -327,46 +361,6 @@ func TestLazyShardBackgroundWarmupSkipsSpendNoTick(t *testing.T) {
 		require.Equal(t, tenant == bigTenant, lazy.isLoaded(),
 			"only the tenant above the threshold should be warmed, checked %q", tenant)
 	}
-}
-
-// refusingAllocChecker refuses the load attempts listed in refuse, counted from
-// one, and allows the rest. LazyLoadShard.loadIfCold asks it before it builds the shard,
-// so this fails a load without having to damage anything on disk.
-type refusingAllocChecker struct {
-	mu     sync.Mutex
-	refuse map[int]bool
-	calls  int
-}
-
-func newRefusingAllocChecker(refuse []int) *refusingAllocChecker {
-	refused := make(map[int]bool, len(refuse))
-	for _, call := range refuse {
-		refused[call] = true
-	}
-	return &refusingAllocChecker{refuse: refused}
-}
-
-func (c *refusingAllocChecker) CheckAlloc(int64) error { return nil }
-
-func (c *refusingAllocChecker) CheckMappingAndReserve(int64, int) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.calls++
-	if c.refuse[c.calls] {
-		return fmt.Errorf("no mappings left for load attempt %d", c.calls)
-	}
-	return nil
-}
-
-func (c *refusingAllocChecker) Refresh(bool) {}
-
-// attempts reports how many shards the sweep tried to load.
-func (c *refusingAllocChecker) attempts() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return c.calls
 }
 
 // TestLazyShardBackgroundWarmupContinuesAfterFailedLoad pins that a shard failing

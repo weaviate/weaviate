@@ -117,7 +117,7 @@ func TestZipZstdEncoderNotPooledAfterFailedClose(t *testing.T) {
 	sd := backup.ShardDescriptor{Name: "shard1", Node: "node1"}
 
 	for range poolAttempts {
-		z, rc, err := NewZip(dir, int(level), 0, 0, 0)
+		z, rc, err := NewZip(backup.NewTreeFileSource(dir), int(level), 0, 0, 0)
 		require.NoError(t, err)
 		broken := z.zstdEncoder
 		require.NotNil(t, broken)
@@ -157,7 +157,7 @@ func TestZipZstdEncoderReleasedOnlyOnce(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			z, rc, err := NewZip(dir, int(ZstdBestSpeed), 0, 0, 0)
+			z, rc, err := NewZip(backup.NewTreeFileSource(dir), int(ZstdBestSpeed), 0, 0, 0)
 			require.NoError(t, err)
 			require.NotNil(t, z.zstdEncoder)
 
@@ -191,7 +191,7 @@ func TestZipZstdStaleCloseLeavesNextChunkAlone(t *testing.T) {
 	sd := backup.ShardDescriptor{Name: "shard1", Node: "node1"}
 	for range poolAttempts {
 		// a chunk that closed cleanly, so its encoder went to the pool
-		closed, closedReader, err := NewZip(dir, int(level), 0, 0, 0)
+		closed, closedReader, err := NewZip(backup.NewTreeFileSource(dir), int(level), 0, 0, 0)
 		require.NoError(t, err)
 		pooled := closed.zstdEncoder
 		closedDone := drainInBackground(closedReader, io.Discard)
@@ -201,7 +201,7 @@ func TestZipZstdStaleCloseLeavesNextChunkAlone(t *testing.T) {
 		require.NoError(t, <-closedDone)
 		require.NoError(t, closedReader.Close())
 
-		next, rc, err := NewZip(dir, int(level), 0, 0, 0)
+		next, rc, err := NewZip(backup.NewTreeFileSource(dir), int(level), 0, 0, 0)
 		require.NoError(t, err)
 		reused := next.zstdEncoder == pooled
 
@@ -272,7 +272,7 @@ func newZstdChunkSource(t *testing.T) (string, []string) {
 // if any.
 func zipChunk(t *testing.T, sourceDir string, level CompressionLevel, files []string) ([]byte, *zstd.Encoder) {
 	t.Helper()
-	z, rc, err := NewZip(sourceDir, int(level), 0, 0, 0)
+	z, rc, err := NewZip(backup.NewTreeFileSource(sourceDir), int(level), 0, 0, 0)
 	require.NoError(t, err)
 	encoder := z.zstdEncoder
 

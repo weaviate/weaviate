@@ -39,8 +39,11 @@ type fakeSchemaManager struct {
 	schema schema.Schema
 }
 
-func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaManager) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {

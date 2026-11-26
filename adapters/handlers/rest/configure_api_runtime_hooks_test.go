@@ -54,7 +54,7 @@ func TestRuntimeConfigHooks(t *testing.T) {
 			wantKeys: []string{
 				"AllowedCompressionTypes", "AllowedVectorIndexTypes", "AsyncReplicationDisabled",
 				"DefaultQuantization", "DefaultVectorIndexType", "DisableGraphQL",
-				"NamespaceCleanup", "ObjectsTTL",
+				"NamespaceCleanup", "ObjectsTTL", "SuspendReconcile",
 			},
 		},
 		{
@@ -65,7 +65,7 @@ func TestRuntimeConfigHooks(t *testing.T) {
 			wantKeys: []string{
 				"AllowedCompressionTypes", "AllowedVectorIndexTypes", "AsyncReplicationDisabled",
 				"DefaultQuantization", "DefaultVectorIndexType", "DisableGraphQL",
-				"NamespaceCleanup", "OIDC", "ObjectsTTL",
+				"NamespaceCleanup", "OIDC", "ObjectsTTL", "SuspendReconcile",
 			},
 		},
 	}

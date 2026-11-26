@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -40,7 +41,7 @@ func checkFolderExistenceInDir(t *testing.T,
 	compose *docker.DockerCompose, parentPath, directory string,
 ) bool {
 	weaviateContainer := compose.GetWeaviate().Container()
-	code, reader, err := weaviateContainer.Exec(context.TODO(), []string{"ls", "-1", parentPath})
+	code, reader, err := weaviateContainer.Exec(context.TODO(), []string{"ls", "-1", parentPath}, tcexec.Multiplexed())
 	require.NoError(t, err)
 	require.Equal(t, 0, code)
 

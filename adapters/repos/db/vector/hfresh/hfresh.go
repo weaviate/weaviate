@@ -34,6 +34,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -51,7 +52,6 @@ var _ common.VectorIndex = (*HFresh)(nil)
 // HFresh is an implementation of a vector index using the SPFresh algorithm.
 // It spawns background workers to handle split, merge, and reassign operations,
 // while exposing a synchronous API for searching and updating vectors.
-// Note: this is a work in progress and not all features are implemented yet.
 type HFresh struct {
 	id               string
 	logger           logrus.FieldLogger
@@ -66,6 +66,13 @@ type HFresh struct {
 	searchProbe      uint32
 	rescoreLimit     uint32
 	store            *lsmkv.Store
+
+	// singlePostingMaxSize is the size in bytes up to which the index keeps a
+	// single posting; 0 builds the centroid index up front.
+	singlePostingMaxSize uint64
+	// bootstrapThreshold is singlePostingMaxSize as a vector count, set once
+	// the dimensions are known.
+	bootstrapThreshold uint32
 
 	// needsNormalization is precomputed at construction from the configured
 	// distance: cosine-dot only equals the cosine distance on unit vectors,
@@ -170,6 +177,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rescoreLimit:       uint32(uc.RQ.RescoreLimit),
 		rootPath:           cfg.RootPath,
 		needsNormalization: cfg.DistanceProvider.Type() == "cosine-dot",
+
+		singlePostingMaxSize: singlePostingMaxSizeFromEnv(logger),
 	}
 
 	h.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
@@ -193,11 +202,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		}
 	}
 
-	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
+	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, h.singlePostingMaxSize > 0)
 	if err != nil {
 		return nil, err
 	}
-	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
+	idStore := NewDurableBucketStore(bucket, newBucketRef(store, postingsBucketName(cfg.ID)))
+	h.IDs, err = common.NewSequence(idStore, 1000)
 	if err != nil {
 		return nil, err
 	}
@@ -214,12 +224,19 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
 
+	h.repairOrphanPostings()
+
 	h.taskQueue.Register()
 
 	return &h, nil
 }
 
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
+	// the single posting keeps no id list, which its appends would leave stale
+	if postingID == singlePostingID && !h.Centroids.Built() {
+		return h.PostingSizes.Set(ctx, postingID, len(posting))
+	}
+
 	if err := h.PostingMap.SetVectorIDs(ctx, postingID, posting); err != nil {
 		return err
 	}
@@ -280,7 +297,7 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	return nil
 }
 
-func (h *HFresh) Drop(ctx context.Context, keepFiles bool) error {
+func (h *HFresh) Drop(ctx context.Context) error {
 	_ = h.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
 	return nil
@@ -315,7 +332,7 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
-	err = h.Centroids.hnsw.Shutdown(ctx)
+	err = h.Centroids.Shutdown(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -327,7 +344,7 @@ func (h *HFresh) Flush() error {
 	var errs []error
 
 	// flush the HNSW commit log
-	err := h.Centroids.hnsw.Flush()
+	err := h.Centroids.Flush()
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -342,7 +359,7 @@ func (h *HFresh) Flush() error {
 }
 
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {
-	err := h.Centroids.hnsw.PrepareForBackup(ctx)
+	err := h.Centroids.PrepareForBackup(ctx)
 	if err != nil {
 		return err
 	}
@@ -372,15 +389,15 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 		queue.DisableMaintenanceMode()
 	}
 
-	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
+	return h.Centroids.ResumeAfterBackup(ctx)
 }
 
-func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	return nil, nil
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
+	hnswFiles, err := h.Centroids.ListFiles(ctx, basePath)
 	if err != nil {
 		return nil, err
 	}
@@ -421,14 +438,25 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 	// Warm the version map in the background
 	enterrors.GoWrapper(h.warmVersionMap, h.logger)
 
-	h.Centroids.hnsw.PostStartup(ctx)
+	h.Centroids.PostStartup(ctx)
 }
+
+var (
+	errWarmupIncomplete = stderrors.New("version map warmup did not complete")
+	errNothingToWarm    = stderrors.New("version map warmup found nothing to warm")
+)
 
 func (h *HFresh) warmVersionMap() {
 	before := time.Now()
+	prefillDone := monitoring.GetStartupMetrics().PrefillStarted()
+	// failure default: a recovered panic must not record a duration
+	warmupErr := errWarmupIncomplete
+	defer func() { prefillDone(warmupErr) }()
+
 	count, err := h.VersionMap.Warmup(h.ctx)
 	if err != nil {
 		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+		warmupErr = err
 		return
 	}
 
@@ -439,6 +467,7 @@ func (h *HFresh) warmVersionMap() {
 	for postingID, metadata := range h.PostingMap.Iter() {
 		if h.ctx.Err() != nil {
 			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
+			warmupErr = h.ctx.Err()
 			return
 		}
 
@@ -456,6 +485,11 @@ func (h *HFresh) warmVersionMap() {
 		}()
 	}
 
+	// an empty tenant warms nothing and is not a prefill
+	warmupErr = nil
+	if count+defaults == 0 {
+		warmupErr = errNothingToWarm
+	}
 	h.logger.WithFields(logrus.Fields{
 		"action":   "hfresh_version_map_warmup",
 		"count":    count,

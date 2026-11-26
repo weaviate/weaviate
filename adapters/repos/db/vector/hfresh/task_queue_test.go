@@ -14,12 +14,18 @@ package hfresh
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func TestTaskQueueRegisterIsExplicit(t *testing.T) {
@@ -90,6 +96,24 @@ func TestWaitForMaintenanceDrainsFollowUpTasks(t *testing.T) {
 	require.Zero(t, tf.Index.taskQueue.Size())
 	require.Zero(t, tf.Index.taskQueue.analyzeList.LivePages())
 	require.Zero(t, tf.Index.taskQueue.reassignList.LivePages())
+}
+
+// The pending-task gauges are updated once a processed chunk is removed, so a
+// drained queue reports no backlog.
+func TestTaskQueuePendingMetricsAfterProcessing(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, ucfg := makeHFreshConfig(t)
+	index := makeHFreshWithConfig(t, store, cfg, ucfg)
+
+	require.NoError(t, index.taskQueue.EnqueueAnalyze(1))
+	require.Equal(t, 1.0, testutil.ToFloat64(index.metrics.analyzePending))
+
+	require.Eventually(t, func() bool {
+		return index.taskQueue.analyzeQueue.Size() == 0
+	}, 10*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return testutil.ToFloat64(index.metrics.analyzePending) == 0
+	}, time.Second, 10*time.Millisecond, "the gauge still reports the processed chunk")
 }
 
 func TestDecodeReassignTaskLegacyFormat(t *testing.T) {
@@ -205,6 +229,119 @@ func TestDecodeTaskNonReassignFormatsUnchanged(t *testing.T) {
 
 			require.NoError(t, err)
 			require.IsType(t, tt.want, task)
+		})
+	}
+}
+
+// Postings live in the shard's buckets, so the task queue hook writes their
+// logs out before the queue removes the processed chunk.
+func TestTaskQueueOnBatchProcessedWritesLSMLogs(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, ucfg := makeHFreshConfig(t)
+	index := makeHFreshWithConfig(t, store, cfg, ucfg)
+
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	// small enough to stay in the log's buffer
+	require.NoError(t, bucket.Put([]byte("key"), []byte("value")))
+	walSize := func() int64 {
+		paths, err := filepath.Glob(filepath.Join(bucket.GetDir(), "*.wal"))
+		require.NoError(t, err)
+		var size int64
+		for _, p := range paths {
+			fi, err := os.Stat(p)
+			require.NoError(t, err)
+			size += fi.Size()
+		}
+		return size
+	}
+	before := walSize()
+
+	require.NoError(t, index.taskQueue.OnBatchProcessed())
+	require.Greater(t, walSize(), before, "the bucket log was not written out")
+}
+
+func newTestTaskQueue(t testing.TB) *TaskQueue {
+	t.Helper()
+	cfg := DefaultConfig()
+	cfg.RootPath = t.TempDir()
+	logger := logrus.New()
+	index := &HFresh{
+		config:    cfg,
+		logger:    logger,
+		scheduler: queue.NewScheduler(queue.SchedulerOptions{Logger: logger}),
+		metrics:   NewMetrics(nil, "", ""),
+	}
+	// Leave the scheduler stopped so tasks remain queued for inspection.
+	tq, err := NewTaskQueue(index, bucketRef{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, tq.Close(t.Context())) })
+	return tq
+}
+
+func TestTaskQueueEnqueueRetryAfterPushFailure(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		enqueue func(*TaskQueue, uint64) error
+	}{
+		{"analyze", (*TaskQueue).EnqueueAnalyze},
+		{"split", (*TaskQueue).EnqueueSplit},
+		{"merge", (*TaskQueue).EnqueueMerge},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tq := newTestTaskQueue(t)
+			dir := filepath.Join(tq.index.config.RootPath, tt.name+".queue.d")
+			// Fail the first chunk creation, before the writer accepts a record.
+			require.NoError(t, os.Remove(dir))
+			require.NoError(t, os.WriteFile(dir, nil, 0o600))
+			require.Error(t, tt.enqueue(tq, 42))
+			require.Zero(t, tq.Size())
+			require.NoError(t, os.Remove(dir))
+			require.NoError(t, os.Mkdir(dir, 0o755))
+
+			require.NoError(t, tt.enqueue(tq, 42))
+			require.NoError(t, tt.enqueue(tq, 42))
+			require.EqualValues(t, 1, tq.Size(), "retry must queue exactly one task")
+		})
+	}
+}
+
+func TestTaskQueueConcurrentEnqueueDeduplicates(t *testing.T) {
+	tq := newTestTaskQueue(t)
+	start := make(chan struct{})
+	errs := make(chan error, 8)
+	for range cap(errs) {
+		enterrors.GoWrapper(func() {
+			<-start
+			errs <- tq.EnqueueMerge(42)
+		}, tq.index.logger)
+	}
+	close(start)
+	for range cap(errs) {
+		require.NoError(t, <-errs)
+	}
+	require.EqualValues(t, 1, tq.Size())
+}
+
+func BenchmarkTaskQueueEnqueue(b *testing.B) {
+	for _, tt := range []struct {
+		name    string
+		enqueue func(*TaskQueue, uint64) error
+	}{
+		{"analyze", (*TaskQueue).EnqueueAnalyze},
+		{"split", (*TaskQueue).EnqueueSplit},
+		{"merge", (*TaskQueue).EnqueueMerge},
+	} {
+		b.Run(tt.name, func(b *testing.B) {
+			tq := newTestTaskQueue(b)
+			b.ReportAllocs()
+			var id uint64
+			for b.Loop() {
+				if err := tt.enqueue(tq, id); err != nil {
+					b.Fatal(err)
+				}
+				id++
+			}
+			require.EqualValues(b, id, tq.Size())
 		})
 	}
 }

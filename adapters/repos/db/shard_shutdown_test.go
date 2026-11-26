@@ -369,6 +369,16 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 			},
 		},
 		{
+			// The migrator's tenant and shard updates release a self-recovery
+			// placeholder. Only DB.UnloadShard keeps it.
+			name:        "a self-recovery placeholder is released",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
+			setup: func(t *testing.T, index *Index, _ string) (string, context.Context) {
+				index.shards.Store("recovering", &RecoveringShard{LazyLoadShard: &LazyLoadShard{}})
+				return "recovering", context.Background()
+			},
+		},
+		{
 			name:        "concurrently completed shutdown reports success",
 			wantOutcome: ShardUnloadOutcomeUnloaded,
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {

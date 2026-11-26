@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	exportUsecase "github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -43,6 +44,7 @@ import (
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -58,11 +60,14 @@ type State struct {
 	APIKey          *apikey.ApiKey
 	APIKeyRemote    *apikey.RemoteApiKey
 	Authorizer      authorization.Authorizer
-	AuthzController authorization.Controller
-	RBAC            *rbac.Manager
-	Crons           *cron.Crons
+	// RBAC is the RBAC state the RAFT FSM applies, snapshots and restores.
+	// configureAuthorizer always sets it, even with RBAC disabled.
+	// A non-nil RBAC does not mean RBAC is enabled: check Authorization.Rbac.Enabled.
+	RBAC  *rbac.Manager
+	Crons *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
+	License       *license.State
 	LDIntegration *configRuntime.LDIntegration
 	Logger        *logrus.Logger
 	gqlMutex      sync.Mutex
@@ -93,6 +98,7 @@ type State struct {
 	TenantActivity       *tenantactivity.Handler
 	InternalServer       types.ClusterServer
 	NamespacesController *usecasesNamespaces.Controller
+	NamespaceQualifier   namespacing.Qualifier
 
 	ObjectTTLCoordinator *objectttl.Coordinator
 	ObjectTTLLocalStatus *objectttl.LocalStatus
@@ -101,9 +107,7 @@ type State struct {
 
 	// ReindexProvider is the local handle for the runtime-reindex
 	// distributed-task provider. Exposed here so the REST cancel handler
-	// can wait for a cancelled task's local goroutine to drain before
-	// triggering the on-disk state cleanup — see
-	// [db.ReindexProvider.WaitForLocalTaskDrain].
+	// can wait for a cancelled task's local goroutine to drain first.
 	ReindexProvider *db.ReindexProvider
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same

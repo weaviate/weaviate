@@ -207,7 +207,7 @@ func NewSuspendNamespaceForbidden() *SuspendNamespaceForbidden {
 /*
 SuspendNamespaceForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node
 */
 type SuspendNamespaceForbidden struct {
 	Payload *models.ErrorResponse

@@ -15,7 +15,9 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -98,6 +100,47 @@ func releaseMisuse(hook *logrustest.Hook) []*logrus.Entry {
 		}
 	}
 	return out
+}
+
+// refusingAllocChecker refuses the load attempts whose numbers are in refuse,
+// where the first attempt is 1, and allows the rest. LazyLoadShard.loadIfCold
+// and the eager Index.initShard path both ask it before they build a shard. So
+// a test can fail a load without damaging anything on disk.
+type refusingAllocChecker struct {
+	mu     sync.Mutex
+	refuse map[int]bool
+	calls  int
+}
+
+func newRefusingAllocChecker(refuse []int) *refusingAllocChecker {
+	refused := make(map[int]bool, len(refuse))
+	for _, call := range refuse {
+		refused[call] = true
+	}
+	return &refusingAllocChecker{refuse: refused}
+}
+
+func (c *refusingAllocChecker) CheckAlloc(int64) error { return nil }
+
+func (c *refusingAllocChecker) CheckMappingAndReserve(int64, int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.calls++
+	if c.refuse[c.calls] {
+		return fmt.Errorf("no mappings left for load attempt %d", c.calls)
+	}
+	return nil
+}
+
+func (c *refusingAllocChecker) Refresh(bool) {}
+
+// attempts reports how many shards the sweep tried to load.
+func (c *refusingAllocChecker) attempts() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.calls
 }
 
 // forwardToRemote points the router at a peer node so the local shard lookup
@@ -219,7 +262,8 @@ func TestShardRefCountArity(t *testing.T) {
 			// group that acquired a shard still has to release it
 			name: "batchDeleteObjects partial group failure", wantErr: true,
 			setup: func(t *testing.T, idx *Index, shard *Shard) {
-				idx.backupProtectedShards.Store(blockedShard, struct{}{})
+				// The test runs the operation three times, and each run makes one init attempt.
+				idx.allocChecker = newRefusingAllocChecker([]int{1, 2, 3})
 			},
 			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				objs, err := idx.batchDeleteObjects(t.Context(), map[string][]strfmt.UUID{
@@ -563,7 +607,7 @@ func TestShardLookupReleasesReplacedReference(t *testing.T) {
 			wantInUse := int64(1)
 			if test.blockInit {
 				idx.shards.LoadAndDelete(shard.name)
-				idx.backupProtectedShards.Store(shard.name, struct{}{})
+				idx.allocChecker = newRefusingAllocChecker([]int{1})
 				wantInUse = 0
 			}
 

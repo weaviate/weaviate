@@ -115,13 +115,11 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 						return err
 					}
 					if len(prop.DataType) > 1 {
-						// Classless beacon on a multi-target prop: existence
-						// check would hit DB.anyExists (cross-namespace oracle)
-						// and the stored beacon would be wildcard-deletable.
-						if v.namespacesEnabled {
-							return fmt.Errorf(
-								"'cref' %s:%s: multi-target references require the class name in the target beacon url",
-								className, propertyKey)
+						// A classless beacon would reach Exists with an empty class,
+						// which scans every collection, other namespaces' included.
+						// With namespaces on, no DELETE could remove it.
+						if err := CheckMultiTargetRefWithoutClass(v.config, v.refCounter); err != nil {
+							return fmt.Errorf("'cref' %s:%s: %w", className, propertyKey, err)
 						}
 						continue
 					}
@@ -616,7 +614,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 	// (caller's resolveNS); QualifyRefTarget is the shared policy.
 	if ref.Class != "" {
 		qualifiedTarget, shortTarget, qerr := namespacing.QualifyRefTarget(
-			v.principal, v.namespacesEnabled, className, ref.Class)
+			v.principal, v.qualifier, className, ref.Class)
 		if qerr != nil {
 			return nil, qerr
 		}
