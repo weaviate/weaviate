@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/sirupsen/logrus"
 )
 
 var errAny = errors.New("anyErr")
@@ -145,5 +147,29 @@ func TestTimedOutPeers(t *testing.T) {
 				t.Errorf("Has(node1) = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestQueryAllReplicasConcurrentErrors fans out to several remote replicas at
+// once, half of them failing. Every goroutine must report its own error
+// without touching state shared with the others (run with -race).
+func TestQueryAllReplicasConcurrentErrors(t *testing.T) {
+	resolver, schema := newFakeResolver(0, 8), newFakeSchema(0, 8)
+	rindex := Index{"C", &schema, nil, &resolver}
+	do := func(node, host string) (ReplicasSearchResult, error) {
+		if node == "N1" || node == "N3" || node == "N5" || node == "N7" {
+			return ReplicasSearchResult{}, errAny
+		}
+		return ReplicasSearchResult{Node: node}, nil
+	}
+
+	for range 20 {
+		got, err := rindex.queryAllReplicas(context.Background(), logrus.New(), "S", do, "N0")
+		if err != nil {
+			t.Fatalf("partial failure must still return the healthy replicas, got error: %v", err)
+		}
+		if len(got) != 3 {
+			t.Fatalf("want results from N2, N4 and N6 (N0 is local), got %d", len(got))
+		}
 	}
 }

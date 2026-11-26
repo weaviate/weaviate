@@ -426,7 +426,6 @@ func (ri *Index) queryAllReplicas(
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
-				var searchResult ReplicasSearchResult
 
 				if errC := ctx.Err(); errC != nil {
 					mu.Lock()
@@ -436,7 +435,10 @@ func (ri *Index) queryAllReplicas(
 				}
 
 				queriesSent.Add(1)
-				if searchResult, err = queryOne(node); err != nil {
+				// local: every replica's goroutine runs at once, so it must not
+				// write the enclosing function's err
+				searchResult, err := queryOne(node)
+				if err != nil {
 					mu.Lock()
 					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
 					mu.Unlock()
