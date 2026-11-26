@@ -36,7 +36,7 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Nvidia-Baseurl": server.URL},
-			wantErr: "X-Nvidia-Baseurl needs X-Nvidia-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "X-Nvidia-Baseurl needs X-Nvidia-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:     "baseURL header with a request key",

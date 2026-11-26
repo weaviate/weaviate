@@ -258,7 +258,7 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 }
 
 func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) {
-	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", config.BaseURL, apiKeyHeader(config.IsAzure))
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", config.BaseURL, v.apiKeyHeader(config.IsAzure))
 	if err != nil {
 		return "", err
 	}
@@ -345,7 +345,7 @@ func (v *Client) GetVectorizerRateLimit(ctx context.Context, settings Settings) 
 	}
 }
 
-func apiKeyHeader(isAzure bool) string {
+func (v *Client) apiKeyHeader(isAzure bool) string {
 	if isAzure {
 		return "X-Azure-Api-Key"
 	}
@@ -357,7 +357,7 @@ func (v *Client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	if isAzure {
 		envVar, envVarValue = "AZURE_APIKEY", v.azureApiKey
 	}
-	return v.getApiKeyFromContext(ctx, apiKeyHeader(isAzure), envVarValue, envVar)
+	return v.getApiKeyFromContext(ctx, v.apiKeyHeader(isAzure), envVarValue, envVar)
 }
 
 func (v *Client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {

@@ -38,7 +38,7 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			name:         "baseURL header without a request key",
 			classBaseURL: "https://api.cohere.ai",
 			headers:      map[string]string{"X-Cohere-Baseurl": server.URL},
-			wantErr:      "X-Cohere-Baseurl needs X-Cohere-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr:      "X-Cohere-Baseurl needs X-Cohere-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:         "baseURL header with a request key",

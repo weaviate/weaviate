@@ -42,12 +42,12 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "query baseURL without a request key",
 			options: &deepseekparams.Params{BaseURL: server.URL},
-			wantErr: "baseURL needs X-Deepseek-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "a URL set in the query needs X-Deepseek-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Deepseek-Baseurl": server.URL},
-			wantErr: "X-Deepseek-Baseurl needs X-Deepseek-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "X-Deepseek-Baseurl needs X-Deepseek-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:     "query baseURL with a request key",

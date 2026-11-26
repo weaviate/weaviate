@@ -42,7 +42,7 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			name:     "baseURL header without a request key",
 			settings: Settings{BaseURL: "https://api.openai.com"},
 			headers:  map[string]string{"X-Openai-Baseurl": server.URL},
-			wantErr:  "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr:  "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:     "baseURL header with a request key",
@@ -65,7 +65,7 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			name:     "Azure resourceName header without a request key",
 			settings: Settings{IsAzure: true, ResourceName: "classResource", DeploymentID: "d"},
 			headers:  map[string]string{"X-Azure-Resource-Name": injectedResourceName},
-			wantErr:  "X-Azure-Resource-Name needs X-Azure-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr:  "X-Azure-Resource-Name needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:         "Azure resourceName header with a request key",

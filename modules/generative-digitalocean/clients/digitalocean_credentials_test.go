@@ -42,12 +42,12 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "query baseURL without a request key",
 			options: &digitaloceanparams.Params{BaseURL: server.URL},
-			wantErr: "baseURL needs X-Digitalocean-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "a URL set in the query needs X-Digitalocean-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Digitalocean-Baseurl": server.URL},
-			wantErr: "X-Digitalocean-Baseurl needs X-Digitalocean-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "X-Digitalocean-Baseurl needs X-Digitalocean-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:     "query baseURL with a request key",

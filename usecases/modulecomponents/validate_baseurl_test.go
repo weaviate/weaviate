@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Cases use IP literals and blocked hostnames/suffixes (which short-circuit
@@ -129,7 +130,7 @@ func TestRequestBaseURL(t *testing.T) {
 		{
 			name:      "requested path on the configured host without a request key",
 			requested: configured + "/proxy",
-			wantErr:   "baseURL needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr:   "a URL set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:      "requested path on the configured host with a request key",
@@ -141,22 +142,22 @@ func TestRequestBaseURL(t *testing.T) {
 			name:       "requested gateway path of another tenant",
 			requested:  "https://gw.example.com/v1/other-account/openai",
 			configured: "https://gw.example.com/v1/openai",
-			wantErr:    "baseURL needs X-Openai-Api-Key",
+			wantErr:    "a URL set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:       "requested path differs only in case",
 			requested:  "https://api.openai.com/V1",
 			configured: "https://api.openai.com/v1",
-			wantErr:    "baseURL needs X-Openai-Api-Key",
+			wantErr:    "a URL set in the query needs X-Openai-Api-Key",
 		},
-		{name: "requested adds a query", requested: configured + "?x=1", wantErr: "baseURL needs X-Openai-Api-Key"},
-		{name: "requested adds a fragment", requested: configured + "#x", wantErr: "baseURL needs X-Openai-Api-Key"},
-		{name: "requested adds userinfo", requested: "https://user@api.openai.com", wantErr: "baseURL needs X-Openai-Api-Key"},
-		{name: "requested adds the default port", requested: "https://api.openai.com:443", wantErr: "baseURL needs X-Openai-Api-Key"},
+		{name: "requested adds a query", requested: configured + "?x=1", wantErr: "a URL set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds a fragment", requested: configured + "#x", wantErr: "a URL set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds userinfo", requested: "https://user@api.openai.com", wantErr: "a URL set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds the default port", requested: "https://api.openai.com:443", wantErr: "a URL set in the query needs X-Openai-Api-Key"},
 		{
 			name:      "requested host without a request key",
 			requested: attacker,
-			wantErr:   "baseURL needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr:   "a URL set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:      "requested host with a request key",
@@ -167,27 +168,27 @@ func TestRequestBaseURL(t *testing.T) {
 		{
 			name:      "requested scheme differs",
 			requested: "http://api.openai.com",
-			wantErr:   "baseURL needs X-Openai-Api-Key",
+			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested port differs",
 			requested: "https://api.openai.com:8443",
-			wantErr:   "baseURL needs X-Openai-Api-Key",
+			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested host hidden behind userinfo",
 			requested: "https://api.openai.com@attacker.example.com",
-			wantErr:   "baseURL needs X-Openai-Api-Key",
+			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested URL does not parse",
 			requested: "https://api.openai.com%zz",
-			wantErr:   "baseURL needs X-Openai-Api-Key",
+			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:    "header host without a request key",
 			headers: map[string]string{baseURLHeader: attacker},
-			wantErr: "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:    "header host with a request key",
@@ -209,7 +210,7 @@ func TestRequestBaseURL(t *testing.T) {
 			name:      "another provider's key does not count",
 			requested: attacker,
 			headers:   map[string]string{"X-Azure-Api-Key": "caller"},
-			wantErr:   "baseURL needs X-Openai-Api-Key",
+			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested host validated when validation is on",
@@ -250,6 +251,18 @@ func TestRequestBaseURL(t *testing.T) {
 	}
 }
 
+// REST search returns an ErrModulePrecondition as a 422 with its message. Any
+// other vectorizer error becomes a 500 without it.
+func TestMissingRequestKeyIsAPrecondition(t *testing.T) {
+	ctx := context.Background()
+	_, baseURLErr := RequestBaseURL(ctx, "X-Openai-Baseurl", "https://attacker.example.com", "https://api.openai.com", "X-Openai-Api-Key")
+	_, resourceNameErr := RequestAzureResourceName(ctx, "other", "class-resource")
+	for _, err := range []error{baseURLErr, resourceNameErr} {
+		var precondition enterrors.ErrModulePrecondition
+		assert.ErrorAs(t, err, &precondition)
+	}
+}
+
 func TestRequestAzureResourceName(t *testing.T) {
 	const configured = "class-resource"
 	tests := []struct {
@@ -265,7 +278,7 @@ func TestRequestAzureResourceName(t *testing.T) {
 		{
 			name:      "requested name without a request key",
 			requested: "other",
-			wantErr:   "resourceName needs X-Azure-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr:   "resourceName needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:      "requested name with a request key",

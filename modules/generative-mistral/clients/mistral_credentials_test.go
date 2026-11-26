@@ -40,12 +40,12 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "query baseURL without a request key",
 			options: &mistralparams.Params{BaseURL: server.URL},
-			wantErr: "baseURL needs X-Mistral-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "a URL set in the query needs X-Mistral-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Mistral-Baseurl": server.URL},
-			wantErr: "X-Mistral-Baseurl needs X-Mistral-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "X-Mistral-Baseurl needs X-Mistral-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:    "query baseURL with a request key",

@@ -162,23 +162,24 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 }
 
 // buildOpenAIUrl takes the class settings and applies the request headers.
+// An Azure URL does not use the base URL, so X-Openai-Baseurl is checked only
+// for OpenAI.
 func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
-	passedBaseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", baseURL, apiKeyHeader(isAzure))
-	if err != nil {
-		return "", err
-	}
-
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
 		deploymentID = headerDeploymentID
 	}
 
+	var err error
 	if isAzure {
-		if resourceName, err = modulecomponents.RequestAzureResourceName(ctx, "", resourceName); err != nil {
-			return "", err
-		}
+		resourceName, err = modulecomponents.RequestAzureResourceName(ctx, "", resourceName)
+	} else {
+		baseURL, err = modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", baseURL, v.apiKeyHeader(false))
+	}
+	if err != nil {
+		return "", err
 	}
 
-	return v.buildUrlFn(passedBaseURL, resourceName, deploymentID, isAzure)
+	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)
 }
 
 func (v *qna) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
@@ -214,7 +215,7 @@ Q: %v
 A:`, strings.ReplaceAll(text, "\n", " "), question)
 }
 
-func apiKeyHeader(isAzure bool) string {
+func (v *qna) apiKeyHeader(isAzure bool) string {
 	if isAzure {
 		return "X-Azure-Api-Key"
 	}
@@ -226,7 +227,7 @@ func (v *qna) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	if isAzure {
 		envVar, envVarValue = "AZURE_APIKEY", v.azureApiKey
 	}
-	return v.getApiKeyFromContext(ctx, apiKeyHeader(isAzure), envVarValue, envVar)
+	return v.getApiKeyFromContext(ctx, v.apiKeyHeader(isAzure), envVarValue, envVar)
 }
 
 func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {

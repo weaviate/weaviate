@@ -21,6 +21,7 @@ import (
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Hostnames and suffixes that are always rejected, independent of DNS.
@@ -45,7 +46,7 @@ func BaseURLValidationEnabled() bool {
 // tenant of a gateway. A value that differs from configured only in the case
 // of the scheme or host, or in a trailing slash, returns configured.
 func RequestBaseURL(ctx context.Context, baseURLHeader, requested, configured, apiKeyHeader string) (string, error) {
-	source, baseURL := "baseURL", requested
+	source, baseURL := "a URL set in the query", requested
 	if headerBaseURL := GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
 		source, baseURL = baseURLHeader, headerBaseURL
 	}
@@ -80,13 +81,15 @@ func RequestAzureResourceName(ctx context.Context, requested, configured string)
 	return name, nil
 }
 
-// RequireRequestAPIKey returns an error unless the request carries a key in
-// apiKeyHeader. source names the request value that set the host.
+// RequireRequestAPIKey returns an ErrModulePrecondition unless the request
+// carries a key in apiKeyHeader. source names the request value that changed
+// the URL.
 func RequireRequestAPIKey(ctx context.Context, source, apiKeyHeader string) error {
 	if GetValueFromContext(ctx, apiKeyHeader) != "" {
 		return nil
 	}
-	return fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request", source, apiKeyHeader)
+	return enterrors.NewErrModulePrecondition(fmt.Errorf(
+		"%s needs %s: the server's key is sent only to the configured URL", source, apiKeyHeader))
 }
 
 // sameBaseURL reports whether a and b differ only in the case of the scheme
@@ -116,8 +119,9 @@ func isDisallowedIP(ip net.IP) bool {
 		ip.IsUnspecified()
 }
 
-// ValidateBaseURL validates a module baseURL (class config or X-*-Baseurl
-// header) against SSRF abuse: https-only, non-empty host, and not pointing at
+// ValidateBaseURL validates a URL a module sends requests to (class config, or
+// a request URL that RequestBaseURL accepted) against SSRF abuse: https-only,
+// non-empty host, and not pointing at
 // an internal address (by IP literal, by blocked hostname/suffix, or by DNS
 // resolution). It is a no-op unless MODULES_VALIDATE_BASE_URL is enabled; an
 // empty baseURL means "use the module default" and is allowed.

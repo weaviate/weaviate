@@ -56,7 +56,7 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			name:        "baseURL header without a request key",
 			classConfig: credentialtest.ClassConfig{"model": model},
 			headers:     map[string]string{"X-Digitalocean-Baseurl": server.URL},
-			wantErr:     "X-Digitalocean-Baseurl needs X-Digitalocean-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr:     "X-Digitalocean-Baseurl needs X-Digitalocean-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:        "baseURL header with a request key",

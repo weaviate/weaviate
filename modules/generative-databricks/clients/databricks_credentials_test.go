@@ -43,13 +43,13 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			name:        "query endpoint without a request token",
 			classConfig: credentialtest.ClassConfig{"endpoint": classEndpoint},
 			options:     &databricksparams.Params{Endpoint: serverEndpoint},
-			wantErr:     "baseURL needs X-Databricks-Token: the server's key is not sent to a host named by the request",
+			wantErr:     "a URL set in the query needs X-Databricks-Token: the server's key is sent only to the configured URL",
 		},
 		{
 			name:        "endpoint header without a request token",
 			classConfig: credentialtest.ClassConfig{"endpoint": classEndpoint},
 			headers:     map[string]string{"X-Databricks-Endpoint": serverEndpoint},
-			wantErr:     "X-Databricks-Endpoint needs X-Databricks-Token: the server's key is not sent to a host named by the request",
+			wantErr:     "X-Databricks-Endpoint needs X-Databricks-Token: the server's key is sent only to the configured URL",
 		},
 		{
 			name:        "query endpoint with a request token",

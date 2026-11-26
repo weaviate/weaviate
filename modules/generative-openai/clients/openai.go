@@ -298,7 +298,7 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params,
 
 	isAzure = config.IsAzure(params.IsAzure, resourceName, deploymentID)
 
-	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", params.BaseURL, settings.BaseURL(), apiKeyHeader(isAzure))
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", params.BaseURL, settings.BaseURL(), v.apiKeyHeader(isAzure))
 	if err != nil {
 		return "", false, err
 	}
@@ -310,7 +310,7 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params,
 		// A request that turns Azure on for a non-Azure collection would pair
 		// the collection's host with the server's Azure key.
 		if !settings.IsAzure() {
-			if err := modulecomponents.RequireRequestAPIKey(ctx, "isAzure", apiKeyHeader(isAzure)); err != nil {
+			if err := modulecomponents.RequireRequestAPIKey(ctx, "a request that turns on Azure", v.apiKeyHeader(isAzure)); err != nil {
 				return "", false, err
 			}
 		}
@@ -440,7 +440,7 @@ func (v *openai) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, s
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
-func apiKeyHeader(isAzure bool) string {
+func (v *openai) apiKeyHeader(isAzure bool) string {
 	if isAzure {
 		return "X-Azure-Api-Key"
 	}
@@ -452,7 +452,7 @@ func (v *openai) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	if isAzure {
 		envVar, envVarValue = "AZURE_APIKEY", v.azureApiKey
 	}
-	return v.getApiKeyFromContext(ctx, apiKeyHeader(isAzure), envVarValue, envVar)
+	return v.getApiKeyFromContext(ctx, v.apiKeyHeader(isAzure), envVarValue, envVar)
 }
 
 func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {

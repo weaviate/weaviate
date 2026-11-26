@@ -65,8 +65,9 @@ func (s *Server) HostPort() string {
 	return strings.TrimPrefix(s.URL, "https://")
 }
 
-// Context returns a context carrying headers the way the REST handlers pass
-// request headers to modules.
+// Context returns a context that stores each header as a []string under the
+// name given. REST stores request headers the same way under their canonical
+// names (X-Openai-Api-Key); this helper does not canonicalize.
 func Context(headers map[string]string) context.Context {
 	ctx := context.Background()
 	for k, v := range headers {

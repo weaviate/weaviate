@@ -48,7 +48,7 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "query baseURL without a request key",
 			options: &openaiparams.Params{BaseURL: server.URL},
-			wantErr: "baseURL needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "a URL set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:     "query baseURL with a request key",
@@ -59,7 +59,7 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Openai-Baseurl": server.URL},
-			wantErr: "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:        "class baseURL gets the server key",
@@ -69,12 +69,12 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "Azure query baseURL without a request key",
 			options: &openaiparams.Params{IsAzure: true, DeploymentID: "d", BaseURL: server.URL},
-			wantErr: "baseURL needs X-Azure-Api-Key",
+			wantErr: "a URL set in the query needs X-Azure-Api-Key",
 		},
 		{
 			name:    "Azure query resourceName without a request key",
 			options: &openaiparams.Params{IsAzure: true, ResourceName: injectedResourceName, DeploymentID: "d"},
-			wantErr: "resourceName needs X-Azure-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr: "resourceName needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name: "Azure from headers alone uses the Azure request key",
@@ -87,13 +87,13 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			name:        "query isAzure on a non-Azure class without a request key",
 			classConfig: map[string]any{"baseURL": server.URL},
 			options:     &openaiparams.Params{IsAzure: true},
-			wantErr:     "isAzure needs X-Azure-Api-Key: the server's key is not sent to a host named by the request",
+			wantErr:     "a request that turns on Azure needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:        "Azure deployment header on a class with only a resourceName without a request key",
 			classConfig: map[string]any{"baseURL": server.URL, "resourceName": "corp"},
 			headers:     map[string]string{"X-Azure-Deployment-Id": "d"},
-			wantErr:     "isAzure needs X-Azure-Api-Key",
+			wantErr:     "a request that turns on Azure needs X-Azure-Api-Key",
 		},
 		{
 			name:         "Azure class with a baseURL gets the server key",
