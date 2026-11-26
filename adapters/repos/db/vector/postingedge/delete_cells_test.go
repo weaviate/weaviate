@@ -34,12 +34,12 @@ const deleteRecallFloor = 0.6
 const deleteQueries = 10
 
 // deleteClusters is how many clusters the n vectors of a delete fixture are
-// drawn around: one for every few hundred vectors, from two to a dozen, so
-// that every cluster is several postings and every vector has edges. A dozen
+// drawn around: one for every 250 vectors, from two to a dozen, so that
+// every cluster is several postings and every vector has edges. A dozen
 // clusters over a few hundred vectors are mostly one posting each, with no
-// edge out of it.
+// edge out of it; the thousands of vectors of the harness have a dozen.
 func deleteClusters(n int) int {
-	return min(12, max(2, n/320))
+	return min(12, max(2, n/250))
 }
 
 // deleteFixture is a small streaming index with deletes: the first base
