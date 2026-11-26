@@ -1,8 +1,29 @@
-# Índice posting-edge, hito 1: qué se puede probar
+# Índice posting-edge: qué se puede probar (hitos 1 y 2, y la búsqueda con filtro)
 
-**Para:** Rodrigo · **Fecha:** 2026-11-20 · **Rama:** `feat/posting-edge-integration`
+**Para:** Rodrigo · **Fecha:** 2026-11-20, al día el 2026-11-26 · **Rama:** `feat/posting-edge-integration`
 
-Es un tipo de índice vectorial nuevo, experimental, con el nombre provisional `postingedge`. Los vectores viven en postings de unos 236, con aristas a vecinos de otros postings; en RAM queda un código de 512 bits por vector, y los postings y los vectores exactos están en disco. Este hito lo deja funcionando dentro de un shard. No está optimizado ni terminado.
+**Qué es.** Un tipo de índice vectorial nuevo, experimental, con el nombre provisional `postingedge`.
+- Los vectores viven en postings de unos 236, con aristas a vecinos de otros postings.
+- En RAM queda un código de 512 bits por vector, o ninguno con `rq.cacheMode: "none"`. Los postings y los vectores exactos están en disco.
+- Funciona dentro de un shard: los hitos 1 y 2, más la búsqueda con filtro. No está optimizado ni terminado.
+
+**Las PRs.**
+- [#14041](https://github.com/weaviate/weaviate/pull/14041) es el núcleo, en `feat/posting-edge-integration-m2`, contra `main`.
+- [#14023](https://github.com/weaviate/weaviate/pull/14023) es la búsqueda con filtro, en esta rama.
+- El backup ([#14013](https://github.com/weaviate/weaviate/pull/14013)) **no está en esta rama.**
+
+## Cómo arrancar
+
+Desde la rama `feat/posting-edge-integration`. Son los comandos del repositorio; *sin probar por mí en esta rama*.
+
+- **En local:**
+  1. `./tools/dev/restart_dev_environment.sh`, que levanta las dependencias con docker compose.
+  2. `make local`, que deja un nodo en `http://localhost:8080`, con los datos en `./data-weaviate-0`.
+- **Con Docker:**
+  1. `make weaviate-image WEAVIATE_IMAGE=weaviate-postingedge:local`.
+  2. `docker run -p 8080:8080 -p 50051:50051 -e AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true -e PERSISTENCE_DATA_PATH=/var/lib/weaviate -e DEFAULT_VECTORIZER_MODULE=none -e CLUSTER_HOSTNAME=node1 weaviate-postingedge:local`
+- **No hay flag.** Si el nodo tiene `ALLOWED_VECTOR_INDEX_TYPES`, hay que añadirle `postingedge`.
+- **Trae tus vectores:** el índice no vectoriza; `vectorizer: "none"` en la clase.
 
 ## Cómo usarlo
 
@@ -22,32 +43,44 @@ Una clase con este tipo, con todos los parámetros en su valor por defecto:
 }
 ```
 
-- **`ef`:** el ajuste de calidad de una búsqueda. Se puede cambiar en vivo, igual que `rq.rescoreLimit`.
-- **`maxPostingSizeKB: 0` y `rq.rescoreLimit: -1`** son «que elija el índice». Lo demás no se puede cambiar después de crear la clase.
-- **No hay flag.** Si el nodo tiene `ALLOWED_VECTOR_INDEX_TYPES`, hay que añadirle `postingedge`.
+| parámetro | qué es | por defecto | ¿se cambia en una clase que ya existe? |
+|---|---|---|---|
+| `distance` | solo `cosine` en esta versión | `cosine` | no |
+| `ef` | el ajuste de calidad de una búsqueda | 20 | sí, en vivo |
+| `efConstruction` | cuánto busca un insert | 160 | no |
+| `maxPostingSizeKB` | el tamaño de un posting; 0 es «que elija el índice» (unos 236 vectores) | 0 | no |
+| `rq.rescoreLimit` | cuántos vectores exactos rescora una búsqueda; −1 es «que elija el índice» | −1 | sí, en vivo |
+| `rq.cacheMode` | `routing`, los códigos en RAM, o `none`, ninguno | `routing` | no |
+
+`rq` va siempre encendido, con 1 bit y centrado; no hace falta ponerlo.
 
 ## Qué funciona
 
-- Importar, con indexación síncrona. **Con `ASYNC_INDEXING` no está probado.**
-- Buscar por vector, sin filtro.
-- Borrar y actualizar objetos.
-- Reiniciar el nodo: el índice vuelve como estaba.
-- Varios vectores con nombre en una clase, cada uno con su índice.
+- **Importar,** con indexación síncrona y con `ASYNC_INDEXING`. Esta última tiene un test por el shard, sin probar a escala.
+- **Buscar por vector,** sin filtro y con filtro (`where`, también en las híbridas y en `Aggregate`), en los dos modos de `rq.cacheMode`.
+- **Borrar y actualizar objetos,** con limpieza de los borrados (hito 2, abajo).
+- **Reiniciar el nodo:** el índice vuelve como estaba. También tras una caída del proceso a mitad de una escritura.
+- **Varios vectores con nombre** en una clase, cada uno con su índice.
 
 Todo ello está probado por un shard con unos miles de vectores sintéticos, y a 1M solo el índice, sin el shard alrededor.
 
 ## Qué falla por diseño
 
-Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a medias.
+Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a medias. Los mensajes son los del código.
 
-| qué | qué pasa |
-|---|---|
-| Una búsqueda por distancia o certeza, sin límite | La query falla: «search by distance … not supported» |
-| Un backup de una clase con este índice | El backup falla |
-| Otra distancia que no sea `cosine` | La clase no se crea |
-| Multi-vector | La clase no se crea |
-| Cambiar `rq.cacheMode` en una clase que ya existe | El cambio se rechaza: «rq.cacheMode is immutable» |
-| Compresión `pq`, `sq`, `bq`, o `rq` con otros bits | La clase no se crea |
+| qué | qué pasa | el error |
+|---|---|---|
+| Una búsqueda por distancia o certeza, sin límite, con filtro o sin él | La query falla | «search by distance: not supported by this version of the posting-edge index» |
+| Un backup de una clase con este índice | El backup falla | «backup: not supported by this version of the posting-edge index» |
+| Otra distancia que no sea `cosine` | La clase no se crea | «unsupported distance "l2-squared": the posting-edge index only supports "cosine" in this version» |
+| Multi-vector | La clase no se crea | «multi-vectors are not supported by the posting-edge index» |
+| Compresión `pq`, `sq` o `bq` | La clase no se crea | «pq is not supported for the posting-edge index (only rq with 1 bit is)» |
+| `rq` con otros bits | La clase no se crea | «the posting-edge index only supports rq with 1 bit, got 8» |
+| `rq.enabled: false` | La clase no se crea | «the posting-edge index only works with rq: rq.enabled cannot be false» |
+| `rq.centering: false` | La clase no se crea | «the codes of the posting-edge index are always centered: rq.centering cannot be false» |
+| Cambiar `distance`, `efConstruction`, `maxPostingSizeKB` o `rq.cacheMode` en una clase que ya existe | El cambio se rechaza | «rq.cacheMode is immutable: attempted change from "routing" to "none"», y lo mismo con el nombre de los otros |
+
+Un error de la configuración de la clase llega envuelto en «invalid posting-edge config: …».
 
 ## Con qué te vas a encontrar
 
@@ -132,12 +165,27 @@ Cada una de estas cosas da un error que lo dice. Ninguna devuelve un resultado a
   - **El modo no se cambia en una clase que ya existe.**
   - *Verificado por tests,* también por el shard, y con una pasada de 30 000 vectores: el mismo índice abierto con los códigos en memoria responde exactamente lo mismo. Y con el dataset de 1M, el proceso muerto con `kill -9` a los 15 minutos de un import deja un índice que abre entero, con el halo de cada posting completo. *Verificado a 1M* (22 de noviembre): creciendo de 10 000 a 990 000 el índice es el mismo que con los códigos en memoria (0.9536 y 19.7 postings leídos a ef 21, 0.9910 y 72.4 a ef 158), lee tres filas por posting con 208 KB, y abierto con los códigos en memoria no cambia ninguna respuesta. *Sin ninguna medida de latencia ni de heap.*
 
-- **Las búsquedas con filtro (`where`) ya funcionan,** también las híbridas y `Aggregate` con filtro (desde el 23 de noviembre). Con menos de 40 000 objetos permitidos el índice los busca uno a uno por su código y rescora los mejores; con más, recorre el índice y solo devuelve permitidos. Ningún resultado queda fuera del filtro.
-  - **Con `rq.cacheMode: "none"`, un filtro que deja menos de 40 000 objetos da error** («not supported … rq.cacheMode»): ese modo aún no tiene su búsqueda plana. Con más objetos permitidos funciona como en el otro modo.
-  - *Verificado por tests,* también por el shard, en los dos modos. *A 1M:* la medida está en marcha en el modo por defecto, frente a HNSW con `acorn`.
+- **Las búsquedas con filtro (`where`) ya funcionan,** también las híbridas y `Aggregate` con filtro (desde el 23 de noviembre). Ningún resultado queda fuera del filtro.
+  - **Con menos de 40 000 objetos permitidos la búsqueda es plana:** ordena los permitidos por un código y rescora los mejores.
+  - **Con más, recorre el índice** y solo devuelve permitidos.
+  - **Con `rq.cacheMode: "none"` la búsqueda plana también funciona** (desde el 24 de noviembre). Ordena por el código completo que guardan los postings, así que carga una vez cada posting que tenga un permitido. A 1M, al azar al 1 %, son unos 3 655 postings por query, 14 veces lo del recorrido del índice. Lo de cargar postings en esta búsqueda plana cambia en otra rama, que no está en esta.
+  - *Verificado por tests,* también por el shard, en los dos modos.
+  - **Medido a 1M en `routing`, cronometrado el 25 de noviembre** (detalle en [#14023](https://github.com/weaviate/weaviate/pull/14023)):
+    - con un filtro al azar, la plana empieza a ser más barata que el índice entre el 7 % y el 5 % de permitidos;
+    - un filtro correlado con la query va mejor siempre por el índice, y uno anticorrelado por la plana desde el 10 %;
+    - en caliente gana a HNSW por defecto con `acorn` en los cuatro filtros medidos; frente a HNSW centrado pierde al azar al 10 %, empata al 1 % y gana en los correlados y anticorrelados al 1 %;
+    - en frío empata o pierde, sobre todo por las 507 lecturas de vector de la plana.
   - **La búsqueda por distancia sigue sin funcionar,** con filtro o sin él.
 
 - **Un índice al que le falta su `meta.json` ya no abre vacío borrándolo todo** (desde el 23 de noviembre). Da error al abrir, dice qué ficheros hay y no borra nada. Lo único que el índice borra por su cuenta es lo que escribió un build de su base que no acabó. Y solo si ese build dejó la lista de lo que creaba y los vectores de los que partía siguen apartados. Cada vez deja una línea en el log con lo que borró y por qué.
   - *Verificado por tests:* el proceso que muere a mitad del build, el build que falla sin morir, una copia hecha a mitad de un build y restaurada en otro sitio, y los casos en que no borra nada.
 
-**Lo que sigue igual que en el hito 1:** lo demás de «Qué falla por diseño».
+**Lo que sigue igual que en el hito 1:** lo de «Qué falla por diseño», arriba con sus errores.
+
+## Lo que falta
+
+- la búsqueda por distancia;
+- `l2-squared`;
+- las métricas de Prometheus propias del índice;
+- el backup, en #14013;
+- ponerse al día con `main`: la rama sale de un `main` de hace semanas.
