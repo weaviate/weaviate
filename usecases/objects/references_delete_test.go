@@ -260,3 +260,58 @@ func TestRemoveReferenceStructural_MissingProperty(t *testing.T) {
 	assert.False(t, ok)
 	assert.Empty(t, errmsg)
 }
+
+// TestRemoveReference_StoredUntypedRefs pins weaviate/weaviate#6701: storage
+// reads an emptied reference property back as an empty []interface{}, so
+// deleting a reference again (or from an emptied list) must be a no-op like
+// on an empty MultipleRef, not a 500. A populated []interface{} of beacon
+// maps must have the reference removed like a typed list.
+func TestRemoveReference_StoredUntypedRefs(t *testing.T) {
+	const (
+		target = "11111111-1111-1111-1111-111111111111"
+		other  = "22222222-2222-2222-2222-222222222222"
+	)
+	logger, _ := test.NewNullLogger()
+
+	cases := []struct {
+		name      string
+		value     interface{}
+		wantOK    bool
+		wantAfter int
+	}{
+		{name: "empty []interface{}", value: []interface{}{}, wantOK: false, wantAfter: 0},
+		{name: "empty MultipleRef", value: models.MultipleRef{}, wantOK: false, wantAfter: 0},
+		{name: "untyped beacons holding the target", value: []interface{}{
+			map[string]interface{}{"beacon": "weaviate://localhost/Animal/" + target},
+			map[string]interface{}{"beacon": "weaviate://localhost/Animal/" + other},
+		}, wantOK: true, wantAfter: 1},
+		{name: "untyped beacons without the target", value: []interface{}{
+			map[string]interface{}{"beacon": "weaviate://localhost/Animal/" + other},
+		}, wantOK: false, wantAfter: 1},
+	}
+
+	for _, tc := range cases {
+		t.Run("byte exact, "+tc.name, func(t *testing.T) {
+			obj := &models.Object{Properties: map[string]interface{}{"refs": tc.value}}
+			ok, errmsg := removeReferenceByteExact(obj, "refs",
+				strfmt.URI("weaviate://localhost/Animal/"+target))
+			assert.Empty(t, errmsg)
+			assert.Equal(t, tc.wantOK, ok)
+			if ok {
+				assert.Len(t, obj.Properties.(map[string]interface{})["refs"], tc.wantAfter)
+			}
+		})
+
+		t.Run("structural, "+tc.name, func(t *testing.T) {
+			obj := &models.Object{Properties: map[string]interface{}{"refs": tc.value}}
+			r, err := crossref.Parse("weaviate://localhost/Animal/" + target)
+			require.NoError(t, err)
+			ok, errmsg := removeReferenceStructural(obj, "refs", "Zoo", r, logger)
+			assert.Empty(t, errmsg)
+			assert.Equal(t, tc.wantOK, ok)
+			if ok {
+				assert.Len(t, obj.Properties.(map[string]interface{})["refs"], tc.wantAfter)
+			}
+		})
+	}
+}
