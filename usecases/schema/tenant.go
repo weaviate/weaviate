@@ -285,12 +285,23 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 }
 
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
-	var allTenants []*models.Tenant
 	var err error
 
 	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class); err != nil {
 		return nil, err
 	}
+
+	// Requested names are authorized before anything is read so that the cost
+	// of an unauthorized name does not depend on whether the tenant exists.
+	named := len(tenants) > 0
+	if named {
+		tenants = h.authorizedTenantNames(ctx, principal, class, tenants)
+		if len(tenants) == 0 {
+			return []*models.Tenant{}, nil
+		}
+	}
+
+	var allTenants []*models.Tenant
 	if consistency {
 		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
 	} else {
@@ -300,9 +311,12 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	if err != nil {
 		return nil, err
 	}
+	if named {
+		return allTenants, nil
+	}
 
 	resourceFilter := filter.New[*models.Tenant](h.Authorizer, h.config.Authorization.Rbac)
-	filteredTenants := resourceFilter.Filter(
+	return resourceFilter.Filter(
 		ctx,
 		principal,
 		allTenants,
@@ -310,9 +324,42 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		func(tenant *models.Tenant) string {
 			return authorization.ShardsMetadata(class, tenant.Name)[0]
 		},
-	)
+	), nil
+}
 
-	return filteredTenants, nil
+// authorizedTenantNames returns the distinct names the principal may read, in first-seen order.
+// "" and "*" are dropped: ShardsMetadata maps them to the all-tenants resource, and no tenant has such a name.
+func (h *Handler) authorizedTenantNames(ctx context.Context, principal *models.Principal, class string, names []string) []string {
+	seen := make(map[string]struct{}, len(names))
+	unique := make([]string, 0, len(names))
+	for _, name := range names {
+		if name == "" || name == "*" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		unique = append(unique, name)
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+
+	resources := authorization.ShardsMetadata(class, unique...)
+	nameByResource := make(map[string]string, len(unique))
+	for i, name := range unique {
+		nameByResource[resources[i]] = name
+	}
+
+	resourceFilter := filter.New[string](h.Authorizer, h.config.Authorization.Rbac)
+	allowed := resourceFilter.Filter(ctx, principal, resources, authorization.READ, func(r string) string { return r })
+
+	out := make([]string, 0, len(allowed))
+	for _, r := range allowed {
+		out = append(out, nameByResource[r])
+	}
+	return out
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {

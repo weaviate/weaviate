@@ -167,6 +167,16 @@ func readTenantGRPC(t *testing.T, ctx context.Context, class, tenant, key string
 	})
 }
 
+func readTenantNamesGRPC(t *testing.T, ctx context.Context, class string, names []string, key string) (*protocol.TenantsGetReply, error) {
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", key))
+	return helper.ClientGRPC(t).TenantsGet(ctx, &protocol.TenantsGetRequest{
+		Collection: class,
+		Params: &protocol.TenantsGetRequest_Names{
+			Names: &protocol.TenantNames{Values: names},
+		},
+	})
+}
+
 func readTenants(t *testing.T, class string, key string) (*clschema.TenantsGetOK, error) {
 	params := clschema.NewTenantsGetParams().WithClassName(class)
 	return helper.Client(t).Schema.TenantsGet(params, helper.CreateAuth(key))
