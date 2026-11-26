@@ -313,6 +313,63 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **En `filter1m` caen además los retirados:** 7.0 MB para los 4 239 nodos del grafo (4 074 vivos y 165 tombstones), donde antes había 50.0 MB para los 8 105 posting ids dados.
 - **Lo que queda en `none` a 10M:** el mapa de docID a posting y slot, 80.2 de 120.6 MB, dos tercios del índice.
 
+### La memoria de un índice crecido por inserts, a 10M (estimada, 2026-11-26)
+
+*Estimado, no medido. Las celdas de 10M se construyeron de una vez. Lo que solo tiene un índice crecido sale del desglose de `filter1m`, crecido a 1M por inserts en un shard (tabla de arriba), y del código de `feat/posting-edge-integration-m2` (`d5d5c99468`).*
+
+**De qué depende cada componente que solo tiene el índice crecido:**
+
+| componente | a 1M (`filter1m`) | de qué depende | tope |
+|---|---:|---|---|
+| cambios de aristas pendientes de consolidar | 25.2 | postings vivos × lo que espera en cada uno: hasta 64 cambios por posting (`DefaultConsolidate`), unos 6.2 KB de media | por posting sí (64 cambios); en total, **ninguno**: crece con los postings |
+| `lsmkv`: bloom e índices de segmento | 10.5 | claves en los segmentos de los buckets por docID, versiones viejas incluidas hasta que se compactan | ninguno propio; lo acota la compactación. Las memtables, mientras se escribe, hasta su límite por bucket |
+| docID → slot | 5.0 | 4 B × `keys` | ninguno |
+| docID → cuándo se hicieron sus aristas | 5.0 | 4 B × `keys` | ninguno; solo lo lee el refresco, apagado por defecto, y se carga siempre |
+| vivos por docID | 1.3, con los tamaños | 1 B × `keys` | ninguno |
+| tamaño por posting y retirados | (arriba) | 5 B × posting ids dados, unas dos veces los vivos | ninguno |
+| tombstones (marcas por docID) | 1.2 | 1 B × `keys`, haya borrados o no | ninguno |
+
+- **`keys` no es el número de vivos:** es 1.25 veces el mayor doc id que el índice ha visto (`keysFor`). Un shard da un doc id nuevo en cada update, así que con updates crecen los doc ids y no los vivos. Las tablas por docID cuestan 14 B por doc id dado, más la holgura del 25 %, y nunca encogen.
+- **Postings vivos a 10M crecido:** unos 42 000, como el lote. A 1M el índice crecido tiene 243 vectores por posting y el lote 236.
+
+**La fila a 10M (MB, heap del índice; el crecido, estimado con 10M doc ids, `keys` = 12.5 M):**
+
+| componente | `none` lote | `none` crecido (estimado) | `routing` lote | `routing` crecido (estimado) |
+|---|---:|---:|---:|---:|
+| centroides RQ8 y su caché | 34.7 | ≈ 35 | 34.7 | ≈ 35 |
+| grafo de los centroides | 5.3 | ≈ 5.3, más sus tombstones hasta la limpieza | 5.3 | ≈ 5.3 |
+| docID → posting | 80.2 (con el slot) | 50 | 80.2 (con el slot) | 50 |
+| docID → slot | (en la fila de arriba) | 50 | (en la fila de arriba) | 50 |
+| docID → cuándo se hicieron sus aristas | — | 50 | — | 50 |
+| vivos, tamaños y retirados | — | ≈ 13 | — | ≈ 13 |
+| tombstones | 0 | 12.5 | 0 | 12.5 |
+| cambios de aristas pendientes | — | ≈ 260 | — | ≈ 260 |
+| `lsmkv` | 0.2 | ≈ 105 (10 veces el de 1M) | 0.2 | ≈ 105 |
+| códigos de ruteo | — | — | 720.0 | 720 |
+| resto | 0.2 | ≈ 2 | 0.1 | ≈ 2 |
+| **el índice** | **120.6** | **≈ 580** | **840.6** | **≈ 1 300** |
+
+- **Lo que más pesa en el crecido son los cambios pendientes**, unos 260 MB, y crecen con los postings.
+- **El bloom se escala a ojo.** Depende de cuántas versiones de cada clave haya en los segmentos sin compactar, que a 10M no he medido.
+- **El lote es más pequeño por construcción:** no tiene pendientes, ni bloom de un store de shard (el arnés abre sus buckets sin bloom), ni las tablas que solo usan los inserts.
+
+**Un tope para los cambios pendientes (propuesta, *mía*).** Un presupuesto global de bytes: al pasarlo, el índice consolida el posting que más tiene esperando (escribe su fila de aristas) antes de llegar a sus 64 cambios.
+- **El coste es en escrituras de filas de aristas.** Una fila es de unos 31 KB (243 miembros × 16 aristas × 8 B, estimado). Hoy se escribe cada 64 cambios: unos 485 B por cambio.
+- **Con presupuesto B y P postings,** cada posting espera de media B/P bytes, unos 2B/(P × 194 B) cambios. A 10M, con P = 42 000:
+
+| presupuesto | cambios por fila | escritura de filas por cambio | frente a hoy |
+|---|---:|---:|---:|
+| sin tope (hoy, ≈ 260 MB) | 64 | ≈ 485 B | 1× |
+| 128 MB | ≈ 31 | ≈ 1.0 KB | ≈ 2.1× |
+| 64 MB | ≈ 16 | ≈ 2.0 KB | ≈ 4.1× |
+| 32 MB | ≈ 8 | ≈ 3.9 KB | ≈ 8× |
+
+- Un insert toca su posting y, por las aristas inversas, unos cuantos más. Cada uno es un cambio de la tabla.
+- **Propongo 64 MB** (*mío*): a 10M quita unos 200 MB y cuadruplica las escrituras de filas, que son una parte de las de un insert. A 1M, con 4 000 postings, apenas se notaría.
+- **Y no cargar la tabla de cuándo se hicieron las aristas mientras el refresco esté apagado:** son 50 MB a 10M.
+- **Con las dos cosas,** el crecido quedaría en unos 330 MB en `none` y unos 1 050 en `routing`.
+- No está medido. Antes de decidir habría que crecer 10M en un shard y medir, como `filter1m` a 1M.
+
 ## Centroides en RQ8, sin rescore, como HFresh (pre-registro, 2026-11-26)
 
 **Estado: pre-registrado antes de compilar nada.** El encargo es del usuario. Lo que deja abierto lo fijo aquí, marcado como *mío*.
