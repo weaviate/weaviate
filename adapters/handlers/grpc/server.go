@@ -68,9 +68,6 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		grpc.MaxSendMsgSize(grpcConf.MaxMsgSize),
 	}
 
-	// FIXME(dyma): Append these at the end so that the caller can override any of the options here?
-	o = append(o, options...)
-
 	// Add TLS creds for the GRPC connection, if defined.
 	if len(grpcConf.CertFile) > 0 || len(grpcConf.KeyFile) > 0 {
 		c, err := credentials.NewServerTLSFromFile(grpcConf.CertFile, grpcConf.KeyFile)
@@ -113,6 +110,9 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		serverStateStreamInterceptor((*serverState)(state)),
 		makeDocsLinkStreamInterceptor(),
 	))
+
+	// Allow caller to override any of our default configurations.
+	o = append(o, options...)
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
