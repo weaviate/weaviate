@@ -27,7 +27,6 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
-	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -254,7 +253,7 @@ func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor 
 		// Mirror makeAuthInterceptor so streams get the same wire contract.
 		err := handler(srv, ss)
 		// FIXME(dyma): this doesn't need to return nil "so callers can fallthrough".
-		// That's nonsence, it should just return the original error if it cannot be
+		// That's nonsense, it should just return the original error if it cannot be
 		// mapped.
 		if translated := translateTypedError(err); translated != nil {
 			return translated
@@ -264,7 +263,7 @@ func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor 
 }
 
 // ----------------------------------------------------------------------------
-// Operational + maintainance mode
+// Operational + maintenance mode
 // ----------------------------------------------------------------------------
 
 type serverState state.State
@@ -284,19 +283,19 @@ func (s *serverState) admit(method string) error {
 		grpc_health_v1.Health_List_FullMethodName:
 
 	// Read request.
-	case protocol.Weaviate_Search_FullMethodName,
-		protocol.Weaviate_Aggregate_FullMethodName,
-		protocol.Weaviate_TenantsGet_FullMethodName:
+	case pbv1.Weaviate_Search_FullMethodName,
+		pbv1.Weaviate_Aggregate_FullMethodName,
+		pbv1.Weaviate_TenantsGet_FullMethodName:
 
 		if s.ServerConfig.Config.OperationalMode.Get() == config.WRITE_ONLY {
 			err = config.ErrWriteOnlyModeEnabled
 		}
 
 	// Write request.
-	case protocol.Weaviate_BatchObjects_FullMethodName,
-		protocol.Weaviate_BatchStream_FullMethodName,
-		protocol.Weaviate_BatchReferences_FullMethodName,
-		protocol.Weaviate_BatchDelete_FullMethodName:
+	case pbv1.Weaviate_BatchObjects_FullMethodName,
+		pbv1.Weaviate_BatchStream_FullMethodName,
+		pbv1.Weaviate_BatchReferences_FullMethodName,
+		pbv1.Weaviate_BatchDelete_FullMethodName:
 
 		switch s.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
