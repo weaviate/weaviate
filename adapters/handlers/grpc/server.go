@@ -92,7 +92,14 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 	)
 
 	o = append(o, grpc.ChainUnaryInterceptor(
+		// TODO(dyma): at the moment authentication happens inside the handler,
+		// which is why this interceptor's name is at odds with its substance.
+		// We need to push auth from the handler back to the authentication layer,
+		// like it's done in the streaming RPC case.
 		makeAuthInterceptor(),
+		// TODO(dyma): Move all tracing / metrics collection to a StatsHandler,
+		// and unify that with monitoring.GRPCTracingInterceptor below.
+		// We already have an implementation lying around in usecases/monitoring/grpc.go.
 		makeMetricsInterceptor(state.Logger, state.Metrics),
 		clientTrackingUnaryInterceptor(conf.ClientTracker, conf.IntegrationTracker),
 		serverStateUnaryInterceptor((*serverState)(state)),
