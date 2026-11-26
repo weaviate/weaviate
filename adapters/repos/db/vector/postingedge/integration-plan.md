@@ -1843,6 +1843,116 @@ Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce q
   - **El corte se revisará en Linux.** La medida cuenta lecturas, no bytes. Allí los bytes pueden pesar más que el número de lecturas, y por bytes el cruce sale en 4 813 permitidos y no en 2 432.
 - **La rama va en una PR aparte contra `feat/posting-edge-integration-m2`, cuando se mergee [#14023](https://github.com/weaviate/weaviate/pull/14023),** y no dentro de esa PR (decisión del usuario, 25 de noviembre).
 
+### El 25 de noviembre: A, B, C, la reproducción R y la repetición de los puntos marcados
+
+*Orden del usuario del 25 por la mañana. La PR de filtros se abrió primero ([#14023](https://github.com/weaviate/weaviate/pull/14023)), con las cifras del 23 marcadas como provisionales. Todo corrió bajo `caffeinate -s -i`, y después de cada proceso se leyó el registro de energía: el Mac no se durmió en ninguno de los ocho. Los registros de las cadenas están en `testdata/bench/integration-filters/retime-*.txt`.*
+
+**Cuándo y con qué binario:**
+
+| proceso | qué mide | cuándo | binario |
+|---|---|---|---|
+| A | el nuestro sin HNSW: el índice y la plana forzados, en los doce filtros y al azar al 7, 5 y 3 % | 09:35 a 16:22 | del 24 a las 09:01 (`b1ee33a38b`) |
+| B y C, primera vez | HNSW por defecto y centrado, con `acorn` | 16:22 y 16:26, fallan | del 24 a las 09:01 |
+| B | HNSW por defecto con `acorn`: al azar 10 % y 1 %, near y far 1 % | 17:23 a 17:42 | de `0ca6067e57` |
+| C | HNSW centrado, los mismos cuatro filtros | 17:42 a 17:55 | de `0ca6067e57` |
+| R | la reproducción de la plana lenta en las condiciones del 23 | 18:16 a 22:02 | del 24 a las 09:01 |
+| A2, B2 y C2 | la repetición de los 10 puntos marcados | 22:02 a 23:10 | de `0ca6067e57` |
+
+- **El código del índice es el mismo en los dos binarios** en todo lo que se mide aquí: entre `b1ee33a38b` y `0ca6067e57` solo cambian el arnés y el camino de `none`, que no se mide. Entre el binario de la noche del 23 (`ada98eba8e`) y `b1ee33a38b` solo cambia el arnés.
+- **Datos:** `filters-retime-{A,B,C}-dbpedia-1m*` (`8715962982`), `filters-timed-slowflat-20261125-dbpedia-1m*` y `filters-retime-repeat-{A,B,C}-dbpedia-1m*` (`c312f955b7`), y las salidas de la primera vez de B y C en `retime-failed-20261125-1626/`.
+
+**B y C fallaron la primera vez por un error del arnés, ya arreglado.**
+- Antes de cada lote en frío, la medida cerraba solo los buscadores que medía. B y C miden solo HNSW, con `-bench.filters.points`, así que nuestro índice, abierto al empezar, seguía abierto en el volumen y el desmontaje fallaba en el primer lote en frío.
+- Reproducido en el volumen de 1M con el binario del 24: en el primer vaciado, `lsof` muestra abiertos los segmentos lsm, el diario y el registro de cambios de los centroides de `filter1m/pe`.
+- `c10bcef29d` es el test en rojo (`TestFilterSearchersClosedBeforeADrop`) y `0ca6067e57` el arreglo: antes de un vaciado se cierra todo buscador construido, se mida o no. Con el arreglo, los mismos parámetros pasaron 8 vaciados con el desmontaje y el montaje del volumen, sin nada abierto bajo el índice.
+- A, la noche del 23 y la R del 24 medían nuestro índice, así que no les afectó.
+- *Gotcha:* `lsof +D` sale con 1 aunque liste ficheros abiertos. Hay que leer su salida, no su código de salida.
+
+**El criterio no cambia:** va por cargas, y las cargas son las mismas. La primera parte se cumple al azar al 50 % (1.30 veces) y no al 10 % (2.69 veces, en ef 10). La segunda se cumple.
+
+**La plana cuesta de 41 a 56 ns por permitido en caliente, como en un proceso nuevo, y no de 230 a 250.**
+- En A, por mínimos cuadrados sobre las siete cuotas al azar de la ronda 1, 40.8 ns. Entre el 0.1 % y el 1 %, 56 y 55 ns (rondas 1 y 2). Entre el 1 % y el 10 %, 48 y 47 ns.
+- Al azar al 10 %, 5.49 ms en caliente, y el frío suma 7.9 ms por las 507 lecturas.
+
+**R: la plana lenta del 23 no se reproduce en sus condiciones.**
+- Fueron las condiciones del 23: el mismo código del índice, HNSW vivo en el proceso, las curvas de todos los buscadores, la espera de 60 minutos sin teclado ni trackpad y una ronda con el índice en sus 13 filtros antes que la plana. A las 19:14, al acabar las curvas, la máquina ya llevaba más de una hora quieta, así que la ronda empezó entonces.
+- La plana da lo de A: al azar al 10 %, 5.56 ms en caliente frente a 23.70 y 26.26 la noche del 23, y 13.38 ms en frío frente a 32.07 y 32.23. Coste por permitido, 56 ns entre el 0.1 % y el 1 % y 48 ns entre el 1 % y el 10 %.
+- Los contadores alrededor de cada medida de la plana están quietos: ningún swapout, el swap del sistema fijo en 3 891 MB, ninguna compresión del sistema salvo 344 páginas en near 10 %, y el proceso con 110 MB comprimidos, fijos de principio a fin.
+- Las celdas del índice salen como en A con HNSW vivo en el proceso: del 0 al +6 % en caliente, salvo far 0.1 % (+15 %, 379 frente a 331 ms), y del 0 al +5 % en frío, salvo far 1 % (+11 %). La ronda 1 del 23 fue de un 8 a un 21 % más lenta que R en caliente.
+- **Lectura:** nada apunta al índice. Con el mismo código, el mismo orden y HNSW vivo, la plana cuesta lo que en un proceso nuevo. La lentitud de la noche del 23 queda atribuida al entorno de esa noche, sin causa conocida, y no hay test en rojo que escribir. Esa noche fue más lento todo el proceso: el índice de un 8 a un 22 % y HNSW de un 14 a un 55 %, pero la plana 4 veces.
+
+**El punto de cruce al azar cae entre el 7 % y el 5 %, medido** (p50 en frío a 0.95, media de las dos rondas):
+
+| filtro | índice | plana | más barato |
+|---|---:|---:|---|
+| al azar 10 % | 8.24 | 13.36 | índice, 1.62 veces |
+| al azar 7 % | 10.50 | 12.11 | índice, 1.15 veces |
+| al azar 5 % | 12.50 | 11.23 | plana, 1.11 veces |
+| al azar 3 % | 18.43 | 9.72 | plana, 1.90 veces |
+| al azar 1 % | 41.88 | 7.60 | plana, 5.51 veces |
+
+- La cuota más alta en la que la plana es más barata es el 5 %, 49 500 permitidos. El corte de 40 000 queda por debajo: entre 40 000 y unos 50 000 permitidos, la plana sería un 10 % más barata en frío. *Mío, no pre-registrado:* una recta entre el 7 % y el 5 % cruza hacia el 5.9 %, unos 58 000 permitidos.
+- El correlado no cruza: el índice es más barato en las cuatro cuotas (de 1.46 a 6.57 veces). El anticorrelado cruza entre el 50 % y el 10 %.
+- Un corte que solo cuenta permitidos acierta con el azar, es demasiado alto para el correlado y demasiado bajo para el anticorrelado.
+
+**El nuestro frente a HNSW con `acorn`, por defecto y centrado,** cada filtro por el camino que le da el corte, p50 en caliente / en frío en ms (media de las dos rondas de B y C):
+
+| filtro | el nuestro | HNSW por defecto | HNSW centrado |
+|---|---|---|---|
+| al azar 10 % | índice · 3.24 / 8.24 | ef 133 · 3.73 / 7.56 | ef 68 · 2.21 / 5.77 |
+| al azar 1 % | plana · 1.24 / 7.60 | ef 37 · 1.91 / 4.12 | ef 17 · 1.35 / 3.39 |
+| near 1 % | plana · 1.26 / 8.64 | ef 41 · 3.54 / 8.63 | ef 18 · 3.17 / 6.90 |
+| far 1 % | plana · 1.28 / 9.13 | ef 146 · 3.71 / 6.96 | ef 30 · 3.26 / 7.43 |
+
+- **En caliente** el nuestro gana a HNSW por defecto en los cuatro (de 0.34 a 0.87 veces). Frente al centrado gana en near y far 1 % (0.40 y 0.39), empata al azar 1 % (0.92) y pierde al azar 10 % (1.47).
+- **En frío** empata con el de por defecto al azar 10 % (1.09). Pierde al azar 1 % (1.84 y 2.24 veces), en far 1 % frente al de por defecto (1.31) y al azar 10 % frente al centrado (1.43). Near 1 %, y far 1 % frente al centrado, se leen con la repetición (abajo).
+- **El frío de nuestra plana son sus 507 lecturas de vector,** de 6.4 a 7.9 ms sobre su p50 en caliente. HNSW reescora de 17 a 146.
+- **HNSW centrado llega a 0.95 con menos ef en los cuatro filtros** y es más rápido en frío al azar al 10 % y al 1 %.
+
+**La deriva: el detector marcó 10 de los 76 puntos de A, B y C,** y la repetición los midió otra vez, solos y con el mismo protocolo (p50 en ms):
+
+| punto | medida | A, B y C: rondas 1 / 2 | repetición: rondas 1 / 2 |
+|---|---|---:|---:|
+| nuestra plana, al azar 50 % | caliente | 21.21 / 25.22 | 21.41 / 23.80 |
+| nuestra plana, near 50 % | caliente | 21.25 / 25.58 | 21.05 / 24.10 |
+| nuestra plana, near 10 % | caliente | 5.55 / 8.27 | 5.51 / 8.26 |
+| nuestra plana, far 50 % | caliente | 21.24 / 24.07 | 21.14 / 23.92 |
+| nuestra plana, far 10 % | caliente | 5.52 / 8.01 | 6.84 / 7.86 |
+| HNSW por defecto, near 1 % | frío | 10.85 / 6.42 | 9.70 / 7.27 |
+| HNSW centrado, al azar 10 % | frío | 5.45 / 6.10 | 5.81 / 5.90 |
+| HNSW centrado, near 1 % | caliente | 3.00 / 3.34 | 2.98 / 3.30 |
+| HNSW centrado, near 1 % | frío | 8.47 / 5.33 | 8.24 / 10.51 |
+| HNSW centrado, far 1 % | frío | 9.99 / 4.86 | 8.85 / 9.04 |
+
+- **Nuestra plana, en caliente, vuelve a ir más lenta en la ronda 2,** con los mismos valores: del +11 al +50 %.
+  - En la ronda 2 cada punto lee de 6.9 a 7.8 GB del disco durante sus pasadas en caliente, frente a 0 a 177 MB en la ronda 1 (far 10 %, el único que ya sale algo lento en la ronda 1, lee 2.5 GB). La CPU es la misma.
+  - La caché de ficheros no guarda en la ronda 2 los vectores que reescoran las 3 000 queries en caliente: hasta unos 3 GB por filtro. En R pasa lo mismo en los filtros al 50 % y en near 10 %. Es la máquina, no cómputo.
+  - El frío de esos puntos no se mueve (1.3 % como mucho), y son puntos de la plana forzada en cuotas que el corte manda al índice. No cambia ninguna conclusión.
+  - *Mío, sin comprobar:* por qué la caché deja de retenerlos después de unos 250 desmontajes del volumen.
+- **HNSW en frío al 1 % no tiene un efecto de ronda: se dispersa.**
+  - El signo cambia entre sesiones: near 1 % centrado va del −37 % en C al +28 % en C2.
+  - Dentro de una ronda, las dos mitades llegan a separarse un 60 % (5.75 y 9.16 ms en la ronda 2 de B2).
+  - Sus p50 en frío van de 4.9 a 10.9 ms con el mismo ef y las mismas lecturas de disco.
+- **Con las cuatro rondas de las dos sesiones** (*mío*: la regla no dice qué hacer con una repetición que vuelve a derivar), el frío de HNSW es:
+  - near 1 %: 8.56 ms por defecto y 8.14 centrado. El nuestro, con 8.64, empata con los dos (1.01 y 1.06 veces).
+  - far 1 % centrado: 8.19 ms. El nuestro pierde por poco, 1.12 veces.
+  - al azar 10 % centrado: 5.82 ms. El nuestro pierde 1.42 veces, como con la primera sesión sola.
+  - Los dos puntos que no vuelven a derivar (al azar 10 % y far 1 % centrados, en frío) dan en la repetición 5.81 / 5.90 y 8.85 / 9.04.
+- **No se encola otra repetición** (*mío*): la plana tiene su causa medida, y HNSW está dentro de su propia dispersión.
+
+**Lo esperado frente a lo medido** (lo esperado es del pre-registro de `bench-report.md`, del 24 a las 07:20):
+- **La plana, unos 50 ns por permitido en caliente, 5.8 ms al azar al 10 %, y unos 8 ms más en frío:** se cumple, con 41 a 56 ns, 5.49 ms y 7.9 ms.
+- **El cruce al azar entre el 7 % y el 5 %:** se cumple.
+- **El correlado: el índice gana en las cuatro cuotas:** se cumple.
+- **El anticorrelado: la plana gana al 10 % y al 1 %:** se cumple, y también al 0.1 %.
+- **HNSW centrado, al azar al 10 %, llega con menos ef y es más rápido en frío:** se cumple (ef 68 frente a 133, 5.77 ms frente a 7.56).
+- **HNSW centrado y por defecto empatan al 1 %, los dos por su búsqueda plana:** no se cumple. El centrado llega con menos ef (17 frente a 37 al azar), así que reescora menos y es más rápido: 3.39 frente a 4.12 ms en frío al azar al 1 %.
+- **El nuestro pierde frente al centrado al azar al 10 % por más que frente al de por defecto:** se cumple, 1.43 veces frente a 1.09.
+
+**Queda abierto:**
+- por qué la caché de ficheros deja de retener los vectores de la plana en caliente en la ronda 2;
+- el corte de 40 000 frente al cruce medido al azar, entre el 7 % y el 5 %, que ya no es el 3.5 % interpolado del 23. El valor del corte lo decide el usuario.
+
 ## 9. Un índice sin su `meta.json` (23 de noviembre)
 
 *Orden del usuario del 23, al leer el backup: «Primero el test en rojo, que abra el índice sin `meta.json` y compruebe que no se borra nada. Después el arreglo: si falta, error al abrir, nunca borrado».*

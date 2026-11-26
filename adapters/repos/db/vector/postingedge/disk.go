@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -157,7 +158,7 @@ func getFloat32(buf []byte) float32 {
 // from the same centroids would not be the same graph.
 func openCentroidGraph(ctx context.Context, logger logrus.FieldLogger, dir string, vectors [][]float32,
 ) (*centroidIndex, error) {
-	return openCentroidGraphWith(ctx, logger, dir, vectors, centroidCycles{})
+	return openCentroidGraphWith(ctx, logger, dir, vectors, centroidCycles{}, centroidCodes{})
 }
 
 // centroidCycles are the cycles of a node that keep a centroid graph as they
@@ -182,8 +183,8 @@ type centroidCycles struct {
 // openCentroidGraphWith is openCentroidGraph with the cycles that keep the
 // graph.
 func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir string, vectors [][]float32,
-	cycles centroidCycles,
-) (*centroidIndex, error) {
+	cycles centroidCycles, codes centroidCodes,
+) (_ *centroidIndex, err error) {
 	if cycles.tombstones == nil {
 		cycles.tombstones = cyclemanager.NewCallbackGroupNoop()
 	}
@@ -191,22 +192,51 @@ func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir s
 		cycles.commitLogs = cyclemanager.NewCallbackGroupNoop()
 	}
 	index := &centroidIndex{vectors: vectors}
-	index.publish()
 	vectorForID := index.publishedVector
 	uc := centroidUserConfig(centroidEF)
 	if cycles.everyCycle {
 		uc.CleanupIntervalSeconds = 0
 	}
+	id := "centroids"
+	if codes.store != nil {
+		// As HFresh keeps its centroids: 8-bit RQ, searched with the codes
+		// alone, in a bucket of the store, and nothing in float32.
+		if index.file, err = openCentroidFile(codes.file, codes.dims); err != nil {
+			return nil, err
+		}
+		defer func() {
+			if err != nil {
+				_ = index.file.close()
+			}
+		}()
+		index.codes, index.vectors = true, nil
+		index.store, index.bucket = codes.store, helpers.CompressedBucketNameForID(codes.id)
+		uc.RQ.Enabled, uc.RQ.Bits, uc.RQ.RescoreLimit = true, 8, 0
+		// The graph finds its commit log by its id, which names the bucket of
+		// its codes too. A graph written in float32 logged under "centroids":
+		// its log takes the id before it opens, and the graph converts.
+		id = codes.id
+		logged, now := filepath.Join(dir, "centroids.hnsw.commitlog.d"), filepath.Join(dir, id+".hnsw.commitlog.d")
+		if _, err := os.Stat(now); os.IsNotExist(err) {
+			if _, err := os.Stat(logged); err == nil {
+				if err := os.Rename(logged, now); err != nil {
+					return nil, errors.Wrap(err, "take the commit log of the centroid graph to convert it")
+				}
+			}
+		}
+	}
 	graph, err := hnsw.New(hnsw.Config{
-		RootPath: dir,
-		ID:       "centroids",
-		Logger:   logger,
+		RootPath:            dir,
+		ID:                  id,
+		MakeBucketOptions:   codes.makeOptions,
+		WaitForCachePrefill: codes.store != nil,
+		Logger:              logger,
 		MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 			if cycles.logThreshold > 0 {
 				// Whatever the graph asks for comes after, and wins.
 				opts = append([]hnsw.CommitlogOption{hnsw.WithCommitlogThreshold(cycles.logThreshold)}, opts...)
 			}
-			return hnsw.NewCommitLogger(dir, "centroids", logger, cycles.commitLogs, opts...)
+			return hnsw.NewCommitLogger(dir, id, logger, cycles.commitLogs, opts...)
 		},
 		DistanceProvider: distancer.NewL2SquaredProvider(),
 		VectorForIDThunk: vectorForID,
@@ -222,13 +252,53 @@ func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir s
 		},
 		GetViewThunk: func() common.BucketView { return noopBucketView{} },
 		HFreshMode:   true,
-	}, uc, cycles.tombstones, nil)
+	}, uc, cycles.tombstones, codes.store)
 	if err != nil {
 		return nil, errors.Wrap(err, "open the centroid graph")
 	}
 	graph.PostStartup(ctx)
 	index.graph = graph
+	if codes.store != nil && !graph.Compressed() && graph.CurrentVectorsLen() > 0 {
+		// A graph written in float32, by a build or by a version of the index
+		// before codes: it converts now, reading its centroids from the file,
+		// and logs the codes, so that it opens with them from now on.
+		if err := convertCentroidGraph(graph); err != nil {
+			_ = graph.Shutdown(ctx)
+			return nil, err
+		}
+	}
 	return index, nil
+}
+
+// centroidCodes, when store is set, has the graph over the centroids of an
+// index on disk keep them as HFresh keeps its own: 8-bit RQ codes in a bucket
+// of store, named by id, and nothing in float32 in memory. The graph reads a
+// centroid from file, the file of the centroids, while it converts to codes
+// or is built again.
+type centroidCodes struct {
+	store       *lsmkv.Store
+	makeOptions lsmkv.MakeBucketOptions
+	id          string
+	file        string
+	dims        int
+}
+
+// convertCentroidGraph compresses a graph that holds its centroids in float32
+// into its codes, and waits for it.
+func convertCentroidGraph(graph *hnsw.HNSW) error {
+	done := make(chan struct{})
+	var upgradeErr error
+	if err := graph.Upgrade(func() { close(done) }); err != nil {
+		upgradeErr = err
+	}
+	<-done
+	if upgradeErr != nil {
+		return errors.Wrap(upgradeErr, "convert the centroid graph to codes")
+	}
+	if !graph.Compressed() {
+		return errors.New("convert the centroid graph to codes: the graph is not compressed after it")
+	}
+	return nil
 }
 
 // writeCentroidGraph builds the graph over the centroids into an empty

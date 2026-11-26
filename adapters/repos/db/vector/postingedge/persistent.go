@@ -253,6 +253,11 @@ type PersistentConfig struct {
 	// passes that are on.
 	noMaintenance bool
 	noBackground  bool
+	// float32Centroids has the graph over the centroids keep them in float32
+	// in memory, as before, and not as 8-bit RQ codes in a bucket of the
+	// store, as HFresh keeps its own: for the tests of the conversion and the
+	// measure of what the codes cost (bench-report.md, "Centroides en RQ8").
+	float32Centroids bool
 	// centroidsEveryCycle has the graph over the centroids cleaned in every
 	// cycle of TombstoneCallbacks, and not once every few minutes: for the
 	// tests, which run the cycles themselves.
@@ -370,6 +375,15 @@ func (p *Persistent) bucketName(bucket string) string {
 	return helpers.PostingEdgeBucketName(strings.TrimPrefix(bucket, growBucketPrefix), p.cfg.ID)
 }
 
+// centroidsID is the id of the graph over the centroids, which names the
+// bucket of their codes in the store, or empty for centroids in float32.
+func (p *Persistent) centroidsID() string {
+	if p.cfg.float32Centroids {
+		return ""
+	}
+	return helpers.PostingEdgeCentroidsID(p.cfg.ID)
+}
+
 func (p *Persistent) stagingName() string {
 	return helpers.PostingEdgeBucketName(helpers.PostingEdgeBucketStaging, p.cfg.ID)
 }
@@ -383,6 +397,7 @@ func (p *Persistent) growOpen() growOpen {
 		keepPending: true,
 		journal:     true,
 		noCodes:     p.noCodes,
+		centroidsID: p.centroidsID(),
 		cycles: centroidCycles{
 			tombstones: p.cfg.TombstoneCallbacks, commitLogs: p.cfg.CommitLogCallbacks,
 			logThreshold: p.cfg.CommitLogThreshold, everyCycle: p.cfg.centroidsEveryCycle,
@@ -1460,7 +1475,8 @@ func (p *Persistent) Drop(ctx context.Context, keepFiles bool) error {
 	if err := os.RemoveAll(p.buildDir); err != nil {
 		return errors.Wrap(err, "remove the directory of a build of the base")
 	}
-	for _, name := range append(p.baseBucketNames(), p.stagingName()) {
+	// The bucket of the codes of the centroid graph is of the index too.
+	for _, name := range append(p.baseBucketNames(), p.stagingName(), helpers.PostingEdgeCentroidCodesBucketName(p.cfg.ID)) {
 		if err := os.RemoveAll(filepath.Join(p.store.GetDir(), name)); err != nil {
 			return errors.Wrapf(err, "remove the bucket %s", name)
 		}

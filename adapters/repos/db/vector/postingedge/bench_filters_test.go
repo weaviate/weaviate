@@ -547,6 +547,57 @@ type filterSearcher struct {
 	close, open func()
 }
 
+// filterOpenSet opens one searcher at a time over the disk under test, and
+// closes before a drop of the cache every searcher in built.
+type filterOpenSet struct {
+	built  []*filterSearcher
+	opened *filterSearcher
+}
+
+func (o *filterOpenSet) closeAll() {
+	for _, s := range o.built {
+		if s.close != nil {
+			s.close()
+		}
+	}
+	o.opened = nil
+}
+
+// openOnly closes every searcher and opens s, unless s is the one open, and
+// tells how long that took.
+func (o *filterOpenSet) openOnly(s *filterSearcher) time.Duration {
+	clock := time.Now()
+	if o.opened != s {
+		o.closeAll()
+		s.open()
+		o.opened = s
+	}
+	return time.Since(clock)
+}
+
+// measuredFilterSearchers keeps, of the searchers built, those names names
+// (every one when it is empty) and pointed measures, and gives the set that
+// opens them one at a time over the disk under test.
+func measuredFilterSearchers(built []*filterSearcher, names string, pointed func(searcher, filter string) bool,
+) ([]*filterSearcher, *filterOpenSet, error) {
+	measured := slices.Clone(built)
+	if names != "" {
+		wanted := map[string]bool{}
+		for _, name := range strings.Split(names, ",") {
+			wanted[strings.TrimSpace(name)] = true
+		}
+		measured = slices.DeleteFunc(measured, func(s *filterSearcher) bool { return !wanted[s.index+" "+s.path] })
+		if len(measured) == 0 {
+			return nil, nil, fmt.Errorf("no searcher is named %q", names)
+		}
+	}
+	measured = slices.DeleteFunc(measured, func(s *filterSearcher) bool { return !pointed(s.index+" "+s.path, "") })
+	// Every searcher built holds its files open from when it is built,
+	// measured or not: the set closes them all before a drop of the cache, or
+	// the volume under them cannot be unmounted.
+	return measured, &filterOpenSet{built: built}, nil
+}
+
 // TestIntegrationFilters measures filters on the integrated index and on
 // HNSW at 1M (see the head of this file). The integrated index is the one the
 // scale harness left in -bench.filters.index; HNSW is built here, with its
@@ -662,7 +713,7 @@ func TestIntegrationFilters(t *testing.T) {
 	defer ours.shut()
 	result.Meta = ours.p.g.meta
 	result.Cutoff = DefaultFlatSearchCutoff
-	searchers := []*filterSearcher{ours.searcher("graph", -1, queries, k), ours.searcher("flat", math.MaxInt, queries, k)}
+	built := []*filterSearcher{ours.searcher("graph", -1, queries, k), ours.searcher("flat", math.MaxInt, queries, k)}
 	var hnswIndex *filterHNSW
 	if *benchFiltersHNSW != "" {
 		hnswIndex = buildFilterHNSW(t, ctx, logger, data, *benchFiltersHNSW)
@@ -670,20 +721,13 @@ func TestIntegrationFilters(t *testing.T) {
 		result.HNSW, result.HNSWBuildSeconds = hnswIndex.config, hnswIndex.buildSeconds
 		// HNSW with acorn, its default, is the comparison the measure reads;
 		// sweeping comes after it (amendment 1 of the pre-registration).
-		searchers = append(searchers, hnswIndex.searcher(t, enthnsw.FilterStrategyAcorn, queries, k))
+		built = append(built, hnswIndex.searcher(t, enthnsw.FilterStrategyAcorn, queries, k))
 		if *benchFiltersSweeping {
-			searchers = append(searchers, hnswIndex.searcher(t, enthnsw.FilterStrategySweeping, queries, k))
+			built = append(built, hnswIndex.searcher(t, enthnsw.FilterStrategySweeping, queries, k))
 		}
 	}
-	if *benchFiltersSearchers != "" {
-		wanted := map[string]bool{}
-		for _, name := range strings.Split(*benchFiltersSearchers, ",") {
-			wanted[strings.TrimSpace(name)] = true
-		}
-		searchers = slices.DeleteFunc(searchers, func(s *filterSearcher) bool { return !wanted[s.index+" "+s.path] })
-		require.NotEmpty(t, searchers, "no searcher is named %q", *benchFiltersSearchers)
-	}
-	searchers = slices.DeleteFunc(searchers, func(s *filterSearcher) bool { return !pointed(s.index+" "+s.path, "") })
+	searchers, onDisk, err := measuredFilterSearchers(built, *benchFiltersSearchers, pointed)
+	require.NoError(t, err, "-bench.filters.searchers")
 	for _, p := range points {
 		require.True(t, slices.ContainsFunc(searchers, func(s *filterSearcher) bool { return s.index+" "+s.path == p.searcher }),
 			"point %s on %s: the searcher is not measured (no HNSW, or left out by another flag)", p.searcher, p.filter)
@@ -992,24 +1036,7 @@ func TestIntegrationFilters(t *testing.T) {
 	// Every searcher closes and opens what lies under it on the disk under
 	// test; before a drop of the cache everything is closed, and only the
 	// searcher that is timed is opened again.
-	var opened *filterSearcher
-	closeAll := func() {
-		for _, s := range searchers {
-			if s.close != nil {
-				s.close()
-			}
-		}
-		opened = nil
-	}
-	openOnly := func(s *filterSearcher) time.Duration {
-		clock := time.Now()
-		if opened != s {
-			closeAll()
-			s.open()
-			opened = s
-		}
-		return time.Since(clock)
-	}
+	closeAll, openOnly := onDisk.closeAll, onDisk.openOnly
 
 	// The time after which no timed point starts.
 	var until time.Time
@@ -1171,7 +1198,7 @@ func TestIntegrationFilters(t *testing.T) {
 				result.Rounds = append(result.Rounds, timedRound)
 				write()
 				if probeSearcher != nil {
-					if opened == nil || opened.index != probeSearcher.index {
+					if onDisk.opened == nil || onDisk.opened.index != probeSearcher.index {
 						openOnly(probeSearcher)
 					}
 					probe(fmt.Sprintf("after round %d, %s %s, %s", round, s.index, s.path, f.Name))
@@ -1514,6 +1541,89 @@ func TestAcornChecked(t *testing.T) {
 
 // The points of a repeat are named as the drift detector marks them, and a
 // name that is no searcher or no filter fails the measure before it starts.
+// TestFilterSearchersClosedBeforeADrop pins B and C of the re-timing of
+// 2026-11-25. They measured HNSW only, by -bench.filters.points; the
+// integrated index, built and left out of the measure, stayed open on the
+// volume under test, its unmount failed, and both processes failed at their
+// first cold batch. Before every drop of the cache, whatever a searcher built
+// holds open is closed, measured or not, and the one timed is the only one
+// opened again.
+func TestFilterSearchersClosedBeforeADrop(t *testing.T) {
+	all := []string{"ours graph", "ours flat", "hnsw acorn", "hnsw sweeping"}
+	tests := []struct {
+		name    string
+		hnsw    bool
+		names   string
+		points  []string
+		want    []string
+		wantErr string
+	}{
+		{name: "every searcher measured", hnsw: true, want: all},
+		{name: "B and C: HNSW only, by the points", hnsw: true, points: []string{"hnsw acorn"}, want: []string{"hnsw acorn"}},
+		{name: "HNSW only, by the searchers", hnsw: true, names: "hnsw acorn", want: []string{"hnsw acorn"}},
+		{
+			name: "ours only, with HNSW built", hnsw: true, names: "ours graph, ours flat",
+			want: []string{"ours graph", "ours flat"},
+		},
+		{name: "A: ours only, with no HNSW", names: "ours graph,ours flat", want: []string{"ours graph", "ours flat"}},
+		{name: "one path of ours: the other shares its files", hnsw: true, names: "ours flat", want: []string{"ours flat"}},
+		{
+			name: "the points and the searchers together", hnsw: true, names: "ours graph,hnsw acorn",
+			points: []string{"ours graph"}, want: []string{"ours graph"},
+		},
+		{name: "no searcher named", hnsw: true, names: "hnsw flat", wantErr: `no searcher is named "hnsw flat"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// What lies open under each index, as the measure builds them: the
+			// integrated index open since openFilteredIndex, and HNSW's file of
+			// vectors open since buildFilterHNSW.
+			open := map[string]bool{"ours": true}
+			searcher := func(index, path string) *filterSearcher {
+				return &filterSearcher{
+					index: index, path: path,
+					open:  func() { open[index] = true },
+					close: func() { open[index] = false },
+				}
+			}
+			built := []*filterSearcher{searcher("ours", "graph"), searcher("ours", "flat")}
+			if tt.hnsw {
+				open["hnsw"] = true
+				built = append(built, searcher("hnsw", "acorn"), searcher("hnsw", "sweeping"))
+			}
+			pointed := func(s, _ string) bool { return tt.points == nil || slices.Contains(tt.points, s) }
+			measured, onDisk, err := measuredFilterSearchers(built, tt.names, pointed)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			names := make([]string, len(measured))
+			for i, s := range measured {
+				names[i] = s.index + " " + s.path
+			}
+			require.Equal(t, tt.want, names)
+			openIndexes := func() []string {
+				var on []string
+				for index, isOpen := range open {
+					if isOpen {
+						on = append(on, index)
+					}
+				}
+				return on
+			}
+			for _, s := range measured {
+				onDisk.openOnly(s)
+				require.Equal(t, []string{s.index}, openIndexes(), "%s %s timed", s.index, s.path)
+				onDisk.closeAll()
+				require.Empty(t, openIndexes(), "a drop of the cache with %s %s timed", s.index, s.path)
+				onDisk.openOnly(s)
+				require.Equal(t, []string{s.index}, openIndexes(), "%s %s timed, after the drop", s.index, s.path)
+			}
+		})
+	}
+}
+
 func TestParseFilterPoints(t *testing.T) {
 	filters := []string{"none", "random 10 %", "random 1 %", "near 10 %", "near 0.1 %", "far 0.1 %"}
 	tests := []struct {

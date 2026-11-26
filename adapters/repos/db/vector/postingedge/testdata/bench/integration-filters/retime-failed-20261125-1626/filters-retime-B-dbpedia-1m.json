@@ -1,0 +1,342 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 1000,
+  "k": 10,
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1237381,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 1,
+    "postings": 8105,
+    "splits": 4031,
+    "splitsFailed": 0,
+    "live": 990000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 8,
+    "vectorsLaidOut": 990000,
+    "refreshedAt": 10000
+  },
+  "flatCutoff": 40000,
+  "hnsw": {
+    "acornFilterRatio": 0.4,
+    "distance": "cosine",
+    "efConstruction": 128,
+    "filterStrategy": "acorn",
+    "flatSearchCutoff": 40000,
+    "maxConnections": 32,
+    "rqBits": 1,
+    "rqCentering": false,
+    "rqRescoreLimit": 512,
+    "rqTrainingLimit": 10000
+  },
+  "admission": true,
+  "budget": 8,
+  "gomaxprocs": 10,
+  "drop": "ok=0; for try in 1 2 3 4 5; do diskutil unmount '/Volumes/v40bench' \u003e /dev/null 2\u003e\u00261 \u0026\u0026 ok=1 \u0026\u0026 break; sleep 2; done; [ $ok = 1 ] \u0026\u0026 diskutil mount 'disk3s7' \u003e /dev/null",
+  "filterSeconds": 0,
+  "hnswBuildSeconds": 103.359684834,
+  "filters": [
+    "random 10 %",
+    "random 1 %",
+    "near 1 %",
+    "far 1 %"
+  ],
+  "allowed": [
+    99000,
+    9900,
+    9900,
+    9900
+  ],
+  "curves": [
+    {
+      "index": "hnsw",
+      "path": "acorn",
+      "filter": "random 10 %",
+      "kind": "random",
+      "share": 0.1,
+      "allowed": 99000,
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.5737,
+          "vectorReads": 10.101,
+          "seconds": 0.222114834
+        },
+        {
+          "ef": 20,
+          "recall": 0.7522,
+          "vectorReads": 20,
+          "seconds": 0.225256417
+        },
+        {
+          "ef": 40,
+          "recall": 0.867,
+          "vectorReads": 40,
+          "seconds": 0.360840958
+        },
+        {
+          "ef": 80,
+          "recall": 0.9253,
+          "vectorReads": 80,
+          "seconds": 0.541660083
+        },
+        {
+          "ef": 160,
+          "recall": 0.9576,
+          "vectorReads": 160,
+          "seconds": 0.782985333
+        },
+        {
+          "ef": 320,
+          "recall": 0.9761,
+          "vectorReads": 320,
+          "seconds": 1.198857167
+        },
+        {
+          "ef": 640,
+          "recall": 0.9838,
+          "vectorReads": 512,
+          "seconds": 1.801333875
+        },
+        {
+          "ef": 1024,
+          "recall": 0.9869,
+          "vectorReads": 512,
+          "seconds": 2.514116916
+        },
+        {
+          "ef": 2048,
+          "recall": 0.9907,
+          "vectorReads": 512,
+          "seconds": 4.047573
+        }
+      ],
+      "points": [
+        {
+          "ef": 129,
+          "recall": 0.9503,
+          "vectorReads": 129,
+          "seconds": 0.495950167
+        },
+        {
+          "ef": 1660,
+          "recall": 0.99,
+          "vectorReads": 512,
+          "seconds": 3.300404125
+        }
+      ],
+      "bestRecall": 0.9907
+    },
+    {
+      "index": "hnsw",
+      "path": "acorn",
+      "filter": "random 1 %",
+      "kind": "random",
+      "share": 0.01,
+      "allowed": 9900,
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.6726,
+          "vectorReads": 10,
+          "seconds": 1.393402125
+        },
+        {
+          "ef": 20,
+          "recall": 0.8685,
+          "vectorReads": 20,
+          "seconds": 1.406776333
+        },
+        {
+          "ef": 40,
+          "recall": 0.9574,
+          "vectorReads": 40,
+          "seconds": 1.421868875
+        },
+        {
+          "ef": 80,
+          "recall": 0.9902,
+          "vectorReads": 80,
+          "seconds": 1.408224458
+        },
+        {
+          "ef": 160,
+          "recall": 0.9984,
+          "vectorReads": 160,
+          "seconds": 1.401407833
+        },
+        {
+          "ef": 320,
+          "recall": 0.9999,
+          "vectorReads": 320,
+          "seconds": 1.396969292
+        }
+      ],
+      "points": [
+        {
+          "ef": 37,
+          "recall": 0.9512,
+          "vectorReads": 37,
+          "seconds": 1.439062584
+        },
+        {
+          "ef": 80,
+          "recall": 0.9902,
+          "vectorReads": 80,
+          "seconds": 1.408224458
+        }
+      ],
+      "bestRecall": 0.9999
+    },
+    {
+      "index": "hnsw",
+      "path": "acorn",
+      "filter": "near 1 %",
+      "kind": "near",
+      "share": 0.01,
+      "allowed": 9900,
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.6764,
+          "vectorReads": 10,
+          "seconds": 1.340530958
+        },
+        {
+          "ef": 20,
+          "recall": 0.8576,
+          "vectorReads": 20,
+          "seconds": 1.3465495
+        },
+        {
+          "ef": 40,
+          "recall": 0.9491,
+          "vectorReads": 40,
+          "seconds": 1.2881666250000001
+        },
+        {
+          "ef": 80,
+          "recall": 0.9854,
+          "vectorReads": 80,
+          "seconds": 1.262421041
+        },
+        {
+          "ef": 160,
+          "recall": 0.996,
+          "vectorReads": 160,
+          "seconds": 1.460627167
+        },
+        {
+          "ef": 320,
+          "recall": 0.9997,
+          "vectorReads": 320,
+          "seconds": 1.624873167
+        }
+      ],
+      "points": [
+        {
+          "ef": 41,
+          "recall": 0.9503,
+          "vectorReads": 41,
+          "seconds": 1.4235725000000001
+        },
+        {
+          "ef": 97,
+          "recall": 0.99,
+          "vectorReads": 97,
+          "seconds": 1.421592208
+        }
+      ],
+      "bestRecall": 0.9997
+    },
+    {
+      "index": "hnsw",
+      "path": "acorn",
+      "filter": "far 1 %",
+      "kind": "far",
+      "share": 0.01,
+      "allowed": 9900,
+      "grid": [
+        {
+          "ef": 10,
+          "recall": 0.4616,
+          "vectorReads": 10,
+          "seconds": 1.376657166
+        },
+        {
+          "ef": 20,
+          "recall": 0.6311,
+          "vectorReads": 20,
+          "seconds": 1.370924375
+        },
+        {
+          "ef": 40,
+          "recall": 0.7857,
+          "vectorReads": 40,
+          "seconds": 1.358123125
+        },
+        {
+          "ef": 80,
+          "recall": 0.891,
+          "vectorReads": 80,
+          "seconds": 1.321346875
+        },
+        {
+          "ef": 160,
+          "recall": 0.9558,
+          "vectorReads": 160,
+          "seconds": 1.2526131249999999
+        },
+        {
+          "ef": 320,
+          "recall": 0.9851,
+          "vectorReads": 320,
+          "seconds": 1.358521625
+        },
+        {
+          "ef": 640,
+          "recall": 0.9942,
+          "vectorReads": 512,
+          "seconds": 1.493284667
+        },
+        {
+          "ef": 1024,
+          "recall": 0.9942,
+          "vectorReads": 512,
+          "seconds": 1.451162
+        },
+        {
+          "ef": 2048,
+          "recall": 0.9942,
+          "vectorReads": 512,
+          "seconds": 1.455574042
+        }
+      ],
+      "points": [
+        {
+          "ef": 146,
+          "recall": 0.9501,
+          "vectorReads": 146,
+          "seconds": 1.401972416
+        },
+        {
+          "ef": 399,
+          "recall": 0.99,
+          "vectorReads": 399,
+          "seconds": 1.412186416
+        }
+      ],
+      "bestRecall": 0.9942
+    }
+  ],
+  "rounds": null
+}
