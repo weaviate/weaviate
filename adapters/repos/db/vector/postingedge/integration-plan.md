@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-19 · **Rama:** `feat/posting-edge-index`, leída en `c74cbd28cf` · **Paquete:** `adapters/repos/db/vector/postingedge` (nombre provisional)
 
-**Alcance.** Solo lectura y este documento: el plan no cambia código del índice. Al leer apareció un bug en flat y en HFresh, que sí se arregló, en un commit aparte (`665f3a1806`). El plan dice qué pide Weaviate a un tipo de índice, qué de eso existe ya, qué vive en ficheros de test y qué falta. Las cifras salen de `bench-report.md` y de `disk-design.md`; las rutas, del código de esta rama. Lo que es propuesta mía va marcado como tal.
+**Alcance.** Solo lectura y este documento: el plan no cambia código del índice. Al leer apareció un bug en flat y en HFresh, que sí se arregló, en un commit aparte (`665f3a1806`). El plan dice qué pide Weaviate a un tipo de índice, qué de eso existe ya, qué vive en ficheros de test y qué falta. Las cifras salen de [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md) y de `disk-design.md`; las rutas, del código de esta rama. Lo que es propuesta mía va marcado como tal.
 
 **La tabla de parámetros.** El encargo pedía en el punto 4 «la tabla de arriba», que no venía en el mensaje: la primera versión de la sección 4 la monté con los parámetros que el mensaje nombraba y los de la configuración del paquete. La lista acordada llegó después, el 19 por la tarde. La sección 4 empieza ahora por ella, con las diferencias marcadas.
 
@@ -412,7 +412,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 **Acordado:** vive en `rq.rescoreLimit`. En el modo `routing` no se acopla a `ef`. Y el automático no puede ser un 64 fijo.
 
-**Lo medido.** El recall tiene un techo que pone el `rescoreLimit`. La tabla da ese techo, el recall a ef 1 024 subiendo solo ef, por los bits del código. Todo con k = 10 y en coseno. Sale de «v1.2, Fase B» y de «v1.4» en `bench-report.md`.
+**Lo medido.** El recall tiene un techo que pone el `rescoreLimit`. La tabla da ese techo, el recall a ef 1 024 subiendo solo ef, por los bits del código. Todo con k = 10 y en coseno. Sale de «v1.2, Fase B» y de «v1.4» en [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md).
 
 | bits del código | de dónde | con 64 | 200 | 400 | 800 | 1 600 | 3 200 |
 |---|---|---|---|---|---|---|---|
@@ -617,7 +617,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 *20 de noviembre, de 17:01 a 19:09. En conteos, sin cronometrar. Resultado en [`testdata/bench/integration-m1/dbpedia-1m-base99000.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/integration-m1/dbpedia-1m-base99000.json), con su log al lado.*
 
-- **Qué es:** `TestIntegrationScale` (`bench_integration_test.go`), el índice que abre el shard sobre un store propio, sin el shard alrededor. dbpedia-openai, 990 000 vectores de 1536 dimensiones, 5 000 queries, k = 10.
+- **Qué es:** `TestIntegrationScale` ([`bench_integration_test.go`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/archive/feat-posting-edge-integration-m2/adapters/repos/db/vector/postingedge/bench_integration_test.go)), el índice que abre el shard sobre un store propio, sin el shard alrededor. dbpedia-openai, 990 000 vectores de 1536 dimensiones, 5 000 queries, k = 10.
 - **Cómo entra:** por `AddBatch`, de 100 en 100 y en el orden de v5.0, con todos los parámetros de la clase por defecto y un `Flush` tras cada lote.
 - **Frente a qué:** los dos índices que v5.0 creció por el mismo camino, el validado contra el gemelo y el cronometrado. Entre ellos solo cambian los niveles que sortea el grafo de centroides.
 - **Una diferencia de procedimiento:** el índice integrado construye su base con los vectores en orden de doc id, y v5.0 en orden de llegada. La base es otra, con los mismos 420 postings.
