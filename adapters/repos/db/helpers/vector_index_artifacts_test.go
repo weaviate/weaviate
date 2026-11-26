@@ -46,6 +46,9 @@ func TestVectorIndexArtifactsFor_CoversEveryArtifact(t *testing.T) {
 		"postingedge_deleted_vectors_vec",
 		"postingedge_staging_vectors_vec",
 		"postingedge_pending_vectors_vec",
+		// and the 8-bit RQ codes of its centroids, the bucket of its
+		// centroid graph
+		"vectors_compressed_postingedge_centroids_vectors_vec",
 	}, got.LSMBuckets)
 
 	assert.ElementsMatch(t, []string{
