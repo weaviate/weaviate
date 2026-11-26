@@ -29,11 +29,14 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/raftauth"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -67,6 +70,7 @@ type Server struct {
 	grpcMessageMaxSize int
 	log                *logrus.Logger
 	sentryEnabled      bool
+	basicAuth          cluster.BasicAuth
 
 	grpcServer *grpc.Server
 	metrics    *monitoring.GRPCServerMetrics
@@ -75,12 +79,14 @@ type Server struct {
 // NewServer returns the Server implementing the RPC interface for RAFT peers management and execute/query commands.
 // The server must subsequently be started with Open().
 // The server will be configure the gRPC service with grpcMessageMaxSize.
+// basicAuth decides whether callers must authenticate, see raftauth.ModeFrom.
 func NewServer(
 	raftPeers raftPeers,
 	raftFSM raftFSM,
 	listenAddress string,
 	grpcMessageMaxSize int,
 	sentryEnabled bool,
+	basicAuth cluster.BasicAuth,
 	metrics *monitoring.GRPCServerMetrics,
 	log *logrus.Logger,
 ) *Server {
@@ -91,6 +97,7 @@ func NewServer(
 		log:                log,
 		grpcMessageMaxSize: grpcMessageMaxSize,
 		sentryEnabled:      sentryEnabled,
+		basicAuth:          basicAuth,
 		metrics:            metrics,
 	}
 }
@@ -167,6 +174,11 @@ func (s *Server) Open() error {
 
 	var options []grpc.ServerOption
 	options = append(options, grpc.MaxRecvMsgSize(s.grpcMessageMaxSize))
+	if raftauth.ModeFrom(s.basicAuth).Verifies() {
+		options = append(options, grpc.ChainUnaryInterceptor(
+			grpcconn.BasicAuthServerUnaryInterceptor(s.basicAuth.Username, s.basicAuth.Password),
+		))
+	}
 	if s.sentryEnabled {
 		options = append(options,
 			grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(

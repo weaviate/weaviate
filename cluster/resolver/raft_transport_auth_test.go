@@ -39,6 +39,7 @@ func newAuthTestTransport(t *testing.T, auth cluster.BasicAuth) *raftImpl.Networ
 	r := NewRaft(RaftConfig{
 		ClusterStateReader: clusterMocks.NewMockNodeSelector(),
 		LocalName:          "node-1",
+		BasicAuth:          auth,
 	})
 	trans, err := r.NewTCPTransport("127.0.0.1:0", nil, 3, 2*time.Second, logger)
 	require.NoError(t, err)

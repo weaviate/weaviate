@@ -115,7 +115,7 @@ type Service struct {
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
 func New(cfg Config, authZController authorization.Controller, svrMetrics *monitoring.GRPCServerMetrics) *Service {
-	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
+	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.BasicAuth, cfg.Logger)
 
 	fsm := NewFSM(cfg, authZController, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
@@ -151,7 +151,7 @@ func New(cfg Config, authZController authorization.Controller, svrMetrics *monit
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)
-	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.BasicAuth, svrMetrics, cfg.Logger)
 
 	opCleaner, err := replication.NewOpCleaner(replication.OpCleanerParams{
 		Logger:     cfg.Logger,

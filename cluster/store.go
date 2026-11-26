@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/log"
 	"github.com/weaviate/weaviate/cluster/namespaces"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/raftauth"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -161,6 +162,9 @@ type Config struct {
 	// SentryEnabled configures the sentry integration to add internal middlewares to rpc client/server to set spans &
 	// capture traces
 	SentryEnabled bool
+
+	// BasicAuth authenticates the raft transport and the cluster gRPC service, see raftauth.ModeFrom.
+	BasicAuth cluster.BasicAuth
 
 	// TelemetryEnabled reports whether telemetry is enabled on this node.
 	TelemetryEnabled bool
@@ -460,6 +464,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 			LocalName:          cfg.NodeID,
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
+			BasicAuth:          cfg.BasicAuth,
 		}),
 		schemaManager:           schemaManager,
 		tenantAddLocks:          newEvictingKeyRWLocker(),
@@ -616,6 +621,7 @@ func (st *Store) init() error {
 	}
 
 	bindAddress := net.JoinHostPort(st.cfg.BindAddr, fmt.Sprintf("%d", st.cfg.RaftPort))
+	authMode := raftauth.ModeFrom(st.cfg.BasicAuth)
 	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, err)
@@ -626,7 +632,15 @@ func (st *Store) init() error {
 		"raft_advertise_address": advertiseAddress,
 		"raft_tcp_max_pool":      tcpMaxPool,
 		"raft_tcp_timeout":       tcpTimeout,
+		"raft_auth_mode":         authMode.String(),
 	}).Info("TCP transport")
+	if !authMode.Verifies() && !raftauth.IsLoopbackBind(st.cfg.BindAddr) {
+		st.log.WithFields(logrus.Fields{
+			"action":            "raft_tcp_transport",
+			"raft_auth_mode":    authMode.String(),
+			"raft_bind_address": bindAddress,
+		}).Warn("raft and cluster RPC ports accept unauthenticated peers, set CLUSTER_BASIC_AUTH_USERNAME/PASSWORD and unset CLUSTER_BASIC_AUTH_SEND_ONLY to require authentication")
+	}
 
 	return err
 }

@@ -26,6 +26,7 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type blockingLeader struct {
@@ -108,7 +109,7 @@ func TestLeaderChangeDoesNotAbortInFlightRPC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			addr, svc := startBlockingLeader(t)
-			cl := NewClient(mapResolver{"old:8300": addr, "new:8300": addr}, 1<<20, false, logrus.New())
+			cl := NewClient(mapResolver{"old:8300": addr, "new:8300": addr}, 1<<20, false, cluster.BasicAuth{}, logrus.New())
 			t.Cleanup(cl.Close)
 
 			oldErr := make(chan error, 1)
@@ -133,7 +134,7 @@ func TestLeaderChangeDoesNotAbortInFlightRPC(t *testing.T) {
 func TestLeaderChangeClosesIdleConn(t *testing.T) {
 	addr, svc := startBlockingLeader(t)
 	close(svc.release)
-	cl := NewClient(mapResolver{"old:8300": addr, "new:8300": addr}, 1<<20, false, logrus.New())
+	cl := NewClient(mapResolver{"old:8300": addr, "new:8300": addr}, 1<<20, false, cluster.BasicAuth{}, logrus.New())
 	t.Cleanup(cl.Close)
 
 	_, err := cl.Query(context.Background(), "old:8300", &cmd.QueryRequest{})
@@ -155,7 +156,7 @@ func TestLeaderChangeClosesIdleConn(t *testing.T) {
 func TestFailedDialDoesNotCacheClosedConn(t *testing.T) {
 	addr, svc := startBlockingLeader(t)
 	close(svc.release)
-	cl := NewClient(mapResolver{"old:8300": addr}, 1<<20, false, logrus.New())
+	cl := NewClient(mapResolver{"old:8300": addr}, 1<<20, false, cluster.BasicAuth{}, logrus.New())
 	t.Cleanup(cl.Close)
 
 	_, err := cl.Query(context.Background(), "old:8300", &cmd.QueryRequest{})
@@ -172,7 +173,7 @@ func TestFailedDialDoesNotCacheClosedConn(t *testing.T) {
 
 func TestCloseWithInFlightRPC(t *testing.T) {
 	addr, svc := startBlockingLeader(t)
-	cl := NewClient(mapResolver{"leader:8300": addr}, 1<<20, false, logrus.New())
+	cl := NewClient(mapResolver{"leader:8300": addr}, 1<<20, false, cluster.BasicAuth{}, logrus.New())
 
 	errCh := make(chan error, 1)
 	enterrors.GoWrapper(func() {

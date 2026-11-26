@@ -23,11 +23,14 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/raftauth"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -124,6 +127,9 @@ type Client struct {
 	// sentryEnabled will configure the RPC client to set spans and captures traces using sentry SDK
 	sentryEnabled bool
 
+	// authHeader is the basic auth header sent on every call, empty when no credentials are configured.
+	authHeader string
+
 	// logger is the logger to log client warns etc.
 	logger *logrus.Logger
 }
@@ -137,13 +143,33 @@ type leaderConn struct {
 }
 
 // NewClient returns a Client using the rpcAddressResolver to resolve raft nodes and configured with rpcMessageMaxSize
-func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, logger *logrus.Logger) *Client {
-	return &Client{
+// It sends basicAuth on every call when credentials are configured, see raftauth.ModeFrom.
+func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, basicAuth cluster.BasicAuth, logger *logrus.Logger) *Client {
+	cl := &Client{
 		addrResolver:      r,
 		rpcMessageMaxSize: rpcMessageMaxSize,
 		sentryEnabled:     sentryEnabled,
 		logger:            logger,
 	}
+	if raftauth.ModeFrom(basicAuth).Sends() {
+		cl.authHeader = grpcconn.BasicAuthHeader(basicAuth.Username, basicAuth.Password)
+	}
+	return cl
+}
+
+// interceptors returns the unary client interceptors shared by every dial site.
+func (cl *Client) interceptors() []grpc.DialOption {
+	var interceptors []grpc.UnaryClientInterceptor
+	if cl.authHeader != "" {
+		interceptors = append(interceptors, grpcconn.BasicAuthUnaryInterceptor(cl.authHeader))
+	}
+	if cl.sentryEnabled {
+		interceptors = append(interceptors, grpc_sentry.UnaryClientInterceptor())
+	}
+	if len(interceptors) == 0 {
+		return nil
+	}
+	return []grpc.DialOption{grpc.WithChainUnaryInterceptor(interceptors...)}
 }
 
 // Join will contact the node at leaderRaftAddr and try to join this node to the cluster leaded by leaderRaftAddress using req
@@ -182,9 +208,7 @@ func (cl *Client) Notify(ctx context.Context, remoteAddr string, req *cmd.Notify
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
 	}
-	if cl.sentryEnabled {
-		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
-	}
+	options = append(options, cl.interceptors()...)
 
 	conn, err := grpc.NewClient(addr, options...)
 	if err != nil {
@@ -288,10 +312,7 @@ func (cl *Client) dial(leaderRaftAddr string) (*grpc.ClientConn, error) {
 		grpc.WithDefaultServiceConfig(serviceConfig),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMessageMaxSize)),
 	}
-
-	if cl.sentryEnabled {
-		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
-	}
+	options = append(options, cl.interceptors()...)
 
 	conn, err := grpc.NewClient(addr, options...)
 	if err != nil {

@@ -21,6 +21,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/raftauth"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type raft struct {
@@ -39,6 +41,8 @@ type raft struct {
 	LocalName string
 	// LocalAddress is the address of the local node
 	LocalAddress string
+	// BasicAuth authenticates the raft transport, see raftauth.
+	BasicAuth cluster.BasicAuth
 
 	notResolvedNodes sync.Map
 }
@@ -52,6 +56,7 @@ func NewRaft(cfg RaftConfig) *raft {
 		notResolvedNodes:   sync.Map{},
 		LocalName:          cfg.LocalName,
 		LocalAddress:       cfg.LocalAddress,
+		BasicAuth:          cfg.BasicAuth,
 	}
 }
 
@@ -87,6 +92,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
 // this resolver to resolve addresses based on server IDs.
 // This is particularly crucial as K8s assigns new IPs on each node restart.
+// Connections are authenticated with BasicAuth by a raftauth.StreamLayer.
 func (a *raft) NewTCPTransport(
 	bindAddr string,
 	advertise net.Addr,
@@ -94,13 +100,23 @@ func (a *raft) NewTCPTransport(
 	timeout time.Duration,
 	logger *logrus.Logger,
 ) (*raftImpl.NetworkTransport, error) {
-	cfg := &raftImpl.NetworkTransportConfig{
+	stream, err := raftauth.NewStreamLayer(raftauth.Config{
+		BindAddr:         bindAddr,
+		Advertise:        advertise,
+		Auth:             a.BasicAuth,
+		HandshakeTimeout: timeout,
+		Logger:           logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return raftImpl.NewNetworkTransportWithConfig(&raftImpl.NetworkTransportConfig{
 		ServerAddressProvider: a,
+		Stream:                stream,
 		MaxPool:               maxPool,
 		Timeout:               timeout,
 		Logger:                log.NewHCLogrusLogger("raft-net", logger),
-	}
-	return raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
+	}), nil
 }
 
 func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {

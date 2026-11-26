@@ -13,14 +13,19 @@ package grpcconn
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -257,6 +262,52 @@ func (m *ConnManager) Close() {
 func BasicAuthHeader(username, password string) string {
 	creds := fmt.Sprintf("%s:%s", username, password)
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(creds))
+}
+
+// ValidateBasicAuth checks the authorization header in md against the
+// expected credentials in constant time. ok is the second result of
+// metadata.FromIncomingContext. It returns a codes.Unauthenticated error on failure.
+func ValidateBasicAuth(md metadata.MD, ok bool, expectedUsername, expectedPassword string) error {
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing metadata")
+	}
+
+	authHeader := md["authorization"]
+	if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
+		return status.Error(codes.Unauthenticated, "missing or invalid auth header")
+	}
+
+	payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
+	if err != nil {
+		return status.Error(codes.Unauthenticated, "invalid base64 encoding")
+	}
+
+	username, password, found := strings.Cut(string(payload), ":")
+	userOK := constantTimeEqual(username, expectedUsername)
+	passOK := constantTimeEqual(password, expectedPassword)
+	if !found || userOK&passOK != 1 {
+		return status.Error(codes.Unauthenticated, "invalid username or password")
+	}
+
+	return nil
+}
+
+// constantTimeEqual compares digests so neither the content nor the length of the secret leaks through timing.
+func constantTimeEqual(got, want string) int {
+	g := sha256.Sum256([]byte(got))
+	w := sha256.Sum256([]byte(want))
+	return subtle.ConstantTimeCompare(g[:], w[:])
+}
+
+// BasicAuthServerUnaryInterceptor rejects unary calls without valid basic auth credentials.
+func BasicAuthServerUnaryInterceptor(expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if err := ValidateBasicAuth(md, ok, expectedUsername, expectedPassword); err != nil {
+			return nil, err
+		}
+		return handler(ctx, req)
+	}
 }
 
 func BasicAuthUnaryInterceptor(authHeader string) grpc.UnaryClientInterceptor {

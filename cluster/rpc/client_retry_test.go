@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const fourMiB = 4 * 1024 * 1024
@@ -58,7 +59,7 @@ func TestRPC_RetryPolicy_Succeeds(t *testing.T) {
 	defer raw.Close()
 
 	// Use the rpc.Client which also applies serviceConfig via getConn
-	cl := NewClient(&testResolver{}, fourMiB, false, nil)
+	cl := NewClient(&testResolver{}, fourMiB, false, cluster.BasicAuth{}, nil)
 
 	type testCase struct {
 		name        string
@@ -161,7 +162,7 @@ func TestJoinPeer_ExhaustsRetries(t *testing.T) {
 	addr, stop := startTestServer(t, srv)
 	defer stop()
 
-	cl := NewClient(&testResolver{}, fourMiB, false, nil)
+	cl := NewClient(&testResolver{}, fourMiB, false, cluster.BasicAuth{}, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
