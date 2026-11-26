@@ -58,9 +58,12 @@ fi
 # The unit job already runs the untagged tests of every package with the race
 # detector on, so only the packages whose test files change under $tags run here.
 function race_test_files() {
-  go list -race "$@" -f '{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}' ${pkgs:-./adapters/repos/...} | sort
+  go list -race "$@" -f '{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}' ${pkgs:-./adapters/repos/...}
 }
-race_pkgs=$(comm -13 <(race_test_files) <(race_test_files -tags=$tags) | cut -d' ' -f1)
+# plain assignments so that set -e stops the script when a listing fails
+untagged_files=$(race_test_files)
+tagged_files=$(race_test_files -tags=$tags)
+race_pkgs=$(comm -13 <(sort <<<"$untagged_files") <(sort <<<"$tagged_files") | cut -d' ' -f1)
 
 if [[ -z $race_pkgs ]]; then
   echo_yellow "No package has integration tests that run with race detector ON"
