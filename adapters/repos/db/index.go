@@ -3993,7 +3993,11 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 	if i.closed {
 		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
 	}
+	return i.getLoadedShardCloseLocked(shardName)
+}
 
+// getLoadedShardCloseLocked is getLoadedShard for a caller already holding closeLock.RLock with i.closed checked; re-taking the RLock deadlocks behind a queued writer.
+func (i *Index) getLoadedShardCloseLocked(shardName string) (shard ShardLike, release func(), err error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
 

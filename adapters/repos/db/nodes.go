@@ -379,9 +379,10 @@ func (i *Index) shardNodeStatus(ctx context.Context, name string, shard ShardLik
 // nodeStatusShard resolves the shard a status read works on. With unloading
 // on it pins a loaded shard, so the reads neither race its unload nor reload
 // it; loaded is false for a shard to report as unloaded. release is never nil.
+// The caller holds closeLock.RLock, as scanIndexShards does.
 func (i *Index) nodeStatusShard(name string, shard ShardLike) (resolved ShardLike, release func(), loaded bool) {
 	if i.Config.lazyShardUnloading() {
-		pinned, release, err := i.getLoadedShard(name)
+		pinned, release, err := i.getLoadedShardCloseLocked(name)
 		if err != nil || pinned == nil {
 			release()
 			return shard, func() {}, false
