@@ -117,10 +117,13 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return nil
 	}
 
+	var targetsBuf [4]string
+	targets := targetsBuf[:0]
 	for targetVector, vector := range obj.Vectors {
 		if isDroppedVectorIndex(class, targetVector) {
 			continue
 		}
+		targets = append(targets, targetVector)
 		if err = s.updateVectorIndex(ctx, vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
@@ -129,12 +132,14 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		if isDroppedVectorIndex(class, targetVector) {
 			continue
 		}
+		targets = append(targets, targetVector)
 		if err = s.updateMultiVectorIndex(ctx, vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
 		}
 	}
 
 	if s.hasLegacyVectorIndex() {
+		targets = append(targets, "")
 		if err = s.updateVectorIndex(ctx, obj.Vector, status, ""); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
@@ -146,6 +151,10 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
+	}
+
+	if err := s.flushVectorQueues(targets); err != nil {
+		return err
 	}
 
 	return nil
