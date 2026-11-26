@@ -98,50 +98,20 @@ func (h *Handler) parseVectorIndexParamsEntry(in *models.SearchVectorIndexParams
 	if in == nil {
 		return out, nil
 	}
-
 	if in.Ef != nil {
-		ef, maxEF := *in.Ef, searchCap(h.maxSearchEF)
-		if ef < 0 {
-			return out, newAPIError(http.StatusUnprocessableEntity, "%sef must be >= 0, got %d", prefix, ef)
-		}
-		if ef > maxEF {
-			return out, newAPIError(http.StatusUnprocessableEntity,
-				"%sef %d exceeds HNSW_MAX_SEARCH_EF (%d)", prefix, ef, maxEF)
-		}
-		out.EF = int(ef)
+		out.EF = int(*in.Ef)
 	}
-
 	if in.SearchProbe != nil {
-		probe, maxProbe := *in.SearchProbe, searchCap(h.maxSearchProbe)
-		if probe < 0 {
-			return out, newAPIError(http.StatusUnprocessableEntity, "%ssearchProbe must be >= 0, got %d", prefix, probe)
-		}
-		if probe > maxProbe {
-			return out, newAPIError(http.StatusUnprocessableEntity,
-				"%ssearchProbe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", prefix, probe, maxProbe)
-		}
-		out.SearchProbe = int(probe)
+		out.SearchProbe = int(*in.SearchProbe)
 	}
+	// the spec enum rejects unknown strategies at bind time; Validate covers direct callers
+	out.FilterStrategy = in.FilterStrategy
 
-	switch in.FilterStrategy {
-	case "", searchparams.FilterStrategySweeping, searchparams.FilterStrategyAcorn, searchparams.FilterStrategyPathseer:
-		out.FilterStrategy = in.FilterStrategy
-	default:
-		// the spec enum rejects this at bind time; kept for direct callers
-		return searchparams.VectorIndexParams{}, newAPIError(http.StatusUnprocessableEntity,
-			"%sfilterStrategy must be one of sweeping, acorn, pathseer, got %q", prefix, in.FilterStrategy)
+	if err := out.Validate(int(config.SearchCapOrDefault(h.maxSearchEF)), int(config.SearchCapOrDefault(h.maxSearchProbe)),
+		searchparams.JSONFieldNames); err != nil {
+		return searchparams.VectorIndexParams{}, newAPIError(http.StatusUnprocessableEntity, "%s%v", prefix, err)
 	}
-
 	return out, nil
-}
-
-// searchCap returns a resolved HNSW_MAX_SEARCH_EF / HFRESH_MAX_SEARCH_PROBE,
-// falling back to the default QUERY_MAXIMUM_RESULTS when it was never set.
-func searchCap(v int64) int64 {
-	if v <= 0 {
-		return config.DefaultQueryMaximumResults
-	}
-	return v
 }
 
 // applyTargetVectorIndexParams validates targetVectorIndexParams against

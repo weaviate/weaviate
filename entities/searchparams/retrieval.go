@@ -13,8 +13,6 @@ package searchparams
 
 import (
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/search"
@@ -85,41 +83,45 @@ func (p *VectorIndexParams) IsZero() bool {
 	return p == nil || (p.EF == 0 && p.SearchProbe == 0 && p.FilterStrategy == "" && len(p.PerTarget) == 0)
 }
 
-// Validate checks p against the HNSW_MAX_SEARCH_EF and
-// HFRESH_MAX_SEARCH_PROBE caps (a cap <= 0 is unbounded) and the known filter
-// strategies, including every per-target entry. A nil p is valid.
-func (p *VectorIndexParams) Validate(maxEF, maxProbe int) error {
+// FieldNames spells the fields of VectorIndexParams the way a caller's wire
+// format does, for validation messages.
+type FieldNames struct {
+	EF, SearchProbe, FilterStrategy string
+}
+
+var (
+	// JSONFieldNames is the REST and node-to-node spelling.
+	JSONFieldNames = FieldNames{EF: "ef", SearchProbe: "searchProbe", FilterStrategy: "filterStrategy"}
+	// ProtoFieldNames is the gRPC spelling.
+	ProtoFieldNames = FieldNames{EF: "ef", SearchProbe: "search_probe", FilterStrategy: "filter_strategy"}
+)
+
+// Validate checks one entry (the request-wide values, or one per-target
+// entry; PerTarget is not walked, each caller validates its entries under its
+// own prefix) against the HNSW_MAX_SEARCH_EF and HFRESH_MAX_SEARCH_PROBE caps
+// and the known filter strategies. It is the only copy of these rules: the
+// gRPC and REST parsers call it with their field names and map the error to
+// their status code. The caps come resolved from the server config; a cap
+// <= 0 is unbounded. A nil p is valid.
+func (p *VectorIndexParams) Validate(maxEF, maxProbe int, names FieldNames) error {
 	if p == nil {
 		return nil
 	}
-	if err := p.validateEntry(maxEF, maxProbe); err != nil {
-		return err
-	}
-	for _, name := range slices.Sorted(maps.Keys(p.PerTarget)) {
-		entry := p.PerTarget[name]
-		if err := entry.validateEntry(maxEF, maxProbe); err != nil {
-			return fmt.Errorf("perTarget[%s]: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func (p *VectorIndexParams) validateEntry(maxEF, maxProbe int) error {
 	switch {
 	case p.EF < 0:
-		return fmt.Errorf("ef must be >= 0, got %d", p.EF)
+		return fmt.Errorf("%s must be >= 0, got %d", names.EF, p.EF)
 	case maxEF > 0 && p.EF > maxEF:
-		return fmt.Errorf("ef %d exceeds HNSW_MAX_SEARCH_EF (%d)", p.EF, maxEF)
+		return fmt.Errorf("%s %d exceeds HNSW_MAX_SEARCH_EF (%d)", names.EF, p.EF, maxEF)
 	case p.SearchProbe < 0:
-		return fmt.Errorf("searchProbe must be >= 0, got %d", p.SearchProbe)
+		return fmt.Errorf("%s must be >= 0, got %d", names.SearchProbe, p.SearchProbe)
 	case maxProbe > 0 && p.SearchProbe > maxProbe:
-		return fmt.Errorf("searchProbe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", p.SearchProbe, maxProbe)
+		return fmt.Errorf("%s %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", names.SearchProbe, p.SearchProbe, maxProbe)
 	}
 	switch p.FilterStrategy {
 	case "", FilterStrategySweeping, FilterStrategyAcorn, FilterStrategyPathseer:
 		return nil
 	default:
-		return fmt.Errorf("filterStrategy must be one of sweeping, acorn, pathseer, got %q", p.FilterStrategy)
+		return fmt.Errorf("%s must be one of sweeping, acorn, pathseer, got %q", names.FilterStrategy, p.FilterStrategy)
 	}
 }
 

@@ -187,6 +187,7 @@ func TestVectorIndexParams_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
 		params  *VectorIndexParams
+		names   FieldNames // JSONFieldNames when zero
 		maxEF   int
 		maxProb int
 		wantErr string
@@ -199,14 +200,20 @@ func TestVectorIndexParams_Validate(t *testing.T) {
 		{name: "unknown strategy", params: &VectorIndexParams{FilterStrategy: "fast"}, maxEF: 10, maxProb: 10, wantErr: `filterStrategy must be one of sweeping, acorn, pathseer, got "fast"`},
 		{name: "unset caps are unbounded", params: &VectorIndexParams{EF: 50000, SearchProbe: 50000}},
 		{
-			name:   "per-target entry over cap names the target",
+			name:   "per-target entries are not walked, their caller names them",
 			params: &VectorIndexParams{PerTarget: map[string]VectorIndexParams{"title": {EF: 11}}},
-			maxEF:  10, maxProb: 10, wantErr: "perTarget[title]: ef 11 exceeds HNSW_MAX_SEARCH_EF (10)",
+			maxEF:  10, maxProb: 10,
 		},
+		{name: "proto spelling", names: ProtoFieldNames, params: &VectorIndexParams{SearchProbe: 11}, maxEF: 10, maxProb: 10, wantErr: "search_probe 11 exceeds HFRESH_MAX_SEARCH_PROBE (10)"},
+		{name: "proto spelling for the strategy", names: ProtoFieldNames, params: &VectorIndexParams{FilterStrategy: "fast"}, maxEF: 10, maxProb: 10, wantErr: `filter_strategy must be one of sweeping, acorn, pathseer, got "fast"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.params.Validate(tt.maxEF, tt.maxProb)
+			names := tt.names
+			if names == (FieldNames{}) {
+				names = JSONFieldNames
+			}
+			err := tt.params.Validate(tt.maxEF, tt.maxProb, names)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return

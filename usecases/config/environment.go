@@ -2657,6 +2657,16 @@ func validateBackupDedupeConvergenceTimeout(val time.Duration) error {
 // resolveSearchCap resolves the cap for one per-request vector search knob:
 // the envName env var, then the config-file value, then QUERY_MAXIMUM_RESULTS
 // (its default if non-positive). 0 falls through; a negative value is an error.
+// SearchCapOrDefault returns a resolved HNSW_MAX_SEARCH_EF /
+// HFRESH_MAX_SEARCH_PROBE, falling back to DefaultQueryMaximumResults when the
+// config was never resolved (tests building a handler by hand).
+func SearchCapOrDefault(v int64) int64 {
+	if v <= 0 {
+		return DefaultQueryMaximumResults
+	}
+	return v
+}
+
 func resolveSearchCap(envName string, fileValue, queryMax int64) (int64, error) {
 	if fileValue < 0 {
 		return 0, fmt.Errorf("%s must not be negative in the config file", strings.ToLower(envName))

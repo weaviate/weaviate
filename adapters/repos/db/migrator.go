@@ -156,8 +156,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			RootPath:                       m.db.config.RootPath,
 			ResourceUsage:                  m.db.config.ResourceUsage,
 			QueryMaximumResults:            m.db.config.QueryMaximumResults,
-			HNSWMaxSearchEF:                m.db.config.HNSWMaxSearchEF,
-			HFreshMaxSearchProbe:           m.db.config.HFreshMaxSearchProbe,
 			QueryHybridMaximumResults:      m.db.config.QueryHybridMaximumResults,
 			QueryNestedRefLimit:            m.db.config.QueryNestedRefLimit,
 			MemtablesFlushDirtyAfter:       m.db.config.MemtablesFlushDirtyAfter,

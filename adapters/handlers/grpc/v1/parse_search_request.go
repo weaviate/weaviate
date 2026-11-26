@@ -556,29 +556,16 @@ func extractVectorIndexParams(in *pb.VectorIndexParams, perTarget []*pb.VectorIn
 	return &out, nil
 }
 
-// validateVectorIndexParams validates and converts one VectorIndexParams
-// message; prefix names it in error messages. A nil message is the zero value.
-// Caps that were never resolved (<= 0) fall back to QUERY_MAXIMUM_RESULTS.
+// validateVectorIndexParams converts one VectorIndexParams message and runs
+// the shared searchparams validation in proto spelling; prefix names the
+// message in errors. A nil message is the zero value.
 func validateVectorIndexParams(in *pb.VectorIndexParams, maxEF, maxProbe int64, prefix string) (searchparams.VectorIndexParams, error) {
 	var out searchparams.VectorIndexParams
 	if in == nil {
 		return out, nil
 	}
-	if maxEF <= 0 {
-		maxEF = config.DefaultQueryMaximumResults
-	}
-	if maxProbe <= 0 {
-		maxProbe = config.DefaultQueryMaximumResults
-	}
-	if ef := in.GetEf(); int64(ef) > maxEF {
-		return out, status.Errorf(codes.InvalidArgument, "%sef %d exceeds HNSW_MAX_SEARCH_EF (%d)", prefix, ef, maxEF)
-	}
-	if probe := in.GetSearchProbe(); int64(probe) > maxProbe {
-		return out, status.Errorf(codes.InvalidArgument, "%ssearch_probe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", prefix, probe, maxProbe)
-	}
 	out.EF = int(in.GetEf())
 	out.SearchProbe = int(in.GetSearchProbe())
-
 	switch fs := in.GetFilterStrategy(); fs {
 	case pb.FilterStrategy_FILTER_STRATEGY_UNSPECIFIED:
 	case pb.FilterStrategy_FILTER_STRATEGY_SWEEPING:
@@ -588,7 +575,11 @@ func validateVectorIndexParams(in *pb.VectorIndexParams, maxEF, maxProbe int64, 
 	case pb.FilterStrategy_FILTER_STRATEGY_PATHSEER:
 		out.FilterStrategy = searchparams.FilterStrategyPathseer
 	default:
+		// the enum has no string to validate; an unknown number is a conversion error
 		return out, status.Errorf(codes.InvalidArgument, "%sfilter_strategy must be one of sweeping, acorn, pathseer, got %d", prefix, int32(fs))
+	}
+	if err := out.Validate(int(config.SearchCapOrDefault(maxEF)), int(config.SearchCapOrDefault(maxProbe)), searchparams.ProtoFieldNames); err != nil {
+		return searchparams.VectorIndexParams{}, status.Errorf(codes.InvalidArgument, "%s%v", prefix, err)
 	}
 	return out, nil
 }

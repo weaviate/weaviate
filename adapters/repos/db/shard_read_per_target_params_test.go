@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -325,25 +323,4 @@ func TestAnnotateVectorIndexParams(t *testing.T) {
 		allocs := testing.AllocsPerRun(100, func() { annotateVectorIndexParams(ctx, params) })
 		assert.Zero(t, allocs)
 	})
-}
-
-func TestIncomingSearchRejectsParamsOverLocalCaps(t *testing.T) {
-	// the coordinator validates against its own caps; a replica configured
-	// with lower ones must not run the search anyway
-	idx := &Index{Config: IndexConfig{HNSWMaxSearchEF: 100, HFreshMaxSearchProbe: 50}}
-	for name, params := range map[string]*searchparams.VectorIndexParams{
-		"ef":               {EF: 101},
-		"search probe":     {SearchProbe: 51},
-		"per-target ef":    {PerTarget: map[string]searchparams.VectorIndexParams{"title": {EF: 101}}},
-		"unknown strategy": {FilterStrategy: "fast"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, _, _, err := idx.IncomingSearch(context.Background(), "shard", nil, nil, 0, 10,
-				nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, params)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "vector index params")
-			assert.True(t, errors.As(err, &enterrors.ErrUnprocessable{}),
-				"must be ErrUnprocessable so clusterapi answers 422 and the coordinator does not retry: %v", err)
-		})
-	}
 }

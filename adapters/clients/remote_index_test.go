@@ -24,7 +24,6 @@ package clients
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -37,9 +36,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/searchparams"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -648,26 +644,4 @@ func TestRemoteIndexAggregateBoundedByCallerDeadline(t *testing.T) {
 			require.Equal(t, 7, res.Groups[0].Count)
 		})
 	}
-}
-
-// A replica that rejects the request (422: vector index params over its caps)
-// is answered once: 422 is not retried, and the error keeps its type.
-func TestRemoteIndexSearchShardDoesNotRetryUnprocessable(t *testing.T) {
-	t.Parallel()
-	var hits atomic.Int32
-	replica := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits.Add(1)
-		http.Error(w, "vector index params: ef 800 exceeds HNSW_MAX_SEARCH_EF (100)", http.StatusUnprocessableEntity)
-	}))
-	defer replica.Close()
-	client := newRemoteIndex(replica.Client())
-
-	_, _, _, err := client.SearchShard(t.Context(), replica.URL[7:], "C1", "S1",
-		[]models.Vector{[]float32{1, 2, 3}}, []string{""}, 0, 10, nil, nil, nil, nil, nil,
-		additional.Properties{}, nil, nil, &searchparams.VectorIndexParams{EF: 800})
-
-	require.Error(t, err)
-	assert.True(t, errors.As(err, &enterrors.ErrUnprocessable{}), "got %T: %v", err, err)
-	assert.Contains(t, err.Error(), "HNSW_MAX_SEARCH_EF")
-	assert.Equal(t, int32(1), hits.Load(), "a 422 must not be retried")
 }

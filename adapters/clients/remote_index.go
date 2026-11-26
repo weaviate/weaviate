@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
@@ -423,12 +422,6 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 		// reaches the ingress mapping instead of a generic 500.
 		if he, ok := AsHTTPError(err); ok && he.StatusCode() == http.StatusTooManyRequests {
 			err = fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)
-		}
-		// A 422 is the replica rejecting the request itself (vector index
-		// params over its caps); keep the type so callers can tell it from a
-		// failing node.
-		if he, ok := AsHTTPError(err); ok && he.StatusCode() == http.StatusUnprocessableEntity {
-			err = enterrors.NewErrUnprocessable(err)
 		}
 	}
 	return resp.Objects, resp.Distributions, resp.QueryProfiles, err
