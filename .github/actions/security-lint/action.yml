@@ -7,8 +7,8 @@ inputs:
   pr-number:
     description: Pull request number whose diff will be scanned.
     required: true
-  github-token:
-    description: GitHub token used to fetch the PR diff.
+  head-sha:
+    description: The commit at the head of the pull request, as the event names it.
     required: true
 
 runs:
@@ -20,9 +20,19 @@ runs:
       # run block directly — so attacker-controlled values can't escape
       # the shell context (GHA script injection / CWE-94).
       env:
-        GH_TOKEN: ${{ inputs.github-token }}
         PR_NUMBER: ${{ inputs.pr-number }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+      # The diff comes from git, not from the GitHub API: the API refuses the
+      # diff of a PR of more than 300 files or 20 000 lines, which left such a
+      # PR unscanned and the check red. The PR's commits are fetched as
+      # objects and only diffed against the merge base, the same three-dot
+      # diff the API gives; nothing of the PR is checked out or run. The
+      # checkout of the base branch must carry its history (fetch-depth: 0).
       run: |
-        gh pr diff "$PR_NUMBER" \
-          --repo "$GITHUB_REPOSITORY" \
+        [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "invalid PR number: $PR_NUMBER" >&2; exit 1; }
+        [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid head sha: $HEAD_SHA" >&2; exit 1; }
+        git fetch --no-tags --quiet origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
+        git cat-file -e "${HEAD_SHA}^{commit}"
+        base=$(git merge-base HEAD "$HEAD_SHA")
+        git diff "$base" "$HEAD_SHA" \
           | bash "$GITHUB_ACTION_PATH/linter_hidden_unicode.sh" --stdin
