@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
 
@@ -171,6 +172,8 @@ func TestResourceNameThatIsNotAHostLabelSendsNoRequest(t *testing.T) {
 
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "resourceName must be 1 to 63 letters, digits or hyphens")
+				var precondition enterrors.ErrModulePrecondition
+				assert.ErrorAs(t, err, &precondition, "REST search returns the reason with a 422 only for this type")
 				assert.Empty(t, server.Requests()[before:], "no request may leave Weaviate")
 			})
 		}

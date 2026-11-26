@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -323,7 +324,7 @@ func (ic *classSettings) TargetVariant() string {
 // so it is checked at query time as well as in the class settings.
 func ValidateRegion(region string) error {
 	if region != "" && !modulecomponents.IsHostLabel(region) {
-		return fmt.Errorf("%s must be an AWS region name, got %q", regionProperty, region)
+		return enterrors.NewErrModulePrecondition(fmt.Errorf("%s must be an AWS region name, got %q", regionProperty, region))
 	}
 	return nil
 }

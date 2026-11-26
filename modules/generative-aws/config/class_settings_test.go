@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -272,7 +273,8 @@ func TestValidateRegion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateRegion(tt.region)
 			if tt.wantErr {
-				assert.Error(t, err)
+				var precondition enterrors.ErrModulePrecondition
+				assert.ErrorAs(t, err, &precondition)
 			} else {
 				assert.NoError(t, err)
 			}

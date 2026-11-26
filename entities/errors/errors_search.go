@@ -34,8 +34,9 @@ func NewErrNoVectorizerModule(err error) ErrNoVectorizerModule {
 }
 
 // ErrModulePrecondition: a request header or environment variable the module
-// needs is missing. Weaviate finds this before any provider call, so the
-// message is safe to show to the caller.
+// needs is missing, or a value the module puts into the request host is not
+// valid. Weaviate finds this before any provider call, so the message is safe
+// to show to the caller.
 type ErrModulePrecondition struct {
 	err error
 }

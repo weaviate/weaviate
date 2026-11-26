@@ -14,6 +14,8 @@ package modulecomponents
 import (
 	"fmt"
 	"regexp"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var hostLabelPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -27,11 +29,12 @@ func IsHostLabel(s string) bool {
 	return hostLabelPattern.MatchString(s)
 }
 
-// ValidateAzureResourceName returns an error unless resourceName is one DNS
-// label. The Azure OpenAI host is <resourceName>.openai.azure.com.
+// ValidateAzureResourceName returns an ErrModulePrecondition unless
+// resourceName is one DNS label. The Azure OpenAI host is
+// <resourceName>.openai.azure.com.
 func ValidateAzureResourceName(resourceName string) error {
 	if !IsHostLabel(resourceName) {
-		return fmt.Errorf("resourceName must be 1 to 63 letters, digits or hyphens, with no hyphen at either end, got %q", resourceName)
+		return enterrors.NewErrModulePrecondition(fmt.Errorf("resourceName must be 1 to 63 letters, digits or hyphens, with no hyphen at either end, got %q", resourceName))
 	}
 	return nil
 }

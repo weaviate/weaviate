@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func TestIsHostLabel(t *testing.T) {
@@ -52,9 +53,12 @@ func TestIsHostLabel(t *testing.T) {
 			if tt.want {
 				assert.NoError(t, ValidateAzureResourceName(tt.value))
 			} else {
-				assert.EqualError(t, ValidateAzureResourceName(tt.value),
+				err := ValidateAzureResourceName(tt.value)
+				assert.EqualError(t, err,
 					"resourceName must be 1 to 63 letters, digits or hyphens, with no hyphen at either end, got "+
 						strconv.Quote(tt.value))
+				var precondition enterrors.ErrModulePrecondition
+				assert.ErrorAs(t, err, &precondition)
 			}
 		})
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	awsparams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
@@ -52,6 +53,8 @@ func TestSignedRequestStaysOnAWS(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "region must be an AWS region name")
+			var precondition enterrors.ErrModulePrecondition
+			assert.ErrorAs(t, err, &precondition, "REST search returns the reason with a 422 only for this type")
 			if !tt.viaSDK {
 				assert.Empty(t, server.Requests()[before:], "no request may leave Weaviate")
 			}
