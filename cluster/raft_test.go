@@ -985,6 +985,11 @@ func TestGetReplicationScalePlan_NamespacedClassPicksHomeNodes(t *testing.T) {
 			selector: []string{"n1", "n3"}, factor: 2, wantAdded: []string{"n3"},
 		},
 		{
+			name:      "a raise counts a non-home replica toward the factor",
+			homeNodes: []string{"n1", "n2", "n3"}, replicas: []string{"n1", "x"},
+			selector: []string{"n1", "n2", "x"}, factor: 3, wantAdded: []string{"n2"},
+		},
+		{
 			name:      "a raise past the home nodes that are storage candidates is refused",
 			homeNodes: []string{"n1", "n2"}, replicas: []string{"n1"},
 			selector: []string{"n1"}, factor: 2, wantErrText: `home node(s) n2 of namespace "acme"`,
@@ -994,6 +999,22 @@ func TestGetReplicationScalePlan_NamespacedClassPicksHomeNodes(t *testing.T) {
 			homeNodes: []string{"n1", "n2"}, replicas: []string{"n1"},
 			selector: []string{"n1", "n2"}, factor: 3,
 			wantErr: schema.ErrBadRequest, wantErrText: `exceeds the 2 home node(s) of namespace "acme"`,
+		},
+		{
+			name:      "a raise above the home-node count is a bad request on a shard above that count",
+			homeNodes: []string{"n1"}, replicas: []string{"n1", "n2"},
+			selector: []string{"n1", "n2", "n3"}, factor: 3,
+			wantErr: schema.ErrBadRequest, wantErrText: `exceeds the 1 home node(s) of namespace "acme"`,
+		},
+		{
+			name:      "a shrink above the home-node count keeps the home nodes first",
+			homeNodes: []string{"n1"}, replicas: []string{"n2", "n3", "n1"},
+			selector: []string{"n1", "n2", "n3"}, factor: 2, wantRemoved: []string{"n3"},
+		},
+		{
+			name:      "a factor above the home-node count that equals the replica count changes nothing",
+			homeNodes: []string{"n1"}, replicas: []string{"n1", "n2"},
+			selector: []string{"n1", "n2"}, factor: 2,
 		},
 	}
 	for _, tt := range tests {

@@ -604,7 +604,7 @@ func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error)
 	}
 
 	factor := int(subCommand.ReplicationFactor)
-	ns, err := m.scalePlanNamespace(className, factor)
+	ns, err := m.scalePlanNamespace(className)
 	if err != nil {
 		return nil, err
 	}
@@ -694,8 +694,8 @@ func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error)
 }
 
 // scalePlanNamespace returns the namespace of class, or nil for an unqualified
-// class. It refuses a factor above the namespace's home-node count.
-func (m *Manager) scalePlanNamespace(class string, factor int) (*cmd.Namespace, error) {
+// class.
+func (m *Manager) scalePlanNamespace(class string) (*cmd.Namespace, error) {
 	name := namespacing.NamespaceFromQualified(class)
 	if name == "" {
 		return nil, nil
@@ -710,22 +710,29 @@ func (m *Manager) scalePlanNamespace(class string, factor int) (*cmd.Namespace, 
 	if !ok {
 		return nil, fmt.Errorf("namespace %q of collection %q does not exist", name, class)
 	}
-	if homeNodes := len(ns.HomeNodes); factor > homeNodes {
-		return nil, fmt.Errorf("%w: requested replication factor %d exceeds the %d home node(s) of namespace %q; "+
-			"request at most %d, or an administrator must add home nodes", schema.ErrBadRequest, factor, homeNodes, name, homeNodes)
-	}
 	return &ns, nil
 }
 
 // adjustReplicas sets shard's replicas to factor. For a class in ns, a raise
-// adds the first home nodes that are storage candidates.
+// adds the first home nodes that are storage candidates, so a raise past the
+// home-node count is a bad request. A shrink needs no home node.
 func (m *Manager) adjustReplicas(shard *sharding.Physical, factor int, ns *cmd.Namespace) error {
 	storageCandidates := m.nodeSelector.StorageCandidates()
 	if ns == nil {
 		return shard.AdjustReplicas(factor, storageCandidates)
 	}
 	shard.BelongsToNodes = homeNodesFirst(*ns, shard.BelongsToNodes, storageCandidates)
-	err := shard.AdjustReplicas(factor, ns.PlacementNodes(storageCandidates, factor))
+	if homeNodes := len(ns.HomeNodes); factor > homeNodes && factor > len(shard.BelongsToNodes) {
+		return fmt.Errorf("%w: requested replication factor %d adds replicas to shard %q and exceeds the %d home node(s) of namespace %q; "+
+			"request at most %d, or an administrator must add home nodes", schema.ErrBadRequest, factor, shard.Name, homeNodes, ns.Name, homeNodes)
+	}
+	pool := slices.Clone(shard.BelongsToNodes)
+	for _, n := range ns.PlacementNodes(storageCandidates, len(ns.HomeNodes)) {
+		if !slices.Contains(pool, n) {
+			pool = append(pool, n)
+		}
+	}
+	err := shard.AdjustReplicas(factor, pool)
 	if errors.Is(err, sharding.ErrNotEnoughStorageReplicas) {
 		return fmt.Errorf("home node(s) %s of namespace %q are not storage candidates: %w",
 			strings.Join(ns.MissingHomeNodes(storageCandidates), ", "), ns.Name, err)
