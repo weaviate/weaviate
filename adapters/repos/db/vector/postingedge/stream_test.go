@@ -1339,14 +1339,6 @@ func (c edgeCounts) recall() float64 {
 	return float64(c.Captured) / float64(max(c.Wanted, 1))
 }
 
-func (c edgeCounts) postingRecall() float64 {
-	return float64(c.PostingsCaptured) / float64(max(c.PostingsWanted, 1))
-}
-
-func (c edgeCounts) degree() float64 {
-	return float64(c.Edges) / float64(max(c.Vectors, 1))
-}
-
 func (c *edgeCounts) add(o edgeCounts) {
 	c.Vectors += o.Vectors
 	c.Edges += o.Edges
