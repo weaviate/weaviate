@@ -91,7 +91,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.qualifier, m.metrics)
+		principal, m.authorizer, m.qualifier, m.metrics)
 	targetRef, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -139,10 +139,14 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Ref.Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, targetRef.TargetID).String())
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+	targetTenant := validation.ReferenceTargetTenant(targetRef.Class, tenant)
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, targetTenant)...); err != nil {
+		return referenceAuthorizationError(err)
 	}
-	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+	if err := input.validateExistence(ctx, validator, targetTenant, targetRef); err != nil {
+		if errors.As(err, &autherrs.Forbidden{}) || validation.IsReferenceAuthorizationError(err) {
+			return referenceAuthorizationError(err)
+		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return &Error{"validate existence", StatusInternalServerError, err}
 		}

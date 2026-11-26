@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -57,6 +59,13 @@ func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.
 	}
 
 	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
+}
+
+func referenceAuthorizationError(err error) *Error {
+	if errors.As(err, &autherrs.Forbidden{}) {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+	return &Error{"authorize reference target", StatusInternalServerError, err}
 }
 
 // validateReferenceName validates class and property names. The class

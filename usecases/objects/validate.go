@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
@@ -52,6 +53,9 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 		var forbidden autherrs.Forbidden
 		if errors.As(err, &forbidden) {
 			return err
+		}
+		if validation.IsReferenceAuthorizationError(err) {
+			return NewErrInternal("validate object: %w", err)
 		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return NewErrInternal("validate object: %w", err)

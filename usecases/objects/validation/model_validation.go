@@ -19,14 +19,47 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error)
+
+type referenceAuthorizationError struct {
+	err error
+}
+
+func (e *referenceAuthorizationError) Error() string {
+	return e.err.Error()
+}
+
+func (e *referenceAuthorizationError) Unwrap() error {
+	return e.err
+}
+
+func wrapReferenceAuthorizationError(err error) error {
+	return &referenceAuthorizationError{err: err}
+}
+
+// IsReferenceAuthorizationError reports whether reference validation failed
+// because its target permission check could not complete.
+func IsReferenceAuthorizationError(err error) bool {
+	var authErr *referenceAuthorizationError
+	return errors.As(err, &authErr)
+}
+
+// ReferenceTargetTenant uses the tenantless scope required by classless lookups.
+func ReferenceTargetTenant(class, tenant string) string {
+	if class == "" {
+		return ""
+	}
+	return tenant
+}
 
 const (
 	// ErrorMissingActionObjects message
@@ -90,23 +123,26 @@ type Validator struct {
 	config           *config.WeaviateConfig
 	replicationProps *additional.ReplicationProperties
 	principal        *models.Principal
+	authorizer       authorization.Authorizer
 	qualifier        namespacing.Qualifier
 	refCounter       MultiTargetRefCounter
 }
 
 // New constructs a Validator. principal and qualifier qualify the target class
 // of each reference in an object's properties, and refuse one in another
-// namespace.
+// namespace. authorizer checks that principal may read each reference target
+// before its existence is probed.
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
-	principal *models.Principal, qualifier namespacing.Qualifier,
-	refCounter MultiTargetRefCounter,
+	principal *models.Principal, authorizer authorization.Authorizer,
+	qualifier namespacing.Qualifier, refCounter MultiTargetRefCounter,
 ) *Validator {
 	return &Validator{
 		exists:           exists,
 		config:           config,
 		replicationProps: repl,
 		principal:        principal,
+		authorizer:       authorizer,
 		qualifier:        qualifier,
 		refCounter:       refCounter,
 	}
@@ -147,11 +183,13 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
-		if tenant == "" {
+		if tenant == "" || !errors.Is(err, enterrors.ErrTenantForNonMultiTenantClass) {
 			return err
 		}
-		// since refs can be created to non-MT classes, check again if non-MT object exists
-		// (use empty tenant, if previously was given)
+		if authErr := v.authorizer.Authorize(ctx, v.principal, authorization.READ,
+			authorization.ShardsData(ref.Class, "")...); authErr != nil {
+			return wrapReferenceAuthorizationError(authErr)
+		}
 		ok2, err2 := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
 		if err2 != nil {
 			// A target class without multi-tenancy fails the tenant call with a

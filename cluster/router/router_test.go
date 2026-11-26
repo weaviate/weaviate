@@ -26,6 +26,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -1428,6 +1429,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_TenantValidation(t *testing.T)
 
 	plan, err := r.BuildWriteRoutingPlan(opts)
 	require.Error(t, err)
+	require.ErrorIs(t, err, enterrors.ErrTenantForNonMultiTenantClass)
 	require.Contains(t, err.Error(), "class TestClass has multi-tenancy disabled, but request was with tenant")
 	require.Empty(t, plan.ReplicaSet.Replicas)
 }
@@ -1666,6 +1668,7 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_TenantValidation(t *testing.T) 
 
 	plan, err := r.BuildReadRoutingPlan(opts)
 	require.Error(t, err)
+	require.ErrorIs(t, err, enterrors.ErrTenantForNonMultiTenantClass)
 	require.Contains(t, err.Error(), "class TestClass has multi-tenancy disabled, but request was with tenant")
 	require.Empty(t, plan.ReplicaSet.Replicas)
 }
