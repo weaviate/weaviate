@@ -1,0 +1,57 @@
+== 14:04:42 crq4-v40-r512
+crq4-v40-r512 exit 0
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.95 (ef 21): recall 0.9516, 18.59 loads | the manifest: 0.9513, 18.59
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.99 (ef 187): recall 0.9900, 76.30 loads | the manifest: 0.9900, 76.30
+bench_centroid_codes_test.go:165: cell r512, codes true (graph compressed true): heap in use 125.0 MB after opening; 4195 centroids, 3.3 MB
+--- PASS: TestDiskCentroidCodes (38.22s)
+PASS
+== 14:05:21 crq4-v40-halo512
+crq4-v40-halo512 exit 0
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.95 (ef 21): recall 0.9516, 18.59 loads | the manifest: 0.9513, 18.59
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.99 (ef 187): recall 0.9900, 76.30 loads | the manifest: 0.9900, 76.30
+bench_centroid_codes_test.go:165: cell halo512, codes true (graph compressed true): heap in use 54.2 MB after opening; 4195 centroids, 3.3 MB
+--- PASS: TestDiskCentroidCodes (67.65s)
+PASS
+== 14:06:29 crq4-tenm-r512
+crq4-tenm-r512 exit 0
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.95 (ef 29): recall 0.9531, 21.29 loads | the manifest: 0.9520, 21.25
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.99 (ef 315): recall 0.9900, 141.58 loads | the manifest: 0.9900, 141.58
+bench_centroid_codes_test.go:165: cell r512, codes true (graph compressed true): heap in use 851.6 MB after opening; 42373 centroids, 16.9 MB
+--- PASS: TestDiskCentroidCodes (20.13s)
+PASS
+== 14:06:49 crq4-tenm-halo512
+crq4-tenm-halo512 exit 0
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.95 (ef 29): recall 0.9531, 21.24 loads | the manifest: 0.9520, 21.25
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.99 (ef 315): recall 0.9900, 141.59 loads | the manifest: 0.9900, 141.58
+bench_centroid_codes_test.go:165: cell halo512, codes true (graph compressed true): heap in use 131.7 MB after opening; 42373 centroids, 16.9 MB
+--- PASS: TestDiskCentroidCodes (37.27s)
+PASS
+== 14:07:26 crq1-v40-r512
+crq1-v40-r512 exit 0
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.95 (ef 21): recall 0.9514, 18.63 loads | the manifest: 0.9513, 18.59
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.99 (ef 187): recall 0.9900, 76.31 loads | the manifest: 0.9900, 76.30
+bench_centroid_codes_test.go:165: cell r512, codes true (graph compressed true): heap in use 122.6 MB after opening; 4195 centroids, 0.8 MB
+--- PASS: TestDiskCentroidCodes (36.42s)
+PASS
+== 14:08:03 crq1-v40-halo512
+crq1-v40-halo512 exit 0
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.95 (ef 21): recall 0.9514, 18.63 loads | the manifest: 0.9513, 18.59
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.99 (ef 187): recall 0.9900, 76.31 loads | the manifest: 0.9900, 76.30
+bench_centroid_codes_test.go:165: cell halo512, codes true (graph compressed true): heap in use 51.7 MB after opening; 4195 centroids, 0.8 MB
+--- PASS: TestDiskCentroidCodes (51.88s)
+PASS
+== 14:08:55 crq1-tenm-r512
+crq1-tenm-r512 exit 0
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.95 (ef 29): recall 0.9532, 21.30 loads | the manifest: 0.9520, 21.25
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.99 (ef 315): recall 0.9900, 141.62 loads | the manifest: 0.9900, 141.58
+bench_centroid_codes_test.go:165: cell r512, codes true (graph compressed true): heap in use 843.2 MB after opening; 42373 centroids, 4.4 MB
+--- PASS: TestDiskCentroidCodes (18.36s)
+PASS
+== 14:09:13 crq1-tenm-halo512
+crq1-tenm-halo512 exit 0
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.95 (ef 29): recall 0.9523, 21.35 loads | the manifest: 0.9520, 21.25
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.99 (ef 315): recall 0.9900, 141.64 loads | the manifest: 0.9900, 141.58
+bench_centroid_codes_test.go:165: cell halo512, codes true (graph compressed true): heap in use 122.1 MB after opening; 42373 centroids, 4.4 MB
+--- PASS: TestDiskCentroidCodes (35.79s)
+PASS
+== 14:09:49 done

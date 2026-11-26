@@ -1,0 +1,33 @@
+{
+  "dataset": "wikidpr-10m-e5-inplace.bin",
+  "cell": "r512",
+  "queries": 1000,
+  "k": 10,
+  "bits": 1,
+  "centering": true,
+  "modes": [
+    {
+      "codes": true,
+      "compressed": true,
+      "heapInuse": 843194368,
+      "centroids": 42373,
+      "centroidBytes": 4406792,
+      "points": [
+        {
+          "target": 0.95,
+          "ef": 29,
+          "rescoreLimit": 64,
+          "recall": 0.9532,
+          "loads": 21.296
+        },
+        {
+          "target": 0.99,
+          "ef": 315,
+          "rescoreLimit": 64,
+          "recall": 0.99,
+          "loads": 141.616
+        }
+      ]
+    }
+  ]
+}

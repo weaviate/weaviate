@@ -1,0 +1,6 @@
+=== RUN   TestDiskCentroidCodes
+    bench_centroid_codes_test.go:162: cell r512, codes true, at 0.95 (ef 21): recall 0.9516, 18.59 loads | the manifest: 0.9513, 18.59
+    bench_centroid_codes_test.go:162: cell r512, codes true, at 0.99 (ef 187): recall 0.9900, 76.30 loads | the manifest: 0.9900, 76.30
+    bench_centroid_codes_test.go:165: cell r512, codes true (graph compressed true): heap in use 125.0 MB after opening; 4195 centroids, 3.3 MB
+--- PASS: TestDiskCentroidCodes (38.22s)
+PASS

@@ -1,0 +1,33 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "cell": "r512",
+  "queries": 5000,
+  "k": 10,
+  "bits": 0,
+  "centering": false,
+  "modes": [
+    {
+      "codes": true,
+      "compressed": true,
+      "heapInuse": 128303104,
+      "centroids": 4195,
+      "centroidBytes": 6510640,
+      "points": [
+        {
+          "target": 0.95,
+          "ef": 21,
+          "rescoreLimit": 64,
+          "recall": 0.9513,
+          "loads": 18.6078
+        },
+        {
+          "target": 0.99,
+          "ef": 187,
+          "rescoreLimit": 64,
+          "recall": 0.99,
+          "loads": 76.3028
+        }
+      ]
+    }
+  ]
+}

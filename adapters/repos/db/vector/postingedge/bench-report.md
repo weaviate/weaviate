@@ -409,6 +409,65 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **CRQ4:** dentro del ±2 %.
 - **CRQ1 sin rescore:** fuera, sobre todo en las cargas, porque 1 bit ordena mal los centroides cercanos.
 
+### CRQ4 y CRQ1 para los centroides: resultados (26 de noviembre, de 14:04 a 14:15)
+
+*El arnés es `2e902e4dba` en `feat/posting-edge-integration`: la opción de los bits es del arnés, y el índice sigue en RQ8. El binario se compiló a las 14:04 del árbol de ese commit. Los datos están en `testdata/bench/centroid-codes/`, en `crq4-*`, `crq1-*` y `rq8only-*`, con sus scripts.*
+
+**Lo que no hice como decía el pre-registro.**
+- **El script de CRQ abrió cada celda solo con CRQ4 o CRQ1, no también en RQ8.** Añadí después una pasada de RQ8 en las mismas condiciones:
+  - el mismo binario, de clones nuevos de las celdas en `float32`;
+  - un proceso por apertura, solo con códigos.
+- **El primer intento de esa pasada falló al abrir** porque apuntaba al directorio padre de las celdas. No midió nada.
+- **El heap de las tres es comparable entre sí.** No lo es con la tabla de RQ8 de arriba, que abría primero en `float32` en el mismo proceso, ni con la tabla del heap de `TestDiskTimed`.
+- **`float32` es el de la medida de RQ8.** Lo uso solo para el criterio de calidad.
+
+| celda | códigos | a 0.95: recall | cargas | a 0.99: recall | cargas | centroides | heap tras abrir | frente a RQ8 |
+|---|---|---|---|---|---|---|---|---|
+| 1M `r512` | `float32` | 0.9513 | 18.59 | 0.9900 | 76.30 | 25.8 MB | — | — |
+| | RQ8 | 0.9513 | 18.61 | 0.9900 | 76.30 | 6.5 MB | 128.3 MB | — |
+| | CRQ4 | 0.9516 | 18.59 | 0.9900 | 76.30 | 3.3 MB | 125.0 MB | −3.3 MB |
+| | CRQ1 | 0.9514 | 18.63 | 0.9900 | 76.31 | 0.8 MB | 122.6 MB | −5.7 MB |
+| 1M `halo512` | RQ8 | 0.9513 | 18.61 | 0.9900 | 76.30 | 6.5 MB | 57.1 MB | — |
+| | CRQ4 | 0.9516 | 18.59 | 0.9900 | 76.30 | 3.3 MB | 54.2 MB | −2.9 MB |
+| | CRQ1 | 0.9514 | 18.63 | 0.9900 | 76.31 | 0.8 MB | 51.7 MB | −5.4 MB |
+| 10M `r512` | `float32` | 0.9520 | 21.25 | 0.9900 | 141.58 | 130.2 MB | — | — |
+| | RQ8 | 0.9532 | 21.16 | 0.9900 | 141.58 | 33.2 MB | 872.0 MB | — |
+| | CRQ4 | 0.9531 | 21.29 | 0.9900 | 141.58 | 16.9 MB | 851.6 MB | −20.3 MB |
+| | CRQ1 | 0.9532 | 21.30 | 0.9900 | 141.62 | 4.4 MB | 843.2 MB | −28.8 MB |
+| 10M `halo512` | RQ8 | 0.9532 | 21.16 | 0.9900 | 141.58 | 33.2 MB | 149.4 MB | — |
+| | CRQ4 | 0.9531 | 21.24 | 0.9900 | 141.59 | 16.9 MB | 131.7 MB | −17.7 MB |
+| | CRQ1 | 0.9523 | 21.35 | 0.9900 | 141.64 | 4.4 MB | 122.1 MB | −27.3 MB |
+
+*En `float32`, `halo512` da lo mismo que `r512` en las dos escalas, y no lo repito.*
+
+**La calidad: el criterio se cumple en las cuatro celdas, con CRQ4 y con CRQ1.**
+- Lo que más se separa de `float32`:
+  - las cargas de CRQ1 a 0.95 en 10M `halo512`: +0.47 %;
+  - el recall a 0.95 a 10M: +0.13 %, con RQ8 y con CRQ1 en `r512`.
+- A 0.99 nada se separa más de +0.04 %.
+
+**El ahorro a 10M frente a RQ8, con la regla escrita:**
+- **CRQ1** ahorra 27.3 MB en `none` y 28.8 en `routing`: más de 20 en las dos celdas, con la calidad dentro.
+  - Según la regla, **lo propongo, sin hacerlo por defecto.**
+- **CRQ4: la regla escrita no lo decide.** Ahorra 17.7 MB en `none` y 20.3 en `routing`, una celda a cada lado de 20.
+  - Los códigos ahorran 16.3 MB en las dos.
+  - Lo que el heap añade por encima (1.4 y 4.0 MB) es de una sola muestra por apertura, no de un componente.
+  - No lo decido leyendo la regla a mi favor.
+  - *Mío:* no lo propongo de todos modos, porque CRQ1 ahorra más con la misma calidad.
+
+**Lo esperado:**
+- **Los códigos:** se cumple (16.9 y 4.4 MB a 10M, 3.3 y 0.8 a 1M).
+- **CRQ4 dentro del ±2 %:** se cumple.
+- **CRQ1 fuera, sobre todo en las cargas:** no se cumple. Me equivoqué: sus cargas se separan +0.47 % como mucho.
+
+**Lo que esta medida no cubre, para la propuesta de CRQ1:**
+- **Solo mide la conversión de un índice entero.**
+  - Los códigos centrados ajustan su media con los centroides que hay cuando el grafo se comprime: aquí, los 42 373 o los 4 195.
+  - Un índice que crece desde vacío comprime su grafo con los centroides que tenga entonces, que pueden ser pocos.
+  - No he comprobado cuándo comprime su grafo un índice nuevo con códigos centrados, ni he medido ese caso.
+- **No está cronometrada:** no dice nada de la latencia.
+- **En proporción, a 10M,** los 28.8 MB son el 19 % del heap de `none` (149.4 MB) y el 3 % del de `routing` (872.0 MB).
+
 ## La plana en `none` por lectura directa, y el corte de `none` (pre-registro, 2026-11-24 a las 21:50)
 
 **Estado: pre-registrado antes de compilar nada.**

@@ -1,0 +1,29 @@
+== 14:13:21 rq8-v40-r512
+rq8-v40-r512 exit 0
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.95 (ef 21): recall 0.9513, 18.61 loads | the manifest: 0.9513, 18.59
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.99 (ef 187): recall 0.9900, 76.30 loads | the manifest: 0.9900, 76.30
+bench_centroid_codes_test.go:165: cell r512, codes true (graph compressed true): heap in use 128.3 MB after opening; 4195 centroids, 6.5 MB
+--- PASS: TestDiskCentroidCodes (35.85s)
+PASS
+== 14:13:57 rq8-v40-halo512
+rq8-v40-halo512 exit 0
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.95 (ef 21): recall 0.9513, 18.61 loads | the manifest: 0.9513, 18.59
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.99 (ef 187): recall 0.9900, 76.30 loads | the manifest: 0.9900, 76.30
+bench_centroid_codes_test.go:165: cell halo512, codes true (graph compressed true): heap in use 57.1 MB after opening; 4195 centroids, 6.5 MB
+--- PASS: TestDiskCentroidCodes (52.00s)
+PASS
+== 14:14:49 rq8-tenm-r512
+rq8-tenm-r512 exit 0
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.95 (ef 29): recall 0.9532, 21.16 loads | the manifest: 0.9520, 21.25
+bench_centroid_codes_test.go:162: cell r512, codes true, at 0.99 (ef 315): recall 0.9900, 141.58 loads | the manifest: 0.9900, 141.58
+bench_centroid_codes_test.go:165: cell r512, codes true (graph compressed true): heap in use 872.0 MB after opening; 42373 centroids, 33.2 MB
+--- PASS: TestDiskCentroidCodes (18.42s)
+PASS
+== 14:15:08 rq8-tenm-halo512
+rq8-tenm-halo512 exit 0
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.95 (ef 29): recall 0.9532, 21.16 loads | the manifest: 0.9520, 21.25
+bench_centroid_codes_test.go:162: cell halo512, codes true, at 0.99 (ef 315): recall 0.9900, 141.58 loads | the manifest: 0.9900, 141.58
+bench_centroid_codes_test.go:165: cell halo512, codes true (graph compressed true): heap in use 149.4 MB after opening; 42373 centroids, 33.2 MB
+--- PASS: TestDiskCentroidCodes (35.55s)
+PASS
+== 14:15:43 done
