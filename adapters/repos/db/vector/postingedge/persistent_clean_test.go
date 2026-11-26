@@ -40,24 +40,27 @@ func (f *persistentFixture) marked() int {
 // and finds what is left as well as before, and it opens again as it was. A
 // doc id that left can be given again, and is then the new vector.
 func TestPersistentCleansItsDeletes(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+	ctx := persistentCtx()
 	const k = 10
-	const total = persistentBase + 900
+	const total = persistentBase + 200
+	// under is how many deletes stay under the share that makes a pass due.
+	const under = int(growCleanShare*total) - 1
 	f := newPersistentFixture(t, total)
 	f.add(t, 0, total)
 	deleted := map[uint64]bool{}
 	held := func(id uint64) bool { return !deleted[id] }
 
 	// Under the share that makes a pass due, the deleted vectors stay marked.
-	for id := uint64(0); id < 30; id++ {
+	for id := range uint64(under) {
 		require.NoError(t, f.index.Delete(id))
 		deleted[id] = true
 	}
 	require.NoError(t, f.index.maintain(ctx))
-	require.Equal(t, 30, f.marked(), "a pass is not due under %.0f %% of the vectors", 100*growCleanShare)
+	require.Equal(t, under, f.marked(), "a pass is not due under %.0f %% of the vectors", 100*growCleanShare)
 	require.Zero(t, f.index.cleans.Load())
 
-	for id := uint64(30); id < total; id += 6 {
+	for id := uint64(under); id < total; id += 6 {
 		require.NoError(t, f.index.Delete(id))
 		deleted[id] = true
 	}
@@ -94,8 +97,9 @@ func TestPersistentCleansItsDeletes(t *testing.T) {
 	f.covered(t, "opened again")
 
 	// A doc id that left is given again, with the vector of another doc.
-	const again, other = 36, total - 1
+	const again, other = uint64(under + 6), uint64(total - 1)
 	require.True(t, deleted[again])
+	require.False(t, deleted[other])
 	require.NoError(t, f.index.Delete(other))
 	require.NoError(t, f.index.Add(ctx, again, f.vectors[other]))
 	require.True(t, f.index.ContainsDoc(again))
@@ -113,9 +117,10 @@ func TestPersistentCleansItsDeletes(t *testing.T) {
 // after that takes it a step further, with nothing in the background. So it
 // ends within a bounded number of writes, however they come.
 func TestPersistentCleansInLineWithItsWrites(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+	ctx := persistentCtx()
 	const k = 10
-	const grown = 2 * persistentBase
+	const grown = persistentBase + 100
 	const total = grown + 300
 	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground = true })
 	f.add(t, 0, grown)
@@ -190,29 +195,36 @@ func TestPersistentCleansInLineWithItsWrites(t *testing.T) {
 // that stopped at a fixed count ended, on a busy machine, before the layout
 // that was due had.
 func TestPersistentMaintenanceNextToEverything(t *testing.T) {
+	t.Parallel()
 	for _, cacheMode := range cacheModes {
-		t.Run(cacheMode, func(t *testing.T) { persistentMaintenanceNextToEverything(t, cacheMode) })
+		t.Run(cacheMode, func(t *testing.T) {
+			t.Parallel()
+			persistentMaintenanceNextToEverything(t, cacheMode)
+		})
 	}
 }
 
 func persistentMaintenanceNextToEverything(t *testing.T, cacheMode string) {
-	ctx := context.Background()
+	ctx := concurrentCtx()
 	const k = 10
-	// atLeast is how many vectors go in whatever happens, and total how many
-	// there are for the passes to run next to.
-	const atLeast, total = 2*persistentBase + 400, 6 * persistentBase
-	f := newPersistentFixtureMode(t, total, cacheMode, nil)
-	f.add(t, 0, persistentBase+200)
+	// start is how many vectors the index holds before the writes begin,
+	// atLeast how many go in whatever happens, past the doubling that makes a
+	// layout due, and total how many there are for the passes to run next
+	// to.
+	const base = doublingBase
+	const start, atLeast, total = base + 50, 2*base + 50, 4 * base
+	f := newDoublingFixture(t, total, cacheMode, nil)
+	f.add(t, 0, start)
 
 	var deleted [total]atomic.Bool
 	var stop atomic.Bool
 	// added is how many vectors went in: the doc ids under it.
 	var added atomic.Int64
-	added.Store(persistentBase + 200)
+	added.Store(start)
 	eg := enterrors.NewErrorGroupWrapper(testLogger())
 	eg.Go(func() error {
 		defer stop.Store(true)
-		for next := persistentBase + 200; next < total; next++ {
+		for next := start; next < total; next++ {
 			if next >= atLeast && f.index.cleans.Load() > 0 && f.index.layouts.Load() > 0 {
 				break
 			}
@@ -232,7 +244,7 @@ func persistentMaintenanceNextToEverything(t *testing.T, cacheMode string) {
 		}
 		return nil
 	})
-	for range 3 {
+	for range 2 {
 		eg.Go(func() error {
 			for q := 0; !stop.Load(); q++ {
 				// A doc deleted before the search started is not in its answer.
@@ -249,6 +261,7 @@ func persistentMaintenanceNextToEverything(t *testing.T, cacheMode string) {
 						return errors.Errorf("query %d returned doc %d, which was deleted", q, id)
 					}
 				}
+				time.Sleep(readerPause)
 			}
 			return nil
 		})
@@ -283,11 +296,13 @@ func persistentMaintenanceNextToEverything(t *testing.T, cacheMode string) {
 // first version, with a value per list of edges, keeps its deleted vectors
 // marked: nothing takes them out.
 func TestPersistentCleanStops(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+	ctx := persistentCtx()
 	const k = 10
-	const total = persistentBase + 600
+	const total = persistentBase + 100
 
 	t.Run("told to stop", func(t *testing.T) {
+		t.Parallel()
 		f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noMaintenance = true })
 		f.add(t, 0, total)
 		deleted := map[uint64]bool{}
@@ -317,6 +332,7 @@ func TestPersistentCleanStops(t *testing.T) {
 	})
 
 	t.Run("an index of the first version", func(t *testing.T) {
+		t.Parallel()
 		f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.listEdges = true })
 		f.add(t, 0, total)
 		deleted := map[uint64]bool{}

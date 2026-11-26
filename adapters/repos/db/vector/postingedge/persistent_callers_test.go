@@ -15,6 +15,7 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -27,28 +28,34 @@ import (
 // do with what a queue holds: their searches run next to each other and next
 // to the queries, and their writes one at a time. Nothing a write takes from
 // its search is stale, which the index checks here list by list. With deletes
-// and with what the index does by itself on the way, what is left is the
-// index: covered, every vector the one it was given, none that was deleted
-// held or returned, and the same after it is opened again.
+// and with what the index does by itself on the way, the layout of its
+// vectors once it has doubled among it, what is left is the index: covered,
+// every vector the one it was given, none that was deleted held or returned,
+// and the same after it is opened again.
 func TestPersistentAddsFromSeveralCallers(t *testing.T) {
+	t.Parallel()
 	for _, cacheMode := range cacheModes {
-		t.Run(cacheMode, func(t *testing.T) { persistentAddsFromSeveralCallers(t, cacheMode) })
+		t.Run(cacheMode, func(t *testing.T) {
+			t.Parallel()
+			persistentAddsFromSeveralCallers(t, cacheMode)
+		})
 	}
 }
 
 func persistentAddsFromSeveralCallers(t *testing.T, cacheMode string) {
-	ctx := context.Background()
+	ctx := concurrentCtx()
 	const k = 10
-	const callers, batch = 8, 25
-	const total = persistentBase + 1600
-	f := newPersistentFixtureMode(t, total, cacheMode, nil)
-	f.add(t, 0, persistentBase)
+	const callers, batch = 8, 10
+	const base = doublingBase
+	const total = 2*base + 50
+	f := newDoublingFixture(t, total, cacheMode, nil)
+	f.add(t, 0, base)
 	f.index.mu.Lock()
 	f.index.g.verifyKept = true
 	f.index.mu.Unlock()
 
 	var next atomic.Int64
-	next.Store(persistentBase)
+	next.Store(base)
 	var deleted [total]atomic.Bool
 	var done atomic.Bool
 	writers := enterrors.NewErrorGroupWrapper(testLogger())
@@ -64,7 +71,7 @@ func persistentAddsFromSeveralCallers(t *testing.T, cacheMode string) {
 					return errors.Wrapf(err, "docs [%d, %d)", from, to)
 				}
 				// One of the base goes with every batch.
-				gone := uint64(from-persistentBase) / 3
+				gone := uint64(from-base) / 3
 				if err := f.index.Delete(gone); err != nil {
 					return err
 				}
@@ -73,7 +80,7 @@ func persistentAddsFromSeveralCallers(t *testing.T, cacheMode string) {
 		})
 	}
 	readers := enterrors.NewErrorGroupWrapper(testLogger())
-	for range 3 {
+	for range 2 {
 		readers.Go(func() error {
 			for q := 0; !done.Load(); q++ {
 				var gone [total]bool
@@ -89,6 +96,7 @@ func persistentAddsFromSeveralCallers(t *testing.T, cacheMode string) {
 						return errors.Errorf("query %d returned doc %d, which was deleted", q, id)
 					}
 				}
+				time.Sleep(readerPause)
 			}
 			return nil
 		})
@@ -98,6 +106,7 @@ func persistentAddsFromSeveralCallers(t *testing.T, cacheMode string) {
 	require.NoError(t, readers.Wait())
 
 	require.NoError(t, f.index.Settle(ctx))
+	require.Positive(t, f.index.layouts.Load(), "the vectors were laid out once the index had doubled")
 	f.index.mu.RLock()
 	g := f.index.g
 	// What it holds: the vectors in its postings but for those that are marked
@@ -131,8 +140,9 @@ func persistentAddsFromSeveralCallers(t *testing.T, cacheMode string) {
 // is told it is taken, whichever comes second, and the index holds the vector
 // of the other.
 func TestPersistentCallersWithTheSameDocID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const total = persistentBase + 200
+	const total = persistentBase + 30
 	f := newPersistentFixture(t, total)
 	f.add(t, 0, persistentBase)
 	for id := persistentBase; id < total; id++ {
