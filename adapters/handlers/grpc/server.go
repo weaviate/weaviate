@@ -69,14 +69,15 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		grpc.MaxSendMsgSize(grpcConf.MaxMsgSize),
 	}
 
+	// TODO(dyma): Append these at the end so that the caller can override any of the options here.
 	o = append(o, options...)
 
 	// Add TLS creds for the GRPC connection, if defined.
 	if len(grpcConf.CertFile) > 0 || len(grpcConf.KeyFile) > 0 {
-		c, err := credentials.NewServerTLSFromFile(grpcConf.CertFile,
-			grpcConf.KeyFile)
+		c, err := credentials.NewServerTLSFromFile(grpcConf.CertFile, grpcConf.KeyFile)
 		if err != nil {
-			state.Logger.WithField("action", "grpc_startup").
+			state.Logger.
+				WithField("action", "grpc_startup").
 				Fatalf("grpc server TLS credential error: %s", err)
 		}
 		o = append(o, grpc.Creds(c))
@@ -89,19 +90,8 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		unaryInterceptors = append(unaryInterceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
 	}
 
-	unaryInterceptors = append(unaryInterceptors, makeIPInterceptor())
-
-	// TODO(dyma): hide this logic within the interceptor factory.
-	// FIXME(dyma): the first branch may be using nil IntegrationTracker.
-	if conf.ClientTracker != nil {
-		// ClientTrackingUnaryInterceptor both tracks usage and sets "clientIdentifier" in context,
-		// so no need for a separate makeClientIdentifierInterceptor.
-		unaryInterceptors = append(unaryInterceptors, telemetry.ClientTrackingUnaryInterceptor(conf.ClientTracker, conf.IntegrationTracker))
-	} else {
-		unaryInterceptors = append(unaryInterceptors, makeClientIdentifierInterceptor())
-	}
-
-	unaryInterceptors = append(unaryInterceptors, serverStateUnaryServerInterceptor((*serverState)(state)))
+	unaryInterceptors = append(unaryInterceptors, clientTrackingUnaryInterceptor(conf.ClientTracker, conf.IntegrationTracker))
+	unaryInterceptors = append(unaryInterceptors, serverStateUnaryInterceptor((*serverState)(state)))
 
 	// Add OpenTelemetry tracing interceptors
 	unaryInterceptors = append(unaryInterceptors, monitoring.GRPCTracingInterceptor())
@@ -122,7 +112,8 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 	)
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
-	o = append(o, grpc.ChainStreamInterceptor(serverStateStreamServerInterceptor((*serverState)(state))))
+	o = append(o, grpc.ChainStreamInterceptor(clientTrackingStreamInterceptor(conf.ClientTracker, conf.IntegrationTracker)))
+	o = append(o, grpc.ChainStreamInterceptor(serverStateStreamInterceptor((*serverState)(state))))
 	o = append(o, grpc.ChainStreamInterceptor(makeDocsLinkStreamInterceptor()))
 
 	s := grpc.NewServer(o...)
@@ -272,28 +263,6 @@ func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor 
 	}
 }
 
-func makeIPInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		clientIP := getRealClientIP(ctx)
-
-		// Add IP to context
-		ctx = context.WithValue(ctx, "sourceIp", clientIP)
-		return handler(ctx, req)
-	}
-}
-
-func makeClientIdentifierInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		md, ok := metadata.FromIncomingContext(ctx)
-		if ok {
-			if vals := md.Get("x-weaviate-client"); len(vals) > 0 {
-				ctx = context.WithValue(ctx, "clientIdentifier", telemetry.SanitizeClientHeader(vals[0]))
-			}
-		}
-		return handler(ctx, req)
-	}
-}
-
 // ----------------------------------------------------------------------------
 // Operational + maintainance mode
 // ----------------------------------------------------------------------------
@@ -344,8 +313,8 @@ func (s *serverState) admit(method string) error {
 	return nil
 }
 
-// serverStateUnaryServerInterceptor rejects requests cannot be serviced in the current state.
-func serverStateUnaryServerInterceptor(s *serverState) grpc.UnaryServerInterceptor {
+// serverStateUnaryInterceptor rejects requests that cannot be serviced in the current state.
+func serverStateUnaryInterceptor(s *serverState) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		if err := s.admit(info.FullMethod); err != nil {
 			return nil, err
@@ -354,8 +323,9 @@ func serverStateUnaryServerInterceptor(s *serverState) grpc.UnaryServerIntercept
 	}
 }
 
-// serverStateStreamServerInterceptor rejects requests cannot be serviced in the current state.
-func serverStateStreamServerInterceptor(s *serverState) grpc.StreamServerInterceptor {
+// serverStateStreamInterceptor rejects requests that cannot be serviced in the current state.
+// It intercepts the initial connection as well as any incoming messages in the stream.
+func serverStateStreamInterceptor(s *serverState) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if err := s.admit(info.FullMethod); err != nil {
 			return err
@@ -371,12 +341,92 @@ type serverStateStream struct {
 	state             *serverState          // Server state.
 }
 
-func (s *serverStateStream) RecvMsg(m any) error {
-	if err := s.state.admit(s.info.FullMethod); err != nil {
+func (ss *serverStateStream) RecvMsg(m any) error {
+	if err := ss.state.admit(ss.info.FullMethod); err != nil {
 		return err
 	}
-	return s.ServerStream.RecvMsg(m)
+	return ss.ServerStream.RecvMsg(m)
 }
+
+// ----------------------------------------------------------------------------
+// Context enrichment + client/integration tracking
+// ----------------------------------------------------------------------------
+
+// contextWithMetadataValues adds client information (SDK version and IP)
+// to the context and records SDK / integration usage with ct and it respectively.
+// Either of the trackers may be nil.
+func contextWithMetadataValues(ctx context.Context, ct *telemetry.ClientTracker, it *telemetry.IntegrationTracker) context.Context {
+	sourceIP := "unknown"
+
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+
+		if values := md.Get("x-weaviate-client"); len(values) > 0 {
+			sanitized := telemetry.SanitizeClientHeader(values[0])
+			ctx = context.WithValue(ctx, "clientIdentifier", sanitized)
+			if ct != nil {
+				ct.TrackHeader(values[0])
+			}
+		}
+
+		if it != nil {
+			if values := md.Get("x-weaviate-client-integration"); len(values) > 0 {
+				it.TrackHeader(values[0])
+			}
+		}
+
+		// A proxied request should pass the client IP in either X-Real-IP or X-Forwarded-For headers.
+		// The latter may contain multiple values but the client IP is always first.
+		if values := md.Get("x-real-ip"); len(values) > 0 {
+			sourceIP = values[0]
+		} else if values := md.Get("x-forwarded-for"); len(values) > 0 {
+			if ips := strings.Split(values[0], ","); len(ips) > 0 {
+				sourceIP = strings.TrimSpace(ips[0])
+			}
+		}
+	}
+
+	// Fallback to the peer connection address.
+	if sourceIP == "" {
+		if p, ok := peer.FromContext(ctx); ok {
+			addr := p.Addr.String()
+			if host, _, err := net.SplitHostPort(addr); err == nil {
+				sourceIP = host
+			} else {
+				sourceIP = addr
+			}
+
+			// Convert IPv6 loopback to IPv4.
+			if sourceIP == "::1" {
+				sourceIP = "127.0.0.1"
+			}
+		}
+	}
+
+	ctx = context.WithValue(ctx, "sourceIp", sourceIP)
+	return ctx
+}
+
+func clientTrackingUnaryInterceptor(ct *telemetry.ClientTracker, it *telemetry.IntegrationTracker) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		ctx = contextWithMetadataValues(ctx, ct, it)
+		return handler(ctx, req)
+	}
+}
+
+func clientTrackingStreamInterceptor(ct *telemetry.ClientTracker, it *telemetry.IntegrationTracker) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		ctx := contextWithMetadataValues(ss.Context(), ct, it)
+		return handler(srv, &contextServerStream{ServerStream: ss, ctx: ctx})
+	}
+}
+
+// contextServerStream provides custom stream context.
+type contextServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (ss *contextServerStream) Context() context.Context { return ss.ctx }
 
 // ----------------------------------------------------------------------------
 // Documentation links for errors
@@ -411,42 +461,6 @@ func withDocsLink(err error) error {
 	}
 	// A plain error becomes codes.Unknown, which is what grpc does with it anyway.
 	return status.Error(codes.Unknown, enterrors.MessageWithDocsLink(err))
-}
-
-func getRealClientIP(ctx context.Context) string {
-	// First, check for forwarded headers in metadata
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		if xRealIP := md.Get("x-real-ip"); len(xRealIP) > 0 {
-			return xRealIP[0]
-		}
-
-		if xForwardedFor := md.Get("x-forwarded-for"); len(xForwardedFor) > 0 {
-			// X-Forwarded-For can contain multiple IPs, take the first one
-			ips := strings.Split(xForwardedFor[0], ",")
-			if len(ips) > 0 {
-				return strings.TrimSpace(ips[0])
-			}
-		}
-	}
-
-	// Fall back to peer address
-	if p, ok := peer.FromContext(ctx); ok {
-		host, _, err := net.SplitHostPort(p.Addr.String())
-		if err != nil {
-			return convertIP6ToIP4Loopback(p.Addr.String())
-		}
-		return convertIP6ToIP4Loopback(host)
-	}
-
-	return "unknown"
-}
-
-func convertIP6ToIP4Loopback(ip string) string {
-	if ip == "::1" {
-		return "127.0.0.1" // Convert IPv6 loopback to IPv4
-	}
-	return ip
 }
 
 func StartAndListen(s *grpc.Server, state *state.State) error {
