@@ -92,7 +92,7 @@ func TestGetConsistentTenants_NamesAuthorizedBeforeRead(t *testing.T) {
 			allow:       []string{"A"},
 			requested:   []string{"A", "B", "Z", "A", "A"},
 			wantRead:    []string{"A"},
-			wantTenants: []string{"A"},
+			wantTenants: []string{"A", "A", "A"},
 		},
 		{
 			name:      "no permission reads nothing",
@@ -105,12 +105,12 @@ func TestGetConsistentTenants_NamesAuthorizedBeforeRead(t *testing.T) {
 			requested: []string{"B", "B", "B"},
 		},
 		{
-			name:        "duplicates are removed preserving first-seen order",
+			name:        "each name is read once and every requested occurrence is returned in order",
 			rbac:        true,
 			allowAll:    true,
 			requested:   []string{"C", "A", "C", "B", "A"},
 			wantRead:    []string{"C", "A", "B"},
-			wantTenants: []string{"C", "A", "B"},
+			wantTenants: []string{"C", "A", "C", "B", "A"},
 		},
 		{
 			name:        "authorized nonexistent name is read and not found",
@@ -140,6 +140,13 @@ func TestGetConsistentTenants_NamesAuthorizedBeforeRead(t *testing.T) {
 			requested:   []string{"A", "B", "Z"},
 			wantRead:    []string{"A", "B", "Z"},
 			wantTenants: []string{"A", "B"},
+		},
+		{
+			name:        "rbac disabled keeps duplicates",
+			allowAll:    true,
+			requested:   []string{"A", "Z", "A"},
+			wantRead:    []string{"A", "Z"},
+			wantTenants: []string{"A", "A"},
 		},
 		{
 			name:      "rbac disabled without permission reads nothing",

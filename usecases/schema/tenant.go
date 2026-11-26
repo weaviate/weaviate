@@ -295,9 +295,10 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 
 	// Requested names are authorized before anything is read so that the cost
 	// of an unauthorized name does not depend on whether the tenant exists.
-	named := len(tenants) > 0
+	requested := tenants
+	named := len(requested) > 0
 	if named {
-		tenants = h.authorizedTenantNames(ctx, principal, class, tenants)
+		tenants = h.authorizedTenantNames(ctx, principal, class, requested)
 		if len(tenants) == 0 {
 			return []*models.Tenant{}, nil
 		}
@@ -314,7 +315,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		return h.maskUnauthorizedTenantsErr(ctx, principal, class, err)
 	}
 	if named {
-		return allTenants, nil
+		return inRequestedOrder(allTenants, requested), nil
 	}
 
 	resourceFilter := filter.New[*models.Tenant](h.Authorizer, h.config.Authorization.Rbac)
@@ -360,6 +361,22 @@ func (h *Handler) authorizedTenantNames(ctx context.Context, principal *models.P
 	out := make([]string, 0, len(allowed))
 	for _, r := range allowed {
 		out = append(out, nameByResource[r])
+	}
+	return out
+}
+
+// inRequestedOrder returns one entry per occurrence of a name in requested, in
+// request order, skipping names absent from found.
+func inRequestedOrder(found []*models.Tenant, requested []string) []*models.Tenant {
+	byName := make(map[string]*models.Tenant, len(found))
+	for _, t := range found {
+		byName[t.Name] = t
+	}
+	out := make([]*models.Tenant, 0, len(found))
+	for _, name := range requested {
+		if t, ok := byName[name]; ok {
+			out = append(out, t)
+		}
 	}
 	return out
 }

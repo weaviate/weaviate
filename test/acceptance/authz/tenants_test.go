@@ -221,15 +221,17 @@ func TestAuthZTenants(t *testing.T) {
 		require.Len(t, res.Tenants, 0)
 	})
 
-	t.Run("Get tenants by names via grpc returns only authorized existing tenants", func(t *testing.T) {
+	t.Run("Get tenants by names via grpc returns only authorized existing tenants, once per request", func(t *testing.T) {
 		cleanup := setupRUDTests(readSpecificTenantRoleName)
 		defer cleanup()
 
 		names := []string{tenants[0].Name, tenants[1].Name, "NoSuchTenant", tenants[0].Name, tenants[0].Name}
 		res, err := readTenantNamesGRPC(t, ctx, className, names, customKey)
 		require.NoError(t, err)
-		require.Len(t, res.Tenants, 1)
-		require.Equal(t, tenants[0].Name, res.Tenants[0].Name)
+		require.Len(t, res.Tenants, 3)
+		for _, tenant := range res.Tenants {
+			require.Equal(t, tenants[0].Name, tenant.Name)
+		}
 	})
 
 	t.Run("Get tenants by names via grpc without any role returns no tenants", func(t *testing.T) {
@@ -258,8 +260,10 @@ func TestAuthZTenants(t *testing.T) {
 
 		res, err := readTenantsGRPC(t, ctx, className, customKey)
 		require.Nil(t, err)
-		require.Len(t, res.Tenants, 1)
-		require.Equal(t, tenants[0].Name, res.Tenants[0].Name)
+		require.Len(t, res.Tenants, 3)
+		for _, tenant := range res.Tenants {
+			require.Equal(t, tenants[0].Name, tenant.Name)
+		}
 	})
 
 	t.Run("Delete specific tenant with needed permission", func(t *testing.T) {
