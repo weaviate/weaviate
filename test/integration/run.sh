@@ -55,8 +55,19 @@ elif [[ $onlyslowpkg == true ]]; then
 fi
 
 
-echo_yellow "Run the regular integration tests with race detector ON"
-go test $pkgs -count 1 -timeout 3000s -coverpkg=./adapters/repos/... -coverprofile=coverage-integration.txt -race -tags=$tags "$@" ./adapters/repos/...
+# The unit job already runs the untagged tests of every package with the race
+# detector on, so only the packages whose test files change under $tags run here.
+function race_test_files() {
+  go list -race "$@" -f '{{.ImportPath}} {{.TestGoFiles}} {{.XTestGoFiles}}' ${pkgs:-./adapters/repos/...} | sort
+}
+race_pkgs=$(comm -13 <(race_test_files) <(race_test_files -tags=$tags) | cut -d' ' -f1)
+
+if [[ -z $race_pkgs ]]; then
+  echo_yellow "No package has integration tests that run with race detector ON"
+else
+  echo_yellow "Run the regular integration tests with race detector ON"
+  go test $race_pkgs -count 1 -timeout 3000s -coverpkg=./adapters/repos/... -coverprofile=coverage-integration.txt -race -tags=$tags "$@"
+fi
 echo_yellow "Run the !race integration tests with race detector OFF"
 go test $pkgs -count 1 -coverpkg=./adapters/repos/... -tags=$tags "$@" -run Test_NoRace ./adapters/repos/...
 if [[ $onlyvectorpkg == false ]] && [[ $onlyslowpkg == false ]]; then
