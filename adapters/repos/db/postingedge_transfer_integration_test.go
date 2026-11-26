@@ -171,6 +171,140 @@ func TestPostingEdge_TransferSnapshotRestoresTheIndex(t *testing.T) {
 	}
 }
 
+// An object written between the flush of the store, which ends the halt for
+// the transfer, and the read of the doc id counter, which starts the listing,
+// is not in the snapshot: its memtable was not flushed. Neither may its vector
+// be. An index restored with it holds a vector whose object is not there,
+// which a search drops from its results, so a query returns fewer than it
+// asked for, and which no delete ever takes out. Its doc id is under the
+// counter of the snapshot, so unlike the write after the listing
+// (TestPostingEdge_TransferSnapshotRestoresTheIndex) it is not given out
+// again. Red on purpose: the index copies its journal after the listing, and
+// what the journal tells goes back into the index when it opens.
+func TestPostingEdge_TransferSnapshotWriteBetweenFlushAndCounter(t *testing.T) {
+	// Each journey halts the shard as its transfer does, writes, and takes
+	// the rest of the snapshot as the transfer takes it.
+	for _, journey := range []struct {
+		name string
+		take func(t *testing.T, idx *Index, shard *Shard, write func()) map[string][]byte
+	}{
+		{name: "backup", take: postingEdgeBackupFilesAfterHalt},
+		{
+			name: "replica movement",
+			take: func(t *testing.T, _ *Index, shard *Shard, write func()) map[string][]byte {
+				return postingEdgeReplicaFilesAfterHalt(t, shard, true, write)
+			},
+		},
+		{
+			name: "replica movement, halted for the transfer",
+			take: func(t *testing.T, _ *Index, shard *Shard, write func()) map[string][]byte {
+				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+				return postingEdgeReplicaFilesAfterHalt(t, shard, false, write)
+			},
+		},
+	} {
+		t.Run(journey.name, func(t *testing.T) {
+			const (
+				class = "PostingEdgeTransferFlushCounter"
+				dims  = 32
+				n     = 400
+			)
+			ctx := context.Background()
+			uc := postingedgeent.NewDefaultUserConfig()
+			uc.MaxPostingSizeKB = postingedgeent.MinimumMaxPostingSizeKB
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: class}, uc, false, false,
+				func(i *Index) { i.Config.PostingEdgeBaseSize = 150 })
+			shard := underlyingShard(t, shd)
+			r := rand.New(rand.NewSource(12))
+			for _, err := range shard.PutObjectBatch(ctx, createRandomObjects(r, class, n, dims)) {
+				require.NoError(t, err)
+			}
+			dirs, err := filepath.Glob(filepath.Join(shard.path(), "*.postingedge.d"))
+			require.NoError(t, err)
+			require.Len(t, dirs, 1)
+			require.Eventually(t, func() bool {
+				_, err := os.Stat(filepath.Join(dirs[0], "meta.json"))
+				return err == nil
+			}, 30*time.Second, 10*time.Millisecond, "the index builds its base")
+			inner, release, ok := shard.AcquireVectorIndex("")
+			require.True(t, ok)
+			release()
+			persistent, ok := inner.(*postingedge.Persistent)
+			require.True(t, ok, "the vector index of the class is a %T", inner)
+			require.NoError(t, persistent.Settle(ctx))
+
+			between := createRandomObjects(r, class, 1, dims)[0]
+			files := journey.take(t, idx, shard, func() { require.NoError(t, shard.PutObject(ctx, between)) })
+			docID := func(s *Shard, o *storobj.Object) (uint64, bool) {
+				got, err := s.ObjectByID(ctx, o.ID(), nil, additional.Properties{})
+				require.NoError(t, err)
+				if got == nil {
+					return 0, false
+				}
+				return got.DocID, true
+			}
+			betweenID, ok := docID(shard, between)
+			require.True(t, ok)
+
+			restored := restorePostingEdgeShardFrom(t, idx, shard, files)
+			vi, release, ok := restored.AcquireVectorIndex("")
+			require.True(t, ok)
+			defer release()
+			_, ok = docID(restored, between)
+			require.False(t, ok, "the object written between the flush and the counter is not in the snapshot")
+			assert.False(t, vi.ContainsDoc(betweenID),
+				"the index holds the vector of doc %d, whose object the snapshot does not carry", betweenID)
+			next := createRandomObjects(r, class, 1, dims)[0]
+			require.NoError(t, restored.PutObject(ctx, next), "an object put after the restore is indexed")
+			nextID, ok := docID(restored, next)
+			require.True(t, ok)
+			assert.Greater(t, nextID, betweenID, "the counter of the snapshot does not give doc %d out again", betweenID)
+		})
+	}
+}
+
+// postingEdgeBackupFilesAfterHalt takes what a backup of the live shard
+// uploads, as CreateBackupSnapshot does, calling write between the halt for
+// the transfer, which flushes the store, and the listing, which reads the doc
+// id counter first.
+func postingEdgeBackupFilesAfterHalt(t *testing.T, idx *Index, shard *Shard, write func()) map[string][]byte {
+	t.Helper()
+	ctx := context.Background()
+	staging := t.TempDir()
+	require.NoError(t, shard.haltForTransfer(ctx, false, 0, newReindexGate(idx.db, reindexGateMaxAge)))
+	write()
+	var sd backup.ShardDescriptor
+	files, err := shard.stageBackupSnapshot(ctx, &sd, staging)
+	require.NoError(t, err)
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	return postingEdgeStagedBackup(t, shard, staging, files, &sd)
+}
+
+// postingEdgeReplicaFilesAfterHalt takes what the copier of a replica
+// movement fetches, as CreateReplicaSnapshot does, calling write between the
+// halt and the listing. A file that is not staged is read from the shard
+// while it is halted, as a target reads it in halt-for-duration mode.
+func postingEdgeReplicaFilesAfterHalt(t *testing.T, shard *Shard, hardlink bool, write func()) map[string][]byte {
+	t.Helper()
+	ctx := context.Background()
+	staging := t.TempDir()
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	write()
+	rels, err := shard.collectShardRelativeFiles(ctx, staging, hardlink)
+	require.NoError(t, err)
+	out := map[string][]byte{}
+	for _, rel := range rels {
+		data, err := os.ReadFile(filepath.Join(staging, rel))
+		if os.IsNotExist(err) {
+			data, err = os.ReadFile(filepath.Join(shard.path(), rel))
+		}
+		require.NoError(t, err)
+		out[rel] = data
+	}
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	return out
+}
+
 // postingEdgeTransferHook writes to the shard at two points of a transfer:
 // right after the PrepareForBackup of the index, before the shard flushes its
 // store, and right before the index copies its files, after the shard listed
@@ -208,6 +342,14 @@ func postingEdgeBackupFiles(t *testing.T, idx *Index, shard *Shard) map[string][
 	var sd backup.ShardDescriptor
 	files, err := shard.CreateBackupSnapshot(context.Background(), &sd, staging, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
+	return postingEdgeStagedBackup(t, shard, staging, files, &sd)
+}
+
+// postingEdgeStagedBackup is what a backup uploads, by path relative to the
+// shard: the files staged and the three the descriptor carries in memory.
+func postingEdgeStagedBackup(t *testing.T, shard *Shard, staging string, files []string, sd *backup.ShardDescriptor,
+) map[string][]byte {
+	t.Helper()
 	out := map[string][]byte{}
 	add := func(rootRel string, data []byte) {
 		rel, err := shard.shardRelativePath(rootRel)
