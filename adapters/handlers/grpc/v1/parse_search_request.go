@@ -256,7 +256,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	// as on REST: params need a vector search (near* or hybrid)
-	if (req.VectorIndexParams != nil || len(req.VectorIndexParamsForTargets) > 0) && !hasVectorSearch(req) {
+	if (req.VectorIndexParams != nil || len(req.VectorIndexParamsForTargets) > 0) && !vectorSearch {
 		if req.Bm25Search != nil {
 			return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_index_params / vector_index_params_for_targets is not applicable to bm25 search")
 		}
@@ -486,14 +486,6 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	return out, nil
 }
 
-// hasVectorSearch reports whether the request runs a near* or hybrid search.
-func hasVectorSearch(req *pb.SearchRequest) bool {
-	return req.NearVector != nil || req.NearObject != nil || req.NearText != nil ||
-		req.HybridSearch != nil || req.NearImage != nil || req.NearAudio != nil ||
-		req.NearVideo != nil || req.NearDepth != nil || req.NearThermal != nil ||
-		req.NearImu != nil
-}
-
 // extractVectorIndexParams converts the request-wide params and the
 // per-target overrides (merged later by ForTarget), or returns nil when
 // nothing is set. targetVectors is empty for a legacy single-vector
@@ -717,10 +709,10 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 	switch in.Combination {
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE:
 		combinationType = dto.Average
-		weights = extractTargetCombinationAverageWeights(in.TargetVectors)
+		weights = dto.ImplicitWeights(combinationType, len(in.TargetVectors))
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM:
 		combinationType = dto.Sum
-		weights = extractTargetCombinationSumWeights(in.TargetVectors)
+		weights = dto.ImplicitWeights(combinationType, len(in.TargetVectors))
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
@@ -739,22 +731,6 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 		return nil, fmt.Errorf("unknown combination method %v", in.Combination)
 	}
 	return &dto.TargetCombination{Weights: weights, Type: combinationType}, nil
-}
-
-func extractTargetCombinationAverageWeights(targetVectors []string) []float32 {
-	weights := make([]float32, len(targetVectors))
-	for i := range targetVectors {
-		weights[i] = 1.0 / float32(len(targetVectors))
-	}
-	return weights
-}
-
-func extractTargetCombinationSumWeights(targetVectors []string) []float32 {
-	weights := make([]float32, len(targetVectors))
-	for i := range targetVectors {
-		weights[i] = 1.0
-	}
-	return weights
 }
 
 func extractWeights(in *pb.Targets, weights []float32) error {
@@ -1604,15 +1580,9 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 
 		if detectCombinationWeights {
 			switch combinationType {
-			case dto.Average:
-				fixedWeights := extractTargetCombinationAverageWeights(detectedTargetVectorNames)
+			case dto.Average, dto.Sum:
 				adjustedTargetCombination = &dto.TargetCombination{
-					Type: dto.Average, Weights: fixedWeights,
-				}
-			case dto.Sum:
-				fixedWeights := extractTargetCombinationSumWeights(detectedTargetVectorNames)
-				adjustedTargetCombination = &dto.TargetCombination{
-					Type: dto.Sum, Weights: fixedWeights,
+					Type: combinationType, Weights: dto.ImplicitWeights(combinationType, len(detectedTargetVectorNames)),
 				}
 			default:
 				adjustedTargetCombination = &dto.TargetCombination{

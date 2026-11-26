@@ -64,11 +64,21 @@ func (s FilterStrategy) String() string {
 
 // effectiveFilterStrategy returns the strategy to try: the request's, else
 // the configured one. Callers still apply the ACORN and entrypoint fallbacks.
+// A requested name this node does not know (a newer coordinator during a
+// rolling upgrade; the API edge validates against its own list) is not
+// downgraded to sweeping: the configured strategy runs, and the slow-query
+// log's hnsw_filter_strategy_requested / _effective pair shows the mismatch.
 func (h *hnsw) effectiveFilterStrategy(params *searchparams.VectorIndexParams) FilterStrategy {
-	if requested := params.FilterStrategyOrEmpty(); requested != "" {
-		return filterStrategyFromConfig(requested)
+	switch params.FilterStrategyOrEmpty() {
+	case searchparams.FilterStrategySweeping:
+		return SWEEPING
+	case searchparams.FilterStrategyAcorn:
+		return ACORN
+	case searchparams.FilterStrategyPathseer:
+		return PATHSEER
+	default:
+		return FilterStrategy(h.configuredFilterStrategy.Load())
 	}
-	return FilterStrategy(h.configuredFilterStrategy.Load())
 }
 
 // searchTimeEF returns the beam width for k results: the request's ef if set,

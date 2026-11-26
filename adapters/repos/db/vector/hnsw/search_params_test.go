@@ -245,6 +245,11 @@ func Test_effectiveFilterStrategy(t *testing.T) {
 		{"request acorn over sweeping", SWEEPING, &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyAcorn}, ACORN},
 		{"request pathseer over acorn", ACORN, &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyPathseer}, PATHSEER},
 		{"request same as configured", PATHSEER, &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyPathseer}, PATHSEER},
+		// a newer coordinator may name a strategy this node does not know yet
+		// (rolling upgrade); the request is not downgraded to sweeping behind
+		// the caller's back, the collection's configured strategy runs instead
+		{"unknown request strategy keeps configured", ACORN, &searchparams.VectorIndexParams{FilterStrategy: "pruned"}, ACORN},
+		{"unknown request strategy keeps configured pathseer", PATHSEER, &searchparams.VectorIndexParams{FilterStrategy: "pruned"}, PATHSEER},
 	}
 
 	for _, tt := range tests {

@@ -61,7 +61,7 @@ func NewTargetCombination(method string, targets []string, weightsByName map[str
 			return nil, errors.New("weights are only allowed with manualWeights or relativeScore")
 		}
 		// the shard join needs weights for sum and average too, as gRPC sets them
-		return &TargetCombination{Type: combinationType, Weights: implicitWeights(combinationType, len(targets))}, nil
+		return &TargetCombination{Type: combinationType, Weights: ImplicitWeights(combinationType, len(targets))}, nil
 	}
 
 	targetSet := make(map[string]struct{}, len(targets))
@@ -88,8 +88,10 @@ func NewTargetCombination(method string, targets []string, weightsByName map[str
 	return &TargetCombination{Type: combinationType, Weights: weights}, nil
 }
 
-// implicitWeights returns 1 per target for sum, 1/n for average, nil otherwise.
-func implicitWeights(t TargetCombinationType, n int) []float32 {
+// ImplicitWeights returns the weights a combination method implies for n
+// targets: 1 per target for sum, 1/n for average, nil otherwise. The REST and
+// gRPC parsers both build them from here.
+func ImplicitWeights(t TargetCombinationType, n int) []float32 {
 	switch t {
 	case Sum:
 		weights := make([]float32, n)
