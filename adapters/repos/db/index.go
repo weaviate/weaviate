@@ -4171,6 +4171,18 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		return i.aggregateCount(ctx, readPlan)
 	}
 
+	if len(readPlan.Shards()) > 1 {
+		global, err := needsGlobalObjectSelection(params)
+		if err != nil {
+			return nil, err
+		}
+		if global {
+			if params, err = i.withGloballySelectedObjects(ctx, replProps, params, modules); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// Every shard scans all of its data, so the shards run side by side, each on
 	// a different node where the replicas allow: the query then takes as long as
 	// its slowest shard, not all of them in turn on one node.
