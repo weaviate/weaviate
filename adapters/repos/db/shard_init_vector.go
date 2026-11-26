@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -65,6 +66,13 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// "concurrent map read and map write", not a recoverable race.
 	legacy := s.index.GetVectorIndexConfig("")
 	targets := s.index.getTargetVectorIndexConfigs()
+	// Read after the configs: a drop marks the schema before it deletes the
+	// config, so one missing above because of a drop is marked here, and one
+	// still above is about to be deleted.
+	dropped := s.droppedVectorNames()
+	for _, name := range dropped {
+		delete(targets, name)
+	}
 	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
 
 	err := newCompressedVectorsMigrator(s.index.logger).removeVectorsCompressedLink(s.store.GetDir())
@@ -83,11 +91,15 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		s.index.logger.WithField("shard", s.ID()).Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
 	if initialized {
-		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
+		records, err = s.reconcileVectorIndexMapping(ctx, active, dropped, records)
 		if err != nil {
 			return fmt.Errorf("shard %q: %w", s.ID(), err)
 		}
 	} else {
+		err = s.removeUnrecordedVectorIndexes(ctx, dropped, active)
+		if err != nil {
+			return fmt.Errorf("shard %q: %w", s.ID(), err)
+		}
 		records = make(map[string]vectorIndexRecord, len(active))
 		for name, cfg := range active {
 			records[name] = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
