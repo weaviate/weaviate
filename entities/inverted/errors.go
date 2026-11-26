@@ -45,7 +45,7 @@ const (
 		"Set it to `true` or leave empty"
 	withheldRangeableFormat = "Filtering by property '%s' needs its range index, which the schema has " +
 		"but this shard does not serve yet. While a migration on it runs here, wait for it to finish; if it " +
-		"was cancelled, reload the shard. After the shard's migration record store (under its .migrations " +
+		"was cancelled or failed, reload the shard. After the shard's migration record store (under its .migrations " +
 		"directory) reported a fault when the shard loaded, the shard's log from that load names the fault: " +
 		"clear it, then reload the shard"
 	missingSearchableFormat = "Searching by property '%s' requires inverted index. " +

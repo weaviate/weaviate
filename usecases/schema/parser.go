@@ -262,9 +262,9 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
-	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && isMultiVector {
+	if isMultiVector && vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeHFresh {
 		return nil, errors.Errorf(
-			"parse vector index config: multi vector index is not supported for vector index type: %q, only supported type is hnsw",
+			"parse vector index config: multi vector index is not supported for vector index type: %q, supported types are hnsw and hfresh",
 			vectorIndexType)
 	}
 
@@ -613,8 +613,7 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 
 		// immutable vector type
 		if initialCfg.VectorIndexType != updatedCfg.VectorIndexType {
-			return fmt.Errorf("vector index type of vector %q is immutable: attempted change from %q to %q",
-				vecName, initialCfg.VectorIndexType, updatedCfg.VectorIndexType)
+			return errVectorIndexTypeImmutable(vecName, initialCfg.VectorIndexType, updatedCfg.VectorIndexType)
 		}
 
 		// immutable vectorizer
@@ -685,4 +684,8 @@ func validateShardingConfig(current, update *models.Class, mtEnabled bool) error
 			second.VirtualPerPhysical)
 	}
 	return nil
+}
+
+func errVectorIndexTypeImmutable(vector, from, to string) error {
+	return fmt.Errorf("vector index type of vector %q is immutable: attempted change from %q to %q", vector, from, to)
 }

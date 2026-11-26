@@ -152,8 +152,8 @@ var ErrReindexGateUnavailable = errors.New("cannot check for a running runtime-r
 const noDatabaseBackReference = "this index has no database back-reference, so the check cannot run"
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and [Shard.haltForTransfer].
+// [DB.Backupable], [Index.backupInactiveShardWithHardlinks], and
+// [Shard.haltForTransfer].
 //
 // If i.db is nil it refuses the backup without calling gate.
 func (i *Index) refuseIfReindexInFlight(shardName string, gate reindexGate) error {
@@ -187,7 +187,7 @@ func reindexGateUnavailableError(collection, shardName, reason string) error {
 // with its condition attached rather than branching on it.
 func reindexInFlightError(collection, shardName string) error {
 	return fmt.Errorf(
-		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"pending\" and status=\"indexing\". A cancel via POST /v1/schema/<class>/properties/<prop>/index/<indexType>/cancel is accepted only while the task is STARTED: it is refused with 409 in a coordination phase, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it",
+		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"pending\" and status=\"indexing\". A cancel via POST /v1/schema/<class>/properties/<prop>/index/<indexType>/cancel is accepted while the task is STARTED or PREPARING: it is refused with 409 once the task is SWAPPING, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
 	)
 }

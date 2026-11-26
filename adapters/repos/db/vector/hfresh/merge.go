@@ -22,8 +22,6 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	start := time.Now()
 	defer h.metrics.MergeDuration(start)
 
-	defer h.taskQueue.MergeDone(postingID)
-
 	h.logger.WithField("postingID", postingID).Debug("merging posting")
 
 	var markedAsDone bool
@@ -33,6 +31,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 		h.taskQueue.MergeDone(postingID) // remove from the in-progress list
 		return h.taskQueue.EnqueueMerge(postingID)
 	}
+	defer h.taskQueue.MergeDone(postingID)
 	defer func() {
 		if !markedAsDone {
 			h.postingLocks.Unlock(postingID)
@@ -94,9 +93,11 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 		return h.setPostingVectorIDs(ctx, postingID, newPosting)
 	}
 
-	vectorSet := make(map[uint64]struct{})
-	for _, v := range p {
-		vectorSet[v.ID()] = struct{}{}
+	// The first nine bytes identify a vector and its version.
+	// The value records whether that entry also resides in the candidate.
+	vectorSet := make(map[[9]byte]bool, len(newPosting))
+	for _, v := range newPosting {
+		vectorSet[[9]byte(v[:9])] = false
 	}
 
 	// get posting centroid
@@ -120,6 +121,11 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	if nearest.Len() <= 1 {
 		h.logger.WithField("postingID", postingID).
 			Debug("no candidates found for merge operation, skipping")
+
+		if prevLen == initialLen {
+			// no changes, just return
+			return nil
+		}
 
 		// persist the gc'ed posting
 		err = h.PostingStore.Put(ctx, postingID, newPosting)
@@ -170,6 +176,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			}
 
 			var candidateLen int
+			var shared bool
 			for _, v := range candidate {
 				version, err := h.VersionMap.Get(ctx, v.ID())
 				if err != nil {
@@ -178,7 +185,13 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				if version.Deleted() || version.Version() > v.Version().Version() {
 					continue
 				}
-				if _, exists := vectorSet[v.ID()]; exists {
+				key := [9]byte(v[:9])
+				if _, exists := vectorSet[key]; exists {
+					vectorSet[key] = true
+					shared = true
+				}
+				key[8] = byte(version)
+				if _, exists := vectorSet[key]; exists {
 					continue // Skip duplicate vectors
 				}
 				newPosting = newPosting.AddVector(v)
@@ -187,10 +200,18 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 
 			// delete the smallest posting and update the large posting
 			smallID, largeID := postingID, candidateID
-			smallPosting := p
+			smallPosting := newPosting[:prevLen]
 			if prevLen > candidateLen {
 				smallID, largeID = candidateID, postingID
-				smallPosting = candidate
+				smallPosting = newPosting[prevLen:]
+			} else if shared {
+				// Filter separately so the merged posting keeps every retained entry.
+				smallPosting = make(Posting, 0, prevLen)
+				for _, v := range newPosting[:prevLen] {
+					if !vectorSet[[9]byte(v[:9])] {
+						smallPosting = append(smallPosting, v)
+					}
+				}
 			}
 
 			// mark the small posting as deleted in the SPTAG

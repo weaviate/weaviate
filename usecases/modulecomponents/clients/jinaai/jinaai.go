@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -300,7 +301,7 @@ func (c *Client[T]) getApiKeyFromContext(ctx context.Context, apiKey, envVar str
 	if c.jinaAIApiKey != "" {
 		return c.jinaAIApiKey, nil
 	}
-	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+	return "", enterrors.NewErrModulePrecondition(fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar))
 }
 
 func (c *Client[T]) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {

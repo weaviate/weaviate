@@ -279,12 +279,12 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 // wording is the only place that difference reaches the operator.
 //
 // The two sweep paths look at the same disk, so the phase is the only thing
-// that may differ between their lines. A shard that could not be swept is the
-// one outcome that confirms state remains, so it alone is an Error.
+// that may differ between their lines. A shard that could not be swept and one
+// whose cleanup was withheld both need an operator, so both are Errors.
 func TestCleanupSweepSummary(t *testing.T) {
 	const (
 		unchecked = ": the sweep did not reach every shard, so what is on the ones it missed or did not finish is unverified"
-		dropped   = ": the collection is not on this node, so whatever is left here is removed with the collection directory, unless a backup in flight is keeping those files"
+		dropped   = ": the collection is not on this node, so whatever is left here is removed with the collection directory"
 	)
 
 	tests := []struct {
@@ -301,8 +301,7 @@ func TestCleanupSweepSummary(t *testing.T) {
 			wantTail:  ": sweep finished, unloaded shards with nothing to sweep left unloaded",
 		},
 		{
-			// Not a warning, but not a promise the disk is clean either: a
-			// backup in flight makes the delete keep the files.
+			// Not a warning: deleting the collection removes its directory.
 			name:      "the collection is not on this node",
 			outcome:   CleanupSweepDropped,
 			wantLevel: logrus.InfoLevel,
@@ -319,6 +318,12 @@ func TestCleanupSweepSummary(t *testing.T) {
 			outcome:   CleanupSweepFailed,
 			wantLevel: logrus.ErrorLevel,
 			wantTail:  ": a shard could not be swept, so it is left partly swept with nothing scheduled to finish it",
+		},
+		{
+			name:      "a shard's cleanup was withheld",
+			outcome:   CleanupSweepWithheld,
+			wantLevel: logrus.ErrorLevel,
+			wantTail:  ": a shard has a migration record fault, so its cleanup is withheld. Fix that fault and restart the node (or deactivate and reactivate the tenant)",
 		},
 		{
 			// A new outcome nobody wired in here arrives through the max fold,
@@ -399,6 +404,13 @@ func TestClassifyCleanupSweep(t *testing.T) {
 			err:         errors.Join(shardFailed(diskFull), classifyIncompleteWalk(errIndexDropped)),
 			wantOutcome: CleanupSweepFailed,
 			wantFailure: diskFull,
+		},
+		{
+			name: "a shard's cleanup was withheld and then the collection was deleted",
+			err: errors.Join(fmt.Errorf("shard %q: %w", "tenant-1", errCleanupShardWithheld),
+				classifyIncompleteWalk(errIndexDropped)),
+			wantOutcome: CleanupSweepWithheld,
+			wantFailure: errCleanupShardWithheld,
 		},
 		{
 			name:        "a shard failed and the walk was cut short",
@@ -631,6 +643,28 @@ func TestADropNeverUndoesAClaimItDoesNotHold(t *testing.T) {
 			require.Equal(t, 1, p.liveUnits[desc][unit], "the worker holding it now still does")
 			_, sealed := p.SealLocalUnit(desc, unit)
 			require.False(t, sealed, "a teardown must not take the unit out from under it")
+		})
+	}
+}
+
+func TestLookupShardByName(t *testing.T) {
+	open := &Index{}
+	open.shards.Store("tenant-a", &Shard{})
+	closing, closingTenant := closingIndexWithAnUnvisitedShard(t)
+
+	tests := []struct {
+		name    string
+		idx     *Index
+		shard   string
+		wantErr string
+	}{
+		{name: "missing shard", idx: open, shard: "tenant-b", wantErr: `shard "tenant-b" not found`},
+		{name: "index closing", idx: closing, shard: closingTenant, wantErr: fmt.Sprintf("shard %q not found", closingTenant)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := lookupShardByName(tt.idx, tt.shard)
+			require.EqualError(t, err, tt.wantErr)
 		})
 	}
 }

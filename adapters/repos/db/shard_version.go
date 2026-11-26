@@ -105,10 +105,7 @@ func (sv *shardVersioner) init(fileName string, dataPresent bool) (rerr error) {
 	return nil
 }
 
-func (sv *shardVersioner) Drop(keepFiles bool) error {
-	if keepFiles {
-		return nil
-	}
+func (sv *shardVersioner) Drop() error {
 	err := os.Remove(sv.path)
 	if err != nil {
 		return errors.Wrap(err, "drop versioner file")

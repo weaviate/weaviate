@@ -643,7 +643,8 @@ func TestPersistentUnsupported(t *testing.T) {
 			return err
 		}},
 		{"the snapshot of a backup", func() error {
-			_, err := f.index.SnapshotMutableFiles(ctx, f.root, t.TempDir())
+			staging := t.TempDir()
+			_, err := f.index.SnapshotMutableFiles(ctx, f.root, func(rel string) string { return filepath.Join(staging, rel) })
 			return err
 		}},
 	}
@@ -1111,7 +1112,7 @@ func TestPersistentBuckets(t *testing.T) {
 	})
 
 	t.Run("dropped, nothing of it is left", func(t *testing.T) {
-		require.NoError(t, f.index.Drop(ctx, false))
+		require.NoError(t, f.index.Drop(ctx))
 		assert.Empty(t, f.store.GetBucketsByName())
 		assert.Empty(t, inStore())
 		entries, err := os.ReadDir(f.root)

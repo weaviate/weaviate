@@ -23,12 +23,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -100,6 +103,12 @@ type ShardReindexTaskGeneric struct {
 	// failure-injecting wrapper. Always set - no test-only branch runs in
 	// production.
 	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
+
+	swapAttempted atomic.Bool
+	swapPhaseRan  atomic.Bool
+	swapSucceeded atomic.Bool
+
+	rebuildFaultsLogged sync.Map
 }
 
 type indexClosingGuard func(shard ShardLike) error
@@ -143,7 +152,11 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 		return nil, nil
 	}
 
-	oldMainBucket, err := store.SwapBucketPointer(ctx, mainName, ingestName)
+	swap := store.SwapBucketPointer
+	if _, enables := migrationEnablesIndexType(t.migrationType); enables {
+		swap = store.InstallOrSwapBucketPointer
+	}
+	oldMainBucket, err := swap(ctx, mainName, ingestName)
 	if err != nil {
 		return nil, fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
 	}
@@ -196,6 +209,9 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 	if err != nil {
 		return false, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
+	if err := t.refuseUnmirroredOn(concreteShard); err != nil {
+		return false, err
+	}
 
 	// context.Canceled means the index is closing — propagate unwrapped so
 	// callers treat it as a clean stop, consistent with OnAfterLsmInitAsync.
@@ -221,11 +237,16 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 // MUST run before the tokenization overlay is set, which would otherwise tokenize
 // query input as new against the still-old bucket for the seconds prep takes.
 func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard ShardLike) error {
-	entry, err := t.enterDTMPhase(ctx, shard, "RunPrepareOnShard")
+	entry, err := t.enterDTMPhase(ctx, shard, t.logger, "RunPrepareOnShard")
 	if err != nil {
 		return err
 	}
 	concreteShard, logger := entry.shard, entry.logger
+
+	// With a prepare barrier, a failed prepare before this node's ack fails the task before any replica swaps.
+	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
+		return err
+	}
 
 	if entry.rec.StagedDataComplete() {
 		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
@@ -252,13 +273,15 @@ type dtmPhaseEntry struct {
 	rec    MigrationRecord
 }
 
-func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
+func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike,
+	logger logrus.FieldLogger, method string,
+) (*dtmPhaseEntry, error) {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
 
-	logger := t.logger.WithFields(map[string]any{
+	logger = logger.WithFields(map[string]any{
 		"collection": concreteShard.Index().Config.ClassName.String(),
 		"shard":      concreteShard.Name(),
 		"method":     method,
@@ -288,7 +311,27 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 }
 
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
-	entry, err := t.enterDTMPhase(ctx, shard, "RunSwapOnShard")
+	return t.runSwapOnShard(ctx, shard, t.logger)
+}
+
+var discardLogger = func() *logrus.Logger {
+	l := logrus.New()
+	l.Out = io.Discard
+	return l
+}()
+
+// swapLogger logs a task's first swap attempt in full and its per-tick retries within the node-wide sample.
+func (t *ShardReindexTaskGeneric) swapLogger(retries *logrusext.Sampler) logrus.FieldLogger {
+	if !t.swapAttempted.Swap(true) {
+		return t.logger
+	}
+	logger := logrus.FieldLogger(discardLogger)
+	retries.WithSampling(func(logrus.FieldLogger) { logger = t.logger })
+	return logger
+}
+
+func (t *ShardReindexTaskGeneric) runSwapOnShard(ctx context.Context, shard ShardLike, logger logrus.FieldLogger) error {
+	entry, err := t.enterDTMPhase(ctx, shard, logger, "RunSwapOnShard")
 	if err != nil {
 		return err
 	}
@@ -309,9 +352,6 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		logger.WithField("property_count", len(props)).
 			WithField("props", migrationReportedNames(props)).
 			Info("RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
-		if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
-			return err
-		}
 		if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
 			return fmt.Errorf("ensure buckets loaded: %w", err)
 		}
@@ -497,24 +537,14 @@ func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardL
 }
 
 // The flip needs a canonical bucket to point at; a waiting promotion opened none.
-func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context,
+func (t *ShardReindexTaskGeneric) refuseClosedCanonicalBuckets(ctx context.Context,
 	shard ShardLike, props []string,
 ) error {
 	concrete, err := unwrapShard(ctx, shard)
 	if err != nil {
-		return fmt.Errorf("open the canonical buckets this completion advertises: %w", err)
+		return fmt.Errorf("check the canonical buckets this completion advertises: %w", err)
 	}
-	closed := make([]string, 0, len(props))
 	for _, propName := range props {
-		if concrete.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
-			closed = append(closed, propName)
-		}
-	}
-	if len(closed) == 0 {
-		return nil
-	}
-	t.strategy.PreReindexHook(concrete, closed)
-	for _, propName := range closed {
 		name := t.strategy.SourceBucketName(propName)
 		if concrete.store.Bucket(name) == nil {
 			return fmt.Errorf("refusing to report migration complete for property %q: its canonical bucket %q "+
@@ -527,7 +557,7 @@ func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context
 func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
-	if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+	if err := t.refuseClosedCanonicalBuckets(ctx, shard, props); err != nil {
 		return err
 	}
 	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
@@ -558,6 +588,13 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 	cfg := shard.Index().Config
 	className := cfg.ClassName.String()
 	shardName := shard.Name()
+	// Nothing returns this fault, so its first report bypasses a sampled-out retry's logger.
+	faultLogger := func(propName string) logrus.FieldLogger {
+		if _, logged := t.rebuildFaultsLogged.LoadOrStore(propName, struct{}{}); logged {
+			return logger
+		}
+		return t.logger.WithFields(logrus.Fields{"collection": className, "shard": shardName})
+	}
 	for _, propName := range props {
 		if !cfg.keepRangeableInMemory(propName) {
 			continue
@@ -577,7 +614,7 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 					"serving: bucket %q not found post-swap, rebuild the index to repair it",
 				propName, bucketName,
 			)
-			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
+			faultLogger(propName).WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
 			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
 			continue
 		}
@@ -595,7 +632,7 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 					"activated for in-memory serving: %w, rebuild the index to repair it",
 				propName, err,
 			)
-			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
+			faultLogger(propName).WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
 			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
 			continue
 		}
@@ -655,11 +692,10 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 	return t.onAfterLsmInit(ctx, shard)
 }
 
-// Recovery's entry creates nothing: a record says how far a migration got, not that it
-// is live. No closing check: some NewShard routes already hold closeLock.RLock.
+// OnAfterLsmInit writes a record only to restart a migration whose owned directory is gone. It skips closingGuard because some NewShard routes hold closeLock.RLock.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
 	rec, hasRecord := t.migrationRecord(shard)
-	if !hasRecord || !rec.IterationComplete() || rec.State() == MigrationStatePromoted {
+	if !hasRecord || rec.State() == MigrationStatePromoted {
 		return nil
 	}
 	// Only a task verdict wedges an unflipped record at load, and its copy is never read.
@@ -719,6 +755,10 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 		logger.Debug("merged, not swapped. starting ingest buckets")
 	} else {
 		if hasRecord {
+			// loadReindexBuckets creates a missing directory empty, so resuming without this restart would swap in an empty rebuild.
+			if err = restartIfOwnedDirGone(logger, shard, rec.Subject()); err != nil {
+				return false, err
+			}
 			logger.Debug("resuming reindex buckets from disk")
 		} else {
 			logger.Debug("not reindexed. starting reindex buckets")
@@ -760,6 +800,30 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	return true, nil
 }
 
+func restartIfOwnedDirGone(logger logrus.FieldLogger, shard *Shard, subject MigrationSubject) error {
+	dirs := shardBucketDirs(shard.pathLSM())
+	for _, dir := range migrationOwnedDirs(subject) {
+		there, err := dirs.Exists(dir)
+		if err != nil {
+			return err
+		}
+		if there {
+			continue
+		}
+
+		restarted := subject
+		restarted.IterationCutoff = migrationHorizonEverything
+
+		logger.WithField("record", subject.Key.String()).Warnf(
+			"rebuilt data at %q is gone; restarting the rebuild from the beginning and re-covering the horizon the mirror held", dir)
+		if err := shard.migrationRecordStore().Put(NewMigrationRecordIterating(restarted, MigrationCheckpoint{})); err != nil {
+			return fmt.Errorf("record the restart for lost %q: %w", dir, err)
+		}
+		return nil
+	}
+	return nil
+}
+
 // A load holds this promotion back while the schema leaves the index off, and
 // the flip renames nothing, so until the next load the canonical name must keep
 // serving what it served before the restart.
@@ -773,7 +837,8 @@ func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, s
 			continue
 		}
 		// A removed index opens no canonical bucket, so nothing reads one.
-		if shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
+		_, enables := migrationEnablesIndexType(t.migrationType)
+		if !enables && shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
 			continue
 		}
 		displaced, err := t.processOneSwapProp(ctx, shard.store, 0, propName)
@@ -829,9 +894,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			if concrete, err = unwrapShard(ctx, shard); err != nil {
 				return zerotime, err
 			}
-			if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
-				return zerotime, err
-			}
 			if err = t.ensureReindexBucketsLoadedForSwap(ctx, logger, concrete, props); err != nil {
 				err = fmt.Errorf("ensure buckets loaded: %w", err)
 				return zerotime, err
@@ -842,7 +904,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if err = t.requireCanonicalHoldsMigratedData(shard, rec); err != nil {
 			return zerotime, err
 		}
-		if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+		if err = t.refuseClosedCanonicalBuckets(ctx, shard, props); err != nil {
 			return zerotime, err
 		}
 		// Same ordering contract as runtimeSwap (see there for reasoning):
@@ -1121,6 +1183,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	if err := t.refuseUnmirrored(subject); err != nil {
+		return err
+	}
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
 		displaced := make(map[string]string, len(props))
@@ -1166,12 +1231,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
-	if concrete, err := unwrapShard(ctx, shard); err == nil {
+	concrete, err := unwrapShard(ctx, shard)
+	if err == nil {
 		concrete.migrations().RetireSuperseded(ctx)
 	} else {
 		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
 	}
 	dirs := shardBucketDirs(shard.pathLSM())
+	preserve, recordsComplete := migrationTrimPreserve{}, false
+	if err == nil {
+		preserve, recordsComplete = trimPreserveSetOf(concrete)
+	}
+	var kept []string
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
 		if !ok {
@@ -1181,8 +1252,13 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
 		}
 		dir := filepath.Base(oldMainBucket.GetDir())
+		canonical := dir == t.strategy.SourceBucketName(propName)
+		if !recordsComplete && !canonical {
+			kept = append(kept, dir)
+			continue
+		}
 		if key, role, held := migrationDirHeldByAnotherRecord(
-			migrationRecordsOf(shard), subject, dir, migrationLiveDataRoles); held {
+			preserve.records, subject, dir, migrationLiveDataRoles); held && !canonical {
 			logger.WithField("dir", dir).Warnf(
 				"leaving the displaced directory of %q in place: record %s names it as its %s, "+
 					"and its retirement has not run yet", propName, key, role)
@@ -1192,8 +1268,19 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			return fmt.Errorf("removing displaced dir for %q: %w", propName, err)
 		}
 	}
+	if len(kept) > 0 {
+		cause, remedy := "this shard's migration records could not be read, and one may name them", "restart"
+		if len(preserve.faults) > 0 {
+			cause = fmt.Sprintf("a migration record fault on this shard (first: %q) may name them",
+				preserve.faults[0].FileName)
+			remedy = "fix that fault and restart"
+		}
+		logger.WithField("dirs", strings.Join(migrationReportedNames(kept), ", ")).Warnf(
+			"leaving %d displaced directory/directories in place, because %s; %s the node (or deactivate "+
+				"and reactivate the tenant) to clear them", len(kept), cause, remedy)
+	}
 
-	logger.Debug("runtime swap: displaced dirs removed (staged→canonical rename deferred to next load)")
+	logger.Debug("runtime swap: displaced dirs settled (staged→canonical rename deferred to next load)")
 	swapCompleted = true
 
 	// Ordering contract: rebuild before OnMigrationComplete. The hook marks
@@ -1253,11 +1340,15 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 
 type migrationTrimPreserve struct {
 	records []MigrationRecord
+	faults  []MigrationRecordUnreadable
 }
 
 func trimPreserveSetOf(shard *Shard) (migrationTrimPreserve, bool) {
-	if shard.migrationRecords == nil || len(shard.migrationRecords.Unreadable()) > 0 {
+	if shard.migrationRecords == nil {
 		return migrationTrimPreserve{}, false
+	}
+	if faults := shard.migrationRecords.Unreadable(); len(faults) > 0 {
+		return migrationTrimPreserve{faults: faults}, false
 	}
 	return migrationTrimPreserve{records: shard.migrationRecords.Records()}, true
 }
@@ -1303,7 +1394,9 @@ func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
 			}
 			switch suffixBase {
 			case currentReindexBase:
-				out = append(out, name)
+				if suffixGen <= currentGenN {
+					out = append(out, name)
+				}
 			case currentIngestBase:
 				if suffixGen < currentGenN {
 					out = append(out, name)
@@ -1340,6 +1433,16 @@ func (t *ShardReindexTaskGeneric) setMigrationIdentity(desc distributedtask.Task
 	t.bucketStrategy = payload.BucketStrategy
 }
 
+// A migration's halves share one task, version and unit, and are held, armed or settled together.
+type taskMigration struct {
+	desc   distributedtask.TaskDescriptor
+	unitID string
+}
+
+func (t *ShardReindexTaskGeneric) migration() taskMigration {
+	return taskMigration{desc: distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, unitID: t.unitID}
+}
+
 func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
 	return MigrationRecordKey{
 		TaskVersion:  t.taskVersion,
@@ -1354,14 +1457,6 @@ func (t *ShardReindexTaskGeneric) migrationRecord(shard ShardLike) (MigrationRec
 		return nil, false
 	}
 	return store.Get(t.migrationRecordKey())
-}
-
-func migrationRecordsOf(shard ShardLike) []MigrationRecord {
-	store := shard.migrationRecordStore()
-	if store == nil {
-		return nil
-	}
-	return store.Records()
 }
 
 func (t *ShardReindexTaskGeneric) putMigrationRecord(shard ShardLike, rec MigrationRecord) error {
@@ -1403,6 +1498,23 @@ func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject Migr
 		LastProcessedKey: lastProcessedKey.Clone().Bytes(),
 		UpdatedAt:        time.Now(),
 	}))
+}
+
+func (t *ShardReindexTaskGeneric) refuseUnmirrored(subject MigrationSubject) error {
+	if !subject.Unmirrored {
+		return nil
+	}
+	return fmt.Errorf("migration %s: this shard took writes with no double-write mirror armed, so its "+
+		"staged data is stale and is not swapped in. This migration fails; once the cause is cleared, submit a "+
+		"new migration covering the same properties", t.migrationRecordKey())
+}
+
+func (t *ShardReindexTaskGeneric) refuseUnmirroredOn(shard ShardLike) error {
+	rec, ok := t.migrationRecord(shard)
+	if !ok {
+		return nil
+	}
+	return t.refuseUnmirrored(rec.Subject())
 }
 
 func (t *ShardReindexTaskGeneric) migrationSubjectNow(shard ShardLike) (MigrationSubject, error) {
@@ -1626,13 +1738,6 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) []string {
 		return propNames
 	}
 
-	// When selection is enabled and an explicit list of properties is given,
-	// the selected list IS the authoritative reindex target. Existing
-	// strategies (e.g. repair-searchable, change-tokenization) target
-	// properties whose source bucket already exists; new from-scratch
-	// strategies (enable-filterable, enable-searchable) target properties
-	// whose source bucket does not exist yet and will be created in
-	// PreReindexHook. Both cases reduce to "use the selected list".
 	if selected, ok := t.selectedProps(collectionName); ok {
 		return selected
 	}

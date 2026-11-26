@@ -1051,7 +1051,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 			continue
 		}
 
-		decoded, err := storobj.FromBinaryNetwork(u.Payload)
+		// The payload is the source's disk encoding, whose class name is empty
+		// when the source runs with SkipWriteClassNameOnDisk.
+		decoded, err := storobj.FromBinaryDisk(u.Payload, idx.Config.ClassName.String())
 		if err != nil {
 			// Flush first so entries before the failure are durable on retry.
 			if flushErr := flushPending(); flushErr != nil {

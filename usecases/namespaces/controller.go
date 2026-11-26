@@ -137,8 +137,8 @@ func IsKnownState(s cmd.NamespaceState) bool {
 }
 
 // Exister exposes read-only access to namespace state. Rather than comparing
-// State themselves, callers go through [RequireActive] or
-// [AdmitDestructiveApply], or through [ShardsShouldBeOpen] /
+// State themselves, callers go through [RequireActive], [AdmitDestructiveApply]
+// or [AdmitNamespaceUpdate], or through [ShardsShouldBeOpen] /
 // [RequireShardLoadable] to decide about a shard.
 type Exister interface {
 	GetNamespace(name string) (cmd.Namespace, bool)
@@ -168,8 +168,7 @@ func NewController(logger logrus.FieldLogger) *Controller {
 // Create inserts a namespace in the [cmd.NamespaceStateActive] state,
 // recording index — the RAFT log index of the create command — as its
 // StateChangeIndex. The input's State and StateChangeIndex are ignored, so a
-// caller cannot choose either. HomeNodes must contain exactly one non-empty
-// entry — downstream placement and counters rely on that invariant.
+// caller cannot choose either. HomeNodes must pass [ValidateHomeNodes].
 // Returns [ErrBadRequest] for invalid names, HomeNodes, or a zero index,
 // [ErrAlreadyExists] when the name maps to an active namespace, and
 // [ErrNamespaceDeleting] when the name is currently being torn down.
@@ -181,8 +180,8 @@ func (c *Controller) Create(ns cmd.Namespace, index uint64) error {
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
-		return fmt.Errorf("%w: home_nodes must contain exactly 1 non-empty entry", ErrBadRequest)
+	if err := ValidateHomeNodes(ns.HomeNodes); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
 	c.mu.Lock()
@@ -202,14 +201,13 @@ func (c *Controller) Create(ns cmd.Namespace, index uint64) error {
 }
 
 // Update overwrites the stored HomeNodes for an existing namespace.
-// HomeNodes must contain exactly one non-empty entry; Name, State and
-// StateChangeIndex are immutable here. Returns [ErrBadRequest] for an
-// invalid HomeNodes,
+// HomeNodes must pass [ValidateHomeNodes]. Name, State and StateChangeIndex
+// are immutable here. Returns [ErrBadRequest] for an invalid HomeNodes,
 // [ErrNotFound] when the namespace does not exist, and
 // [ErrNamespaceDeleting] when the namespace is being torn down.
 func (c *Controller) Update(ns cmd.Namespace) error {
-	if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
-		return fmt.Errorf("%w: home_nodes must contain exactly 1 non-empty entry", ErrBadRequest)
+	if err := ValidateHomeNodes(ns.HomeNodes); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
 	c.mu.Lock()
@@ -378,8 +376,7 @@ func (c *Controller) Snapshot() ([]byte, error) {
 // are tolerated. Entries with empty State are normalized to
 // [cmd.NamespaceStateActive]; entries with an unknown State return an
 // error so a future binary's snapshot is not silently mis-classified.
-// Entries missing the single HomeNodes entry are also rejected — there is
-// no migration path from a pre-HomeNodes snapshot.
+// Entries whose HomeNodes fail [ValidateHomeNodes] are also rejected.
 func (c *Controller) Restore(snapshot []byte) error {
 	if len(snapshot) == 0 {
 		c.mu.Lock()
@@ -404,10 +401,8 @@ func (c *Controller) Restore(snapshot []byte) error {
 		if ns == nil {
 			return fmt.Errorf("namespace %q in snapshot is null", name)
 		}
-		if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
-			return fmt.Errorf("namespace %q in snapshot is missing home_node; "+
-				"namespaces require a single home_node and have no migration path "+
-				"from pre-home_node snapshots", name)
+		if err := ValidateHomeNodes(ns.HomeNodes); err != nil {
+			return fmt.Errorf("namespace %q in snapshot has invalid home_nodes: %w", name, err)
 		}
 		if ns.State == "" {
 			ns.State = cmd.NamespaceStateActive
@@ -436,6 +431,25 @@ func ValidateName(name string) error {
 	}
 	if _, reserved := reservedNames[name]; reserved {
 		return fmt.Errorf("namespace name %q is reserved", name)
+	}
+	return nil
+}
+
+// ValidateHomeNodes returns an error unless homeNodes holds at least one entry
+// and no empty or repeated one.
+func ValidateHomeNodes(homeNodes []string) error {
+	if len(homeNodes) == 0 {
+		return errors.New("home_nodes must contain at least one entry")
+	}
+	seen := make(map[string]struct{}, len(homeNodes))
+	for _, node := range homeNodes {
+		if node == "" {
+			return errors.New("home_nodes must not contain an empty entry")
+		}
+		if _, dup := seen[node]; dup {
+			return fmt.Errorf("home_nodes contains %q more than once", node)
+		}
+		seen[node] = struct{}{}
 	}
 	return nil
 }

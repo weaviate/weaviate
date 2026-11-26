@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -207,7 +208,7 @@ func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 	if envVarValue != "" {
 		return envVarValue, nil
 	}
-	return "", fmt.Errorf("no Databricks token found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+	return "", enterrors.NewErrModulePrecondition(fmt.Errorf("no Databricks token found neither in request header: %s nor in environment variable under %s", apiKey, envVar))
 }
 
 func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {

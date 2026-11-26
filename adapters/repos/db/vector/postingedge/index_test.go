@@ -561,7 +561,8 @@ func TestOperationsThisVersionLeavesOutFailLoudly(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotSupported)
 
 	require.ErrorIs(t, index.PrepareForBackup(ctx), ErrNotSupported)
-	_, err = index.SnapshotMutableFiles(ctx, t.TempDir(), t.TempDir())
+	staging := t.TempDir()
+	_, err = index.SnapshotMutableFiles(ctx, t.TempDir(), func(rel string) string { return filepath.Join(staging, rel) })
 	require.ErrorIs(t, err, ErrNotSupported)
 
 	// Nothing is persisted, so there is nothing to flush or to list.
@@ -1004,7 +1005,7 @@ func TestShutdownAndDrop(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, entries, "the centroid graph creates its directory")
 
-		require.NoError(t, index.Drop(ctx, false))
+		require.NoError(t, index.Drop(ctx))
 		matches, err := filepath.Glob(filepath.Join(root, "*"))
 		require.NoError(t, err)
 		assert.Empty(t, matches)
@@ -1014,7 +1015,7 @@ func TestShutdownAndDrop(t *testing.T) {
 		index, err := New(testConfig(t, vectors, 0, provider), uc)
 		require.NoError(t, err)
 		require.NoError(t, index.AddBatch(ctx, []uint64{1}, vectors[:1]))
-		require.NoError(t, index.Drop(ctx, false))
+		require.NoError(t, index.Drop(ctx))
 	})
 }
 

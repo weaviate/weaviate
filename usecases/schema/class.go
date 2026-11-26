@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"golang.org/x/exp/maps"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -211,16 +213,15 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	candidates, err := h.namespaceCandidates(cls.Class)
+	candidates, err := h.namespaceCandidates(cls.Class, cls.ReplicationConfig.Factor)
 	if err != nil {
 		return nil, 0, err
 	}
 	shardingCfg := cls.ShardingConfig.(shardingcfg.Config)
 	if h.config.Namespaces.Enabled && !schema.MultiTenancyEnabled(cls) {
-		// Cap shard count to the candidate list; otherwise the parser's
-		// nodeCount default would have initPhysical place duplicate shards
-		// on the single home_node.
-		shardingCfg.DesiredCount = len(candidates)
+		// A namespaced class has one shard, and InitState puts its replicas on
+		// the nodes namespaceCandidates returned.
+		shardingCfg.DesiredCount = 1
 		shardingCfg.DesiredVirtualCount = shardingCfg.DesiredCount * shardingCfg.VirtualPerPhysical
 		shardingCfg.ActualCount = shardingCfg.DesiredCount
 		shardingCfg.ActualVirtualCount = shardingCfg.DesiredVirtualCount
@@ -279,31 +280,71 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 	return nil
 }
 
-// namespaceCandidates returns the storage-candidate list for placing
-// qualifiedClass's shards. On NS-disabled clusters it returns the full
-// cluster candidates; on NS-enabled clusters it returns
-// [namespace.home_node] so every shard pins to that one node.
-func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
+// namespaceCandidates returns the first factor HomeNodes entries that are storage
+// candidates, or every storage candidate on NS-disabled clusters. It warns when it
+// skips one of the first factor entries, and refuses when fewer than factor remain.
+func (h *Handler) namespaceCandidates(qualifiedClass string, factor int64) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
 		return h.membership.StorageCandidates(), nil
 	}
+	factor = max(factor, 1)
 	ns := namespacing.NamespaceFromQualified(qualifiedClass)
 	if ns == "" {
 		return nil, fmt.Errorf("expected namespace-qualified class name, got %q", qualifiedClass)
 	}
+	logger := h.logger.WithField("namespace", ns)
+	refuse := func(entry logrus.FieldLogger, err error) ([]string, error) {
+		entry.Warnf("refusing shard placement: %v", err)
+		return nil, err
+	}
 	got, ok := h.namespacesExister.GetNamespace(ns)
 	if !ok {
-		return nil, fmt.Errorf("namespace %q not found", ns)
+		return refuse(logger, errors.New("namespace not found"))
 	}
-	homeNode := got.Primary()
-	if homeNode == "" {
-		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)
+	if err := h.checkNamespaceFactor(got, factor); err != nil {
+		return nil, err
 	}
-	candidates := h.membership.StorageCandidates()
-	if !slices.Contains(candidates, homeNode) {
-		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, homeNode)
+	missing := got.MissingHomeNodes(h.membership.StorageCandidates())
+	present := slices.DeleteFunc(slices.Clone(got.HomeNodes), func(node string) bool {
+		return slices.Contains(missing, node)
+	})
+	if int64(len(present)) < factor {
+		return refuse(logger.WithField("home_nodes", missing), fmt.Errorf(
+			"only %d of the namespace's %d home node(s) are storage candidates, fewer than "+
+				"replication factor %d; placement resumes when the others rejoin, or an administrator must "+
+				"replace them in its home_nodes",
+			len(present), len(got.HomeNodes), factor))
 	}
-	return []string{homeNode}, nil
+	placed := present[:factor]
+	if !slices.Equal(placed, got.HomeNodes[:factor]) {
+		logger.WithField("home_nodes", missing).Warnf(
+			"placing shards on the other home nodes: %d home node(s) of the namespace are not storage candidates",
+			len(missing))
+	}
+	return placed, nil
+}
+
+// checkNamespaceFactor refuses a factor above the HomeNodes count of ns.
+func (h *Handler) checkNamespaceFactor(ns api.Namespace, factor int64) error {
+	if err := ns.CheckReplicationFactor(factor); err != nil {
+		h.logger.WithField("namespace", ns.Name).Warnf("refusing replication factor: %v", err)
+		return fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+	return nil
+}
+
+// checkClassFactor runs checkNamespaceFactor against the namespace of
+// className, and passes an unqualified class or a namespace not found.
+func (h *Handler) checkClassFactor(className string, factor int64) error {
+	nsName := namespacing.NamespaceFromQualified(className)
+	if nsName == "" {
+		return nil
+	}
+	ns, ok := h.namespacesExister.GetNamespace(nsName)
+	if !ok {
+		return nil
+	}
+	return h.checkNamespaceFactor(ns, factor)
 }
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
@@ -651,6 +692,12 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		}
 
 		if initialRF < updatedRF {
+			// checkClassFactor goes first, so the caller gets its error rather than
+			// the loop's "not enough replicas in shard" one. The loop alone passes an
+			// MT class with no tenants.
+			if err := h.checkClassFactor(className, updatedRF); err != nil {
+				return err
+			}
 			var shardingState *sharding.State
 			h.schemaReader.Read(className, true, func(c *models.Class, s *sharding.State) error {
 				stateCopy := s.DeepCopy()
@@ -667,6 +714,10 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 					return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, className)
 				}
 			}
+		}
+
+		if err := rejectUnknownModules(h.parser.modules, initial, updated); err != nil {
+			return err
 		}
 
 		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
@@ -728,9 +779,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // variant of [UpdatePropertyInternal]. It routes the RAFT command
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
-// FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update. The flag also lets the update through while
-// its namespace is not active.
+// FSM checks it with MutationGuard.CheckMigrationPropertyUpdate. The flag
+// also lets the update through while its namespace is not active.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
@@ -740,11 +790,11 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // applies to external mutations.
 //
 // Returns only after the local FSM has applied the update.
-func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
-	fields ...string,
+func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, run api.MigrationRun,
+	prop *models.Property, fields ...string,
 ) error {
 	setPropertyDefaults(prop)
-	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
+	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, run, prop, fields...)
 	if err != nil {
 		return err
 	}
@@ -864,10 +914,7 @@ func setPropertyDefaults(props ...*models.Property) {
 
 // clearInternalPropertyFields nils RAFT-internal per-property fields on
 // client-provided properties so they can only be set inside the engine.
-// SearchableBlockmax comes from on-disk state or the read-repair (which only
-// touches nil stamps); a client-seeded value would be a wrong stamp nothing
-// corrects. Create paths only — UpdateProperty's DeepEqual guard already
-// blocks mutation on update.
+// SearchableBlockmax is set only by a migration's cutover; nothing corrects a client value. Create paths only.
 func clearInternalPropertyFields(props ...*models.Property) {
 	for _, prop := range props {
 		if prop != nil {
@@ -1212,6 +1259,10 @@ func rejectVectorIndexTypeNone(prev, next *models.Class) error {
 	return nil
 }
 
+// validateClassInvariants checks a class on create and on backup restore.
+// restoring skips the create/update-only vector index checks: a restored
+// class was accepted when it was first written and is persisted state, like
+// a class parsed at startup, so a limit added since must not refuse it.
 func (h *Handler) validateClassInvariants(
 	ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool, restoring bool,
@@ -1538,6 +1589,9 @@ func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restor
 			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
 		if parsed != nil && !restoring {
+			if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
+				return err
+			}
 			var initialParsed schemaConfig.VectorIndexConfig
 			if initial != nil {
 				initialParsed, _ = h.parseLegacyVectorIndexConfig(initial)
@@ -1654,6 +1708,9 @@ func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restor
 // startup, during RAFT log replay, or on backup restore.
 func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
 	if uc, ok := parsed.(enthfresh.UserConfig); ok {
+		if err := enthfresh.ValidateMultiVectorRequiresMuvera(uc); err != nil {
+			return err
+		}
 		return enthfresh.ValidateMuveraUpperBounds(uc)
 	}
 	return nil
@@ -2104,6 +2161,27 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
+// rejectUnknownModules fails when the update adds a class-level module this
+// node does not have, as class create does. A module already stored passes,
+// so a class still updates after one of its modules is disabled. It runs
+// before the RAFT command and not in the apply, where nodes with different
+// modules would disagree.
+func rejectUnknownModules(modules modulesProvider, initial, updated *models.Class) error {
+	updatedConfig, _ := updated.ModuleConfig.(map[string]any)
+	initialConfig, _ := initial.ModuleConfig.(map[string]any)
+	added := maps.Keys(updatedConfig)
+	slices.Sort(added)
+	for _, module := range added {
+		if _, stored := initialConfig[module]; stored {
+			continue
+		}
+		if !modules.HasModule(module) {
+			return fmt.Errorf("module with name %s doesn't exist", module)
+		}
+	}
+	return nil
+}
+
 func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider, allowed map[string][]string) error {
 	immutableFields := []immutableText{
 		{
@@ -2129,17 +2207,26 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		// without enforcing that on the client. We just set these fields to their initial values.
 		switch cfg := v.VectorIndexConfig.(type) {
 		case hnsw.UserConfig:
-			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(hnsw.UserConfig)
+			cfgInitial, ok := initialVecCfg.VectorIndexConfig.(hnsw.UserConfig)
+			if !ok {
+				return errVectorIndexTypeImmutable(k, initialVecCfg.VectorIndexType, v.VectorIndexType)
+			}
 			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
 			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
 			v.VectorIndexConfig = cfg
 		case flat.UserConfig:
-			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(flat.UserConfig)
+			cfgInitial, ok := initialVecCfg.VectorIndexConfig.(flat.UserConfig)
+			if !ok {
+				return errVectorIndexTypeImmutable(k, initialVecCfg.VectorIndexType, v.VectorIndexType)
+			}
 			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
 			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
 			v.VectorIndexConfig = cfg
 		case dynamic.UserConfig:
-			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(dynamic.UserConfig)
+			cfgInitial, ok := initialVecCfg.VectorIndexConfig.(dynamic.UserConfig)
+			if !ok {
+				return errVectorIndexTypeImmutable(k, initialVecCfg.VectorIndexType, v.VectorIndexType)
+			}
 			cfg.HnswUC.SkipDefaultQuantization = cfgInitial.HnswUC.SkipDefaultQuantization
 			cfg.HnswUC.TrackDefaultQuantization = cfgInitial.HnswUC.TrackDefaultQuantization
 			cfg.FlatUC.SkipDefaultQuantization = cfgInitial.FlatUC.SkipDefaultQuantization

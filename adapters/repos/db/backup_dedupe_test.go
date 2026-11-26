@@ -101,7 +101,7 @@ func TestCollectedBaseDescrsFeedSkipEntries(t *testing.T) {
 	}
 
 	var sd backup.ShardDescriptor
-	require.NoError(t, sd.FillFileInfo([]string{relPath}, idx.collectShardBaseDescrs("s2", base), dir))
+	require.NoError(t, sd.FillFileInfo([]string{relPath}, idx.collectShardBaseDescrs("s2", base), backup.NewTreeFileSource(dir)))
 	assert.Empty(t, sd.Files)
 	assert.Equal(t, []backup.IncrementalBackupInfo{{File: relPath, ChunkKeys: []string{"chunk-7"}}},
 		sd.IncrementalBackupInfo.FilesPerBackup["base-2"])
