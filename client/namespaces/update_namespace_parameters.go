@@ -76,7 +76,7 @@ type UpdateNamespaceParams struct {
 
 	/* Body.
 
-	   Required body. `home_node` is the new placement target.
+	   Required body. `home_nodes` replaces the namespace's list.
 	*/
 	Body *models.NamespaceUpdateRequest
 

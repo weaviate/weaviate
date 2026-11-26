@@ -26,7 +26,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -45,6 +44,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	entreplication "github.com/weaviate/weaviate/entities/replication"
 	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
@@ -187,28 +188,24 @@ type Config struct {
 	NamespacesController *usecasesNamespaces.Controller
 	NamespacesEnabled    bool
 
+	// Replication bounds the home-node lists Raft.AddNamespace and
+	// Raft.UpdateNamespace propose.
+	Replication entreplication.GlobalConfig
+
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
 
 	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
 	ReplicationEngineMaxWorkers int
 
-	// DistributedTasks is the configuration for the distributed task manager.
-	DistributedTasks config.DistributedTasksConfig
-
-	// DistributedTaskCollectionExtractors are registered on the
-	// distributed-task Manager at FSM construction time, BEFORE RAFT
-	// replay runs, so the DELETE_CLASS cascade fires on catchup-replay
-	// (schemaOnly) apply too. Late post-construction registration would
-	// miss tasks resurrected by replay. See [distributedtask.CollectionExtractor]
-	// and weaviate/0-weaviate-issues#231.
-	DistributedTaskCollectionExtractors map[string]distributedtask.CollectionExtractor
-	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
-	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
+	// DistributedTaskConflictDetectors and DistributedTaskSchemaMutationDetectors
+	// reach the Manager when NewFSM runs, before RAFT replay, like the
+	// extractors. See [distributedtask.ManagerParameters].
+	DistributedTaskConflictDetectors       map[string]distributedtask.ConflictDetector
+	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
 	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
 	// whose units no longer match the current replicas of the shards they name.
-	// A namespace without a collection extractor is never checked.
 	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
@@ -241,9 +238,9 @@ type Config struct {
 	ReplicaMovementEnabled  *runtime.DynamicValue[bool]
 	ReplicaRebalanceEnabled *runtime.DynamicValue[bool]
 
-	// RebalanceMeasure reads one node's resources for the rebalance planner.
-	// When nil, every planning run ends PLANNING_FAILED.
-	RebalanceMeasure func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error)
+	// NewRebalancePlanner builds the rebalance planner. It is nil on a node
+	// that may not run the planner, and such a node completes no planning run.
+	NewRebalancePlanner func(RebalancePlannerDeps) (RebalancePlanner, error)
 
 	// DBLoadProgress reports local shard-loading progress (loaded,
 	// total) while the DB is being restored on startup.
@@ -339,14 +336,14 @@ type Store struct {
 
 	// tenantAddLocks serializes AddTenants per class on the leader so the
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
-	tenantAddLocks *entsync.KeyLocker
+	tenantAddLocks *evictingKeyRWLocker
 
 	// collectionAddLocks serializes AddClass per namespace on the leader so the
 	// pre-commit collection-cap check cannot race the apply that increments the
 	// count.
 	collectionAddLocks *entsync.KeyLocker
 
-	taskMovementLocks *entsync.KeyLocker
+	taskMovementLocks *evictingKeyRWLocker
 
 	metrics *storeMetrics
 
@@ -439,7 +436,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 }
 
 func NewFSM(cfg Config, reg prometheus.Registerer) Store {
-	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.NamespacesController, reg, cfg.Logger)
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
@@ -457,23 +454,19 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
 	// cascade-delete (weaviate/0-weaviate-issues#231).
+	schemaReader := schemaManager.NewSchemaReader()
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
-		Clock:            clockwork.NewRealClock(),
-		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
-		Logger:           cfg.Logger,
+		Logger:                  cfg.Logger,
+		ConflictDetectors:       cfg.DistributedTaskConflictDetectors,
+		SchemaMutationDetectors: cfg.DistributedTaskSchemaMutationDetectors,
+		ReadOnlyClass: func(collection string) *models.Class {
+			return schemaReader.ReadOnlyVersionedClass(collection).Class
+		},
 	})
 
 	schemaManager.SetMutationGuard(distributedTasksManager)
 	schemaManager.SetDistributedTaskManager(distributedTasksManager)
 
-	// Register collection extractors BEFORE RAFT.Apply replay can fire.
-	// The DELETE_CLASS cascade lives in updateSchema (runs even on
-	// schemaOnly replay), but with no extractor registered for the
-	// reindex namespace the cascade is a no-op and the resurrected task
-	// records survive. weaviate/0-weaviate-issues#231.
-	for namespace, extractor := range cfg.DistributedTaskCollectionExtractors {
-		distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
-	}
 	for namespace, extractor := range cfg.DistributedTaskTargetVectorExtractors {
 		distributedTasksManager.RegisterTargetVectorExtractor(namespace, extractor)
 	}
@@ -502,9 +495,9 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
-		tenantAddLocks:          entsync.NewKeyLocker(),
+		tenantAddLocks:          newEvictingKeyRWLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
-		taskMovementLocks:       entsync.NewKeyLocker(),
+		taskMovementLocks:       newEvictingKeyRWLocker(),
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, monitoring.GetMetrics(), cfg.Logger),
@@ -524,24 +517,6 @@ func (st *Store) ID() string    { return st.cfg.NodeID }
 // exist, from MakeAppState's wiring.
 func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
 	st.distributedTasksManager.SetSchedulerNotifier(notifier)
-}
-
-// SetDistributedTaskConflictDetectors installs the per-namespace
-// conflict-detection hooks on the distributed task FSM Manager. Called
-// once at startup from MakeAppState. See
-// [distributedtask.ConflictDetector] for the contract.
-func (st *Store) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
-	st.distributedTasksManager.SetConflictDetectors(detectors)
-}
-
-// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
-// detectors consulted from the schema FSM's UpdateProperty apply path
-// via the Manager's CheckPropertyUpdate method. Called once at startup
-// from MakeAppState, after the providers exist. See
-// [distributedtask.SchemaMutationDetector] for the FSM-determinism
-// contract and motivating failure mode.
-func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
-	st.distributedTasksManager.SetSchemaMutationDetectors(detectors)
 }
 
 // LocalUnrecognizedDistributedTasks backs
@@ -567,8 +542,8 @@ func (st *Store) ForceSnapshot() error {
 	return rn.Snapshot().Error()
 }
 
-func (st *Store) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
-	return st.distributedTasksManager.LocalTaskStatuses(namespace)
+func (st *Store) LocalTaskStatuses(namespace, shard string) []distributedtask.TaskStatusEntry {
+	return st.distributedTasksManager.LocalTaskStatuses(namespace, shard)
 }
 
 // lastIndex returns the last index in stable storage,

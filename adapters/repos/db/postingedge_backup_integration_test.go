@@ -35,15 +35,12 @@ import (
 // writing, so a hardlink of one of them made while the shard was halted
 // changes with it once the shard resumes, and the target would receive a meta
 // and a journal of a later moment than the buckets it is sent. They are
-// copied to the staging directory of the movement, which serves them in both
-// modes: with hardlinks, and halted for the whole transfer.
+// copied to the staging directory of the movement, which serves them.
 func TestPostingEdge_ReplicaSnapshotCopiesWhatChangesInPlace(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		hardlink bool
+		name string
 	}{
-		{name: "hardlink mode", hardlink: true},
-		{name: "halted for the transfer", hardlink: false},
+		{name: "hardlink mode"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const (
@@ -93,15 +90,8 @@ func TestPostingEdge_ReplicaSnapshotCopiesWhatChangesInPlace(t *testing.T) {
 			}, 30*time.Second, 10*time.Millisecond, "the index builds its base")
 
 			staging := t.TempDir()
-			var files []string
-			if tc.hardlink {
-				files, err = shard.CreateReplicaSnapshot(ctx, staging)
-				require.NoError(t, err)
-			} else {
-				require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
-				files, err = shard.ListReplicaSnapshotFiles(ctx, staging)
-				require.NoError(t, err)
-			}
+			files, err := shard.CreateReplicaSnapshot(ctx, staging)
+			require.NoError(t, err)
 			for _, name := range []string{"meta.json", "journal.log", "slots-1.u32", "built.u32", "centroids.f32"} {
 				rel := filepath.Join(dir, name)
 				assert.Contains(t, files, rel)
@@ -112,9 +102,6 @@ func TestPostingEdge_ReplicaSnapshotCopiesWhatChangesInPlace(t *testing.T) {
 				live, err := os.Stat(filepath.Join(shard.path(), rel))
 				require.NoError(t, err)
 				assert.False(t, os.SameFile(copied, live), "%s is a copy, not a link", rel)
-			}
-			if !tc.hardlink {
-				require.NoError(t, shard.resumeMaintenanceCycles(ctx))
 			}
 		})
 	}

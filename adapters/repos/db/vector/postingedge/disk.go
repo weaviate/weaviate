@@ -212,6 +212,9 @@ func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir s
 		index.codes, index.vectors = true, nil
 		index.store, index.bucket = codes.store, helpers.CompressedBucketNameForID(codes.id)
 		uc.RQ.Enabled, uc.RQ.Bits, uc.RQ.RescoreLimit = true, 8, 0
+		if codes.bits != 0 {
+			uc.RQ.Bits, uc.RQ.Centering = int16(codes.bits), codes.centering
+		}
 		// The graph finds its commit log by its id, which names the bucket of
 		// its codes too. A graph written in float32 logged under "centroids":
 		// its log takes the id before it opens, and the graph converts.
@@ -281,6 +284,12 @@ type centroidCodes struct {
 	id          string
 	file        string
 	dims        int
+	// bits and centering, when bits is set, give other codes than 8-bit RQ:
+	// 4 or 1 bit, centered or not, for the measure of what they save
+	// (bench-report.md, "CRQ4 y CRQ1 para los centroides"). Not a parameter
+	// of the index.
+	bits      int
+	centering bool
 }
 
 // convertCentroidGraph compresses a graph that holds its centroids in float32

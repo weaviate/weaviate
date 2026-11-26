@@ -178,8 +178,8 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	// The gate answers from a shard-keyed snapshot and never sees the task's
 	// status, so the cancel it names has to carry the condition under which
 	// the API accepts one. Without it the message sends an operator whose
-	// task is past STARTED at a cancel that answers 409.
-	require.Contains(t, errMsg, "accepted only while the task is STARTED",
+	// task is SWAPPING at a cancel that answers 409.
+	require.Contains(t, errMsg, "accepted while the task is STARTED or PREPARING",
 		"the cancel remedy must state its precondition; got: %s", errMsg)
 	require.Contains(t, errMsg, "exclude",
 		"error body must say how to back up the other collections now; got: %s", errMsg)
@@ -434,29 +434,6 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 		"400 body must explain that a task is in flight; got: %s", bodyStr)
 	assert.Contains(t, bodyStr, className,
 		"400 body must name the class being deleted; got: %s", bodyStr)
-	// The refusal names the status it read, so the body itself says which
-	// remedy it owes the operator: a cancel is accepted for STARTED alone,
-	// and a coordination phase has to be told that rather than sent at a
-	// cancel the API answers 409 to. Asserting the bare word "cancel" would
-	// pass on either, including on a body that says a cancel is refused.
-	const (
-		cancelRemedy = "cancel the reindex via the REST API before deleting the class"
-		pastCancel   = "past the point where a cancel is accepted"
-	)
-	switch {
-	case strings.Contains(bodyStr, "status=STARTED"):
-		assert.Contains(t, bodyStr, cancelRemedy,
-			"400 body for a STARTED task must point operators at the cancel remedy; got: %s", bodyStr)
-		assert.NotContains(t, bodyStr, pastCancel,
-			"a cancel is accepted while STARTED, so the body must not say otherwise; got: %s", bodyStr)
-	case strings.Contains(bodyStr, "status=PREPARING"), strings.Contains(bodyStr, "status=SWAPPING"):
-		assert.Contains(t, bodyStr, pastCancel,
-			"400 body for a coordination phase must say the cancel is refused; got: %s", bodyStr)
-		assert.NotContains(t, bodyStr, cancelRemedy,
-			"a cancel in a coordination phase answers 409, so the body must not name one; got: %s", bodyStr)
-	default:
-		t.Fatalf("400 body must name the in-flight status it read; got: %s", bodyStr)
-	}
 
 	getURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
 	resp, err = http.Get(getURL)

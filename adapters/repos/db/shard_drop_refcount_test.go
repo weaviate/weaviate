@@ -70,7 +70,7 @@ func dropTestShard(t *testing.T, index *Index) (shard *Shard, release func(), dr
 	t.Cleanup(func() { index.shards.LoadAndDelete(name) })
 
 	ch := make(chan error, 1)
-	go func() { ch <- shard.drop(false) }()
+	go func() { ch <- shard.drop() }()
 
 	// the flag is drainRefsForDrop's first action
 	require.Eventually(t, shard.dropRequested.Load, 10*time.Second, time.Millisecond,

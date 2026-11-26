@@ -16,6 +16,7 @@ package postingedge
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"math"
 	"os"
 	"path/filepath"
@@ -53,12 +54,23 @@ type codesMode struct {
 }
 
 type codesResult struct {
-	Dataset string      `json:"dataset"`
-	Cell    string      `json:"cell"`
-	Queries int         `json:"queries"`
-	K       int         `json:"k"`
-	Modes   []codesMode `json:"modes"`
+	Dataset string `json:"dataset"`
+	Cell    string `json:"cell"`
+	Queries int    `json:"queries"`
+	K       int    `json:"k"`
+	// Bits and Centering are those of the codes, 0 bits for 8-bit RQ.
+	Bits      int         `json:"bits"`
+	Centering bool        `json:"centering"`
+	Modes     []codesMode `json:"modes"`
 }
+
+var (
+	benchCodesBits = flag.Int("bench.codes.bits", 0, "TestDiskCentroidCodes: the bits of the codes of the "+
+		"centroids, 8, 4 or 1; 0 is 8-bit RQ")
+	benchCodesCentering = flag.Bool("bench.codes.centering", false, "TestDiskCentroidCodes: centered codes")
+	benchCodesOnly      = flag.Bool("bench.codes.only", false, "TestDiskCentroidCodes: open the cell with codes "+
+		"alone, and not first in float32")
+)
 
 // TestDiskCentroidCodes is the pre-registered measure of the centroids as
 // 8-bit RQ codes with no rescore (bench-report.md, "Centroides en RQ8"),
@@ -88,9 +100,17 @@ func TestDiskCentroidCodes(t *testing.T) {
 	uc.LoadBatch = DefaultLoadBatch
 	uc.SourceMargin = float32(cell.Spec.Margin)
 
-	result := codesResult{Dataset: manifest.Dataset, Cell: cell.Spec.Name, Queries: len(queries), K: k}
-	defer func() { diskCentroidCodes = false }()
-	for _, codes := range []bool{false, true} {
+	result := codesResult{
+		Dataset: manifest.Dataset, Cell: cell.Spec.Name, Queries: len(queries), K: k,
+		Bits: *benchCodesBits, Centering: *benchCodesCentering,
+	}
+	diskCentroidBits, diskCentroidCentering = *benchCodesBits, *benchCodesCentering
+	defer func() { diskCentroidCodes, diskCentroidBits, diskCentroidCentering = false, 0, false }()
+	modes := []bool{false, true}
+	if *benchCodesOnly {
+		modes = []bool{true}
+	}
+	for _, codes := range modes {
 		diskCentroidCodes = codes
 		disk, err := openDiskIndex(ctx, logger, dir, provider, uc, nil, false)
 		require.NoError(t, err)

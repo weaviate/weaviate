@@ -1128,7 +1128,7 @@ func TestPersistentBuckets(t *testing.T) {
 		build := filepath.Join(f.root, helpers.PostingEdgeBuildDirName(f.cfg.ID))
 		require.NoError(t, os.MkdirAll(build, 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(build, buildListFile), []byte("{}"), 0o644))
-		require.NoError(t, f.index.Drop(ctx, false))
+		require.NoError(t, f.index.Drop(ctx))
 		assert.Empty(t, f.store.GetBucketsByName())
 		assert.Empty(t, inStore())
 		entries, err := os.ReadDir(f.root)

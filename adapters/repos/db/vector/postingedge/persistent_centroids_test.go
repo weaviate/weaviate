@@ -107,6 +107,19 @@ func TestPersistentCentroidsFollowTheLivePostings(t *testing.T) {
 				nodes, tombstones := graphNodes(t, f.index.g.st.centroids)
 				assert.Zero(t, tombstones, "the graph keeps no tombstone once it is cleaned")
 				assert.Equal(t, live, nodes, "the graph keeps one node per live posting once it is cleaned")
+				if !float32Centroids {
+					// Nor a code: the bucket of the codes holds one per live
+					// posting.
+					centroids := f.index.g.st.centroids
+					bucket := centroids.store.Bucket(centroids.bucket)
+					require.NotNil(t, bucket, "the bucket of the codes %s", centroids.bucket)
+					codes := 0
+					require.NoError(t, growScan(bucket, func(_, _ []byte) error {
+						codes++
+						return nil
+					}))
+					assert.Equal(t, live, codes, "the bucket keeps one code per live posting once the graph is cleaned")
+				}
 			})
 		}
 	}

@@ -17,11 +17,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/weaviateembed"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,6 +33,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 		c := New(0)
 		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
@@ -53,6 +56,7 @@ func TestClient(t *testing.T) {
 			"x-ratelimit-reset-tokens":     "37s",
 		}})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 		c := New(0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
@@ -69,6 +73,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 		c := New(0)
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		ctx = context.WithValue(ctx, "Authorization", []string{"token"})
@@ -87,6 +92,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 		c := New(0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
@@ -101,6 +107,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 
 		defer server.Close()
+		t.Setenv(weaviateembed.AllowedBaseURLsEnv, server.URL)
 		c := New(0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
@@ -119,6 +126,38 @@ func TestClient(t *testing.T) {
 		require.Equal(t, int(16), result.Dimensions)
 		require.Equal(t, []string{"This is my text"}, result.Text)
 	})
+}
+
+func TestBaseURLNotOnAllowlistIsNotCalled(t *testing.T) {
+	entryPoints := map[string]func(c *vectorizer, ctx context.Context, cfg fakeClassConfig) error{
+		"Vectorize (insert, update)": func(c *vectorizer, ctx context.Context, cfg fakeClassConfig) error {
+			_, _, _, err := c.Vectorize(ctx, []string{"text"}, cfg)
+			return err
+		},
+		"VectorizeQuery (nearText)": func(c *vectorizer, ctx context.Context, cfg fakeClassConfig) error {
+			_, err := c.VectorizeQuery(ctx, []string{"text"}, cfg)
+			return err
+		},
+	}
+	for name, callEntryPoint := range entryPoints {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(weaviateembed.AllowedBaseURLsEnv, "")
+			var hits atomic.Int32
+			unlisted := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				hits.Add(1)
+			}))
+			defer unlisted.Close()
+			ctx := context.WithValue(context.Background(), "Authorization", []string{"Bearer token"})
+			ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{"https://cluster.example.com"})
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": unlisted.URL}}
+
+			err := callEntryPoint(New(0), ctx, cfg)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is not allowed")
+			assert.Zero(t, hits.Load())
+		})
+	}
 }
 
 type fakeHandler struct {

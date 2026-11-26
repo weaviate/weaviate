@@ -195,7 +195,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 	ctx context.Context,
 	namespace, taskID string,
 	taskVersion uint64,
-	nodeID string,
+	groupID, nodeID string,
 	success bool,
 	errMsg string,
 ) error {
@@ -204,6 +204,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 			Namespace:         namespace,
 			Id:                taskID,
 			Version:           taskVersion,
+			GroupId:           groupID,
 			NodeId:            nodeID,
 			Success:           success,
 			Error:             errMsg,
@@ -211,19 +212,12 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 		})
 }
 
-// RecordDistributedTaskPreparationCompleteAck commits one node's
-// OnGroupCompleted PREP-phase result to the FSM. The scheduler tick
-// on each node fires this after its local PREP body has returned, so
-// the cluster has durable evidence of which nodes' prep work
-// succeeded before the PREPARING → SWAPPING transition is committed.
-// This is the load-bearing barrier.
-//
 // See [distributedtask.PostCompletionAckRecorder].
 func (s *Raft) RecordDistributedTaskPreparationCompleteAck(
 	ctx context.Context,
 	namespace, taskID string,
 	taskVersion uint64,
-	nodeID string,
+	groupID, nodeID string,
 	success bool,
 	errMsg string,
 ) error {
@@ -232,6 +226,7 @@ func (s *Raft) RecordDistributedTaskPreparationCompleteAck(
 			Namespace:         namespace,
 			Id:                taskID,
 			Version:           taskVersion,
+			GroupId:           &groupID,
 			NodeId:            nodeID,
 			Success:           success,
 			Error:             errMsg,

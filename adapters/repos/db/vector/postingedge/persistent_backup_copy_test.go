@@ -47,7 +47,7 @@ func TestPersistentBackupCopiesWhatChangesInPlace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground = true })
 			f.add(t, 0, tt.added)
-			_, err := f.index.SnapshotMutableFiles(ctx, f.root, t.TempDir())
+			_, err := f.index.SnapshotMutableFiles(ctx, f.root, stagedUnder(t.TempDir()))
 			require.Error(t, err, "no copy without a backup that holds the index")
 
 			require.NoError(t, f.index.PrepareForBackup(ctx))
@@ -57,7 +57,7 @@ func TestPersistentBackupCopiesWhatChangesInPlace(t *testing.T) {
 				require.Greater(t, f.index.g.meta.Postings, postings)
 			}
 			staging := t.TempDir()
-			staged, err := f.index.SnapshotMutableFiles(ctx, f.root, staging)
+			staged, err := f.index.SnapshotMutableFiles(ctx, f.root, stagedUnder(staging))
 			require.NoError(t, err)
 
 			dir := helpers.PostingEdgeDirName(f.cfg.ID)

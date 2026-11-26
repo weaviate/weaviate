@@ -13,10 +13,10 @@
 // goroutine-fanning phases of object search on a single node, so a traffic
 // spike degrades gracefully instead of exhausting the Go scheduler.
 //
-// It gates Shard.ObjectSearch when a filter or keyword ranking is present and
-// the whole of Shard.ObjectVectorSearch. A grant is taken per shard searched
-// on this node, since each shard search runs its own worker pool. Filtered
-// aggregations and batch-delete-by-filter are not yet gated. The grant seeds
+// It gates Shard.ObjectSearch when a filter or keyword ranking is present, and
+// the whole of Shard.ObjectVectorSearch and Shard.Aggregate. A grant is taken
+// per shard searched on this node, since each shard search runs its own worker
+// pool. Batch-delete-by-filter is not yet gated. The grant seeds
 // entities/concurrency's per-query budget, which bounds one query's fan-out
 // while this bounds the aggregate across queries.
 //

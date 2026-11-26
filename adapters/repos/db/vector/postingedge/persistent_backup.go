@@ -187,15 +187,15 @@ func (p *Persistent) ListFiles(ctx context.Context, basePath string) ([]string, 
 	return files, nil
 }
 
-// SnapshotMutableFiles copies to stagingDir, under their paths relative to
-// basePath, the files of the index that change in place, all of them at one
+// SnapshotMutableFiles copies to dstFor of their paths relative to basePath
+// the files of the index that change in place, all of them at one
 // point between two writes: the meta, the journal, the slots of the vectors,
 // the table of when their edges were built, the centroids, and the mark of
 // the centroid graph when there is one. Of an index whose vectors are at
 // their doc ids, the file of vectors too, which is written in place. It
 // returns their paths relative to basePath, and fails unless a backup holds
 // the index.
-func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	switch {
@@ -233,20 +233,12 @@ func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath, staging
 		if err != nil {
 			return nil, errors.Wrapf(err, "the path of %s under %s", src, basePath)
 		}
-		if err := copyFileTo(src, filepath.Join(stagingDir, rel)); err != nil {
+		if err := copyFileTo(src, dstFor(rel)); err != nil {
 			return nil, errors.Wrapf(err, "copy %s", name)
 		}
 		rels = append(rels, rel)
 	}
 	return rels, nil
-}
-
-// RewritesFilesInPlace tells a shard that a copy of the files of the index is
-// only whole when SnapshotMutableFiles takes it: the meta, the journal, the
-// slots and the centroids are rewritten in place. A backup that uploads the
-// files of a live shard from where they are refuses it.
-func (p *Persistent) RewritesFilesInPlace() bool {
-	return true
 }
 
 // copyFileTo copies a file whole to dst, making its directory, and has the

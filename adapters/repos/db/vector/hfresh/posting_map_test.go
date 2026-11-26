@@ -704,3 +704,15 @@ func TestPostingMetadataStore(t *testing.T) {
 		require.Equal(t, 2, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV2))
 	})
 }
+
+func TestPostingMapAddressesFullIDRange(t *testing.T) {
+	pm := makePostingMetadataStore(t)
+
+	require.NotPanics(t, func() {
+		_, err := pm.FastAddVectorID(t.Context(), maxAddressablePostingID, 7)
+		require.NoError(t, err)
+	})
+	meta, err := pm.Get(t.Context(), maxAddressablePostingID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, meta.Count())
+}

@@ -52,16 +52,15 @@ import (
 //     read before the listing, gives out again, and the object that gets it
 //     cannot be indexed.
 //
-// The second is red, on purpose, and escalated: the copy of the files of
-// the index is taken after the doc id counter is read (ListBackupFiles reads
-// the counter first, and the shard has the indexes copy their files after
-// listing), so the restored index holds the vector of an object written in
-// between, and the counter gives its doc id out again: the put of the next
-// object fails with "id ... was already added". No cut the index can take by
-// itself avoids it: one before the flush of the store is not the state of
-// its buckets in the snapshot, and every one after it comes after the
-// counter is read. The order of the shard is the team's to decide (#14003),
-// so nothing here changes it.
+// The copy of the files of the index is taken after the doc id counter is
+// read (ListBackupFiles reads the counter first, and the shard has the
+// indexes copy their files after listing), so the restored index puts back
+// from its journal the vector of an object written in between, and the
+// counter gives its doc id out again. The index asks the shard, when it
+// opens, whether the objects of the vectors its journal put back are in the
+// store, and drops those that are not (postingedge.Persistent.dropOrphans):
+// the put of the next object takes the doc id. The order of the shard is the
+// team's to decide (#14003), so nothing here changes it.
 func TestPostingEdge_TransferSnapshotRestoresTheIndex(t *testing.T) {
 	for _, journey := range []struct {
 		name     string
@@ -69,13 +68,6 @@ func TestPostingEdge_TransferSnapshotRestoresTheIndex(t *testing.T) {
 	}{
 		{name: "backup", snapshot: postingEdgeBackupFiles},
 		{name: "replica movement", snapshot: postingEdgeReplicaFiles},
-		{
-			name: "replica movement, halted for the transfer",
-			snapshot: func(t *testing.T, idx *Index, shard *Shard) map[string][]byte {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-				return postingEdgeReplicaFiles(t, idx, shard)
-			},
-		},
 	} {
 		t.Run(journey.name, func(t *testing.T) {
 			const (
@@ -192,14 +184,7 @@ func TestPostingEdge_TransferSnapshotWriteBetweenFlushAndCounter(t *testing.T) {
 		{
 			name: "replica movement",
 			take: func(t *testing.T, _ *Index, shard *Shard, write func()) map[string][]byte {
-				return postingEdgeReplicaFilesAfterHalt(t, shard, true, write)
-			},
-		},
-		{
-			name: "replica movement, halted for the transfer",
-			take: func(t *testing.T, _ *Index, shard *Shard, write func()) map[string][]byte {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-				return postingEdgeReplicaFilesAfterHalt(t, shard, false, write)
+				return postingEdgeReplicaFilesAfterHalt(t, shard, write)
 			},
 		},
 	} {
@@ -270,8 +255,8 @@ func TestPostingEdge_TransferSnapshotWriteBetweenFlushAndCounter(t *testing.T) {
 func postingEdgeBackupFilesAfterHalt(t *testing.T, idx *Index, shard *Shard, write func()) map[string][]byte {
 	t.Helper()
 	ctx := context.Background()
-	staging := t.TempDir()
-	require.NoError(t, shard.haltForTransfer(ctx, false, 0, newReindexGate(idx.db, reindexGateMaxAge)))
+	staging := postingEdgeShardStaging(t, shard)
+	require.NoError(t, shard.haltForTransfer(ctx, false, newReindexGate(idx.db, reindexGateMaxAge)))
 	write()
 	var sd backup.ShardDescriptor
 	files, err := shard.stageBackupSnapshot(ctx, &sd, staging)
@@ -282,22 +267,18 @@ func postingEdgeBackupFilesAfterHalt(t *testing.T, idx *Index, shard *Shard, wri
 
 // postingEdgeReplicaFilesAfterHalt takes what the copier of a replica
 // movement fetches, as CreateReplicaSnapshot does, calling write between the
-// halt and the listing. A file that is not staged is read from the shard
-// while it is halted, as a target reads it in halt-for-duration mode.
-func postingEdgeReplicaFilesAfterHalt(t *testing.T, shard *Shard, hardlink bool, write func()) map[string][]byte {
+// halt and the listing.
+func postingEdgeReplicaFilesAfterHalt(t *testing.T, shard *Shard, write func()) map[string][]byte {
 	t.Helper()
 	ctx := context.Background()
 	staging := t.TempDir()
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, false))
 	write()
-	rels, err := shard.collectShardRelativeFiles(ctx, staging, hardlink)
+	rels, err := shard.collectShardRelativeFiles(ctx, staging)
 	require.NoError(t, err)
 	out := map[string][]byte{}
 	for _, rel := range rels {
 		data, err := os.ReadFile(filepath.Join(staging, rel))
-		if os.IsNotExist(err) {
-			data, err = os.ReadFile(filepath.Join(shard.path(), rel))
-		}
 		require.NoError(t, err)
 		out[rel] = data
 	}
@@ -325,12 +306,12 @@ func (h *postingEdgeTransferHook) PrepareForBackup(ctx context.Context) error {
 	return nil
 }
 
-func (h *postingEdgeTransferHook) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (h *postingEdgeTransferHook) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	if f := h.beforeCopy; f != nil {
 		h.beforeCopy = nil
 		f()
 	}
-	return h.VectorIndex.SnapshotMutableFiles(ctx, basePath, stagingDir)
+	return h.VectorIndex.SnapshotMutableFiles(ctx, basePath, dstFor)
 }
 
 // postingEdgeBackupFiles takes what a backup of the live shard uploads: the
@@ -338,7 +319,7 @@ func (h *postingEdgeTransferHook) SnapshotMutableFiles(ctx context.Context, base
 // their paths relative to the shard.
 func postingEdgeBackupFiles(t *testing.T, idx *Index, shard *Shard) map[string][]byte {
 	t.Helper()
-	staging := t.TempDir()
+	staging := postingEdgeShardStaging(t, shard)
 	var sd backup.ShardDescriptor
 	files, err := shard.CreateBackupSnapshot(context.Background(), &sd, staging, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
@@ -347,7 +328,7 @@ func postingEdgeBackupFiles(t *testing.T, idx *Index, shard *Shard) map[string][
 
 // postingEdgeStagedBackup is what a backup uploads, by path relative to the
 // shard: the files staged and the three the descriptor carries in memory.
-func postingEdgeStagedBackup(t *testing.T, shard *Shard, staging string, files []string, sd *backup.ShardDescriptor,
+func postingEdgeStagedBackup(t *testing.T, shard *Shard, staging backup.ShardStaging, files []string, sd *backup.ShardDescriptor,
 ) map[string][]byte {
 	t.Helper()
 	out := map[string][]byte{}
@@ -357,7 +338,7 @@ func postingEdgeStagedBackup(t *testing.T, shard *Shard, staging string, files [
 		out[rel] = data
 	}
 	for _, rootRel := range files {
-		data, err := os.ReadFile(filepath.Join(staging, rootRel))
+		data, err := os.ReadFile(backup.StagedFilePath(staging, rootRel))
 		require.NoError(t, err)
 		add(rootRel, data)
 	}
@@ -365,6 +346,19 @@ func postingEdgeStagedBackup(t *testing.T, shard *Shard, staging string, files [
 	add(sd.PropLengthTrackerPath, sd.PropLengthTracker)
 	add(sd.ShardVersionPath, sd.Version)
 	return out
+}
+
+// postingEdgeShardStaging is the staging of one shard of a backup, as the
+// backup of its index lays it out: a directory that does not exist yet, under
+// one that does, with the name limit of its filesystem.
+func postingEdgeShardStaging(t *testing.T, shard *Shard) backup.ShardStaging {
+	t.Helper()
+	root := t.TempDir()
+	limit, err := fsNameMax(root)
+	require.NoError(t, err)
+	nameMax, err := backup.StagedNameMax(limit)
+	require.NoError(t, err)
+	return backup.NewShardStaging(root, shard.name, nameMax)
 }
 
 // postingEdgeReplicaFiles takes what the copier of a replica movement

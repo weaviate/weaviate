@@ -723,7 +723,7 @@ Cada reproducción comprueba que puntúa los endpoints que puntuó la búsqueda,
   - (a) y (b) recuperan la localidad a cambio de un relayout periódico.
 - **Para v2.0:** las métricas sin cronometrar del streaming (recall, cargas, recall de arista) no dependen de la representación. Su frontera cronometrada incluye la referencia convertida a docID, para separar el coste de la representación del del mantenimiento.
 
-Datos en `testdata/bench/phase2/`:
+Datos en [`testdata/bench/phase2/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/phase2):
 
 - `wikidpr-10m-endpointkeys.json`: el build;
 - `wikidpr-10m-endpointkeys-endpointkeys.json`: los ns por ronda de cada ordenación;

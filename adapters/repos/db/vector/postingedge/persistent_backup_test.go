@@ -26,6 +26,12 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+// stagedUnder is where a backup stages the files an index copies: under a
+// directory, at their paths.
+func stagedUnder(dir string) func(relPath string) string {
+	return func(relPath string) string { return filepath.Join(dir, relPath) }
+}
+
 // searched is what the index answers to every query of the fixture now. Unlike
 // answers, it does nothing that is due in the background first: while a
 // backup holds the index, a pass over its vectors waits.
@@ -87,7 +93,7 @@ func (f *persistentFixture) backup(t *testing.T, k int, prepared, flushed func()
 	indexFiles, err := f.index.ListFiles(ctx, f.root)
 	require.NoError(t, err)
 	listed = append(listed, indexFiles...)
-	staged, err := f.index.SnapshotMutableFiles(ctx, f.root, cut.root)
+	staged, err := f.index.SnapshotMutableFiles(ctx, f.root, stagedUnder(cut.root))
 	require.NoError(t, err)
 	cut.answers, cut.holds = f.searched(t, k), f.holds()
 	if f.index.g != nil {

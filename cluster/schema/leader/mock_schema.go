@@ -1297,14 +1297,14 @@ func (_c *MockSchema_UpdateProperty_Call) RunAndReturn(run func(context.Context,
 	return _c
 }
 
-// UpdatePropertyFromMigration provides a mock function with given fields: ctx, class, property, fields
-func (_m *MockSchema) UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+// UpdatePropertyFromMigration provides a mock function with given fields: ctx, class, run, property, fields
+func (_m *MockSchema) UpdatePropertyFromMigration(ctx context.Context, class string, run api.MigrationRun, property *models.Property, fields ...string) (uint64, error) {
 	_va := make([]interface{}, len(fields))
 	for _i := range fields {
 		_va[_i] = fields[_i]
 	}
 	var _ca []interface{}
-	_ca = append(_ca, ctx, class, property)
+	_ca = append(_ca, ctx, class, run, property)
 	_ca = append(_ca, _va...)
 	ret := _m.Called(_ca...)
 
@@ -1314,17 +1314,17 @@ func (_m *MockSchema) UpdatePropertyFromMigration(ctx context.Context, class str
 
 	var r0 uint64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, *models.Property, ...string) (uint64, error)); ok {
-		return rf(ctx, class, property, fields...)
+	if rf, ok := ret.Get(0).(func(context.Context, string, api.MigrationRun, *models.Property, ...string) (uint64, error)); ok {
+		return rf(ctx, class, run, property, fields...)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, *models.Property, ...string) uint64); ok {
-		r0 = rf(ctx, class, property, fields...)
+	if rf, ok := ret.Get(0).(func(context.Context, string, api.MigrationRun, *models.Property, ...string) uint64); ok {
+		r0 = rf(ctx, class, run, property, fields...)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, *models.Property, ...string) error); ok {
-		r1 = rf(ctx, class, property, fields...)
+	if rf, ok := ret.Get(1).(func(context.Context, string, api.MigrationRun, *models.Property, ...string) error); ok {
+		r1 = rf(ctx, class, run, property, fields...)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -1340,22 +1340,23 @@ type MockSchema_UpdatePropertyFromMigration_Call struct {
 // UpdatePropertyFromMigration is a helper method to define mock.On call
 //   - ctx context.Context
 //   - class string
+//   - run api.MigrationRun
 //   - property *models.Property
 //   - fields ...string
-func (_e *MockSchema_Expecter) UpdatePropertyFromMigration(ctx interface{}, class interface{}, property interface{}, fields ...interface{}) *MockSchema_UpdatePropertyFromMigration_Call {
+func (_e *MockSchema_Expecter) UpdatePropertyFromMigration(ctx interface{}, class interface{}, run interface{}, property interface{}, fields ...interface{}) *MockSchema_UpdatePropertyFromMigration_Call {
 	return &MockSchema_UpdatePropertyFromMigration_Call{Call: _e.mock.On("UpdatePropertyFromMigration",
-		append([]interface{}{ctx, class, property}, fields...)...)}
+		append([]interface{}{ctx, class, run, property}, fields...)...)}
 }
 
-func (_c *MockSchema_UpdatePropertyFromMigration_Call) Run(run func(ctx context.Context, class string, property *models.Property, fields ...string)) *MockSchema_UpdatePropertyFromMigration_Call {
+func (_c *MockSchema_UpdatePropertyFromMigration_Call) Run(run func(ctx context.Context, class string, run api.MigrationRun, property *models.Property, fields ...string)) *MockSchema_UpdatePropertyFromMigration_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]string, len(args)-3)
-		for i, a := range args[3:] {
+		variadicArgs := make([]string, len(args)-4)
+		for i, a := range args[4:] {
 			if a != nil {
 				variadicArgs[i] = a.(string)
 			}
 		}
-		run(args[0].(context.Context), args[1].(string), args[2].(*models.Property), variadicArgs...)
+		run(args[0].(context.Context), args[1].(string), args[2].(api.MigrationRun), args[3].(*models.Property), variadicArgs...)
 	})
 	return _c
 }
@@ -1365,7 +1366,7 @@ func (_c *MockSchema_UpdatePropertyFromMigration_Call) Return(_a0 uint64, _a1 er
 	return _c
 }
 
-func (_c *MockSchema_UpdatePropertyFromMigration_Call) RunAndReturn(run func(context.Context, string, *models.Property, ...string) (uint64, error)) *MockSchema_UpdatePropertyFromMigration_Call {
+func (_c *MockSchema_UpdatePropertyFromMigration_Call) RunAndReturn(run func(context.Context, string, api.MigrationRun, *models.Property, ...string) (uint64, error)) *MockSchema_UpdatePropertyFromMigration_Call {
 	_c.Call.Return(run)
 	return _c
 }

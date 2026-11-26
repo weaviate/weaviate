@@ -36,6 +36,7 @@ type WeaviateRuntimeConfig struct {
 	UsageLimitsErrorMessage                   *runtime.DynamicValue[string]        `json:"usage_limits_error_message" yaml:"usage_limits_error_message"`
 	AutoschemaEnabled                         *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
 	AsyncReplicationDisabled                  *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	AsyncReplicationInMaintenanceEnabled      *runtime.DynamicValue[bool]          `json:"async_replication_in_maintenance_enabled" yaml:"async_replication_in_maintenance_enabled"`
 	AsyncReplicationSchedulerWorkers          *runtime.DynamicValue[int]           `json:"async_replication_scheduler_workers" yaml:"async_replication_scheduler_workers"`
 	AsyncReplicationHashtreeInitConcurrency   *runtime.DynamicValue[int]           `json:"async_replication_hashtree_init_concurrency" yaml:"async_replication_hashtree_init_concurrency"`
 	AsyncReplicationHashtreeHeight            *runtime.DynamicValue[int]           `json:"async_replication_hashtree_height" yaml:"async_replication_hashtree_height"`
@@ -80,6 +81,9 @@ type WeaviateRuntimeConfig struct {
 	DebugEndpointsEnabled                     *runtime.DynamicValue[bool]          `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
 	GRPCWebEnabled                            *runtime.DynamicValue[bool]          `json:"grpc_web_enabled" yaml:"grpc_web_enabled"`
 	DisableGraphQL                            *runtime.DynamicValue[bool]          `json:"disable_graphql" yaml:"disable_graphql"`
+	DisableObjectIDEndpointsWithoutClass      *runtime.DynamicValue[bool]          `json:"disable_object_id_endpoints_without_class" yaml:"disable_object_id_endpoints_without_class"`
+	DisableObjectsListWithoutClass            *runtime.DynamicValue[bool]          `json:"disable_objects_list_without_class" yaml:"disable_objects_list_without_class"`
+	DisableMultiTargetReferencesWithoutClass  *runtime.DynamicValue[bool]          `json:"disable_multi_target_references_without_class" yaml:"disable_multi_target_references_without_class"`
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
 	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
@@ -428,6 +432,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.MaximumAllowedShardsPerCollection = cfg.UsageLimits.MaxShardsPerCollection
 	registered.UsageLimitsErrorMessage = cfg.UsageLimits.ErrorMessage
 	registered.AsyncReplicationDisabled = cfg.Replication.AsyncReplicationDisabled
+	registered.AsyncReplicationInMaintenanceEnabled = cfg.Replication.AsyncReplicationInMaintenanceEnabled
 	registered.AsyncReplicationSchedulerWorkers = cfg.Replication.AsyncReplicationSchedulerWorkers
 	registered.AsyncReplicationHashtreeInitConcurrency = cfg.Replication.AsyncReplicationHashtreeInitConcurrency
 	registered.AsyncReplicationHashtreeHeight = cfg.Replication.AsyncReplicationHashtreeHeight
@@ -489,6 +494,9 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.DebugEndpointsEnabled = cfg.Profiling.DebugEndpointsEnabled
 	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
 	registered.DisableGraphQL = cfg.DisableGraphQL
+	registered.DisableObjectIDEndpointsWithoutClass = cfg.DisableObjectIDEndpointsWithoutClass
+	registered.DisableObjectsListWithoutClass = cfg.DisableObjectsListWithoutClass
+	registered.DisableMultiTargetReferencesWithoutClass = cfg.DisableMultiTargetReferencesWithoutClass
 
 	if cfg.Authentication.OIDC.Enabled {
 		registered.OIDCIssuer = cfg.Authentication.OIDC.Issuer

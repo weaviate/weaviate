@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema/local"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -620,20 +621,6 @@ func TestMigratorAddClass_LogsBackgroundWarmup(t *testing.T) {
 	}
 }
 
-// Resuming maintenance cycles after a backup must not force-load cold shards:
-// an unloaded shard has no running cycles to resume.
-func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
-	ctx := testCtx()
-	f := newAddPropertyLazyFixture(t, "ResumeMaintenance", multiShardState())
-	cold := f.coldShards(t)
-
-	require.NoError(t, f.index.resumeMaintenanceCycles(ctx))
-
-	for name, shard := range cold {
-		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
-	}
-}
-
 // noLoadReaders lists the LazyLoadShard readers that never load the shard, each
 // with the answer it must return while the shard is cold.
 var noLoadReaders = []struct {
@@ -750,35 +737,6 @@ func TestLazyLoadShard_NoLoadReadersAcrossLoadAndShutdown(t *testing.T) {
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
-// A shutdown stops the shard's halt watchdog, so MayResetTransferInactivityTimer
-// must not push forward the deadline of a shard that was shut down.
-func TestLazyLoadShard_TransferTimerNotResetAfterShutdown(t *testing.T) {
-	ctx := context.Background()
-	repo, index := newReplConfigDeadlockFixture(t, "TransferTimerAfterShutdown")
-	lazy := soleColdShard(t, index)
-
-	_, _, err := lazy.loadIfCold(ctx)
-	require.NoError(t, err)
-	shard := lazy.loadedShard()
-	require.NotNil(t, shard)
-
-	// Without a timeout no path sets the deadline, and the assertion below
-	// would pass regardless.
-	shard.haltForTransferMux.Lock()
-	shard.haltForTransferInactivityTimeout = time.Hour
-	shard.haltForTransferMux.Unlock()
-
-	require.NoError(t, lazy.Shutdown(ctx))
-	lazy.MayResetTransferInactivityTimer()
-
-	shard.haltForTransferMux.Lock()
-	defer shard.haltForTransferMux.Unlock()
-	require.True(t, shard.haltForTransferInactivityDeadline.IsZero(),
-		"a shut down shard's transfer deadline must not be pushed forward")
-
-	require.NoError(t, repo.Shutdown(context.Background()))
-}
-
 // The shards status endpoint reports on cold shards without loading them,
 // locally and for a remote node asking this one.
 func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
@@ -809,13 +767,49 @@ func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
 	}
 
-	// a loaded shard still reports its own status
+	// a loaded shard still reports its own status, and once unloaded is not loaded again
 	for name, shard := range cold {
 		_, _, err := shard.loadIfCold(ctx)
 		require.NoError(t, err)
 		_, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
 		require.NoError(t, err)
 		require.Equal(t, storagestate.StatusReady.String(), statuses[name])
+
+		// a vector-index drop holds the lazy mutex of a loaded shard for the whole drop
+		shard.mutex.Lock()
+		var (
+			listed   map[string]string
+			incoming string
+			size     int64
+			errs     [3]error
+		)
+		done := make(chan struct{})
+		logger, _ := test.NewNullLogger()
+		enterrors.GoWrapper(func() {
+			defer close(done)
+			_, listed, errs[0] = f.migrator.GetShardsStorageStatus(ctx, className, "")
+			incoming, errs[1] = f.index.IncomingGetShardStatus(ctx, name)
+			size, errs[2] = f.index.IncomingGetShardQueueSize(ctx, name)
+		}, logger)
+		waited := false
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			waited = true
+		}
+		shard.mutex.Unlock()
+		<-done
+		require.False(t, waited, "a status read waited on the mutex of a loaded lazy shard")
+		require.NoError(t, errors.Join(errs[:]...))
+		require.Equal(t, storagestate.StatusReady.String(), listed[name])
+		require.Equal(t, storagestate.StatusReady.String(), incoming)
+		require.Zero(t, size)
+
+		require.NoError(t, shard.Shutdown(ctx))
+		_, statuses, err = f.migrator.GetShardsStorageStatus(ctx, className, "")
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		require.False(t, shard.isLoaded(), "unloaded shard %q must not be loaded again", name)
 		break
 	}
 }

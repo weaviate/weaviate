@@ -82,7 +82,7 @@ func TestEntrypoint_ConcurrentInsertsIntoGoneGraph(t *testing.T) {
 				MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			}, concurrentInsertConfig(tc.compressed), cyclemanager.NewCallbackGroupNoop(), store)
 			require.NoError(t, err)
-			t.Cleanup(func() { index.Drop(ctx, false) })
+			t.Cleanup(func() { index.Drop(ctx) })
 			index.PostStartup(ctx)
 			index.randFunc = func() float64 { return 1 }
 			if tc.upperLevels {

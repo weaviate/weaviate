@@ -64,7 +64,7 @@ func schemaReaderWith(t *testing.T, classes ...*models.Class) clusterSchema.Sche
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	logger, _ := test.NewNullLogger()
-	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, nil, prometheus.NewPedanticRegistry(), logger)
 
 	for _, cls := range classes {
 		sub, err := json.Marshal(api.AddClassRequest{
