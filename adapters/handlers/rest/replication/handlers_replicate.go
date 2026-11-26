@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -543,6 +544,8 @@ func (h *replicationHandler) getReplicationScalePlan(params replication.GetRepli
 	scalePlan, err := h.replicationManager.GetReplicationScalePlan(ctx, params.Collection, int(params.ReplicationFactor))
 	if errors.Is(err, replicationTypes.ErrNotFound) {
 		return replication.NewGetReplicationScalePlanNotFound()
+	} else if errors.Is(err, clusterSchema.ErrBadRequest) {
+		return replication.NewGetReplicationScalePlanBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	} else if err != nil {
 		return replication.NewGetReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}

@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -1178,6 +1179,8 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 		name          string
 		schemaSetup   func(*testing.T, *schema.SchemaManager) error
 		queryRequest  *api.QueryRequest
+		nodeSelector  func(t *testing.T) cluster.NodeSelector // node1, node2 and node3 when nil
+		wantAdded     []string                                // every shard's added nodes, in any order
 		wantErr       error
 		wantScalePlan *api.ReplicationScalePlanResponse
 		validateErr   func(t *testing.T, err error)
@@ -1378,6 +1381,60 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 			},
 		},
 		{
+			name: "a raise past the storage candidates is refused",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("ShortCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "ShortCollection", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+							Virtual:  []sharding.Virtual{{Name: "v1", AssignedToPhysical: "shard1"}},
+						},
+					}),
+					"node1", true, false,
+				)
+			},
+			queryRequest: &api.QueryRequest{
+				Type:       api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{Collection: "ShortCollection", ReplicationFactor: 2}),
+			},
+			nodeSelector: func(*testing.T) cluster.NodeSelector { return mocks.NewMockNodeSelector("node1") },
+			wantErr:      sharding.ErrNotEnoughStorageReplicas,
+		},
+		{
+			name: "each shard reads the storage candidates anew",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("SpreadCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "SpreadCollection", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{
+								"shard1": {BelongsToNodes: []string{"node1"}},
+								"shard2": {BelongsToNodes: []string{"node1"}},
+							},
+							Virtual: []sharding.Virtual{
+								{Name: "v1", AssignedToPhysical: "shard1"},
+								{Name: "v2", AssignedToPhysical: "shard2"},
+							},
+						},
+					}),
+					"node1", true, false,
+				)
+			},
+			queryRequest: &api.QueryRequest{
+				Type:       api.QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN,
+				SubCommand: mustMarshal(api.ReplicationScalePlanRequest{Collection: "SpreadCollection", ReplicationFactor: 2}),
+			},
+			// Free disk orders the storage candidates, and here it changes between two reads.
+			nodeSelector: func(t *testing.T) cluster.NodeSelector {
+				selector := cluster.NewMockNodeSelector(t)
+				selector.EXPECT().StorageCandidates().Return([]string{"node2", "node3"}).Once()
+				selector.EXPECT().StorageCandidates().Return([]string{"node3", "node2"}).Once()
+				return selector
+			},
+			wantAdded: []string{"node2", "node3"},
+		},
+		{
 			name: "multi-shard scaling up",
 			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
 				return s.AddClass(
@@ -1508,13 +1565,30 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("node1", nil, parser, nil, reg, logrus.New())
-			manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("node1", "node2", "node3"), reg)
+			var selector cluster.NodeSelector = mocks.NewMockNodeSelector("node1", "node2", "node3")
+			if tt.nodeSelector != nil {
+				selector = tt.nodeSelector(t)
+			}
+			manager := replication.NewManager(schemaManager.NewSchemaReader(), selector, reg)
 
 			if tt.schemaSetup != nil {
 				require.NoError(t, tt.schemaSetup(t, schemaManager))
 			}
 
 			gotResp, err := manager.QueryReplicationScalePlan(tt.queryRequest)
+			if tt.wantAdded != nil {
+				require.NoError(t, err)
+				var got api.ReplicationScalePlanResponse
+				require.NoError(t, json.Unmarshal(gotResp, &got))
+				var added []string
+				for _, actions := range got.ReplicationScalePlan.ShardReplicationScaleActions {
+					for node := range actions.AddNodes {
+						added = append(added, node)
+					}
+				}
+				require.ElementsMatch(t, tt.wantAdded, added)
+				return
+			}
 			if tt.wantScalePlan != nil {
 				require.NoError(t, err)
 				var got api.ReplicationScalePlanResponse

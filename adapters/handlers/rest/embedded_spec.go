@@ -3176,7 +3176,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.",
+        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation, replication scale plan). Existing live shards are not moved.",
         "tags": [
           "namespaces"
         ],
@@ -5682,7 +5682,7 @@ func init() {
     },
     "/replication/scale": {
       "get": {
-        "description": "Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.",
+        "description": "Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed. For a collection in a namespace, the plan adds replicas only on the namespace's ` + "`" + `home_nodes` + "`" + ` that are live storage nodes, in list order, and a lower factor removes the other replicas before those. A factor above the number of ` + "`" + `home_nodes` + "`" + ` is a 400.",
         "produces": [
           "application/json"
         ],
@@ -10218,7 +10218,7 @@ func init() {
           "x-deprecated": true
         },
         "home_nodes": {
-          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes. A replication scale plan adds replicas only on the entries that are live storage nodes, in the same order.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -10251,7 +10251,7 @@ func init() {
           "x-deprecated": true
         },
         "home_nodes": {
-          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them. When this and ` + "`" + `home_node` + "`" + ` are both omitted or empty, the cluster picks ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` nodes, or every storage node when there are fewer. It refuses that create when ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` is unset or 0 or below, or when there are fewer storage nodes than ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + `. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
+          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them. When this and ` + "`" + `home_node` + "`" + ` are both omitted or empty, the cluster picks ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` nodes, or every storage node when there are fewer. It refuses that create when ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` is unset or 0 or below, or when there are fewer storage nodes than ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + `. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. A replication scale plan adds replicas only on the entries that are live storage nodes, in the same order. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -10278,7 +10278,7 @@ func init() {
           "x-nullable": true
         },
         "home_nodes": {
-          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. A replication scale plan adds replicas only on the entries that are live storage nodes, in the same order. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -16472,7 +16472,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation). Existing live shards are not moved.",
+        "description": "Update a namespace's ` + "`" + `home_nodes` + "`" + `. The new list replaces the namespace's list and applies to future placement decisions only (new collection create, new tenant create, offloaded-tenant reactivation, replication scale plan). Existing live shards are not moved.",
         "tags": [
           "namespaces"
         ],
@@ -19088,7 +19088,7 @@ func init() {
     },
     "/replication/scale": {
       "get": {
-        "description": "Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.",
+        "description": "Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed. For a collection in a namespace, the plan adds replicas only on the namespace's ` + "`" + `home_nodes` + "`" + ` that are live storage nodes, in list order, and a lower factor removes the other replicas before those. A factor above the number of ` + "`" + `home_nodes` + "`" + ` is a 400.",
         "produces": [
           "application/json"
         ],
@@ -23771,7 +23771,7 @@ func init() {
           "x-deprecated": true
         },
         "home_nodes": {
-          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes. A replication scale plan adds replicas only on the entries that are live storage nodes, in the same order.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -23804,7 +23804,7 @@ func init() {
           "x-deprecated": true
         },
         "home_nodes": {
-          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them. When this and ` + "`" + `home_node` + "`" + ` are both omitted or empty, the cluster picks ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` nodes, or every storage node when there are fewer. It refuses that create when ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` is unset or 0 or below, or when there are fewer storage nodes than ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + `. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
+          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them. When this and ` + "`" + `home_node` + "`" + ` are both omitted or empty, the cluster picks ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` nodes, or every storage node when there are fewer. It refuses that create when ` + "`" + `REPLICATION_MAXIMUM_FACTOR` + "`" + ` is unset or 0 or below, or when there are fewer storage nodes than ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + `. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. A replication scale plan adds replicas only on the entries that are live storage nodes, in the same order. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -23831,7 +23831,7 @@ func init() {
           "x-nullable": true
         },
         "home_nodes": {
-          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least ` + "`" + `REPLICATION_MINIMUM_FACTOR` + "`" + ` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor ` + "`" + `home_node` + "`" + ` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. A replication scale plan adds replicas only on the entries that are live storage nodes, in the same order. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
           "type": "array",
           "maxItems": 64,
           "items": {

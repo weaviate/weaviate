@@ -12,6 +12,7 @@
 package namespace
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/namespaces"
+	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -44,9 +46,8 @@ func shardOwners(t *testing.T, c *assert.CollectT, qualifiedClass, key string) (
 	return owners, true
 }
 
-// TestNamespaces_ReplicatedPlacement checks placement, reads and home_nodes
-// updates for classes above factor 1 in a namespace whose home_nodes lists
-// all three nodes.
+// TestNamespaces_ReplicatedPlacement checks placement, reads, home_nodes updates
+// and a scale plan in namespaces whose home_nodes list all three nodes.
 func TestNamespaces_ReplicatedPlacement(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS()
@@ -122,5 +123,43 @@ func TestNamespaces_ReplicatedPlacement(t *testing.T) {
 		var unproc *namespaces.UpdateNamespaceUnprocessableEntity
 		require.ErrorAs(t, err, &unproc)
 		assert.Equal(t, homeNodes, helper.GetNamespace(t, ns, adminKey).HomeNodes)
+	})
+
+	t.Run("a scale plan to RF=2 adds the second home node to every tenant", func(t *testing.T) {
+		scaleNS := uniqueNS()
+		scaleHomeNodes := []string{docker.Weaviate2, docker.Weaviate0, docker.Weaviate1}
+		helper.CreateNamespaceWithHomeNodes(t, scaleNS, scaleHomeNodes, adminKey)
+		t.Cleanup(func() { helper.DeleteNamespace(t, scaleNS, adminKey) })
+		scaleUserKey := createNamespacedUser(t, "u2", scaleNS, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, scaleNS+":u2", adminKey) })
+
+		helper.CreateClassAuth(t, &models.Class{
+			Class:              "Shelves",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		}, scaleUserKey)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, scaleNS+":Shelves", adminKey) })
+		// A pick that ignores home_nodes orders the nodes by free disk, which ties
+		// here, so it would add the third home node to about half of the tenants.
+		tenants := make([]*models.Tenant, 8)
+		for i := range tenants {
+			tenants[i] = &models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
+		}
+		_, err := helper.Client(t).Schema.TenantsCreate(
+			schema.NewTenantsCreateParams().WithClassName("Shelves").WithBody(tenants),
+			helper.CreateAuth(scaleUserKey),
+		)
+		require.NoError(t, err)
+
+		resp, err := helper.Client(t).Replication.GetReplicationScalePlan(
+			replication.NewGetReplicationScalePlanParams().WithCollection(scaleNS+":Shelves").WithReplicationFactor(2),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+		require.Len(t, resp.Payload.ShardScaleActions, len(tenants))
+		for tenant, actions := range resp.Payload.ShardScaleActions {
+			assert.Equal(t, map[string]string{scaleHomeNodes[1]: scaleHomeNodes[0]}, actions.AddNodes, tenant)
+			assert.Empty(t, actions.RemoveNodes, tenant)
+		}
 	})
 }

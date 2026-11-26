@@ -47,7 +47,7 @@ func NewGetReplicationScalePlan(ctx *middleware.Context, handler GetReplicationS
 
 # Get replication scale plan
 
-Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.
+Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed. For a collection in a namespace, the plan adds replicas only on the namespace's `home_nodes` that are live storage nodes, in list order, and a lower factor removes the other replicas before those. A factor above the number of `home_nodes` is a 400.
 */
 type GetReplicationScalePlan struct {
 	Context *middleware.Context

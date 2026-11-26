@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -567,36 +568,33 @@ func TestGetReplicationScalePlan(t *testing.T) {
 		mockAuthorizer.AssertExpectations(t)
 	})
 
-	t.Run("not found error", func(t *testing.T) {
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		params := replication.GetReplicationScalePlanParams{
-			HTTPRequest:       &http.Request{},
-			Collection:        "MissingCollection",
-			ReplicationFactor: int64(3),
-		}
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().GetReplicationScalePlan(mock.Anything, "MissingCollection", int(3)).Return(api.ReplicationScalePlan{}, types.ErrNotFound)
-		response := handler.getReplicationScalePlan(params, &models.Principal{})
-		assert.IsType(t, &replication.GetReplicationScalePlanNotFound{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
-
-	t.Run("internal error", func(t *testing.T) {
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		replicationFactor := int64(5)
-		params := replication.GetReplicationScalePlanParams{
-			HTTPRequest:       &http.Request{},
-			Collection:        "TestCollection",
-			ReplicationFactor: replicationFactor,
-		}
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().GetReplicationScalePlan(mock.Anything, "TestCollection", int(replicationFactor)).Return(api.ReplicationScalePlan{}, errors.New("internal error"))
-		response := handler.getReplicationScalePlan(params, &models.Principal{})
-		assert.IsType(t, &replication.GetReplicationScalePlanInternalServerError{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
+	queryErrors := []struct {
+		name     string
+		queryErr error
+		want     middleware.Responder
+	}{
+		{name: "not found error", queryErr: types.ErrNotFound, want: &replication.GetReplicationScalePlanNotFound{}},
+		{
+			name:     "bad request error",
+			queryErr: fmt.Errorf("%w: requested replication factor 5 exceeds the 3 home node(s)", clusterSchema.ErrBadRequest),
+			want:     &replication.GetReplicationScalePlanBadRequest{},
+		},
+		{name: "internal error", queryErr: errors.New("internal error"), want: &replication.GetReplicationScalePlanInternalServerError{}},
+	}
+	for _, tt := range queryErrors {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+			params := replication.GetReplicationScalePlanParams{
+				HTTPRequest:       &http.Request{},
+				Collection:        "TestCollection",
+				ReplicationFactor: int64(5),
+			}
+			mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mockReplicationManager.EXPECT().GetReplicationScalePlan(mock.Anything, "TestCollection", 5).Return(api.ReplicationScalePlan{}, tt.queryErr)
+			response := handler.getReplicationScalePlan(params, &models.Principal{})
+			assert.IsType(t, tt.want, response)
+		})
+	}
 
 	t.Run("successful response", func(t *testing.T) {
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
