@@ -201,7 +201,7 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			before := time.Now()
 			route := middleware.MatchedRouteFrom(r)
-			isBatch := r.Method == http.MethodPost && route != nil && route.PathPattern == "/v1/batch/objects"
+			isBatch := strings.ToUpper(r.Method) == http.MethodPost && route != nil && route.PathPattern == "/v1/batch/objects"
 
 			var batchNamespace *restCtx.BatchNamespace
 			if isBatch {
@@ -370,19 +370,21 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 		// search and aggregate requests are POSTs (an HTTP write method) but
 		// are semantically reads
 		isSearch := restsearch.IsSearchRoute(pattern) || restsearch.IsAggregateRoute(pattern)
+		// the router upper-cases the method before it matches the route
+		method := strings.ToUpper(r.Method)
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
-			if config.IsHTTPWrite(r.Method) && !whitelist(pattern, config.ReadOnlyWhitelist) && !isSearch {
+			if config.IsHTTPWrite(method) && !whitelist(pattern, config.ReadOnlyWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}
 		case config.SCALE_OUT:
-			if config.IsHTTPWrite(r.Method) && !whitelist(pattern, config.ScaleOutWhitelist) && !isSearch {
+			if config.IsHTTPWrite(method) && !whitelist(pattern, config.ScaleOutWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
 				return
 			}
 		case config.WRITE_ONLY:
-			if (config.IsHTTPRead(r.Method) && !whitelist(pattern, config.WriteOnlyWhitelist)) || isSearch {
+			if (config.IsHTTPRead(method) && !whitelist(pattern, config.WriteOnlyWhitelist)) || isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
 				return
 			}

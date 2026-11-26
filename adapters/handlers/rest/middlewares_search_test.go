@@ -430,6 +430,42 @@ func TestGlobalChainOperationalMode(t *testing.T) {
 		}
 	})
 
+	t.Run("method case", func(t *testing.T) {
+		const object = "/v1/objects/Movie/8c29da7a-600a-43dc-85fb-83ab2b08c294"
+		// the router upper-cases the method before matching
+		tests := []struct {
+			mode, method, target string
+			want                 int
+		}{
+			{config.READ_WRITE, "get", "/v1/objects", http.StatusTeapot},
+			{config.WRITE_ONLY, "get", "/v1/objects", http.StatusServiceUnavailable},
+			{config.WRITE_ONLY, "Get", "/v1/objects", http.StatusServiceUnavailable},
+			{config.WRITE_ONLY, "post", "/v1/objects", http.StatusTeapot},
+			{config.WRITE_ONLY, "get", "/v1/meta", http.StatusTeapot},
+			{config.READ_ONLY, "get", "/v1/objects", http.StatusTeapot},
+			{config.READ_ONLY, "post", "/v1/objects", http.StatusServiceUnavailable},
+			{config.READ_ONLY, "Post", "/v1/objects", http.StatusServiceUnavailable},
+			{config.READ_ONLY, "head", object, http.StatusTeapot},
+			{config.SCALE_OUT, "get", "/v1/objects", http.StatusTeapot},
+			{config.SCALE_OUT, "post", "/v1/objects", http.StatusServiceUnavailable},
+			{config.SCALE_OUT, "Post", "/v1/objects", http.StatusServiceUnavailable},
+		}
+		for _, tc := range tests {
+			t.Run(tc.mode+"/"+tc.method+" "+tc.target, func(t *testing.T) {
+				h := chains[tc.mode]
+				want := serve(h, strings.ToUpper(tc.method), tc.target)
+				require.Equal(t, tc.want, want.Code)
+
+				got := serve(h, tc.method, tc.target)
+				assert.Equal(t, want.Code, got.Code)
+				if tc.want == http.StatusServiceUnavailable {
+					assert.Equal(t, want.Header().Get("Content-Type"), got.Header().Get("Content-Type"))
+					assert.Equal(t, want.Body.String(), got.Body.String())
+				}
+			})
+		}
+	})
+
 	t.Run("root readable in WriteOnly", func(t *testing.T) {
 		assert.Equal(t, http.StatusTeapot, serve(chains[config.WRITE_ONLY], http.MethodGet, "/v1").Code)
 	})

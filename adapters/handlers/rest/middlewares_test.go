@@ -234,10 +234,17 @@ func TestMakeAddMonitoring(t *testing.T) {
 	})
 
 	t.Run("batch spellings are counted exactly once", func(t *testing.T) {
-		for _, target := range []string{"/v1/batch/objects", "//v1/batch/objects", "/./v1/batch/objects"} {
-			t.Run(target, func(t *testing.T) {
+		tests := []struct{ method, target string }{
+			{http.MethodPost, "/v1/batch/objects"},
+			{http.MethodPost, "//v1/batch/objects"},
+			{http.MethodPost, "/./v1/batch/objects"},
+			// the router upper-cases the method before matching
+			{"post", "/v1/batch/objects"},
+		}
+		for _, tc := range tests {
+			t.Run(tc.method+" "+tc.target, func(t *testing.T) {
 				metrics := newBatchMetrics(false)
-				r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+				r := httptest.NewRequest(tc.method, tc.target, strings.NewReader(body))
 
 				monitored(metrics, drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
 
