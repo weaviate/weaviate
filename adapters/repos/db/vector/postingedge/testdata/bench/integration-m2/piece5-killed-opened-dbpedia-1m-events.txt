@@ -1,0 +1,41 @@
+=== RUN   TestIntegrationScale
+time="2026-11-22T10:28:32+01:00" level=error msg="write-ahead-log ended abruptly, some elements may not have been recovered: read commit checksum: EOF" action=lsm_recover_from_active_wal_corruption path=<scratch>/pe-int/kill/lsm/postingedge_postings_main/segment-1795339709898296000.wal
+time="2026-11-22T10:28:32+01:00" level=error msg="write-ahead-log ended abruptly, some elements may not have been recovered: read commit checksum: EOF" action=lsm_recover_from_active_wal_corruption path=<scratch>/pe-int/kill/lsm/postingedge_map_main/segment-1795339703319929000.wal
+time="2026-11-22T10:28:32+01:00" level=error msg="write-ahead-log ended abruptly, some elements may not have been recovered: read commit checksum: EOF" action=lsm_recover_from_active_wal_corruption path=<scratch>/pe-int/kill/lsm/postingedge_routing_main/segment-1795339703344955000.wal
+time="2026-11-22T10:28:32+01:00" level=error msg="write-ahead-log ended abruptly, some elements may not have been recovered: read commit checksum: EOF" action=lsm_recover_from_active_wal_corruption path=<scratch>/pe-int/kill/lsm/postingedge_pending_main/segment-1795339703400452000.wal
+    bench_integration_test.go:644: an index a run before left: 180485 vectors held of 990000, 7 queries of the ground truth by brute force | opened, it applied 191 records of its journal again, and built its centroid graph again: true
+    bench_integration_test.go:528: as it was left: coverage complete | 2 segments of postings, left as one 0 times since the index was opened | generation 4 of the vectors, 118552 of 180485 in the order of their postings | 0 deleted centroids in the graph | 89.1 MB of routing codes in memory
+    bench_integration_test.go:590: as it was left, ef 21: recall 0.9709, 15.23 loads a query in 3.56 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: as it was left, ef 21: the store read 2.31 times and 70.16 KB for a load
+    bench_integration_test.go:590: as it was left, ef 158: recall 0.9963, 53.57 loads a query in 13.14 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: as it was left, ef 158: the store read 2.33 times and 70.05 KB for a load
+    bench_integration_test.go:590: as it was left, ef 20: recall 0.9699, 14.83 loads a query in 3.46 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: as it was left, ef 20: the store read 2.31 times and 70.09 KB for a load
+    bench_integration_test.go:590: as it was left, ef 40: recall 0.9848, 21.95 loads a query in 5.24 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: as it was left, ef 40: the store read 2.32 times and 70.35 KB for a load
+    bench_integration_test.go:590: as it was left, ef 80: recall 0.9920, 33.94 loads a query in 8.23 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: as it was left, ef 80: the store read 2.32 times and 70.16 KB for a load
+    bench_integration_test.go:590: as it was left, ef 160: recall 0.9965, 54.05 loads a query in 13.26 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: as it was left, ef 160: the store read 2.32 times and 70.04 KB for a load
+    bench_integration_test.go:660: the bucket of postings asked for as one segment: 3 rounds of compaction, one segment: true
+    bench_integration_test.go:528: the bucket of postings as one segment: coverage complete | 1 segments of postings, left as one 1 times since the index was opened | generation 4 of the vectors, 118552 of 180485 in the order of their postings | 0 deleted centroids in the graph | 89.1 MB of routing codes in memory
+    bench_integration_test.go:590: the bucket of postings as one segment, ef 21: recall 0.9709, 15.23 loads a query in 3.56 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: the bucket of postings as one segment, ef 21: the store read 2.10 times and 69.84 KB for a load
+    bench_integration_test.go:611: the bucket of postings as one segment, ef 21: 0 of 1000 queries answered otherwise than before its bucket was compacted
+    bench_integration_test.go:590: the bucket of postings as one segment, ef 158: recall 0.9963, 53.57 loads a query in 13.14 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: the bucket of postings as one segment, ef 158: the store read 2.11 times and 69.76 KB for a load
+    bench_integration_test.go:611: the bucket of postings as one segment, ef 158: 0 of 1000 queries answered otherwise than before its bucket was compacted
+    bench_integration_test.go:590: the bucket of postings as one segment, ef 20: recall 0.9699, 14.83 loads a query in 3.46 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: the bucket of postings as one segment, ef 20: the store read 2.10 times and 69.78 KB for a load
+    bench_integration_test.go:611: the bucket of postings as one segment, ef 20: 0 of 1000 queries answered otherwise than before its bucket was compacted
+    bench_integration_test.go:590: the bucket of postings as one segment, ef 40: recall 0.9848, 21.95 loads a query in 5.24 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: the bucket of postings as one segment, ef 40: the store read 2.10 times and 70.03 KB for a load
+    bench_integration_test.go:611: the bucket of postings as one segment, ef 40: 0 of 1000 queries answered otherwise than before its bucket was compacted
+    bench_integration_test.go:590: the bucket of postings as one segment, ef 80: recall 0.9920, 33.94 loads a query in 8.23 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: the bucket of postings as one segment, ef 80: the store read 2.11 times and 69.85 KB for a load
+    bench_integration_test.go:611: the bucket of postings as one segment, ef 80: 0 of 1000 queries answered otherwise than before its bucket was compacted
+    bench_integration_test.go:590: the bucket of postings as one segment, ef 160: recall 0.9965, 54.05 loads a query in 13.26 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:600: the bucket of postings as one segment, ef 160: the store read 2.11 times and 69.75 KB for a load
+    bench_integration_test.go:611: the bucket of postings as one segment, ef 160: 0 of 1000 queries answered otherwise than before its bucket was compacted
+--- PASS: TestIntegrationScale (15.65s)
+PASS

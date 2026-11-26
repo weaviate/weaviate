@@ -1,0 +1,52 @@
+=== RUN   TestIntegrationScale
+    bench_integration_test.go:369: the base: 760000 vectors in 3221 postings, built in 8m10s inside the insert that completed it
+    bench_integration_test.go:395: 760000 of 990000 in (76.8 %): 0 inserts a second in this stretch, 0 since the base | 3221 postings given out, 0 splits | 0 passes over the vectors, 760000 of 760000 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:636: the base: 760000 vectors in 3221 postings, 8.85 edges a vector
+    bench_integration_test.go:689: round 1: 22800 deleted, 22800 inserted, and a pass of 49s, with other runs on the machine | so far 22800 taken out, 182224 edges with a substitute and 11818 without, 325 merges | 760000 vectors in 3203 postings, 8.85 edges a vector
+    bench_integration_test.go:689: round 2: 22800 deleted, 22800 inserted, and a pass of 25s, with other runs on the machine | so far 45600 taken out, 364379 edges with a substitute and 22729 without, 373 merges | 760000 vectors in 3205 postings, 8.85 edges a vector
+    bench_integration_test.go:689: round 3: 22800 deleted, 22800 inserted, and a pass of 25s, with other runs on the machine | so far 68400 taken out, 544400 edges with a substitute and 33770 without, 410 merges | 760000 vectors in 3195 postings, 8.84 edges a vector
+    bench_integration_test.go:689: round 4: 22800 deleted, 22800 inserted, and a pass of 53s, with other runs on the machine | so far 91200 taken out, 726568 edges with a substitute and 44234 without, 449 merges | 760000 vectors in 3196 postings, 8.84 edges a vector
+    bench_integration_test.go:689: round 5: 22800 deleted, 22800 inserted, and a pass of 51s, with other runs on the machine | so far 114000 taken out, 906764 edges with a substitute and 54846 without, 493 merges | 760000 vectors in 3194 postings, 8.84 edges a vector
+    bench_integration_test.go:689: round 6: 22800 deleted, 22800 inserted, and a pass of 48s, with other runs on the machine | so far 136800 taken out, 1086330 edges with a substitute and 65217 without, 535 merges | 760000 vectors in 3197 postings, 8.84 edges a vector
+    bench_integration_test.go:689: round 7: 22800 deleted, 22800 inserted, and a pass of 54s, with other runs on the machine | so far 159600 taken out, 1270711 edges with a substitute and 75250 without, 573 merges | 760000 vectors in 3196 postings, 8.84 edges a vector
+    bench_integration_test.go:689: round 8: 22800 deleted, 22800 inserted, and a pass of 56s, with other runs on the machine | so far 182400 taken out, 1451040 edges with a substitute and 85817 without, 605 merges | 760000 vectors in 3200 postings, 8.83 edges a vector
+    bench_integration_test.go:689: round 9: 22800 deleted, 22800 inserted, and a pass of 53s, with other runs on the machine | so far 205200 taken out, 1632562 edges with a substitute and 95952 without, 638 merges | 760000 vectors in 3195 postings, 8.83 edges a vector
+    bench_integration_test.go:689: round 10: 22800 deleted, 22800 inserted, and a pass of 1m56s, with other runs on the machine | so far 228000 taken out, 1815917 edges with a substitute and 105645 without, 674 merges | 760000 vectors in 3186 postings, 8.83 edges a vector
+    bench_integration_test.go:696: the ground truth of the vectors that are left: 0 queries by brute force
+    bench_integration_test.go:468: churned: coverage complete | 3 segments of postings, generation 1 of the vectors, 760000 of 988000 in the order of their postings
+    bench_integration_test.go:527: churned, ef 10: recall 0.9217, 12.09 loads a query in 2.78 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: churned, ef 20: recall 0.9517, 17.64 loads a query in 4.16 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: churned, ef 40: recall 0.9719, 26.74 loads a query in 6.44 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: churned, ef 80: recall 0.9838, 41.65 loads a query in 10.16 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: churned, ef 160: recall 0.9909, 66.32 loads a query in 16.33 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: churned, ef 320: recall 0.9946, 107.81 loads a query in 26.70 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:436: churned: the store and the index closed and opened again in 7.949s, with other runs on the machine: 760000 vectors, 0 of them deleted, 4499 postings given out
+    bench_integration_test.go:468: churned, opened again: coverage complete | 3 segments of postings, generation 1 of the vectors, 760000 of 988000 in the order of their postings
+    bench_integration_test.go:527: churned, opened again, ef 10: recall 0.9217, 12.09 loads a query in 2.78 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:537: churned, opened again, ef 10: the store read 8.23 times and 174.51 KB for a load
+    bench_integration_test.go:548: churned, opened again, ef 10: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:527: churned, opened again, ef 20: recall 0.9517, 17.64 loads a query in 4.16 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:537: churned, opened again, ef 20: the store read 8.23 times and 174.91 KB for a load
+    bench_integration_test.go:548: churned, opened again, ef 20: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:527: churned, opened again, ef 40: recall 0.9719, 26.74 loads a query in 6.44 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:537: churned, opened again, ef 40: the store read 8.23 times and 174.74 KB for a load
+    bench_integration_test.go:548: churned, opened again, ef 40: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:527: churned, opened again, ef 80: recall 0.9838, 41.65 loads a query in 10.16 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:537: churned, opened again, ef 80: the store read 8.23 times and 174.36 KB for a load
+    bench_integration_test.go:548: churned, opened again, ef 80: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:527: churned, opened again, ef 160: recall 0.9909, 66.32 loads a query in 16.33 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:537: churned, opened again, ef 160: the store read 8.21 times and 173.48 KB for a load
+    bench_integration_test.go:548: churned, opened again, ef 160: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:527: churned, opened again, ef 320: recall 0.9946, 107.81 loads a query in 26.70 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:537: churned, opened again, ef 320: the store read 8.20 times and 172.41 KB for a load
+    bench_integration_test.go:548: churned, opened again, ef 320: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:749: the reference: a batch of the 760000 vectors that are left, in 3221 postings, built in 21m58s with other runs on the machine
+    bench_integration_test.go:468: reference: a batch of the vectors that are left: coverage complete | 1 segments of postings, generation 1 of the vectors, 760000 of 760000 in the order of their postings
+    bench_integration_test.go:527: reference: a batch of the vectors that are left, ef 10: recall 0.9228, 11.89 loads a query in 2.73 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: reference: a batch of the vectors that are left, ef 20: recall 0.9527, 17.30 loads a query in 4.08 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: reference: a batch of the vectors that are left, ef 40: recall 0.9711, 26.25 loads a query in 6.32 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: reference: a batch of the vectors that are left, ef 80: recall 0.9831, 41.18 loads a query in 10.05 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: reference: a batch of the vectors that are left, ef 160: recall 0.9901, 65.61 loads a query in 16.16 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:527: reference: a batch of the vectors that are left, ef 320: recall 0.9939, 106.35 loads a query in 26.34 rounds, 0 of 5000 queries answered otherwise the second time
+--- PASS: TestIntegrationScale (8664.61s)
+PASS

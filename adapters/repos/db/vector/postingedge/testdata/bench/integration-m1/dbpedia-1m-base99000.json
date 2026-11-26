@@ -1,0 +1,416 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "queries": 5000,
+  "k": 10,
+  "base": 99000,
+  "userConfig": {
+    "distance": "cosine",
+    "ef": 20,
+    "efConstruction": 160,
+    "maxPostingSizeKB": 0,
+    "rq": {
+      "rescoreLimit": -1,
+      "cacheMode": "routing"
+    }
+  },
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1237468,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 1,
+    "postings": 7766,
+    "splits": 3673,
+    "splitsFailed": 0,
+    "live": 990000
+  },
+  "gomaxprocs": 10,
+  "baseSeconds": 79.27010875,
+  "insertsAfterTheBase": 891000,
+  "insertSeconds": 7404.983495781,
+  "insertsPerSecond": 120.32437351246611,
+  "stretches": [
+    {
+      "inserted": 124000,
+      "seconds": 387.2735705,
+      "perSecond": 83.0175045715707,
+      "postingsGivenOut": 610
+    },
+    {
+      "inserted": 159800,
+      "seconds": 687.696191375,
+      "perSecond": 119.16564139033929,
+      "postingsGivenOut": 900
+    },
+    {
+      "inserted": 196400,
+      "seconds": 987.81560925,
+      "perSecond": 121.95212191888825,
+      "postingsGivenOut": 1210
+    },
+    {
+      "inserted": 223900,
+      "seconds": 1288.9366815,
+      "perSecond": 91.32548684979413,
+      "postingsGivenOut": 1448
+    },
+    {
+      "inserted": 258100,
+      "seconds": 1589.511000041,
+      "perSecond": 113.78774770016243,
+      "postingsGivenOut": 1728
+    },
+    {
+      "inserted": 296000,
+      "seconds": 1889.565350416,
+      "perSecond": 126.31070399895353,
+      "postingsGivenOut": 2016
+    },
+    {
+      "inserted": 320400,
+      "seconds": 2190.37387075,
+      "perSecond": 81.11488228065562,
+      "postingsGivenOut": 2212
+    },
+    {
+      "inserted": 352500,
+      "seconds": 2490.954614333,
+      "perSecond": 106.79354683380173,
+      "postingsGivenOut": 2520
+    },
+    {
+      "inserted": 388100,
+      "seconds": 2791.366400375,
+      "perSecond": 118.50435612180073,
+      "postingsGivenOut": 2788
+    },
+    {
+      "inserted": 409900,
+      "seconds": 3092.057228708,
+      "perSecond": 72.49982508481851,
+      "postingsGivenOut": 2980
+    },
+    {
+      "inserted": 429100,
+      "seconds": 3392.439974666,
+      "perSecond": 63.918612962769615,
+      "postingsGivenOut": 3134
+    },
+    {
+      "inserted": 475500,
+      "seconds": 3693.096059916,
+      "perSecond": 154.32933660339572,
+      "postingsGivenOut": 3520
+    },
+    {
+      "inserted": 518900,
+      "seconds": 3993.395929541,
+      "perSecond": 144.52229641974625,
+      "postingsGivenOut": 3870
+    },
+    {
+      "inserted": 563300,
+      "seconds": 4293.525133541,
+      "perSecond": 147.9363830611836,
+      "postingsGivenOut": 4168
+    },
+    {
+      "inserted": 605100,
+      "seconds": 4593.828210875,
+      "perSecond": 139.1928094731326,
+      "postingsGivenOut": 4530
+    },
+    {
+      "inserted": 648500,
+      "seconds": 4893.965909708,
+      "perSecond": 144.60040708488003,
+      "postingsGivenOut": 4920
+    },
+    {
+      "inserted": 676900,
+      "seconds": 5194.522828791,
+      "perSecond": 94.49133119039277,
+      "postingsGivenOut": 5170
+    },
+    {
+      "inserted": 696700,
+      "seconds": 5495.311427291,
+      "perSecond": 65.82700776656574,
+      "postingsGivenOut": 5332
+    },
+    {
+      "inserted": 740400,
+      "seconds": 5795.968521166,
+      "perSecond": 145.3484102937902,
+      "postingsGivenOut": 5682
+    },
+    {
+      "inserted": 784200,
+      "seconds": 6096.077493875,
+      "perSecond": 145.94743241054866,
+      "postingsGivenOut": 6044
+    },
+    {
+      "inserted": 827800,
+      "seconds": 6396.259999333,
+      "perSecond": 145.24507554662443,
+      "postingsGivenOut": 6422
+    },
+    {
+      "inserted": 871500,
+      "seconds": 6696.921233666,
+      "perSecond": 145.34640649833557,
+      "postingsGivenOut": 6762
+    },
+    {
+      "inserted": 914800,
+      "seconds": 6997.260849916,
+      "perSecond": 144.17022842818034,
+      "postingsGivenOut": 7152
+    },
+    {
+      "inserted": 956900,
+      "seconds": 7297.41933025,
+      "perSecond": 140.2593339697656,
+      "postingsGivenOut": 7524
+    },
+    {
+      "inserted": 990000,
+      "seconds": 7532.336602708,
+      "perSecond": 140.90101233929335,
+      "postingsGivenOut": 7766
+    }
+  ],
+  "stats": {
+    "inserted": 891000,
+    "splits": 3673,
+    "splitsFailed": 0,
+    "inverseChecks": 7742176,
+    "inverseEdges": 4079567,
+    "inversePostings": 2894092,
+    "inverseListReads": 0,
+    "searchLoads": 55872277,
+    "searchRounds": 13745770,
+    "searchRows": {
+      "n": 111744554,
+      "bytes": 3540679057232
+    },
+    "searchVectors": {
+      "n": 57024000,
+      "bytes": 350355456000
+    },
+    "inverseDistReads": {
+      "n": 7742176,
+      "bytes": 298935924
+    },
+    "inverseVectorReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowReads": {
+      "n": 7346,
+      "bytes": 324819668
+    },
+    "splitVectorReads": {
+      "n": 1327393,
+      "bytes": 8155502592
+    },
+    "memberRow": {
+      "n": 891000,
+      "bytes": 185328000
+    },
+    "memberMap": {
+      "n": 891000,
+      "bytes": 3564000
+    },
+    "memberRouting": {
+      "n": 891000,
+      "bytes": 64152000
+    },
+    "memberVector": {
+      "n": 891000,
+      "bytes": 5474304000
+    },
+    "ownEdges": {
+      "n": 891000,
+      "bytes": 35646496
+    },
+    "ownDists": {
+      "n": 891000,
+      "bytes": 32082496
+    },
+    "inverseLists": {
+      "n": 4079567,
+      "bytes": 188221004
+    },
+    "inverseTombstones": {
+      "n": 4079567,
+      "bytes": 188221004
+    },
+    "inverseDistWrites": {
+      "n": 4079567,
+      "bytes": 171902736
+    },
+    "splitRowWrites": {
+      "n": 2654786,
+      "bytes": 324819668
+    },
+    "splitMapWrites": {
+      "n": 1327393,
+      "bytes": 5309572
+    },
+    "splitCentroidWrites": {
+      "n": 7346,
+      "bytes": 45133824
+    },
+    "storeSearchReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeInverseReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeSplitReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWritesFull": 0,
+    "rowWritesSplit": 0,
+    "rowWritesClose": 0,
+    "rowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowTombstones": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowDistWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowDeletes": 0,
+    "storeRowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "pendingPeakMembers": 0,
+    "pendingPeakBytes": 0,
+    "pendingPeakPostings": 0,
+    "assignNs": 109156356750,
+    "searchNs": 6979765448037,
+    "writeNs": 139910034905,
+    "inverseNs": 67626607243,
+    "splitNs": 94279441198,
+    "cycleNs": 133038,
+    "rowNs": 0,
+    "searchPhaseNs": 0,
+    "applyPhaseNs": 0
+  },
+  "dirBytes": 8965475856,
+  "stages": [
+    {
+      "name": "grown",
+      "held": 990000,
+      "deleted": 0,
+      "postingsGivenOut": 7766,
+      "splits": 3673,
+      "coverage": "complete",
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95226,
+          "loads": 19.633,
+          "rounds": 4.659
+        },
+        {
+          "ef": 158,
+          "recall": 0.99018,
+          "loads": 71.64,
+          "rounds": 17.6602
+        },
+        {
+          "ef": 20,
+          "recall": 0.95038,
+          "loads": 19.08,
+          "rounds": 4.5208
+        },
+        {
+          "ef": 40,
+          "recall": 0.9713,
+          "loads": 28.973,
+          "rounds": 6.9936
+        },
+        {
+          "ef": 80,
+          "recall": 0.98414,
+          "loads": 45.3344,
+          "rounds": 11.0838
+        },
+        {
+          "ef": 160,
+          "recall": 0.99028,
+          "loads": 72.288,
+          "rounds": 17.8222
+        }
+      ]
+    },
+    {
+      "name": "deleted",
+      "held": 693000,
+      "deleted": 297000,
+      "postingsGivenOut": 7766,
+      "splits": 3673,
+      "coverage": "complete",
+      "points": [
+        {
+          "ef": 21,
+          "recall": 0.95718,
+          "loads": 24.2678,
+          "rounds": 5.8174
+        },
+        {
+          "ef": 158,
+          "recall": 0.99224,
+          "loads": 91.5374,
+          "rounds": 22.6346
+        },
+        {
+          "ef": 20,
+          "recall": 0.95544,
+          "loads": 23.5486,
+          "rounds": 5.6376
+        },
+        {
+          "ef": 40,
+          "recall": 0.97516,
+          "loads": 36.3814,
+          "rounds": 8.8456
+        },
+        {
+          "ef": 80,
+          "recall": 0.98664,
+          "loads": 57.4646,
+          "rounds": 14.1164
+        },
+        {
+          "ef": 160,
+          "recall": 0.99232,
+          "loads": 92.3638,
+          "rounds": 22.8412
+        }
+      ]
+    }
+  ]
+}
