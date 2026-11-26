@@ -270,7 +270,10 @@ type growStats struct {
 	RowWritesFull  int    `json:"rowWritesFull"`
 	RowWritesSplit int    `json:"rowWritesSplit"`
 	RowWritesClose int    `json:"rowWritesClose"`
-	RowReads       growIO `json:"rowReads"`
+	// RowWritesBudget counts the rows written before their share of changes
+	// because what waits took more heap than its budget.
+	RowWritesBudget int    `json:"rowWritesBudget"`
+	RowReads        growIO `json:"rowReads"`
 	// RowTombstones counts the rows taken out of the bucket of postings to
 	// be written again or because their posting was retired, where the rows
 	// of edges live next to the members: each is a tombstone with the row.
@@ -418,11 +421,13 @@ type growIndex struct {
 	pending        map[uint32]*growPending
 	pendingMembers int64
 	pendingBytes   int64
-	flush          cyclemanager.CycleCallbackGroup
-	compaction     cyclemanager.CycleCallbackGroup
-	vectors        *os.File
-	centroids      *os.File
-	rounds         sync.Pool // *diskRound
+	// pendingBudget caps the heap of what waits (growOpen.pendingBudget).
+	pendingBudget int64
+	flush         cyclemanager.CycleCallbackGroup
+	compaction    cyclemanager.CycleCallbackGroup
+	vectors       *os.File
+	centroids     *os.File
+	rounds        sync.Pool // *diskRound
 
 	live []bool   // by doc id
 	size []uint32 // by posting: its members
@@ -747,6 +752,15 @@ type growOpen struct {
 	// 8-bit RQ codes in a bucket of that store, named by it, and nothing of
 	// them in float32 in memory (centroidCodes). Empty, they are in float32.
 	centroidsID string
+	// pendingBudget, when positive, caps the heap of the changes to the edges
+	// that wait for the rows of their postings (growIndex.pendingHeap): past
+	// it, the rows of the postings with the most waiting are written before
+	// their share of changes, down to nine tenths of it. Zero leaves no cap.
+	pendingBudget int64
+	// dropBuilt has the index keep no table in memory of when the edges of
+	// its vectors were built: only a refresh of the edges reads it. The file
+	// is written as ever, so that an index opened to refresh reads it whole.
+	dropBuilt bool
 	// journal has every write of the index go through its journal
 	// (grow_journal.go), so that what a process that dies leaves on disk is
 	// the index as it was after its last whole write. An index opened
@@ -1200,7 +1214,10 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if err != nil {
 		return nil, errors.Wrap(err, "read the meta")
 	}
-	g := &growIndex{dir: dir, logger: logger, provider: provider, l2: distancer.NewL2SquaredProvider()}
+	g := &growIndex{
+		dir: dir, logger: logger, provider: provider, l2: distancer.NewL2SquaredProvider(),
+		pendingBudget: opts.pendingBudget,
+	}
 	if err := json.Unmarshal(raw, &g.meta); err != nil {
 		return nil, errors.Wrap(err, "parse the meta")
 	}
@@ -1386,7 +1403,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	// How much was written since the bucket of postings was last one
 	// segment is not known to an index that opens: it counts as all of it.
 	g.sinceMerge = live
-	if err := g.openBuilt(); err != nil {
+	if err := g.openBuilt(!opts.dropBuilt); err != nil {
 		return nil, err
 	}
 	if g.marks != nil {

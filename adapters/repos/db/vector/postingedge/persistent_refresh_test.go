@@ -13,6 +13,9 @@ package postingedge
 
 import (
 	"context"
+	"encoding/binary"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -140,9 +143,24 @@ func TestPersistentRefreshIsOffByDefault(t *testing.T) {
 	require.Zero(t, stats.Passes)
 	require.Zero(t, f.index.refreshes.Load())
 	require.Equal(t, base, refreshedAt, "the index has not refreshed since its base")
+	// Read under the lock, checked after it: a check that fails stops the
+	// test, which must not hold the lock the index takes to close.
 	f.index.mu.RLock()
-	due, stale := f.index.g.refreshDue(), len(f.index.g.staleDocs())
+	g := f.index.g
+	due, held, tableKept := g.refreshDue(), g.held(), g.builtAt != nil
+	// The file is written as ever: it tells which vectors have edges of half
+	// the index or less.
+	raw, readErr := os.ReadFile(filepath.Join(g.dir, growBuiltFile))
+	stale := 0
+	for docID, live := range g.live {
+		if live && (g.deleted == nil || !g.deleted[docID]) && 4*docID+4 <= len(raw) &&
+			2*int(binary.LittleEndian.Uint32(raw[4*docID:])) <= held {
+			stale++
+		}
+	}
 	f.index.mu.RUnlock()
+	require.False(t, tableKept, "with the refresh off no table of when the edges were built is kept in memory")
+	require.NoError(t, readErr)
 	require.True(t, due, "a pass would be due with the refresh on")
 	require.GreaterOrEqual(t, stale, base, "the vectors of the base, at least, have edges of half the index or less")
 	require.False(t, f.index.refreshOn())

@@ -247,12 +247,26 @@ func (g *growIndex) checkBuilt() error {
 	if g.built == nil {
 		return errors.New("the index does not keep when the edges of its vectors were built")
 	}
-	if len(g.builtAt) != len(g.live) {
-		return errors.Errorf("the edges of %d doc ids have a time, with %d doc ids", len(g.builtAt), len(g.live))
-	}
 	raw, err := os.ReadFile(filepath.Join(g.dir, growBuiltFile))
 	if err != nil {
 		return err
+	}
+	if g.builtAt == nil {
+		// No table in memory: the file alone says when the edges of the
+		// vectors were built, and must still know every vector held.
+		for docID, live := range g.live {
+			onDisk := uint32(0)
+			if 4*docID+4 <= len(raw) {
+				onDisk = binary.LittleEndian.Uint32(raw[4*docID:])
+			}
+			if live != (onDisk > 0) {
+				return errors.Errorf("doc %d is live: %v, and the file has its edges built with %d vectors", docID, live, onDisk)
+			}
+		}
+		return nil
+	}
+	if len(g.builtAt) != len(g.live) {
+		return errors.Errorf("the edges of %d doc ids have a time, with %d doc ids", len(g.builtAt), len(g.live))
 	}
 	for docID, live := range g.live {
 		built := g.builtAt[docID]

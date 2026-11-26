@@ -188,6 +188,11 @@ const (
 	// DefaultConsolidate is how many changes to the edges of a posting wait
 	// before its row of edges is written again: the K of v5.1 and v5.3.
 	DefaultConsolidate = 64
+	// DefaultPendingBudget caps the heap of the changes to the edges that
+	// wait for the rows of their postings (growOpen.pendingBudget): 64 MB, by
+	// the user's decision of 2026-11-26. Without a cap it grows with the
+	// postings, to about 260 MB at 10M vectors.
+	DefaultPendingBudget = 64 << 20
 
 	growBucketPrefix = "postingedge_grow_"
 )
@@ -232,6 +237,9 @@ type PersistentConfig struct {
 	// in (integration-plan.md, section 7, piece 3). The code stays, and only
 	// the tests and the experiments turn it on.
 	refreshEdges bool
+	// pendingBudget is the cap of growOpen.pendingBudget: DefaultPendingBudget
+	// when zero, none when negative.
+	pendingBudget int64
 	// noMaintenance leaves out everything the index does by itself, in the
 	// background and in line with its writes, for the tests and the
 	// experiments that call it themselves. noBackground leaves out only what
@@ -279,6 +287,9 @@ func (c *PersistentConfig) validate() error {
 	}
 	if c.BaseSize == 0 {
 		c.BaseSize = DefaultBaseSize
+	}
+	if c.pendingBudget == 0 {
+		c.pendingBudget = DefaultPendingBudget
 	}
 	return nil
 }
@@ -391,6 +402,11 @@ func (p *Persistent) growOpen() growOpen {
 		journal:     true,
 		noCodes:     p.noCodes,
 		centroidsID: p.centroidsID(),
+		// What waits of the edges takes at most its budget of heap, and no
+		// table of when the edges were built is kept while nothing refreshes
+		// them.
+		pendingBudget: max(p.cfg.pendingBudget, 0),
+		dropBuilt:     !p.cfg.refreshEdges,
 		cycles: centroidCycles{
 			tombstones: p.cfg.TombstoneCallbacks, commitLogs: p.cfg.CommitLogCallbacks,
 			logThreshold: p.cfg.CommitLogThreshold, everyCycle: p.cfg.centroidsEveryCycle,
