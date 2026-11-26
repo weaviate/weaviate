@@ -291,13 +291,13 @@ func Test_searchParametersPayload_VectorIndexParams(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, in, got)
 	})
-	t.Run("payload from an old node carrying only ef decodes with zero new fields", func(t *testing.T) {
+	t.Run("a payload carrying only ef decodes with zero new fields", func(t *testing.T) {
 		old := []byte(`{"searchVectors":[[1,2,3]],"TargetVectors":["t"],"limit":10,"vectorIndexParams":{"ef":64}}`)
 		_, _, _, _, _, _, _, _, _, _, _, _, got, err := p.Unmarshal(old)
 		require.NoError(t, err)
 		assert.Equal(t, &searchparams.VectorIndexParams{EF: 64}, got)
 	})
-	t.Run("old node decoding a new payload keeps ef and drops the rest", func(t *testing.T) {
+	t.Run("a decoder that knows only ef keeps ef and drops the rest", func(t *testing.T) {
 		in := &searchparams.VectorIndexParams{
 			EF: 64, SearchProbe: 16, FilterStrategy: "acorn",
 			PerTarget: map[string]searchparams.VectorIndexParams{"title": {EF: 128}},
@@ -305,7 +305,8 @@ func Test_searchParametersPayload_VectorIndexParams(t *testing.T) {
 		b, err := p.Marshal([]models.Vector{[]float32{1, 2, 3}}, []string{"t"}, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, in)
 		require.NoError(t, err)
 
-		// mirrors the pre-upgrade shape, where only ef existed
+		// a reduced decoder stands in for a node that knows fewer fields;
+		// nodes before this feature have no vectorIndexParams key at all
 		var oldShape struct {
 			VectorIndexParams *struct {
 				EF int `json:"ef,omitempty"`

@@ -724,7 +724,8 @@ type searchParametersPayload struct {
 	TargetVectors     []string                     `json:"TargetVectors"`
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
-	// nil (and omitted) means defaults, so older nodes interoperate
+	// nil (and omitted) means defaults. Nodes without this feature have no
+	// such key and drop it, so a mixed cluster interoperates.
 	VectorIndexParams *searchparams.VectorIndexParams `json:"vectorIndexParams,omitempty"`
 }
 

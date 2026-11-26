@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -339,7 +341,9 @@ func TestIncomingSearchRejectsParamsOverLocalCaps(t *testing.T) {
 			_, _, _, err := idx.IncomingSearch(context.Background(), "shard", nil, nil, 0, 10,
 				nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, params)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "vector search params")
+			assert.Contains(t, err.Error(), "vector index params")
+			assert.True(t, errors.As(err, &enterrors.ErrUnprocessable{}),
+				"must be ErrUnprocessable so clusterapi answers 422 and the coordinator does not retry: %v", err)
 		})
 	}
 }

@@ -3482,9 +3482,11 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 	vectorIndexParams *searchparams.VectorIndexParams,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
-	// the coordinator validated against its own caps, which can differ
+	// the coordinator validated against its own caps, which can differ (a
+	// rolling config change); ErrUnprocessable makes clusterapi answer 422,
+	// which the coordinator's client does not retry
 	if err := vectorIndexParams.Validate(int(i.Config.HNSWMaxSearchEF), int(i.Config.HFreshMaxSearchProbe)); err != nil {
-		return nil, nil, nil, fmt.Errorf("vector search params: %w", err)
+		return nil, nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("vector index params: %w", err))
 	}
 
 	shard, release, err := i.GetShard(ctx, shardName)
