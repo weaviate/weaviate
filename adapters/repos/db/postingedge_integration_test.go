@@ -612,6 +612,15 @@ func TestPostingEdge_NamedVectors(t *testing.T) {
 		deleted[i] = true
 	}
 
+	// What each index does in the background is done before its files and
+	// its answers are looked at: the vectors kept aside leave with their
+	// bucket after the postings are built and written.
+	require.NoError(t, postingEdgeTestShard(t, repo).ForEachVectorIndex(func(name string, vectorIndex VectorIndex) error {
+		found, isPostingEdge := vectorIndex.(*postingedge.Persistent)
+		require.True(t, isPostingEdge, "the vector index %q is a %T", name, vectorIndex)
+		return found.Settle(ctx)
+	}))
+
 	// Each index has its own directory and its own buckets in the store.
 	shardPath := postingEdgeTestShard(t, repo).path()
 	for _, name := range names {
@@ -631,13 +640,6 @@ func TestPostingEdge_NamedVectors(t *testing.T) {
 		}
 	}
 
-	// What each index does in the background is done before its answers are
-	// taken.
-	require.NoError(t, postingEdgeTestShard(t, repo).ForEachVectorIndex(func(name string, vectorIndex VectorIndex) error {
-		found, isPostingEdge := vectorIndex.(*postingedge.Persistent)
-		require.True(t, isPostingEdge, "the vector index %q is a %T", name, vectorIndex)
-		return found.Settle(ctx)
-	}))
 	before := map[string][][]strfmt.UUID{}
 	for _, name := range names {
 		got, recall := answers(t, repo, name)
