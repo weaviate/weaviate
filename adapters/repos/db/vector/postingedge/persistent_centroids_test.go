@@ -136,6 +136,39 @@ func TestPersistentCentroidsFollowTheLivePostings(t *testing.T) {
 	}
 }
 
+// The pass that takes the deleted vectors out retires postings too: those it
+// merges into another, and those it leaves with no member. Their centroids
+// leave memory with them, as those of the postings a split retires do. In
+// float32 that is one vector each; with codes the graph's own cleanup takes
+// them out, as for a split.
+func TestPersistentCentroidsFollowTheCleaningPass(t *testing.T) {
+	t.Parallel()
+	const total = persistentBase + 300
+	f := newPersistentFixtureMode(t, total, ent.CacheModeRouting, func(cfg *PersistentConfig) {
+		cfg.float32Centroids = true
+		cfg.noBackground = true
+	})
+	f.add(t, 0, total)
+	var gone []uint64
+	for id := uint64(0); id < total; id++ {
+		if id%5 != 0 {
+			gone = append(gone, id)
+		}
+	}
+	require.NoError(t, f.index.Delete(gone...))
+	require.NoError(t, f.index.clean(persistentCtx()))
+
+	f.index.mu.RLock()
+	defer f.index.mu.RUnlock()
+	g := f.index.g
+	require.Positive(t, g.cleaned.Merges+g.cleaned.EmptyRetired, "the pass retired postings")
+	live := livePostings(g)
+	held, bytes := heldCentroids(g.st.centroids)
+	assert.Equal(t, live, held, "the centroid vectors held, against %d live postings of the %d given out",
+		live, g.meta.Postings)
+	assert.Equal(t, 4*live*g.meta.Dims, bytes, "the bytes of the centroid vectors held")
+}
+
 // An index whose centroid graph holds the centroids in float32, written by a
 // build or by a version of the index before codes, converts when it opens: the
 // graph compresses them into codes, logs that it did, and lets the float32 go.
