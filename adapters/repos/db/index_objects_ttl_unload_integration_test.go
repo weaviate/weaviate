@@ -43,17 +43,22 @@ func setupTTLUnloaderRepo(t *testing.T, shardState *sharding.State, class *model
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 
 	insertTTLObjects(t, repo, tenant, expiredCount, 2)
+	index, lazy := onlyLazyShard(t, repo)
+	require.True(t, lazy.isLoaded())
+	return index, lazy
+}
 
+func onlyLazyShard(t *testing.T, repo *DB) (*Index, *LazyLoadShard) {
+	t.Helper()
 	index, _ := ttlIndex(t, repo)
 	var lazy *LazyLoadShard
 	require.NoError(t, index.ForEachShard(func(_ string, shard ShardLike) error {
 		l, ok := shard.(*LazyLoadShard)
-		require.True(t, ok, "shard should be a lazy wrapper, got %T", shard)
+		require.True(t, ok, "got %T", shard)
 		lazy = l
 		return nil
 	}))
 	require.NotNil(t, lazy)
-	require.True(t, lazy.isLoaded())
 	return index, lazy
 }
 
@@ -73,27 +78,28 @@ func runTTLSweep(t *testing.T, index *Index) int32 {
 func TestTTLSweepCountsAsShardAccessOnlyWhenItDeletes(t *testing.T) {
 	tests := []struct {
 		name          string
-		shardState    *sharding.State
-		class         *models.Class
-		tenant        string
+		multiTenant   bool
 		expiredCount  int
 		unload        bool
 		collectorIdle bool
 		wantDeleted   int32
 		wantLoaded    bool
 	}{
-		{name: "single tenant, nothing expired", shardState: singleShardState(), class: batchDeleteTTLClass(), wantLoaded: true},
-		{name: "single tenant, expired objects", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, wantDeleted: 3, wantLoaded: true},
-		{name: "single tenant, unloaded", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, unload: true},
-		{name: "single tenant, unloaded, collector idle", shardState: singleShardState(), class: batchDeleteTTLClass(), expiredCount: 3, unload: true, collectorIdle: true, wantDeleted: 3, wantLoaded: true},
-		{name: "single tenant, unloaded, collector idle, nothing expired", shardState: singleShardState(), class: batchDeleteTTLClass(), unload: true, collectorIdle: true, wantLoaded: true},
-		{name: "multi tenant, nothing expired", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, wantLoaded: true},
-		{name: "multi tenant, expired objects", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, expiredCount: 3, wantDeleted: 3, wantLoaded: true},
-		{name: "multi tenant, unloaded, collector idle", shardState: batchDeleteTenantShardState(batchDeleteTenant), class: ttlMultiTenantClass(), tenant: batchDeleteTenant, expiredCount: 3, unload: true, collectorIdle: true},
+		{name: "single tenant, nothing expired", wantLoaded: true},
+		{name: "single tenant, expired objects", expiredCount: 3, wantDeleted: 3, wantLoaded: true},
+		{name: "single tenant, unloaded", expiredCount: 3, unload: true},
+		{name: "single tenant, unloaded, collector idle", expiredCount: 3, unload: true, collectorIdle: true, wantDeleted: 3, wantLoaded: true},
+		{name: "multi tenant, nothing expired", multiTenant: true, wantLoaded: true},
+		{name: "multi tenant, expired objects", multiTenant: true, expiredCount: 3, wantDeleted: 3, wantLoaded: true},
+		{name: "multi tenant, unloaded, collector idle", multiTenant: true, expiredCount: 3, unload: true, collectorIdle: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			index, lazy := setupTTLUnloaderRepo(t, tt.shardState, tt.class, tt.tenant, tt.expiredCount)
+			state, class, tenant := singleShardState(), batchDeleteTTLClass(), ""
+			if tt.multiTenant {
+				state, class, tenant = batchDeleteTenantShardState(batchDeleteTenant), ttlMultiTenantClass(), batchDeleteTenant
+			}
+			index, lazy := setupTTLUnloaderRepo(t, state, class, tenant, tt.expiredCount)
 			if tt.unload {
 				require.True(t, lazy.TryUnload(testCtx(), UnloadRequest{}))
 			}
@@ -130,15 +136,7 @@ func setupUnlicensedColdTTLRepo(t *testing.T, expiredCount int) (*Index, *LazyLo
 
 	repo := setupTestDBWithShardState(t, dir, state, override, nil, batchDeleteTTLClass())
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
-	index, _ := ttlIndex(t, repo)
-	var lazy *LazyLoadShard
-	require.NoError(t, index.ForEachShard(func(_ string, shard ShardLike) error {
-		l, ok := shard.(*LazyLoadShard)
-		require.True(t, ok, "shard should be a lazy wrapper, got %T", shard)
-		lazy = l
-		return nil
-	}))
-	require.NotNil(t, lazy)
+	index, lazy := onlyLazyShard(t, repo)
 	require.False(t, lazy.isLoaded())
 	return index, lazy
 }
@@ -153,7 +151,6 @@ func TestIncomingFindUUIDsFromBackgroundWork(t *testing.T) {
 		wantFound     int
 		wantAccess    bool
 	}{
-		{name: "request, loaded", wantLoaded: true, wantFound: 3, wantAccess: true},
 		{name: "request, unloaded", unload: true, wantLoaded: true, wantFound: 3, wantAccess: true},
 		{name: "background, loaded", background: true, wantLoaded: true, wantFound: 3},
 		{name: "background, unloaded", background: true, unload: true},

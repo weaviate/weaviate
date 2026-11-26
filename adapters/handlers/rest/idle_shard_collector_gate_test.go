@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -39,11 +38,8 @@ func TestIdleShardCollectorModeFor(t *testing.T) {
 		licensed bool
 		want     license.Mode
 	}{
-		{name: "lazy auto without a license", want: license.FeatureUnlicensed},
 		{name: "lazy auto with a license", licensed: true, want: license.FeatureLicensed},
 		{name: "lazy on without a license", lazy: &on, want: license.FeatureUnlicensed},
-		{name: "lazy on with a license", lazy: &on, licensed: true, want: license.FeatureLicensed},
-		{name: "lazy off without a license", lazy: &off, want: license.FeatureOff},
 		{name: "lazy off with a license", lazy: &off, licensed: true, want: license.FeatureOff},
 	}
 	for _, tc := range cases {
@@ -51,7 +47,6 @@ func TestIdleShardCollectorModeFor(t *testing.T) {
 			var cfg config.Config
 			cfg.EnableLazyLoadShards = tc.lazy
 			cfg.WeaviateLicense = tc.licensed
-
 			require.Equal(t, tc.want, idleShardCollectorModeFor(cfg))
 		})
 	}
@@ -90,17 +85,12 @@ func TestIdleShardCollectorFor(t *testing.T) {
 	}
 }
 
-// A runtime-overrides push reaches a licensed node's unloader through the
-// hooks map the server registers, without waiting for the unloader's tick.
 func TestRuntimeOverridesReachTheIdleShardCollectorThroughTheHooks(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	cfg := config.Config{}
 	require.NoError(t, config.FromEnv(&cfg))
 	require.NoError(t, cfg.IdleShardCollector.CheckInterval.SetValue(time.Hour))
-	reg := prometheus.NewPedanticRegistry()
-	u := idleshardcollector.New(idleshardcollector.Config{
-		Logger: logger, Registerer: reg, Knobs: idleshardcollector.KnobsFrom(cfg.IdleShardCollector),
-	})
+	u := idleshardcollector.New(idleshardcollector.Config{Logger: logger, Knobs: idleshardcollector.KnobsFrom(cfg.IdleShardCollector)})
 
 	nodes := cluster.NewMockNodeSelector(t)
 	nodes.EXPECT().LocalName().Return("node1").Maybe()

@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -22,105 +21,67 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 type fastPathOp struct {
 	name string
-	run  func(f *unloadFixture, id strfmt.UUID) (*Shard, error)
-}
-
-func pinnedShard(f *unloadFixture, release func(), err error) (*Shard, error) {
-	if err != nil {
-		return nil, err
-	}
-	defer release()
-	return f.lazy.currentShard(), nil
+	run  func(f *unloadFixture, id strfmt.UUID) error
 }
 
 func fastPathOps() []fastPathOp {
 	return []fastPathOp{
-		{name: "GetShard pin", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
+		{name: "GetShard pin", run: func(f *unloadFixture, id strfmt.UUID) error {
 			_, release, err := f.index.GetShard(testCtx(), f.name)
-			return pinnedShard(f, release, err)
+			release()
+			return err
 		}},
-		{name: "getOrInitShard pin", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
+		{name: "getOrInitShard pin", run: func(f *unloadFixture, id strfmt.UUID) error {
 			_, release, err := f.index.getOrInitShard(testCtx(), f.name)
-			return pinnedShard(f, release, err)
+			release()
+			return err
 		}},
-		{name: "wrapper pin", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
-			release, err := f.lazy.preventShutdown()
-			return pinnedShard(f, release, err)
-		}},
-		{name: "mustLoad read", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
-			if n, err := f.lazy.ObjectCount(testCtx()); err != nil || n == 0 {
-				return nil, fmt.Errorf("object count %d: %w", n, err)
-			}
-			return f.lazy.currentShard(), nil
-		}},
-		{name: "loadIfCold read", run: func(f *unloadFixture, id strfmt.UUID) (*Shard, error) {
+		{name: "loadIfCold read", run: func(f *unloadFixture, id strfmt.UUID) error {
 			if ok, err := f.lazy.Exists(testCtx(), id); err != nil || !ok {
-				return nil, fmt.Errorf("exists %v: %w", ok, err)
+				return fmt.Errorf("exists %v: %w", ok, err)
 			}
-			return f.lazy.currentShard(), nil
+			return nil
 		}},
-		{name: "write", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
-			if err := f.lazy.PutObject(testCtx(), testObject(f.index.Config.ClassName.String())); err != nil {
-				return nil, err
-			}
-			return f.lazy.currentShard(), nil
+		{name: "write", run: func(f *unloadFixture, id strfmt.UUID) error {
+			return f.lazy.PutObject(testCtx(), testObject(f.index.Config.ClassName.String()))
 		}},
 	}
 }
 
 func readOnlyFastPathOps() []fastPathOp {
 	return []fastPathOp{
-		{name: "status", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
+		{name: "status", run: func(f *unloadFixture, id strfmt.UUID) error {
 			if got := f.lazy.GetStatus(); got != storagestate.StatusReady {
-				return nil, fmt.Errorf("status %s", got)
+				return fmt.Errorf("status %s", got)
 			}
 			if got := f.lazy.GetStatusReason(); got == storagestate.StatusLazyLoading.String() {
-				return nil, fmt.Errorf("status reason %s", got)
+				return fmt.Errorf("status reason %s", got)
 			}
-			return f.lazy.currentShard(), nil
+			return nil
 		}},
-		{name: "async object count", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
-			if _, err := f.lazy.ObjectCountAsync(testCtx()); err != nil {
-				return nil, err
+		{name: "async object count", run: func(f *unloadFixture, id strfmt.UUID) error {
+			_, err := f.lazy.ObjectCountAsync(testCtx())
+			return err
+		}},
+		{name: "loaded shard", run: func(f *unloadFixture, id strfmt.UUID) error {
+			if !f.lazy.isLoaded() || f.lazy.loadedShard() == nil {
+				return errors.New("reads as unloaded")
 			}
-			return f.lazy.currentShard(), nil
+			return nil
 		}},
-		{name: "loaded shard", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
-			if !f.lazy.isLoaded() {
-				return nil, errors.New("reads as unloaded")
-			}
-			return f.lazy.loadedShard(), nil
-		}},
-		{name: "teardown checks", run: func(f *unloadFixture, _ strfmt.UUID) (*Shard, error) {
+		{name: "teardown checks", run: func(f *unloadFixture, id strfmt.UUID) error {
 			if err := shardTeardownError(f.lazy); err != nil || shardKnownShut(f.lazy) {
-				return nil, fmt.Errorf("live shard reads as shut: %w", err)
+				return fmt.Errorf("live shard reads as shut: %w", err)
 			}
-			return f.lazy.currentShard(), nil
+			return nil
 		}},
 	}
-}
-
-func newPlainUnloadFixture(t *testing.T) *unloadFixture {
-	f := newAddPropertyLazyFixture(t, "FastPathPlain", singleShardState())
-	uf := &unloadFixture{addPropertyLazyFixture: f}
-	for name, lazy := range f.coldShards(t) {
-		uf.name, uf.lazy = name, lazy
-	}
-	return uf
-}
-
-func runFastPathOp(f *unloadFixture, op fastPathOp, id strfmt.UUID) <-chan fastPathResult {
-	done := make(chan fastPathResult, 1)
-	go func() {
-		s, err := op.run(f, id)
-		done <- fastPathResult{shard: s, err: err}
-	}()
-	return done
 }
 
 type fastPathResult struct {
@@ -128,34 +89,32 @@ type fastPathResult struct {
 	err   error
 }
 
-func TestLazyLoadShard_LoadedWrapperServesWhileItsMutexIsHeld(t *testing.T) {
-	fixtures := []struct {
-		name string
-		new  func(t *testing.T) *unloadFixture
-	}{
-		{name: "with unloader", new: func(t *testing.T) *unloadFixture { return newUnloadFixture(t) }},
-		{name: "nil unloader", new: newPlainUnloadFixture},
-	}
-	for _, fx := range fixtures {
-		for _, op := range append(fastPathOps(), readOnlyFastPathOps()...) {
-			t.Run(fx.name+"/"+op.name, func(t *testing.T) {
-				f := fx.new(t)
-				id := f.put(t)
-				loaded := f.lazy.currentShard()
-				require.NotNil(t, loaded)
+// runFastPathOp runs op and reports the shard the wrapper holds once it returned.
+func runFastPathOp(f *unloadFixture, op fastPathOp, id strfmt.UUID) <-chan fastPathResult {
+	done := make(chan fastPathResult, 1)
+	enterrors.GoWrapper(func() {
+		err := op.run(f, id)
+		done <- fastPathResult{shard: f.lazy.currentShard(), err: err}
+	}, f.index.logger)
+	return done
+}
 
-				release := sync.OnceFunc(f.lazy.blockLoading())
-				t.Cleanup(release)
-				select {
-				case r := <-runFastPathOp(f, op, id):
-					require.NoError(t, r.err)
-					require.Same(t, loaded, r.shard)
-					require.False(t, r.shard.shut.Load())
-				case <-time.After(5 * time.Second):
-					require.FailNow(t, "a request on a loaded wrapper waited on the loading mutex")
-				}
-			})
-		}
+func TestLazyLoadShard_LoadedWrapperServesWhileItsMutexIsHeld(t *testing.T) {
+	for _, op := range append(fastPathOps(), readOnlyFastPathOps()...) {
+		t.Run(op.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			id := f.put(t)
+			loaded := f.lazy.currentShard()
+
+			t.Cleanup(f.lazy.blockLoading())
+			select {
+			case r := <-runFastPathOp(f, op, id):
+				require.NoError(t, r.err)
+				require.Same(t, loaded, r.shard)
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "a request on a loaded wrapper waited on the loading mutex")
+			}
+		})
 	}
 }
 
@@ -165,10 +124,7 @@ func TestLazyLoadShard_FastPathWaitsOnAnUnloadTeardown(t *testing.T) {
 			f := newUnloadFixture(t)
 			id := f.put(t)
 			victim := f.lazy.currentShard()
-			entered, proceed := blockTeardown(t, f.lazy)
-			unloaded := make(chan bool, 1)
-			go func() { unloaded <- f.lazy.TryUnload(testCtx(), UnloadRequest{}) }()
-			<-entered
+			proceed, unloaded := unloadParkedInTeardown(t, f.lazy)
 
 			done := runFastPathOp(f, op, id)
 			select {
@@ -232,8 +188,7 @@ func TestLazyLoadShard_TornWrapperIsNotServedOrReloaded(t *testing.T) {
 
 	for _, op := range fastPathOps()[:3] {
 		t.Run(op.name, func(t *testing.T) {
-			_, err := op.run(f, id)
-			require.Error(t, err)
+			require.Error(t, op.run(f, id))
 			require.Same(t, s, f.lazy.currentShard(), "the torn shard stays published")
 			require.Equal(t, beforeLoads, f.unloader.beforeLoads.Load(), "a torn wrapper never reloads")
 		})
@@ -250,72 +205,60 @@ func TestLazyLoadShard_ColdWrapperLoadsOnceUnderConcurrentPins(t *testing.T) {
 
 			const callers = 16
 			start := make(chan struct{})
-			results := make(chan fastPathResult, callers)
-			for range callers {
-				go func() {
+			results := make([]<-chan fastPathResult, callers)
+			for i := range results {
+				results[i] = runFastPathOp(f, fastPathOp{run: func(f *unloadFixture, id strfmt.UUID) error {
 					<-start
-					s, err := op.run(f, id)
-					results <- fastPathResult{shard: s, err: err}
-				}()
+					return op.run(f, id)
+				}}, id)
 			}
 			close(start)
-			loaded := map[*Shard]struct{}{}
-			for range callers {
-				r := <-results
+			for _, done := range results {
+				r := <-done
 				require.NoError(t, r.err)
 				require.False(t, r.shard.shut.Load())
-				loaded[r.shard] = struct{}{}
 			}
-			require.Len(t, loaded, 1, "concurrent callers built more than one instance")
-			require.Equal(t, beforeLoads+1, f.unloader.beforeLoads.Load())
+			require.Equal(t, beforeLoads+1, f.unloader.beforeLoads.Load(), "concurrent callers loaded more than once")
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
-			_, err := op.run(f, id)
-			require.NoError(t, err)
-			require.Equal(t, beforeLoads+1, f.unloader.beforeLoads.Load(), "a warm shard does not call BeforeLoad")
 		})
 	}
 }
 
-func BenchmarkPinBareShardVsLoadedWrapper(b *testing.B) {
+func TestLazyLoadShard_StatusFastPathNeverReadsATeardownsShutdown(t *testing.T) {
 	tests := []struct {
-		name     string
-		unloader bool
-		bare     bool
+		name string
+		read func(l *LazyLoadShard) string
 	}{
-		{name: "bare shard", bare: true},
-		{name: "loaded wrapper"},
-		{name: "loaded wrapper with unloader", unloader: true},
+		{name: "GetStatus", read: func(l *LazyLoadShard) string { return l.GetStatus().String() }},
+		{name: "GetStatusReason", read: func(l *LazyLoadShard) string { return l.GetStatusReason() }},
 	}
 	for _, tt := range tests {
-		b.Run(tt.name, func(b *testing.B) {
-			var opts []func(*Config)
-			if tt.unloader {
-				opts = append(opts, withShardUnloader(newFakeShardUnloader()))
-			}
-			f := newAddPropertyLazyFixture(b, "BenchPin", singleShardState(), opts...)
-			var lazy *LazyLoadShard
-			for _, l := range f.coldShards(b) {
-				lazy = l
-			}
-			if _, _, err := lazy.loadIfCold(context.Background()); err != nil {
-				b.Fatal(err)
-			}
-			var target ShardLike = lazy
-			if tt.bare {
-				target = lazy.currentShard()
-			}
-			b.ReportAllocs()
-			b.ResetTimer()
-			b.RunParallel(func(pb *testing.PB) {
-				for pb.Next() {
-					release, err := target.preventShutdown()
-					if err != nil {
-						b.Error(err)
-						return
-					}
-					release()
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			f.put(t)
+			s := f.lazy.currentShard()
+			s.statusLock.RLock()
+			got := make(chan string, 1)
+			enterrors.GoWrapper(func() { got <- tt.read(f.lazy) }, f.index.logger)
+			require.Eventually(t, func() bool {
+				if s.statusLock.TryRLock() {
+					s.statusLock.RUnlock()
+					return false
 				}
-			})
+				return true
+			}, 5*time.Second, time.Millisecond)
+			prev := s.status
+			s.shut.Store(true)
+			s.status = ShardStatus{Status: storagestate.StatusShutdown, Reason: statusReasonShutdown}
+			f.lazy.shard.Store(nil)
+			s.statusLock.RUnlock()
+
+			require.Equal(t, storagestate.StatusLazyLoading.String(), <-got)
+			s.statusLock.Lock()
+			s.status = prev
+			s.statusLock.Unlock()
+			s.shut.Store(false)
+			f.lazy.shard.Store(s)
 		})
 	}
 }

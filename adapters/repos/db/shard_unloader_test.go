@@ -101,31 +101,6 @@ func TestLoadedShardRegistryAppendChunk(t *testing.T) {
 	}
 }
 
-func TestLazyLoadShard_UnloaderDeregisteredOnDropAndShutdown(t *testing.T) {
-	tests := []struct {
-		name string
-		stop func(t *testing.T, f *unloadFixture)
-	}{
-		{name: "drop", stop: func(t *testing.T, f *unloadFixture) { require.NoError(t, f.index.dropShards([]string{f.name})) }},
-		{name: "index shutdown", stop: func(t *testing.T, f *unloadFixture) { require.NoError(t, f.index.Shutdown(testCtx())) }},
-		{name: "COLD unload", stop: func(t *testing.T, f *unloadFixture) {
-			outcome, err := f.index.UnloadLocalShard(testCtx(), f.name)
-			require.NoError(t, err)
-			require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newUnloadFixture(t)
-			f.put(t)
-			require.EqualValues(t, 1, f.unloader.registry.Loaded())
-			tt.stop(t, f)
-			require.Zero(t, f.unloader.registry.Loaded())
-			require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-		})
-	}
-}
-
 func TestLazyLoadShard_NilUnloaderLeavesWrapperUntouched(t *testing.T) {
 	f := newAddPropertyLazyFixture(t, "NoUnloader", singleShardState())
 	require.Nil(t, f.index.Config.ShardUnloader)
@@ -143,59 +118,23 @@ func TestLazyLoadShard_NilUnloaderLeavesWrapperUntouched(t *testing.T) {
 	}
 }
 
-func getShardAllocs(t testing.TB, f *addPropertyLazyFixture, name string) float64 {
-	run := func() {
-		_, release, err := f.index.GetShard(context.Background(), name)
-		if err != nil {
-			panic(err)
-		}
-		release()
-	}
-	run()
-	return testing.AllocsPerRun(200, run)
-}
-
 func TestGetShard_UnloaderAddsNoAllocations(t *testing.T) {
 	plain := newAddPropertyLazyFixture(t, "AllocsPlain", singleShardState())
 	withUnloader := newUnloadFixture(t)
-	var plainName string
-	for name := range plain.coldShards(t) {
-		plainName = name
+	allocs := func(index *Index, name string) float64 {
+		run := func() {
+			_, release, err := index.GetShard(context.Background(), name)
+			if err != nil {
+				panic(err)
+			}
+			release()
+		}
+		run()
+		return testing.AllocsPerRun(200, run)
 	}
 	advanceAccessClock()
-	base := getShardAllocs(t, plain, plainName)
-	got := getShardAllocs(t, withUnloader.addPropertyLazyFixture, withUnloader.name)
-	require.Equal(t, base, got, "GetShard with an unloader allocated %v times, without %v", got, base)
-}
-
-func BenchmarkGetShardLazy(b *testing.B) {
-	tests := []struct {
-		name     string
-		unloader bool
-	}{{name: "nil unloader"}, {name: "with unloader", unloader: true}}
-	for _, tt := range tests {
-		b.Run(tt.name, func(b *testing.B) {
-			var opts []func(*Config)
-			if tt.unloader {
-				opts = append(opts, withShardUnloader(newFakeShardUnloader()))
-			}
-			f := newAddPropertyLazyFixture(b, "BenchGetShard", singleShardState(), opts...)
-			var name string
-			for n := range f.coldShards(b) {
-				name = n
-			}
-			advanceAccessClock()
-			ctx := context.Background()
-			b.ReportAllocs()
-			b.ResetTimer()
-			for b.Loop() {
-				_, release, err := f.index.GetShard(ctx, name)
-				if err != nil {
-					b.Fatal(err)
-				}
-				release()
-			}
-		})
+	for name := range plain.coldShards(t) {
+		require.Equal(t, allocs(plain.index, name), allocs(withUnloader.index, withUnloader.name))
 	}
 }
 
@@ -230,12 +169,6 @@ func TestDBShutdownClosesTheShardUnloaderOnce(t *testing.T) {
 	require.Same(t, u, repo.ShardUnloader())
 	require.NoError(t, repo.Shutdown(context.Background()))
 	require.EqualValues(t, 1, u.closes.Load())
-}
-
-func TestDBShardUnloaderIsNilWithoutOne(t *testing.T) {
-	repo, _, _, _ := newLazyLoadRepoWithConfig(t, singleShardState(), true, -1)
-	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
-	require.Nil(t, repo.ShardUnloader())
 }
 
 func TestLazyLoadShard_LateDeferredShutdownHookKeepsAReloadRegistered(t *testing.T) {

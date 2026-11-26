@@ -15,7 +15,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -26,53 +25,33 @@ import (
 )
 
 func TestFindUUIDsCarriesTheBackgroundMark(t *testing.T) {
-	type findFn func(ctx context.Context, host string) ([]strfmt.UUID, error)
-	clientsUnderTest := []struct {
-		name string
-		find func(t *testing.T, hc *http.Client) findFn
-	}{
-		{name: "remote index", find: func(t *testing.T, hc *http.Client) findFn {
-			c := newRemoteIndex(hc)
-			return func(ctx context.Context, host string) ([]strfmt.UUID, error) {
-				return c.FindUUIDs(ctx, host, "C1", "S1", nil, 10)
-			}
-		}},
-		{name: "replication", find: func(t *testing.T, hc *http.Client) findFn {
-			c := newReplicationClient(t, hc)
-			return func(ctx context.Context, host string) ([]strfmt.UUID, error) {
-				return c.FindUUIDs(ctx, host, "C1", "S1", nil, 10)
-			}
-		}},
-	}
-	marks := []struct {
-		name string
+	headers := make(chan string, 2)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers <- r.Header.Get(backgroundaccess.Header)
+		clusterapi.IndicesPayloads.FindUUIDsResults.SetContentTypeHeader(w)
+		b, err := clusterapi.IndicesPayloads.FindUUIDsResults.Marshal([]strfmt.UUID{"a"})
+		require.NoError(t, err)
+		_, err = w.Write(b)
+		require.NoError(t, err)
+	}))
+	defer ts.Close()
+	host := ts.URL[len("http://"):]
+	remote, replication := newRemoteIndex(ts.Client()), newReplicationClient(t, ts.Client())
+
+	for _, tt := range []struct {
 		ctx  context.Context
 		want string
 	}{
-		{name: "request", ctx: context.Background(), want: ""},
-		{name: "background", ctx: backgroundaccess.With(context.Background()), want: "true"},
-	}
-	for _, cut := range clientsUnderTest {
-		for _, m := range marks {
-			t.Run(cut.name+"/"+m.name, func(t *testing.T) {
-				var got atomic.Pointer[string]
-				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					h := r.Header.Get(backgroundaccess.Header)
-					got.Store(&h)
-					clusterapi.IndicesPayloads.FindUUIDsResults.SetContentTypeHeader(w)
-					b, err := clusterapi.IndicesPayloads.FindUUIDsResults.Marshal([]strfmt.UUID{"a"})
-					require.NoError(t, err)
-					_, err = w.Write(b)
-					require.NoError(t, err)
-				}))
-				defer ts.Close()
-
-				uuids, err := cut.find(t, ts.Client())(m.ctx, ts.URL[len("http://"):])
-				require.NoError(t, err)
-				require.Equal(t, []strfmt.UUID{"a"}, uuids)
-				require.NotNil(t, got.Load())
-				require.Equal(t, m.want, *got.Load())
-			})
-		}
+		{ctx: context.Background()},
+		{ctx: backgroundaccess.With(context.Background()), want: "true"},
+	} {
+		uuids, err := remote.FindUUIDs(tt.ctx, host, "C1", "S1", nil, 10)
+		require.NoError(t, err)
+		require.Equal(t, []strfmt.UUID{"a"}, uuids)
+		require.Equal(t, tt.want, <-headers, "remote index")
+		uuids, err = replication.FindUUIDs(tt.ctx, host, "C1", "S1", nil, 10)
+		require.NoError(t, err)
+		require.Equal(t, []strfmt.UUID{"a"}, uuids)
+		require.Equal(t, tt.want, <-headers, "replication client")
 	}
 }

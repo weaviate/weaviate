@@ -27,8 +27,7 @@ import (
 )
 
 type fakeShard struct {
-	name string
-	reg  *fakeRegistry
+	reg *fakeRegistry
 
 	lastAccess atomic.Uint32
 	loadedAt   atomic.Int64
@@ -106,19 +105,14 @@ func newFakeRegistry() *fakeRegistry { return &fakeRegistry{epoch: time.Now()} }
 
 func (r *fakeRegistry) clock() uint32 { return uint32(time.Since(r.epoch)/time.Second) + 1 }
 
-func (r *fakeRegistry) load(name string) *fakeShard {
-	f := &fakeShard{name: name, reg: r}
-	f.markLoaded()
-	return f
-}
-
-func (f *fakeShard) markLoaded() {
+func (r *fakeRegistry) load() *fakeShard {
+	f := &fakeShard{reg: r}
 	f.loadedAt.Store(time.Now().UnixNano())
-	f.unloadedAt.Store(0)
 	f.touch()
-	f.reg.mu.Lock()
-	f.reg.shards = append(f.reg.shards, f)
-	f.reg.mu.Unlock()
+	r.mu.Lock()
+	r.shards = append(r.shards, f)
+	r.mu.Unlock()
+	return f
 }
 
 func (r *fakeRegistry) remove(f *fakeShard) {
@@ -188,7 +182,6 @@ func set[T runtime.DynamicType](t testing.TB, dv *runtime.DynamicValue[T], v T) 
 }
 
 type harness struct {
-	t     testing.TB
 	reg   *fakeRegistry
 	knobs *testKnobs
 	p     *policy[*fakeShard]
@@ -201,21 +194,9 @@ func newHarness(t testing.TB, configure func(*testKnobs)) *harness {
 	if configure != nil {
 		configure(k)
 	}
-	h := newHarnessWithKnobs(t, k.knobs())
-	h.knobs = k
-	return h
-}
-
-func newHarnessWithKnobs(t testing.TB, knobs Knobs) *harness {
-	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
-	h := &harness{t: t, reg: newFakeRegistry(), prom: prometheus.NewPedanticRegistry()}
-	deps := policyDeps{
-		logger:  logger,
-		clock:   h.reg.clock,
-		metrics: newMetrics(h.prom, logger),
-	}
-	h.p = newPolicy[*fakeShard](h.reg, knobs, deps)
+	h := &harness{reg: newFakeRegistry(), knobs: k, prom: prometheus.NewPedanticRegistry()}
+	h.p = newPolicy[*fakeShard](h.reg, k.knobs(), policyDeps{logger: logger, clock: h.reg.clock, metrics: newMetrics(h.prom, logger)})
 	t.Cleanup(func() { require.NoError(t, h.p.close(context.Background())) })
 	return h
 }
@@ -223,7 +204,7 @@ func newHarnessWithKnobs(t testing.TB, knobs Knobs) *harness {
 func (h *harness) loadN(n int) []*fakeShard {
 	out := make([]*fakeShard, n)
 	for i := range out {
-		out[i] = h.reg.load(time.Now().String())
+		out[i] = h.reg.load()
 		time.Sleep(time.Second)
 	}
 	return out

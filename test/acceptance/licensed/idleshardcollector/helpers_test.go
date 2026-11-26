@@ -17,10 +17,8 @@ package idleshardcollector
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -28,7 +26,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,68 +51,40 @@ import (
 const (
 	overridesPath = "/etc/weaviate/runtime-overrides.yaml"
 	metricsURL    = "http://127.0.0.1:2112/metrics"
+	metricLoaded  = "weaviate_idle_shard_collector_loaded_shards"
+	metricUnloads = "weaviate_idle_shard_collector_unloads_total"
 
-	metricLoaded    = "weaviate_idle_shard_collector_loaded_shards"
-	metricUnloads   = "weaviate_idle_shard_collector_unloads_total"
-	metricUnloading = "weaviate_idle_shard_collector_unloading_shards"
-
-	// listLimit is the server's default QUERY_MAXIMUM_RESULTS.
+	// idleTTL leaves each test time to see its shards loaded before they unload.
+	idleTTL = "30s"
+	// listLimit is the server's default QUERY_MAXIMUM_RESULTS; a truncated listing fails verify on a missing acknowledged ID.
 	listLimit = 10_000
+	// gaugeStable outlasts one publish of the loaded gauge, so a value published before the last change cannot satisfy a wait.
+	gaugeStable = 1500 * time.Millisecond
 )
 
-// knobs are idle_shard_collector_* runtime overrides, keyed without the prefix.
-type knobs map[string]string
-
-func (k knobs) yaml() string {
-	var b strings.Builder
-	for _, key := range slices.Sorted(func(yield func(string) bool) {
-		for key := range k {
-			if !yield(key) {
-				return
-			}
-		}
-	}) {
-		fmt.Fprintf(&b, "idle_shard_collector_%s: %s\n", key, k[key])
+// overrides makes the collector check every second; an empty idle ttl leaves idle unloading off.
+func overrides(ttl string) []byte {
+	y := "idle_shard_collector_check_interval: 1s\n"
+	if ttl != "" {
+		y += "idle_shard_collector_idle_ttl: " + ttl + "\n"
 	}
-	return b.String()
-}
-
-// idleTTL leaves each test time to see its shards loaded before they unload.
-const idleTTL = "30s"
-
-var idleKnobs = knobs{"idle_ttl": idleTTL}
-
-// fastKnobs makes the collector check every second.
-func fastKnobs(extra knobs) knobs {
-	k := knobs{"check_interval": "1s"}
-	for key, v := range extra {
-		k[key] = v
-	}
-	return k
+	return []byte(y)
 }
 
 // newCompose is a cluster whose knobs come only from the runtime overrides file.
-func newCompose(t *testing.T, licensed bool, nodeCount int, initial knobs) *docker.Compose {
+func newCompose(t *testing.T, licensed bool, nodeCount int, ttl string) *docker.Compose {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "runtime-overrides.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(initial.yaml()), 0o644))
+	require.NoError(t, os.WriteFile(path, overrides(ttl), 0o644))
 	b := docker.New().
+		WithWeaviateCluster(nodeCount).
 		WithWeaviateEnv("RUNTIME_OVERRIDES_ENABLED", "true").
 		WithWeaviateEnv("RUNTIME_OVERRIDES_PATH", overridesPath).
 		WithWeaviateEnv("RUNTIME_OVERRIDES_LOAD_INTERVAL", "1s").
 		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
 		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
 		WithWeaviateEnv("LOG_LEVEL", "info").
-		WithWeaviateFiles(testcontainers.ContainerFile{
-			HostFilePath:      path,
-			ContainerFilePath: overridesPath,
-			FileMode:          0o644,
-		})
-	if nodeCount == 1 {
-		b = b.WithWeaviate()
-	} else {
-		b = b.WithWeaviateCluster(nodeCount)
-	}
+		WithWeaviateFiles(testcontainers.ContainerFile{HostFilePath: path, ContainerFilePath: overridesPath, FileMode: 0o644})
 	if licensed {
 		b = b.WithWeaviateLicense()
 	}
@@ -149,12 +118,11 @@ func newClient(uri string) *apiclient.Weaviate {
 	return apiclient.New(httptransport.New(uri, "/v1", []string{"http"}), strfmt.Default)
 }
 
-// setKnobs rewrites the overrides file on every node; callers wait on a gauge for the reload.
-func setKnobs(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeCount int, k knobs) {
+// setIdleTTL rewrites the overrides file on every node; callers wait on the gauge for the reload.
+func setIdleTTL(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeCount int, ttl string) {
 	t.Helper()
 	for i := 1; i <= nodeCount; i++ {
-		c := compose.GetWeaviateNode(i).Container()
-		require.NoError(t, c.CopyToContainer(ctx, []byte(k.yaml()), overridesPath, 0o644))
+		require.NoError(t, compose.GetWeaviateNode(i).Container().CopyToContainer(ctx, overrides(ttl), overridesPath, 0o644))
 	}
 }
 
@@ -188,103 +156,49 @@ func metric(ctx context.Context, c *docker.DockerContainer, name, label string) 
 	return value, ok, nil
 }
 
-// loadedShards is the collector's own count of loaded shards on the node.
-func loadedShards(ctx context.Context, c *docker.DockerContainer) (int, error) {
-	v, ok, err := metric(ctx, c, metricLoaded, "")
-	if err == nil && !ok {
-		err = errors.New(metricLoaded + " is not published")
-	}
-	return int(v), err
-}
-
-// waitUnloader blocks until every node's collector publishes its gauges.
-func waitUnloader(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeCount int) {
-	t.Helper()
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		for i := 1; i <= nodeCount; i++ {
-			_, ok, err := metric(ctx, compose.GetWeaviateNode(i), metricUnloading, "")
-			require.NoError(ct, err)
-			require.True(ct, ok, "node %d publishes no %s", i, metricUnloading)
-		}
-	}, 60*time.Second, 500*time.Millisecond, "the unloader did not start")
-}
-
-// noneLoaded is the drain target of idle unloading.
-func noneLoaded(n int) bool { return n == 0 }
-
-// gaugeStable outlasts one publish of the loaded gauge, so a value published before the last change cannot satisfy a wait.
-const gaugeStable = 1500 * time.Millisecond
-
-// eventuallyLoaded waits until cond has held for every node's loaded count for gaugeStable.
-func eventuallyLoaded(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeCount int, timeout time.Duration, cond func(loaded int) bool, msg string) {
+// eventuallyLoaded waits until every node's loaded gauge has read want for gaugeStable.
+func eventuallyLoaded(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeCount, want int, msg string) {
 	t.Helper()
 	var heldSince time.Time
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for i := 1; i <= nodeCount; i++ {
-			n, err := loadedShards(ctx, compose.GetWeaviateNode(i))
-			if err != nil || !cond(n) {
+			n, published, err := metric(ctx, compose.GetWeaviateNode(i), metricLoaded, "")
+			held := err == nil && published && int(n) == want
+			if !held {
 				heldSince = time.Time{}
 			}
 			require.NoError(ct, err)
-			require.True(ct, cond(n), "node %d has %d loaded shards", i, n)
+			require.True(ct, held, "node %d has %v loaded shards (published %v), want %d", i, n, published, want)
 		}
 		if heldSince.IsZero() {
 			heldSince = time.Now()
 		}
 		require.GreaterOrEqual(ct, time.Since(heldSince), gaugeStable, "the loaded count has not held for a full publish interval")
-	}, timeout, 250*time.Millisecond, msg)
+	}, 2*time.Minute, 250*time.Millisecond, msg)
 }
 
-// nodeLoadedShards reads shard load states from the nodes API; it pins every loaded shard it reports.
-func nodeLoadedShards(ctx context.Context, cl *apiclient.Weaviate, class string) (map[string]map[string]bool, error) {
+// loadedShards reads node's shard load states from the verbose nodes API, which pins every loaded shard it reports.
+func loadedShards(ctx context.Context, cl *apiclient.Weaviate, class, node string) (map[string]bool, error) {
 	out := verbosity.OutputVerbose
 	resp, err := cl.Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithContext(ctx).WithClassName(class).WithOutput(&out), nil)
 	if err != nil {
 		return nil, err
 	}
-	byNode := map[string]map[string]bool{}
-	for _, n := range resp.Payload.Nodes {
-		shards := map[string]bool{}
-		for _, s := range n.Shards {
-			shards[s.Name] = s.Loaded
-		}
-		byNode[n.Name] = shards
-	}
-	return byNode, nil
-}
-
-// shardLoaded reads one shard's load state on the queried node; it pins that shard only.
-func shardLoaded(ctx context.Context, cl *apiclient.Weaviate, class, shard string) (bool, error) {
-	out := verbosity.OutputVerbose
-	resp, err := cl.Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithContext(ctx).WithClassName(class).
-		WithShardName(&shard).WithOutput(&out), nil)
-	if err != nil {
-		return false, err
-	}
+	shards := map[string]bool{}
 	for _, n := range resp.Payload.Nodes {
 		for _, s := range n.Shards {
-			if s.Name == shard {
-				return s.Loaded, nil
+			if n.Name == node {
+				shards[s.Name] = s.Loaded
 			}
 		}
 	}
-	return false, fmt.Errorf("shard %s/%s not reported", class, shard)
+	return shards, nil
 }
 
-func countTrue(m map[string]bool) int {
-	n := 0
-	for _, v := range m {
-		if v {
-			n++
-		}
-	}
-	return n
-}
-
-func tenantNames(prefix string, n int) []string {
+func tenantNames(n int) []string {
 	names := make([]string, n)
 	for i := range names {
-		names[i] = fmt.Sprintf("%s%04d", prefix, i)
+		names[i] = fmt.Sprintf("t%04d", i)
 	}
 	return names
 }
@@ -315,7 +229,7 @@ func createClass(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, c *m
 
 func createTenants(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, class string, names []string) {
 	t.Helper()
-	for chunk := range slices.Chunk(names, 100) {
+	for chunk := range slices.Chunk(names, 20) {
 		tenants := make([]*models.Tenant, len(chunk))
 		for i, n := range chunk {
 			tenants[i] = &models.Tenant{Name: n, ActivityStatus: models.TenantActivityStatusHOT}
@@ -325,103 +239,64 @@ func createTenants(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, cl
 	}
 }
 
-func setTenantStatus(ctx context.Context, cl *apiclient.Weaviate, class, tenant, status string) error {
-	_, err := cl.Schema.TenantsUpdate(schema.NewTenantsUpdateParams().WithContext(ctx).WithClassName(class).
-		WithBody([]*models.Tenant{{Name: tenant, ActivityStatus: status}}), nil)
+func setTenantStatus(ctx context.Context, cl *apiclient.Weaviate, class, status string, names ...string) error {
+	tenants := make([]*models.Tenant, len(names))
+	for i, n := range names {
+		tenants[i] = &models.Tenant{Name: n, ActivityStatus: status}
+	}
+	_, err := cl.Schema.TenantsUpdate(schema.NewTenantsUpdateParams().WithContext(ctx).WithClassName(class).WithBody(tenants), nil)
 	return err
 }
 
-func tenantStatuses(ctx context.Context, cl *apiclient.Weaviate, class string) (map[string]string, error) {
+// requireAllHot fails unless the class has want tenants, every one HOT.
+func requireAllHot(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, class string, want int) {
+	t.Helper()
 	resp, err := cl.Schema.TenantsGet(schema.NewTenantsGetParams().WithContext(ctx).WithClassName(class), nil)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]string, len(resp.Payload))
+	require.NoError(t, err)
+	require.Len(t, resp.Payload, want)
 	for _, tn := range resp.Payload {
-		out[tn.Name] = tn.ActivityStatus
+		require.Equal(t, models.TenantActivityStatusHOT, tn.ActivityStatus, "tenant %s", tn.Name)
 	}
-	return out, nil
 }
 
-// ledger records every acknowledged write and every attempted ID, keyed by class and tenant ("" for single-tenant classes).
+// ledger records acknowledged writes by class and tenant ("" for single-tenant classes).
 type ledger struct {
-	mu        sync.Mutex
-	objs      map[string][]strfmt.UUID
-	attempted map[string]map[strfmt.UUID]struct{}
+	mu    sync.Mutex
+	acked map[string][]strfmt.UUID
 }
 
-func newLedger() *ledger {
-	return &ledger{objs: map[string][]strfmt.UUID{}, attempted: map[string]map[strfmt.UUID]struct{}{}}
-}
-
-func ledgerKey(class, tenant string) string { return class + "/" + tenant }
+func newLedger() *ledger { return &ledger{acked: map[string][]strfmt.UUID{}} }
 
 func (l *ledger) add(class, tenant string, ids ...strfmt.UUID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.objs[ledgerKey(class, tenant)] = append(l.objs[ledgerKey(class, tenant)], ids...)
-}
-
-func (l *ledger) attempt(class, tenant string, ids ...strfmt.UUID) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	key := ledgerKey(class, tenant)
-	if l.attempted[key] == nil {
-		l.attempted[key] = make(map[strfmt.UUID]struct{}, len(ids))
-	}
-	for _, id := range ids {
-		l.attempted[key][id] = struct{}{}
-	}
-}
-
-func (l *ledger) attemptedIDs(class, tenant string) map[strfmt.UUID]struct{} {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return maps.Clone(l.attempted[ledgerKey(class, tenant)])
+	l.acked[class+"/"+tenant] = append(l.acked[class+"/"+tenant], ids...)
 }
 
 func (l *ledger) ids(class, tenant string) []strfmt.UUID {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return slices.Clone(l.objs[ledgerKey(class, tenant)])
+	return slices.Clone(l.acked[class+"/"+tenant])
 }
 
 func (l *ledger) remove(class, tenant string, id strfmt.UUID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	key := ledgerKey(class, tenant)
-	l.objs[key] = slices.DeleteFunc(l.objs[key], func(x strfmt.UUID) bool { return x == id })
-}
-
-func (l *ledger) random(class, tenant string, r *rand.Rand) (strfmt.UUID, bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	ids := l.objs[ledgerKey(class, tenant)]
-	if len(ids) == 0 {
-		return "", false
-	}
-	return ids[r.Intn(len(ids))], true
+	l.acked[class+"/"+tenant] = slices.DeleteFunc(l.acked[class+"/"+tenant], func(x strfmt.UUID) bool { return x == id })
 }
 
 // writeObjects batch-writes n objects and records them only once every one is acknowledged.
-func writeObjects(ctx context.Context, cl *apiclient.Weaviate, l *ledger, class, tenant string, n int, consistency *string, r *rand.Rand) error {
+func writeObjects(ctx context.Context, cl *apiclient.Weaviate, l *ledger, class, tenant string, n int, consistency *string) error {
 	objs := make([]*models.Object, n)
 	ids := make([]strfmt.UUID, n)
 	for i := range objs {
 		ids[i] = strfmt.UUID(uuid.NewString())
 		vec := make([]float32, 8)
 		for j := range vec {
-			vec[j] = r.Float32()
+			vec[j] = rand.Float32()
 		}
-		objs[i] = &models.Object{
-			Class:      class,
-			ID:         ids[i],
-			Tenant:     tenant,
-			Properties: map[string]any{"owner": tenant, "seq": i},
-			Vector:     vec,
-		}
+		objs[i] = &models.Object{Class: class, ID: ids[i], Tenant: tenant, Properties: map[string]any{"owner": tenant, "seq": i}, Vector: vec}
 	}
-	l.attempt(class, tenant, ids...)
 	params := batch.NewBatchObjectsCreateParams().WithContext(ctx).WithBody(batch.BatchObjectsCreateBody{Objects: objs})
 	if consistency != nil {
 		params = params.WithConsistencyLevel(consistency)
@@ -456,57 +331,41 @@ func readObject(ctx context.Context, cl *apiclient.Weaviate, class, tenant strin
 	if err != nil {
 		return fmt.Errorf("read %s/%s/%s: %w", class, tenant, id, err)
 	}
-	props, ok := resp.Payload.Properties.(map[string]any)
-	if !ok || props["owner"] != tenant {
+	if props, ok := resp.Payload.Properties.(map[string]any); !ok || props["owner"] != tenant {
 		return fmt.Errorf("read %s/%s/%s: unexpected properties %v", class, tenant, id, resp.Payload.Properties)
 	}
 	return nil
 }
 
-func objectGone(ctx context.Context, cl *apiclient.Weaviate, class, tenant string, id strfmt.UUID, nodeName string) (bool, error) {
-	_, err := cl.Objects.ObjectsClassGet(objects.NewObjectsClassGetParams().WithContext(ctx).WithClassName(class).
-		WithID(id).WithTenant(tenantPtr(tenant)).WithNodeName(&nodeName), nil)
-	var notFound *objects.ObjectsClassGetNotFound
-	if errors.As(err, &notFound) {
-		return true, nil
-	}
-	return false, err
-}
-
-// listObjectIDs returns one ID per listed object, so a duplicate stays visible; a full page may be cut short and is an error.
-func listObjectIDs(ctx context.Context, cl *apiclient.Weaviate, class, tenant string) ([]strfmt.UUID, error) {
-	limit := int64(listLimit)
-	resp, err := cl.Objects.ObjectsList(objects.NewObjectsListParams().WithContext(ctx).WithClass(&class).
-		WithTenant(tenantPtr(tenant)).WithLimit(&limit), nil)
-	if err != nil {
-		return nil, fmt.Errorf("list %s/%s: %w", class, tenant, err)
-	}
-	if len(resp.Payload.Objects) >= listLimit {
-		return nil, fmt.Errorf("list %s/%s: %d objects reach the listing limit", class, tenant, len(resp.Payload.Objects))
-	}
-	ids := make([]strfmt.UUID, len(resp.Payload.Objects))
-	for i, o := range resp.Payload.Objects {
-		ids[i] = o.ID
-	}
-	return ids, nil
-}
-
-// verifyAll checks every acknowledged object reads back and every shard holds exactly the ledger's count.
-func verifyAll(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger, class string, tenants []string) {
+// verify checks every acknowledged object reads back and every shard lists only its own objects, each once;
+// exact also forbids objects whose write was never acknowledged, which is what catches a resurrected delete.
+func verify(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger, class string, tenants []string, exact bool) {
 	t.Helper()
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(8)
 	for _, tenant := range tenants {
 		g.Go(func() error {
-			ids := l.ids(class, tenant)
-			listed, err := listObjectIDs(gctx, cl, class, tenant)
+			limit := int64(listLimit)
+			resp, err := cl.Objects.ObjectsList(objects.NewObjectsListParams().WithContext(gctx).WithClass(&class).
+				WithTenant(tenantPtr(tenant)).WithLimit(&limit), nil)
 			if err != nil {
-				return err
+				return fmt.Errorf("list %s/%s: %w", class, tenant, err)
 			}
-			if len(listed) != len(ids) {
-				return fmt.Errorf("%s/%s holds %d objects, %d acknowledged", class, tenant, len(listed), len(ids))
+			listed := map[strfmt.UUID]bool{}
+			for _, o := range resp.Payload.Objects {
+				if props, ok := o.Properties.(map[string]any); listed[o.ID] || !ok || props["owner"] != tenant {
+					return fmt.Errorf("%s/%s lists %s twice or with foreign properties %v", class, tenant, o.ID, o.Properties)
+				}
+				listed[o.ID] = true
 			}
-			for _, id := range ids {
+			acked := l.ids(class, tenant)
+			if exact && len(listed) != len(acked) {
+				return fmt.Errorf("%s/%s holds %d objects, %d acknowledged", class, tenant, len(listed), len(acked))
+			}
+			for _, id := range acked {
+				if !listed[id] {
+					return fmt.Errorf("%s/%s does not list acknowledged %s", class, tenant, id)
+				}
 				if err := readObject(gctx, cl, class, tenant, id, nil); err != nil {
 					return err
 				}
@@ -517,85 +376,13 @@ func verifyAll(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *led
 	require.NoError(t, g.Wait())
 }
 
-// checkListing compares one shard's listing with its ledger and returns how many unacknowledged writes it holds.
-func checkListing(acked, listed []strfmt.UUID, attempted map[strfmt.UUID]struct{}) (int, error) {
-	counts := make(map[strfmt.UUID]int, len(listed))
-	for _, id := range listed {
-		counts[id]++
-	}
-	var missing, duplicated, neverAttempted []strfmt.UUID
-	for _, id := range acked {
-		if counts[id] == 0 {
-			missing = append(missing, id)
-		}
-	}
-	for id, n := range counts {
-		if n > 1 {
-			duplicated = append(duplicated, id)
-		}
-		if _, ok := attempted[id]; !ok {
-			neverAttempted = append(neverAttempted, id)
-		}
-	}
-	slices.Sort(duplicated)
-	slices.Sort(neverAttempted)
-	var errs []error
-	if len(missing) > 0 {
-		errs = append(errs, fmt.Errorf("acknowledged but not listed: %v", missing))
-	}
-	if len(duplicated) > 0 {
-		errs = append(errs, fmt.Errorf("listed more than once: %v", duplicated))
-	}
-	if len(neverAttempted) > 0 {
-		errs = append(errs, fmt.Errorf("listed but never attempted: %v", neverAttempted))
-	}
-	if err := errors.Join(errs...); err != nil {
-		return 0, err
-	}
-	return len(counts) - len(acked), nil
-}
-
-// verifyAcknowledged is verifyAll for writers that lose responses: an unacknowledged write may or may not exist, nothing else may differ.
-func verifyAcknowledged(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger, class string, tenants []string) {
-	t.Helper()
-	var applied, unacknowledged atomic.Int64
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(8)
-	for _, tenant := range tenants {
-		g.Go(func() error {
-			acked := l.ids(class, tenant)
-			listed, err := listObjectIDs(gctx, cl, class, tenant)
-			if err != nil {
-				return err
-			}
-			attempted := l.attemptedIDs(class, tenant)
-			n, err := checkListing(acked, listed, attempted)
-			if err != nil {
-				return fmt.Errorf("%s/%s: %w", class, tenant, err)
-			}
-			applied.Add(int64(n))
-			unacknowledged.Add(int64(len(attempted) - len(acked)))
-			for _, id := range acked {
-				if err := readObject(gctx, cl, class, tenant, id, nil); err != nil {
-					return fmt.Errorf("acknowledged but does not read back: %w", err)
-				}
-			}
-			return nil
-		})
-	}
-	require.NoError(t, g.Wait())
-	t.Logf("%s: %d of %d unacknowledged writes turned out applied", class, applied.Load(), unacknowledged.Load())
-}
-
 // seed writes perShard objects to every shard concurrently.
 func seed(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger, class string, tenants []string, perShard int, consistency *string) {
 	t.Helper()
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(8)
-	for i, tenant := range tenants {
-		g.Go(func() error {
-			return writeObjects(gctx, cl, l, class, tenant, perShard, consistency, rand.New(rand.NewSource(int64(i))))
-		})
+	for _, tenant := range tenants {
+		g.Go(func() error { return writeObjects(gctx, cl, l, class, tenant, perShard, consistency) })
 	}
 	require.NoError(t, g.Wait())
 }
@@ -603,23 +390,16 @@ func seed(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger, 
 // randomWorkload runs ops random reads and writes across shards; the first failure is returned.
 func randomWorkload(ctx context.Context, cl *apiclient.Weaviate, l *ledger, class string, tenants []string, ops, workers int) error {
 	g, gctx := errgroup.WithContext(ctx)
-	per := ops / workers
-	for w := 0; w < workers; w++ {
+	for range workers {
 		g.Go(func() error {
-			r := rand.New(rand.NewSource(int64(w) + time.Now().UnixNano()))
-			for i := 0; i < per; i++ {
-				tenant := tenants[r.Intn(len(tenants))]
-				if r.Intn(2) == 0 {
-					if err := writeObjects(gctx, cl, l, class, tenant, 1, nil, r); err != nil {
+			for range ops / workers {
+				tenant := tenants[rand.Intn(len(tenants))]
+				ids := l.ids(class, tenant)
+				if rand.Intn(2) == 0 || len(ids) == 0 {
+					if err := writeObjects(gctx, cl, l, class, tenant, 1, nil); err != nil {
 						return err
 					}
-					continue
-				}
-				id, ok := l.random(class, tenant, r)
-				if !ok {
-					continue
-				}
-				if err := readObject(gctx, cl, class, tenant, id, nil); err != nil {
+				} else if err := readObject(gctx, cl, class, tenant, ids[rand.Intn(len(ids))], nil); err != nil {
 					return err
 				}
 			}
@@ -629,43 +409,29 @@ func randomWorkload(ctx context.Context, cl *apiclient.Weaviate, l *ledger, clas
 	return g.Wait()
 }
 
-// minPollsAcrossIdleTTL is 3s of 200ms polls after the last access.
-const minPollsAcrossIdleTTL int64 = 15
-
-// pollNodesVerbose reads every shard's status on the class until the test ends.
-func pollNodesVerbose(ctx context.Context, t *testing.T, compose *docker.DockerCompose, class string) *atomic.Int64 {
+// every runs fn each interval until the returned stop, which returns fn's first error; errors after stop are ignored.
+func every(ctx context.Context, t *testing.T, interval time.Duration, fn func(context.Context) error) func() error {
 	t.Helper()
-	cl := newClient(compose.GetWeaviate().URI())
-	pctx, stop := context.WithCancel(ctx)
-	var polls atomic.Int64
-	var pollErr atomic.Pointer[error]
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		ticker := time.NewTicker(200 * time.Millisecond)
+	ctx, cancel := context.WithCancel(ctx)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-pctx.Done():
-				return
+			case <-gctx.Done():
+				return nil
 			case <-ticker.C:
-				if _, err := nodeLoadedShards(pctx, cl, class); err != nil {
-					if pctx.Err() == nil {
-						pollErr.CompareAndSwap(nil, &err)
-					}
-					continue
+				if err := fn(gctx); err != nil && gctx.Err() == nil {
+					return err
 				}
-				polls.Add(1)
 			}
 		}
-	}()
-	t.Cleanup(func() {
-		stop()
-		wg.Wait()
-		if err := pollErr.Load(); err != nil {
-			t.Errorf("nodes API poll failed: %v", *err)
-		}
 	})
-	return &polls
+	stop := sync.OnceValue(func() error {
+		cancel()
+		return g.Wait()
+	})
+	t.Cleanup(func() { assert.NoError(t, stop()) })
+	return stop
 }

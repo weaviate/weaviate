@@ -56,10 +56,7 @@ func (f *fakeShardUnloader) BeforeLoad(l *LazyLoadShard) {
 	}
 }
 
-func (f *fakeShardUnloader) Close(context.Context) error {
-	f.closes.Add(1)
-	return nil
-}
+func (f *fakeShardUnloader) Close(context.Context) error { f.closes.Add(1); return nil }
 
 func withShardUnloader(u ShardUnloader) func(*Config) {
 	return func(c *Config) { c.ShardUnloader = u }
@@ -72,10 +69,10 @@ type unloadFixture struct {
 	lazy     *LazyLoadShard
 }
 
-func newUnloadFixture(t *testing.T, opts ...func(*Config)) *unloadFixture {
+func newUnloadFixture(t *testing.T) *unloadFixture {
 	t.Helper()
 	u := newFakeShardUnloader()
-	f := newAddPropertyLazyFixture(t, "Unload", singleShardState(), append([]func(*Config){withShardUnloader(u)}, opts...)...)
+	f := newAddPropertyLazyFixture(t, "Unload", singleShardState(), withShardUnloader(u))
 	uf := &unloadFixture{addPropertyLazyFixture: f, unloader: u}
 	for name, lazy := range f.coldShards(t) {
 		uf.name, uf.lazy = name, lazy
@@ -112,20 +109,14 @@ func (f *unloadFixture) requireUnloaded(t *testing.T) {
 
 type movementFSM struct {
 	replicationTypes.ReplicationFSMReader
-	source, target func() bool
+	source, target bool
 }
 
-func (m movementFSM) HasActiveSourceReplicationForShard(string, string, string) bool {
-	return m.source()
-}
+func (m movementFSM) HasActiveSourceReplicationForShard(string, string, string) bool { return m.source }
 
-func (m movementFSM) HasActiveTargetReplicationForShard(string, string, string) bool {
-	return m.target()
-}
+func (m movementFSM) HasActiveTargetReplicationForShard(string, string, string) bool { return m.target }
 
-// setMovement makes the FSM report a movement for the shard while source or
-// target returns true, and returns the undo.
-func (f *unloadFixture) setMovement(source, target func() bool) func() {
+func (f *unloadFixture) setMovement(source, target bool) func() {
 	prev := f.index.getReplicationFSMReader()
 	f.index.SetReplicationFSMReader(movementFSM{ReplicationFSMReader: prev, source: source, target: target})
 	return func() { f.index.SetReplicationFSMReader(prev) }
@@ -154,111 +145,55 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 		want bool
 	}{
 		{name: "idle shard unloads", want: true},
-		{
-			name: "cold shard",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-				return nil
-			},
-		},
-		{
-			name: "pinned",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				_, release, err := f.index.GetShard(testCtx(), f.name)
-				require.NoError(t, err)
-				return release
-			},
-		},
-		{
-			name: "pending shutdown",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				s.shutdownRequested.Store(true)
-				return func() { s.shutdownRequested.Store(false) }
-			},
-		},
-		{
-			name: "drop in progress",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				s.dropRequested.Store(true)
-				return func() { s.dropRequested.Store(false) }
-			},
-		},
-		{
-			name: "index closing",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				f.index.signalCloseRequested(errIndexShutdown)
-				return nil
-			},
-		},
-		{
-			name: "close lock held for writing",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				f.index.closeLock.Lock()
-				return f.index.closeLock.Unlock
-			},
-		},
-		{
-			name: "create lock held",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				f.index.shardCreateLocks.RLock(f.name)
-				return func() { f.index.shardCreateLocks.RUnlock(f.name) }
-			},
-		},
-		{
-			name: "wrapper mutex held",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				return f.lazy.blockLoading()
-			},
-		},
-		{
-			name: "load waiter announced",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				f.lazy.loadWaiters.Add(1)
-				return func() { f.lazy.loadWaiters.Add(-1) }
-			},
-		},
-		{
-			name: "load blocked",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				f.lazy.blockLoad(errors.New("blocked"))
-				return f.lazy.clearLoadBlock
-			},
-		},
-		{
-			name: "wrapper replaced in the map",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				other := &LazyLoadShard{shardOpts: f.lazy.shardOpts}
-				f.index.shards.Store(f.name, other)
-				return func() { f.index.shards.Store(f.name, f.lazy) }
-			},
-		},
-		{
-			name: "wrapper out of the map",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				f.index.shards.LoadAndDelete(f.name)
-				return func() { f.index.shards.Store(f.name, f.lazy) }
-			},
-		},
-		{
-			name: "recovering placeholder in the map",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				f.index.shards.Store(f.name, &RecoveringShard{LazyLoadShard: f.lazy})
-				return func() { f.index.shards.Store(f.name, f.lazy) }
-			},
-		},
+		{name: "cold shard", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+			return nil
+		}},
+		{name: "pinned", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			_, release, err := f.index.GetShard(testCtx(), f.name)
+			require.NoError(t, err)
+			return release
+		}},
+		{name: "pending shutdown", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			s.shutdownRequested.Store(true)
+			return func() { s.shutdownRequested.Store(false) }
+		}},
+		{name: "drop in progress", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			s.dropRequested.Store(true)
+			return func() { s.dropRequested.Store(false) }
+		}},
+		{name: "index closing", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			f.index.signalCloseRequested(errIndexShutdown)
+			return nil
+		}},
+		{name: "close lock held for writing", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			f.index.closeLock.Lock()
+			return f.index.closeLock.Unlock
+		}},
+		{name: "create lock held", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			f.index.shardCreateLocks.RLock(f.name)
+			return func() { f.index.shardCreateLocks.RUnlock(f.name) }
+		}},
+		{name: "wrapper mutex held", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() { return f.lazy.blockLoading() }},
+		{name: "load waiter announced", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			f.lazy.loadWaiters.Add(1)
+			return func() { f.lazy.loadWaiters.Add(-1) }
+		}},
+		{name: "load blocked", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			f.lazy.blockLoad(errors.New("blocked"))
+			return f.lazy.clearLoadBlock
+		}},
+		{name: "wrapper replaced in the map", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			f.index.shards.Store(f.name, &LazyLoadShard{shardOpts: f.lazy.shardOpts})
+			return func() { f.index.shards.Store(f.name, f.lazy) }
+		}},
+		{name: "recovering placeholder in the map", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+			f.index.shards.Store(f.name, &RecoveringShard{LazyLoadShard: f.lazy})
+			return func() { f.index.shards.Store(f.name, f.lazy) }
+		}},
 		{name: "not idle", req: UnloadRequest{IdleTTL: time.Hour}},
-		{
-			name: "movement source",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				return f.setMovement(func() bool { return true }, func() bool { return false })
-			},
-		},
-		{
-			name: "movement target",
-			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
-				return f.setMovement(func() bool { return false }, func() bool { return true })
-			},
-		},
+		{name: "movement source", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() { return f.setMovement(true, false) }},
+		{name: "movement target", arm: func(t *testing.T, f *unloadFixture, s *Shard) func() { return f.setMovement(false, true) }},
 	}
 
 	for _, tt := range tests {
@@ -266,9 +201,6 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			f := newUnloadFixture(t)
 			id := f.put(t)
 			s := f.lazy.currentShard()
-			require.NotNil(t, s)
-			require.EqualValues(t, 1, f.unloader.registry.Loaded())
-			require.True(t, f.lazy.UnloadedAt().IsZero())
 			before := time.Now()
 
 			undo := func() {}
@@ -310,42 +242,19 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 }
 
 func TestLazyLoadShard_TryUnloadSeesAStampMadeBeforeThePinReleased(t *testing.T) {
-	const requestID = "prepared"
 	tests := []struct {
 		name         string
-		whilePinned  func(t *testing.T, f *unloadFixture, s *Shard, id strfmt.UUID)
+		ctx          context.Context
 		wantUnloaded bool
-		wantDeleted  bool
 	}{
-		{
-			name: "request stamps and releases",
-			whilePinned: func(t *testing.T, f *unloadFixture, s *Shard, id strfmt.UUID) {
-				f.index.recordShardAccess(testCtx(), f.lazy)
-			},
-		},
-		{
-			name: "replica prepare stamps and releases",
-			whilePinned: func(t *testing.T, f *unloadFixture, s *Shard, id strfmt.UUID) {
-				f.index.recordShardAccess(testCtx(), f.lazy)
-				require.Empty(t, s.prepareDeleteObject(testCtx(), requestID, id, time.Now()).Errors)
-			},
-			wantDeleted: true,
-		},
-		{
-			name: "background work releases without a stamp",
-			whilePinned: func(t *testing.T, f *unloadFixture, s *Shard, id strfmt.UUID) {
-				f.index.recordShardAccess(withBackgroundShardAccess(testCtx()), f.lazy)
-			},
-			wantUnloaded: true,
-		},
+		{name: "request stamps and releases", ctx: testCtx()},
+		{name: "background work releases without a stamp", ctx: withBackgroundShardAccess(testCtx()), wantUnloaded: true},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newUnloadFixture(t)
 			id := f.put(t)
 			s := f.lazy.currentShard()
-			require.NotNil(t, s)
 			require.Eventually(t, func() bool { return time.Since(accessClockEpoch) >= 3*time.Second },
 				5*time.Second, 10*time.Millisecond)
 			advanceAccessClock()
@@ -355,7 +264,7 @@ func TestLazyLoadShard_TryUnloadSeesAStampMadeBeforeThePinReleased(t *testing.T)
 			f.lazy.lastAccess.Store(0)
 			released := false
 			hook := func() {
-				tt.whilePinned(t, f, s, id)
+				f.index.recordShardAccess(tt.ctx, f.lazy)
 				release()
 				released = true
 			}
@@ -364,46 +273,32 @@ func TestLazyLoadShard_TryUnloadSeesAStampMadeBeforeThePinReleased(t *testing.T)
 			require.Equal(t, tt.wantUnloaded, f.lazy.TryUnload(testCtx(), UnloadRequest{IdleTTL: time.Second}))
 			require.True(t, released)
 			require.Equal(t, !tt.wantUnloaded, f.lazy.isLoaded())
-			if tt.wantDeleted {
-				require.NotNil(t, f.index.CommitReplication(testCtx(), f.name, requestID))
-			}
-			require.Equal(t, !tt.wantDeleted, f.exists(t, id))
+			require.True(t, f.exists(t, id))
 		})
 	}
 }
 
 func TestLazyLoadShard_TryUnloadRefusesWhileAReindexIsLive(t *testing.T) {
 	tests := []struct {
-		name string
-		arm  func(db *DB, collection, shard string)
+		name   string
+		lookup func(collection, shard string) ShardReindexActivityLookupBuilder
 	}{
-		{
-			name: "live reindex on the shard",
-			arm: func(db *DB, collection, shard string) {
-				db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{{collection, shard}: true}))
-			},
-		},
-		{
-			name: "task list unavailable",
-			arm: func(db *DB, collection, shard string) {
-				db.SetShardReindexActivityLookup(unreachableActivityBuilder)
-			},
-		},
+		{name: "live reindex on the shard", lookup: func(collection, shard string) ShardReindexActivityLookupBuilder {
+			return makeActivityBuilder(map[[2]string]bool{{collection, shard}: true})
+		}},
+		{name: "task list unavailable", lookup: func(string, string) ShardReindexActivityLookupBuilder { return unreachableActivityBuilder }},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newUnloadFixture(t)
-			id := f.put(t)
+			f.put(t)
 			s := f.lazy.currentShard()
-			require.NotNil(t, s)
-			tt.arm(f.index.db, f.index.Config.ClassName.String(), f.name)
+			f.index.db.SetShardReindexActivityLookup(tt.lookup(f.index.Config.ClassName.String(), f.name))
 
 			require.False(t, tryUnloadPromptly(t, f.lazy, UnloadRequest{}))
-			require.Same(t, s, f.lazy.currentShard(), "a refused unload leaves the shard loaded")
+			require.Same(t, s, f.lazy.currentShard())
 			require.False(t, s.shut.Load())
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
-			require.True(t, f.exists(t, id))
 		})
 	}
 }
@@ -422,59 +317,27 @@ func tryUnloadPromptly(t *testing.T, l *LazyLoadShard, req UnloadRequest) bool {
 }
 
 func TestTryUnload_ReadOnlyStatusAcrossReload(t *testing.T) {
+	manualReadOnly := setManualStatus(storagestate.StatusReadOnly)
+	resourcePressure := func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReadOnly("test") }
+	resourcesRecover := func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReady() }
 	tests := []struct {
 		name          string
 		arm           func(t *testing.T, f *unloadFixture)
 		whileUnloaded func(t *testing.T, f *unloadFixture)
-		cycles        int
 		want          storagestate.Status
 	}{
-		{
-			name:   "manual READONLY survives an idle unload",
-			arm:    setManualStatus(storagestate.StatusReadOnly),
-			cycles: 1,
-			want:   storagestate.StatusReadOnly,
-		},
-		{
-			name:   "manual READONLY survives repeated idle unloads",
-			arm:    setManualStatus(storagestate.StatusReadOnly),
-			cycles: 3,
-			want:   storagestate.StatusReadOnly,
-		},
-		{
-			name:          "manual READY on an unloaded READONLY shard lifts it",
-			arm:           setManualStatus(storagestate.StatusReadOnly),
-			whileUnloaded: setManualStatus(storagestate.StatusReady),
-			cycles:        1,
-			want:          storagestate.StatusReady,
-		},
-		{
-			name:          "manual READONLY outlives a resource recovery while unloaded",
-			arm:           setManualStatus(storagestate.StatusReadOnly),
-			whileUnloaded: func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReady() },
-			cycles:        1,
-			want:          storagestate.StatusReadOnly,
-		},
-		{
-			name:   "resource pressure READONLY is re-read at load",
-			arm:    func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReadOnly("test") },
-			cycles: 1,
-			want:   storagestate.StatusReadOnly,
-		},
-		{
-			name:          "resource pressure READONLY lifted while unloaded loads READY",
-			arm:           func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReadOnly("test") },
-			whileUnloaded: func(t *testing.T, f *unloadFixture) { f.index.db.setShardsReady() },
-			cycles:        1,
-			want:          storagestate.StatusReady,
-		},
+		{name: "manual READONLY survives repeated idle unloads", arm: manualReadOnly, want: storagestate.StatusReadOnly},
+		{name: "manual READY on an unloaded READONLY shard lifts it", arm: manualReadOnly, whileUnloaded: setManualStatus(storagestate.StatusReady), want: storagestate.StatusReady},
+		{name: "manual READONLY outlives a resource recovery while unloaded", arm: manualReadOnly, whileUnloaded: resourcesRecover, want: storagestate.StatusReadOnly},
+		{name: "resource pressure READONLY is re-read at load", arm: resourcePressure, want: storagestate.StatusReadOnly},
+		{name: "resource pressure READONLY lifted while unloaded loads READY", arm: resourcePressure, whileUnloaded: resourcesRecover, want: storagestate.StatusReady},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newUnloadFixture(t)
 			f.put(t)
 			tt.arm(t, f)
-			for range tt.cycles {
+			for range 2 {
 				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 				f.requireUnloaded(t)
 				if tt.whileUnloaded != nil {

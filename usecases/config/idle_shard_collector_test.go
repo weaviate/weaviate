@@ -34,8 +34,7 @@ func defaultIdleShardCollectorValues() map[string]any {
 	}
 }
 
-// The knobs come only from the runtime overrides file: an env var, valid or
-// not, neither seeds one nor fails startup on an unlicensed node.
+// An env var, valid or not, neither seeds a knob nor fails startup on an unlicensed node.
 func TestIdleShardCollectorIgnoresEnvironment(t *testing.T) {
 	tests := []struct {
 		name string
@@ -68,41 +67,33 @@ func TestIdleShardCollectorRuntimeOverrides(t *testing.T) {
 	conf := Config{}
 	require.NoError(t, FromEnv(&conf))
 	registered := BuildRegisteredRuntimeConfig(&conf)
-
-	parsed, err := ParseRuntimeConfig([]byte(`idle_shard_collector_idle_ttl: 1h
-idle_shard_collector_check_interval: 2m
-idle_shard_collector_unload_rate: 7
-idle_shard_collector_unload_workers: 2
-idle_shard_collector_paused: true
-`))
-	require.NoError(t, err)
-	require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
-	require.Equal(t, map[string]any{
-		"idle_ttl": time.Hour, "check_interval": 2 * time.Minute, "unload_rate": 7, "unload_workers": 2,
-		"paused": true,
-	}, idleShardCollectorValues(conf.IdleShardCollector))
-
-	parsed, err = ParseRuntimeConfig([]byte(`idle_shard_collector_unload_workers: 0
-idle_shard_collector_check_interval: 10ms
-idle_shard_collector_unload_rate: 5
-idle_shard_collector_idle_ttl: 500ms
-`))
-	require.NoError(t, err)
-	require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
-	got := idleShardCollectorValues(conf.IdleShardCollector)
-	require.Equal(t, 2, got["unload_workers"], "an invalid value keeps the previous one")
-	require.Equal(t, 2*time.Minute, got["check_interval"])
-	require.Equal(t, 5, got["unload_rate"])
-	require.Equal(t, time.Hour, got["idle_ttl"], "below 1s and not 0 is invalid")
-	require.Equal(t, false, got["paused"], "a removed key reverts to its default")
-
-	parsed, err = ParseRuntimeConfig([]byte("idle_shard_collector_idle_ttl: 0s\n"))
-	require.NoError(t, err)
-	require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
-	require.Equal(t, time.Duration(0), idleShardCollectorValues(conf.IdleShardCollector)["idle_ttl"], "0 turns idle unloading off")
-
-	parsed, err = ParseRuntimeConfig(nil)
-	require.NoError(t, err)
-	require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
-	require.Equal(t, defaultIdleShardCollectorValues(), idleShardCollectorValues(conf.IdleShardCollector))
+	for _, step := range []struct {
+		name string
+		yaml string
+		want map[string]any
+	}{
+		{
+			name: "every knob set",
+			yaml: "idle_shard_collector_idle_ttl: 1h\nidle_shard_collector_check_interval: 2m\nidle_shard_collector_unload_rate: 7\n" +
+				"idle_shard_collector_unload_workers: 2\nidle_shard_collector_paused: true\n",
+			want: map[string]any{
+				"idle_ttl": time.Hour, "check_interval": 2 * time.Minute, "unload_rate": 7, "unload_workers": 2, "paused": true,
+			},
+		},
+		{
+			name: "invalid values keep the previous one and a removed key reverts to its default",
+			yaml: "idle_shard_collector_unload_workers: 0\nidle_shard_collector_check_interval: 10ms\n" +
+				"idle_shard_collector_unload_rate: 5\nidle_shard_collector_idle_ttl: 500ms\n",
+			want: map[string]any{
+				"idle_ttl": time.Hour, "check_interval": 2 * time.Minute, "unload_rate": 5, "unload_workers": 2, "paused": false,
+			},
+		},
+		{name: "0 turns idle unloading off", yaml: "idle_shard_collector_idle_ttl: 0s\n", want: defaultIdleShardCollectorValues()},
+		{name: "an empty file restores the defaults", want: defaultIdleShardCollectorValues()},
+	} {
+		parsed, err := ParseRuntimeConfig([]byte(step.yaml))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
+		require.Equal(t, step.want, idleShardCollectorValues(conf.IdleShardCollector), step.name)
+	}
 }

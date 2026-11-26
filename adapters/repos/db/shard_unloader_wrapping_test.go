@@ -154,9 +154,8 @@ func TestLazyShardUnloadingKeepsAutoEagerShardLoadsEager(t *testing.T) {
 }
 
 func TestLazyShardUnloadingRestartLoadsEveryAutoEagerShard(t *testing.T) {
-	const indexes = 5
 	root, state := t.TempDir(), singleShardState()
-	classes := make([]*models.Class, indexes)
+	classes := make([]*models.Class, 5)
 	for n := range classes {
 		classes[n] = newClassWithWarmProp(fmt.Sprintf("Restart%d", n))
 	}
@@ -171,17 +170,20 @@ func TestLazyShardUnloadingRestartLoadsEveryAutoEagerShard(t *testing.T) {
 	}
 	withShard := func(repo *DB, class string, f func(ShardLike)) {
 		index := repo.GetIndex(schema.ClassName(class))
-		require.NotNil(t, index)
+		require.True(t, index.Config.EnableLazyLoadShards, "an unloader makes an auto-detected collection lazy")
+		require.False(t, index.Config.lazyLoadsShards(), "auto-detection still picks eager loading")
 		var name string
 		index.ForEachShard(func(n string, _ ShardLike) error { name = n; return nil })
 		shard, release, err := index.GetShard(testCtx(), name)
 		require.NoError(t, err)
 		defer release()
+		_, ok := shard.(*LazyLoadShard)
+		require.True(t, ok, "got %T", shard)
 		f(shard)
 	}
 
 	repo := open(newFakeShardUnloader())
-	ids := make([]strfmt.UUID, indexes)
+	ids := make([]strfmt.UUID, len(classes))
 	for n, class := range classes {
 		obj := testObject(class.Class)
 		ids[n] = obj.ID()
@@ -192,20 +194,7 @@ func TestLazyShardUnloadingRestartLoadsEveryAutoEagerShard(t *testing.T) {
 	u := newFakeShardUnloader()
 	repo = open(u)
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
-	require.EqualValues(t, indexes, u.registry.Loaded())
-	require.Zero(t, u.beforeLoads.Load(), "a startup load never calls BeforeLoad")
-	for _, class := range classes {
-		index := repo.GetIndex(schema.ClassName(class.Class))
-		require.True(t, index.Config.EnableLazyLoadShards, "an unloader makes an auto-detected collection lazy")
-		require.False(t, index.Config.lazyLoadsShards(), "auto-detection still picks eager loading")
-		index.ForEachShard(func(_ string, shard ShardLike) error {
-			lazy, ok := shard.(*LazyLoadShard)
-			require.True(t, ok, "got %T", shard)
-			require.True(t, lazy.isLoaded(), "an eager collection loads its wrappers at startup")
-			return nil
-		})
-	}
-
+	require.EqualValues(t, len(classes), u.registry.Loaded())
 	for n, class := range classes {
 		withShard(repo, class.Class, func(s ShardLike) {
 			ok, err := s.Exists(testCtx(), ids[n])
@@ -213,7 +202,7 @@ func TestLazyShardUnloadingRestartLoadsEveryAutoEagerShard(t *testing.T) {
 			require.True(t, ok, "%s keeps its object", class.Class)
 		})
 	}
-	require.EqualValues(t, indexes, u.registry.Loaded(), "a request loads a cold shard")
+	require.Zero(t, u.beforeLoads.Load(), "every shard loaded at startup, which never calls BeforeLoad")
 }
 
 func TestStartupWarmupAcrossIndexesLoadsEveryShardWithoutBeforeLoad(t *testing.T) {

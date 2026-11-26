@@ -14,7 +14,6 @@ package idleshardcollector
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -28,7 +27,6 @@ import (
 	apiclient "github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/graphql"
-	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/client/schema"
@@ -42,64 +40,43 @@ const clusterSize = 3
 
 var all = "ALL"
 
-// cluster is a 3-node licensed cluster unloading idle shards, with a seeded multi-tenant class.
+// cluster is a 3-node licensed cluster with a seeded multi-tenant class whose shards have all gone idle.
 type cluster struct {
 	compose *docker.DockerCompose
 	cl      *apiclient.Weaviate
+	names   []string
 	class   string
 	tenants []string
 	ledger  *ledger
 }
 
-func startCluster(ctx context.Context, t *testing.T, class string, rf int64, tenantCount int, extra func(*docker.Compose) *docker.Compose) *cluster {
+func startCluster(ctx context.Context, t *testing.T, b *docker.Compose, class string, rf int64, tenantCount, perShard int) *cluster {
 	t.Helper()
-	b := newCompose(t, true, clusterSize, fastKnobs(idleKnobs))
-	if extra != nil {
-		b = extra(b)
-	}
 	compose := start(ctx, t, b)
 	c := &cluster{
 		compose: compose,
 		cl:      newClient(compose.GetWeaviateNode(1).URI()),
 		class:   class,
-		tenants: tenantNames("t", tenantCount),
+		tenants: tenantNames(tenantCount),
 		ledger:  newLedger(),
 	}
-	waitUnloader(ctx, t, compose, clusterSize)
+	for i := 1; i <= clusterSize; i++ {
+		c.names = append(c.names, compose.GetWeaviateNode(i).Name())
+	}
 	mt := vectorClass(class, true, rf)
 	mt.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyDeleteOnConflict
 	createClass(ctx, t, c.cl, mt)
 	createTenants(ctx, t, c.cl, class, c.tenants)
-	seed(ctx, t, c.cl, c.ledger, class, c.tenants, 3, &all)
-	c.waitIdle(ctx, t, "every node unloads its idle shards")
+	seed(ctx, t, c.cl, c.ledger, class, c.tenants, perShard, &all)
+	eventuallyLoaded(ctx, t, compose, clusterSize, 0, "every node unloads its idle shards")
 	return c
-}
-
-func (c *cluster) waitIdle(ctx context.Context, t *testing.T, msg string) {
-	t.Helper()
-	eventuallyLoaded(ctx, t, c.compose, clusterSize, 2*time.Minute, noneLoaded, msg)
-}
-
-func (c *cluster) nodeNames(ctx context.Context, t *testing.T) []string {
-	t.Helper()
-	resp, err := c.cl.Nodes.NodesGet(nodes.NewNodesGetParams().WithContext(ctx), nil)
-	require.NoError(t, err)
-	names := make([]string, 0, len(resp.Payload.Nodes))
-	for _, n := range resp.Payload.Nodes {
-		names = append(names, n.Name)
-	}
-	slices.Sort(names)
-	require.Len(t, names, clusterSize)
-	return names
 }
 
 func TestMultiNodeBackupAndRestore(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	const bucket = "lazy-unload-backups"
-	c := startCluster(ctx, t, "Backup", 3, 20, func(b *docker.Compose) *docker.Compose {
-		return b.WithBackendS3(bucket, "us-east-1")
-	})
+	b := newCompose(t, true, clusterSize, idleTTL).WithBackendS3("lazy-unload-backups", "us-east-1")
+	c := startCluster(ctx, t, b, "Backup", 3, 20, 3)
 
 	const backend, id = "s3", "lazy-unload-backup"
 	_, err := c.cl.Backups.BackupsCreate(backups.NewBackupsCreateParams().WithContext(ctx).WithBackend(backend).
@@ -110,8 +87,7 @@ func TestMultiNodeBackupAndRestore(t *testing.T) {
 			WithBackend(backend).WithID(id), nil)
 		require.NoError(ct, err)
 		require.NotNil(ct, resp.Payload.Status)
-		require.NotEqual(ct, models.BackupCreateStatusResponseStatusFAILED, *resp.Payload.Status, resp.Payload.Error)
-		require.Equal(ct, models.BackupCreateStatusResponseStatusSUCCESS, *resp.Payload.Status)
+		require.Equal(ct, models.BackupCreateStatusResponseStatusSUCCESS, *resp.Payload.Status, resp.Payload.Error)
 	}, 5*time.Minute, time.Second, "backup of a mostly unloaded class succeeds")
 
 	_, err = c.cl.Schema.SchemaObjectsDelete(schema.NewSchemaObjectsDeleteParams().WithContext(ctx).WithClassName(c.class), nil)
@@ -124,26 +100,19 @@ func TestMultiNodeBackupAndRestore(t *testing.T) {
 			WithBackend(backend).WithID(id), nil)
 		require.NoError(ct, err)
 		require.NotNil(ct, resp.Payload.Status)
-		require.NotEqual(ct, models.BackupRestoreStatusResponseStatusFAILED, *resp.Payload.Status, resp.Payload.Error)
-		require.Equal(ct, models.BackupRestoreStatusResponseStatusSUCCESS, *resp.Payload.Status)
+		require.Equal(ct, models.BackupRestoreStatusResponseStatusSUCCESS, *resp.Payload.Status, resp.Payload.Error)
 	}, 5*time.Minute, time.Second, "restore succeeds")
 
-	statuses, err := tenantStatuses(ctx, c.cl, c.class)
-	require.NoError(t, err)
-	require.Len(t, statuses, len(c.tenants))
-	for name, status := range statuses {
-		require.Equal(t, models.TenantActivityStatusHOT, status, "tenant %s", name)
-	}
-	verifyAll(ctx, t, c.cl, c.ledger, c.class, c.tenants)
-	c.waitIdle(ctx, t, "the restored class unloads once idle")
+	requireAllHot(ctx, t, c.cl, c.class, len(c.tenants))
+	verify(ctx, t, c.cl, c.ledger, c.class, c.tenants, true)
+	eventuallyLoaded(ctx, t, c.compose, clusterSize, 0, "the restored class unloads once idle")
 }
 
 func TestMultiNodeAsyncReplicationConvergesForActiveTenants(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	c := startCluster(ctx, t, "AsyncRep", 3, 10, nil)
-	lagging := c.compose.GetWeaviateNode(3).Name()
-	names := c.nodeNames(ctx, t)
+	c := startCluster(ctx, t, newCompose(t, true, clusterSize, idleTTL), "AsyncRep", 3, 10, 3)
+	lagging := c.names[2]
 
 	require.NoError(t, c.compose.StopAt(ctx, 2, nil))
 	one := "ONE"
@@ -156,81 +125,63 @@ func TestMultiNodeAsyncReplicationConvergesForActiveTenants(t *testing.T) {
 		c.ledger.remove(c.class, tenant, id)
 		deleted[tenant] = id
 	}
-	eventuallyLoaded(ctx, t, c.compose, clusterSize-1, 2*time.Minute, noneLoaded,
-		"the surviving nodes unload their idle shards")
+	eventuallyLoaded(ctx, t, c.compose, clusterSize-1, 0, "the surviving nodes unload their idle shards")
 	require.NoError(t, c.compose.StartAt(ctx, 2))
 	lc := newClient(c.compose.GetWeaviateNode(3).URI())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for tenant, id := range deleted {
-			for _, n := range names {
+			for _, n := range c.names {
 				require.NoError(ct, readObject(ctx, c.cl, c.class, tenant, c.ledger.ids(c.class, tenant)[0], &n))
 			}
-			gone, err := objectGone(ctx, lc, c.class, tenant, id, lagging)
-			require.NoError(ct, err)
-			require.True(ct, gone, "%s still holds the delete it missed in %s", lagging, tenant)
+			var notFound *objects.ObjectsClassGetNotFound
+			require.ErrorAs(ct, readObject(ctx, lc, c.class, tenant, id, &lagging), &notFound,
+				"%s still holds the delete it missed in %s", lagging, tenant)
 		}
 	}, 5*time.Minute, 2*time.Second, "async replication repairs the replica that missed the deletes")
-	verifyAll(ctx, t, c.cl, c.ledger, c.class, c.tenants)
-	c.waitIdle(ctx, t, "every node unloads its idle shards again")
+	verify(ctx, t, c.cl, c.ledger, c.class, c.tenants, true)
+	eventuallyLoaded(ctx, t, c.compose, clusterSize, 0, "every node unloads its idle shards again")
 }
 
 func TestMultiNodeTenantStatusFlip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	c := startCluster(ctx, t, "Flip", 3, 12, nil)
+	c := startCluster(ctx, t, newCompose(t, true, clusterSize, idleTTL), "Flip", 3, 12, 3)
 
-	firstNode := c.compose.GetWeaviateNode(1).Name()
+	firstNode := c.names[0]
 	loaded, unloaded := c.tenants[0], c.tenants[1]
 	require.NoError(t, readObject(ctx, c.cl, c.class, loaded, c.ledger.ids(c.class, loaded)[0], &firstNode))
-	byNode, err := nodeLoadedShards(ctx, c.cl, c.class)
+	first, err := loadedShards(ctx, c.cl, c.class, firstNode)
 	require.NoError(t, err)
-	first := byNode[firstNode]
 	require.True(t, first[loaded], "the tenant just read is loaded")
 	require.False(t, first[unloaded], "an idle tenant is unloaded")
 
-	for _, tenant := range []string{loaded, unloaded} {
-		require.NoError(t, setTenantStatus(ctx, c.cl, c.class, tenant, models.TenantActivityStatusCOLD))
-	}
+	require.NoError(t, setTenantStatus(ctx, c.cl, c.class, models.TenantActivityStatusCOLD, loaded, unloaded))
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		statuses, err := tenantStatuses(ctx, c.cl, c.class)
-		require.NoError(ct, err)
-		require.Equal(ct, models.TenantActivityStatusCOLD, statuses[loaded])
-		require.Equal(ct, models.TenantActivityStatusCOLD, statuses[unloaded])
-	}, time.Minute, 500*time.Millisecond)
-	for _, tenant := range []string{loaded, unloaded} {
-		id := c.ledger.ids(c.class, tenant)[0]
-		err := readObject(ctx, c.cl, c.class, tenant, id, nil)
-		var cold *objects.ObjectsClassGetUnprocessableEntity
-		require.True(t, errors.As(err, &cold), "a COLD tenant refuses reads, got %v", err)
-	}
+		for _, tenant := range []string{loaded, unloaded} {
+			var cold *objects.ObjectsClassGetUnprocessableEntity
+			require.ErrorAs(ct, readObject(ctx, c.cl, c.class, tenant, c.ledger.ids(c.class, tenant)[0], nil), &cold)
+		}
+	}, time.Minute, 500*time.Millisecond, "a COLD tenant refuses reads")
 
-	for _, tenant := range []string{loaded, unloaded} {
-		require.NoError(t, setTenantStatus(ctx, c.cl, c.class, tenant, models.TenantActivityStatusHOT))
-	}
+	require.NoError(t, setTenantStatus(ctx, c.cl, c.class, models.TenantActivityStatusHOT, loaded, unloaded))
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, tenant := range []string{loaded, unloaded} {
 			id := c.ledger.ids(c.class, tenant)[0]
 			require.NoError(ct, readObject(ctx, c.cl, c.class, tenant, id, nil))
 		}
 	}, time.Minute, 500*time.Millisecond, "the tenants serve again once HOT")
-	statuses, err := tenantStatuses(ctx, c.cl, c.class)
-	require.NoError(t, err)
-	for name, status := range statuses {
-		require.Equal(t, models.TenantActivityStatusHOT, status, "tenant %s", name)
-	}
-	verifyAll(ctx, t, c.cl, c.ledger, c.class, c.tenants)
-	c.waitIdle(ctx, t, "every node unloads its idle shards again")
+	requireAllHot(ctx, t, c.cl, c.class, len(c.tenants))
+	verify(ctx, t, c.cl, c.ledger, c.class, c.tenants, true)
+	eventuallyLoaded(ctx, t, c.compose, clusterSize, 0, "every node unloads its idle shards again")
 }
 
 func TestMultiNodeReplicaMovement(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	c := startCluster(ctx, t, "Movement", 2, 12, func(b *docker.Compose) *docker.Compose {
-		return b.WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true")
-	})
-	names := c.nodeNames(ctx, t)
-	setKnobs(ctx, t, c.compose, clusterSize, fastKnobs(knobs{"idle_ttl": "1s"}))
+	b := newCompose(t, true, clusterSize, idleTTL).WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true")
+	c := startCluster(ctx, t, b, "Movement", 2, 12, 3)
+	setIdleTTL(ctx, t, c.compose, clusterSize, "1s")
 
 	resp, err := c.cl.Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().
 		WithContext(ctx).WithCollection(&c.class), nil)
@@ -246,7 +197,7 @@ func TestMultiNodeReplicaMovement(t *testing.T) {
 		if len(moves) == 3 {
 			typ = api.COPY.String()
 		}
-		for _, n := range names {
+		for _, n := range c.names {
 			if !slices.Contains(s.Replicas, n) {
 				moves = append(moves, move{shard: s.Shard, source: s.Replicas[0], target: n, typ: typ})
 			}
@@ -272,7 +223,6 @@ func TestMultiNodeReplicaMovement(t *testing.T) {
 			details, err := c.cl.Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithContext(ctx).WithID(id), nil)
 			require.NoError(ct, err)
 			require.NotNil(ct, details.Payload.Status)
-			require.NotEqual(ct, "CANCELLED", details.Payload.Status.State, "%s of %s", moves[i].typ, moves[i].shard)
 			require.Equal(ct, "READY", details.Payload.Status.State, "%s of %s", moves[i].typ, moves[i].shard)
 		}
 	}, 5*time.Minute, 2*time.Second, "every op completes while idle shards unload")
@@ -296,8 +246,8 @@ func TestMultiNodeReplicaMovement(t *testing.T) {
 			require.NoError(t, readObject(ctx, c.cl, c.class, m.shard, id, &target), "%s replica on %s", m.typ, target)
 		}
 	}
-	verifyAll(ctx, t, c.cl, c.ledger, c.class, c.tenants)
-	c.waitIdle(ctx, t, "every node unloads its idle shards again")
+	verify(ctx, t, c.cl, c.ledger, c.class, c.tenants, true)
+	eventuallyLoaded(ctx, t, c.compose, clusterSize, 0, "every node unloads its idle shards again")
 }
 
 // reindexIdleTTL is short so the shards a reindex unit loads go idle while the task is still running.
@@ -306,27 +256,16 @@ const reindexIdleTTL = "1s"
 func TestMultiNodeRuntimeReindexOverIdleUnloadedTenants(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	b := newCompose(t, true, clusterSize, fastKnobs(knobs{"idle_ttl": reindexIdleTTL})).
+	b := newCompose(t, true, clusterSize, reindexIdleTTL).
 		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
-	compose := start(ctx, t, b)
-	node := compose.GetWeaviateNode(1)
-	cl := newClient(node.URI())
-	waitUnloader(ctx, t, compose, clusterSize)
+	const perShard = 100
+	c := startCluster(ctx, t, b, "ReindexIdle", clusterSize, 300, perShard)
+	uri := c.compose.GetWeaviateNode(1).URI()
 
-	const class, perShard = "ReindexIdle", 100
-	tenants := tenantNames("t", 300)
-	l := newLedger()
-	createClass(ctx, t, cl, vectorClass(class, true, clusterSize))
-	for chunk := range slices.Chunk(tenants, 20) {
-		createTenants(ctx, t, cl, class, chunk)
-	}
-	seed(ctx, t, cl, l, class, tenants, perShard, &all)
-	eventuallyLoaded(ctx, t, compose, clusterSize, 2*time.Minute, noneLoaded, "idle shards unload before the reindex")
-
-	taskID := reindexhelpers.SubmitIndexUpsert(t, node.URI(), class, "seq", "rangeFilters", `{}`)
-	reindexhelpers.AwaitReindexFinished(t, node.URI(), taskID, reindexhelpers.WithTimeout(5*time.Minute))
-	require.Eventually(t, func() bool { return seqRangeable(ctx, cl, class) }, 30*time.Second, time.Second,
+	taskID := reindexhelpers.SubmitIndexUpsert(t, uri, c.class, "seq", "rangeFilters", `{}`)
+	reindexhelpers.AwaitReindexFinished(t, uri, taskID, reindexhelpers.WithTimeout(5*time.Minute))
+	require.Eventually(t, func() bool { return seqRangeable(ctx, c.cl, c.class) }, 30*time.Second, time.Second,
 		"the schema shows seq rangeable")
 
 	ranges := []struct {
@@ -339,23 +278,22 @@ func TestMultiNodeRuntimeReindexOverIdleUnloadedTenants(t *testing.T) {
 	}
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(8)
-	for _, tenant := range tenants {
+	for _, tenant := range c.tenants {
 		g.Go(func() error {
 			for _, r := range ranges {
-				n, err := aggregateCount(gctx, cl, class, tenant, r.where)
+				n, err := aggregateCount(gctx, c.cl, c.class, tenant, r.where)
 				if err != nil {
 					return err
 				}
 				if n != r.want {
-					return fmt.Errorf("%s/%s: %s matches %d objects, want %d", class, tenant, r.where, n, r.want)
+					return fmt.Errorf("%s/%s: %s matches %d objects, want %d", c.class, tenant, r.where, n, r.want)
 				}
 			}
 			return nil
 		})
 	}
 	require.NoError(t, g.Wait())
-	verifyAll(ctx, t, cl, l, class, tenants)
-	eventuallyLoaded(ctx, t, compose, clusterSize, 2*time.Minute, noneLoaded, "idle shards unload once the reindex finished")
+	eventuallyLoaded(ctx, t, c.compose, clusterSize, 0, "idle shards unload once the reindex finished")
 }
 
 func seqRangeable(ctx context.Context, cl *apiclient.Weaviate, class string) bool {

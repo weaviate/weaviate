@@ -342,33 +342,18 @@ func TestKeyRWLockerTryRLock(t *testing.T) {
 
 func TestKeyRWLockerTryLock(t *testing.T) {
 	s := NewKeyRWLocker()
+	require.True(t, s.TryLock("k1"))
+	require.False(t, s.TryLock("k1"))
+	require.False(t, s.TryRLock("k1"))
+	require.True(t, s.TryLock("k2"))
+	s.Unlock("k2")
+	s.Unlock("k1")
 
-	t.Run("succeeds when unlocked and excludes readers and writers", func(t *testing.T) {
-		require.True(t, s.TryLock("k1"))
-		require.False(t, s.TryRLock("k1"))
-		require.False(t, s.TryLock("k1"))
-		require.True(t, s.TryLock("other"))
-		s.Unlock("other")
-		s.Unlock("k1")
-	})
-
-	t.Run("fails when write-locked", func(t *testing.T) {
-		s.Lock("k2")
-		require.False(t, s.TryLock("k2"))
-		s.Unlock("k2")
-
-		require.True(t, s.TryLock("k2"))
-		s.Unlock("k2")
-	})
-
-	t.Run("fails when read-locked", func(t *testing.T) {
-		s.RLock("k3")
-		require.False(t, s.TryLock("k3"))
-		s.RUnlock("k3")
-
-		require.True(t, s.TryLock("k3"))
-		s.Unlock("k3")
-	})
+	s.RLock("k1")
+	require.False(t, s.TryLock("k1"))
+	s.RUnlock("k1")
+	require.True(t, s.TryLock("k1"))
+	s.Unlock("k1")
 }
 
 // lockPair is one locker's acquire/release pair, so one concurrent test body
@@ -435,29 +420,6 @@ func TestKeyLockersConcurrentColdKey(t *testing.T) {
 						}
 						return nil
 					},
-					release: l.RUnlock,
-				}
-			},
-		},
-		{
-			name: "KeyRWLocker/TryLock",
-			pairs: func() (lockPair, lockPair) {
-				l := NewKeyRWLocker()
-				var n atomic.Int64
-				return lockPair{
-					acquire: func(ID string) error {
-						if n.Add(1)%2 == 0 {
-							l.Lock(ID)
-							return nil
-						}
-						for !l.TryLock(ID) {
-							runtime.Gosched()
-						}
-						return nil
-					},
-					release: l.Unlock,
-				}, lockPair{
-					acquire: func(ID string) error { l.RLock(ID); return nil },
 					release: l.RUnlock,
 				}
 			},

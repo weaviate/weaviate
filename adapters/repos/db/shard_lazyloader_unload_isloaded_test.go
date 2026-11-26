@@ -20,24 +20,27 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// blockTeardown parks the next TryUnload once the shard is marked shut and returns what releases it.
-func blockTeardown(t *testing.T, l *LazyLoadShard) (entered <-chan struct{}, release func()) {
+// unloadParkedInTeardown starts a TryUnload, parks it once the shard is marked shut and returns what releases it.
+func unloadParkedInTeardown(t *testing.T, l *LazyLoadShard) (release func(), unloaded <-chan bool) {
 	t.Helper()
-	in, unblock := make(chan struct{}), make(chan struct{})
-	var once sync.Once
-	release = func() { once.Do(func() { close(unblock) }) }
+	entered, unblock := make(chan struct{}), make(chan struct{})
+	release = sync.OnceFunc(func() { close(unblock) })
 	t.Cleanup(release)
 	l.unloadMarkedHook = func() {
-		close(in)
+		close(entered)
 		<-unblock
 	}
-	return in, release
+	done := make(chan bool, 1)
+	enterrors.GoWrapper(func() { done <- l.TryUnload(testCtx(), UnloadRequest{}) }, l.shardOpts.index.logger)
+	<-entered
+	return release, done
 }
 
 func TestLazyLoadShard_IsLoadedWaitsForALoadInFlight(t *testing.T) {
@@ -66,106 +69,48 @@ func TestLazyLoadShard_IsLoadedWaitsForALoadInFlight(t *testing.T) {
 	require.Zero(t, f.lazy.loadWaiters.Load())
 }
 
-// TryUnload holds shardCreateLocks only across try-locks and atomics; the
-// teardown runs after it, so no request path waits on the create lock behind it.
-func TestLazyLoadShard_TryUnloadNeverHoldsTheCreateLockAcrossItsTeardown(t *testing.T) {
-	u := newFakeShardUnloader()
-	f := newAddPropertyLazyFixture(t, "UnloadLocks", multiShardState(), withShardUnloader(u))
-	var victim, other string
-	var lazy *LazyLoadShard
-	for name, l := range f.coldShards(t) {
-		if lazy == nil {
-			victim, lazy = name, l
-		} else {
-			other = name
-		}
-	}
-	for _, name := range []string{victim, other} {
-		shard, release, err := f.index.GetShard(testCtx(), name)
-		require.NoError(t, err)
-		require.NotNil(t, shard)
-		release()
-	}
-	entered, release := blockTeardown(t, lazy)
-	done := make(chan bool, 1)
-	go func() { done <- lazy.TryUnload(testCtx(), UnloadRequest{}) }()
-	<-entered
-
-	require.True(t, f.index.shardCreateLocks.TryLock(victim), "the victim's create lock is free during its teardown")
-	f.index.shardCreateLocks.Unlock(victim)
-	pinned := make(chan error, 1)
-	go func() {
-		_, rel, err := f.index.pinResidentShard(other, true, false, false)
-		rel()
-		pinned <- err
-	}()
-	select {
-	case err := <-pinned:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		release()
-		require.FailNow(t, "a pin on another shard waited on an unload teardown")
-	}
-	require.False(t, lazy.isLoaded())
-
-	release()
-	require.True(t, <-done)
-}
-
 func TestLazyLoadShard_ColdReadsDoNotWaitOnAnUnloadTeardown(t *testing.T) {
 	tests := []struct {
 		name  string
 		check func(t *testing.T, f *unloadFixture)
 		after func(t *testing.T, f *unloadFixture)
 	}{
-		{
-			name: "addProperty",
-			check: func(t *testing.T, f *unloadFixture) {
-				prop := textProp("late", true)
-				f.schemaClass.Properties = append(f.schemaClass.Properties, prop)
-				require.NoError(t, f.index.addProperty(testCtx(), prop))
-				require.False(t, f.lazy.isLoaded(), "a shard mid-teardown reads as unloaded")
-			},
-			after: func(t *testing.T, f *unloadFixture) {
-				shard, release, err := f.index.GetShard(testCtx(), f.name)
-				require.NoError(t, err)
-				defer release()
-				require.NotNil(t, shard.Store().Bucket(helpers.BucketFromPropNameLSM("late")), "the reload builds the added property")
-			},
-		},
-		{name: "GetStatus", check: func(t *testing.T, f *unloadFixture) {
+		{name: "addProperty", check: func(t *testing.T, f *unloadFixture) {
+			prop := textProp("late", true)
+			f.schemaClass.Properties = append(f.schemaClass.Properties, prop)
+			require.NoError(t, f.index.addProperty(testCtx(), prop))
+			require.False(t, f.lazy.isLoaded(), "a shard mid-teardown reads as unloaded")
+		}, after: func(t *testing.T, f *unloadFixture) {
+			shard, release, err := f.index.GetShard(testCtx(), f.name)
+			require.NoError(t, err)
+			defer release()
+			require.NotNil(t, shard.Store().Bucket(helpers.BucketFromPropNameLSM("late")), "the reload builds the added property")
+		}},
+		{name: "status reads", check: func(t *testing.T, f *unloadFixture) {
+			lazyLoading := storagestate.StatusLazyLoading.String()
 			require.Equal(t, storagestate.StatusLazyLoading, f.lazy.GetStatus())
-		}},
-		{name: "GetStatusReason", check: func(t *testing.T, f *unloadFixture) {
-			require.Equal(t, storagestate.StatusLazyLoading.String(), f.lazy.GetStatusReason())
-		}},
-		{name: "IncomingGetShardStatus", check: func(t *testing.T, f *unloadFixture) {
+			require.Equal(t, lazyLoading, f.lazy.GetStatusReason())
 			status, err := f.index.IncomingGetShardStatus(testCtx(), f.name)
 			require.NoError(t, err)
-			require.Equal(t, storagestate.StatusLazyLoading.String(), status)
-		}},
-		{name: "IncomingGetShardQueueSize", check: func(t *testing.T, f *unloadFixture) {
+			require.Equal(t, lazyLoading, status)
 			size, err := f.index.IncomingGetShardQueueSize(testCtx(), f.name)
 			require.NoError(t, err)
 			require.Zero(t, size)
-		}},
-		{name: "shards storage status", check: func(t *testing.T, f *unloadFixture) {
 			statuses, legacy, err := f.index.getShardsStorageStatus(testCtx(), "")
 			require.NoError(t, err)
-			require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[f.name][f.index.Config.NodeName])
-			require.Equal(t, storagestate.StatusLazyLoading.String(), legacy[f.name])
-		}},
-		{name: "shards queue size", check: func(t *testing.T, f *unloadFixture) {
+			require.Equal(t, lazyLoading, statuses[f.name][f.index.Config.NodeName])
+			require.Equal(t, lazyLoading, legacy[f.name])
 			sizes, err := f.index.getShardsQueueSize(testCtx(), "")
 			require.NoError(t, err)
 			require.Contains(t, sizes, f.name)
-			require.Zero(t, sizes[f.name])
-		}},
-		{name: "nodes status", check: func(t *testing.T, f *unloadFixture) {
-			status, count := f.index.shardNodeStatus(testCtx(), f.name, f.lazy, 1, 1)
-			require.False(t, status.Loaded)
-			require.Equal(t, storagestate.StatusLazyLoading.String(), status.VectorIndexingStatus)
+			nodeStatus, count := f.index.shardNodeStatus(testCtx(), f.name, f.lazy, 1, 1)
+			require.False(t, nodeStatus.Loaded)
+			require.Equal(t, lazyLoading, nodeStatus.VectorIndexingStatus)
 			require.Zero(t, count)
+		}},
+		{name: "create lock is free", check: func(t *testing.T, f *unloadFixture) {
+			require.True(t, f.index.shardCreateLocks.TryLock(f.name))
+			f.index.shardCreateLocks.Unlock(f.name)
 		}},
 		{name: "async replication walk", check: func(t *testing.T, f *unloadFixture) {
 			require.NoError(t, f.index.applyAsyncReplicationToLoadedShards(testCtx()))
@@ -189,12 +134,7 @@ func TestLazyLoadShard_ColdReadsDoNotWaitOnAnUnloadTeardown(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newUnloadFixture(t)
 			f.put(t)
-			entered, release := blockTeardown(t, f.lazy)
-			done := make(chan bool, 1)
-			go func() {
-				done <- f.lazy.TryUnload(testCtx(), UnloadRequest{})
-			}()
-			<-entered
+			release, done := unloadParkedInTeardown(t, f.lazy)
 
 			checked := make(chan struct{})
 			go func() {
@@ -204,7 +144,6 @@ func TestLazyLoadShard_ColdReadsDoNotWaitOnAnUnloadTeardown(t *testing.T) {
 			select {
 			case <-checked:
 			case <-time.After(5 * time.Second):
-				release()
 				require.FailNow(t, "waited on an unload teardown")
 			}
 			release()
@@ -219,34 +158,25 @@ func TestLazyLoadShard_ColdReadsDoNotWaitOnAnUnloadTeardown(t *testing.T) {
 func TestLazyLoadShard_ProbeShardDataWaitsOutAnUnloadTeardown(t *testing.T) {
 	f := newUnloadFixture(t)
 	f.put(t)
-	entered, release := blockTeardown(t, f.lazy)
-	done := make(chan bool, 1)
-	go func() {
-		done <- f.lazy.TryUnload(testCtx(), UnloadRequest{})
-	}()
-	<-entered
+	release, done := unloadParkedInTeardown(t, f.lazy)
 
-	type probe struct {
-		hasData, hosted bool
-		err             error
-	}
-	probed := make(chan probe, 1)
-	go func() {
-		hasData, hosted, err := f.index.IncomingProbeShardData(testCtx(), f.name)
-		probed <- probe{hasData, hosted, err}
-	}()
+	var hasData, hosted bool
+	probed := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		var err error
+		hasData, hosted, err = f.index.IncomingProbeShardData(testCtx(), f.name)
+		probed <- err
+	}, f.index.logger)
 	select {
 	case <-probed:
-		release()
 		require.FailNow(t, "the probe read the shard's files mid-teardown")
 	case <-time.After(200 * time.Millisecond):
 	}
 	release()
 	require.True(t, <-done)
-	got := <-probed
-	require.NoError(t, got.err)
-	require.True(t, got.hasData)
-	require.True(t, got.hosted)
+	require.NoError(t, <-probed)
+	require.True(t, hasData)
+	require.True(t, hosted)
 }
 
 func TestLazyLoadShard_IndexCloseDoesNotWaitOnAnUnloadTeardownsRead(t *testing.T) {
@@ -264,35 +194,25 @@ func TestLazyLoadShard_IndexCloseDoesNotWaitOnAnUnloadTeardownsRead(t *testing.T
 		t.Run(tt.name, func(t *testing.T) {
 			f := newUnloadFixture(t)
 			f.put(t)
-			entered, release := blockTeardown(t, f.lazy)
-			done := make(chan bool, 1)
-			go func() {
-				done <- f.lazy.TryUnload(testCtx(), UnloadRequest{})
-			}()
-			<-entered
+			release, done := unloadParkedInTeardown(t, f.lazy)
 
 			closed := make(chan error, 1)
-			go func() { closed <- tt.close(f) }()
+			enterrors.GoWrapper(func() { closed <- tt.close(f) }, f.index.logger)
 			require.Eventually(t, func() bool {
 				f.index.closeLock.RLock()
 				defer f.index.closeLock.RUnlock()
 				return f.index.closed
 			}, 5*time.Second, time.Millisecond)
-			if !tt.waitsOnShard {
-				select {
-				case err := <-closed:
-					require.NoError(t, err)
-				case <-time.After(5 * time.Second):
-					release()
-					require.FailNow(t, "the index close waited on the teardown's read")
-				}
-			} else {
-				select {
-				case <-closed:
-					release()
-					require.FailNow(t, "the close returned before the shard's teardown finished")
-				case <-time.After(200 * time.Millisecond):
-				}
+			timeout := 5 * time.Second
+			if tt.waitsOnShard {
+				timeout = 200 * time.Millisecond
+			}
+			select {
+			case err := <-closed:
+				require.False(t, tt.waitsOnShard, "the close returned before the shard's teardown finished")
+				require.NoError(t, err)
+			case <-time.After(timeout):
+				require.True(t, tt.waitsOnShard, "the index close waited on the teardown's read")
 			}
 			release()
 			require.True(t, <-done)

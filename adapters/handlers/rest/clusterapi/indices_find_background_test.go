@@ -43,8 +43,9 @@ func TestFindUUIDsHandlerHonoursTheBackgroundMark(t *testing.T) {
 		header string
 		want   bool
 	}{
-		{name: "no header", want: false},
+		{name: "no header"},
 		{name: "background header", header: "true", want: true},
+		{name: "unknown header value", header: "yes"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

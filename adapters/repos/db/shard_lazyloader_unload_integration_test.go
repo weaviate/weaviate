@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime/pprof"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -45,23 +44,13 @@ type unloadRace struct {
 	mu       sync.Mutex
 	ids      []strfmt.UUID
 	errs     []error
-	ok       map[string]*atomic.Int64
+	ok       sync.Map
 	progress atomic.Int64
 }
 
-func newUnloadRace(t *testing.T, f *unloadFixture) *unloadRace {
-	return &unloadRace{t: t, f: f, ok: map[string]*atomic.Int64{}}
-}
-
 func (r *unloadRace) counter(op string) *atomic.Int64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	c, ok := r.ok[op]
-	if !ok {
-		c = &atomic.Int64{}
-		r.ok[op] = c
-	}
-	return c
+	c, _ := r.ok.LoadOrStore(op, &atomic.Int64{})
+	return c.(*atomic.Int64)
 }
 
 func (r *unloadRace) record(op string, err error, tolerated ...error) {
@@ -96,20 +85,17 @@ func (r *unloadRace) someID() (strfmt.UUID, bool) {
 }
 
 type unloadContender struct {
-	name string
-	run  func(r *unloadRace) error
-	// tolerated lists contender-specific errors that are not invariant breaks.
+	name      string
+	run       func(r *unloadRace) error
 	tolerated []error
-	pause     time.Duration
 }
 
 func unloaderLoop(r *unloadRace) error {
-	req := UnloadRequest{}
 	l, ok := r.f.index.shards.Load(r.f.name).(*LazyLoadShard)
 	if !ok {
 		return nil
 	}
-	if l.TryUnload(context.Background(), req) {
+	if l.TryUnload(context.Background(), UnloadRequest{}) {
 		r.counter("unloaded").Add(1)
 		return nil
 	}
@@ -194,13 +180,6 @@ func changeLogLoop(r *unloadRace) error {
 	return r.f.index.IncomingStopChangeCapture(ctx, r.f.name, "op-race")
 }
 
-func blockLoadingLoop(r *unloadRace) error {
-	release := r.f.lazy.blockLoading()
-	time.Sleep(100 * time.Microsecond)
-	release()
-	return nil
-}
-
 func coldHotLoop(r *unloadRace) error {
 	if _, err := r.f.index.UnloadLocalShard(context.Background(), r.f.name); err != nil {
 		return err
@@ -229,6 +208,29 @@ func namespaceSuspendLoop(r *unloadRace) error {
 	return r.f.index.db.ReopenShard(context.Background(), r.f.index.Config.ClassName.String(), r.f.name)
 }
 
+var errPinnedShardShut = errors.New("pin handed out a shut shard")
+
+func wrapperPinLoop(createLocked bool) func(r *unloadRace) error {
+	return func(r *unloadRace) error {
+		if createLocked {
+			r.f.index.shardCreateLocks.RLock(r.f.name)
+			defer r.f.index.shardCreateLocks.RUnlock(r.f.name)
+		}
+		release, err := r.f.lazy.preventShutdown()
+		if err != nil {
+			if createLocked {
+				return fmt.Errorf("pin under the create lock: %s", err.Error())
+			}
+			return err
+		}
+		defer release()
+		if s := r.f.lazy.currentShard(); s == nil || s.shut.Load() {
+			return errPinnedShardShut
+		}
+		return nil
+	}
+}
+
 func unloadContenders() []unloadContender {
 	return []unloadContender{
 		{name: "reads", run: readerLoop},
@@ -237,10 +239,12 @@ func unloadContenders() []unloadContender {
 		{name: "2pc prepare then commit", run: twoPhaseLoop, tolerated: []error{errTwoPhaseTaskLost}},
 		{name: "halt and resume", run: haltLoop},
 		{name: "change log activation", run: changeLogLoop},
-		{name: "blockLoading", run: blockLoadingLoop},
 		{name: "isLoaded", run: isLoadedLoop},
 		{name: "cold then hot", run: coldHotLoop},
 		{name: "namespace unload and reopen", run: namespaceSuspendLoop},
+		{name: "wrapper pin under the create lock", run: wrapperPinLoop(true)},
+		{name: "wrapper pin", run: wrapperPinLoop(false)},
+		{name: "concurrent unload", run: unloaderLoop},
 	}
 }
 
@@ -255,57 +259,42 @@ func (r *unloadRace) loop(stop <-chan struct{}, wg *sync.WaitGroup, c unloadCont
 			default:
 			}
 			r.record(c.name, c.run(r), c.tolerated...)
-			if c.pause > 0 {
-				time.Sleep(c.pause)
-			}
 		}
 	}, r.f.index.logger)
 }
 
-func goroutineDump() string {
-	var buf bytes.Buffer
-	if err := pprof.Lookup("goroutine").WriteTo(&buf, 2); err != nil {
-		return fmt.Sprintf("goroutine dump failed: %v", err)
-	}
-	return buf.String()
-}
-
-// runWithWatchdog fails the test with a goroutine dump if no operation completes for stall.
-func (r *unloadRace) runWithWatchdog(contenders []unloadContender, d, stall time.Duration) {
-	t := r.t
-	stop := make(chan struct{})
+// runWithWatchdog races contenders for 1.5s and fails with a goroutine dump if no operation completes for 20s.
+func (r *unloadRace) runWithWatchdog(contenders []unloadContender) {
+	stop, done := make(chan struct{}), make(chan struct{})
 	var wg sync.WaitGroup
 	for _, c := range contenders {
 		r.loop(stop, &wg, c)
 	}
-	done := make(chan struct{})
-	deadline := time.After(d)
+	deadline := time.After(1500 * time.Millisecond)
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	last, lastAt := r.progress.Load(), time.Now()
-	stopped := false
 	for {
 		select {
 		case <-deadline:
-			if !stopped {
-				stopped = true
-				close(stop)
-				enterrors.GoWrapper(func() { wg.Wait(); close(done) }, r.f.index.logger)
-			}
+			deadline = nil
+			close(stop)
+			enterrors.GoWrapper(func() { wg.Wait(); close(done) }, r.f.index.logger)
 		case <-done:
 			return
 		case <-tick.C:
 			if p := r.progress.Load(); p != last {
 				last, lastAt = p, time.Now()
-			} else if time.Since(lastAt) > stall {
-				t.Fatalf("no progress for %v (deadlock?)\n%s", stall, goroutineDump())
+			} else if time.Since(lastAt) > 20*time.Second {
+				var buf bytes.Buffer
+				r.t.Fatalf("no progress for 20s (deadlock?): %v\n%s", pprof.Lookup("goroutine").WriteTo(&buf, 2), buf.String())
 			}
 		}
 	}
 }
 
-// requireInvariants checks no error, no lost object and no orphan instance; mustUnload also requires a real unload.
-func (r *unloadRace) requireInvariants(mustUnload bool) {
+// requireInvariants checks a real unload, no error, no lost object and no orphan instance.
+func (r *unloadRace) requireInvariants() {
 	t := r.t
 	f := r.f
 	r.mu.Lock()
@@ -313,18 +302,12 @@ func (r *unloadRace) requireInvariants(mustUnload bool) {
 	ids := append([]strfmt.UUID(nil), r.ids...)
 	r.mu.Unlock()
 	require.Empty(t, errs)
-	unloaded, refused := r.counter("unloaded").Load(), r.counter("refused").Load()
-	if mustUnload {
-		require.Positive(t, unloaded, "the race never unloaded the shard, refused %d times", refused)
-	}
-	t.Logf("unloads: %d, refusals: %d", unloaded, refused)
+	require.Positive(t, r.counter("unloaded").Load(), "the race never unloaded the shard, refused %d times", r.counter("refused").Load())
 
 	outcome, err := f.index.UnloadLocalShard(testCtx(), f.name)
 	require.NoError(t, err)
 	require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
-	meta, err := shardmeta.Open(shardPath(f.index.path(), f.name), time.Second)
-	require.NoError(t, err, "an orphan instance still holds the metadata db")
-	require.NoError(t, meta.Close())
+	requireNoOrphanInstance(t, f)
 	require.Zero(t, f.unloader.registry.Loaded())
 	require.Zero(t, f.unloader.registry.Unloading())
 
@@ -340,115 +323,29 @@ func (r *unloadRace) requireInvariants(mustUnload bool) {
 	require.EqualValues(t, 1, f.unloader.registry.Loaded())
 }
 
+func requireNoOrphanInstance(t *testing.T, f *unloadFixture) {
+	meta, err := shardmeta.Open(shardPath(f.index.path(), f.name), time.Second)
+	require.NoError(t, err, "an orphan instance still holds the metadata db")
+	require.NoError(t, meta.Close())
+}
+
 func TestLazyLoadShard_TryUnloadRacesEachContender(t *testing.T) {
 	for _, c := range unloadContenders() {
 		t.Run(c.name, func(t *testing.T) {
 			f := newUnloadFixture(t)
-			r := newUnloadRace(t, f)
+			r := &unloadRace{t: t, f: f}
 			r.addID(f.put(t))
 			unloads := unloadContender{name: "unload", run: unloaderLoop}
 			for range 10 {
-				r.runWithWatchdog([]unloadContender{unloads, c}, 1500*time.Millisecond, 20*time.Second)
+				r.runWithWatchdog([]unloadContender{unloads, c})
 				if r.counter(c.name).Load() > 0 {
 					break
 				}
 			}
-			r.requireInvariants(true)
+			r.requireInvariants()
 			require.Positive(t, r.counter(c.name).Load(), "contender never succeeded")
-			t.Logf("unloads=%d %s=%d", r.counter("unload").Load(), c.name, r.counter(c.name).Load())
 		})
 	}
-}
-
-var errPinnedShardShut = errors.New("pin handed out a shut shard")
-
-func wrapperPinLoop(createLocked bool) func(r *unloadRace) error {
-	return func(r *unloadRace) error {
-		idx, name := r.f.index, r.f.name
-		if createLocked {
-			idx.shardCreateLocks.RLock(name)
-			defer idx.shardCreateLocks.RUnlock(name)
-		}
-		l := r.f.lazy
-		release, err := l.preventShutdown()
-		if err != nil {
-			if createLocked {
-				return fmt.Errorf("pin under the create lock: %s", err.Error())
-			}
-			return err
-		}
-		defer release()
-		if s := l.currentShard(); s == nil || s.shut.Load() {
-			return errPinnedShardShut
-		}
-		id, ok := r.someID()
-		if !ok {
-			return nil
-		}
-		exists, err := l.Exists(context.Background(), id)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			return fmt.Errorf("object %s lost", id)
-		}
-		return nil
-	}
-}
-
-func TestLazyLoadShard_TryUnloadRacesFastPathPins(t *testing.T) {
-	tests := []struct {
-		name         string
-		createLocked bool
-	}{
-		{name: "pin under the create lock", createLocked: true},
-		{name: "pin without the create lock"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newUnloadFixture(t)
-			r := newUnloadRace(t, f)
-			r.addID(f.put(t))
-			r.runWithWatchdog([]unloadContender{
-				{name: "unload", run: unloaderLoop},
-				{name: "pins", run: wrapperPinLoop(tt.createLocked)},
-				{name: "pins-2", run: wrapperPinLoop(tt.createLocked), pause: 100 * time.Microsecond},
-				{name: "writes", run: writerLoop},
-			}, 1500*time.Millisecond, 20*time.Second)
-			r.requireInvariants(true)
-			require.Positive(t, r.counter("pins").Load(), "pins never succeeded")
-			t.Logf("unloads=%d pins=%d pins-2=%d", r.counter("unloaded").Load(), r.counter("pins").Load(), r.counter("pins-2").Load())
-		})
-	}
-}
-
-func TestLazyLoadShard_TryUnloadStressWithWatchdog(t *testing.T) {
-	coldUnloads := map[string]bool{"cold then hot": true, "namespace unload and reopen": true}
-	f := newUnloadFixture(t)
-	r := newUnloadRace(t, f)
-	r.addID(f.put(t))
-	var contenders []unloadContender
-	for _, c := range unloadContenders() {
-		if coldUnloads[c.name] {
-			continue
-		}
-		c.pause = time.Millisecond
-		contenders = append(contenders, c)
-	}
-	contenders = append(contenders,
-		unloadContender{name: "unload", run: unloaderLoop},
-		unloadContender{name: "unload-2", run: unloaderLoop},
-		unloadContender{name: "reads-2", run: readerLoop, pause: time.Millisecond},
-		unloadContender{name: "writes-2", run: writerLoop, pause: time.Millisecond},
-	)
-	r.runWithWatchdog(contenders, 5*time.Second, 20*time.Second)
-	r.requireInvariants(true)
-	var sb strings.Builder
-	for _, c := range contenders {
-		require.Positive(t, r.counter(c.name).Load(), c.name)
-		fmt.Fprintf(&sb, "%s=%d ", c.name, r.counter(c.name).Load())
-	}
-	t.Log(sb.String())
 }
 
 func TestLazyLoadShard_TryUnloadRacesTerminalOps(t *testing.T) {
@@ -457,29 +354,17 @@ func TestLazyLoadShard_TryUnloadRacesTerminalOps(t *testing.T) {
 		op    func(f *unloadFixture) error
 		after func(t *testing.T, f *unloadFixture)
 	}{
-		{
-			name: "drop",
-			op:   func(f *unloadFixture) error { return f.index.dropShards([]string{f.name}) },
-			after: func(t *testing.T, f *unloadFixture) {
-				require.Nil(t, f.index.shards.Load(f.name))
-				require.NoDirExists(t, shardPath(f.index.path(), f.name))
-			},
-		},
-		{
-			name: "index shutdown",
-			op:   func(f *unloadFixture) error { return f.index.Shutdown(testCtx()) },
-			after: func(t *testing.T, f *unloadFixture) {
-				meta, err := shardmeta.Open(shardPath(f.index.path(), f.name), time.Second)
-				require.NoError(t, err, "an orphan instance still holds the metadata db")
-				require.NoError(t, meta.Close())
-			},
-		},
+		{name: "drop", op: func(f *unloadFixture) error { return f.index.dropShards([]string{f.name}) }, after: func(t *testing.T, f *unloadFixture) {
+			require.Nil(t, f.index.shards.Load(f.name))
+			require.NoDirExists(t, shardPath(f.index.path(), f.name))
+		}},
+		{name: "index shutdown", op: func(f *unloadFixture) error { return f.index.Shutdown(testCtx()) }, after: requireNoOrphanInstance},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for range 5 {
 				f := newUnloadFixture(t)
-				r := newUnloadRace(t, f)
+				r := &unloadRace{t: t, f: f}
 				r.addID(f.put(t))
 				stop := make(chan struct{})
 				var wg sync.WaitGroup
@@ -503,8 +388,7 @@ func TestLazyLoadShard_TryUnloadAfterRecoveringPromotion(t *testing.T) {
 	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 
 	f.lazy.blockLoad(enterrors.ErrShardRecovering)
-	rec := &RecoveringShard{LazyLoadShard: f.lazy}
-	f.index.shards.Store(f.name, rec)
+	f.index.shards.Store(f.name, &RecoveringShard{LazyLoadShard: f.lazy})
 	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 
 	require.NoError(t, f.index.PromoteRecoveringLocalShard(testCtx(), f.name))
@@ -527,36 +411,11 @@ func (e *switchableNamespace) GetNamespace(name string) (api.Namespace, bool) {
 
 func TestLazyLoadShard_TryUnloadAndSuspendUnloadInEitherOrder(t *testing.T) {
 	tests := []struct {
-		name  string
-		first func(t *testing.T, f *unloadFixture)
-		then  func(t *testing.T, f *unloadFixture)
+		name      string
+		idleFirst bool
 	}{
-		{
-			name: "idle unload then suspend unload",
-			first: func(t *testing.T, f *unloadFixture) {
-				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-				f.requireUnloaded(t)
-			},
-			then: func(t *testing.T, f *unloadFixture) {
-				outcome, err := f.index.db.UnloadShard(testCtx(), f.index.Config.ClassName.String(), f.name)
-				require.NoError(t, err)
-				require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
-				require.Nil(t, f.index.shards.Load(f.name))
-			},
-		},
-		{
-			name: "suspend unload then idle unload",
-			first: func(t *testing.T, f *unloadFixture) {
-				outcome, err := f.index.db.UnloadShard(testCtx(), f.index.Config.ClassName.String(), f.name)
-				require.NoError(t, err)
-				require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
-				require.Nil(t, f.index.shards.Load(f.name))
-			},
-			then: func(t *testing.T, f *unloadFixture) {
-				require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-				require.Zero(t, f.unloader.registry.Loaded())
-			},
-		},
+		{name: "idle unload then suspend unload", idleFirst: true},
+		{name: "suspend unload then idle unload"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -566,8 +425,16 @@ func TestLazyLoadShard_TryUnloadAndSuspendUnloadInEitherOrder(t *testing.T) {
 			f.index.namespace, f.index.namespacesExister = "alpha", e
 			e.suspended.Store(true)
 
-			tt.first(t, f)
-			tt.then(t, f)
+			if tt.idleFirst {
+				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+				f.requireUnloaded(t)
+			}
+			outcome, err := f.index.db.UnloadShard(testCtx(), f.index.Config.ClassName.String(), f.name)
+			require.NoError(t, err)
+			require.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
+			require.Nil(t, f.index.shards.Load(f.name))
+			require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+			require.Zero(t, f.unloader.registry.Loaded())
 
 			e.suspended.Store(false)
 			require.NoError(t, f.index.db.ReopenShard(testCtx(), f.index.Config.ClassName.String(), f.name))

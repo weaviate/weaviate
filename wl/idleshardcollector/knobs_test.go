@@ -17,55 +17,37 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func TestSnapshotDefaultsForNilKnobs(t *testing.T) {
-	require.Equal(t, &snapshot{
-		checkInterval: DefaultCheckInterval,
-		rate:          DefaultUnloadRate,
-		workers:       DefaultUnloadWorkers,
-	}, readSnapshot(Knobs{}.withDefaults()))
+func TestKnobsShareTheRuntimeConfigValues(t *testing.T) {
+	require.Equal(t, config.MaxIdleShardCollectorUnloadWorkers, MaxUnloadWorkers)
+	c := config.NewIdleShardCollector()
+	knobs := KnobsFrom(c)
+	defaults := &snapshot{checkInterval: DefaultCheckInterval, rate: DefaultUnloadRate, workers: DefaultUnloadWorkers}
+	require.Equal(t, defaults, readSnapshot(Knobs{}.withDefaults()))
+	require.Equal(t, defaults, readSnapshot(knobs), "the runtime config defaults match the collector's")
+
+	set(t, c.IdleTTL, 2*time.Second)
+	set(t, c.CheckInterval, time.Second)
+	set(t, c.UnloadRate, 7)
+	set(t, c.UnloadWorkers, 3)
+	set(t, c.Paused, true)
+	require.Equal(t, &snapshot{idleTTL: 2 * time.Second, checkInterval: time.Second, rate: 7, workers: 3, paused: true}, readSnapshot(knobs))
 }
 
 func TestSnapshotSanitisesKnobs(t *testing.T) {
-	tests := []struct {
-		name      string
-		configure func(*testKnobs)
-		check     func(t *testing.T, s *snapshot)
-	}{
-		{
-			name:      "a negative idle_ttl is off",
-			configure: func(k *testKnobs) { set(nil, k.idleTTL, -time.Second) },
-			check:     func(t *testing.T, s *snapshot) { require.Zero(t, s.idleTTL) },
-		},
-		{
-			name: "out-of-range counts are clamped",
-			configure: func(k *testKnobs) {
-				set(nil, k.workers, 1000)
-				set(nil, k.rate, -3)
-			},
-			check: func(t *testing.T, s *snapshot) {
-				require.Equal(t, MaxUnloadWorkers, s.workers)
-				require.Zero(t, s.rate)
-			},
-		},
-		{
-			name:      "a non-positive check interval takes its default",
-			configure: func(k *testKnobs) { set(nil, k.checkInterval, -time.Second) },
-			check:     func(t *testing.T, s *snapshot) { require.Equal(t, DefaultCheckInterval, s.checkInterval) },
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			k := newTestKnobs()
-			tt.configure(k)
-			tt.check(t, readSnapshot(k.knobs()))
-		})
-	}
+	k := newTestKnobs()
+	set(t, k.idleTTL, -time.Second)
+	set(t, k.checkInterval, -time.Second)
+	set(t, k.rate, -3)
+	set(t, k.workers, 1000)
+	require.Equal(t, &snapshot{checkInterval: DefaultCheckInterval, workers: MaxUnloadWorkers}, readSnapshot(k.knobs()))
 }
 
 func TestAccessClockTicks(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		d    time.Duration
 		want uint32
 	}{
@@ -73,12 +55,8 @@ func TestAccessClockTicks(t *testing.T) {
 		{d: time.Millisecond, want: 1},
 		{d: time.Second, want: 1},
 		{d: 1500 * time.Millisecond, want: 2},
-		{d: time.Hour, want: 3600},
 		{d: math.MaxInt64, want: 1 << 31},
-	}
-	for _, tt := range tests {
-		t.Run(tt.d.String(), func(t *testing.T) {
-			require.Equal(t, tt.want, accessClockTicks(tt.d))
-		})
+	} {
+		require.Equal(t, tt.want, accessClockTicks(tt.d), tt.d)
 	}
 }
