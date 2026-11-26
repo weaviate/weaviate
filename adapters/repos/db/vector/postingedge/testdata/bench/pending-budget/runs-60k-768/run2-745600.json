@@ -1,0 +1,26 @@
+{
+  "budget": 745600,
+  "dims": 768,
+  "inserts": 50000,
+  "livePostings": 224,
+  "n": 60000,
+  "pendingHeapAtEnd": 728730,
+  "pendingLog": {
+    "n": 440632,
+    "bytes": 35073136
+  },
+  "postings": 405,
+  "rowBytesPerInsert": 1913.79092,
+  "rowDists": {
+    "n": 397741,
+    "bytes": 15536884
+  },
+  "rowWrites": {
+    "n": 8763,
+    "bytes": 95689546
+  },
+  "rowWritesBudget": 5472,
+  "rowWritesFull": 2929,
+  "rowWritesSplit": 362,
+  "seconds": 116.326959042
+}

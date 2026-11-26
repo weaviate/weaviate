@@ -444,6 +444,78 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 **Lo que espero (*mío*):** por la pasada única de antes (151 frente a 112 s), que con 64 MB tarde un 20–35 % más y que la regla elija 128 MB.
 
+**Resultado (22:13–22:27, con el binario de `67fc89114c` y `bench_pending_runs_test.go`):**
+
+| pasada | tope | tiempo de crecer | filas de aristas por insert | filas por el tope | distancias por insert | heap esperando al final |
+|---:|---|---:|---:|---:|---:|---:|
+| 1 | 64 MB | 153.3 s | 3 439 B | 14 478 | 324 B | 350 KB |
+| 2 | 128 MB | 116.3 s | 1 914 B | 5 472 | 311 B | 729 KB |
+| 3 | 64 MB | 154.2 s | 3 433 B | 14 465 | 324 B | 364 KB |
+| 4 | 128 MB | 113.8 s | 1 906 B | 5 413 | 310 B | 714 KB |
+| 5 | 64 MB | 150.9 s | 3 432 B | 14 447 | 324 B | 364 KB |
+| 6 | 128 MB | 110.9 s | 1 911 B | 5 484 | 310 B | 724 KB |
+
+- **Medianas: 153.3 s con 64 MB y 113.8 s con 128 MB,** 1.347 veces. Pasa del 1.15 de la regla: **queda 128 MB.** Las medias dicen lo mismo (152.8 y 113.7 s).
+- La dispersión es pequeña: 3.3 s entre pasadas con 64 MB y 5.4 con 128, frente a 39.5 s entre los dos topes.
+- Con 64 MB las filas se escriben 1.80 veces lo que con 128 MB; las distancias, un 4 % más.
+- La primera pasada única (151 y 112 s) se confirma.
+- **Aplicado:** `DefaultPendingBudget = 128 << 20` en `feat/posting-edge-integration-m2` (`c6c8b2e347`), con los tests del paquete con `-race` y el lint en verde.
+- **Datos:** `testdata/bench/pending-budget/runs-60k-768/`. El arnés es `bench_pending_runs_test.go`, archivado al lado.
+- Un percance sin efecto en los números: el primer lanzamiento no corrió ningún test. El fichero se llamaba `bench_pending_arm_test.go`, y Go lee `_arm_test.go` como «solo GOARCH=arm». Se renombró y se relanzó entero.
+
+### 10M crecido por inserts, una noche (pre-registro, 2026-11-26 a las 22:25, antes de compilar el arnés)
+
+**El encargo (del usuario):**
+- Crecer 10M de wiki-dpr por inserts con el tope que elija la regla de arriba, con el store de un shard, en el disco interno y bajo `caffeinate`. `/Volumes/v40bench`, donde está `tenm`, no se toca.
+- Medir:
+  - el heap por componente, como con `filter1m`, con `lsmkv` desglosado (bloom e índices de segmento);
+  - por tramo, el número de postings, las filas escritas, la amplificación de escritura y los inserts por segundo.
+- Revisar el registro de energía al acabar: si el Mac se durmió, la corrida no cuenta.
+- Por la mañana: la fila real de 10M crecido en `none` y en `routing`, junto a la estimada, y la comparación de RAM con HFresh.
+- El mapa docID → posting y slot no se toca: se decide con esta medida.
+
+**Cómo lo aplico (*mío*, salvo lo que dice el encargo):**
+- **El código:** `feat/posting-edge-integration-m2` con el tope por defecto que deja la regla de arriba: 128 MB, en `c6c8b2e347`. El arnés es un fichero aparte, `bench_night_grow_test.go`, con las etiquetas `postingedgebench` y `darwin`. Se compila una vez, antes de lanzar, y después se archiva en esta rama.
+- **Los datos:** el train de wiki-dpr-10m-e5b (`wikidpr-10m-e5-inplace.bin`), 10 000 000 vectores de 768 dimensiones, normalizados.
+  - Se leen del fichero vector a vector. Son 30.7 GB: no se cargan en memoria.
+  - El orden es el barajado de las corridas de escala (`TestIntegrationScale`, PCG(1, 1)); el doc id es la fila.
+- **El índice:** el que abre un shard (`Open`), con los valores por defecto de una clase. Eso es coseno, `routing` (el `cacheMode` por defecto), la base por defecto de 10 000 y el refresco apagado.
+- **El store, como lo abre un shard con los valores por defecto de un nodo:**
+  - las opciones de bucket de `makeDefaultBucketOptions`: sin pread, segmentos de cualquier tamaño, memtables dinámicas de 10 a 200 MB (15 a 45 s), sucias a los 60 s, y todos los segmentos cargados al abrir;
+  - los ciclos de flush y de compactación con los tickers de un nodo (con backoff, una clase sin tenants) y 2 × GOMAXPROCS rutinas cada uno;
+  - los ciclos de tombstones (300 s) y de commit log del grafo de centroides, con su umbral de 100 MB.
+- **Lo que no tiene de un shard:** ni el bucket de objetos ni el índice invertido. El `lsmkv` medido es solo el de los buckets del índice, como en `filter1m`.
+- **Los llamadores:** uno hasta la base. Después, 8 a la vez, con un lote de 100 cada uno, y un `Flush` tras cada ronda, como el arnés de escala con 8 escritores (así se creció `filter1m`).
+- **El disco:** el índice va en el disco interno, en el directorio temporal de la sesión.
+  - Espero unos 40 GB, y hay 66 libres.
+  - Si quedan menos de 8 GB libres, el arnés cierra el índice y para. Esa corrida no da la fila.
+- **Los tramos, cada 5 minutos y al final:**
+  - insertados y los inserts por segundo del tramo;
+  - postings vivos y dados, y splits;
+  - las filas de aristas escritas (número, bytes, y las que forzó el tope), sus distancias, lo que espera (heap estimado, postings y miembros) y el diario;
+  - lo que el sistema cuenta al proceso (`proc_pid_rusage`): bytes leídos y escritos en disco, page-ins y footprint;
+  - los bytes del directorio, el espacio libre y el `HeapInuse`.
+- **La amplificación de escritura** de un tramo es lo que el sistema contó como escrito a disco por el proceso (`ri_diskio_byteswritten`) entre los bytes de los vectores insertados (3 072 B cada uno).
+  - Incluye los WAL, los segmentos, las compactaciones, el fichero de vectores y el diario.
+  - No lo he validado contra un contador independiente: lo contrasto con el crecimiento del directorio.
+- **El heap:** al acabar, `Settle` y cerrar. Después, otro proceso abre el índice sobre el mismo store, sin ciclos, recolecta dos veces y escribe el perfil con todas las asignaciones (`-test.memprofilerate=1`).
+  - Se clasifica como el de `filter1m`, con las líneas de `classify.py` puestas al día para `m2`.
+  - `lsmkv` va desglosado en bloom, índices y cabeceras de segmento, memtables y el resto.
+- **`none`:** el índice se crece en `routing`, el modo por defecto, porque crecer dos veces 10M no cabe en una noche.
+  - La columna de `none` es la de `routing` menos los códigos de ruteo, calculada, como la de `filter1m`.
+  - Para la amplificación de escritura y los inserts por segundo de `none` (con halo) esta corrida no sirve: lo diré así.
+- **La energía:** la cadena corre bajo `caffeinate -i -s`. Al acabar guardo `pmset -g log`.
+  - Si hay un `Sleep` entre el arranque y el final del perfil, la corrida no cuenta.
+  - Lo contrasto con los tramos: un hueco de reloj de pared mayor de 10 minutos entre dos tramos también la invalida.
+- **Sin corte por hora:** si a las 08:00 no ha acabado, sigue. Por la mañana doy los tramos hasta ese momento y cuándo espero que acabe, y la fila llega cuando acabe.
+- **Antes, una prueba pequeña** con el mismo binario: 30 000 vectores en otro directorio, y el perfil de lo que deje. Solo comprueba que el arnés funciona y no se reporta.
+
+**Lo que espero (*mío*):**
+- **Velocidad:** entre 300 y 600 inserts por segundo con 8 llamadores (v5.2 dio unos 700 a 1M con 1 536 dimensiones en memoria), es decir 10M en 5 a 9 horas.
+- **Postings:** unos 42 000 vivos, como el lote.
+- **El heap del índice:** cerca de lo estimado con 128 MB de tope, unos 400 MB en `none` y unos 1 120 en `routing`, si lo que espera llena su tope. `lsmkv` es la parte de la que no sé el orden de magnitud.
+- **La amplificación de escritura:** no tengo base; entre 3 y 8 veces.
+
 ### El mapa docID → posting y slot: ¿se puede bajar sin coste en la búsqueda? (análisis, 2026-11-26, sin cambiar nada)
 
 **Qué es.** Dos tablas de 4 B por doc id: el posting de cada vector (`postingOf`) y su posición en el fichero de vectores (`slotOf`). En un índice crecido tienen `keys` entradas, 1.25 veces el mayor doc id dado. A 10M son 50 + 50 MB en el crecido y 80 MB en el lote (8 B × 10M, sin holgura).

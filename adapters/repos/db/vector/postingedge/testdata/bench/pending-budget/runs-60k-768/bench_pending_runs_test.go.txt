@@ -1,0 +1,95 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench
+
+package postingedge
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+)
+
+// TestMeasurePendingBudgetArm grows the index of TestMeasurePendingBudget once,
+// with the absolute budget PE_BUDGET (bytes; negative for none), and writes
+// what it wrote and how long it took to PE_OUT: one arm of the pre-registered
+// comparison of 64 MB against 128 MB (bench-report.md of
+// feat/posting-edge-index, e91ea884e4). PE_N (60 000) and PE_DIMS (768) as
+// there.
+func TestMeasurePendingBudgetArm(t *testing.T) {
+	n, dims := armEnv("PE_N", 60000), armEnv("PE_DIMS", 768)
+	budget, err := strconv.ParseInt(os.Getenv("PE_BUDGET"), 10, 64)
+	require.NoError(t, err, "PE_BUDGET")
+	vectors := latentVectors(n, dims, 9101)
+	root := t.TempDir()
+	noop := cyclemanager.NewCallbackGroupNoop()
+	store, err := lsmkv.New(filepath.Join(root, "lsm"), root, testLogger(), nil, nil, noop, noop, noop)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Shutdown(context.Background())) }()
+	cfg := PersistentConfig{
+		ID: "vectors_measure", ShardName: "shard", ClassName: "Class", RootPath: root,
+		Logger: testLogger(), DistanceProvider: distancer.NewCosineDistanceProvider(),
+		noBackground: true, pendingBudget: budget,
+	}
+	index, err := Open(cfg, ent.NewDefaultUserConfig(), store)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, index.Shutdown(context.Background())) }()
+	ctx := context.Background()
+	start := time.Now()
+	const batch = 100
+	for from := 0; from < n; from += batch {
+		to := min(from+batch, n)
+		require.NoError(t, index.AddBatch(ctx, sequentialIDs(to-from, uint64(from)), vectors[from:to]))
+	}
+	require.NoError(t, index.Settle(ctx))
+	seconds := time.Since(start).Seconds()
+	index.mu.RLock()
+	g := index.g
+	s := g.stats
+	inserts := n - int(DefaultBaseSize)
+	out := map[string]any{
+		"n": n, "dims": dims, "budget": budget, "seconds": seconds, "inserts": inserts,
+		"livePostings": livePostings(g), "postings": g.meta.Postings,
+		"rowWrites": s.RowWrites, "rowWritesFull": s.RowWritesFull, "rowWritesSplit": s.RowWritesSplit,
+		"rowWritesBudget": s.RowWritesBudget, "rowDists": s.RowDists, "pendingLog": s.PendingLog,
+		"pendingHeapAtEnd": g.pendingHeap(),
+		"rowBytesPerInsert": float64(s.RowWrites.Bytes) / float64(inserts),
+	}
+	index.mu.RUnlock()
+	t.Logf("budget %d: %.1f s, rows %.0f B an insert, %d rows by the budget", budget, seconds,
+		out["rowBytesPerInsert"], out["rowWritesBudget"])
+	if path := os.Getenv("PE_OUT"); path != "" {
+		raw, err := json.MarshalIndent(out, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, raw, 0o644))
+	}
+}
+
+func armEnv(name string, def int) int {
+	if s := os.Getenv(name); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			return v
+		}
+	}
+	return def
+}
