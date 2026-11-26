@@ -598,13 +598,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	case StrategyRoaringSetRange:
 		if cfg.keepSegmentsInMemory {
 			t := time.Now()
-			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory(sg.logger)
+			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory(
+				sg.logger.WithField("bucket", filepath.Base(sg.dir)), sg.allocChecker)
 			for _, seg := range sg.segments {
 				cursor := seg.newRoaringSetRangeCursor()
 				if err := sg.roaringSetRangeSegmentInMemory.MergeSegmentByCursor(cursor); err != nil {
 					return nil, fmt.Errorf("build segment-in-memory of strategy '%s': %w", sg.strategy, err)
 				}
 			}
+			sg.roaringSetRangeSegmentInMemory.Compact()
 			logger.WithFields(logrus.Fields{
 				"took":    time.Since(t).String(),
 				"bucket":  filepath.Base(cfg.dir),
@@ -781,7 +783,8 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 	}
 
 	t := time.Now()
-	rep := roaringsetrange.NewSegmentInMemory(sg.logger)
+	rep := roaringsetrange.NewSegmentInMemory(
+		sg.logger.WithField("bucket", filepath.Base(sg.dir)), sg.allocChecker)
 	for _, seg := range segments {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, nil, err
@@ -790,6 +793,7 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 			return nil, nil, nil, fmt.Errorf("merge segment into rangeable rep: %w", err)
 		}
 	}
+	rep.Compact()
 	sg.logger.WithFields(logrus.Fields{
 		"took":     time.Since(t).String(),
 		"bucket":   filepath.Base(sg.dir),

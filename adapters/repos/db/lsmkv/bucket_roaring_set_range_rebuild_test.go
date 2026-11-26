@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -25,6 +27,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // readRangeEqual is a goroutine-safe readEqual: it returns an error instead
@@ -446,6 +449,49 @@ func TestSegmentGroupRoaringSetRangeRep_AllocCheckerRefusalSoftDegrades(t *testi
 	assert.False(t, b.rangeableRepRebuilt.Load(), "a refused rebuild must not publish")
 }
 
+// Pins that the index of a load and of a rebuild consults the bucket's
+// allocChecker before it compacts a flush at run time.
+func TestRoaringSetRangeSegmentInMemory_CompactionConsultsAllocChecker(t *testing.T) {
+	for _, inMemory := range []bool{true, false} {
+		t.Run(fmt.Sprintf("in memory at load %v", inMemory), func(t *testing.T) {
+			// the fake clock passes the compaction interval without waiting for it
+			synctest.Test(t, func(t *testing.T) {
+				ctx := context.Background()
+				checker := &recordingAllocChecker{}
+				b := createTestBucketWithOptions(t, ctx, t.TempDir(),
+					WithStrategy(StrategyRoaringSetRange),
+					WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+					WithKeepSegmentsInMemory(inMemory),
+					WithAllocChecker(checker),
+				)
+				defer b.Shutdown(ctx)
+				if !inMemory {
+					require.NoError(t, b.RoaringSetRangeAdd(1, 1))
+					require.NoError(t, b.FlushAndSwitch())
+					require.NoError(t, b.RebuildRangeableSegmentInMemory(ctx))
+				}
+				checker.calls.Store(0)
+
+				time.Sleep(24 * time.Hour) // past any index's first compaction deadline
+				require.NoError(t, b.RoaringSetRangeAdd(2, 2))
+				require.NoError(t, b.FlushAndSwitch())
+				synctest.Wait()
+				assert.Equal(t, int64(1), checker.calls.Load())
+			})
+		})
+	}
+}
+
+type recordingAllocChecker struct {
+	memwatch.AllocChecker
+	calls atomic.Int64
+}
+
+func (c *recordingAllocChecker) CheckAlloc(int64) error {
+	c.calls.Add(1)
+	return nil
+}
+
 // TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish pins
 // weaviate/weaviate#12215: a rebuild whose rep folds empty while disk
 // segments exist (e.g. all rows deleted) must not publish.
@@ -519,4 +565,55 @@ func TestReaderRoaringSetRange_PublishedFlagTrusted(t *testing.T) {
 	}
 	assert.Zero(t, countLogLevel(hook, logrus.WarnLevel),
 		"a validated, published rep must never trigger the per-read fallback WARN, even when unpopulated")
+}
+
+// Pins load and rebuild publishing a compacted rep, which a second Compact
+// leaves the same size.
+func TestSegmentGroupRoaringSetRangeRep_BuiltCompacted(t *testing.T) {
+	ctx := context.Background()
+
+	testCases := []struct {
+		name string
+		open func(t *testing.T, dir string) *Bucket
+	}{
+		{
+			name: "load",
+			open: func(t *testing.T, dir string) *Bucket {
+				return createTestBucketRoaringSetRange(t, ctx, dir, true)
+			},
+		},
+		{
+			name: "rebuild",
+			open: func(t *testing.T, dir string) *Bucket {
+				b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+				require.NoError(t, b.RebuildRangeableSegmentInMemory(ctx))
+				return b
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+			for docID := uint64(0); docID < 10_000; docID++ {
+				require.NoError(t, b.RoaringSetRangeAdd(docID%20, docID))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			for docID := uint64(0); docID < 10_000; docID += 2 {
+				require.NoError(t, b.RoaringSetRangeRemove(docID%20, docID))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			require.NoError(t, b.Shutdown(ctx))
+
+			b = tc.open(t, dir)
+			defer b.Shutdown(ctx)
+
+			rep := b.disk.roaringSetRangeSegmentInMemory
+			require.NotNil(t, rep)
+			size := rep.Size()
+			rep.Compact()
+			assert.Equal(t, size, rep.Size(), "rep was published uncompacted")
+		})
+	}
 }

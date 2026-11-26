@@ -1370,7 +1370,7 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReaderInMemo(t *testing
 
 	mt := roaringsetrange.NewMemtable(logger)
 	mt.Insert(key1, []uint64{1})
-	segInMemo := roaringsetrange.NewSegmentInMemory(logger)
+	segInMemo := roaringsetrange.NewSegmentInMemory(logger, nil)
 	segInMemo.MergeMemtableEventually(mt)
 
 	b := Bucket{
@@ -1532,7 +1532,7 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 		}),
 		disk: &SegmentGroup{
 			segments:                       []Segment{},
-			roaringSetRangeSegmentInMemory: roaringsetrange.NewSegmentInMemory(logger),
+			roaringSetRangeSegmentInMemory: roaringsetrange.NewSegmentInMemory(logger, nil),
 		},
 		strategy:             StrategyRoaringSetRange,
 		keepSegmentsInMemory: true,

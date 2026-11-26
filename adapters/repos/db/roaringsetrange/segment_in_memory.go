@@ -16,7 +16,10 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"math/rand/v2"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -25,23 +28,36 @@ import (
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	entsync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type SegmentInMemory struct {
-	logger logrus.FieldLogger
+	logger       logrus.FieldLogger
+	allocChecker memwatch.AllocChecker // may be nil
 
 	bitmaps       rangeBitmaps
 	bitmapsLock   *entsync.ReadPreferringRWMutex
 	memtables     []*Memtable // flushed memtables, waiting to be merged into bitmaps
+	merging       bool        // mergeMemtables is running, guarded by memtablesLock
 	memtablesLock *sync.Mutex
+
+	changed         bool // compactIfDue skips compaction unless a merge changed the layers since the last one
+	compactedAt     time.Time
+	compactInterval time.Duration
 }
 
-func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
+// NewSegmentInMemory takes an allocChecker, which may be nil, to skip run-time
+// compaction under memory pressure.
+func NewSegmentInMemory(logger logrus.FieldLogger, allocChecker memwatch.AllocChecker) *SegmentInMemory {
 	s := &SegmentInMemory{
 		logger:        logger,
+		allocChecker:  allocChecker,
 		bitmapsLock:   entsync.NewReadPreferringRWMutex(),
 		memtables:     make([]*Memtable, 0, 8),
 		memtablesLock: new(sync.Mutex),
+		// compactedAt is backdated by up to half an interval, so indexes built together compact apart
+		compactedAt:     time.Now().Add(-rand.N(compactInterval / 2)),
+		compactInterval: compactInterval,
 	}
 
 	for key := range s.bitmaps {
@@ -50,6 +66,7 @@ func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
 	return s
 }
 
+// MergeSegmentByCursor must run before the index is published, as it takes no lock.
 func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 	key, layer, ok := cursor.First()
 	if !ok {
@@ -59,9 +76,6 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 	if key != 0 {
 		return fmt.Errorf("invalid first key of merged segment")
 	}
-
-	s.bitmapsLock.Lock()
-	defer s.bitmapsLock.Unlock()
 
 	if deletions := layer.Deletions; !deletions.IsEmpty() {
 		for key := range s.bitmaps {
@@ -77,39 +91,71 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 	return nil
 }
 
+// MergeMemtableEventually takes a memtable nothing writes to anymore, since it is
+// read without a lock.
 func (s *SegmentInMemory) MergeMemtableEventually(memtable *Memtable) {
 	s.memtablesLock.Lock()
 	s.memtables = append(s.memtables, memtable)
-	ln := len(s.memtables)
+	start := !s.merging
+	s.merging = true
 	s.memtablesLock.Unlock()
 
 	// run background merge only once,
 	// handle also all memtables added while merge is performed
-	if ln == 1 {
+	if start {
 		errors.GoWrapper(s.mergeMemtables, s.logger)
 	}
 }
 
+// mergeMemtables runs on one goroutine at a time, the only one to change the
+// layers of a published index.
 func (s *SegmentInMemory) mergeMemtables() {
+	merging := true
+	defer func() {
+		// after a panic, the next flushed memtable starts another run
+		if merging {
+			s.memtablesLock.Lock()
+			s.merging = false
+			s.memtablesLock.Unlock()
+		}
+	}()
+
+	batches := 0
+	for merging {
+		pending := s.mergePending()
+		if batches++; pending == 0 || batches >= compactDeferBatches {
+			s.compactIfDue()
+			batches = 0
+		}
+
+		s.memtablesLock.Lock()
+		merging = len(s.memtables) > 0
+		s.merging = merging
+		s.memtablesLock.Unlock()
+	}
+}
+
+// mergePending merges up to mergeBatchMemtables memtables and returns how many remain.
+// It builds their nodes before taking bitmapsLock, then merges and removes them under
+// one bitmapsLock, so no reader sees a memtable both merged and pending, or neither.
+func (s *SegmentInMemory) mergePending() (pending int) {
+	s.memtablesLock.Lock()
+	memtables := slices.Clone(s.memtables[:min(len(s.memtables), mergeBatchMemtables)])
+	s.memtablesLock.Unlock()
+
+	prepared := make([][]*MemtableNode, len(memtables))
+	for i := range memtables {
+		prepared[i] = memtables[i].Nodes()
+	}
+
 	s.bitmapsLock.Lock()
 	defer s.bitmapsLock.Unlock()
 
-	i := 0
-	for {
-		s.memtablesLock.Lock()
-		if i == len(s.memtables) {
-			s.memtables = s.memtables[:0]
-			s.memtablesLock.Unlock()
-			return
-		}
-		memtable := s.memtables[i]
-		i++
-		s.memtablesLock.Unlock()
-
-		nodes := memtable.Nodes()
+	for _, nodes := range prepared {
 		if len(nodes) == 0 {
 			continue
 		}
+		s.changed = true
 		if deletions := nodes[0].Deletions; !deletions.IsEmpty() {
 			for key := range s.bitmaps {
 				s.bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
@@ -119,6 +165,58 @@ func (s *SegmentInMemory) mergeMemtables() {
 			s.bitmaps[node.Key].OrConc(node.Additions, concurrency.SROAR_MERGE)
 		}
 	}
+
+	s.memtablesLock.Lock()
+	defer s.memtablesLock.Unlock()
+
+	// memtables are only ever appended, so the merged ones are still the first
+	s.memtables = slices.Delete(s.memtables, 0, len(prepared))
+	return len(s.memtables)
+}
+
+const (
+	// mergeBatchMemtables bounds the memtables whose nodes mergePending holds at once.
+	mergeBatchMemtables = 4
+	// compactDeferBatches is how many batches a backlog may merge before compactIfDue runs
+	// anyway, so readers starving the merge cannot defer compaction indefinitely.
+	compactDeferBatches = 8
+)
+
+// compactIfDue swaps in compacted copies of the layers, so live memory peaks at a
+// second copy of the index. Only the swap takes bitmapsLock, since the goroutine
+// running it is the only one to change the layers of a published index.
+func (s *SegmentInMemory) compactIfDue() {
+	if !s.changed || time.Since(s.compactedAt) < s.compactInterval {
+		return
+	}
+
+	if s.allocChecker != nil {
+		if err := s.allocChecker.CheckAlloc(s.compactedSizeEstimate()); err != nil {
+			s.logger.WithField("action", "rangeable_inmemory_compaction").
+				Debugf("skipping compaction of rangeable segment-in-memory: %v", err)
+			return
+		}
+	}
+
+	var compacted rangeBitmaps
+	s.compactInto(&compacted)
+
+	s.bitmapsLock.Lock()
+	defer s.bitmapsLock.Unlock()
+
+	s.bitmaps = compacted
+	s.changed = false
+	s.compactedAt = time.Now()
+}
+
+// compactedSizeEstimate counts the space a compaction would reclaim too, which
+// is known only once it has run.
+func (s *SegmentInMemory) compactedSizeEstimate() int64 {
+	size := 0
+	for i := range s.bitmaps {
+		size += s.bitmaps[i].LenInBytes()
+	}
+	return int64(math.Ceil(float64(size) * (1 + compactSpareRatio)))
 }
 
 func (s *SegmentInMemory) countPendingMemtables() int {
@@ -149,12 +247,40 @@ func (s *SegmentInMemory) IsUnpopulated() bool {
 	return len(s.memtables) == 0
 }
 
+// Size counts the bytes the layers hold, headroom included.
 func (s *SegmentInMemory) Size() int {
+	s.bitmapsLock.RLock()
+	defer s.bitmapsLock.RUnlock()
+
 	size := 0
 	for i := range s.bitmaps {
-		size += s.bitmaps[i].LenInBytes()
+		size += s.bitmaps[i].CapInBytes()
 	}
 	return size
+}
+
+// compactSpareRatio sizes the spare capacity of each compacted layer. A larger
+// ratio holds more idle memory until merges fill it, a smaller one copies a whole layer
+// under the write lock sooner. BenchmarkSegmentInMemoryCompactHeadroom sweeps it.
+const compactSpareRatio = 0.10
+
+// compactInterval is the least time compactIfDue lets pass between run-time compactions. Dead
+// space is unknown without compacting, so an occasional copy that reclaims little is accepted.
+const compactInterval = 12 * time.Hour
+
+// compactInto writes to dst a copy of each layer without the space deleted values
+// left behind, in a buffer (1+compactSpareRatio) times its size. Later growths
+// follow sroar's own policy.
+func (s *SegmentInMemory) compactInto(dst *rangeBitmaps) {
+	for i := range s.bitmaps {
+		dst[i] = s.bitmaps[i].CompactedTo(nil, sroar.BuildOpts{InitialSpareRatio: compactSpareRatio})
+	}
+}
+
+// Compact must run before the index is published, as it takes no lock. Layers are
+// replaced one at a time, so live memory peaks at one extra layer.
+func (s *SegmentInMemory) Compact() {
+	s.compactInto(&s.bitmaps)
 }
 
 func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []InnerReader, release func()) {
@@ -175,6 +301,11 @@ func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []I
 }
 
 // -----------------------------------------------------------------------------
+
+// readSpareRatio sizes the spare capacity of each result segmentInMemoryReader returns.
+// A larger ratio holds more idle memory per result, a smaller one copies a result sooner
+// as memtables merge into it. BenchmarkSegmentInMemoryReadHeadroom sweeps it.
+const readSpareRatio = 0.10
 
 // segmentInMemoryReader returns bitmaps with layer 0's free key slots and more
 // from spare capacity, since CombinedReader merges memtable layers into them.
@@ -229,9 +360,9 @@ func (r *segmentInMemoryReader) readEqual(value uint64, conc int) (roaringset.Bi
 	var eq *sroar.Bitmap
 	var eqRelease func()
 	if value == 0 {
-		eq, eqRelease = r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+		eq, eqRelease = r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 	} else {
-		eq, eqRelease = r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], 0)
+		eq, eqRelease = r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], readSpareRatio)
 	}
 	r.mergeEqual(value, eq, conc)
 	return roaringset.BitmapLayer{Additions: eq}, eqRelease
@@ -248,7 +379,7 @@ func (r *segmentInMemoryReader) readNotEqual(value uint64, conc int) (roaringset
 	defer eqRelease()
 	r.mergeEqual(value, eq, conc)
 
-	neq, neqRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+	neq, neqRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 	neq.AndNotConc(eq, conc)
 	return roaringset.BitmapLayer{Additions: neq}, neqRelease
 }
@@ -263,7 +394,7 @@ func (r *segmentInMemoryReader) readLessThan(value uint64, conc int) (roaringset
 	defer gteRelease()
 	r.mergeGreaterThanEqual(value, gte, conc)
 
-	lt, ltRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+	lt, ltRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 	lt.AndNotConc(gte, conc)
 	return roaringset.BitmapLayer{Additions: lt}, ltRelease
 }
@@ -274,7 +405,7 @@ func (r *segmentInMemoryReader) readLessThanEqual(value uint64, conc int) (roari
 		return r.readEqual(value, conc)
 	}
 	if value == math.MaxUint64 {
-		all, allRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+		all, allRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 		// all values are <= max uint64
 		return roaringset.BitmapLayer{Additions: all}, allRelease
 	}
@@ -297,12 +428,12 @@ func (r *segmentInMemoryReader) readGreaterThan(value uint64, conc int) (roaring
 
 func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (roaringset.BitmapLayer, func()) {
 	if value == 0 {
-		all, allRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], 0)
+		all, allRelease := r.bufPool.CloneWithHeadroom(r.bitmaps[0], readSpareRatio)
 		// all values are >= 0
 		return roaringset.BitmapLayer{Additions: all}, allRelease
 	}
 
-	gte, gteRelease := r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], 0)
+	gte, gteRelease := r.bufPool.ZeroedLayoutWithHeadroom(r.bitmaps[0], readSpareRatio)
 	r.mergeGreaterThanEqual(value, gte, conc)
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }

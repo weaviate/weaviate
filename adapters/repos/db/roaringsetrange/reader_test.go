@@ -286,7 +286,7 @@ func TestCombinedReader(t *testing.T) {
 
 	t.Run("segment-in-memory + memtable readers", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		s := NewSegmentInMemory(logger)
+		s := NewSegmentInMemory(logger, nil)
 		s.MergeMemtableEventually(mt1)
 		s.MergeMemtableEventually(mt2)
 
