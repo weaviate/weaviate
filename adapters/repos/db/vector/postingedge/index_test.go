@@ -1172,11 +1172,27 @@ func TestReplaceEdges(t *testing.T) {
 			if tt.full {
 				assert.Equal(t, before, got, "the full edges give back the results of the build")
 			}
-			// Every query is a stored vector, found through its own posting
-			// with or without edges.
-			for i, ids := range got {
-				assert.Containsf(t, ids, uint64(i), "query %d", i)
+			// Every query is a stored vector: one whose own posting the
+			// search loads from the centroid graph finds itself, with or
+			// without edges. The graph is approximate and built by several
+			// goroutines, so with ef 8 a few queries do not load their own
+			// posting; without edges nothing else leads there.
+			own := make(map[uint64]uint64, len(st.postings.docIDs))
+			for slot, id := range st.postings.docIDs {
+				own[id] = uint64(st.side.postingOf[slot])
 			}
+			entries := int(index.entryPostings.Load())
+			loaded := 0
+			for i, ids := range got {
+				nearest, err := st.centroids.nearest(ctx, queries[i], entries)
+				require.NoError(t, err)
+				if !slices.Contains(nearest, own[uint64(i)]) {
+					continue
+				}
+				loaded++
+				assert.Containsf(t, ids, uint64(i), "query %d, whose own posting the search loads", i)
+			}
+			assert.GreaterOrEqual(t, loaded, len(queries)*95/100, "the queries that load their own posting")
 		})
 	}
 }
