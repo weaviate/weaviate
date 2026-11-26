@@ -728,7 +728,7 @@ func annotateVectorIndexParams(ctx context.Context, params *searchparams.VectorI
 		helpers.AnnotateSlowQueryLog(ctx, "vector_search_filter_strategy_requested", params.FilterStrategy)
 	}
 	if len(params.PerTarget) > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "vector_index_params_per_target",
+		helpers.AnnotateSlowQueryLog(ctx, "vector_search_per_target",
 			slices.Sorted(maps.Keys(params.PerTarget)))
 	}
 }

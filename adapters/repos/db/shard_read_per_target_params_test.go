@@ -317,7 +317,7 @@ func TestAnnotateVectorIndexParams(t *testing.T) {
 		assert.Equal(t, 64, details["vector_search_ef_requested"])
 		assert.Equal(t, 16, details["vector_search_probe_requested"])
 		assert.Equal(t, "acorn", details["vector_search_filter_strategy_requested"])
-		assert.Equal(t, []string{"body", "title"}, details["vector_index_params_per_target"])
+		assert.Equal(t, []string{"body", "title"}, details["vector_search_per_target"])
 	})
 
 	t.Run("unset knobs leave no key", func(t *testing.T) {
@@ -327,7 +327,7 @@ func TestAnnotateVectorIndexParams(t *testing.T) {
 		assert.Equal(t, 64, details["vector_search_ef_requested"])
 		assert.NotContains(t, details, "vector_search_probe_requested")
 		assert.NotContains(t, details, "vector_search_filter_strategy_requested")
-		assert.NotContains(t, details, "vector_index_params_per_target")
+		assert.NotContains(t, details, "vector_search_per_target")
 	})
 
 	t.Run("allocates nothing when the slow-query log is off", func(t *testing.T) {
