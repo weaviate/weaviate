@@ -946,10 +946,58 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				MaintenanceNodes:        make([]string, 0),
 			},
 		},
+		{
+			name: "basic auth send only enabled",
+			envVars: map[string]string{
+				"CLUSTER_BASIC_AUTH_USERNAME":  "user",
+				"CLUSTER_BASIC_AUTH_PASSWORD":  "pass",
+				"CLUSTER_BASIC_AUTH_SEND_ONLY": "true",
+			},
+			expectedResult: cluster.Config{
+				Hostname:         hostname,
+				GossipBindPort:   7946,
+				DataBindPort:     7947,
+				AuthConfig:       cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "user", Password: "pass", SendOnly: true}},
+				MaintenanceNodes: make([]string, 0),
+			},
+		},
+		{
+			name: "basic auth send only disabled",
+			envVars: map[string]string{
+				"CLUSTER_BASIC_AUTH_USERNAME":  "user",
+				"CLUSTER_BASIC_AUTH_PASSWORD":  "pass",
+				"CLUSTER_BASIC_AUTH_SEND_ONLY": "false",
+			},
+			expectedResult: cluster.Config{
+				Hostname:         hostname,
+				GossipBindPort:   7946,
+				DataBindPort:     7947,
+				AuthConfig:       cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "user", Password: "pass"}},
+				MaintenanceNodes: make([]string, 0),
+			},
+		},
+		{
+			name: "basic auth send only unset",
+			envVars: map[string]string{
+				"CLUSTER_BASIC_AUTH_USERNAME": "user",
+				"CLUSTER_BASIC_AUTH_PASSWORD": "pass",
+			},
+			expectedResult: cluster.Config{
+				Hostname:         hostname,
+				GossipBindPort:   7946,
+				DataBindPort:     7947,
+				AuthConfig:       cluster.AuthConfig{BasicAuth: cluster.BasicAuth{Username: "user", Password: "pass"}},
+				MaintenanceNodes: make([]string, 0),
+			},
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// unset the var so the process env cannot leak in; t.Setenv
+			// first so the original value is restored after the test
+			t.Setenv("CLUSTER_BASIC_AUTH_SEND_ONLY", "")
+			os.Unsetenv("CLUSTER_BASIC_AUTH_SEND_ONLY")
 			for k, v := range test.envVars {
 				t.Setenv(k, v)
 			}

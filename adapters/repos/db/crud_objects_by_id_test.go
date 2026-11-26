@@ -12,8 +12,9 @@
 package db
 
 import (
+	"context"
 	"errors"
-	"testing"
+  "testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -44,17 +45,29 @@ func TestObjectsByID(t *testing.T) {
 		{class: "ns1:Plain"},
 		{class: "ns2:Plain"},
 		{class: "ns4:Closed"},
+		{class: "ns5:Dropping"},
+		{class: "ns5:Plain"},
+		{class: "ns6:Closing"},
+		{class: "ns7:Gone"},
 	} {
 		db.indices[indexID(schema.ClassName(c.class))] = objectsByIDTestIndex(t, c.class, c.multiTenant, id)
 	}
-	require.NoError(t, db.indices[indexID("ns4:Closed")].ForEachShard(func(_ string, shard ShardLike) error {
-		return shard.Shutdown(t.Context())
-	}))
+	for class, cause := range map[string]error{"ns4:Closed": nil, "ns5:Dropping": errIndexDropped, "ns6:Closing": errIndexShutdown, "ns7:Gone": nil} {
+		idx := db.indices[indexID(schema.ClassName(class))]
+		require.NoError(t, idx.ForEachShard(func(_ string, shard ShardLike) error {
+			return shard.Shutdown(t.Context())
+		}))
+		if cause != nil {
+			idx.signalCloseRequested(cause)
+		}
+	}
+	db.indices[indexID("ns7:Gone")].getSchema = withoutClass{db.indices[indexID("ns7:Gone")].getSchema}
 
 	cases := []struct {
 		name      string
 		namespace string
 		want      []string // the classes the lookup finds the id in
+		cancelled bool
 		wantErr   error
 	}{
 		{
@@ -80,10 +93,35 @@ func TestObjectsByID(t *testing.T) {
 			namespace: "ns4",
 			wantErr:   errAlreadyShutdown,
 		},
+		{
+			name:      "a collection being deleted is left out",
+			namespace: "ns5",
+			want:      []string{"ns5:Plain"},
+		},
+		{
+			name:      "a collection whose class left the schema is left out",
+			namespace: "ns7",
+		},
+		{
+			name:      "a collection shutting down fails the lookup",
+			namespace: "ns6",
+			wantErr:   errAlreadyShutdown,
+		},
+		{
+			name:      "a cancelled lookup fails rather than report a miss",
+			namespace: "ns3",
+			cancelled: true,
+			wantErr:   context.Canceled,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			results, err := db.ObjectsByID(t.Context(), id, nil, additional.Properties{}, "", tc.namespace)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.cancelled {
+				cancel()
+			}
+			results, err := db.ObjectsByID(ctx, id, nil, additional.Properties{}, "", tc.namespace)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
