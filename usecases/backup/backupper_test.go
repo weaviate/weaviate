@@ -339,6 +339,63 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		assert.Empty(t, backend.getMetaBaseBackupID())
 	})
 
+	t.Run("BaseWithCraftedRefsFails", func(t *testing.T) {
+		gz := backup.CompressionGZIP
+		baseOf := func(baseID, classBackupID, key string) []byte {
+			return marshalMeta(backup.BackupDescriptor{
+				ID: "base-1", StartedAt: time.Now().UTC().Add(-time.Hour), Status: backup.Success,
+				Version: Version, ServerVersion: "1.39.0", CompressionType: &gz, BaseBackupID: baseID,
+				Classes: []backup.ClassDescriptor{{Name: cls, BackupID: classBackupID, Shards: []*backup.ShardDescriptor{{
+					Name: "s1", Node: nodeName,
+					BigFilesChunk: map[string]backup.BigFileInfo{"s1/big.db": {ChunkKeys: []string{chunkKey(cls, 1), key}}},
+				}}}},
+			})
+		}
+		base := func(baseID, key string) []byte { return baseOf(baseID, "base-1", key) }
+		tests := []struct {
+			name    string
+			body    []byte
+			wantErr string
+		}{
+			{name: "chunk key outside class", body: base("", "../../evil"), wantErr: "../../evil"},
+			{name: "base id outside backups", body: base("../x", chunkKey(cls, 2)), wantErr: "../x"},
+			{name: "class backup id outside backups", body: baseOf("", "../escape", chunkKey(cls, 2)), wantErr: "../escape"},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				var (
+					sourcePath = t.TempDir()
+					sourcer    = &fakeSourcer{}
+					backend    = newFakeBackend()
+					baseID     = "base-1"
+				)
+				sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+				ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+				sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+				sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				backend.On("SourceDataPath").Return(sourcePath)
+				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+				backend.On("GetObject", any, baseID+"/"+nodeName, BackupFile).Return(tc.body, nil)
+				backend.On("GetObject", any, any, BackupFile).Return(nil, errNotFound)
+				backend.On("Initialize", ctx, nodeHome).Return(nil)
+				backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil)
+				backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+				m := createManager(sourcer, nil, backend, nil)
+
+				req := req
+				req.Duration = time.Hour
+				req.BaseBackupID = baseID
+				assert.Equal(t, &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}, m.OnCanCommit(ctx, &req))
+				require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""}))
+				m.backupper.waitForCompletion(20, 50)
+				require.Error(t, m.backupper.lastAsyncError)
+				assert.Contains(t, m.backupper.lastAsyncError.Error(), tc.wantErr)
+				sourcer.AssertNotCalled(t, "BackupDescriptors", any, any, any, any)
+			})
+		}
+	})
+
 	t.Run("AbortBeforeCommit", func(t *testing.T) {
 		var (
 			sourcePath = t.TempDir()
@@ -592,7 +649,44 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		setupFetchMeta    func() fetchMetaFunc
 		errorContains     []string
 		expectedResultIDs []string
+		wantFetches       *int
 	}{
+		{
+			name:            "RequestedIDOutsideBackups",
+			baseBackupID:    "../x",
+			childStartedAt:  t1,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return nil, backup.NewErrNotFound(errors.New("not found"))
+				}
+			},
+			errorContains: []string{"base backup id \"../x\"", "invalid backup id"},
+			wantFetches:   new(0),
+		},
+		{
+			name:            "ChainedIDOutsideBackups",
+			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					if backupID != "backup-1" {
+						return nil, backup.NewErrNotFound(errors.New("not found"))
+					}
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						BaseBackupID:    "../x",
+						Status:          backup.Success,
+						ServerVersion:   "1.23",
+						StartedAt:       t0,
+					}, nil
+				}
+			},
+			errorContains: []string{"base backup id \"../x\"", "invalid backup id"},
+			wantFetches:   new(1),
+		},
 		{
 			name:            "EmptyBaseBackupID",
 			baseBackupID:    "",
@@ -894,12 +988,20 @@ func TestResolveBaseBackupChain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fetchMeta := tt.setupFetchMeta()
+			inner, fetches := tt.setupFetchMeta(), 0
+			fetchMeta := func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+				fetches++
+				return inner(ctx, backupID, bucket, path)
+			}
 
 			result, err := resolveBaseBackupChain(ctx, tt.baseBackupID, tt.childStartedAt, bucket, path, tt.compressionType, fetchMeta)
 
+			if tt.wantFetches != nil {
+				assert.Equal(t, *tt.wantFetches, fetches)
+			}
 			if len(tt.errorContains) > 0 {
 				assert.Error(t, err)
+				assert.False(t, errors.As(err, &backup.ErrNotFound{}))
 				assert.Nil(t, result)
 				for _, errMsg := range tt.errorContains {
 					assert.Contains(t, err.Error(), errMsg)

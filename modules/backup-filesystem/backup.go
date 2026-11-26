@@ -58,8 +58,19 @@ func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, o
 	return contents, nil
 }
 
+// objectPath joins backupID and key under basePath, refusing either if it could leave it.
+func objectPath(basePath, backupID, key string) (string, error) {
+	if !filepath.IsLocal(backupID) || !filepath.IsLocal(key) {
+		return "", backup.NewErrUnprocessable(fmt.Errorf("backup id %q and key %q must be local paths", backupID, key))
+	}
+	return filepath.Join(basePath, backupID, key), nil
+}
+
 func (m *Module) getObjectPath(ctx context.Context, path, backupID, key string) (string, error) {
-	metaPath := filepath.Join(path, backupID, key)
+	metaPath, err := objectPath(path, backupID, key)
+	if err != nil {
+		return "", err
+	}
 
 	if err := ctx.Err(); err != nil {
 		return "", backup.NewErrContextExpired(errors.Wrapf(err, "get object path expired %s", metaPath))
@@ -121,7 +132,10 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overrideP
 	if err != nil {
 		return err
 	}
-	backupPath := path.Join(basePath, backupID, key)
+	backupPath, err := objectPath(basePath, backupID, key)
+	if err != nil {
+		return err
+	}
 
 	dir := path.Dir(backupPath)
 
@@ -157,7 +171,10 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 	if err != nil {
 		return 0, err
 	}
-	backupPath := filepath.Join(basePath, backupID, key)
+	backupPath, err := objectPath(basePath, backupID, key)
+	if err != nil {
+		return 0, err
+	}
 	dir := path.Dir(backupPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return 0, fmt.Errorf("make dir %q: %w", dir, err)
