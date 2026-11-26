@@ -226,6 +226,10 @@ func (h *authZHandlers) resolveRoleNameForCaller(principal *models.Principal, ra
 	if err != nil {
 		return "", err
 	}
+	// A namespace named "role" qualifies a bare name into a global role's casbin key.
+	if err := validateRoleID(stored); err != nil {
+		return "", err
+	}
 	if rolevisibility.RoleOperatorReservedFromCaller(h.namespacesEnabled, principal, stored) {
 		return "", namespacing.ErrRoleNotFound
 	}
@@ -355,6 +359,9 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	// A namespaced caller's role name is auto-prefixed with its namespace.
 	roleName, err := namespacing.QualifyRoleNameForCreate(principal, h.namespacesEnabled, *params.Body.Name)
 	if err != nil {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err := validateRoleID(roleName); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 

@@ -36,6 +36,10 @@ const (
 	prefixCustomRole = "custom"
 	prefixCaller     = "user1"
 	prefixRootUser   = "root-user"
+	prefixRoleNS     = "role"
+	prefixCustomerNS = "customer1"
+	prefixFreshRole  = "fresh"
+	prefixNSUser     = "alice"
 )
 
 var prefixedRoleIDs = []string{
@@ -80,12 +84,13 @@ func rolePrefixPrincipal(namespacesEnabled bool) *models.Principal {
 func rolePrefixHandler(t *testing.T, namespacesEnabled bool) (*authZHandlers, *MockControllerAndGetUsers) {
 	t.Helper()
 	stored := map[string][]authorization.Policy{
-		authorization.Viewer:         {collPolicy(authorization.READ, "*")},
-		authorization.Admin:          {collPolicy(authorization.CREATE, "*")},
-		authorization.Root:           {collPolicy(authorization.DELETE, "*")},
-		authorization.ReadOnly:       {collPolicy(authorization.READ, "*")},
-		authorization.MetadataReader: {collPolicy(authorization.READ, "*")},
-		prefixCustomRole:             {collPolicy(authorization.READ, "Movies")},
+		authorization.Viewer:                      {collPolicy(authorization.READ, "*")},
+		authorization.Admin:                       {collPolicy(authorization.CREATE, "*")},
+		authorization.Root:                        {collPolicy(authorization.DELETE, "*")},
+		authorization.ReadOnly:                    {collPolicy(authorization.READ, "*")},
+		authorization.MetadataReader:              {collPolicy(authorization.READ, "*")},
+		prefixCustomRole:                          {collPolicy(authorization.READ, "Movies")},
+		prefixCustomerNS + ":" + prefixCustomRole: {collPolicy(authorization.READ, prefixCustomerNS+":Movies")},
 	}
 
 	authorizer := authorization.NewMockAuthorizer(t)
@@ -93,6 +98,7 @@ func rolePrefixHandler(t *testing.T, namespacesEnabled bool) (*authZHandlers, *M
 	authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	controller := NewMockControllerAndGetUsers(t)
+	controller.On("GetRoles").Return(stored, nil).Maybe()
 	controller.On("GetRoles", mock.Anything).Return(func(names ...string) map[string][]authorization.Policy {
 		out := map[string][]authorization.Policy{}
 		for _, n := range names {
@@ -102,6 +108,7 @@ func rolePrefixHandler(t *testing.T, namespacesEnabled bool) (*authZHandlers, *M
 		}
 		return out
 	}, nil).Maybe()
+	controller.On("CreateRolesPermissions", mock.Anything).Return(nil).Maybe()
 	controller.On("UpdateRolesPermissions", mock.Anything).Return(nil).Maybe()
 	controller.On("RemovePermissions", mock.Anything, mock.Anything).Return(nil).Maybe()
 	controller.On("DeleteRoles", mock.Anything).Return(nil).Maybe()
@@ -109,7 +116,15 @@ func rolePrefixHandler(t *testing.T, namespacesEnabled bool) (*authZHandlers, *M
 	controller.On("RevokeRolesForUser", mock.Anything, mock.Anything).Return(nil).Maybe()
 	controller.On("HasPermission", mock.Anything, mock.Anything).Return(true, nil).Maybe()
 	controller.On("GetUsersOrGroupForRole", mock.Anything, mock.Anything, mock.Anything).Return([]string{prefixRootUser}, nil).Maybe()
-	controller.On("GetUsers", mock.Anything).Return(map[string]dbuser.View{}, nil).Maybe()
+	controller.On("GetUsers", mock.Anything).Return(func(ids ...string) map[string]dbuser.View {
+		out := map[string]dbuser.View{}
+		for _, id := range ids {
+			if ns := namespacing.NamespaceFromQualified(id); ns != "" {
+				out[id] = dbuser.View{Id: id, Active: true, Namespace: ns}
+			}
+		}
+		return out
+	}, nil).Maybe()
 
 	logger, _ := test.NewNullLogger()
 	return &authZHandlers{
@@ -482,4 +497,134 @@ func TestBuiltInRoleGuardsTrimPrefix(t *testing.T) {
 			assert.Contains(t, del.(*authz.DeleteRoleBadRequest).Payload.Error[0].Message, "built-in role")
 		})
 	}
+}
+
+func TestRolePrefixConfinedNamespaceAlias(t *testing.T) {
+	perm := []*models.Permission{rolePrefixPermission()}
+	calls := []struct {
+		name     string
+		call     func(h *authZHandlers, p *models.Principal, role string) middleware.Responder
+		mutation string
+		refused  any
+		ok       any
+	}{
+		{
+			name: "deleteRole",
+			call: func(h *authZHandlers, p *models.Principal, role string) middleware.Responder {
+				return h.deleteRole(authz.DeleteRoleParams{HTTPRequest: req, ID: role}, p)
+			},
+			mutation: "DeleteRoles",
+			refused:  &authz.DeleteRoleBadRequest{},
+			ok:       &authz.DeleteRoleNoContent{},
+		},
+		{
+			name: "addPermissions",
+			call: func(h *authZHandlers, p *models.Principal, role string) middleware.Responder {
+				return h.addPermissions(authz.AddPermissionsParams{HTTPRequest: req, ID: role, Body: authz.AddPermissionsBody{Permissions: perm}}, p)
+			},
+			mutation: "UpdateRolesPermissions",
+			refused:  &authz.AddPermissionsBadRequest{},
+			ok:       &authz.AddPermissionsOK{},
+		},
+		{
+			name: "removePermissions",
+			call: func(h *authZHandlers, p *models.Principal, role string) middleware.Responder {
+				return h.removePermissions(authz.RemovePermissionsParams{HTTPRequest: req, ID: role, Body: authz.RemovePermissionsBody{Permissions: perm}}, p)
+			},
+			mutation: "RemovePermissions",
+			refused:  &authz.RemovePermissionsBadRequest{},
+			ok:       &authz.RemovePermissionsOK{},
+		},
+		{
+			name: "assignRoleToUser",
+			call: func(h *authZHandlers, p *models.Principal, role string) middleware.Responder {
+				return h.assignRoleToUser(authz.AssignRoleToUserParams{HTTPRequest: req, ID: prefixNSUser, Body: authz.AssignRoleToUserBody{Roles: []string{role}, UserType: models.UserTypeInputDb}}, p)
+			},
+			mutation: "AddRolesForUser",
+			refused:  &authz.AssignRoleToUserBadRequest{},
+			ok:       &authz.AssignRoleToUserOK{},
+		},
+		{
+			name: "revokeRoleFromUser",
+			call: func(h *authZHandlers, p *models.Principal, role string) middleware.Responder {
+				return h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{HTTPRequest: req, ID: prefixNSUser, Body: authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: models.UserTypeInputDb}}, p)
+			},
+			mutation: "RevokeRolesForUser",
+			refused:  &authz.RevokeRoleFromUserBadRequest{},
+			ok:       &authz.RevokeRoleFromUserOK{},
+		},
+		{
+			name: "getRole",
+			call: func(h *authZHandlers, p *models.Principal, role string) middleware.Responder {
+				return h.getRole(authz.GetRoleParams{HTTPRequest: req, ID: role}, p)
+			},
+			refused: &authz.GetRoleBadRequest{},
+			ok:      &authz.GetRoleOK{},
+		},
+		{
+			name: "getUsersForRole",
+			call: func(h *authZHandlers, p *models.Principal, role string) middleware.Responder {
+				return h.getUsersForRole(authz.GetUsersForRoleParams{HTTPRequest: req, ID: role}, p)
+			},
+			mutation: "GetUsersOrGroupForRole",
+			refused:  &authz.GetUsersForRoleBadRequest{},
+			ok:       &authz.GetUsersForRoleOK{},
+		},
+	}
+
+	for _, c := range calls {
+		t.Run(c.name+"/namespace="+prefixRoleNS, func(t *testing.T) {
+			h, controller := rolePrefixHandler(t, true)
+			assert.IsType(t, c.refused, c.call(h, rolePrefixConfinedPrincipal(prefixRoleNS), prefixCustomRole))
+			if c.mutation != "" {
+				require.False(t, rolePrefixMethodCalled(controller, c.mutation))
+			}
+		})
+		t.Run(c.name+"/namespace="+prefixCustomerNS, func(t *testing.T) {
+			h, controller := rolePrefixHandler(t, true)
+			require.IsType(t, c.ok, c.call(h, rolePrefixConfinedPrincipal(prefixCustomerNS), prefixCustomRole))
+			if c.mutation != "" {
+				require.True(t, rolePrefixMethodCalled(controller, c.mutation))
+			}
+		})
+	}
+}
+
+func TestRolePrefixConfinedNamespaceCreate(t *testing.T) {
+	tests := []struct {
+		namespace string
+		name      string
+		want      any
+		stored    string
+	}{
+		{namespace: prefixRoleNS, name: prefixCustomRole, want: &authz.CreateRoleUnprocessableEntity{}},
+		{namespace: prefixRoleNS, name: prefixFreshRole, want: &authz.CreateRoleUnprocessableEntity{}},
+		{namespace: prefixCustomerNS, name: prefixFreshRole, want: &authz.CreateRoleCreated{}, stored: prefixCustomerNS + ":" + prefixFreshRole},
+	}
+	for _, tt := range tests {
+		t.Run(tt.namespace+"/"+tt.name, func(t *testing.T) {
+			h, controller := rolePrefixHandler(t, true)
+			res := h.createRole(authz.CreateRoleParams{
+				HTTPRequest: req,
+				Body:        &models.Role{Name: String(tt.name), Permissions: []*models.Permission{rolePrefixPermission()}},
+			}, rolePrefixConfinedPrincipal(tt.namespace))
+			assert.IsType(t, tt.want, res)
+			if tt.stored == "" {
+				controller.AssertNotCalled(t, "CreateRolesPermissions", mock.Anything)
+				return
+			}
+			controller.AssertCalled(t, "CreateRolesPermissions", mock.MatchedBy(func(m map[string][]authorization.Policy) bool {
+				_, ok := m[tt.stored]
+				return ok && len(m) == 1
+			}))
+		})
+	}
+}
+
+func rolePrefixConfinedPrincipal(namespace string) *models.Principal {
+	return &models.Principal{Username: prefixNSUser, UserType: models.UserTypeInputDb, Namespace: namespace}
+}
+
+func rolePrefixMethodCalled(controller *MockControllerAndGetUsers, method string) bool {
+	return slices.ContainsFunc(controller.Calls, func(c mock.Call) bool { return c.Method == method })
 }
