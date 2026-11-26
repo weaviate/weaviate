@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -222,6 +223,9 @@ func (ic *classSettings) IsAzure() bool {
 func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
+	}
+	if resourceName != "" {
+		return modulecomponents.ValidateAzureResourceName(resourceName)
 	}
 	return nil
 }

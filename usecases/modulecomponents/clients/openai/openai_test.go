@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -30,6 +31,38 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBuildUrlAzureResourceName(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceName string
+		wantErr      bool
+	}{
+		{name: "resource name", resourceName: "corp"},
+		{name: "digits and hyphens", resourceName: "my-resource-01"},
+		{name: "empty", resourceName: "", wantErr: true},
+		{name: "fragment", resourceName: "attacker.example#", wantErr: true},
+		{name: "path", resourceName: "attacker.example/", wantErr: true},
+		{name: "query", resourceName: "attacker.example?", wantErr: true},
+		{name: "address with a port and a path", resourceName: "10.0.0.5:8443/x#", wantErr: true},
+	}
+	for _, tt := range tests {
+		// The Azure host comes from the resource name for both base URLs.
+		for _, baseURL := range []string{"", "https://api.openai.com"} {
+			t.Run(tt.name+" baseURL="+baseURL, func(t *testing.T) {
+				endpoint, err := buildUrl(baseURL, tt.resourceName, "d", "2022-12-01", "", true)
+				if tt.wantErr {
+					assert.ErrorContains(t, err, "resourceName must be 1 to 63 letters, digits or hyphens")
+					return
+				}
+				require.NoError(t, err)
+				u, err := url.Parse(endpoint)
+				require.NoError(t, err)
+				assert.Equal(t, tt.resourceName+".openai.azure.com", u.Host)
+			})
+		}
+	}
+}
 
 func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
@@ -396,6 +429,7 @@ func TestClient(t *testing.T) {
 			"X-Azure-Deployment-Id", []string{"spoofDeployment"})
 		ctxWithValue = context.WithValue(ctxWithValue,
 			"X-Azure-Resource-Name", []string{"spoofResource"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Azure-Api-Key", []string{"callerKey"})
 
 		buildURL, err := c.buildURL(ctxWithValue, config)
 		require.NoError(t, err)

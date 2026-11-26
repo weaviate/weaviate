@@ -36,6 +36,9 @@ import (
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 	///X update with base url
 	if isAzure {
+		if err := modulecomponents.ValidateAzureResourceName(resourceName); err != nil {
+			return "", err
+		}
 		host := "https://" + resourceName + ".openai.azure.com"
 		path := "openai/deployments/" + deploymentID + "/completions"
 		queryParam := "api-version=2022-12-01"
@@ -169,15 +172,14 @@ func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploym
 		deploymentID = headerDeploymentID
 	}
 
-	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
-		resourceName = headerResourceName
+	var err error
+	if isAzure {
+		resourceName, err = modulecomponents.RequestAzureResourceName(ctx, "", resourceName)
+	} else {
+		baseURL, err = modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", baseURL, v.apiKeyHeader(false))
 	}
-
-	if !isAzure {
-		var err error
-		if baseURL, err = modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", baseURL, v.apiKeyHeader(false)); err != nil {
-			return "", err
-		}
+	if err != nil {
+		return "", err
 	}
 
 	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)
