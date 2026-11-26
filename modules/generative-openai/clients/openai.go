@@ -302,6 +302,13 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params,
 	if err != nil {
 		return "", false, err
 	}
+	// A request that turns Azure on for a non-Azure collection would send the
+	// server's Azure key to the collection's host.
+	if isAzure && !settings.IsAzure() {
+		if err := modulecomponents.RequireRequestAPIKey(ctx, "a request that turns on Azure", v.apiKeyHeader(isAzure)); err != nil {
+			return "", false, err
+		}
+	}
 
 	endpoint, err = v.buildUrl(config.IsLegacy(params.Model), isAzure, resourceName, deploymentID, baseURL, params.ApiVersion)
 	return endpoint, isAzure, err

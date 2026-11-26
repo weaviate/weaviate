@@ -79,6 +79,24 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			wantAzureKey: callerKey,
 		},
 		{
+			name:        "Azure headers on a non-Azure class without a request key",
+			classConfig: map[string]any{"baseURL": server.URL},
+			headers:     map[string]string{"X-Azure-Resource-Name": "r", "X-Azure-Deployment-Id": "d"},
+			wantErr:     "a request that turns on Azure needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
+		},
+		{
+			name:        "query isAzure on a non-Azure class without a request key",
+			classConfig: map[string]any{"baseURL": server.URL},
+			options:     &openaiparams.Params{IsAzure: true},
+			wantErr:     "a request that turns on Azure needs X-Azure-Api-Key",
+		},
+		{
+			name:        "Azure deployment header on a class with only a resourceName without a request key",
+			classConfig: map[string]any{"baseURL": server.URL, "resourceName": "corp"},
+			headers:     map[string]string{"X-Azure-Deployment-Id": "d"},
+			wantErr:     "a request that turns on Azure needs X-Azure-Api-Key",
+		},
+		{
 			name:         "Azure class with a baseURL gets the server key",
 			classConfig:  map[string]any{"baseURL": server.URL, "isAzure": true, "deploymentId": "d"},
 			wantAzureKey: serverAzureKey,
