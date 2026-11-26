@@ -34,11 +34,9 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}
-		class = h.schemaReader.ReadOnlyClass(qClass)
-		if class == nil {
-			// Optional class Filter not found. So return empty aliases list
-			return []*models.Alias{}, nil
-		}
+		// No existence lookup: a miss would take the eventual-consistency retry
+		// path and time differently from a hit for callers not allowed to know.
+		class = &models.Class{Class: qClass}
 	}
 	aliases, err := h.schemaManager.GetAliases(ctx, alias, class)
 	if err != nil {
@@ -73,12 +71,12 @@ func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, ali
 	a, err := h.schemaManager.GetAlias(ctx, alias)
 	if err != nil {
 		if errors.Is(err, cschema.ErrAliasNotFound) {
-			return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotFound)
+			return nil, h.aliasNotFound(alias)
 		}
 		return nil, err
 	}
 
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases(a.Class, a.Alias)...); err != nil {
+	if err := h.authorizeExistingAlias(ctx, principal, authorization.READ, a, alias); err != nil {
 		return nil, err
 	}
 
@@ -166,20 +164,8 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 	alias := aliases[0]
 	// Moving an alias also needs update_aliases on the collection it leaves.
-	// A caller who cannot read the alias gets the missing-alias answer.
-	current := authorization.Aliases(alias.Class, alias.Alias)
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, current...); err != nil {
-		if !errors.As(err, &authzerrors.Forbidden{}) {
-			return nil, err
-		}
-		readErr := h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, current...)
-		if readErr == nil {
-			return nil, err
-		}
-		if errors.As(readErr, &authzerrors.Forbidden{}) {
-			return nil, h.aliasNotFound(aliasName)
-		}
-		return nil, readErr
+	if err := h.authorizeExistingAlias(ctx, principal, authorization.UPDATE, alias, aliasName); err != nil {
+		return nil, err
 	}
 
 	targetClass := h.schemaReader.ReadOnlyClass(targetClassName)
@@ -200,6 +186,29 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	return &models.Alias{Alias: alias.Alias, Class: targetClass.Class}, nil
 }
 
+// authorizeExistingAlias authorizes verb on an alias that exists. A caller who
+// cannot read the alias gets the missing-alias answer instead of Forbidden.
+func (h *Handler) authorizeExistingAlias(ctx context.Context, principal *models.Principal,
+	verb string, a *models.Alias, aliasName string,
+) error {
+	resources := authorization.Aliases(a.Class, a.Alias)
+	err := h.Authorizer.Authorize(ctx, principal, verb, resources...)
+	if !errors.As(err, &authzerrors.Forbidden{}) {
+		return err
+	}
+	if verb == authorization.READ {
+		return h.aliasNotFound(aliasName)
+	}
+	readErr := h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, resources...)
+	if readErr == nil {
+		return err
+	}
+	if errors.As(readErr, &authzerrors.Forbidden{}) {
+		return h.aliasNotFound(aliasName)
+	}
+	return readErr
+}
+
 func (h *Handler) aliasNotFound(aliasName string) error {
 	return fmt.Errorf("%w, no alias found with name: %s", ErrNotFound, aliasName)
 }
@@ -215,12 +224,12 @@ func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, 
 	a, err := h.schemaManager.GetAlias(ctx, aliasName)
 	if err != nil {
 		if errors.Is(err, cschema.ErrAliasNotFound) {
-			return fmt.Errorf("alias %s not found: %w", aliasName, ErrNotFound)
+			return h.aliasNotFound(aliasName)
 		}
 		return err
 	}
 
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases(a.Class, a.Alias)...); err != nil {
+	if err := h.authorizeExistingAlias(ctx, principal, authorization.DELETE, a, aliasName); err != nil {
 		return err
 	}
 

@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -298,7 +300,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		allTenants, err = h.getTenantsByNames(class, tenants)
 	}
 	if err != nil {
-		return nil, err
+		return h.maskUnauthorizedTenantsErr(ctx, principal, class, err)
 	}
 
 	resourceFilter := filter.New[*models.Tenant](h.Authorizer, h.config.Authorization.Rbac)
@@ -313,6 +315,28 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	)
 
 	return filteredTenants, nil
+}
+
+// maskUnauthorizedTenantsErr hides a missing or non-multi-tenant collection
+// from callers without READ on the collection's metadata or on all of its
+// tenants: they get the empty list an existing multi-tenant collection yields
+// when no tenant is visible. Errors on a collection that exists with
+// multi-tenancy, such as an unreachable leader, are returned to every caller.
+func (h *Handler) maskUnauthorizedTenantsErr(ctx context.Context, principal *models.Principal,
+	class string, err error,
+) ([]*models.Tenant, error) {
+	if errors.As(err, &authzerrors.Forbidden{}) {
+		return nil, err
+	}
+	if info := h.schemaReader.ClassInfo(class); info.Exists && info.MultiTenancy.Enabled {
+		return nil, err
+	}
+	if h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.CollectionsMetadata(class)...) == nil ||
+		h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.ShardsMetadata(class)...) == nil {
+		return nil, err
+	}
+	h.logger.WithField("action", "get_tenants").Debugf("tenants of %q unreadable, masked for unauthorized caller: %v", class, err)
+	return []*models.Tenant{}, nil
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
