@@ -370,6 +370,87 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Con las dos cosas,** el crecido quedaría en unos 330 MB en `none` y unos 1 050 en `routing`.
 - No está medido. Antes de decidir habría que crecer 10M en un shard y medir, como `filter1m` a 1M.
 
+### Las dos propuestas, aplicadas y medidas (2026-11-26)
+
+**Aplicadas en `feat/posting-edge-integration-m2` (`67fc89114c`), por decisión del usuario:**
+- **Tope de 64 MB de heap a lo que espera de las aristas.** Al pasarlo, se escriben las filas de los postings con más esperando, hasta bajar al 90 % del tope.
+  - El heap se estima: 112 B por cambio y 150 B por posting, además de las aristas y sus distancias.
+  - Medido con 4 000 postings de 8 a 48 cambios de 16 aristas, el error es menor del 11 %.
+- **Sin la tabla de cuándo se hicieron las aristas mientras el refresco esté apagado.** El fichero se sigue escribiendo, y un índice abierto con el refresco lo lee entero.
+- **Tests:**
+  - el tope se cumple insert a insert, el índice sigue siendo su gemelo y responde lo mismo que sin tope;
+  - la tabla leída del fichero es la que guarda un gemelo en memoria;
+  - un tope que no hace nada, una tabla que se guarda igualmente y un fichero que no se escribe fallan, cada uno, en algún test.
+
+**Las escrituras de más, medidas.**
+- **Montaje:** un índice como el de un shard (por defecto, coseno, 768 dimensiones, vectores latentes de 8 dimensiones), crecido por inserts de la base de 10 000 hasta 60 000, sin cronometrar.
+- **El tope, escalado a esta escala:** se da por posting vivo. 64 MB entre los ~42 000 postings de 10M son unos 1 600 B por posting.
+- **Datos:** `testdata/bench/pending-budget/`.
+
+| tope por posting (su equivalente a 10M) | filas escritas por insert | frente a sin tope | distancias por insert | heap esperando al final | tiempo de crecer |
+|---|---:|---:|---:|---:|---:|
+| sin tope | 1 507 B | 1× | 301 B | 1.33 MB (5.7 KB por posting) | 106 s |
+| 800 B (32 MB) | 6 641 B | 4.41× | 335 B | 178 KB | 239 s |
+| 1 600 B (64 MB) | 3 426 B | 2.27× | 324 B | 357 KB | 151 s |
+| 3 200 B (128 MB) | 1 907 B | 1.27× | 310 B | 688 KB | 112 s |
+
+- **Con 64 MB las filas de aristas se escriben 2.27 veces,** menos de las 4.1 que estimé. Por insert son 1.9 KB más de filas; las distancias apenas cambian (+7 %), y el log de lo que espera (unos 700 B por insert) no cambia.
+- **El tiempo de crecer subió un 42 % con 64 MB.** Es una sola pasada, en una máquina con otras aplicaciones, y la medida no estaba pre-registrada: lo doy como señal, no como dato.
+- **Con 128 MB el coste baja a 1.27× en filas y a +6 % en tiempo,** a cambio de 64 MB más de heap. Si el tiempo de insert se confirma, es la alternativa (*mía*).
+
+**La fila de 10M crecido, estimada de nuevo:**
+
+| componente | `none` antes | `none` ahora | `routing` antes | `routing` ahora | fiable |
+|---|---:|---:|---:|---:|---|
+| centroides RQ8 y su caché | ≈ 35 | ≈ 35 | ≈ 35 | ≈ 35 | sí: medido en el lote de 10M, con los mismos postings por vector |
+| grafo de los centroides | ≈ 5.3 | ≈ 5.3 | ≈ 5.3 | ≈ 5.3 | sí |
+| docID → posting | 50 | 50 | 50 | 50 | sí, con 10M doc ids dados |
+| docID → slot | 50 | 50 | 50 | 50 | sí, igual |
+| docID → cuándo se hicieron sus aristas | 50 | 0 | 50 | 0 | sí |
+| vivos, tamaños y retirados | ≈ 13 | ≈ 13 | ≈ 13 | ≈ 13 | sí |
+| tombstones | 12.5 | 12.5 | 12.5 | 12.5 | sí |
+| cambios de aristas pendientes | ≈ 260 | ≤ 64 | ≈ 260 | ≤ 64 | sí: el tope, y la estimación del heap a menos del 11 % |
+| `lsmkv` | ≈ 105 | ≈ 105 | ≈ 105 | ≈ 105 | **no**: 10 veces el de 1M, sin saber cómo quedan los segmentos a 10M |
+| códigos de ruteo | — | — | 720 | 720 | sí |
+| resto | ≈ 2 | ≈ 2 | ≈ 2 | ≈ 2 | — |
+| **el índice** | **≈ 580** | **≈ 337** | **≈ 1 300** | **≈ 1 057** | |
+
+**Lo que no es fiable, y la medida que lo resolvería (propuesta, *mía*):**
+- **No fiables:**
+  - el bloom y los índices de segmento de `lsmkv` (unos 105 MB, un tercio de `none`);
+  - cuántos postings tiene un índice crecido de 10M;
+  - las tablas por docID, que suponen 10M doc ids dados. Con updates son más, y no encogen.
+- **Una noche:** crecer 10M de wiki-dpr por inserts, de una base de 10 000, en un índice con el store de un shard (bloom incluido) y el tope de 64 MB. Después, abrirlo y medir el heap por componente, como se hizo con `filter1m`. La misma pasada dice cuántas filas se escriben y cuánto tarda insertar.
+  - A unos 2 ms por insert, como a 60 000, son unas 6 h con un llamador; con varios, menos.
+  - El índice ocupa unos 40 GB. Hoy hay unos 45 GB libres en el disco interno y 20 en `/Volumes/v40bench`.
+
+### El mapa docID → posting y slot: ¿se puede bajar sin coste en la búsqueda? (análisis, 2026-11-26, sin cambiar nada)
+
+**Qué es.** Dos tablas de 4 B por doc id: el posting de cada vector (`postingOf`) y su posición en el fichero de vectores (`slotOf`). En un índice crecido tienen `keys` entradas, 1.25 veces el mayor doc id dado. A 10M son 50 + 50 MB en el crecido y 80 MB en el lote (8 B × 10M, sin holgura).
+
+**`postingOf` está en el camino de cada arista.**
+- La búsqueda lo lee para cada extremo de cada arista que sigue (`collectEndpoints`, `rankPostings`): miles por consulta.
+- Sacarlo de memoria costaría una lectura por arista: no hay forma sin coste.
+- **Lo que sí sale sin coste medible:** 3 B en vez de 4. Los ids de posting caben en 24 bits hasta 16.7 M, y a 10M se dan unos 85 000. Una carga de 3 B frente a una de 4 es ruido al lado de la estimación de cada extremo. Ahorra 12.5 MB a 10M.
+
+**`slotOf` solo se lee al traer un vector exacto:** el rescore, los vecinos de un insert y el layout. No está en el camino de las aristas.
+- **La opción grande:** guardar el slot en el miembro del posting, en disco, y que el rescore lo tome del miembro escaneado.
+  - Ahorra 50 MB a 10M sin coste en la búsqueda: el candidato sale siempre de un posting que la búsqueda ha leído.
+  - Cuesta 4 B por miembro en disco.
+  - El layout tendría que reescribir los postings, porque mueve los vectores.
+  - Leer un vector solo por su doc id, sin haber leído su posting, pide además leer el mapa en el store.
+- **La opción pequeña:** 3 B. Los slots caben hasta 16.7 M vectores por índice y ahorra 12.5 MB; por encima habría que volver a 4.
+
+**La holgura del 25 %.** Tablas por páginas, reservadas al usarse, la quitarían: hasta 20 MB a 10M. Cuesta una indirección por consulta de la tabla, que en `postingOf` es por arista: pequeña, pero habría que medirla.
+
+**Con updates, lo que más importa.** Los doc ids crecen con cada update y las tablas por docID no encogen: 14 B por doc id dado, entre las cinco. Si las páginas en que todo está borrado se liberasen, la memoria seguiría a los vivos y no a los doc ids dados.
+
+**En resumen.** Sin coste en la búsqueda se pueden quitar:
+- 12.5 MB de `postingOf` a 3 B;
+- 50 MB de `slotOf` llevándolo al disco, o 12.5 MB a 3 B.
+
+Lo que más rinde es el slot en disco, a cambio de reescribir postings en el layout. Nada de esto está hecho.
+
 ## Centroides en RQ8, sin rescore, como HFresh (pre-registro, 2026-11-26)
 
 **Estado: pre-registrado antes de compilar nada.** El encargo es del usuario. Lo que deja abierto lo fijo aquí, marcado como *mío*.

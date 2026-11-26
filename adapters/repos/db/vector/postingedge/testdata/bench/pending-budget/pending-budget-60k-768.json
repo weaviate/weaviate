@@ -1,0 +1,114 @@
+{
+  "dims": 768,
+  "n": 60000,
+  "runs": [
+    {
+      "budget": -1,
+      "perPosting": 0,
+      "inserts": 50000,
+      "livePostings": 233,
+      "postings": 423,
+      "rowWrites": {
+        "n": 6972,
+        "bytes": 75352053
+      },
+      "rowWritesFull": 6592,
+      "rowWritesSplit": 380,
+      "rowWritesBudget": 0,
+      "rowDists": {
+        "n": 386678,
+        "bytes": 15068700
+      },
+      "pendingLog": {
+        "n": 440009,
+        "bytes": 35012785
+      },
+      "pendingPeakBytes": 592808,
+      "pendingHeapAtEnd": 1326228,
+      "rowBytesPerInsert": 1507.04106,
+      "distBytesPerInsert": 301.374,
+      "seconds": 106.125783917
+    },
+    {
+      "budget": 186400,
+      "perPosting": 800,
+      "inserts": 50000,
+      "livePostings": 234,
+      "postings": 425,
+      "rowWrites": {
+        "n": 30185,
+        "bytes": 332036599
+      },
+      "rowWritesFull": 0,
+      "rowWritesSplit": 382,
+      "rowWritesBudget": 29803,
+      "rowDists": {
+        "n": 426614,
+        "bytes": 16729548
+      },
+      "pendingLog": {
+        "n": 439895,
+        "bytes": 34996831
+      },
+      "pendingPeakBytes": 73912,
+      "pendingHeapAtEnd": 178262,
+      "rowBytesPerInsert": 6640.73198,
+      "distBytesPerInsert": 334.59096,
+      "seconds": 238.938024792
+    },
+    {
+      "budget": 372800,
+      "perPosting": 1600,
+      "inserts": 50000,
+      "livePostings": 233,
+      "postings": 423,
+      "rowWrites": {
+        "n": 15556,
+        "bytes": 171291414
+      },
+      "rowWritesFull": 761,
+      "rowWritesSplit": 380,
+      "rowWritesBudget": 14415,
+      "rowDists": {
+        "n": 413410,
+        "bytes": 16194476
+      },
+      "pendingLog": {
+        "n": 439825,
+        "bytes": 35007457
+      },
+      "pendingPeakBytes": 149144,
+      "pendingHeapAtEnd": 357122,
+      "rowBytesPerInsert": 3425.82828,
+      "distBytesPerInsert": 323.88952,
+      "seconds": 150.8184645
+    },
+    {
+      "budget": 745600,
+      "perPosting": 3200,
+      "inserts": 50000,
+      "livePostings": 227,
+      "postings": 411,
+      "rowWrites": {
+        "n": 8752,
+        "bytes": 95333705
+      },
+      "rowWritesFull": 2934,
+      "rowWritesSplit": 368,
+      "rowWritesBudget": 5450,
+      "rowDists": {
+        "n": 396785,
+        "bytes": 15499128
+      },
+      "pendingLog": {
+        "n": 439696,
+        "bytes": 34996872
+      },
+      "pendingPeakBytes": 302616,
+      "pendingHeapAtEnd": 688362,
+      "rowBytesPerInsert": 1906.6741,
+      "distBytesPerInsert": 309.98256,
+      "seconds": 111.877913875
+    }
+  ]
+}

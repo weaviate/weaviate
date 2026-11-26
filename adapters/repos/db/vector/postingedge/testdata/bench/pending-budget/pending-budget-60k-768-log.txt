@@ -1,0 +1,8 @@
+=== RUN   TestMeasurePendingBudget
+    bench_pending_budget_test.go:111: no budget: 233 live postings, rows 6972 (75352053 B, 1507 B an insert), dists 301 B an insert, pending heap at the end 1326228 B
+    bench_pending_budget_test.go:118: budget 186400 B (800 B a posting): rows 30185 (29803 by the budget, 6641 B an insert, 4.41x), dists 335 B an insert (1.11x), pending heap at the end 178262 B
+    bench_pending_budget_test.go:118: budget 372800 B (1600 B a posting): rows 15556 (14415 by the budget, 3426 B an insert, 2.27x), dists 324 B an insert (1.07x), pending heap at the end 357122 B
+    bench_pending_budget_test.go:118: budget 745600 B (3200 B a posting): rows 8752 (5450 by the budget, 1907 B an insert, 1.27x), dists 310 B an insert (1.03x), pending heap at the end 688362 B
+--- PASS: TestMeasurePendingBudget (609.80s)
+PASS
+ok  	github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge	610.682s
