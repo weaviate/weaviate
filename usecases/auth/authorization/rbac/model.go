@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -509,7 +510,7 @@ func covers(policy, pattern string, colonEndsName bool) bool {
 
 type coverToken struct {
 	kind byte
-	c    byte
+	c    rune
 }
 
 const (
@@ -522,8 +523,9 @@ const (
 // namespaceClass is anyNamespacePattern without its ':'.
 var namespaceClass = strings.TrimSuffix(anyNamespacePattern, schema.NamespaceSeparator)
 
-// coverTokens splits s for covers. In a pattern, a name that is only ".*" is
-// read as "..*", since no name is empty.
+// coverTokens splits s for covers into characters, as the regex '.' counts
+// them. In a pattern, a name that is only ".*" is read as "..*", since no name
+// is empty.
 func coverTokens(s string, policy, colonEndsName bool) ([]coverToken, bool) {
 	ends := func(c byte) bool { return c == '/' || (colonEndsName && c == ':') }
 	tokens := make([]coverToken, 0, len(s)+1)
@@ -546,7 +548,12 @@ func coverTokens(s string, policy, colonEndsName bool) ([]coverToken, bool) {
 		case strings.IndexByte(`\+?()[]{}|^$*`, s[i]) >= 0:
 			return nil, false
 		default:
-			tokens = append(tokens, coverToken{kind: tokenLiteral, c: s[i]})
+			c, size := utf8.DecodeRuneInString(s[i:])
+			if c == utf8.RuneError && size == 1 {
+				return nil, false
+			}
+			tokens = append(tokens, coverToken{kind: tokenLiteral, c: c})
+			i += size - 1
 		}
 	}
 	return tokens, true

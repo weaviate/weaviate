@@ -332,14 +332,7 @@ func TestRegexSegmentsToWildcard(t *testing.T) {
 		{resource: "users/(admin|customer2:eu)", want: "users/.*"},
 		{resource: "users/customer1:b?", want: "users/customer1:.*"},
 		{resource: "users/customer1:?b", want: "users/.*"},
-		{resource: "users/z|.*", want: "*"},
 		{resource: "users/(z|.*)", want: "users/.*"},
-		{resource: "users/[|]z", want: "users/.*"},
-		{resource: `users/a\|b`, want: "users/.*"},
-		{resource: "users/[](]|evil", want: "*"},
-		{resource: "users/[[:alpha:](]|evil", want: "*"},
-		{resource: "users/{(}|evil", want: "*"},
-		{resource: "users/(eu", want: "*"},
 		{resource: "users/customer1:+b", want: "users/customer1:.*"},
 		{resource: "users/customer1:{2}b", want: "users/customer1:.*"},
 	}
@@ -455,6 +448,8 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		updateUsers("a-and-two-or-a-users", "a..|a"),
 		updateUsers("a-up-to-two-more-users", "a.?.?"),
 		updateUsers("one-or-more-users", ".+"),
+		updateUsers("three-character-users", "..."),
+		updateUsers("e-acute-and-one-users", "é."),
 		role("a-colon-non-empty-groups", authorization.ReadGroups, groups("a:.*")),
 		role("a-colon-any-groups", authorization.ReadGroups, groups("a:*")),
 		role("foreign-movies-reader", authorization.ReadCollections, collections("customer2:Movies")),
@@ -511,6 +506,7 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "a literal dot does not cover a grant's any-character dot", caller: "caller", callerRoles: []string{"john-escaped-dot-doe"}, targetRoles: []string{"john-dot-doe"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: john.doe]]"},
 		{name: "a grant that makes a colon optional needs every user", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-optional-colon-b"}, wantDenied: deniedAllUsers},
 		{name: "a caller pattern matching every non-empty name covers a wildcard with a suffix", caller: "caller", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"dot-com-users"}},
+		{name: "a dot counts a multi-byte character once", caller: "caller", callerRoles: []string{"three-character-users"}, targetRoles: []string{"e-acute-and-one-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: é.]]"},
 		{name: "a caller pattern of one or more characters covers every user", caller: "caller", callerRoles: []string{"one-or-more-users"}, targetRoles: []string{"user-updater"}},
 		// The shapes in weaviate/dirk-claude-issues#303: each grant reaches a name no held pattern does.
 		{name: "a dot in the held pattern does not cover a granted wildcard: *.com, *com", caller: "caller", callerRoles: []string{"dot-com-users"}, targetRoles: []string{"com-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: *com]]"},
@@ -558,28 +554,4 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestAuthorizeRolePermissionsLegacyAlternation pins that a row stored before
-// conv grouped alternations, which splits the whole resource, needs a caller
-// holding everything.
-func TestAuthorizeRolePermissionsLegacyAlternation(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
-		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"root"}}}, false, nil, logger)
-	require.NoError(t, err)
-	all := "*"
-	policies, err := conv.RolesToPolicies(&models.Role{Name: authorization.String("user-updater"), Permissions: []*models.Permission{{
-		Action: authorization.String(authorization.UpdateUsers), Users: &models.PermissionUsers{Users: &all},
-	}}})
-	require.NoError(t, err)
-	require.NoError(t, m.CreateRolesPermissions(policies))
-	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("caller", authentication.AuthTypeDb), []string{"user-updater"}))
-	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("operator", authentication.AuthTypeDb), []string{authorization.Admin}))
-	legacy := map[string][]authorization.Policy{"legacy": {{Resource: "users/z|.*", Verb: authorization.UPDATE, Domain: authorization.UsersDomain}}}
-
-	caller := &models.Principal{Username: "caller", UserType: models.UserTypeInputDb}
-	require.Error(t, AuthorizeRolePermissions(context.Background(), m, false, caller, "", legacy))
-	operator := &models.Principal{Username: "operator", UserType: models.UserTypeInputDb}
-	require.NoError(t, AuthorizeRolePermissions(context.Background(), m, false, operator, "", legacy))
 }

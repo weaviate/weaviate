@@ -1226,6 +1226,10 @@ func TestCovers(t *testing.T) {
 		{name: "one-or-more covers a wildcard with a fixed suffix", policy: "users/..*", pattern: "users/.*@x.com", want: true},
 		{name: "plus reads as one-or-more", policy: "users/.+", pattern: "users/.*@x.com", want: true},
 		{name: "a two-character minimum does not cover a one-character name", policy: "users/.*..", pattern: "users/a.*", want: false},
+		{name: "a dot counts a multi-byte character once", policy: "users/...", pattern: "users/é.", want: false},
+		{name: "a multi-byte literal covers itself", policy: "users/é.", pattern: "users/é.", want: true},
+		{name: "a dot covers a multi-byte character", policy: "users/..", pattern: "users/é.", want: true},
+		{name: "invalid UTF-8 covers nothing", policy: "users/\xff.", pattern: "users/\xfe.", want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

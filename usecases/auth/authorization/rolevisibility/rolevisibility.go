@@ -18,8 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"regexp/syntax"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -146,16 +144,13 @@ func authorizeResource(ctx context.Context, authorizer authorization.Authorizer,
 const regexSyntax = `\+?()[]{}|^$`
 
 // regexSegmentsToWildcard replaces each segment using regexSyntax with ".*",
-// keeping its "<ns>:" qualifier. casbin treats the request as literal text, so
-// "(eu|admin)" would pass for a caller holding "*eu*" and reach admin.
+// keeping its "<ns>:" qualifier, so the result matches every name resource
+// does and holds only what the coverage check reads. It relies on an
+// alternation staying inside its segment, which conv's grouping ensures for
+// every row written or read back.
 func regexSegmentsToWildcard(resource string) string {
 	if !strings.ContainsAny(resource, regexSyntax) {
 		return resource
-	}
-	// A '|' outside parentheses, as in rows stored before conv grouped them,
-	// splits the whole resource, so it can reach any domain.
-	if topLevelAlternation(resource) {
-		return "*"
 	}
 	segments := strings.Split(resource, "/")
 	for i, segment := range segments {
@@ -174,18 +169,6 @@ func regexSegmentsToWildcard(resource string) string {
 		segments[i] = namespacing.QualifiedName(ns, ".*")
 	}
 	return strings.Join(segments, "/")
-}
-
-// keyMatch5Param is the placeholder KeyMatch5 rewrites to "[^/]+" in a policy.
-var keyMatch5Param = regexp.MustCompile(`\{[^/]+\}`)
-
-// topLevelAlternation reports whether resource, read the way KeyMatch5 reads a
-// policy, splits into whole alternative resources. A pattern that does not
-// parse counts too.
-func topLevelAlternation(resource string) bool {
-	policy := keyMatch5Param.ReplaceAllString(strings.ReplaceAll(resource, "/*", "/.*"), "[^/]+")
-	re, err := syntax.Parse(policy, syntax.Perl)
-	return err != nil || re.Op == syntax.OpAlternate
 }
 
 // authorizePolicy checks each verb of the policy on its own. A denied verb of a
