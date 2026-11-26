@@ -73,8 +73,14 @@ type Service struct {
 	batchObjectsSem    *semaphore.Weighted
 }
 
-func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
-	authenticator := auth.NewHandler(allowAnonymous, authComposer)
+type ServiceConfig struct {
+	AllowAnonymous bool
+	AuthComposer   composer.TokenFunc
+	Registerer     prometheus.Registerer
+}
+
+func NewService(state *state.State, conf ServiceConfig) (*Service, batch.Drain) {
+	authenticator := auth.NewHandler(conf.AllowAnonymous, conf.AuthComposer)
 	batchHandler := batch.NewHandler(
 		state.Authorizer,
 		state.BatchManager,
@@ -88,7 +94,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		state.Authorizer,
 		batchHandler,
 		state.SchemaManager,
-		prometheus.DefaultRegisterer,
+		conf.Registerer,
 		state.ServerConfig.Config.BatchStream.Workers(),
 		state.Logger,
 		state.NamespaceQualifier,
@@ -96,7 +102,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 	)
 	return &Service{
 		traverser:            state.Traverser,
-		authComposer:         authComposer,
+		authComposer:         conf.AuthComposer,
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		schemaManager:        state.SchemaManager,
 		batchManager:         state.BatchManager,

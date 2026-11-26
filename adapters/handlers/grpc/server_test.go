@@ -337,7 +337,7 @@ func startTestServer(t *testing.T, s *state.State) grpc.ClientConnInterface {
 		s.Cluster = new(cluster.State)
 	}
 
-	srv, stop := CreateGRPCServer(s, nil, nil)
+	srv, stop := CreateGRPCServer(s, Config{Registerer: monitoring.NoopRegisterer})
 	t.Cleanup(stop)
 
 	// bufconn Listener mocks network connections using an in-memory buffer.

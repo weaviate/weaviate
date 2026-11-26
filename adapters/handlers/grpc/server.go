@@ -22,10 +22,12 @@ import (
 
 	"google.golang.org/grpc/peer"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -52,21 +54,27 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+type Config struct {
+	ClientTracker      *telemetry.ClientTracker
+	IntegrationTracker *telemetry.IntegrationTracker
+	Registerer         prometheus.Registerer
+}
+
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
 // clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
-func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
-	conf := state.ServerConfig.Config.GRPC
+func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
+	grpcConf := state.ServerConfig.Config.GRPC
 	o := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(conf.MaxMsgSize),
-		grpc.MaxSendMsgSize(conf.MaxMsgSize),
+		grpc.MaxRecvMsgSize(grpcConf.MaxMsgSize),
+		grpc.MaxSendMsgSize(grpcConf.MaxMsgSize),
 	}
 
 	o = append(o, options...)
 
 	// Add TLS creds for the GRPC connection, if defined.
-	if len(conf.CertFile) > 0 || len(conf.KeyFile) > 0 {
-		c, err := credentials.NewServerTLSFromFile(conf.CertFile,
-			conf.KeyFile)
+	if len(grpcConf.CertFile) > 0 || len(grpcConf.KeyFile) > 0 {
+		c, err := credentials.NewServerTLSFromFile(grpcConf.CertFile,
+			grpcConf.KeyFile)
 		if err != nil {
 			state.Logger.WithField("action", "grpc_startup").
 				Fatalf("grpc server TLS credential error: %s", err)
@@ -82,17 +90,18 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	}
 
 	unaryInterceptors = append(unaryInterceptors, makeIPInterceptor())
-	if clientTracker != nil {
+
+	// TODO(dyma): hide this logic within the interceptor factory.
+	// FIXME(dyma): the first branch may be using nil IntegrationTracker.
+	if conf.ClientTracker != nil {
 		// ClientTrackingUnaryInterceptor both tracks usage and sets "clientIdentifier" in context,
 		// so no need for a separate makeClientIdentifierInterceptor.
-		unaryInterceptors = append(unaryInterceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker, integrationTracker))
+		unaryInterceptors = append(unaryInterceptors, telemetry.ClientTrackingUnaryInterceptor(conf.ClientTracker, conf.IntegrationTracker))
 	} else {
 		unaryInterceptors = append(unaryInterceptors, makeClientIdentifierInterceptor())
 	}
-	operationalModeInterceptor := newOperationalModeInterceptor(state)
-	maintenanceModeInterceptor := newMaintenanceModeInterceptor(state)
-	unaryInterceptors = append(unaryInterceptors, operationalModeInterceptor.unary)
-	unaryInterceptors = append(unaryInterceptors, maintenanceModeInterceptor.unary)
+
+	unaryInterceptors = append(unaryInterceptors, serverStateUnaryServerInterceptor((*serverState)(state)))
 
 	// Add OpenTelemetry tracing interceptors
 	unaryInterceptors = append(unaryInterceptors, monitoring.GRPCTracingInterceptor())
@@ -113,13 +122,16 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	)
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
-	o = append(o, grpc.ChainStreamInterceptor(operationalModeInterceptor.stream))
-	o = append(o, grpc.ChainStreamInterceptor(maintenanceModeInterceptor.stream))
+	o = append(o, grpc.ChainStreamInterceptor(serverStateStreamServerInterceptor((*serverState)(state))))
 	o = append(o, grpc.ChainStreamInterceptor(makeDocsLinkStreamInterceptor()))
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1, drainBatch := v1.NewService(allowAnonymous, authComposer, state)
+	weaviateV1, drainBatch := v1.NewService(state, v1.ServiceConfig{
+		AllowAnonymous: allowAnonymous,
+		AuthComposer:   authComposer,
+		Registerer:     conf.Registerer,
+	})
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 
@@ -282,38 +294,49 @@ func makeClientIdentifierInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-func newOperationalModeInterceptor(s *state.State) *operationalModeInterceptor {
-	// TODO(dyma): do we want to add something like dev.Assert in Go client?
-	// To enable assertions in test, i.e. state is not nil.
-	return &operationalModeInterceptor{
-		getMode: s.ServerConfig.Config.OperationalMode.Get,
-	}
-}
+// ----------------------------------------------------------------------------
+// Operational + maintainance mode
+// ----------------------------------------------------------------------------
 
-type operationalModeInterceptor struct {
-	getMode func() string // Returns the cluster's current operational mode.
-}
+type serverState state.State
 
-// admit returns a non-nil error if the server cannot process the request in the current state.
-func (i *operationalModeInterceptor) admit(fullMethod string) error {
-	if config.IsGPRCHealthCheck(fullMethod) {
-		return nil
+// admit returns a non-nil error if the server cannot process the request.
+func (s *serverState) admit(method string) error {
+	if s.Cluster.MaintenanceModeEnabledForLocalhost() {
+		return status.Error(codes.Unavailable, "server is in maintenance mode")
 	}
+
 	var err error
-	switch i.getMode() {
-	case config.READ_ONLY:
-		if config.IsGRPCWrite(fullMethod) {
-			err = config.ErrReadOnlyModeEnabled
-		}
-	case config.SCALE_OUT:
-		if config.IsGRPCWrite(fullMethod) {
-			err = config.ErrScaleOutModeEnabled
-		}
-	case config.WRITE_ONLY:
-		if config.IsGRPCRead(fullMethod) {
+	switch method {
+
+	// Healthcheck request.
+	case grpc_health_v1.Health_Check_FullMethodName,
+		grpc_health_v1.Health_Watch_FullMethodName,
+		grpc_health_v1.Health_List_FullMethodName:
+
+	// Read request.
+	case protocol.Weaviate_Search_FullMethodName,
+		protocol.Weaviate_Aggregate_FullMethodName,
+		protocol.Weaviate_TenantsGet_FullMethodName:
+
+		if s.ServerConfig.Config.OperationalMode.Get() == config.WRITE_ONLY {
 			err = config.ErrWriteOnlyModeEnabled
 		}
-	default: // The node can serve the request.
+
+	// Write request.
+	case protocol.Weaviate_BatchObjects_FullMethodName,
+		protocol.Weaviate_BatchStream_FullMethodName,
+		protocol.Weaviate_BatchReferences_FullMethodName,
+		protocol.Weaviate_BatchDelete_FullMethodName:
+
+		switch s.ServerConfig.Config.OperationalMode.Get() {
+		case config.READ_ONLY:
+			err = config.ErrReadOnlyModeEnabled
+		case config.SCALE_OUT:
+			err = config.ErrScaleOutModeEnabled
+		}
+	default:
+		panic(method + " not handled by interceptor")
 	}
 	if err != nil {
 		return status.Error(codes.Unavailable, err.Error())
@@ -321,54 +344,43 @@ func (i *operationalModeInterceptor) admit(fullMethod string) error {
 	return nil
 }
 
-// unary implements [grpc.UnaryServerInterceptor].
-func (i *operationalModeInterceptor) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	if err := i.admit(info.FullMethod); err != nil {
-		return nil, err
+// serverStateUnaryServerInterceptor rejects requests cannot be serviced in the current state.
+func serverStateUnaryServerInterceptor(s *serverState) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+		if err := s.admit(info.FullMethod); err != nil {
+			return nil, err
+		}
+		return handler(ctx, req)
 	}
-	return handler(ctx, req)
 }
 
-// stream implements [grpc.StreamServerInterceptor].
-func (i *operationalModeInterceptor) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	if err := i.admit(info.FullMethod); err != nil {
+// serverStateStreamServerInterceptor rejects requests cannot be serviced in the current state.
+func serverStateStreamServerInterceptor(s *serverState) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if err := s.admit(info.FullMethod); err != nil {
+			return err
+		}
+		return handler(srv, &serverStateStream{ServerStream: ss, info: *info, state: s})
+	}
+}
+
+// serverStateStream checks [serverState.admit] for each incoming message.
+type serverStateStream struct {
+	grpc.ServerStream                       // Delegate stream handler.
+	info              grpc.StreamServerInfo // Stream info.
+	state             *serverState          // Server state.
+}
+
+func (s *serverStateStream) RecvMsg(m any) error {
+	if err := s.state.admit(s.info.FullMethod); err != nil {
 		return err
 	}
-	return handler(srv, ss)
+	return s.ServerStream.RecvMsg(m)
 }
 
-func newMaintenanceModeInterceptor(s *state.State) *maintenanceModeInterceptor {
-	return &maintenanceModeInterceptor{
-		inMaintenanceMode: s.Cluster.MaintenanceModeEnabledForLocalhost,
-	}
-}
-
-type maintenanceModeInterceptor struct {
-	inMaintenanceMode func() bool
-}
-
-func (i *maintenanceModeInterceptor) admit() error {
-	if i.inMaintenanceMode() {
-		return status.Error(codes.Unavailable, "server is in maintenance mode")
-	}
-	return nil
-}
-
-// unary implements [grpc.UnaryServerInterceptor].
-func (i *maintenanceModeInterceptor) unary(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	if err := i.admit(); err != nil {
-		return nil, err
-	}
-	return handler(ctx, req)
-}
-
-// stream implements [grpc.StreamServerInterceptor].
-func (i *maintenanceModeInterceptor) stream(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	if err := i.admit(); err != nil {
-		return err
-	}
-	return handler(srv, ss)
-}
+// ----------------------------------------------------------------------------
+// Documentation links for errors
+// ----------------------------------------------------------------------------
 
 // makeDocsLinkUnaryInterceptor appends the documenting page to the message of
 // a documented error, keeping the status code the handler chose.
