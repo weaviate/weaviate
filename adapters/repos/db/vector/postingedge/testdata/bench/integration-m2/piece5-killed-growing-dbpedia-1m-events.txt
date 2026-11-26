@@ -1,4 +1,0 @@
-=== RUN   TestIntegrationScale
-    bench_integration_test.go:417: the base: 10000 vectors in 43 postings, built in 1s once the vector that completed it was in
-    bench_integration_test.go:446: 81200 of 990000 in (8.2 %): 236 inserts a second in this stretch, 237 since the base | 629 postings given out, 293 splits | 2 passes over the vectors, 59260 of 81200 in the order of their postings | 2 refreshes of edges ended, 21246 vectors refreshed
-    bench_integration_test.go:446: 130800 of 990000 in (13.2 %): 165 inserts a second in this stretch, 202 since the base | 1023 postings given out, 490 splits | 3 passes over the vectors, 118552 of 130800 in the order of their postings | 3 refreshes of edges ended, 50001 vectors refreshed
