@@ -46,13 +46,15 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	})
 
 	// swagger-layer errors (bind validation, security, routing) on search
-	// and aggregate routes use the same ErrorResponse shape as handler errors
+	// and aggregate routes use the same ErrorResponse shape as handler errors.
+	// The wrapper classifies on the escaped path, because that is the string
+	// the router looks up.
 	defaultServeError := api.ServeError
 	if defaultServeError == nil {
 		defaultServeError = openapierrors.ServeError
 	}
 	api.ServeError = func(rw http.ResponseWriter, r *http.Request, err error) {
-		if r != nil && (restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)) {
+		if r != nil && (restsearch.IsSearchRoute(r.URL.EscapedPath()) || restsearch.IsAggregateRoute(r.URL.EscapedPath())) {
 			restsearch.ServeError(rw, r, err)
 			return
 		}
