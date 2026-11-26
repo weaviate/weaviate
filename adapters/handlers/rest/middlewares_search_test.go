@@ -531,22 +531,46 @@ func TestGlobalChainOperationalMode(t *testing.T) {
 }
 
 func TestSearchServeError(t *testing.T) {
-	t.Run("an encoded slash in the collection gets the search-style 404 body", func(t *testing.T) {
-		spec, err := loads.Embedded(SwaggerJSON, FlatSwaggerJSON)
-		require.NoError(t, err)
-		api := operations.NewWeaviateAPI(spec)
-		setupSearchServeError(api)
+	spec, err := loads.Embedded(SwaggerJSON, FlatSwaggerJSON)
+	require.NoError(t, err)
+	api := operations.NewWeaviateAPI(spec)
+	setupSearchServeError(api)
 
-		serve := func(target string) *httptest.ResponseRecorder {
+	tests := []struct {
+		name            string
+		target          string
+		wantSearchShape bool
+	}{
+		{name: "search route", target: "/v1/search/A/nosuch", wantSearchShape: true},
+		{name: "search route with an encoded slash", target: "/v1/search/A%2FB/nosuch", wantSearchShape: true},
+		{name: "aggregate route", target: "/v1/aggregate/A", wantSearchShape: true},
+		{name: "aggregate route with an encoded slash", target: "/v1/aggregate/A%2FB", wantSearchShape: true},
+		{name: "non-search route falls through to the default", target: "/v1/objects/x", wantSearchShape: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			api.ServeError(rec, httptest.NewRequest(http.MethodPost, target, nil), openapierrors.NotFound("not found"))
-			return rec
-		}
-		want := serve("/v1/search/A/nosuch")
-		got := serve("/v1/search/A%2FB/nosuch")
+			api.ServeError(rec, httptest.NewRequest(http.MethodPost, tt.target, nil), openapierrors.NotFound("not found"))
 
-		assert.Equal(t, http.StatusNotFound, got.Code)
-		assert.Equal(t, want.Header().Get("Content-Type"), got.Header().Get("Content-Type"))
-		assert.Equal(t, want.Body.String(), got.Body.String())
-	})
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+
+			var searchBody models.ErrorResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &searchBody))
+			var defaultBody struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultBody))
+
+			if tt.wantSearchShape {
+				require.Len(t, searchBody.Error, 1, rec.Body.String())
+				assert.NotEmpty(t, searchBody.Error[0].Message)
+				assert.Empty(t, defaultBody.Message)
+				return
+			}
+			assert.Empty(t, searchBody.Error, rec.Body.String())
+			assert.Equal(t, http.StatusNotFound, defaultBody.Code)
+			assert.NotEmpty(t, defaultBody.Message)
+		})
+	}
 }
