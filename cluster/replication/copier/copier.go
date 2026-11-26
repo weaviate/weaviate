@@ -315,7 +315,25 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			}
 		}
 
-		localFilePath := filepath.Join(shardBase, meta.FileName)
+		// The name must point inside the shard directory. It must not name the
+		// directory itself: the ".tmp" file would then sit beside the directory,
+		// not in it. The first element of its cleaned form must not be "..",
+		// even if it comes back into the directory, as "../shard/fileA" does. An
+		// honest source never sends such a name. A first element that only
+		// begins with "..", as in "..meta", is a name inside the directory. The
+		// shard directory may not exist yet, so the check reads only the path
+		// text.
+		localFilePath, err := diskio.JoinInRoot(shardBase, meta.FileName)
+		if cleaned := filepath.Clean(meta.FileName); err == nil &&
+			(cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator))) {
+			err = errors.New("it leaves the shard directory")
+		}
+		if err == nil && localFilePath == shardBase {
+			err = errors.New("it names the shard directory itself")
+		}
+		if err != nil {
+			return fmt.Errorf("file name %q from source node is not a path inside the shard directory: %w", meta.FileName, err)
+		}
 
 		_, checksum, err := integrity.CRC32(localFilePath)
 		if err != nil {
