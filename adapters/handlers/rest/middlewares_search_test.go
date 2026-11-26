@@ -535,7 +535,7 @@ func TestSearchServeError(t *testing.T) {
 		spec, err := loads.Embedded(SwaggerJSON, FlatSwaggerJSON)
 		require.NoError(t, err)
 		api := operations.NewWeaviateAPI(spec)
-		setupSearchHandlers(api, searchTestAppState(config.READ_WRITE))
+		setupSearchServeError(api)
 
 		serve := func(target string) *httptest.ResponseRecorder {
 			rec := httptest.NewRecorder()
