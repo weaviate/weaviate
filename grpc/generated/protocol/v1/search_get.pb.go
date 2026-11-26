@@ -210,13 +210,13 @@ type SearchRequest struct {
 	// Per-request vector search tuning for every vector search of the request
 	// (all target vectors, the dense leg of hybrid). Requires a near* or hybrid
 	// search, otherwise InvalidArgument.
-	VectorSearchParams *VectorSearchParams `protobuf:"bytes,63,opt,name=vector_search_params,json=vectorSearchParams,proto3,oneof" json:"vector_search_params,omitempty"`
+	VectorIndexParams *VectorIndexParams `protobuf:"bytes,63,opt,name=vector_index_params,json=vectorIndexParams,proto3,oneof" json:"vector_index_params,omitempty"`
 	// Per-target overrides: each entry sets only its fields for the named
-	// target, the rest fall back to vector_search_params, then to the collection
+	// target, the rest fall back to vector_index_params, then to the collection
 	// config. An entry cannot unset a request-wide value. Unknown or duplicated
 	// targets, and entries on a legacy single-vector collection, are
 	// InvalidArgument.
-	VectorSearchParamsForTargets []*VectorSearchParamsForTarget `protobuf:"bytes,64,rep,name=vector_search_params_for_targets,json=vectorSearchParamsForTargets,proto3" json:"vector_search_params_for_targets,omitempty"`
+	VectorIndexParamsForTargets []*VectorIndexParamsForTarget `protobuf:"bytes,64,rep,name=vector_index_params_for_targets,json=vectorIndexParamsForTargets,proto3" json:"vector_index_params_for_targets,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
@@ -438,16 +438,16 @@ func (x *SearchRequest) GetBoost() *Boost {
 	return nil
 }
 
-func (x *SearchRequest) GetVectorSearchParams() *VectorSearchParams {
+func (x *SearchRequest) GetVectorIndexParams() *VectorIndexParams {
 	if x != nil {
-		return x.VectorSearchParams
+		return x.VectorIndexParams
 	}
 	return nil
 }
 
-func (x *SearchRequest) GetVectorSearchParamsForTargets() []*VectorSearchParamsForTarget {
+func (x *SearchRequest) GetVectorIndexParamsForTargets() []*VectorIndexParamsForTarget {
 	if x != nil {
-		return x.VectorSearchParamsForTargets
+		return x.VectorIndexParamsForTargets
 	}
 	return nil
 }
@@ -478,7 +478,7 @@ func (x *SearchRequest) GetUses_127Api() bool {
 // One set of knobs for every index type: each index reads the fields it knows
 // and ignores the rest. Nodes that predate a field ignore it and use the
 // collection default.
-type VectorSearchParams struct {
+type VectorIndexParams struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// HNSW layer-0 beam width, floored at the limit; 0/unset = collection
 	// default, at most HNSW_MAX_SEARCH_EF. On a compressed index it also caps
@@ -495,20 +495,20 @@ type VectorSearchParams struct {
 	sizeCache      protoimpl.SizeCache
 }
 
-func (x *VectorSearchParams) Reset() {
-	*x = VectorSearchParams{}
+func (x *VectorIndexParams) Reset() {
+	*x = VectorIndexParams{}
 	mi := &file_v1_search_get_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *VectorSearchParams) String() string {
+func (x *VectorIndexParams) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*VectorSearchParams) ProtoMessage() {}
+func (*VectorIndexParams) ProtoMessage() {}
 
-func (x *VectorSearchParams) ProtoReflect() protoreflect.Message {
+func (x *VectorIndexParams) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_search_get_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -520,56 +520,56 @@ func (x *VectorSearchParams) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use VectorSearchParams.ProtoReflect.Descriptor instead.
-func (*VectorSearchParams) Descriptor() ([]byte, []int) {
+// Deprecated: Use VectorIndexParams.ProtoReflect.Descriptor instead.
+func (*VectorIndexParams) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *VectorSearchParams) GetEf() uint32 {
+func (x *VectorIndexParams) GetEf() uint32 {
 	if x != nil && x.Ef != nil {
 		return *x.Ef
 	}
 	return 0
 }
 
-func (x *VectorSearchParams) GetSearchProbe() uint32 {
+func (x *VectorIndexParams) GetSearchProbe() uint32 {
 	if x != nil && x.SearchProbe != nil {
 		return *x.SearchProbe
 	}
 	return 0
 }
 
-func (x *VectorSearchParams) GetFilterStrategy() FilterStrategy {
+func (x *VectorIndexParams) GetFilterStrategy() FilterStrategy {
 	if x != nil && x.FilterStrategy != nil {
 		return *x.FilterStrategy
 	}
 	return FilterStrategy_FILTER_STRATEGY_UNSPECIFIED
 }
 
-type VectorSearchParamsForTarget struct {
+type VectorIndexParamsForTarget struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// One of the request's target vectors.
 	Target string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
 	// Only the fields set here take effect.
-	Params        *VectorSearchParams `protobuf:"bytes,2,opt,name=params,proto3" json:"params,omitempty"`
+	Params        *VectorIndexParams `protobuf:"bytes,2,opt,name=params,proto3" json:"params,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *VectorSearchParamsForTarget) Reset() {
-	*x = VectorSearchParamsForTarget{}
+func (x *VectorIndexParamsForTarget) Reset() {
+	*x = VectorIndexParamsForTarget{}
 	mi := &file_v1_search_get_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *VectorSearchParamsForTarget) String() string {
+func (x *VectorIndexParamsForTarget) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*VectorSearchParamsForTarget) ProtoMessage() {}
+func (*VectorIndexParamsForTarget) ProtoMessage() {}
 
-func (x *VectorSearchParamsForTarget) ProtoReflect() protoreflect.Message {
+func (x *VectorIndexParamsForTarget) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_search_get_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -581,19 +581,19 @@ func (x *VectorSearchParamsForTarget) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use VectorSearchParamsForTarget.ProtoReflect.Descriptor instead.
-func (*VectorSearchParamsForTarget) Descriptor() ([]byte, []int) {
+// Deprecated: Use VectorIndexParamsForTarget.ProtoReflect.Descriptor instead.
+func (*VectorIndexParamsForTarget) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *VectorSearchParamsForTarget) GetTarget() string {
+func (x *VectorIndexParamsForTarget) GetTarget() string {
 	if x != nil {
 		return x.Target
 	}
 	return ""
 }
 
-func (x *VectorSearchParamsForTarget) GetParams() *VectorSearchParams {
+func (x *VectorIndexParamsForTarget) GetParams() *VectorIndexParams {
 	if x != nil {
 		return x.Params
 	}
@@ -2303,7 +2303,7 @@ var File_v1_search_get_proto protoreflect.FileDescriptor
 
 const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xe3\x0f\n" +
+	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xdc\x0f\n" +
 	"\rSearchRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -2345,9 +2345,9 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"generative\x18< \x01(\v2\x1d.weaviate.v1.GenerativeSearchH\x10R\n" +
 	"generative\x88\x01\x01\x120\n" +
 	"\x06rerank\x18= \x01(\v2\x13.weaviate.v1.RerankH\x11R\x06rerank\x88\x01\x01\x12-\n" +
-	"\x05boost\x18> \x01(\v2\x12.weaviate.v1.BoostH\x12R\x05boost\x88\x01\x01\x12V\n" +
-	"\x14vector_search_params\x18? \x01(\v2\x1f.weaviate.v1.VectorSearchParamsH\x13R\x12vectorSearchParams\x88\x01\x01\x12p\n" +
-	" vector_search_params_for_targets\x18@ \x03(\v2(.weaviate.v1.VectorSearchParamsForTargetR\x1cvectorSearchParamsForTargets\x12$\n" +
+	"\x05boost\x18> \x01(\v2\x12.weaviate.v1.BoostH\x12R\x05boost\x88\x01\x01\x12S\n" +
+	"\x13vector_index_params\x18? \x01(\v2\x1e.weaviate.v1.VectorIndexParamsH\x13R\x11vectorIndexParams\x88\x01\x01\x12m\n" +
+	"\x1fvector_index_params_for_targets\x18@ \x03(\v2'.weaviate.v1.VectorIndexParamsForTargetR\x1bvectorIndexParamsForTargets\x12$\n" +
 	"\fuses_123_api\x18d \x01(\bB\x02\x18\x01R\n" +
 	"uses123Api\x12$\n" +
 	"\fuses_125_api\x18e \x01(\bB\x02\x18\x01R\n" +
@@ -2374,18 +2374,18 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\t_near_imuB\r\n" +
 	"\v_generativeB\t\n" +
 	"\a_rerankB\b\n" +
-	"\x06_boostB\x17\n" +
-	"\x15_vector_search_params\"\xc8\x01\n" +
-	"\x12VectorSearchParams\x12\x13\n" +
+	"\x06_boostB\x16\n" +
+	"\x14_vector_index_params\"\xc7\x01\n" +
+	"\x11VectorIndexParams\x12\x13\n" +
 	"\x02ef\x18\x01 \x01(\rH\x00R\x02ef\x88\x01\x01\x12&\n" +
 	"\fsearch_probe\x18\x02 \x01(\rH\x01R\vsearchProbe\x88\x01\x01\x12I\n" +
 	"\x0ffilter_strategy\x18\x03 \x01(\x0e2\x1b.weaviate.v1.FilterStrategyH\x02R\x0efilterStrategy\x88\x01\x01B\x05\n" +
 	"\x03_efB\x0f\n" +
 	"\r_search_probeB\x12\n" +
-	"\x10_filter_strategy\"n\n" +
-	"\x1bVectorSearchParamsForTarget\x12\x16\n" +
-	"\x06target\x18\x01 \x01(\tR\x06target\x127\n" +
-	"\x06params\x18\x02 \x01(\v2\x1f.weaviate.v1.VectorSearchParamsR\x06params\"s\n" +
+	"\x10_filter_strategy\"l\n" +
+	"\x1aVectorIndexParamsForTarget\x12\x16\n" +
+	"\x06target\x18\x01 \x01(\tR\x06target\x126\n" +
+	"\x06params\x18\x02 \x01(\v2\x1e.weaviate.v1.VectorIndexParamsR\x06params\"s\n" +
 	"\aGroupBy\x12\x12\n" +
 	"\x04path\x18\x01 \x03(\tR\x04path\x12(\n" +
 	"\x10number_of_groups\x18\x02 \x01(\x05R\x0enumberOfGroups\x12*\n" +
@@ -2595,8 +2595,8 @@ var file_v1_search_get_proto_goTypes = []any{
 	(Boost_PropertyValueModifier)(0),    // 1: weaviate.v1.Boost.PropertyValueModifier
 	(Boost_DecayCurve)(0),               // 2: weaviate.v1.Boost.DecayCurve
 	(*SearchRequest)(nil),               // 3: weaviate.v1.SearchRequest
-	(*VectorSearchParams)(nil),          // 4: weaviate.v1.VectorSearchParams
-	(*VectorSearchParamsForTarget)(nil), // 5: weaviate.v1.VectorSearchParamsForTarget
+	(*VectorIndexParams)(nil),           // 4: weaviate.v1.VectorIndexParams
+	(*VectorIndexParamsForTarget)(nil),  // 5: weaviate.v1.VectorIndexParamsForTarget
 	(*GroupBy)(nil),                     // 6: weaviate.v1.GroupBy
 	(*SortBy)(nil),                      // 7: weaviate.v1.SortBy
 	(*MetadataRequest)(nil),             // 8: weaviate.v1.MetadataRequest
@@ -2661,10 +2661,10 @@ var file_v1_search_get_proto_depIdxs = []int32{
 	43, // 17: weaviate.v1.SearchRequest.generative:type_name -> weaviate.v1.GenerativeSearch
 	12, // 18: weaviate.v1.SearchRequest.rerank:type_name -> weaviate.v1.Rerank
 	21, // 19: weaviate.v1.SearchRequest.boost:type_name -> weaviate.v1.Boost
-	4,  // 20: weaviate.v1.SearchRequest.vector_search_params:type_name -> weaviate.v1.VectorSearchParams
-	5,  // 21: weaviate.v1.SearchRequest.vector_search_params_for_targets:type_name -> weaviate.v1.VectorSearchParamsForTarget
-	0,  // 22: weaviate.v1.VectorSearchParams.filter_strategy:type_name -> weaviate.v1.FilterStrategy
-	4,  // 23: weaviate.v1.VectorSearchParamsForTarget.params:type_name -> weaviate.v1.VectorSearchParams
+	4,  // 20: weaviate.v1.SearchRequest.vector_index_params:type_name -> weaviate.v1.VectorIndexParams
+	5,  // 21: weaviate.v1.SearchRequest.vector_index_params_for_targets:type_name -> weaviate.v1.VectorIndexParamsForTarget
+	0,  // 22: weaviate.v1.VectorIndexParams.filter_strategy:type_name -> weaviate.v1.FilterStrategy
+	4,  // 23: weaviate.v1.VectorIndexParamsForTarget.params:type_name -> weaviate.v1.VectorIndexParams
 	11, // 24: weaviate.v1.PropertiesRequest.ref_properties:type_name -> weaviate.v1.RefPropertiesRequest
 	10, // 25: weaviate.v1.PropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
 	10, // 26: weaviate.v1.ObjectPropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest

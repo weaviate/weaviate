@@ -256,19 +256,19 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	// as on REST: params need a vector search (near* or hybrid)
-	if (req.VectorSearchParams != nil || len(req.VectorSearchParamsForTargets) > 0) && !hasVectorSearch(req) {
+	if (req.VectorIndexParams != nil || len(req.VectorIndexParamsForTargets) > 0) && !hasVectorSearch(req) {
 		if req.Bm25Search != nil {
-			return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params / vector_search_params_for_targets is not applicable to bm25 search")
+			return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_index_params / vector_index_params_for_targets is not applicable to bm25 search")
 		}
-		return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_search_params / vector_search_params_for_targets requires a near* or hybrid search")
+		return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_index_params / vector_index_params_for_targets requires a near* or hybrid search")
 	}
 
-	vsp, err := extractVectorSearchParams(req.VectorSearchParams, req.VectorSearchParamsForTargets,
+	vsp, err := extractVectorIndexParams(req.VectorIndexParams, req.VectorIndexParamsForTargets,
 		targetVectors, class.Class, config.HNSWMaxSearchEF, config.HFreshMaxSearchProbe)
 	if err != nil {
 		return dto.GetParams{}, err
 	}
-	out.VectorSearchParams = vsp
+	out.VectorIndexParams = vsp
 
 	// Hybrid search now has the ability to run subsearches using the real nearvector and neartext searches.  So we need to extract those settings the same way we prepare for the real searches.
 	if hs := req.HybridSearch; hs != nil {
@@ -494,14 +494,14 @@ func hasVectorSearch(req *pb.SearchRequest) bool {
 		req.NearImu != nil
 }
 
-// extractVectorSearchParams converts the request-wide params and the
+// extractVectorIndexParams converts the request-wide params and the
 // per-target overrides (merged later by ForTarget), or returns nil when
 // nothing is set. targetVectors is empty for a legacy single-vector
 // collection, which takes no per-target entries.
-func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.VectorSearchParamsForTarget,
+func extractVectorIndexParams(in *pb.VectorIndexParams, perTarget []*pb.VectorIndexParamsForTarget,
 	targetVectors []string, className string, maxEF, maxProbe int64,
-) (*searchparams.VectorSearchParams, error) {
-	out, err := validateVectorSearchParams(in, maxEF, maxProbe, "vector_search_params.")
+) (*searchparams.VectorIndexParams, error) {
+	out, err := validateVectorIndexParams(in, maxEF, maxProbe, "vector_index_params.")
 	if err != nil {
 		return nil, err
 	}
@@ -509,30 +509,30 @@ func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.Vector
 	if len(perTarget) > 0 {
 		if len(targetVectors) == 0 {
 			return nil, status.Errorf(codes.InvalidArgument,
-				"vector_search_params_for_targets requires named vectors; collection %s has none", className)
+				"vector_index_params_for_targets requires named vectors; collection %s has none", className)
 		}
-		out.PerTarget = make(map[string]searchparams.VectorSearchParams, len(perTarget))
+		out.PerTarget = make(map[string]searchparams.VectorIndexParams, len(perTarget))
 		seen := make(map[string]struct{}, len(perTarget))
 		for i, entry := range perTarget {
 			target := entry.GetTarget()
 			if target == "" {
 				return nil, status.Errorf(codes.InvalidArgument,
-					"vector_search_params_for_targets[%d]: target must be set", i)
+					"vector_index_params_for_targets[%d]: target must be set", i)
 			}
 			if entry.GetParams() == nil {
 				return nil, status.Errorf(codes.InvalidArgument,
-					"vector_search_params_for_targets[%s]: params must be set", target)
+					"vector_index_params_for_targets[%s]: params must be set", target)
 			}
 			if _, dup := seen[target]; dup {
 				return nil, status.Errorf(codes.InvalidArgument,
-					"vector_search_params_for_targets: target %q given more than once", target)
+					"vector_index_params_for_targets: target %q given more than once", target)
 			}
 			if !slices.Contains(targetVectors, target) {
 				return nil, status.Errorf(codes.InvalidArgument,
-					"vector_search_params_for_targets: %q is not a target vector of this request (targets: %v)", target, targetVectors)
+					"vector_index_params_for_targets: %q is not a target vector of this request (targets: %v)", target, targetVectors)
 			}
-			p, err := validateVectorSearchParams(entry.GetParams(), maxEF, maxProbe,
-				fmt.Sprintf("vector_search_params_for_targets[%s].", target))
+			p, err := validateVectorIndexParams(entry.GetParams(), maxEF, maxProbe,
+				fmt.Sprintf("vector_index_params_for_targets[%s].", target))
 			if err != nil {
 				return nil, err
 			}
@@ -556,11 +556,11 @@ func extractVectorSearchParams(in *pb.VectorSearchParams, perTarget []*pb.Vector
 	return &out, nil
 }
 
-// validateVectorSearchParams validates and converts one VectorSearchParams
+// validateVectorIndexParams validates and converts one VectorIndexParams
 // message; prefix names it in error messages. A nil message is the zero value.
 // Caps that were never resolved (<= 0) fall back to QUERY_MAXIMUM_RESULTS.
-func validateVectorSearchParams(in *pb.VectorSearchParams, maxEF, maxProbe int64, prefix string) (searchparams.VectorSearchParams, error) {
-	var out searchparams.VectorSearchParams
+func validateVectorIndexParams(in *pb.VectorIndexParams, maxEF, maxProbe int64, prefix string) (searchparams.VectorIndexParams, error) {
+	var out searchparams.VectorIndexParams
 	if in == nil {
 		return out, nil
 	}

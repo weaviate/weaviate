@@ -27,18 +27,18 @@ import (
 
 // Negative ef values cannot be expressed: the proto field is a uint32, so the
 // gRPC parser needs no negative branch (the REST surface validates that).
-func TestGRPCSearchRequestVectorSearchParams(t *testing.T) {
+func TestGRPCSearchRequestVectorIndexParams(t *testing.T) {
 	parser := NewParser(false, getClass, nil, namespacing.Disabled)
 	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}, HNSWMaxSearchEF: 10000, HFreshMaxSearchProbe: 10000}
 
 	vec := byteops.Fp32SliceToBytes([]float32{1, 2, 3})
 	nearVector := func() *pb.NearVector { return &pb.NearVector{VectorBytes: vec} }
-	vsp := func(ef uint32) *pb.VectorSearchParams { return &pb.VectorSearchParams{Ef: ptr(ef)} }
+	vsp := func(ef uint32) *pb.VectorIndexParams { return &pb.VectorIndexParams{Ef: ptr(ef)} }
 
 	tests := []struct {
 		name    string
 		req     *pb.SearchRequest
-		want    *searchparams.VectorSearchParams
+		want    *searchparams.VectorIndexParams
 		wantErr string
 	}{
 		{
@@ -47,50 +47,50 @@ func TestGRPCSearchRequestVectorSearchParams(t *testing.T) {
 		},
 		{
 			name: "ef zero",
-			req:  &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorSearchParams: vsp(0)},
+			req:  &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorIndexParams: vsp(0)},
 		},
 		{
 			name: "ef 800 near vector",
-			req:  &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorSearchParams: vsp(800)},
-			want: &searchparams.VectorSearchParams{EF: 800},
+			req:  &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorIndexParams: vsp(800)},
+			want: &searchparams.VectorIndexParams{EF: 800},
 		},
 		{
 			name: "hybrid with vector search params",
 			req: &pb.SearchRequest{
-				Collection:         classname,
-				HybridSearch:       &pb.Hybrid{Query: "q", NearVector: nearVector()},
-				VectorSearchParams: vsp(800),
+				Collection:        classname,
+				HybridSearch:      &pb.Hybrid{Query: "q", NearVector: nearVector()},
+				VectorIndexParams: vsp(800),
 			},
-			want: &searchparams.VectorSearchParams{EF: 800},
+			want: &searchparams.VectorIndexParams{EF: 800},
 		},
 		{
 			name: "ef equals cap",
-			req:  &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorSearchParams: vsp(10000)},
-			want: &searchparams.VectorSearchParams{EF: 10000},
+			req:  &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorIndexParams: vsp(10000)},
+			want: &searchparams.VectorIndexParams{EF: 10000},
 		},
 		{
 			name:    "ef above cap",
-			req:     &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorSearchParams: vsp(10001)},
-			wantErr: "vector_search_params.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
+			req:     &pb.SearchRequest{Collection: classname, NearVector: nearVector(), VectorIndexParams: vsp(10001)},
+			wantErr: "vector_index_params.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
 		},
 		{
-			// Parity with REST, which answers 422 for bm25 plus vectorSearchParams.
+			// Parity with REST, which answers 422 for bm25 plus vectorIndexParams.
 			name: "bm25 only with ef",
 			req: &pb.SearchRequest{
-				Collection:         classname,
-				Bm25Search:         &pb.BM25{Query: "q"},
-				VectorSearchParams: vsp(800),
+				Collection:        classname,
+				Bm25Search:        &pb.BM25{Query: "q"},
+				VectorIndexParams: vsp(800),
 			},
-			wantErr: "vector_search_params / vector_search_params_for_targets is not applicable to bm25 search",
+			wantErr: "vector_index_params / vector_index_params_for_targets is not applicable to bm25 search",
 		},
 		{
 			// A plain object listing runs no vector search either.
 			name: "no search clause with ef",
 			req: &pb.SearchRequest{
-				Collection:         classname,
-				VectorSearchParams: vsp(800),
+				Collection:        classname,
+				VectorIndexParams: vsp(800),
 			},
-			wantErr: "vector_search_params / vector_search_params_for_targets requires a near* or hybrid search",
+			wantErr: "vector_index_params / vector_index_params_for_targets requires a near* or hybrid search",
 		},
 		{
 			name: "no search clause without params",
@@ -99,12 +99,12 @@ func TestGRPCSearchRequestVectorSearchParams(t *testing.T) {
 		{
 			name: "bm25 with hybrid and ef",
 			req: &pb.SearchRequest{
-				Collection:         classname,
-				Bm25Search:         &pb.BM25{Query: "q"},
-				HybridSearch:       &pb.Hybrid{Query: "q", NearVector: nearVector()},
-				VectorSearchParams: vsp(800),
+				Collection:        classname,
+				Bm25Search:        &pb.BM25{Query: "q"},
+				HybridSearch:      &pb.Hybrid{Query: "q", NearVector: nearVector()},
+				VectorIndexParams: vsp(800),
 			},
-			want: &searchparams.VectorSearchParams{EF: 800},
+			want: &searchparams.VectorIndexParams{EF: 800},
 		},
 	}
 
@@ -118,12 +118,12 @@ func TestGRPCSearchRequestVectorSearchParams(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.want, out.VectorSearchParams)
+			require.Equal(t, tt.want, out.VectorIndexParams)
 		})
 	}
 }
 
-func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
+func TestGRPCSearchRequestVectorIndexParamsFields(t *testing.T) {
 	parser := NewParser(false, getClass, nil, namespacing.Disabled)
 	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}, HNSWMaxSearchEF: 10000, HFreshMaxSearchProbe: 10000}
 
@@ -135,98 +135,98 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 		}
 		return nv
 	}
-	strategy := func(fs pb.FilterStrategy) *pb.VectorSearchParams {
-		return &pb.VectorSearchParams{FilterStrategy: &fs}
+	strategy := func(fs pb.FilterStrategy) *pb.VectorIndexParams {
+		return &pb.VectorIndexParams{FilterStrategy: &fs}
 	}
-	forTarget := func(target string, p *pb.VectorSearchParams) *pb.VectorSearchParamsForTarget {
-		return &pb.VectorSearchParamsForTarget{Target: target, Params: p}
+	forTarget := func(target string, p *pb.VectorIndexParams) *pb.VectorIndexParamsForTarget {
+		return &pb.VectorIndexParamsForTarget{Target: target, Params: p}
 	}
 
 	tests := []struct {
 		name    string
 		req     *pb.SearchRequest
-		want    *searchparams.VectorSearchParams
+		want    *searchparams.VectorIndexParams
 		wantErr string
 	}{
 		{
 			name: "search probe only",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: &pb.VectorSearchParams{SearchProbe: ptr(uint32(64))},
+				VectorIndexParams: &pb.VectorIndexParams{SearchProbe: ptr(uint32(64))},
 			},
-			want: &searchparams.VectorSearchParams{SearchProbe: 64},
+			want: &searchparams.VectorIndexParams{SearchProbe: 64},
 		},
 		{
 			name: "search probe equals cap",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: &pb.VectorSearchParams{SearchProbe: ptr(uint32(10000))},
+				VectorIndexParams: &pb.VectorIndexParams{SearchProbe: ptr(uint32(10000))},
 			},
-			want: &searchparams.VectorSearchParams{SearchProbe: 10000},
+			want: &searchparams.VectorIndexParams{SearchProbe: 10000},
 		},
 		{
 			name: "search probe above cap",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: &pb.VectorSearchParams{SearchProbe: ptr(uint32(10001))},
+				VectorIndexParams: &pb.VectorIndexParams{SearchProbe: ptr(uint32(10001))},
 			},
-			wantErr: "vector_search_params.search_probe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)",
+			wantErr: "vector_index_params.search_probe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)",
 		},
 		{
 			name: "filter strategy sweeping",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: strategy(pb.FilterStrategy_FILTER_STRATEGY_SWEEPING),
+				VectorIndexParams: strategy(pb.FilterStrategy_FILTER_STRATEGY_SWEEPING),
 			},
-			want: &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategySweeping},
+			want: &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategySweeping},
 		},
 		{
 			name: "filter strategy acorn",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: strategy(pb.FilterStrategy_FILTER_STRATEGY_ACORN),
+				VectorIndexParams: strategy(pb.FilterStrategy_FILTER_STRATEGY_ACORN),
 			},
-			want: &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyAcorn},
+			want: &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyAcorn},
 		},
 		{
 			name: "filter strategy pathseer",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: strategy(pb.FilterStrategy_FILTER_STRATEGY_PATHSEER),
+				VectorIndexParams: strategy(pb.FilterStrategy_FILTER_STRATEGY_PATHSEER),
 			},
-			want: &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyPathseer},
+			want: &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyPathseer},
 		},
 		{
 			name: "filter strategy unspecified is a no-op",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: strategy(pb.FilterStrategy_FILTER_STRATEGY_UNSPECIFIED),
+				VectorIndexParams: strategy(pb.FilterStrategy_FILTER_STRATEGY_UNSPECIFIED),
 			},
 		},
 		{
 			name: "filter strategy unknown enum value",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: strategy(pb.FilterStrategy(42)),
+				VectorIndexParams: strategy(pb.FilterStrategy(42)),
 			},
-			wantErr: "vector_search_params.filter_strategy must be one of sweeping, acorn, pathseer, got 42",
+			wantErr: "vector_index_params.filter_strategy must be one of sweeping, acorn, pathseer, got 42",
 		},
 		{
 			name: "all fields set",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: &pb.VectorSearchParams{
+				VectorIndexParams: &pb.VectorIndexParams{
 					Ef: ptr(uint32(200)), SearchProbe: ptr(uint32(32)),
 					FilterStrategy: ptr(pb.FilterStrategy_FILTER_STRATEGY_ACORN),
 				},
 			},
-			want: &searchparams.VectorSearchParams{EF: 200, SearchProbe: 32, FilterStrategy: searchparams.FilterStrategyAcorn},
+			want: &searchparams.VectorIndexParams{EF: 200, SearchProbe: 32, FilterStrategy: searchparams.FilterStrategyAcorn},
 		},
 		{
 			name: "request-wide all zero and no entries",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParams: &pb.VectorSearchParams{
+				VectorIndexParams: &pb.VectorIndexParams{
 					Ef: ptr(uint32(0)), SearchProbe: ptr(uint32(0)),
 					FilterStrategy: ptr(pb.FilterStrategy_FILTER_STRATEGY_UNSPECIFIED),
 				},
@@ -236,15 +236,15 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 			name: "per target on two named vectors",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParams: &pb.VectorSearchParams{Ef: ptr(uint32(100))},
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("first", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParams: &pb.VectorIndexParams{Ef: ptr(uint32(100))},
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("first", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 					forTarget("second", strategy(pb.FilterStrategy_FILTER_STRATEGY_SWEEPING)),
 				},
 			},
-			want: &searchparams.VectorSearchParams{
+			want: &searchparams.VectorIndexParams{
 				EF: 100,
-				PerTarget: map[string]searchparams.VectorSearchParams{
+				PerTarget: map[string]searchparams.VectorIndexParams{
 					"first":  {EF: 300},
 					"second": {FilterStrategy: searchparams.FilterStrategySweeping},
 				},
@@ -254,12 +254,12 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 			name: "per target only",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("second", &pb.VectorSearchParams{SearchProbe: ptr(uint32(48))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("second", &pb.VectorIndexParams{SearchProbe: ptr(uint32(48))}),
 				},
 			},
-			want: &searchparams.VectorSearchParams{
-				PerTarget: map[string]searchparams.VectorSearchParams{"second": {SearchProbe: 48}},
+			want: &searchparams.VectorIndexParams{
+				PerTarget: map[string]searchparams.VectorIndexParams{"second": {SearchProbe: 48}},
 			},
 		},
 		{
@@ -267,8 +267,8 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 			name: "per target all zero entry",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("first", &pb.VectorSearchParams{}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("first", &pb.VectorIndexParams{}),
 				},
 			},
 			// validated for its name, but a no-op entry is not stored
@@ -282,114 +282,114 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 					Query: "q", NearVector: nearVector(),
 					Targets: &pb.Targets{TargetVectors: []string{"first", "second"}},
 				},
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("first", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("first", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
-			want: &searchparams.VectorSearchParams{
-				PerTarget: map[string]searchparams.VectorSearchParams{"first": {EF: 300}},
+			want: &searchparams.VectorIndexParams{
+				PerTarget: map[string]searchparams.VectorIndexParams{"first": {EF: 300}},
 			},
 		},
 		{
 			name: "per target on implicit single named vector",
 			req: &pb.SearchRequest{
 				Collection: singleNamedVecClass, NearVector: nearVector(),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("default", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("default", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
-			want: &searchparams.VectorSearchParams{
-				PerTarget: map[string]searchparams.VectorSearchParams{"default": {EF: 300}},
+			want: &searchparams.VectorIndexParams{
+				PerTarget: map[string]searchparams.VectorIndexParams{"default": {EF: 300}},
 			},
 		},
 		{
 			name: "per target unknown target",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("custom", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("custom", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
-			wantErr: `vector_search_params_for_targets: "custom" is not a target vector of this request (targets: [first second])`,
+			wantErr: `vector_index_params_for_targets: "custom" is not a target vector of this request (targets: [first second])`,
 		},
 		{
 			name: "per target duplicate target",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("first", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
-					forTarget("first", &pb.VectorSearchParams{Ef: ptr(uint32(400))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("first", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
+					forTarget("first", &pb.VectorIndexParams{Ef: ptr(uint32(400))}),
 				},
 			},
-			wantErr: `vector_search_params_for_targets: target "first" given more than once`,
+			wantErr: `vector_index_params_for_targets: target "first" given more than once`,
 		},
 		{
 			name: "per target empty target name",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
-			wantErr: "vector_search_params_for_targets[0]: target must be set",
+			wantErr: "vector_index_params_for_targets[0]: target must be set",
 		},
 		{
 			name: "per target nil params",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
 					forTarget("first", nil),
 				},
 			},
-			wantErr: "vector_search_params_for_targets[first]: params must be set",
+			wantErr: "vector_index_params_for_targets[first]: params must be set",
 		},
 		{
 			name: "per target ef above cap",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("second", &pb.VectorSearchParams{Ef: ptr(uint32(10001))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("second", &pb.VectorIndexParams{Ef: ptr(uint32(10001))}),
 				},
 			},
-			wantErr: "vector_search_params_for_targets[second].ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
+			wantErr: "vector_index_params_for_targets[second].ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
 		},
 		{
 			name: "per target search probe above cap",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("second", &pb.VectorSearchParams{SearchProbe: ptr(uint32(10001))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("second", &pb.VectorIndexParams{SearchProbe: ptr(uint32(10001))}),
 				},
 			},
-			wantErr: "vector_search_params_for_targets[second].search_probe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)",
+			wantErr: "vector_index_params_for_targets[second].search_probe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)",
 		},
 		{
 			name: "per target unknown filter strategy",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "second"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
 					forTarget("first", strategy(pb.FilterStrategy(7))),
 				},
 			},
-			wantErr: "vector_search_params_for_targets[first].filter_strategy must be one of sweeping, acorn, pathseer, got 7",
+			wantErr: "vector_index_params_for_targets[first].filter_strategy must be one of sweeping, acorn, pathseer, got 7",
 		},
 		{
 			name: "per target on legacy class",
 			req: &pb.SearchRequest{
 				Collection: classname, NearVector: nearVector(),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("default", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("default", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
-			wantErr: "vector_search_params_for_targets requires named vectors; collection TestClass has none",
+			wantErr: "vector_index_params_for_targets requires named vectors; collection TestClass has none",
 		},
 		{
 			name: "per target on hybrid against legacy class",
 			req: &pb.SearchRequest{
 				Collection:   classname,
 				HybridSearch: &pb.Hybrid{Query: "q", NearVector: nearVector()},
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("default", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("default", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
 			wantErr: "requires named vectors",
@@ -400,33 +400,33 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 			name: "per target with repeated target name",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, NearVector: nearVector("first", "first"),
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("first", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("first", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
-			want: &searchparams.VectorSearchParams{
-				PerTarget: map[string]searchparams.VectorSearchParams{"first": {EF: 300}},
+			want: &searchparams.VectorIndexParams{
+				PerTarget: map[string]searchparams.VectorIndexParams{"first": {EF: 300}},
 			},
 		},
 		{
 			name: "per target on bm25 only",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass, Bm25Search: &pb.BM25{Query: "q"},
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("first", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("first", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
-			wantErr: "vector_search_params / vector_search_params_for_targets is not applicable to bm25 search",
+			wantErr: "vector_index_params / vector_index_params_for_targets is not applicable to bm25 search",
 		},
 		{
 			name: "per target without search clause",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass,
-				VectorSearchParamsForTargets: []*pb.VectorSearchParamsForTarget{
-					forTarget("first", &pb.VectorSearchParams{Ef: ptr(uint32(300))}),
+				VectorIndexParamsForTargets: []*pb.VectorIndexParamsForTarget{
+					forTarget("first", &pb.VectorIndexParams{Ef: ptr(uint32(300))}),
 				},
 			},
-			wantErr: "vector_search_params / vector_search_params_for_targets requires a near* or hybrid search",
+			wantErr: "vector_index_params / vector_index_params_for_targets requires a near* or hybrid search",
 		},
 	}
 
@@ -440,18 +440,18 @@ func TestGRPCSearchRequestVectorSearchParamsFields(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.want, out.VectorSearchParams)
+			require.Equal(t, tt.want, out.VectorIndexParams)
 		})
 	}
 }
 
-func TestValidateVectorSearchParamsUnsetCaps(t *testing.T) {
+func TestValidateVectorIndexParamsUnsetCaps(t *testing.T) {
 	// unresolved caps (0) fall back to the default QUERY_MAXIMUM_RESULTS
 	// instead of rejecting every ef and search_probe
-	got, err := validateVectorSearchParams(&pb.VectorSearchParams{Ef: ptr(uint32(500)), SearchProbe: ptr(uint32(64))}, 0, 0, "vector_search_params.")
+	got, err := validateVectorIndexParams(&pb.VectorIndexParams{Ef: ptr(uint32(500)), SearchProbe: ptr(uint32(64))}, 0, 0, "vector_index_params.")
 	require.NoError(t, err)
-	require.Equal(t, searchparams.VectorSearchParams{EF: 500, SearchProbe: 64}, got)
+	require.Equal(t, searchparams.VectorIndexParams{EF: 500, SearchProbe: 64}, got)
 
-	_, err = validateVectorSearchParams(&pb.VectorSearchParams{Ef: ptr(uint32(10001))}, 0, 0, "vector_search_params.")
-	require.ErrorContains(t, err, "vector_search_params.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)")
+	_, err = validateVectorIndexParams(&pb.VectorIndexParams{Ef: ptr(uint32(10001))}, 0, 0, "vector_index_params.")
+	require.ErrorContains(t, err, "vector_index_params.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)")
 }

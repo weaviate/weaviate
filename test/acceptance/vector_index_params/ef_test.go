@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vector_search_params
+package vector_index_params
 
 import (
 	"bytes"
@@ -193,11 +193,11 @@ func newGRPC(t *testing.T, host string) pb.WeaviateClient {
 	return helper.CreateGrpcWeaviateClient(conn)
 }
 
-func efParams(ef *uint32) *pb.VectorSearchParams {
+func efParams(ef *uint32) *pb.VectorIndexParams {
 	if ef == nil {
 		return nil
 	}
-	return &pb.VectorSearchParams{Ef: ef}
+	return &pb.VectorIndexParams{Ef: ef}
 }
 
 func u32(v uint32) *uint32 { return &v }
@@ -223,8 +223,8 @@ func nearVectorRequest(collection string, vec []float32, limit uint32, ef *uint3
 				VectorBytes: byteops.Fp32SliceToBytes(vec),
 			}},
 		},
-		VectorSearchParams: efParams(ef),
-		Uses_127Api:        true,
+		VectorIndexParams: efParams(ef),
+		Uses_127Api:       true,
 	}
 }
 
@@ -247,7 +247,7 @@ func meanRecall(t *testing.T, c pb.WeaviateClient, ds *dataset, collection strin
 	return sum / float64(len(ds.queries))
 }
 
-func TestVectorSearchParamsEF_HNSW(t *testing.T) {
+func TestVectorIndexParamsEF_HNSW(t *testing.T) {
 	helper.SetupClient(singleNode.GetWeaviate().URI())
 	grpcClient := newGRPC(t, singleNode.GetWeaviate().GrpcURI())
 	ds := newDataset(42, numObjects, statQueries)
@@ -383,8 +383,8 @@ func TestVectorSearchParamsEF_HNSW(t *testing.T) {
 						VectorBytes: byteops.Fp32SliceToBytes(q),
 					}},
 				},
-				VectorSearchParams: efParams(ef),
-				Uses_127Api:        true,
+				VectorIndexParams: efParams(ef),
+				Uses_127Api:       true,
 			})
 			require.Len(t, ids, hybridLimit)
 			return ids
@@ -486,8 +486,8 @@ func testMultiVector(t *testing.T, c pb.WeaviateClient, muvera bool) {
 				}},
 				Targets: &pb.Targets{TargetVectors: []string{"colbert"}},
 			},
-			VectorSearchParams: efParams(u32(ef)),
-			Uses_127Api:        true,
+			VectorIndexParams: efParams(u32(ef)),
+			Uses_127Api:       true,
 		})
 		ids := idsOf(t, reply, err)
 		require.Len(t, ids, k)
@@ -509,7 +509,7 @@ func testMultiVector(t *testing.T, c pb.WeaviateClient, muvera bool) {
 	assert.LessOrEqual(t, mean, 0.9, "ef=10 must return a different top k than ef=1000")
 }
 
-func TestVectorSearchParamsEF_REST(t *testing.T) {
+func TestVectorIndexParamsEF_REST(t *testing.T) {
 	uri := singleNode.GetWeaviate().URI()
 	helper.SetupClient(uri)
 	grpcClient := newGRPC(t, singleNode.GetWeaviate().GrpcURI())
@@ -546,12 +546,12 @@ func TestVectorSearchParamsEF_REST(t *testing.T) {
 		body       map[string]any
 		wantStatus int
 	}{
-		{"near-vector", "near-vector", map[string]any{"vector": ds.queries[0], "vectorSearchParams": map[string]any{"ef": 800}}, http.StatusOK},
-		{"near-object", "near-object", map[string]any{"id": idFor(0), "vectorSearchParams": map[string]any{"ef": 800}}, http.StatusOK},
-		{"hybrid", "hybrid", map[string]any{"query": "object", "alpha": 1, "vector": ds.queries[0], "vectorSearchParams": map[string]any{"ef": 800}}, http.StatusOK},
-		{"negative ef", "near-vector", map[string]any{"vector": ds.queries[0], "vectorSearchParams": map[string]any{"ef": -1}}, http.StatusUnprocessableEntity},
-		{"ef above cap", "near-vector", map[string]any{"vector": ds.queries[0], "vectorSearchParams": map[string]any{"ef": 10001}}, http.StatusUnprocessableEntity},
-		{"bm25 rejects params", "bm25", map[string]any{"query": "object", "vectorSearchParams": map[string]any{"ef": 10}}, http.StatusUnprocessableEntity},
+		{"near-vector", "near-vector", map[string]any{"vector": ds.queries[0], "vectorIndexParams": map[string]any{"ef": 800}}, http.StatusOK},
+		{"near-object", "near-object", map[string]any{"id": idFor(0), "vectorIndexParams": map[string]any{"ef": 800}}, http.StatusOK},
+		{"hybrid", "hybrid", map[string]any{"query": "object", "alpha": 1, "vector": ds.queries[0], "vectorIndexParams": map[string]any{"ef": 800}}, http.StatusOK},
+		{"negative ef", "near-vector", map[string]any{"vector": ds.queries[0], "vectorIndexParams": map[string]any{"ef": -1}}, http.StatusUnprocessableEntity},
+		{"ef above cap", "near-vector", map[string]any{"vector": ds.queries[0], "vectorIndexParams": map[string]any{"ef": 10001}}, http.StatusUnprocessableEntity},
+		{"bm25 rejects params", "bm25", map[string]any{"query": "object", "vectorIndexParams": map[string]any{"ef": 10}}, http.StatusUnprocessableEntity},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -572,7 +572,7 @@ func TestVectorSearchParamsEF_REST(t *testing.T) {
 		for _, ef := range []uint32{10, 1000} {
 			for qi, q := range ds.queries {
 				status, out := post("near-vector", map[string]any{
-					"vector": q, "limit": k, "vectorSearchParams": map[string]any{"ef": ef},
+					"vector": q, "limit": k, "vectorIndexParams": map[string]any{"ef": ef},
 				})
 				require.Equal(t, http.StatusOK, status, "%v", out)
 				want := searchIDs(t, grpcClient, nearVectorRequest("EfREST", q, k, u32(ef)))
@@ -582,7 +582,7 @@ func TestVectorSearchParamsEF_REST(t *testing.T) {
 	})
 }
 
-func TestVectorSearchParamsEF_FlatIgnores(t *testing.T) {
+func TestVectorIndexParamsEF_FlatIgnores(t *testing.T) {
 	helper.SetupClient(singleNode.GetWeaviate().URI())
 	grpcClient := newGRPC(t, singleNode.GetWeaviate().GrpcURI())
 	ds := newDataset(44, 1000, numQueries)
@@ -613,9 +613,9 @@ func assertEFSensitivity(t *testing.T, compose *docker.DockerCompose, ds *datase
 	}
 }
 
-// TestVectorSearchParamsEF_Cluster shares one 3-node cluster between the
+// TestVectorIndexParamsEF_Cluster shares one 3-node cluster between the
 // replicated (RF=3) and sharded (RF=1, 3 shards) scenarios.
-func TestVectorSearchParamsEF_Cluster(t *testing.T) {
+func TestVectorIndexParamsEF_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithWeaviateClusterWithGRPC().Start(ctx)
 	require.NoError(t, err)
@@ -697,10 +697,10 @@ func waitForVectorIndexing(t *testing.T, className string) {
 	}, 2*time.Minute, time.Second, "vector indexing did not settle for %s", className)
 }
 
-// TestVectorSearchParamsEF_Dynamic checks that a dynamic index ignores ef
+// TestVectorIndexParamsEF_Dynamic checks that a dynamic index ignores ef
 // while it is flat and honours it once it has upgraded to HNSW. The upgrade
 // has no API signal, so the test polls for the behavioural change itself.
-func TestVectorSearchParamsEF_Dynamic(t *testing.T) {
+func TestVectorIndexParamsEF_Dynamic(t *testing.T) {
 	const (
 		threshold = 1000
 		flatCount = 500

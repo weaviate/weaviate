@@ -72,14 +72,14 @@ type SearchCommon struct {
 	// Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).
 	SinglePrompt *string `json:"singlePrompt,omitempty"`
 
-	// Per-target overrides of `vectorSearchParams`, keyed by target vector name, e.g. `{"title": {"ef": 256}}`. Each entry overrides only the fields it sets; the others fall back to `vectorSearchParams`, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in `vectorSearchParams`. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.
-	TargetVectorSearchParams map[string]*SearchVectorSearchParams `json:"targetVectorSearchParams,omitempty"`
+	// Per-target overrides of `vectorIndexParams`, keyed by target vector name, e.g. `{"title": {"ef": 256}}`. Each entry overrides only the fields it sets; the others fall back to `vectorIndexParams`, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in `vectorIndexParams`. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.
+	TargetVectorIndexParams map[string]*SearchVectorIndexParams `json:"targetVectorIndexParams,omitempty"`
 
 	// The tenant to search in a multi-tenant collection.
 	Tenant string `json:"tenant,omitempty"`
 
 	// Per-request vector search tuning. Applies to vector-based searches (near-vector, near-object, near-text, hybrid); rejected on bm25 search.
-	VectorSearchParams *SearchVectorSearchParams `json:"vectorSearchParams,omitempty"`
+	VectorIndexParams *SearchVectorIndexParams `json:"vectorIndexParams,omitempty"`
 
 	// A conditional filter to limit the objects that are searched.
 	Where *WhereFilter `json:"where,omitempty"`
@@ -105,11 +105,11 @@ func (m *SearchCommon) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateTargetVectorSearchParams(formats); err != nil {
+	if err := m.validateTargetVectorIndexParams(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateVectorSearchParams(formats); err != nil {
+	if err := m.validateVectorIndexParams(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -249,22 +249,22 @@ func (m *SearchCommon) validateReturnReferences(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SearchCommon) validateTargetVectorSearchParams(formats strfmt.Registry) error {
-	if swag.IsZero(m.TargetVectorSearchParams) { // not required
+func (m *SearchCommon) validateTargetVectorIndexParams(formats strfmt.Registry) error {
+	if swag.IsZero(m.TargetVectorIndexParams) { // not required
 		return nil
 	}
 
-	for k := range m.TargetVectorSearchParams {
+	for k := range m.TargetVectorIndexParams {
 
-		if err := validate.Required("targetVectorSearchParams"+"."+k, "body", m.TargetVectorSearchParams[k]); err != nil {
+		if err := validate.Required("targetVectorIndexParams"+"."+k, "body", m.TargetVectorIndexParams[k]); err != nil {
 			return err
 		}
-		if val, ok := m.TargetVectorSearchParams[k]; ok {
+		if val, ok := m.TargetVectorIndexParams[k]; ok {
 			if err := val.Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("targetVectorSearchParams" + "." + k)
+					return ve.ValidateName("targetVectorIndexParams" + "." + k)
 				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("targetVectorSearchParams" + "." + k)
+					return ce.ValidateName("targetVectorIndexParams" + "." + k)
 				}
 				return err
 			}
@@ -275,17 +275,17 @@ func (m *SearchCommon) validateTargetVectorSearchParams(formats strfmt.Registry)
 	return nil
 }
 
-func (m *SearchCommon) validateVectorSearchParams(formats strfmt.Registry) error {
-	if swag.IsZero(m.VectorSearchParams) { // not required
+func (m *SearchCommon) validateVectorIndexParams(formats strfmt.Registry) error {
+	if swag.IsZero(m.VectorIndexParams) { // not required
 		return nil
 	}
 
-	if m.VectorSearchParams != nil {
-		if err := m.VectorSearchParams.Validate(formats); err != nil {
+	if m.VectorIndexParams != nil {
+		if err := m.VectorIndexParams.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("vectorSearchParams")
+				return ve.ValidateName("vectorIndexParams")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("vectorSearchParams")
+				return ce.ValidateName("vectorIndexParams")
 			}
 			return err
 		}
@@ -325,11 +325,11 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateTargetVectorSearchParams(ctx, formats); err != nil {
+	if err := m.contextValidateTargetVectorIndexParams(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateVectorSearchParams(ctx, formats); err != nil {
+	if err := m.contextValidateVectorIndexParams(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -379,11 +379,11 @@ func (m *SearchCommon) contextValidateReturnReferences(ctx context.Context, form
 	return nil
 }
 
-func (m *SearchCommon) contextValidateTargetVectorSearchParams(ctx context.Context, formats strfmt.Registry) error {
+func (m *SearchCommon) contextValidateTargetVectorIndexParams(ctx context.Context, formats strfmt.Registry) error {
 
-	for k := range m.TargetVectorSearchParams {
+	for k := range m.TargetVectorIndexParams {
 
-		if val, ok := m.TargetVectorSearchParams[k]; ok {
+		if val, ok := m.TargetVectorIndexParams[k]; ok {
 			if err := val.ContextValidate(ctx, formats); err != nil {
 				return err
 			}
@@ -394,14 +394,14 @@ func (m *SearchCommon) contextValidateTargetVectorSearchParams(ctx context.Conte
 	return nil
 }
 
-func (m *SearchCommon) contextValidateVectorSearchParams(ctx context.Context, formats strfmt.Registry) error {
+func (m *SearchCommon) contextValidateVectorIndexParams(ctx context.Context, formats strfmt.Registry) error {
 
-	if m.VectorSearchParams != nil {
-		if err := m.VectorSearchParams.ContextValidate(ctx, formats); err != nil {
+	if m.VectorIndexParams != nil {
+		if err := m.VectorIndexParams.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("vectorSearchParams")
+				return ve.ValidateName("vectorIndexParams")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("vectorSearchParams")
+				return ce.ValidateName("vectorIndexParams")
 			}
 			return err
 		}

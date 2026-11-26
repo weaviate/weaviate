@@ -64,7 +64,7 @@ func (s FilterStrategy) String() string {
 
 // effectiveFilterStrategy returns the strategy to try: the request's, else
 // the configured one. Callers still apply the ACORN and entrypoint fallbacks.
-func (h *hnsw) effectiveFilterStrategy(params *searchparams.VectorSearchParams) FilterStrategy {
+func (h *hnsw) effectiveFilterStrategy(params *searchparams.VectorIndexParams) FilterStrategy {
 	if requested := params.FilterStrategyOrEmpty(); requested != "" {
 		return filterStrategyFromConfig(requested)
 	}
@@ -73,7 +73,7 @@ func (h *hnsw) effectiveFilterStrategy(params *searchparams.VectorSearchParams) 
 
 // searchTimeEF returns the beam width for k results: the request's ef if set,
 // else the configured one, never below k.
-func (h *hnsw) searchTimeEF(k int, params *searchparams.VectorSearchParams) int {
+func (h *hnsw) searchTimeEF(k int, params *searchparams.VectorIndexParams) int {
 	if reqEF := params.EFOrZero(); reqEF > 0 {
 		return max(reqEF, k)
 	}
@@ -113,7 +113,7 @@ func (h *hnsw) autoEfFromK(k int) int {
 
 func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	k int, allowList helpers.AllowList,
-	params *searchparams.VectorSearchParams,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
@@ -141,7 +141,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	return h.knnSearchByVector(ctx, vector, k, ef, allowList, params)
 }
 
-func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	if !h.multivector.Load() {
 		return nil, nil, errors.New("multivector search is not enabled")
 	}
@@ -193,7 +193,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
-	params *searchparams.VectorSearchParams,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
 		func(ctx context.Context, vec []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -213,7 +213,7 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
-	params *searchparams.VectorSearchParams,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
 		func(ctx context.Context, vec [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -1093,7 +1093,7 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 // knnSearchByVector walks the graph with the resolved ef; only the filter
 // strategy is read from params, which may be nil.
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
-	ef int, allowList helpers.AllowList, params *searchparams.VectorSearchParams,
+	ef int, allowList helpers.AllowList, params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil
@@ -1317,7 +1317,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	return ids, dists, nil
 }
 
-func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
 	ef := h.searchTimeEF(kPrime, params)

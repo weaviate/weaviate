@@ -82,10 +82,10 @@ func TestRESTSearchMultiTarget(t *testing.T) {
 	t.Run("near-text with per-target params matches the single title target", func(t *testing.T) {
 		status, out := postNearText(t, class, map[string]any{
 			"query": []string{"rockets and planets"}, "limit": 3,
-			"targetVectors":            targets,
-			"targetCombination":        onlyTitle,
-			"vectorSearchParams":       map[string]any{"ef": 32},
-			"targetVectorSearchParams": map[string]any{"title_vec": map[string]any{"ef": 64}},
+			"targetVectors":           targets,
+			"targetCombination":       onlyTitle,
+			"vectorIndexParams":       map[string]any{"ef": 32},
+			"targetVectorIndexParams": map[string]any{"title_vec": map[string]any{"ef": 64}},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		got := idsOf(t, out)
@@ -93,7 +93,7 @@ func TestRESTSearchMultiTarget(t *testing.T) {
 
 		status, out = postNearText(t, class, map[string]any{
 			"query": []string{"rockets and planets"}, "limit": 3,
-			"targetVector": "title_vec", "vectorSearchParams": map[string]any{"ef": 64},
+			"targetVector": "title_vec", "vectorIndexParams": map[string]any{"ef": 64},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Equal(t, idsOf(t, out), got)
@@ -110,9 +110,9 @@ func TestRESTSearchMultiTarget(t *testing.T) {
 	t.Run("hybrid with per-target params matches the single title target", func(t *testing.T) {
 		status, out := postHybrid(t, class, map[string]any{
 			"query": "rockets and planets", "alpha": 1, "limit": 3,
-			"targetVectors":            targets,
-			"targetCombination":        onlyTitle,
-			"targetVectorSearchParams": map[string]any{"title_vec": map[string]any{"ef": 64}, "body_vec": map[string]any{"ef": 16}},
+			"targetVectors":           targets,
+			"targetCombination":       onlyTitle,
+			"targetVectorIndexParams": map[string]any{"title_vec": map[string]any{"ef": 64}, "body_vec": map[string]any{"ef": 16}},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		got := idsOf(t, out)
@@ -129,10 +129,10 @@ func TestRESTSearchMultiTarget(t *testing.T) {
 		for searchType, query := range map[string]any{"near-text": []string{"rockets"}, "hybrid": "rockets"} {
 			status, out := postSearch(t, class, searchType, map[string]any{
 				"query": query, "limit": 3, "targetVectors": targets,
-				"targetVectorSearchParams": map[string]any{"summary_vec": map[string]any{"ef": 64}},
+				"targetVectorIndexParams": map[string]any{"summary_vec": map[string]any{"ef": 64}},
 			})
 			require.Equal(t, http.StatusUnprocessableEntity, status, "%s: %v", searchType, out)
-			require.Contains(t, errMessage(t, out), "targetVectorSearchParams[summary_vec]", searchType)
+			require.Contains(t, errMessage(t, out), "targetVectorIndexParams[summary_vec]", searchType)
 		}
 	})
 }

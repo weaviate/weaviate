@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vector_search_params
+package vector_index_params
 
 import (
 	"testing"
@@ -21,11 +21,11 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-// TestVectorSearchParamsSearchProbe checks the request-wide search_probe on an
+// TestVectorIndexParamsSearchProbe checks the request-wide search_probe on an
 // HFresh collection with a single named vector: recall grows with the probe,
 // the probe is floored at the limit (max(k, probe) centroids are routed), ef
 // is ignored, and REST lands on the same search as gRPC.
-func TestVectorSearchParamsSearchProbe(t *testing.T) {
+func TestVectorIndexParamsSearchProbe(t *testing.T) {
 	const class = "SearchProbe"
 	c := setupSingleNode(t)
 	ds := newDataset(52, perTargetObjects, statQueries)
@@ -33,14 +33,14 @@ func TestVectorSearchParamsSearchProbe(t *testing.T) {
 		nil, ds, perTargetObjects, types.ConsistencyLevelQuorum)
 
 	// The collection has a single named vector, so no target is needed.
-	req := func(params *pb.VectorSearchParams) func(q []float32) *pb.SearchRequest {
+	req := func(params *pb.VectorIndexParams) func(q []float32) *pb.SearchRequest {
 		return func(q []float32) *pb.SearchRequest {
 			r := nearVectorRequest(class, q, k, nil)
-			r.VectorSearchParams = params
+			r.VectorIndexParams = params
 			return r
 		}
 	}
-	probe := func(p uint32) *pb.VectorSearchParams { return &pb.VectorSearchParams{SearchProbe: u32(p)} }
+	probe := func(p uint32) *pb.VectorIndexParams { return &pb.VectorIndexParams{SearchProbe: u32(p)} }
 	waitForStableResults(t, c, ds, req(probe(1)))
 
 	t.Run("recall non-decreasing", func(t *testing.T) {
@@ -66,9 +66,9 @@ func TestVectorSearchParamsSearchProbe(t *testing.T) {
 	})
 
 	t.Run("ef ignored", func(t *testing.T) {
-		require.Equal(t, idsPerQuery(t, c, ds, req(nil)), idsPerQuery(t, c, ds, req(&pb.VectorSearchParams{Ef: u32(10)})))
+		require.Equal(t, idsPerQuery(t, c, ds, req(nil)), idsPerQuery(t, c, ds, req(&pb.VectorIndexParams{Ef: u32(10)})))
 		require.Equal(t, idsPerQuery(t, c, ds, req(probe(1))),
-			idsPerQuery(t, c, ds, req(&pb.VectorSearchParams{Ef: u32(1000), SearchProbe: u32(1)})))
+			idsPerQuery(t, c, ds, req(&pb.VectorIndexParams{Ef: u32(1000), SearchProbe: u32(1)})))
 	})
 
 	t.Run("REST matches gRPC", func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestVectorSearchParamsSearchProbe(t *testing.T) {
 			for qi, q := range ds.queries[:numQueries] {
 				want := searchIDs(t, c, req(probe(p))(q))
 				got := restOKIDs(t, uri, class, "near-vector", map[string]any{
-					"vector": q, "limit": k, "vectorSearchParams": map[string]any{"searchProbe": p},
+					"vector": q, "limit": k, "vectorIndexParams": map[string]any{"searchProbe": p},
 				})
 				require.Equal(t, want, got, "search_probe %d query %d", p, qi)
 			}

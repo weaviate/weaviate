@@ -41,11 +41,11 @@ type fixedVectorIndex struct {
 func (f *fixedVectorIndex) Type() common.IndexType { return common.IndexTypeHNSW }
 func (f *fixedVectorIndex) Multivector() bool      { return false }
 
-func (f *fixedVectorIndex) SearchByVector(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (f *fixedVectorIndex) SearchByVector(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	return append([]uint64{}, f.ids...), append([]float32{}, f.dists...), nil
 }
 
-func (f *fixedVectorIndex) SearchByVectorDistance(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (f *fixedVectorIndex) SearchByVectorDistance(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	return append([]uint64{}, f.ids...), append([]float32{}, f.dists...), nil
 }
 

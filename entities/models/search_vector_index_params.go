@@ -26,10 +26,10 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SearchVectorSearchParams Per-request tuning of the vector index search.
+// SearchVectorIndexParams Per-request tuning of the vector index search.
 //
-// swagger:model SearchVectorSearchParams
-type SearchVectorSearchParams struct {
+// swagger:model SearchVectorIndexParams
+type SearchVectorIndexParams struct {
 
 	// HNSW layer-0 beam width for this request only, floored at the request's limit. Omitted or 0 uses the collection's vectorIndexConfig. On a compressed index it also caps the candidates that are rescored, including in the flat search used when a filter matches fewer objects than flatSearchCutoff, so a low ef can lower recall there. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.
 	Ef *int64 `json:"ef,omitempty"`
@@ -42,8 +42,8 @@ type SearchVectorSearchParams struct {
 	SearchProbe *int64 `json:"searchProbe,omitempty"`
 }
 
-// Validate validates this search vector search params
-func (m *SearchVectorSearchParams) Validate(formats strfmt.Registry) error {
+// Validate validates this search vector index params
+func (m *SearchVectorIndexParams) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateFilterStrategy(formats); err != nil {
@@ -56,7 +56,7 @@ func (m *SearchVectorSearchParams) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var searchVectorSearchParamsTypeFilterStrategyPropEnum []interface{}
+var searchVectorIndexParamsTypeFilterStrategyPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -64,31 +64,31 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		searchVectorSearchParamsTypeFilterStrategyPropEnum = append(searchVectorSearchParamsTypeFilterStrategyPropEnum, v)
+		searchVectorIndexParamsTypeFilterStrategyPropEnum = append(searchVectorIndexParamsTypeFilterStrategyPropEnum, v)
 	}
 }
 
 const (
 
-	// SearchVectorSearchParamsFilterStrategySweeping captures enum value "sweeping"
-	SearchVectorSearchParamsFilterStrategySweeping string = "sweeping"
+	// SearchVectorIndexParamsFilterStrategySweeping captures enum value "sweeping"
+	SearchVectorIndexParamsFilterStrategySweeping string = "sweeping"
 
-	// SearchVectorSearchParamsFilterStrategyAcorn captures enum value "acorn"
-	SearchVectorSearchParamsFilterStrategyAcorn string = "acorn"
+	// SearchVectorIndexParamsFilterStrategyAcorn captures enum value "acorn"
+	SearchVectorIndexParamsFilterStrategyAcorn string = "acorn"
 
-	// SearchVectorSearchParamsFilterStrategyPathseer captures enum value "pathseer"
-	SearchVectorSearchParamsFilterStrategyPathseer string = "pathseer"
+	// SearchVectorIndexParamsFilterStrategyPathseer captures enum value "pathseer"
+	SearchVectorIndexParamsFilterStrategyPathseer string = "pathseer"
 )
 
 // prop value enum
-func (m *SearchVectorSearchParams) validateFilterStrategyEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, searchVectorSearchParamsTypeFilterStrategyPropEnum, true); err != nil {
+func (m *SearchVectorIndexParams) validateFilterStrategyEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, searchVectorIndexParamsTypeFilterStrategyPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *SearchVectorSearchParams) validateFilterStrategy(formats strfmt.Registry) error {
+func (m *SearchVectorIndexParams) validateFilterStrategy(formats strfmt.Registry) error {
 	if swag.IsZero(m.FilterStrategy) { // not required
 		return nil
 	}
@@ -101,13 +101,13 @@ func (m *SearchVectorSearchParams) validateFilterStrategy(formats strfmt.Registr
 	return nil
 }
 
-// ContextValidate validates this search vector search params based on context it is used
-func (m *SearchVectorSearchParams) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this search vector index params based on context it is used
+func (m *SearchVectorIndexParams) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *SearchVectorSearchParams) MarshalBinary() ([]byte, error) {
+func (m *SearchVectorIndexParams) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -115,8 +115,8 @@ func (m *SearchVectorSearchParams) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SearchVectorSearchParams) UnmarshalBinary(b []byte) error {
-	var res SearchVectorSearchParams
+func (m *SearchVectorIndexParams) UnmarshalBinary(b []byte) error {
+	var res SearchVectorIndexParams
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

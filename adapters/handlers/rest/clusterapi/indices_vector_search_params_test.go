@@ -32,33 +32,33 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// capturingShards records the vectorSearchParams argument of Search.
+// capturingShards records the vectorIndexParams argument of Search.
 type capturingShards struct {
 	shards
-	got    *searchparams.VectorSearchParams
+	got    *searchparams.VectorIndexParams
 	called bool
 }
 
 func (c *capturingShards) Search(_ context.Context, _, _ string,
 	_ []models.Vector, _ []string, _ float32, _ int, _ *filters.LocalFilter, _ *searchparams.KeywordRanking,
 	_ []filters.Sort, _ *filters.Cursor, _ *searchparams.GroupBy, _ additional.Properties,
-	_ *dto.TargetCombination, _ []string, params *searchparams.VectorSearchParams,
+	_ *dto.TargetCombination, _ []string, params *searchparams.VectorIndexParams,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	c.got = params
 	c.called = true
 	return nil, nil, nil, nil
 }
 
-// TestSearchObjectsPropagatesVectorSearchParams pins that the per-request ef
+// TestSearchObjectsPropagatesVectorIndexParams pins that the per-request ef
 // carried in the node-to-node search payload reaches shards.Search, so a hop
 // dropping it fails here without Docker.
-func TestSearchObjectsPropagatesVectorSearchParams(t *testing.T) {
+func TestSearchObjectsPropagatesVectorIndexParams(t *testing.T) {
 	tests := []struct {
 		name   string
-		params *searchparams.VectorSearchParams
+		params *searchparams.VectorIndexParams
 		wantEF int
 	}{
-		{"ef override is forwarded", &searchparams.VectorSearchParams{EF: 800}, 800},
+		{"ef override is forwarded", &searchparams.VectorIndexParams{EF: 800}, 800},
 		{"absent params stay nil", nil, 0},
 	}
 	for _, tt := range tests {

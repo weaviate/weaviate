@@ -205,23 +205,23 @@ func TestRerankValidationNamesPropertyOnce(t *testing.T) {
 	assert.Contains(t, err.Error(), "rerank.property in body is required")
 }
 
-func TestTargetVectorSearchParamsEntryBindTimeValidation(t *testing.T) {
+func TestTargetVectorIndexParamsEntryBindTimeValidation(t *testing.T) {
 	// The map values are nullable in the schema so that an empty object entry
 	// binds to an all-nil struct and passes the generated required check
 	// (gRPC accepts an empty per-target entry too); only a JSON null entry is
 	// rejected at bind time.
 	t.Run("empty object entry passes bind-time validation", func(t *testing.T) {
-		req, apiErr := decodeModel(`{"query":["space"],"targetVectorSearchParams":{"title":{}}}`)
+		req, apiErr := decodeModel(`{"query":["space"],"targetVectorIndexParams":{"title":{}}}`)
 		require.Nil(t, apiErr)
 		require.NoError(t, req.Validate(strfmt.Default))
 	})
 
 	t.Run("null entry is rejected at bind time", func(t *testing.T) {
-		req, apiErr := decodeModel(`{"query":["space"],"targetVectorSearchParams":{"title":null}}`)
+		req, apiErr := decodeModel(`{"query":["space"],"targetVectorIndexParams":{"title":null}}`)
 		require.Nil(t, apiErr)
 		err := req.Validate(strfmt.Default)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "targetVectorSearchParams.title in body is required")
+		assert.Contains(t, err.Error(), "targetVectorIndexParams.title in body is required")
 	})
 }
 
@@ -2208,66 +2208,66 @@ func TestParseConsistencyLevel(t *testing.T) {
 
 func ptrInt64(v int64) *int64 { return &v }
 
-func TestParseVectorSearchParams(t *testing.T) {
+func TestParseVectorIndexParams(t *testing.T) {
 	h := &Handler{maxSearchEF: 10000, maxSearchProbe: 500}
-	type vsp = searchparams.VectorSearchParams
+	type vsp = searchparams.VectorIndexParams
 	tests := []struct {
 		name     string
-		in       *models.SearchVectorSearchParams
+		in       *models.SearchVectorIndexParams
 		expected vsp
 		status   int // 0 = ok
 		errMsg   string
 	}{
 		{"absent", nil, vsp{}, 0, ""},
-		{"empty object", &models.SearchVectorSearchParams{}, vsp{}, 0, ""},
-		{"ef zero", &models.SearchVectorSearchParams{Ef: ptrInt64(0)}, vsp{}, 0, ""},
-		{"ef 800", &models.SearchVectorSearchParams{Ef: ptrInt64(800)}, vsp{EF: 800}, 0, ""},
-		{"ef equals cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10000)}, vsp{EF: 10000}, 0, ""},
+		{"empty object", &models.SearchVectorIndexParams{}, vsp{}, 0, ""},
+		{"ef zero", &models.SearchVectorIndexParams{Ef: ptrInt64(0)}, vsp{}, 0, ""},
+		{"ef 800", &models.SearchVectorIndexParams{Ef: ptrInt64(800)}, vsp{EF: 800}, 0, ""},
+		{"ef equals cap", &models.SearchVectorIndexParams{Ef: ptrInt64(10000)}, vsp{EF: 10000}, 0, ""},
 		{
-			"ef above cap", &models.SearchVectorSearchParams{Ef: ptrInt64(10001)},
+			"ef above cap", &models.SearchVectorIndexParams{Ef: ptrInt64(10001)},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			"vectorSearchParams.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
+			"vectorIndexParams.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
 		},
 		{
-			"ef negative", &models.SearchVectorSearchParams{Ef: ptrInt64(-1)},
+			"ef negative", &models.SearchVectorIndexParams{Ef: ptrInt64(-1)},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			"vectorSearchParams.ef must be >= 0, got -1",
+			"vectorIndexParams.ef must be >= 0, got -1",
 		},
-		{"searchProbe zero", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(0)}, vsp{}, 0, ""},
-		{"searchProbe 64", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(64)}, vsp{SearchProbe: 64}, 0, ""},
-		{"searchProbe equals cap", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(500)}, vsp{SearchProbe: 500}, 0, ""},
+		{"searchProbe zero", &models.SearchVectorIndexParams{SearchProbe: ptrInt64(0)}, vsp{}, 0, ""},
+		{"searchProbe 64", &models.SearchVectorIndexParams{SearchProbe: ptrInt64(64)}, vsp{SearchProbe: 64}, 0, ""},
+		{"searchProbe equals cap", &models.SearchVectorIndexParams{SearchProbe: ptrInt64(500)}, vsp{SearchProbe: 500}, 0, ""},
 		{
-			"searchProbe above cap", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(501)},
+			"searchProbe above cap", &models.SearchVectorIndexParams{SearchProbe: ptrInt64(501)},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			"vectorSearchParams.searchProbe 501 exceeds HFRESH_MAX_SEARCH_PROBE (500)",
+			"vectorIndexParams.searchProbe 501 exceeds HFRESH_MAX_SEARCH_PROBE (500)",
 		},
 		{
-			"searchProbe negative", &models.SearchVectorSearchParams{SearchProbe: ptrInt64(-3)},
+			"searchProbe negative", &models.SearchVectorIndexParams{SearchProbe: ptrInt64(-3)},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			"vectorSearchParams.searchProbe must be >= 0, got -3",
+			"vectorIndexParams.searchProbe must be >= 0, got -3",
 		},
-		{"filterStrategy sweeping", &models.SearchVectorSearchParams{FilterStrategy: "sweeping"}, vsp{FilterStrategy: "sweeping"}, 0, ""},
-		{"filterStrategy acorn", &models.SearchVectorSearchParams{FilterStrategy: "acorn"}, vsp{FilterStrategy: "acorn"}, 0, ""},
-		{"filterStrategy pathseer", &models.SearchVectorSearchParams{FilterStrategy: "pathseer"}, vsp{FilterStrategy: "pathseer"}, 0, ""},
+		{"filterStrategy sweeping", &models.SearchVectorIndexParams{FilterStrategy: "sweeping"}, vsp{FilterStrategy: "sweeping"}, 0, ""},
+		{"filterStrategy acorn", &models.SearchVectorIndexParams{FilterStrategy: "acorn"}, vsp{FilterStrategy: "acorn"}, 0, ""},
+		{"filterStrategy pathseer", &models.SearchVectorIndexParams{FilterStrategy: "pathseer"}, vsp{FilterStrategy: "pathseer"}, 0, ""},
 		{
-			"filterStrategy unknown", &models.SearchVectorSearchParams{FilterStrategy: "ACORN"},
+			"filterStrategy unknown", &models.SearchVectorIndexParams{FilterStrategy: "ACORN"},
 			vsp{},
 			http.StatusUnprocessableEntity,
-			`vectorSearchParams.filterStrategy must be one of sweeping, acorn, pathseer, got "ACORN"`,
+			`vectorIndexParams.filterStrategy must be one of sweeping, acorn, pathseer, got "ACORN"`,
 		},
 		{
-			"all fields", &models.SearchVectorSearchParams{Ef: ptrInt64(64), SearchProbe: ptrInt64(32), FilterStrategy: "acorn"},
+			"all fields", &models.SearchVectorIndexParams{Ef: ptrInt64(64), SearchProbe: ptrInt64(32), FilterStrategy: "acorn"},
 			vsp{EF: 64, SearchProbe: 32, FilterStrategy: "acorn"},
 			0, "",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, apiErr := h.parseVectorSearchParamsEntry(tt.in, "vectorSearchParams.")
+			got, apiErr := h.parseVectorIndexParamsEntry(tt.in, "vectorIndexParams.")
 			if tt.status != 0 {
 				require.NotNil(t, apiErr)
 				assert.Equal(t, tt.status, apiErr.Status)
@@ -2281,16 +2281,16 @@ func TestParseVectorSearchParams(t *testing.T) {
 	}
 }
 
-func TestBm25RejectsVectorSearchParams(t *testing.T) {
+func TestBm25RejectsVectorIndexParams(t *testing.T) {
 	tests := []struct {
 		name, body, want string
 	}{
-		{"with ef", `{"query":"space","vectorSearchParams":{"ef":10}}`, "vectorSearchParams is not applicable to bm25 search"},
-		{"with searchProbe", `{"query":"space","vectorSearchParams":{"searchProbe":10}}`, "vectorSearchParams is not applicable to bm25 search"},
-		{"empty object", `{"query":"space","vectorSearchParams":{}}`, "vectorSearchParams is not applicable to bm25 search"},
+		{"with ef", `{"query":"space","vectorIndexParams":{"ef":10}}`, "vectorIndexParams is not applicable to bm25 search"},
+		{"with searchProbe", `{"query":"space","vectorIndexParams":{"searchProbe":10}}`, "vectorIndexParams is not applicable to bm25 search"},
+		{"empty object", `{"query":"space","vectorIndexParams":{}}`, "vectorIndexParams is not applicable to bm25 search"},
 		{
-			"targetVectorSearchParams", `{"query":"space","targetVectorSearchParams":{"title_vec":{"ef":10}}}`,
-			"targetVectorSearchParams is not applicable to bm25 search",
+			"targetVectorIndexParams", `{"query":"space","targetVectorIndexParams":{"title_vec":{"ef":10}}}`,
+			"targetVectorIndexParams is not applicable to bm25 search",
 		},
 	}
 	for _, tt := range tests {
@@ -2304,24 +2304,24 @@ func TestBm25RejectsVectorSearchParams(t *testing.T) {
 
 	// An empty map carries no entry, so it is indistinguishable from an
 	// absent field, as an empty repeated field is on gRPC.
-	t.Run("empty targetVectorSearchParams is accepted", func(t *testing.T) {
-		_, apiErr := buildBm25(t, movieClass(), `{"query":"space","targetVectorSearchParams":{}}`)
+	t.Run("empty targetVectorIndexParams is accepted", func(t *testing.T) {
+		_, apiErr := buildBm25(t, movieClass(), `{"query":"space","targetVectorIndexParams":{}}`)
 		require.Nil(t, apiErr)
 	})
 }
 
-func TestBaseParamsMapsVectorSearchParams(t *testing.T) {
+func TestBaseParamsMapsVectorIndexParams(t *testing.T) {
 	tests := []struct {
 		name string
 		vsp  string
-		want *searchparams.VectorSearchParams
+		want *searchparams.VectorIndexParams
 	}{
-		{"ef", `{"ef":42}`, &searchparams.VectorSearchParams{EF: 42}},
-		{"searchProbe only", `{"searchProbe":7}`, &searchparams.VectorSearchParams{SearchProbe: 7}},
-		{"filterStrategy only", `{"filterStrategy":"pathseer"}`, &searchparams.VectorSearchParams{FilterStrategy: "pathseer"}},
+		{"ef", `{"ef":42}`, &searchparams.VectorIndexParams{EF: 42}},
+		{"searchProbe only", `{"searchProbe":7}`, &searchparams.VectorIndexParams{SearchProbe: 7}},
+		{"filterStrategy only", `{"filterStrategy":"pathseer"}`, &searchparams.VectorIndexParams{FilterStrategy: "pathseer"}},
 		{
 			"all fields", `{"ef":42,"searchProbe":7,"filterStrategy":"sweeping"}`,
-			&searchparams.VectorSearchParams{EF: 42, SearchProbe: 7, FilterStrategy: "sweeping"},
+			&searchparams.VectorIndexParams{EF: 42, SearchProbe: 7, FilterStrategy: "sweeping"},
 		},
 		{"ef zero alone is nil", `{"ef":0}`, nil},
 		{"all zero is nil", `{"ef":0,"searchProbe":0}`, nil},
@@ -2329,49 +2329,49 @@ func TestBaseParamsMapsVectorSearchParams(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"vectorSearchParams":`+tt.vsp+`}`)
+			searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"vectorIndexParams":`+tt.vsp+`}`)
 			require.Nil(t, apiErr)
-			assert.Equal(t, tt.want, searcher.lastParams.VectorSearchParams)
+			assert.Equal(t, tt.want, searcher.lastParams.VectorIndexParams)
 		})
 	}
 }
 
-func TestTargetVectorSearchParams(t *testing.T) {
+func TestTargetVectorIndexParams(t *testing.T) {
 	class := func() *models.Class { return namedVectorsClass("title_vec", "plot_vec") }
 	twoTargets := `"targetVectors":["title_vec","plot_vec"]`
 
 	t.Run("entries on two targets beside request-wide values", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+twoTargets+`,`+
-			`"vectorSearchParams":{"ef":100},`+
-			`"targetVectorSearchParams":{"title_vec":{"ef":300},"plot_vec":{"searchProbe":20,"filterStrategy":"acorn"}}}`)
+			`"vectorIndexParams":{"ef":100},`+
+			`"targetVectorIndexParams":{"title_vec":{"ef":300},"plot_vec":{"searchProbe":20,"filterStrategy":"acorn"}}}`)
 		require.Nil(t, apiErr)
-		assert.Equal(t, &searchparams.VectorSearchParams{
+		assert.Equal(t, &searchparams.VectorIndexParams{
 			EF: 100,
-			PerTarget: map[string]searchparams.VectorSearchParams{
+			PerTarget: map[string]searchparams.VectorIndexParams{
 				"title_vec": {EF: 300},
 				"plot_vec":  {SearchProbe: 20, FilterStrategy: "acorn"},
 			},
-		}, searcher.lastParams.VectorSearchParams)
+		}, searcher.lastParams.VectorIndexParams)
 	})
 
 	t.Run("per-target only allocates the params", func(t *testing.T) {
-		searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+twoTargets+`,"targetVectorSearchParams":{"plot_vec":{"ef":50}}}`)
+		searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+twoTargets+`,"targetVectorIndexParams":{"plot_vec":{"ef":50}}}`)
 		require.Nil(t, apiErr)
-		assert.Equal(t, &searchparams.VectorSearchParams{
-			PerTarget: map[string]searchparams.VectorSearchParams{"plot_vec": {EF: 50}},
-		}, searcher.lastParams.VectorSearchParams)
+		assert.Equal(t, &searchparams.VectorIndexParams{
+			PerTarget: map[string]searchparams.VectorIndexParams{"plot_vec": {EF: 50}},
+		}, searcher.lastParams.VectorIndexParams)
 	})
 
 	t.Run("single targetVector takes an entry", func(t *testing.T) {
-		searcher, apiErr := buildParams(t, class(), `{"query":["space"],"targetVector":"plot_vec","targetVectorSearchParams":{"plot_vec":{"ef":50}}}`)
+		searcher, apiErr := buildParams(t, class(), `{"query":["space"],"targetVector":"plot_vec","targetVectorIndexParams":{"plot_vec":{"ef":50}}}`)
 		require.Nil(t, apiErr)
-		assert.Equal(t, map[string]searchparams.VectorSearchParams{"plot_vec": {EF: 50}}, searcher.lastParams.VectorSearchParams.PerTarget)
+		assert.Equal(t, map[string]searchparams.VectorIndexParams{"plot_vec": {EF: 50}}, searcher.lastParams.VectorIndexParams.PerTarget)
 	})
 
 	t.Run("all-zero entries leave the params nil", func(t *testing.T) {
-		searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+twoTargets+`,"targetVectorSearchParams":{"plot_vec":{"ef":0},"title_vec":{}}}`)
+		searcher, apiErr := buildParams(t, class(), `{"query":["space"],`+twoTargets+`,"targetVectorIndexParams":{"plot_vec":{"ef":0},"title_vec":{}}}`)
 		require.Nil(t, apiErr)
-		assert.Nil(t, searcher.lastParams.VectorSearchParams)
+		assert.Nil(t, searcher.lastParams.VectorIndexParams)
 	})
 
 	tests := []struct {
@@ -2382,43 +2382,43 @@ func TestTargetVectorSearchParams(t *testing.T) {
 	}{
 		{
 			name: "key that is not a target of the request", class: class(),
-			fields: `"targetVector":"title_vec","targetVectorSearchParams":{"plot_vec":{"ef":10}}`,
-			want:   "targetVectorSearchParams[plot_vec]: not a target vector of this request",
+			fields: `"targetVector":"title_vec","targetVectorIndexParams":{"plot_vec":{"ef":10}}`,
+			want:   "targetVectorIndexParams[plot_vec]: not a target vector of this request",
 		},
 		{
 			name: "key that is not a named vector", class: class(),
-			fields: twoTargets + `,"targetVectorSearchParams":{"nope":{"ef":10}}`,
-			want:   "targetVectorSearchParams[nope]: not a target vector of this request",
+			fields: twoTargets + `,"targetVectorIndexParams":{"nope":{"ef":10}}`,
+			want:   "targetVectorIndexParams[nope]: not a target vector of this request",
 		},
 		{
 			name: "negative ef", class: class(),
-			fields: twoTargets + `,"targetVectorSearchParams":{"plot_vec":{"ef":-1}}`,
-			want:   "targetVectorSearchParams[plot_vec].ef must be >= 0, got -1",
+			fields: twoTargets + `,"targetVectorIndexParams":{"plot_vec":{"ef":-1}}`,
+			want:   "targetVectorIndexParams[plot_vec].ef must be >= 0, got -1",
 		},
 		{
 			name: "ef above cap", class: class(),
-			fields: twoTargets + `,"targetVectorSearchParams":{"plot_vec":{"ef":10001}}`,
-			want:   "targetVectorSearchParams[plot_vec].ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
+			fields: twoTargets + `,"targetVectorIndexParams":{"plot_vec":{"ef":10001}}`,
+			want:   "targetVectorIndexParams[plot_vec].ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)",
 		},
 		{
 			name: "negative searchProbe", class: class(),
-			fields: twoTargets + `,"targetVectorSearchParams":{"title_vec":{"searchProbe":-2}}`,
-			want:   "targetVectorSearchParams[title_vec].searchProbe must be >= 0, got -2",
+			fields: twoTargets + `,"targetVectorIndexParams":{"title_vec":{"searchProbe":-2}}`,
+			want:   "targetVectorIndexParams[title_vec].searchProbe must be >= 0, got -2",
 		},
 		{
 			name: "searchProbe above cap", class: class(),
-			fields: twoTargets + `,"targetVectorSearchParams":{"title_vec":{"searchProbe":10001}}`,
-			want:   "targetVectorSearchParams[title_vec].searchProbe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)",
+			fields: twoTargets + `,"targetVectorIndexParams":{"title_vec":{"searchProbe":10001}}`,
+			want:   "targetVectorIndexParams[title_vec].searchProbe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)",
 		},
 		{
 			name: "unknown filterStrategy", class: class(),
-			fields: twoTargets + `,"targetVectorSearchParams":{"title_vec":{"filterStrategy":"flat"}}`,
-			want:   `targetVectorSearchParams[title_vec].filterStrategy must be one of sweeping, acorn, pathseer, got "flat"`,
+			fields: twoTargets + `,"targetVectorIndexParams":{"title_vec":{"filterStrategy":"flat"}}`,
+			want:   `targetVectorIndexParams[title_vec].filterStrategy must be one of sweeping, acorn, pathseer, got "flat"`,
 		},
 		{
 			name: "legacy collection", class: movieClass(),
-			fields: `"targetVectorSearchParams":{"default":{"ef":10}}`,
-			want:   "targetVectorSearchParams requires named target vectors",
+			fields: `"targetVectorIndexParams":{"default":{"ef":10}}`,
+			want:   "targetVectorIndexParams requires named target vectors",
 		},
 	}
 	for _, tt := range tests {
@@ -2431,8 +2431,8 @@ func TestTargetVectorSearchParams(t *testing.T) {
 	}
 
 	t.Run("applied on every vector search type", func(t *testing.T) {
-		const tvsp = `"targetVectorSearchParams":{"plot_vec":{"ef":77}}`
-		want := map[string]searchparams.VectorSearchParams{"plot_vec": {EF: 77}}
+		const tvsp = `"targetVectorIndexParams":{"plot_vec":{"ef":77}}`
+		want := map[string]searchparams.VectorIndexParams{"plot_vec": {EF: 77}}
 		builders := []struct {
 			name  string
 			build func(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError)
@@ -2447,8 +2447,8 @@ func TestTargetVectorSearchParams(t *testing.T) {
 			t.Run(b.name, func(t *testing.T) {
 				searcher, apiErr := b.build(t, class(), b.body)
 				require.Nil(t, apiErr)
-				require.NotNil(t, searcher.lastParams.VectorSearchParams)
-				assert.Equal(t, want, searcher.lastParams.VectorSearchParams.PerTarget)
+				require.NotNil(t, searcher.lastParams.VectorIndexParams)
+				assert.Equal(t, want, searcher.lastParams.VectorIndexParams.PerTarget)
 
 				_, apiErr = b.build(t, class(), strings.Replace(b.body, `"plot_vec":{"ef":77}`, `"other":{"ef":77}`, 1))
 				require.NotNil(t, apiErr)
@@ -2458,17 +2458,17 @@ func TestTargetVectorSearchParams(t *testing.T) {
 	})
 }
 
-func TestParseVectorSearchParamsUnsetCaps(t *testing.T) {
+func TestParseVectorIndexParamsUnsetCaps(t *testing.T) {
 	// a handler built without resolved caps falls back to the default
 	// QUERY_MAXIMUM_RESULTS instead of rejecting every ef and searchProbe
 	h := &Handler{}
-	got, apiErr := h.parseVectorSearchParamsEntry(&models.SearchVectorSearchParams{
+	got, apiErr := h.parseVectorIndexParamsEntry(&models.SearchVectorIndexParams{
 		Ef: ptrInt64(500), SearchProbe: ptrInt64(64),
-	}, "vectorSearchParams.")
+	}, "vectorIndexParams.")
 	require.Nil(t, apiErr)
-	assert.Equal(t, searchparams.VectorSearchParams{EF: 500, SearchProbe: 64}, got)
+	assert.Equal(t, searchparams.VectorIndexParams{EF: 500, SearchProbe: 64}, got)
 
-	_, apiErr = h.parseVectorSearchParamsEntry(&models.SearchVectorSearchParams{Ef: ptrInt64(10001)}, "vectorSearchParams.")
+	_, apiErr = h.parseVectorIndexParamsEntry(&models.SearchVectorIndexParams{Ef: ptrInt64(10001)}, "vectorIndexParams.")
 	require.NotNil(t, apiErr)
-	assert.Equal(t, "vectorSearchParams.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)", apiErr.Err.Error())
+	assert.Equal(t, "vectorIndexParams.ef 10001 exceeds HNSW_MAX_SEARCH_EF (10000)", apiErr.Err.Error())
 }

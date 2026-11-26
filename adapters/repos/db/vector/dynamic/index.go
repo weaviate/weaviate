@@ -104,9 +104,9 @@ type VectorIndex interface {
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
-	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
-		maxLimit int64, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+		maxLimit int64, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
@@ -716,13 +716,13 @@ func (dynamic *dynamic) Delete(ids ...uint64) error {
 	return dynamic.index.Delete(ids...)
 }
 
-func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.SearchByVector(ctx, vector, k, allow, params)
 }
 
-func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.SearchByVectorDistance(ctx, vector, targetDistance, maxLimit, allow, params)

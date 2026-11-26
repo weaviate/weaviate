@@ -86,7 +86,7 @@ type IndexClient interface {
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-		vectorSearchParams *searchparams.VectorSearchParams,
+		vectorIndexParams *searchparams.VectorIndexParams,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
@@ -276,11 +276,11 @@ func (ri *Index) SearchAllReplicas(ctx context.Context,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-	vectorSearchParams *searchparams.VectorSearchParams,
+	vectorIndexParams *searchparams.VectorIndexParams,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
 		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, vectorSearchParams)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, vectorIndexParams)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
@@ -302,7 +302,7 @@ func (ri *Index) SearchShard(ctx context.Context, shard string,
 	adds additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-	vectorSearchParams *searchparams.VectorSearchParams,
+	vectorIndexParams *searchparams.VectorIndexParams,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, string, error) {
 	type result struct {
 		objects       []*storobj.Object
@@ -311,7 +311,7 @@ func (ri *Index) SearchShard(ctx context.Context, shard string,
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, vectorSearchParams)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, vectorIndexParams)
 		if err != nil {
 			return nil, err
 		}

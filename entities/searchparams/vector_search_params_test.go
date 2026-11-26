@@ -19,14 +19,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestVectorSearchParams_ForTarget(t *testing.T) {
-	requestWide := VectorSearchParams{EF: 64, SearchProbe: 16, FilterStrategy: FilterStrategyAcorn}
+func TestVectorIndexParams_ForTarget(t *testing.T) {
+	requestWide := VectorIndexParams{EF: 64, SearchProbe: 16, FilterStrategy: FilterStrategyAcorn}
 
 	tests := []struct {
 		name   string
-		params *VectorSearchParams
+		params *VectorIndexParams
 		target string
-		want   *VectorSearchParams
+		want   *VectorIndexParams
 		same   bool // result must be the receiver itself
 	}{
 		{
@@ -44,65 +44,65 @@ func TestVectorSearchParams_ForTarget(t *testing.T) {
 		},
 		{
 			name: "map without an entry for the target strips the map",
-			params: &VectorSearchParams{
-				EF: 64, PerTarget: map[string]VectorSearchParams{"body": {EF: 8}},
+			params: &VectorIndexParams{
+				EF: 64, PerTarget: map[string]VectorIndexParams{"body": {EF: 8}},
 			},
 			target: "title",
-			want:   &VectorSearchParams{EF: 64},
+			want:   &VectorIndexParams{EF: 64},
 		},
 		{
 			name: "entry overrides ef only",
-			params: &VectorSearchParams{
+			params: &VectorIndexParams{
 				EF: 64, SearchProbe: 16, FilterStrategy: FilterStrategyAcorn,
-				PerTarget: map[string]VectorSearchParams{"title": {EF: 128}},
+				PerTarget: map[string]VectorIndexParams{"title": {EF: 128}},
 			},
 			target: "title",
-			want:   &VectorSearchParams{EF: 128, SearchProbe: 16, FilterStrategy: FilterStrategyAcorn},
+			want:   &VectorIndexParams{EF: 128, SearchProbe: 16, FilterStrategy: FilterStrategyAcorn},
 		},
 		{
 			name: "entry overrides search probe only",
-			params: &VectorSearchParams{
+			params: &VectorIndexParams{
 				EF: 64, SearchProbe: 16,
-				PerTarget: map[string]VectorSearchParams{"body": {SearchProbe: 32}},
+				PerTarget: map[string]VectorIndexParams{"body": {SearchProbe: 32}},
 			},
 			target: "body",
-			want:   &VectorSearchParams{EF: 64, SearchProbe: 32},
+			want:   &VectorIndexParams{EF: 64, SearchProbe: 32},
 		},
 		{
 			name: "entry overrides filter strategy only",
-			params: &VectorSearchParams{
+			params: &VectorIndexParams{
 				EF: 64, FilterStrategy: FilterStrategyAcorn,
-				PerTarget: map[string]VectorSearchParams{"title": {FilterStrategy: FilterStrategyPathseer}},
+				PerTarget: map[string]VectorIndexParams{"title": {FilterStrategy: FilterStrategyPathseer}},
 			},
 			target: "title",
-			want:   &VectorSearchParams{EF: 64, FilterStrategy: FilterStrategyPathseer},
+			want:   &VectorIndexParams{EF: 64, FilterStrategy: FilterStrategyPathseer},
 		},
 		{
 			name: "entry overrides every field",
-			params: &VectorSearchParams{
+			params: &VectorIndexParams{
 				EF: 64, SearchProbe: 16, FilterStrategy: FilterStrategyAcorn,
-				PerTarget: map[string]VectorSearchParams{
+				PerTarget: map[string]VectorIndexParams{
 					"title": {EF: 8, SearchProbe: 4, FilterStrategy: FilterStrategySweeping},
 				},
 			},
 			target: "title",
-			want:   &VectorSearchParams{EF: 8, SearchProbe: 4, FilterStrategy: FilterStrategySweeping},
+			want:   &VectorIndexParams{EF: 8, SearchProbe: 4, FilterStrategy: FilterStrategySweeping},
 		},
 		{
 			name: "per-target only, no request-wide values",
-			params: &VectorSearchParams{
-				PerTarget: map[string]VectorSearchParams{"title": {EF: 128}},
+			params: &VectorIndexParams{
+				PerTarget: map[string]VectorIndexParams{"title": {EF: 128}},
 			},
 			target: "title",
-			want:   &VectorSearchParams{EF: 128},
+			want:   &VectorIndexParams{EF: 128},
 		},
 		{
 			name: "zero entry keeps request-wide values",
-			params: &VectorSearchParams{
-				EF: 64, PerTarget: map[string]VectorSearchParams{"title": {}},
+			params: &VectorIndexParams{
+				EF: 64, PerTarget: map[string]VectorIndexParams{"title": {}},
 			},
 			target: "title",
-			want:   &VectorSearchParams{EF: 64},
+			want:   &VectorIndexParams{EF: 64},
 		},
 	}
 
@@ -120,87 +120,87 @@ func TestVectorSearchParams_ForTarget(t *testing.T) {
 	}
 }
 
-func TestVectorSearchParams_Accessors(t *testing.T) {
-	var nilParams *VectorSearchParams
+func TestVectorIndexParams_Accessors(t *testing.T) {
+	var nilParams *VectorIndexParams
 	assert.Equal(t, 0, nilParams.EFOrZero())
 	assert.Equal(t, 0, nilParams.SearchProbeOrZero())
 	assert.Equal(t, "", nilParams.FilterStrategyOrEmpty())
 	assert.True(t, nilParams.IsZero())
 
-	assert.True(t, (&VectorSearchParams{}).IsZero())
-	assert.False(t, (&VectorSearchParams{EF: 1}).IsZero())
-	assert.False(t, (&VectorSearchParams{SearchProbe: 1}).IsZero())
-	assert.False(t, (&VectorSearchParams{FilterStrategy: FilterStrategySweeping}).IsZero())
-	assert.False(t, (&VectorSearchParams{PerTarget: map[string]VectorSearchParams{"t": {EF: 1}}}).IsZero())
+	assert.True(t, (&VectorIndexParams{}).IsZero())
+	assert.False(t, (&VectorIndexParams{EF: 1}).IsZero())
+	assert.False(t, (&VectorIndexParams{SearchProbe: 1}).IsZero())
+	assert.False(t, (&VectorIndexParams{FilterStrategy: FilterStrategySweeping}).IsZero())
+	assert.False(t, (&VectorIndexParams{PerTarget: map[string]VectorIndexParams{"t": {EF: 1}}}).IsZero())
 
-	p := &VectorSearchParams{EF: 3, SearchProbe: 5, FilterStrategy: FilterStrategyPathseer}
+	p := &VectorIndexParams{EF: 3, SearchProbe: 5, FilterStrategy: FilterStrategyPathseer}
 	assert.Equal(t, 3, p.EFOrZero())
 	assert.Equal(t, 5, p.SearchProbeOrZero())
 	assert.Equal(t, FilterStrategyPathseer, p.FilterStrategyOrEmpty())
 }
 
-func TestVectorSearchParams_JSONRoundTrip(t *testing.T) {
+func TestVectorIndexParams_JSONRoundTrip(t *testing.T) {
 	t.Run("full struct round-trips", func(t *testing.T) {
-		in := VectorSearchParams{
+		in := VectorIndexParams{
 			EF: 64, SearchProbe: 16, FilterStrategy: FilterStrategyAcorn,
-			PerTarget: map[string]VectorSearchParams{
+			PerTarget: map[string]VectorIndexParams{
 				"title": {EF: 128, FilterStrategy: FilterStrategySweeping},
 				"body":  {SearchProbe: 32},
 			},
 		}
 		raw, err := json.Marshal(in)
 		require.NoError(t, err)
-		var out VectorSearchParams
+		var out VectorIndexParams
 		require.NoError(t, json.Unmarshal(raw, &out))
 		assert.Equal(t, in, out)
 	})
 
 	t.Run("zero fields are omitted", func(t *testing.T) {
-		raw, err := json.Marshal(VectorSearchParams{EF: 64})
+		raw, err := json.Marshal(VectorIndexParams{EF: 64})
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"ef":64}`, string(raw))
 	})
 
 	t.Run("old ef-only payload decodes into the new struct", func(t *testing.T) {
-		var out VectorSearchParams
+		var out VectorIndexParams
 		require.NoError(t, json.Unmarshal([]byte(`{"ef":64}`), &out))
-		assert.Equal(t, VectorSearchParams{EF: 64}, out)
+		assert.Equal(t, VectorIndexParams{EF: 64}, out)
 	})
 
 	t.Run("new payload decoded by a node that only knows ef keeps ef", func(t *testing.T) {
 		// Shape of the struct on a node that predates the new fields.
-		type oldVectorSearchParams struct {
+		type oldVectorIndexParams struct {
 			EF int `json:"ef,omitempty"`
 		}
-		raw, err := json.Marshal(VectorSearchParams{
+		raw, err := json.Marshal(VectorIndexParams{
 			EF: 64, SearchProbe: 16, FilterStrategy: FilterStrategyAcorn,
-			PerTarget: map[string]VectorSearchParams{"title": {EF: 128}},
+			PerTarget: map[string]VectorIndexParams{"title": {EF: 128}},
 		})
 		require.NoError(t, err)
-		var out oldVectorSearchParams
+		var out oldVectorIndexParams
 		require.NoError(t, json.Unmarshal(raw, &out))
-		assert.Equal(t, oldVectorSearchParams{EF: 64}, out)
+		assert.Equal(t, oldVectorIndexParams{EF: 64}, out)
 	})
 }
 
-func TestVectorSearchParams_Validate(t *testing.T) {
+func TestVectorIndexParams_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		params  *VectorSearchParams
+		params  *VectorIndexParams
 		maxEF   int
 		maxProb int
 		wantErr string
 	}{
 		{name: "nil", params: nil, maxEF: 10, maxProb: 10},
-		{name: "within caps", params: &VectorSearchParams{EF: 10, SearchProbe: 10, FilterStrategy: FilterStrategyAcorn}, maxEF: 10, maxProb: 10},
-		{name: "ef over cap", params: &VectorSearchParams{EF: 11}, maxEF: 10, maxProb: 10, wantErr: "ef 11 exceeds HNSW_MAX_SEARCH_EF (10)"},
-		{name: "probe over cap", params: &VectorSearchParams{SearchProbe: 11}, maxEF: 10, maxProb: 10, wantErr: "searchProbe 11 exceeds HFRESH_MAX_SEARCH_PROBE (10)"},
-		{name: "negative ef", params: &VectorSearchParams{EF: -1}, maxEF: 10, maxProb: 10, wantErr: "ef must be >= 0, got -1"},
-		{name: "unknown strategy", params: &VectorSearchParams{FilterStrategy: "fast"}, maxEF: 10, maxProb: 10, wantErr: `filterStrategy must be one of sweeping, acorn, pathseer, got "fast"`},
-		{name: "unset caps are unbounded", params: &VectorSearchParams{EF: 50000, SearchProbe: 50000}},
+		{name: "within caps", params: &VectorIndexParams{EF: 10, SearchProbe: 10, FilterStrategy: FilterStrategyAcorn}, maxEF: 10, maxProb: 10},
+		{name: "ef over cap", params: &VectorIndexParams{EF: 11}, maxEF: 10, maxProb: 10, wantErr: "ef 11 exceeds HNSW_MAX_SEARCH_EF (10)"},
+		{name: "probe over cap", params: &VectorIndexParams{SearchProbe: 11}, maxEF: 10, maxProb: 10, wantErr: "searchProbe 11 exceeds HFRESH_MAX_SEARCH_PROBE (10)"},
+		{name: "negative ef", params: &VectorIndexParams{EF: -1}, maxEF: 10, maxProb: 10, wantErr: "ef must be >= 0, got -1"},
+		{name: "unknown strategy", params: &VectorIndexParams{FilterStrategy: "fast"}, maxEF: 10, maxProb: 10, wantErr: `filterStrategy must be one of sweeping, acorn, pathseer, got "fast"`},
+		{name: "unset caps are unbounded", params: &VectorIndexParams{EF: 50000, SearchProbe: 50000}},
 		{
 			name:   "per-target entry over cap names the target",
-			params: &VectorSearchParams{PerTarget: map[string]VectorSearchParams{"title": {EF: 11}}},
+			params: &VectorIndexParams{PerTarget: map[string]VectorIndexParams{"title": {EF: 11}}},
 			maxEF:  10, maxProb: 10, wantErr: "perTarget[title]: ef 11 exceeds HNSW_MAX_SEARCH_EF (10)",
 		},
 	}

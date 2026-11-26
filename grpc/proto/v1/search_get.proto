@@ -54,14 +54,14 @@ message SearchRequest {
   // Per-request vector search tuning for every vector search of the request
   // (all target vectors, the dense leg of hybrid). Requires a near* or hybrid
   // search, otherwise InvalidArgument.
-  optional VectorSearchParams vector_search_params = 63;
+  optional VectorIndexParams vector_index_params = 63;
 
   // Per-target overrides: each entry sets only its fields for the named
-  // target, the rest fall back to vector_search_params, then to the collection
+  // target, the rest fall back to vector_index_params, then to the collection
   // config. An entry cannot unset a request-wide value. Unknown or duplicated
   // targets, and entries on a legacy single-vector collection, are
   // InvalidArgument.
-  repeated VectorSearchParamsForTarget vector_search_params_for_targets = 64;
+  repeated VectorIndexParamsForTarget vector_index_params_for_targets = 64;
 
   bool uses_123_api = 100 [deprecated = true];
   bool uses_125_api = 101 [deprecated = true];
@@ -80,7 +80,7 @@ enum FilterStrategy {
 // One set of knobs for every index type: each index reads the fields it knows
 // and ignores the rest. Nodes that predate a field ignore it and use the
 // collection default.
-message VectorSearchParams {
+message VectorIndexParams {
   // HNSW layer-0 beam width, floored at the limit; 0/unset = collection
   // default, at most HNSW_MAX_SEARCH_EF. On a compressed index it also caps
   // the rescored candidates, including in the flat search below
@@ -94,11 +94,11 @@ message VectorSearchParams {
   optional FilterStrategy filter_strategy = 3;
 }
 
-message VectorSearchParamsForTarget {
+message VectorIndexParamsForTarget {
   // One of the request's target vectors.
   string target = 1;
   // Only the fields set here take effect.
-  VectorSearchParams params = 2;
+  VectorIndexParams params = 2;
 }
 
 message GroupBy {

@@ -70,19 +70,19 @@ func (i *Index) DeleteMulti(id ...uint64) error {
 	return nil
 }
 
-func (i *Index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, _ *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (i *Index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, _ *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList, _ *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (i *Index) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList, _ *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allow helpers.AllowList, _ *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (i *Index) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allow helpers.AllowList, _ *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32, maxLimit int64, allow helpers.AllowList, _ *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (i *Index) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32, maxLimit int64, allow helpers.AllowList, _ *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot multi-vector-search on a class not vector-indexed")
 }
 

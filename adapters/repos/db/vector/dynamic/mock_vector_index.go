@@ -719,7 +719,7 @@ func (_c *MockVectorIndex_ResumeAfterBackup_Call) RunAndReturn(run func(context.
 }
 
 // SearchByVector provides a mock function with given fields: ctx, vector, k, allow, params
-func (_m *MockVectorIndex) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (_m *MockVectorIndex) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	ret := _m.Called(ctx, vector, k, allow, params)
 
 	if len(ret) == 0 {
@@ -729,10 +729,10 @@ func (_m *MockVectorIndex) SearchByVector(ctx context.Context, vector []float32,
 	var r0 []uint64
 	var r1 []float32
 	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorSearchParams) ([]uint64, []float32, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorIndexParams) ([]uint64, []float32, error)); ok {
 		return rf(ctx, vector, k, allow, params)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorSearchParams) []uint64); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorIndexParams) []uint64); ok {
 		r0 = rf(ctx, vector, k, allow, params)
 	} else {
 		if ret.Get(0) != nil {
@@ -740,7 +740,7 @@ func (_m *MockVectorIndex) SearchByVector(ctx context.Context, vector []float32,
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorSearchParams) []float32); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorIndexParams) []float32); ok {
 		r1 = rf(ctx, vector, k, allow, params)
 	} else {
 		if ret.Get(1) != nil {
@@ -748,7 +748,7 @@ func (_m *MockVectorIndex) SearchByVector(ctx context.Context, vector []float32,
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorSearchParams) error); ok {
+	if rf, ok := ret.Get(2).(func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorIndexParams) error); ok {
 		r2 = rf(ctx, vector, k, allow, params)
 	} else {
 		r2 = ret.Error(2)
@@ -767,14 +767,14 @@ type MockVectorIndex_SearchByVector_Call struct {
 //   - vector []float32
 //   - k int
 //   - allow helpers.AllowList
-//   - params *searchparams.VectorSearchParams
+//   - params *searchparams.VectorIndexParams
 func (_e *MockVectorIndex_Expecter) SearchByVector(ctx interface{}, vector interface{}, k interface{}, allow interface{}, params interface{}) *MockVectorIndex_SearchByVector_Call {
 	return &MockVectorIndex_SearchByVector_Call{Call: _e.mock.On("SearchByVector", ctx, vector, k, allow, params)}
 }
 
-func (_c *MockVectorIndex_SearchByVector_Call) Run(run func(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams)) *MockVectorIndex_SearchByVector_Call {
+func (_c *MockVectorIndex_SearchByVector_Call) Run(run func(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams)) *MockVectorIndex_SearchByVector_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]float32), args[2].(int), args[3].(helpers.AllowList), args[4].(*searchparams.VectorSearchParams))
+		run(args[0].(context.Context), args[1].([]float32), args[2].(int), args[3].(helpers.AllowList), args[4].(*searchparams.VectorIndexParams))
 	})
 	return _c
 }
@@ -784,13 +784,13 @@ func (_c *MockVectorIndex_SearchByVector_Call) Return(_a0 []uint64, _a1 []float3
 	return _c
 }
 
-func (_c *MockVectorIndex_SearchByVector_Call) RunAndReturn(run func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorSearchParams) ([]uint64, []float32, error)) *MockVectorIndex_SearchByVector_Call {
+func (_c *MockVectorIndex_SearchByVector_Call) RunAndReturn(run func(context.Context, []float32, int, helpers.AllowList, *searchparams.VectorIndexParams) ([]uint64, []float32, error)) *MockVectorIndex_SearchByVector_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SearchByVectorDistance provides a mock function with given fields: ctx, vector, dist, maxLimit, allow, params
-func (_m *MockVectorIndex) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (_m *MockVectorIndex) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	ret := _m.Called(ctx, vector, dist, maxLimit, allow, params)
 
 	if len(ret) == 0 {
@@ -800,10 +800,10 @@ func (_m *MockVectorIndex) SearchByVectorDistance(ctx context.Context, vector []
 	var r0 []uint64
 	var r1 []float32
 	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorSearchParams) ([]uint64, []float32, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorIndexParams) ([]uint64, []float32, error)); ok {
 		return rf(ctx, vector, dist, maxLimit, allow, params)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorSearchParams) []uint64); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorIndexParams) []uint64); ok {
 		r0 = rf(ctx, vector, dist, maxLimit, allow, params)
 	} else {
 		if ret.Get(0) != nil {
@@ -811,7 +811,7 @@ func (_m *MockVectorIndex) SearchByVectorDistance(ctx context.Context, vector []
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorSearchParams) []float32); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorIndexParams) []float32); ok {
 		r1 = rf(ctx, vector, dist, maxLimit, allow, params)
 	} else {
 		if ret.Get(1) != nil {
@@ -819,7 +819,7 @@ func (_m *MockVectorIndex) SearchByVectorDistance(ctx context.Context, vector []
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorSearchParams) error); ok {
+	if rf, ok := ret.Get(2).(func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorIndexParams) error); ok {
 		r2 = rf(ctx, vector, dist, maxLimit, allow, params)
 	} else {
 		r2 = ret.Error(2)
@@ -839,14 +839,14 @@ type MockVectorIndex_SearchByVectorDistance_Call struct {
 //   - dist float32
 //   - maxLimit int64
 //   - allow helpers.AllowList
-//   - params *searchparams.VectorSearchParams
+//   - params *searchparams.VectorIndexParams
 func (_e *MockVectorIndex_Expecter) SearchByVectorDistance(ctx interface{}, vector interface{}, dist interface{}, maxLimit interface{}, allow interface{}, params interface{}) *MockVectorIndex_SearchByVectorDistance_Call {
 	return &MockVectorIndex_SearchByVectorDistance_Call{Call: _e.mock.On("SearchByVectorDistance", ctx, vector, dist, maxLimit, allow, params)}
 }
 
-func (_c *MockVectorIndex_SearchByVectorDistance_Call) Run(run func(ctx context.Context, vector []float32, dist float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorSearchParams)) *MockVectorIndex_SearchByVectorDistance_Call {
+func (_c *MockVectorIndex_SearchByVectorDistance_Call) Run(run func(ctx context.Context, vector []float32, dist float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorIndexParams)) *MockVectorIndex_SearchByVectorDistance_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]float32), args[2].(float32), args[3].(int64), args[4].(helpers.AllowList), args[5].(*searchparams.VectorSearchParams))
+		run(args[0].(context.Context), args[1].([]float32), args[2].(float32), args[3].(int64), args[4].(helpers.AllowList), args[5].(*searchparams.VectorIndexParams))
 	})
 	return _c
 }
@@ -856,7 +856,7 @@ func (_c *MockVectorIndex_SearchByVectorDistance_Call) Return(_a0 []uint64, _a1 
 	return _c
 }
 
-func (_c *MockVectorIndex_SearchByVectorDistance_Call) RunAndReturn(run func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorSearchParams) ([]uint64, []float32, error)) *MockVectorIndex_SearchByVectorDistance_Call {
+func (_c *MockVectorIndex_SearchByVectorDistance_Call) RunAndReturn(run func(context.Context, []float32, float32, int64, helpers.AllowList, *searchparams.VectorIndexParams) ([]uint64, []float32, error)) *MockVectorIndex_SearchByVectorDistance_Call {
 	_c.Call.Return(run)
 	return _c
 }

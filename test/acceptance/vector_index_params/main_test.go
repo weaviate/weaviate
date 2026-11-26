@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vector_search_params
+package vector_index_params
 
 import (
 	"context"

@@ -79,22 +79,22 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 	}
 	out.Pagination = pagination
 
-	vectorSearchParams, apiErr := h.parseVectorSearchParamsEntry(common.VectorSearchParams, "vectorSearchParams.")
+	vectorIndexParams, apiErr := h.parseVectorIndexParamsEntry(common.VectorIndexParams, "vectorIndexParams.")
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	if !vectorSearchParams.IsZero() {
-		out.VectorSearchParams = &vectorSearchParams
+	if !vectorIndexParams.IsZero() {
+		out.VectorIndexParams = &vectorIndexParams
 	}
 
 	return out, nil
 }
 
-// parseVectorSearchParamsEntry validates one vectorSearchParams object, the
-// request-wide one or a targetVectorSearchParams entry named by prefix. An
+// parseVectorIndexParamsEntry validates one vectorIndexParams object, the
+// request-wide one or a targetVectorIndexParams entry named by prefix. An
 // absent field or 0 means the collection's configured value.
-func (h *Handler) parseVectorSearchParamsEntry(in *models.SearchVectorSearchParams, prefix string) (searchparams.VectorSearchParams, *APIError) {
-	var out searchparams.VectorSearchParams
+func (h *Handler) parseVectorIndexParamsEntry(in *models.SearchVectorIndexParams, prefix string) (searchparams.VectorIndexParams, *APIError) {
+	var out searchparams.VectorIndexParams
 	if in == nil {
 		return out, nil
 	}
@@ -128,7 +128,7 @@ func (h *Handler) parseVectorSearchParamsEntry(in *models.SearchVectorSearchPara
 		out.FilterStrategy = in.FilterStrategy
 	default:
 		// the spec enum rejects this at bind time; kept for direct callers
-		return searchparams.VectorSearchParams{}, newAPIError(http.StatusUnprocessableEntity,
+		return searchparams.VectorIndexParams{}, newAPIError(http.StatusUnprocessableEntity,
 			"%sfilterStrategy must be one of sweeping, acorn, pathseer, got %q", prefix, in.FilterStrategy)
 	}
 
@@ -144,15 +144,15 @@ func searchCap(v int64) int64 {
 	return v
 }
 
-// applyTargetVectorSearchParams validates targetVectorSearchParams against
-// the resolved targets and stores them in out.VectorSearchParams.PerTarget.
-func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *models.SearchCommon, targetVectors []string) *APIError {
-	if len(common.TargetVectorSearchParams) == 0 {
+// applyTargetVectorIndexParams validates targetVectorIndexParams against
+// the resolved targets and stores them in out.VectorIndexParams.PerTarget.
+func (h *Handler) applyTargetVectorIndexParams(out *dto.GetParams, common *models.SearchCommon, targetVectors []string) *APIError {
+	if len(common.TargetVectorIndexParams) == 0 {
 		return nil
 	}
 	if len(targetVectors) == 0 {
 		return newAPIError(http.StatusUnprocessableEntity,
-			"targetVectorSearchParams requires named target vectors; collection %s is searched on its legacy vector, use vectorSearchParams", out.ClassName)
+			"targetVectorIndexParams requires named target vectors; collection %s is searched on its legacy vector, use vectorIndexParams", out.ClassName)
 	}
 
 	isTarget := make(map[string]bool, len(targetVectors))
@@ -161,20 +161,20 @@ func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *mode
 	}
 
 	// sorted, so several invalid keys always report the same one
-	names := make([]string, 0, len(common.TargetVectorSearchParams))
-	for name := range common.TargetVectorSearchParams {
+	names := make([]string, 0, len(common.TargetVectorIndexParams))
+	for name := range common.TargetVectorIndexParams {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
-	perTarget := make(map[string]searchparams.VectorSearchParams, len(common.TargetVectorSearchParams))
+	perTarget := make(map[string]searchparams.VectorIndexParams, len(common.TargetVectorIndexParams))
 	for _, name := range names {
-		entry := common.TargetVectorSearchParams[name]
+		entry := common.TargetVectorIndexParams[name]
 		if !isTarget[name] {
 			return newAPIError(http.StatusUnprocessableEntity,
-				"targetVectorSearchParams[%s]: not a target vector of this request", name)
+				"targetVectorIndexParams[%s]: not a target vector of this request", name)
 		}
-		params, apiErr := h.parseVectorSearchParamsEntry(entry, "targetVectorSearchParams["+name+"].")
+		params, apiErr := h.parseVectorIndexParamsEntry(entry, "targetVectorIndexParams["+name+"].")
 		if apiErr != nil {
 			return apiErr
 		}
@@ -187,10 +187,10 @@ func (h *Handler) applyTargetVectorSearchParams(out *dto.GetParams, common *mode
 		return nil
 	}
 
-	if out.VectorSearchParams == nil {
-		out.VectorSearchParams = &searchparams.VectorSearchParams{}
+	if out.VectorIndexParams == nil {
+		out.VectorIndexParams = &searchparams.VectorIndexParams{}
 	}
-	out.VectorSearchParams.PerTarget = perTarget
+	out.VectorIndexParams.PerTarget = perTarget
 	return nil
 }
 
@@ -210,7 +210,7 @@ func (h *Handler) resolveSearchTargets(out *dto.GetParams, class *models.Class, 
 	}
 	out.TargetVectorCombination = targetCombination
 
-	if apiErr := h.applyTargetVectorSearchParams(out, common, targetVectors); apiErr != nil {
+	if apiErr := h.applyTargetVectorIndexParams(out, common, targetVectors); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -306,13 +306,13 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	getClass classGetterFunc, principal *models.Principal,
 ) (dto.GetParams, *APIError) {
 	common := &body.SearchCommon
-	if common.VectorSearchParams != nil {
+	if common.VectorIndexParams != nil {
 		return dto.GetParams{}, newAPIError(http.StatusUnprocessableEntity,
-			"vectorSearchParams is not applicable to bm25 search")
+			"vectorIndexParams is not applicable to bm25 search")
 	}
-	if len(common.TargetVectorSearchParams) > 0 {
+	if len(common.TargetVectorIndexParams) > 0 {
 		return dto.GetParams{}, newAPIError(http.StatusUnprocessableEntity,
-			"targetVectorSearchParams is not applicable to bm25 search")
+			"targetVectorIndexParams is not applicable to bm25 search")
 	}
 	out, apiErr := h.baseParams(className, common)
 	if apiErr != nil {

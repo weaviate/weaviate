@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vector_search_params
+package vector_index_params
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ import (
 )
 
 // testShardedPerTarget is the per-target counterpart of the Sharded subtest
-// of TestVectorSearchParamsEF_Cluster: 3 shards with RF=1 on 3 nodes, so every
+// of TestVectorIndexParamsEF_Cluster: 3 shards with RF=1 on 3 nodes, so every
 // query reaches at least two shards through the node-to-node search payload.
 // The collection has two HNSW named vectors; "graph" gets the query and the
 // other the decoy -q with weight 0 (see isolate). Each request sets a
@@ -46,8 +46,8 @@ func testShardedPerTarget(compose *docker.DockerCompose) func(t *testing.T) {
 		req := func(requestEF, graphEF uint32) func(q []float32) *pb.SearchRequest {
 			return func(q []float32) *pb.SearchRequest {
 				return multiTargetRequest(class, k, manual, isolate(graphTarget, q),
-					&pb.VectorSearchParams{Ef: u32(requestEF)},
-					forTarget(graphTarget, &pb.VectorSearchParams{Ef: u32(graphEF)}))
+					&pb.VectorIndexParams{Ef: u32(requestEF)},
+					forTarget(graphTarget, &pb.VectorIndexParams{Ef: u32(graphEF)}))
 			}
 		}
 		for node := 1; node <= 3; node++ {

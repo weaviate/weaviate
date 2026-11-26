@@ -319,7 +319,7 @@ func NewDummyStoreFromFolder(storeDir string, t testing.TB) *lsmkv.Store {
 }
 
 type VectorIndex interface {
-	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error)
 }
 
 func RecallAndLatency(ctx context.Context, queries [][]float32, k int, index VectorIndex, truths [][]uint64) (float32, float32) {

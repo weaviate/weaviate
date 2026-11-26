@@ -126,7 +126,7 @@ func TestMultiVectorHnsw(t *testing.T) {
 	})
 
 	t.Run("per-request params reach every token search", func(t *testing.T) {
-		params := &searchparams.VectorSearchParams{EF: 200, FilterStrategy: searchparams.FilterStrategySweeping}
+		params := &searchparams.VectorIndexParams{EF: 200, FilterStrategy: searchparams.FilterStrategySweeping}
 		for i, query := range multiQueries {
 			sctx := helpers.InitSlowQueryDetails(ctx)
 			ids, _, err := vectorIndex.SearchByMultiVector(sctx, query, k, nil, params)
@@ -562,7 +562,7 @@ func TestMuveraHnsw(t *testing.T) {
 	t.Run("per-request ef is floored at the MUVERA overfetch", func(t *testing.T) {
 		for i, query := range multiQueries {
 			sctx := helpers.InitSlowQueryDetails(ctx)
-			ids, _, err := vectorIndex.SearchByMultiVector(sctx, query, k, nil, &searchparams.VectorSearchParams{EF: 5})
+			ids, _, err := vectorIndex.SearchByMultiVector(sctx, query, k, nil, &searchparams.VectorIndexParams{EF: 5})
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 			details := helpers.ExtractSlowQueryDetails(sctx)

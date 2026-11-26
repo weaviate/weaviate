@@ -727,7 +727,7 @@ type searchParametersPayload struct {
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
 	// nil (and omitted) means defaults, so older nodes interoperate
-	VectorSearchParams *searchparams.VectorSearchParams `json:"vectorSearchParams,omitempty"`
+	VectorIndexParams *searchparams.VectorIndexParams `json:"vectorIndexParams,omitempty"`
 }
 
 func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
@@ -783,7 +783,7 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	vectorSearchParams *searchparams.VectorSearchParams,
+	vectorIndexParams *searchparams.VectorIndexParams,
 ) ([]byte, error) {
 	var vector []float32
 	var targetVector string
@@ -796,14 +796,14 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 		}
 	}
 
-	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, vectorSearchParams}
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, vectorIndexParams}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
 	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string,
-	*searchparams.VectorSearchParams, error,
+	*searchparams.VectorIndexParams, error,
 ) {
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
@@ -814,7 +814,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, fl
 	}
 
 	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.VectorSearchParams, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.VectorIndexParams, err
 }
 
 func (p searchParamsPayload) MIME() string {

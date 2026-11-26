@@ -32,17 +32,17 @@ const (
 var searchProbeCases = []struct {
 	name   string
 	k      int
-	params *searchparams.VectorSearchParams
+	params *searchparams.VectorIndexParams
 	want   int
 }{
 	{name: "nil params uses configured probe", k: 10, params: nil, want: testConfiguredProbe},
 	{name: "nil params, k above configured probe", k: 100, params: nil, want: 100},
-	{name: "zero probe uses configured probe", k: 10, params: &searchparams.VectorSearchParams{}, want: testConfiguredProbe},
-	{name: "unrelated knob set uses configured probe", k: 10, params: &searchparams.VectorSearchParams{EF: 500}, want: testConfiguredProbe},
-	{name: "requested probe below k is floored by k", k: 10, params: &searchparams.VectorSearchParams{SearchProbe: 5}, want: 10},
-	{name: "requested probe above k, below configured, is respected", k: 10, params: &searchparams.VectorSearchParams{SearchProbe: 20}, want: 20},
-	{name: "requested probe above configured", k: 10, params: &searchparams.VectorSearchParams{SearchProbe: 512}, want: 512},
-	{name: "k above requested probe", k: 600, params: &searchparams.VectorSearchParams{SearchProbe: 512}, want: 600},
+	{name: "zero probe uses configured probe", k: 10, params: &searchparams.VectorIndexParams{}, want: testConfiguredProbe},
+	{name: "unrelated knob set uses configured probe", k: 10, params: &searchparams.VectorIndexParams{EF: 500}, want: testConfiguredProbe},
+	{name: "requested probe below k is floored by k", k: 10, params: &searchparams.VectorIndexParams{SearchProbe: 5}, want: 10},
+	{name: "requested probe above k, below configured, is respected", k: 10, params: &searchparams.VectorIndexParams{SearchProbe: 20}, want: 20},
+	{name: "requested probe above configured", k: 10, params: &searchparams.VectorIndexParams{SearchProbe: 512}, want: 512},
+	{name: "k above requested probe", k: 600, params: &searchparams.VectorIndexParams{SearchProbe: 512}, want: 600},
 }
 
 func newBudgetOnlyHFresh() *HFresh {
@@ -113,31 +113,31 @@ func Test_SearchByVector_SearchProbeOverride(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		params        *searchparams.VectorSearchParams
+		params        *searchparams.VectorIndexParams
 		allow         helpers.AllowList
 		wantFlat      bool
 		wantRequested any // nil = key absent
 		wantEffective any // nil = key absent
 	}{
 		{name: "no override, graph path", params: nil, wantFlat: false},
-		{name: "zero probe, graph path", params: &searchparams.VectorSearchParams{}, wantFlat: false},
+		{name: "zero probe, graph path", params: &searchparams.VectorIndexParams{}, wantFlat: false},
 		{
 			name:          "probe above configured, graph path",
-			params:        &searchparams.VectorSearchParams{SearchProbe: configured + 100},
+			params:        &searchparams.VectorIndexParams{SearchProbe: configured + 100},
 			wantFlat:      false,
 			wantRequested: configured + 100,
 			wantEffective: configured + 100,
 		},
 		{
 			name:          "probe below k, graph path, floored by k",
-			params:        &searchparams.VectorSearchParams{SearchProbe: 3},
+			params:        &searchparams.VectorIndexParams{SearchProbe: 3},
 			wantFlat:      false,
 			wantRequested: 3,
 			wantEffective: k,
 		},
 		{
 			name:          "probe on brute-force path reports requested only",
-			params:        &searchparams.VectorSearchParams{SearchProbe: 512},
+			params:        &searchparams.VectorIndexParams{SearchProbe: 512},
 			allow:         smallAllow,
 			wantFlat:      true,
 			wantRequested: 512,
@@ -173,7 +173,7 @@ func Test_SearchByVector_SearchProbeOverride(t *testing.T) {
 	t.Run("per-target probes on one context are all reported", func(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(t.Context())
 		for _, probe := range []int{configured + 100, configured + 50} {
-			_, _, err := tf.Index.SearchByVector(ctx, query, k, nil, &searchparams.VectorSearchParams{SearchProbe: probe})
+			_, _, err := tf.Index.SearchByVector(ctx, query, k, nil, &searchparams.VectorIndexParams{SearchProbe: probe})
 			require.NoError(t, err)
 		}
 		details := helpers.ExtractSlowQueryDetails(ctx)
@@ -211,7 +211,7 @@ func Test_SearchByMultiVector_SearchProbeOverride(t *testing.T) {
 	require.NotContains(t, details, "hfresh_search_probe_effective")
 
 	ctx = helpers.InitSlowQueryDetails(t.Context())
-	ids, _, err := tf.Index.SearchByMultiVector(ctx, query, k, nil, &searchparams.VectorSearchParams{SearchProbe: 1000})
+	ids, _, err := tf.Index.SearchByMultiVector(ctx, query, k, nil, &searchparams.VectorIndexParams{SearchProbe: 1000})
 	require.NoError(t, err)
 	require.Equal(t, baseline, ids)
 	details = helpers.ExtractSlowQueryDetails(ctx)

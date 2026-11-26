@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vector_search_params
+package vector_index_params
 
 import (
 	"strings"
@@ -24,11 +24,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestVectorSearchParamsFilterStrategy reproduces the "with filter" table of
-// TestVectorSearchParamsEF_HNSW with the filter strategy chosen per request on
+// TestVectorIndexParamsFilterStrategy reproduces the "with filter" table of
+// TestVectorIndexParamsEF_HNSW with the filter strategy chosen per request on
 // ONE collection (default filterStrategy, flatSearchCutoff 0 so the filtered
 // graph walk is taken) instead of through the collection config.
-func TestVectorSearchParamsFilterStrategy(t *testing.T) {
+func TestVectorIndexParamsFilterStrategy(t *testing.T) {
 	const (
 		class   = "FilterStrategy"
 		buckets = 5 // the filter keeps 50% of the objects, see the EF_HNSW table
@@ -49,7 +49,7 @@ func TestVectorSearchParamsFilterStrategy(t *testing.T) {
 	req := func(ef uint32, strategy *pb.FilterStrategy, f *pb.Filters) func(q []float32) *pb.SearchRequest {
 		return func(q []float32) *pb.SearchRequest {
 			r := nearVectorRequest(class, q, k, nil)
-			r.VectorSearchParams = &pb.VectorSearchParams{Ef: u32(ef), FilterStrategy: strategy}
+			r.VectorIndexParams = &pb.VectorIndexParams{Ef: u32(ef), FilterStrategy: strategy}
 			r.Filters = f
 			return r
 		}
@@ -109,7 +109,7 @@ func TestVectorSearchParamsFilterStrategy(t *testing.T) {
 			want := searchIDs(t, c, req(10, pb.FilterStrategy_FILTER_STRATEGY_PATHSEER.Enum(), filter)(q))
 			got := restOKIDs(t, uri, class, "near-vector", map[string]any{
 				"vector": q, "limit": k, "where": where,
-				"vectorSearchParams": map[string]any{"ef": 10, "filterStrategy": "pathseer"},
+				"vectorIndexParams": map[string]any{"ef": 10, "filterStrategy": "pathseer"},
 			})
 			require.Equal(t, want, got, "query %d", qi)
 		}

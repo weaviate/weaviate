@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vector_search_params
+package vector_index_params
 
 import (
 	"bytes"
@@ -150,16 +150,16 @@ func both(q []float32) []targetQuery {
 	return []targetQuery{{graphTarget, q, 1}, {ivfTarget, q, 1}}
 }
 
-// forTarget builds one vector_search_params_for_targets entry.
-func forTarget(target string, params *pb.VectorSearchParams) *pb.VectorSearchParamsForTarget {
-	return &pb.VectorSearchParamsForTarget{Target: target, Params: params}
+// forTarget builds one vector_index_params_for_targets entry.
+func forTarget(target string, params *pb.VectorIndexParams) *pb.VectorIndexParamsForTarget {
+	return &pb.VectorIndexParamsForTarget{Target: target, Params: params}
 }
 
 // multiTargetRequest builds a gRPC near-vector request over several named
 // vectors, each with its own query vector. Weights are sent only for the
 // MANUAL and RELATIVE_SCORE combinations, which require them.
 func multiTargetRequest(collection string, limit uint32, method pb.CombinationMethod, targets []targetQuery,
-	params *pb.VectorSearchParams, perTarget ...*pb.VectorSearchParamsForTarget,
+	params *pb.VectorIndexParams, perTarget ...*pb.VectorIndexParamsForTarget,
 ) *pb.SearchRequest {
 	tg := &pb.Targets{Combination: method}
 	vft := make([]*pb.VectorForTarget, 0, len(targets))
@@ -172,13 +172,13 @@ func multiTargetRequest(collection string, limit uint32, method pb.CombinationMe
 		vft = append(vft, &pb.VectorForTarget{Name: tq.name, Vectors: singleVectors(tq.vec)})
 	}
 	return &pb.SearchRequest{
-		Collection:                   collection,
-		Limit:                        limit,
-		Metadata:                     &pb.MetadataRequest{Uuid: true},
-		NearVector:                   &pb.NearVector{Targets: tg, VectorForTargets: vft},
-		VectorSearchParams:           params,
-		VectorSearchParamsForTargets: perTarget,
-		Uses_127Api:                  true,
+		Collection:                  collection,
+		Limit:                       limit,
+		Metadata:                    &pb.MetadataRequest{Uuid: true},
+		NearVector:                  &pb.NearVector{Targets: tg, VectorForTargets: vft},
+		VectorIndexParams:           params,
+		VectorIndexParamsForTargets: perTarget,
+		Uses_127Api:                 true,
 	}
 }
 

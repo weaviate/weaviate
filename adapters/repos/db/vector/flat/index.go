@@ -511,7 +511,7 @@ func (index *flat) searchTimeRescore(k int) int {
 	return index.rescore.Load().Candidates(k)
 }
 
-func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	// flat has no search-time knob: params is accepted for interface
 	// consistency and ignored.
 	// route on the runtime compression state, not the configured type: with RQ
@@ -815,7 +815,7 @@ func (index *flat) normalized(vector []float32) []float32 {
 
 func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64, allow helpers.AllowList,
-	params *searchparams.VectorSearchParams,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)

@@ -12076,21 +12076,21 @@ func init() {
           "type": "string",
           "x-nullable": true
         },
-        "targetVectorSearchParams": {
-          "description": "Per-target overrides of ` + "`" + `vectorSearchParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorSearchParams` + "`" + `, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in ` + "`" + `vectorSearchParams` + "`" + `. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
+        "targetVectorIndexParams": {
+          "description": "Per-target overrides of ` + "`" + `vectorIndexParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorIndexParams` + "`" + `, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in ` + "`" + `vectorIndexParams` + "`" + `. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
           "type": "object",
           "additionalProperties": {
             "x-nullable": true,
-            "$ref": "#/definitions/SearchVectorSearchParams"
+            "$ref": "#/definitions/SearchVectorIndexParams"
           }
         },
         "tenant": {
           "description": "The tenant to search in a multi-tenant collection.",
           "type": "string"
         },
-        "vectorSearchParams": {
+        "vectorIndexParams": {
           "description": "Per-request vector search tuning. Applies to vector-based searches (near-vector, near-object, near-text, hybrid); rejected on bm25 search.",
-          "$ref": "#/definitions/SearchVectorSearchParams"
+          "$ref": "#/definitions/SearchVectorIndexParams"
         },
         "where": {
           "description": "A conditional filter to limit the objects that are searched.",
@@ -12555,7 +12555,7 @@ func init() {
         }
       }
     },
-    "SearchVectorSearchParams": {
+    "SearchVectorIndexParams": {
       "description": "Per-request tuning of the vector index search.",
       "type": "object",
       "properties": {
@@ -25933,21 +25933,21 @@ func init() {
           "type": "string",
           "x-nullable": true
         },
-        "targetVectorSearchParams": {
-          "description": "Per-target overrides of ` + "`" + `vectorSearchParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorSearchParams` + "`" + `, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in ` + "`" + `vectorSearchParams` + "`" + `. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
+        "targetVectorIndexParams": {
+          "description": "Per-target overrides of ` + "`" + `vectorIndexParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorIndexParams` + "`" + `, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in ` + "`" + `vectorIndexParams` + "`" + `. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
           "type": "object",
           "additionalProperties": {
             "x-nullable": true,
-            "$ref": "#/definitions/SearchVectorSearchParams"
+            "$ref": "#/definitions/SearchVectorIndexParams"
           }
         },
         "tenant": {
           "description": "The tenant to search in a multi-tenant collection.",
           "type": "string"
         },
-        "vectorSearchParams": {
+        "vectorIndexParams": {
           "description": "Per-request vector search tuning. Applies to vector-based searches (near-vector, near-object, near-text, hybrid); rejected on bm25 search.",
-          "$ref": "#/definitions/SearchVectorSearchParams"
+          "$ref": "#/definitions/SearchVectorIndexParams"
         },
         "where": {
           "description": "A conditional filter to limit the objects that are searched.",
@@ -26412,7 +26412,7 @@ func init() {
         }
       }
     },
-    "SearchVectorSearchParams": {
+    "SearchVectorIndexParams": {
       "description": "Per-request tuning of the vector index search.",
       "type": "object",
       "properties": {

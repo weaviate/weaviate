@@ -31,9 +31,9 @@ import (
 func TestObjectVectorSearch_PerTargetParams(t *testing.T) {
 	tests := []struct {
 		name   string
-		params *searchparams.VectorSearchParams
-		wantA  *searchparams.VectorSearchParams
-		wantB  *searchparams.VectorSearchParams
+		params *searchparams.VectorIndexParams
+		wantA  *searchparams.VectorIndexParams
+		wantB  *searchparams.VectorIndexParams
 	}{
 		{
 			name:   "nil params",
@@ -43,18 +43,18 @@ func TestObjectVectorSearch_PerTargetParams(t *testing.T) {
 		},
 		{
 			name:   "no per-target entries pass through",
-			params: &searchparams.VectorSearchParams{EF: 64},
-			wantA:  &searchparams.VectorSearchParams{EF: 64},
-			wantB:  &searchparams.VectorSearchParams{EF: 64},
+			params: &searchparams.VectorIndexParams{EF: 64},
+			wantA:  &searchparams.VectorIndexParams{EF: 64},
+			wantB:  &searchparams.VectorIndexParams{EF: 64},
 		},
 		{
 			name: "entry overrides only its target",
-			params: &searchparams.VectorSearchParams{
+			params: &searchparams.VectorIndexParams{
 				EF:        64,
-				PerTarget: map[string]searchparams.VectorSearchParams{"a": {EF: 128}},
+				PerTarget: map[string]searchparams.VectorIndexParams{"a": {EF: 128}},
 			},
-			wantA: &searchparams.VectorSearchParams{EF: 128},
-			wantB: &searchparams.VectorSearchParams{EF: 64},
+			wantA: &searchparams.VectorIndexParams{EF: 128},
+			wantB: &searchparams.VectorIndexParams{EF: 64},
 		},
 	}
 	for _, tt := range tests {
@@ -91,12 +91,12 @@ func TestObjectVectorSearch_PerTargetParams(t *testing.T) {
 				nil, nil, nil, additional.Properties{}, nil, nil, tt.params)
 			require.NoError(t, err)
 
-			for name, want := range map[string]*searchparams.VectorSearchParams{"a": tt.wantA, "b": tt.wantB} {
+			for name, want := range map[string]*searchparams.VectorIndexParams{"a": tt.wantA, "b": tt.wantB} {
 				calls := mocks[name].Calls
-				var got *searchparams.VectorSearchParams
+				var got *searchparams.VectorIndexParams
 				for _, c := range calls {
 					if c.Method == "SearchByVector" {
-						got, _ = c.Arguments.Get(4).(*searchparams.VectorSearchParams)
+						got, _ = c.Arguments.Get(4).(*searchparams.VectorIndexParams)
 					}
 				}
 				assert.Equal(t, want, got, "params seen by index %q", name)
@@ -109,18 +109,18 @@ func TestObjectVectorSearch_PerTargetParams(t *testing.T) {
 // (which does not implement VectorIndexMulti) and records the params it gets.
 type multiVectorMockIndex struct {
 	*MockVectorIndex
-	multiParams []*searchparams.VectorSearchParams
+	multiParams []*searchparams.VectorIndexParams
 }
 
 func (m *multiVectorMockIndex) SearchByMultiVector(_ context.Context, _ [][]float32, _ int,
-	_ helpers.AllowList, params *searchparams.VectorSearchParams,
+	_ helpers.AllowList, params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	m.multiParams = append(m.multiParams, params)
 	return []uint64{}, []float32{}, nil
 }
 
 func (m *multiVectorMockIndex) SearchByMultiVectorDistance(_ context.Context, _ [][]float32, _ float32,
-	_ int64, _ helpers.AllowList, params *searchparams.VectorSearchParams,
+	_ int64, _ helpers.AllowList, params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	m.multiParams = append(m.multiParams, params)
 	return []uint64{}, []float32{}, nil
@@ -141,11 +141,11 @@ func (m *multiVectorMockIndex) QueryMultiVectorDistancer([][]float32) common.Que
 func (m *multiVectorMockIndex) ValidateMultiBeforeInsert([][]float32) error { return nil }
 
 // callParams returns the params argument of every call to method on m.
-func callParams(m *MockVectorIndex, method string, idx int) []*searchparams.VectorSearchParams {
-	var out []*searchparams.VectorSearchParams
+func callParams(m *MockVectorIndex, method string, idx int) []*searchparams.VectorIndexParams {
+	var out []*searchparams.VectorIndexParams
 	for _, c := range m.Calls {
 		if c.Method == method {
-			p, _ := c.Arguments.Get(idx).(*searchparams.VectorSearchParams)
+			p, _ := c.Arguments.Get(idx).(*searchparams.VectorIndexParams)
 			out = append(out, p)
 		}
 	}
@@ -153,12 +153,12 @@ func callParams(m *MockVectorIndex, method string, idx int) []*searchparams.Vect
 }
 
 func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
-	merged := &searchparams.VectorSearchParams{
+	merged := &searchparams.VectorIndexParams{
 		EF:        64,
-		PerTarget: map[string]searchparams.VectorSearchParams{"a": {EF: 128}},
+		PerTarget: map[string]searchparams.VectorIndexParams{"a": {EF: 128}},
 	}
-	wantA := &searchparams.VectorSearchParams{EF: 128}
-	wantB := &searchparams.VectorSearchParams{EF: 64}
+	wantA := &searchparams.VectorIndexParams{EF: 128}
+	wantB := &searchparams.VectorIndexParams{EF: 64}
 
 	tests := []struct {
 		name    string
@@ -168,10 +168,10 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 		dist    float32
 		multi   bool
 		method  string
-		want    map[string][]*searchparams.VectorSearchParams // per target name
+		want    map[string][]*searchparams.VectorIndexParams // per target name
 		// wantSame asserts every recorded call received the same pointer
 		wantSame bool
-		params   *searchparams.VectorSearchParams
+		params   *searchparams.VectorIndexParams
 	}{
 		{
 			name:    "distance search (limit < 0) passes merged params to SearchByVectorDistance",
@@ -180,7 +180,7 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 			limit:   -1, dist: 0.5,
 			method: "SearchByVectorDistance",
 			params: merged,
-			want: map[string][]*searchparams.VectorSearchParams{
+			want: map[string][]*searchparams.VectorIndexParams{
 				"a": {wantA}, "b": {wantB},
 			},
 		},
@@ -191,7 +191,7 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 			limit:   10, multi: true,
 			method: "SearchByMultiVector",
 			params: merged,
-			want: map[string][]*searchparams.VectorSearchParams{
+			want: map[string][]*searchparams.VectorIndexParams{
 				"a": {wantA}, "b": {wantB},
 			},
 		},
@@ -202,7 +202,7 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 			limit:   -1, dist: 0.5, multi: true,
 			method: "SearchByMultiVectorDistance",
 			params: merged,
-			want: map[string][]*searchparams.VectorSearchParams{
+			want: map[string][]*searchparams.VectorIndexParams{
 				"a": {wantA}, "b": {wantB},
 			},
 		},
@@ -213,7 +213,7 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 			limit:   10,
 			method:  "SearchByVector",
 			params:  merged,
-			want: map[string][]*searchparams.VectorSearchParams{
+			want: map[string][]*searchparams.VectorIndexParams{
 				"a": {wantA, wantA},
 			},
 		},
@@ -223,8 +223,8 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 			vectors: []models.Vector{[]float32{1, 2}, []float32{3, 4}, []float32{5, 6}},
 			limit:   10,
 			method:  "SearchByVector",
-			params:  &searchparams.VectorSearchParams{EF: 64},
-			want: map[string][]*searchparams.VectorSearchParams{
+			params:  &searchparams.VectorIndexParams{EF: 64},
+			want: map[string][]*searchparams.VectorIndexParams{
 				"a": {{EF: 64}}, "b": {{EF: 64}}, "c": {{EF: 64}},
 			},
 			wantSame: true,
@@ -272,9 +272,9 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 				nil, nil, nil, additional.Properties{}, nil, nil, tt.params)
 			require.NoError(t, err)
 
-			var all []*searchparams.VectorSearchParams
+			var all []*searchparams.VectorIndexParams
 			for name, want := range tt.want {
-				var got []*searchparams.VectorSearchParams
+				var got []*searchparams.VectorIndexParams
 				if tt.multi {
 					got = multis[name].multiParams
 				} else {
@@ -301,10 +301,10 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 	}
 }
 
-func TestAnnotateVectorSearchParams(t *testing.T) {
-	params := &searchparams.VectorSearchParams{
+func TestAnnotateVectorIndexParams(t *testing.T) {
+	params := &searchparams.VectorIndexParams{
 		EF: 64,
-		PerTarget: map[string]searchparams.VectorSearchParams{
+		PerTarget: map[string]searchparams.VectorIndexParams{
 			"title": {EF: 128},
 			"body":  {SearchProbe: 32},
 		},
@@ -312,15 +312,15 @@ func TestAnnotateVectorSearchParams(t *testing.T) {
 
 	t.Run("records the request-wide ef and the sorted per-target names", func(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
-		annotateVectorSearchParams(ctx, params)
+		annotateVectorIndexParams(ctx, params)
 		details := helpers.ExtractSlowQueryDetails(ctx)
 		assert.Equal(t, 64, details["vector_search_ef_requested"])
-		assert.Equal(t, []string{"body", "title"}, details["vector_search_params_per_target"])
+		assert.Equal(t, []string{"body", "title"}, details["vector_index_params_per_target"])
 	})
 
 	t.Run("allocates nothing when the slow-query log is off", func(t *testing.T) {
 		ctx := context.Background()
-		allocs := testing.AllocsPerRun(100, func() { annotateVectorSearchParams(ctx, params) })
+		allocs := testing.AllocsPerRun(100, func() { annotateVectorIndexParams(ctx, params) })
 		assert.Zero(t, allocs)
 	})
 }
@@ -329,10 +329,10 @@ func TestIncomingSearchRejectsParamsOverLocalCaps(t *testing.T) {
 	// the coordinator validates against its own caps; a replica configured
 	// with lower ones must not run the search anyway
 	idx := &Index{Config: IndexConfig{HNSWMaxSearchEF: 100, HFreshMaxSearchProbe: 50}}
-	for name, params := range map[string]*searchparams.VectorSearchParams{
+	for name, params := range map[string]*searchparams.VectorIndexParams{
 		"ef":               {EF: 101},
 		"search probe":     {SearchProbe: 51},
-		"per-target ef":    {PerTarget: map[string]searchparams.VectorSearchParams{"title": {EF: 101}}},
+		"per-target ef":    {PerTarget: map[string]searchparams.VectorIndexParams{"title": {EF: 101}}},
 		"unknown strategy": {FilterStrategy: "fast"},
 	} {
 		t.Run(name, func(t *testing.T) {

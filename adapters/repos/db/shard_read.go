@@ -710,9 +710,9 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-// annotateVectorSearchParams records the request's params at shard level, for
+// annotateVectorIndexParams records the request's params at shard level, for
 // indexes that report nothing themselves. No-op without slow-query details.
-func annotateVectorSearchParams(ctx context.Context, params *searchparams.VectorSearchParams) {
+func annotateVectorIndexParams(ctx context.Context, params *searchparams.VectorIndexParams) {
 	if params == nil || !helpers.HasSlowQueryDetails(ctx) {
 		return
 	}
@@ -720,15 +720,15 @@ func annotateVectorSearchParams(ctx context.Context, params *searchparams.Vector
 		helpers.AnnotateSlowQueryLog(ctx, "vector_search_ef_requested", params.EF)
 	}
 	if len(params.PerTarget) > 0 {
-		helpers.AnnotateSlowQueryLog(ctx, "vector_search_params_per_target",
+		helpers.AnnotateSlowQueryLog(ctx, "vector_index_params_per_target",
 			slices.Sorted(maps.Keys(params.PerTarget)))
 	}
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, vectorSearchParams *searchparams.VectorSearchParams) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, vectorIndexParams *searchparams.VectorIndexParams) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
-	annotateVectorSearchParams(ctx, vectorSearchParams)
+	annotateVectorIndexParams(ctx, vectorIndexParams)
 
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
@@ -794,7 +794,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			}
 			defer release()
 
-			targetParams := vectorSearchParams.ForTarget(targetVector)
+			targetParams := vectorIndexParams.ForTarget(targetVector)
 
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {

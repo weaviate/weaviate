@@ -46,7 +46,7 @@ const (
 	intermediateRescoreMinPool = 1024
 )
 
-func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	// Normalize before any search path to ensure consistent distance calculations
 	vector = h.normalizeVec(vector)
 
@@ -316,7 +316,7 @@ func (h *HFresh) SearchByVectorDistance(
 	targetDistance float32,
 	maxLimit int64,
 	allow helpers.AllowList,
-	params *searchparams.VectorSearchParams,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
 	var resultIDs []uint64
@@ -459,7 +459,7 @@ func (ks *ResultSet) Reset(k int) {
 	ks.k = k
 }
 
-func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
 		return nil, nil, ErrMuveraNotEnabled
 	}
@@ -507,7 +507,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 // searchProbeFor returns the routing budget: max(k, the request's probe if
 // set, else the configured one). A request probe may be lower than the
 // configured one.
-func (h *HFresh) searchProbeFor(k int, params *searchparams.VectorSearchParams) int {
+func (h *HFresh) searchProbeFor(k int, params *searchparams.VectorIndexParams) int {
 	if params.SearchProbeOrZero() > 0 {
 		return max(k, params.SearchProbe)
 	}
@@ -530,7 +530,7 @@ func (h *HFresh) searchProbeFor(k int, params *searchparams.VectorSearchParams) 
 // silently capped searches with k > rescoreLimit at rescoreLimit results
 // . Any further rework of this path must preserve max(k, ...)
 // semantics for both budgets.
-func (h *HFresh) muveraSearchBudgets(k int, params *searchparams.VectorSearchParams) (routingBudget, rerankBudget int) {
+func (h *HFresh) muveraSearchBudgets(k int, params *searchparams.VectorIndexParams) (routingBudget, rerankBudget int) {
 	rescoreLimit := int(atomic.LoadUint32(&h.rescoreLimit))
 	return h.searchProbeFor(k, params), max(k, rescoreLimit)
 }
@@ -781,7 +781,7 @@ func float32SliceInto(dst []float32, raw []byte) []float32 {
 	return dst
 }
 
-func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
 		return nil, nil, ErrMuveraNotEnabled
 	}

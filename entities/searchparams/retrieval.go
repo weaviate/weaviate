@@ -40,21 +40,21 @@ const (
 	FilterStrategyPathseer = "pathseer"
 )
 
-// VectorSearchParams overrides the collection's vector index config for one
+// VectorIndexParams overrides the collection's vector index config for one
 // request: EF and FilterStrategy for HNSW, SearchProbe for HFresh; other
 // indexes ignore them. A zero field or a nil pointer means the collection
 // default. PerTarget holds per-target-vector overrides; the shard resolves it
 // with ForTarget, so indexes never see it. The struct crosses nodes as JSON:
 // a new field's zero value must mean "default".
-type VectorSearchParams struct {
-	EF             int                           `json:"ef,omitempty"`
-	SearchProbe    int                           `json:"searchProbe,omitempty"`
-	FilterStrategy string                        `json:"filterStrategy,omitempty"`
-	PerTarget      map[string]VectorSearchParams `json:"perTarget,omitempty"`
+type VectorIndexParams struct {
+	EF             int                          `json:"ef,omitempty"`
+	SearchProbe    int                          `json:"searchProbe,omitempty"`
+	FilterStrategy string                       `json:"filterStrategy,omitempty"`
+	PerTarget      map[string]VectorIndexParams `json:"perTarget,omitempty"`
 }
 
 // EFOrZero returns the per-request ef, or 0 when unset or when p is nil.
-func (p *VectorSearchParams) EFOrZero() int {
+func (p *VectorIndexParams) EFOrZero() int {
 	if p == nil {
 		return 0
 	}
@@ -63,7 +63,7 @@ func (p *VectorSearchParams) EFOrZero() int {
 
 // SearchProbeOrZero returns the per-request HFresh search probe, or 0 when
 // unset or when p is nil.
-func (p *VectorSearchParams) SearchProbeOrZero() int {
+func (p *VectorIndexParams) SearchProbeOrZero() int {
 	if p == nil {
 		return 0
 	}
@@ -72,7 +72,7 @@ func (p *VectorSearchParams) SearchProbeOrZero() int {
 
 // FilterStrategyOrEmpty returns the per-request HNSW filter strategy, or ""
 // when unset or when p is nil.
-func (p *VectorSearchParams) FilterStrategyOrEmpty() string {
+func (p *VectorIndexParams) FilterStrategyOrEmpty() string {
 	if p == nil {
 		return ""
 	}
@@ -81,14 +81,14 @@ func (p *VectorSearchParams) FilterStrategyOrEmpty() string {
 
 // IsZero reports whether p carries no override at all, request-wide or
 // per-target. A nil p is zero.
-func (p *VectorSearchParams) IsZero() bool {
+func (p *VectorIndexParams) IsZero() bool {
 	return p == nil || (p.EF == 0 && p.SearchProbe == 0 && p.FilterStrategy == "" && len(p.PerTarget) == 0)
 }
 
 // Validate checks p against the HNSW_MAX_SEARCH_EF and
 // HFRESH_MAX_SEARCH_PROBE caps (a cap <= 0 is unbounded) and the known filter
 // strategies, including every per-target entry. A nil p is valid.
-func (p *VectorSearchParams) Validate(maxEF, maxProbe int) error {
+func (p *VectorIndexParams) Validate(maxEF, maxProbe int) error {
 	if p == nil {
 		return nil
 	}
@@ -104,7 +104,7 @@ func (p *VectorSearchParams) Validate(maxEF, maxProbe int) error {
 	return nil
 }
 
-func (p *VectorSearchParams) validateEntry(maxEF, maxProbe int) error {
+func (p *VectorIndexParams) validateEntry(maxEF, maxProbe int) error {
 	switch {
 	case p.EF < 0:
 		return fmt.Errorf("ef must be >= 0, got %d", p.EF)
@@ -127,7 +127,7 @@ func (p *VectorSearchParams) validateEntry(maxEF, maxProbe int) error {
 // entry merged over the request-wide values, field by field. It returns p
 // itself when p has no per-target entries, a copy without PerTarget otherwise,
 // and nil for a nil p. An entry cannot unset a request-wide value.
-func (p *VectorSearchParams) ForTarget(name string) *VectorSearchParams {
+func (p *VectorIndexParams) ForTarget(name string) *VectorIndexParams {
 	if p == nil {
 		return nil
 	}
@@ -136,9 +136,9 @@ func (p *VectorSearchParams) ForTarget(name string) *VectorSearchParams {
 		if len(p.PerTarget) == 0 {
 			return p
 		}
-		return &VectorSearchParams{EF: p.EF, SearchProbe: p.SearchProbe, FilterStrategy: p.FilterStrategy}
+		return &VectorIndexParams{EF: p.EF, SearchProbe: p.SearchProbe, FilterStrategy: p.FilterStrategy}
 	}
-	merged := VectorSearchParams{EF: p.EF, SearchProbe: p.SearchProbe, FilterStrategy: p.FilterStrategy}
+	merged := VectorIndexParams{EF: p.EF, SearchProbe: p.SearchProbe, FilterStrategy: p.FilterStrategy}
 	if entry.EF > 0 {
 		merged.EF = entry.EF
 	}

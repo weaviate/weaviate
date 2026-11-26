@@ -29,9 +29,9 @@ type VectorIndex interface {
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
-	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
-		maxLimit int64, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+		maxLimit int64, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
@@ -94,9 +94,9 @@ type VectorIndexMulti interface {
 	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
 	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
 	DeleteMulti(id ...uint64) error
-	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error)
 	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32,
-		maxLimit int64, allow helpers.AllowList, params *searchparams.VectorSearchParams) ([]uint64, []float32, error)
+		maxLimit int64, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error)
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
 	ValidateMultiBeforeInsert(vector [][]float32) error
 }

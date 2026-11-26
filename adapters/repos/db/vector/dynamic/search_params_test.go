@@ -25,25 +25,25 @@ import (
 // receives; every other method is the nil embedded interface and unused.
 type paramsRecorder struct {
 	VectorIndex
-	got []*searchparams.VectorSearchParams
+	got []*searchparams.VectorIndexParams
 }
 
 func (r *paramsRecorder) SearchByVector(_ context.Context, _ []float32, _ int, _ helpers.AllowList,
-	params *searchparams.VectorSearchParams,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	r.got = append(r.got, params)
 	return nil, nil, nil
 }
 
 func (r *paramsRecorder) SearchByVectorDistance(_ context.Context, _ []float32, _ float32, _ int64,
-	_ helpers.AllowList, params *searchparams.VectorSearchParams,
+	_ helpers.AllowList, params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	r.got = append(r.got, params)
 	return nil, nil, nil
 }
 
-func TestDynamicForwardsVectorSearchParams(t *testing.T) {
-	params := &searchparams.VectorSearchParams{EF: 128, FilterStrategy: searchparams.FilterStrategyAcorn}
+func TestDynamicForwardsVectorIndexParams(t *testing.T) {
+	params := &searchparams.VectorIndexParams{EF: 128, FilterStrategy: searchparams.FilterStrategyAcorn}
 	stage := &paramsRecorder{}
 	d := &dynamic{index: stage}
 

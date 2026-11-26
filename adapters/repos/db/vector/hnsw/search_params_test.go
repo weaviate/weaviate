@@ -44,16 +44,16 @@ func Test_searchTimeEF_Override(t *testing.T) {
 		name     string
 		config   ent.UserConfig
 		k        int
-		params   *searchparams.VectorSearchParams
+		params   *searchparams.VectorIndexParams
 		expected int
 	}{
 		{"nil params, dynamic ef", dynamic, 10, nil, 100},
-		{"zero ef, dynamic ef", dynamic, 10, &searchparams.VectorSearchParams{}, 100},
+		{"zero ef, dynamic ef", dynamic, 10, &searchparams.VectorIndexParams{}, 100},
 		{"nil params, fixed ef", fixed, 10, nil, 64},
-		{"override above k", fixed, 10, &searchparams.VectorSearchParams{EF: 800}, 800},
-		{"override below collection ef", fixed, 10, &searchparams.VectorSearchParams{EF: 20}, 20},
-		{"override below k", fixed, 100, &searchparams.VectorSearchParams{EF: 10}, 100},
-		{"override with dynamic ef", dynamic, 10, &searchparams.VectorSearchParams{EF: 33}, 33},
+		{"override above k", fixed, 10, &searchparams.VectorIndexParams{EF: 800}, 800},
+		{"override below collection ef", fixed, 10, &searchparams.VectorIndexParams{EF: 20}, 20},
+		{"override below k", fixed, 100, &searchparams.VectorIndexParams{EF: 10}, 100},
+		{"override with dynamic ef", dynamic, 10, &searchparams.VectorIndexParams{EF: 33}, 33},
 	}
 
 	for _, tt := range tests {
@@ -129,7 +129,7 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 
 	t.Run("request ef equals configured ef", func(t *testing.T) {
 		for i, q := range queryVecs {
-			idsA, distsA, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorSearchParams{EF: 64})
+			idsA, distsA, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorIndexParams{EF: 64})
 			require.NoError(t, err)
 			idsB, distsB, err := idxB.SearchByVector(ctx, q, k, nil, nil)
 			require.NoError(t, err)
@@ -143,7 +143,7 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 		for _, q := range queryVecs {
 			idsDefault, _, err := idxA.SearchByVector(ctx, q, k, nil, nil)
 			require.NoError(t, err)
-			idsNarrow, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorSearchParams{EF: k})
+			idsNarrow, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorIndexParams{EF: k})
 			require.NoError(t, err)
 			if !assert.ObjectsAreEqual(idsDefault, idsNarrow) {
 				differs++
@@ -154,7 +154,7 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 
 	t.Run("ef below k still returns k results", func(t *testing.T) {
 		for i, q := range queryVecs {
-			ids, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorSearchParams{EF: 3})
+			ids, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorIndexParams{EF: 3})
 			require.NoError(t, err)
 			assert.Len(t, ids, k, "query %d", i)
 		}
@@ -164,8 +164,8 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 	// an effective beam only where a graph walk happened: brute force has none.
 	t.Run("slow-query annotations", func(t *testing.T) {
 		q := queryVecs[0]
-		params := &searchparams.VectorSearchParams{EF: 64}
-		search := func(allow helpers.AllowList, params *searchparams.VectorSearchParams) map[string]any {
+		params := &searchparams.VectorIndexParams{EF: 64}
+		search := func(allow helpers.AllowList, params *searchparams.VectorIndexParams) map[string]any {
 			ctx := helpers.InitSlowQueryDetails(context.Background())
 			_, _, err := idxA.SearchByVector(ctx, q, k, allow, params)
 			require.NoError(t, err)
@@ -192,7 +192,7 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 
 	t.Run("search by distance applies the request ef", func(t *testing.T) {
 		sctx := helpers.InitSlowQueryDetails(context.Background())
-		ids, _, err := idxA.SearchByVectorDistance(sctx, queryVecs[0], 1e9, 50, nil, &searchparams.VectorSearchParams{EF: 300})
+		ids, _, err := idxA.SearchByVectorDistance(sctx, queryVecs[0], 1e9, 50, nil, &searchparams.VectorIndexParams{EF: 300})
 		require.NoError(t, err)
 		require.NotEmpty(t, ids)
 		details := helpers.ExtractSlowQueryDetails(sctx)
@@ -205,7 +205,7 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 	t.Run("slow-query annotations keep every target's value", func(t *testing.T) {
 		q := queryVecs[0]
 		ctx := helpers.InitSlowQueryDetails(context.Background())
-		for _, p := range []*searchparams.VectorSearchParams{
+		for _, p := range []*searchparams.VectorIndexParams{
 			{EF: 128, FilterStrategy: searchparams.FilterStrategySweeping},
 			{EF: 64, FilterStrategy: searchparams.FilterStrategyAcorn},
 			{EF: 128, FilterStrategy: searchparams.FilterStrategySweeping},
@@ -220,7 +220,7 @@ func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
 
 		ctx = helpers.InitSlowQueryDetails(context.Background())
 		for range 2 {
-			_, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorSearchParams{EF: 64})
+			_, _, err := idxA.SearchByVector(ctx, q, k, nil, &searchparams.VectorIndexParams{EF: 64})
 			require.NoError(t, err)
 		}
 		details = helpers.ExtractSlowQueryDetails(ctx)
@@ -234,17 +234,17 @@ func Test_effectiveFilterStrategy(t *testing.T) {
 	tests := []struct {
 		name       string
 		configured FilterStrategy
-		params     *searchparams.VectorSearchParams
+		params     *searchparams.VectorIndexParams
 		expected   FilterStrategy
 	}{
 		{"nil params, configured sweeping", SWEEPING, nil, SWEEPING},
 		{"nil params, configured acorn", ACORN, nil, ACORN},
 		{"nil params, configured pathseer", PATHSEER, nil, PATHSEER},
-		{"empty strategy keeps configured", ACORN, &searchparams.VectorSearchParams{EF: 10}, ACORN},
-		{"request sweeping over acorn", ACORN, &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategySweeping}, SWEEPING},
-		{"request acorn over sweeping", SWEEPING, &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyAcorn}, ACORN},
-		{"request pathseer over acorn", ACORN, &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyPathseer}, PATHSEER},
-		{"request same as configured", PATHSEER, &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyPathseer}, PATHSEER},
+		{"empty strategy keeps configured", ACORN, &searchparams.VectorIndexParams{EF: 10}, ACORN},
+		{"request sweeping over acorn", ACORN, &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategySweeping}, SWEEPING},
+		{"request acorn over sweeping", SWEEPING, &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyAcorn}, ACORN},
+		{"request pathseer over acorn", ACORN, &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyPathseer}, PATHSEER},
+		{"request same as configured", PATHSEER, &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyPathseer}, PATHSEER},
 	}
 
 	for _, tt := range tests {
@@ -344,8 +344,8 @@ func Test_SearchByVector_FilterStrategyOverride(t *testing.T) {
 	wantUnfiltered, _, err := index.SearchByVector(ctx, query, k, nil, nil)
 	require.NoError(t, err)
 
-	strategy := func(s string) *searchparams.VectorSearchParams {
-		return &searchparams.VectorSearchParams{FilterStrategy: s}
+	strategy := func(s string) *searchparams.VectorIndexParams {
+		return &searchparams.VectorIndexParams{FilterStrategy: s}
 	}
 
 	tests := []struct {
@@ -353,7 +353,7 @@ func Test_SearchByVector_FilterStrategyOverride(t *testing.T) {
 		configured    FilterStrategy
 		flatCutoff    int64
 		allowList     helpers.AllowList
-		params        *searchparams.VectorSearchParams
+		params        *searchparams.VectorIndexParams
 		wantRequested string // "" => key must be absent
 		wantEffective string // "" => key must be absent
 		wantFlat      bool
@@ -365,7 +365,7 @@ func Test_SearchByVector_FilterStrategyOverride(t *testing.T) {
 		{
 			name:       "empty strategy does not annotate",
 			configured: ACORN, flatCutoff: 1, allowList: allowList,
-			params: &searchparams.VectorSearchParams{EF: size},
+			params: &searchparams.VectorIndexParams{EF: size},
 		},
 		{
 			name:       "sweeping overrides configured acorn",
@@ -483,19 +483,19 @@ func Test_SearchByVectorDistance_FilterStrategyOverride(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		params        *searchparams.VectorSearchParams
+		params        *searchparams.VectorIndexParams
 		wantRequested string // "" => key must be absent
 		wantEffective string // "" => key must be absent
 	}{
 		{name: "nil params does not annotate"},
 		{
 			name:          "acorn override on distance search",
-			params:        &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyAcorn},
+			params:        &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyAcorn},
 			wantRequested: "acorn", wantEffective: "acorn",
 		},
 		{
 			name:          "pathseer override on distance search",
-			params:        &searchparams.VectorSearchParams{FilterStrategy: searchparams.FilterStrategyPathseer},
+			params:        &searchparams.VectorIndexParams{FilterStrategy: searchparams.FilterStrategyPathseer},
 			wantRequested: "pathseer", wantEffective: "pathseer",
 		},
 	}
