@@ -46,6 +46,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -121,6 +122,8 @@ type Orchestrator struct {
 	restartTimeout         time.Duration
 	vanishedGracePeriod    time.Duration
 	metrics                *Metrics
+	// submitRefusal, when non-empty, makes every Submit refuse and log it as the reason.
+	submitRefusal          string
 	namespaceStateForClass func(className string) (api.NamespaceState, error) // nil answers active
 	parkPollInterval       time.Duration
 
@@ -163,7 +166,8 @@ type Config struct {
 	MaintenanceModeEnabled func() bool
 	// OnRecoveryComplete promotes after empty-fallback; must never create a shard, and only ErrIndexNotRegistered is retried.
 	OnRecoveryComplete func(ctx context.Context, collection, shard string) error
-	// RootDataPath hosts the wipe-round marker; empty disables it.
+	// RootDataPath hosts the wipe-round marker and is probed for hard link
+	// support; empty disables both.
 	RootDataPath string
 	Logger       logrus.FieldLogger
 	// Registerer receives the metrics; nil leaves them unregistered.
@@ -190,14 +194,24 @@ func New(cfg Config) *Orchestrator {
 	componentLogger := logger.WithField("component", "self_recovery")
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	wipeMarker, wipeRoundOpen := "", false
+	submitRefusal := ""
 	if cfg.RootDataPath != "" {
 		wipeMarker = filepath.Join(cfg.RootDataPath, api.SelfRecoveryWipeMarkerName)
 		if _, err := os.Stat(wipeMarker); err == nil {
 			wipeRoundOpen = true
 			componentLogger.Info("self-recovery: resuming a wiped node's recovery round; empty fallbacks stay informational until it drains")
 		}
+		// Only this node's filesystem is probed. Clusters whose nodes mix filesystems are unsupported.
+		supported, err := file.ProbeHardlinkSupport(cfg.RootDataPath)
+		switch {
+		case err != nil:
+			submitRefusal = fmt.Sprintf("self-recovery is disabled because probing the data directory for hard link support failed: %v", err)
+		case !supported:
+			submitRefusal = "self-recovery is disabled because the filesystem does not support hard links"
+		}
 	}
 	return &Orchestrator{
+		submitRefusal:          submitRefusal,
 		wipeMarker:             wipeMarker,
 		wipeRoundOpen:          wipeRoundOpen,
 		raft:                   cfg.Raft,
@@ -244,6 +258,14 @@ func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, startedWithoutR
 			"collection": ref.Collection,
 			"shard":      ref.Shard,
 		}).Info("self-recovery skipped: node is in maintenance mode")
+		return false
+	}
+	if o.submitRefusal != "" {
+		o.logger.WithFields(logrus.Fields{
+			"event":      "self_recovery.skipped_no_hardlinks",
+			"collection": ref.Collection,
+			"shard":      ref.Shard,
+		}).Warn(o.submitRefusal)
 		return false
 	}
 	o.poolOnce.Do(o.initPool)
@@ -323,7 +345,11 @@ func (o *Orchestrator) tenantInactive(ref ShardRef) bool {
 	return ok && status != "" && status != models.TenantActivityStatusHOT
 }
 
-// Restart cancels in-flight ops and waits terminal (copier vs rmrf race), erases "<shard>.recovering/", resubmits; rejects live-dir and not-in-schema shards.
+// Restart cancels in-flight ops, waits for each to reach a terminal state,
+// erases "<shard>.recovering/", and resubmits. The wait stops a copier from
+// racing the directory removal.
+// It rejects shards that have a live dir or are not in the schema. When the
+// hard link check makes Submit refuse, it returns an error and touches nothing.
 func (o *Orchestrator) Restart(parentCtx context.Context, ref ShardRef) error {
 	if o.schema != nil {
 		if _, err := o.schema.ShardReplicas(ref.Collection, ref.Shard); err != nil {
@@ -342,6 +368,11 @@ func (o *Orchestrator) Restart(parentCtx context.Context, ref ShardRef) error {
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("restart recovery: stat live dir %q: %w", livePath, err)
 		}
+	}
+	// Submit would refuse the resubmission. Cancelling and erasing first would
+	// destroy state for nothing.
+	if o.submitRefusal != "" {
+		return fmt.Errorf("restart recovery for %s/%s: %s", ref.Collection, ref.Shard, o.submitRefusal)
 	}
 
 	ctx, cancel := context.WithTimeout(parentCtx, o.restartTimeout)

@@ -12,11 +12,13 @@
 package ent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/weaviateembed"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -97,6 +99,39 @@ func Test_classSettings_Validate(t *testing.T) {
 			ic := NewClassSettings(tt.fields.cfg)
 			if err := ic.Validate(); (err != nil) != tt.wantErr {
 				t.Errorf("classSettings.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func Test_classSettings_Validate_baseURL(t *testing.T) {
+	tests := []struct {
+		name          string
+		baseURL       string
+		allowlist     string
+		wantErrSubstr string
+	}{
+		{name: "module default", baseURL: DefaultBaseURL},
+		{name: "embedding service", baseURL: weaviateembed.DefaultBaseURL},
+		{name: "public host", baseURL: "https://other.example.com", wantErrSubstr: "is not allowed"},
+		{name: "allowlisted host", baseURL: "https://1.1.1.1", allowlist: "https://1.1.1.1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(weaviateembed.AllowedBaseURLsEnv, tt.allowlist)
+			cfg := newConfigBuilder().
+				addSetting("imageFields", []interface{}{"image1"}).
+				addSetting(BaseURLProperty, tt.baseURL).
+				build()
+
+			err := NewClassSettings(cfg).Validate()
+
+			if tt.wantErrSubstr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrSubstr) {
+					t.Errorf("Validate() error = %v, want it to contain %q", err, tt.wantErrSubstr)
+				}
+			} else if err != nil {
+				t.Errorf("Validate() error = %v, want none", err)
 			}
 		})
 	}

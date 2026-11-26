@@ -61,7 +61,7 @@ func TestRank(t *testing.T) {
 			Query: "Where do I work?",
 		}
 
-		res, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, nil)
+		res, err := c.Rank(context.Background(), "Where do I work?", "text", []string{"I work at Apple"}, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -81,7 +81,7 @@ func TestRank(t *testing.T) {
 		c := New("apiKey", 0, nullLogger())
 		c.host = server.URL
 
-		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, nil)
+		_, err := c.Rank(context.Background(), "I work at Apple", "text", []string{"Where do I work?"}, nil)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")
@@ -143,7 +143,7 @@ func TestRank(t *testing.T) {
 			"Response 5", "Response 6", "Response 7",
 		}
 
-		resp, err := c.Rank(context.Background(), query, documents, nil)
+		resp, err := c.Rank(context.Background(), query, "text", documents, nil)
 
 		require.Nil(t, err)
 		require.NotNil(t, resp)

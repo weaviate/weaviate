@@ -68,6 +68,9 @@ var (
 	benchDiskHeap   = flag.String("bench.diskheap", "", "with TestDiskTimed: the file the heap profile of the process "+
 		"is written to right after the heap of the open index is measured. The test ends there, with nothing timed. "+
 		"With -test.memprofilerate=1 the profile holds every allocation")
+	benchDiskCentroidCodes = flag.Bool("bench.diskcentroidcodes", false, "with TestDiskTimed: open the cell with its "+
+		"centroids as 8-bit RQ codes in its store, as an index a shard opens keeps them (diskCentroidCodes); a cell "+
+		"written in float32 converts in place, so give it a copy")
 )
 
 // diskTargets are the recalls a cell is measured at.
@@ -646,6 +649,8 @@ func TestDiskTimed(t *testing.T) {
 	if *benchDatasetDir == "" || *benchDiskDir == "" || *benchDiskCell == "" {
 		t.Skip("no -bench.dataset, -bench.diskdir and -bench.diskcell given")
 	}
+	diskCentroidCodes = *benchDiskCentroidCodes
+	defer func() { diskCentroidCodes = false }()
 	require.NotEmpty(t, *benchOut, "TestDiskTimed writes its results to -bench.out")
 	ctx := context.Background()
 	logger := logrus.New()

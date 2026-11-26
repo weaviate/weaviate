@@ -107,6 +107,7 @@ func TestMain(m *testing.M) {
 		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
+		WithRef2VecCentroid().
 		WithWeaviateEnv("NAMESPACE_SUSPENDED_MESSAGE", suspendedMessage).
 		WithMCP().
 		WithOffloadS3("offloading", "us-west-1").

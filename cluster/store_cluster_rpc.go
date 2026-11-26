@@ -53,30 +53,40 @@ func (st *Store) Remove(id string) error {
 	if rn == nil || rn.State() != raft.Leader {
 		return types.ErrNotLeader
 	}
-	// A namespace can only place shards on its home_node, so losing that node
-	// leaves its shards with no eligible replacement. Checked here, not in
-	// Raft.Remove: a forwarded request reaches the configuration change only here.
+	// A removed home node stays in home_nodes, where placement skips it and node
+	// removal adds no replacement replica. Checked here, not in Raft.Remove: a
+	// forwarded request reaches the configuration change only here.
 	if pinned := st.namespacesWithHomeNode(id); len(pinned) > 0 {
+		shown := pinned[:min(len(pinned), maxNamespacesInRemoveError)]
+		names := strings.Join(shown, ", ")
+		if len(pinned) > len(shown) {
+			names += ", …"
+		}
 		st.log.WithFields(logrus.Fields{
-			"id":         id,
-			"namespaces": pinned,
-		}).Warn("refusing node removal: node is a namespace home_node")
-		return fmt.Errorf("cannot remove node %q: it is the home_node of namespace(s) %s",
-			id, strings.Join(pinned, ", "))
+			"id":              id,
+			"namespace_count": len(pinned),
+			"namespaces":      shown,
+		}).Warn("refusing node removal: node is a namespace home node")
+		return fmt.Errorf("cannot remove node %q: it is a home node of %d namespace(s) (%s); "+
+			"remove or replace it in each namespace's home_nodes first", id, len(pinned), names)
 	}
 	return st.assertFuture(rn.RemoveServer(raft.ServerID(id), 0, 0))
 }
 
-// namespacesWithHomeNode returns the names of the namespaces whose home_node is
-// node, sorted. Namespaces being deleted are left out: their shards are on their
-// way out, so blocking on one would outlive anything worth protecting.
+// maxNamespacesInRemoveError caps how many namespace names Store.Remove lists
+// when it refuses a home node. The error carries the full count.
+const maxNamespacesInRemoveError = 10
+
+// namespacesWithHomeNode returns the names of the namespaces whose home nodes
+// include node, sorted. Namespaces being deleted are left out: their shards are
+// on their way out, so blocking on one would outlive anything worth protecting.
 func (st *Store) namespacesWithHomeNode(node string) []string {
 	var pinned []string
 	for _, ns := range st.namespaceManager.List() {
 		if ns.State == api.NamespaceStateDeleting {
 			continue
 		}
-		if ns.Primary() == node {
+		if slices.Contains(ns.HomeNodes, node) {
 			pinned = append(pinned, ns.Name)
 		}
 	}

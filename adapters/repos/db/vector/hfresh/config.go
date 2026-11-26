@@ -13,7 +13,9 @@ package hfresh
 
 import (
 	"math"
+	"os"
 
+	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -32,6 +34,25 @@ const (
 	maxPostingSizeFloor uint32 = 192 // Minimum vectors per posting
 	minPostingSizeFloor uint32 = 3   // Minimum vectors for split threshold
 )
+
+const singlePostingMaxSizeEnv = "EXPERIMENTAL_HFRESH_SINGLE_POSTING_MAX_SIZE"
+
+// singlePostingMaxSizeFromEnv reads the size, such as 10MiB, up to which an
+// index stays in one posting. Unset, zero or invalid leaves the feature off.
+func singlePostingMaxSizeFromEnv(logger logrus.FieldLogger) uint64 {
+	v := os.Getenv(singlePostingMaxSizeEnv)
+	if v == "" {
+		return 0
+	}
+
+	size, err := humanize.ParseBytes(v)
+	if err != nil {
+		logger.WithField("value", v).Warnf("invalid %s, single-posting mode stays disabled: %v",
+			singlePostingMaxSizeEnv, err)
+		return 0
+	}
+	return size
+}
 
 type Config struct {
 	Logger                       logrus.FieldLogger
@@ -161,13 +182,17 @@ func validateImmutableField(u immutableParameter,
 // Dims is the number of dimensions of the vector, after compression
 // if applicable.
 func (h *HFresh) computeMaxPostingSize(dims int) uint32 {
+	maxBytes := h.maxPostingSizeKB * 1024 // budget
+
+	return uint32(math.Ceil(float64(maxBytes) / postingEntryBytes(dims)))
+}
+
+// postingEntryBytes is the size of one posting entry with dims dimensions.
+func postingEntryBytes(dims int) float64 {
 	bytesPerDim := 0.125                                  // RQ1
-	maxBytes := h.maxPostingSizeKB * 1024                 // budget
 	metadata := 8 + 1 + compressionhelpers.RQMetadataSize // id + version + RQ metadata
 
-	vBytes := float64(dims)*bytesPerDim + float64(metadata)
-
-	return uint32(math.Ceil(float64(maxBytes) / vBytes))
+	return float64(dims)*bytesPerDim + float64(metadata)
 }
 
 func (h *HFresh) setMaxPostingSize(dims uint32) error {
@@ -175,6 +200,7 @@ func (h *HFresh) setMaxPostingSize(dims uint32) error {
 		return errors.New("unable to set max posting size")
 	}
 	h.maxPostingSize = max(h.computeMaxPostingSize(int(dims)), maxPostingSizeFloor)
+	h.bootstrapThreshold = uint32(min(float64(h.singlePostingMaxSize)/postingEntryBytes(int(dims)), math.MaxUint32))
 	h.minPostingSize = max(h.maxPostingSize/3, minPostingSizeFloor)
 
 	if h.minPostingSize >= h.maxPostingSize {
@@ -188,6 +214,7 @@ func (h *HFresh) setMaxPostingSize(dims uint32) error {
 			"minPostingSize":   h.minPostingSize,
 			"maxPostingSize":   h.maxPostingSize,
 			"maxPostingSizeKB": h.maxPostingSizeKB,
+			"singlePostingMax": h.bootstrapThreshold,
 		},
 	).Warn("hfresh posting sizes configured")
 	return nil

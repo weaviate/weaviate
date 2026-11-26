@@ -664,7 +664,8 @@ func TestPersistentUnsupported(t *testing.T) {
 			return err
 		}},
 		{"the snapshot of a backup", func() error {
-			_, err := f.index.SnapshotMutableFiles(ctx, f.root, t.TempDir())
+			staging := t.TempDir()
+			_, err := f.index.SnapshotMutableFiles(ctx, f.root, func(rel string) string { return filepath.Join(staging, rel) })
 			return err
 		}},
 	}
@@ -1137,7 +1138,7 @@ func TestPersistentBuckets(t *testing.T) {
 		build := filepath.Join(f.root, helpers.PostingEdgeBuildDirName(f.cfg.ID))
 		require.NoError(t, os.MkdirAll(build, 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(build, buildListFile), []byte("{}"), 0o644))
-		require.NoError(t, f.index.Drop(ctx, false))
+		require.NoError(t, f.index.Drop(ctx))
 		assert.Empty(t, f.store.GetBucketsByName())
 		assert.Empty(t, inStore())
 		entries, err := os.ReadDir(f.root)

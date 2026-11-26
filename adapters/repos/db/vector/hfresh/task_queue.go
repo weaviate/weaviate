@@ -246,6 +246,7 @@ func (tq *TaskQueue) EnqueueAnalyze(postingID uint64) error {
 	}
 
 	if err := tq.analyzeQueue.Push(encodeTask(postingID, taskQueueAnalyzeOp)); err != nil {
+		tq.analyzeList.Delete(postingID)
 		return errors.Wrap(err, "failed to push analyze operation to queue")
 	}
 
@@ -260,6 +261,7 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 	}
 
 	if err := tq.splitQueue.Push(encodeTask(postingID, taskQueueSplitOp)); err != nil {
+		tq.splitList.Delete(postingID)
 		return errors.Wrap(err, "failed to push split operation to queue")
 	}
 
@@ -275,6 +277,7 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 	}
 
 	if err := tq.mergeQueue.Push(encodeTask(postingID, taskQueueMergeOp)); err != nil {
+		tq.mergeList.Delete(postingID)
 		return errors.Wrap(err, "failed to push merge operation to queue")
 	}
 

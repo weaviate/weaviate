@@ -20,7 +20,9 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (m *Manager) updateRefVector(ctx context.Context,
@@ -36,8 +38,8 @@ func (m *Manager) updateRefVector(ctx context.Context,
 
 		obj := parent.Object()
 
-		if err := m.modulesProvider.UpdateVector(
-			ctx, obj, class, m.findObject, m.logger); err != nil {
+		if err := m.modulesProvider.UpdateVector(ctx, obj, class,
+			findObjectFor(m.vectorRepo, m.qualifier, class.Class), m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
 		}
@@ -62,30 +64,22 @@ func (m *Manager) updateRefVector(ctx context.Context,
 	return nil
 }
 
-// TODO: remove this method and just pass m.vectorRepo.Object to
-// m.modulesProvider.UpdateVector when m.vectorRepo.ObjectByID
-// is finally removed
-func (m *Manager) findObject(ctx context.Context, class string,
-	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
-	tenant string,
-) (*search.Result, error) {
-	// to support backwards compat
-	if class == "" {
-		return m.vectorRepo.ObjectByID(ctx, id, props, addl, tenant)
+// findObjectFor returns the lookup a vectorizer module gets when it vectorizes
+// an object of sourceClass. A stored beacon carries the short class, so the
+// lookup qualifies the class with sourceClass's namespace before it reads.
+func findObjectFor(repo VectorRepo, q namespacing.Qualifier, sourceClass string) modulecapabilities.FindObjectFn {
+	return func(ctx context.Context, class string, id strfmt.UUID,
+		props search.SelectProperties, addl additional.Properties, tenant string,
+	) (*search.Result, error) {
+		// A beacon without a class reads by id. ObjectByID searches only the
+		// collections outside any namespace, the only ones holding such beacons.
+		if class == "" {
+			return repo.ObjectByID(ctx, id, props, addl, tenant)
+		}
+		qualified, _, err := q.QualifyRefTarget(sourceClass, class)
+		if err != nil {
+			return nil, err
+		}
+		return repo.Object(ctx, qualified, id, props, addl, nil, tenant)
 	}
-	return m.vectorRepo.Object(ctx, class, id, props, addl, nil, tenant)
-}
-
-// TODO: remove this method and just pass b.vectorRepo.Object to
-// b.modulesProvider.UpdateVector when b.vectorRepo.ObjectByID
-// is finally removed
-func (b *BatchManager) findObject(ctx context.Context, class string,
-	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
-	tenant string,
-) (*search.Result, error) {
-	// to support backwards compat
-	if class == "" {
-		return b.vectorRepo.ObjectByID(ctx, id, props, addl, tenant)
-	}
-	return b.vectorRepo.Object(ctx, class, id, props, addl, nil, tenant)
 }

@@ -21,6 +21,8 @@ import (
 // individual class
 type GlobalConfig struct {
 	AsyncReplicationDisabled *runtime.DynamicValue[bool] `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	// AsyncReplicationInMaintenanceEnabled lets async replication run in and out of a node in maintenance mode.
+	AsyncReplicationInMaintenanceEnabled *runtime.DynamicValue[bool] `json:"async_replication_in_maintenance_enabled" yaml:"async_replication_in_maintenance_enabled"`
 
 	// Async replication knobs. A zero value means "not configured at the cluster
 	// level"; the per-class API override (or the hardcoded code default) takes
@@ -48,7 +50,8 @@ type GlobalConfig struct {
 	AsyncReplicationRootPrefilterBatchSize *runtime.DynamicValue[int] `json:"async_replication_root_prefilter_batch_size" yaml:"async_replication_root_prefilter_batch_size"`
 	// MinimumFactor can enforce replication. For example, with MinimumFactor set
 	// to 2, users can no longer create classes with a factor of 1, therefore
-	// forcing them to have replicated classes.
+	// forcing them to have replicated classes. With NAMESPACES_ENABLED it also
+	// refuses a namespace create or update whose home_nodes is shorter than it.
 	MinimumFactor int `json:"minimum_factor" yaml:"minimum_factor"`
 
 	// MaximumFactor caps the replication factor allowed on any class. A value

@@ -20,19 +20,24 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-const weaviateEndpoint = "WEAVIATE_ENDPOINT"
+const (
+	weaviateEndpoint       = "WEAVIATE_ENDPOINT"
+	mockOIDCHelperEndpoint = "MOCK_OIDC_HELPER_ENDPOINT"
+)
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
-		WithWeaviateAuth().
+		WithMockOIDC().
+		WithAdminListAdmins(userOnAdminlist).
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))
 	}
 
 	os.Setenv(weaviateEndpoint, compose.GetWeaviate().URI())
+	os.Setenv(mockOIDCHelperEndpoint, compose.GetMockOIDCHelper().URI())
 	code := m.Run()
 
 	if err := compose.Terminate(ctx); err != nil {

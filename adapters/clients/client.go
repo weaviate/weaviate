@@ -58,11 +58,17 @@ func AsHTTPError(err error) (*HTTPError, bool) {
 	return nil, false
 }
 
+// doWithCustomMarshaller bounds the request and its retries by timeout, or only
+// by the request's own context when timeout is 0.
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
 ) (err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
-	defer cancel()
+	ctx := req.Context()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (b bool, e error) {
 		if data != nil {

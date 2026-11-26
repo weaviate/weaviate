@@ -40,8 +40,27 @@ import (
 // default.
 func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...string) (*docker.DockerCompose, func()) {
 	t.Helper()
+	return startReindexCluster(ctx, t, reindexClusterBuilder(t, extraEnv...))
+}
+
+// start3NodeReindexClusterWithS3Backup is start3NodeReindexCluster plus an
+// S3/MinIO backup backend, for tests that back up, restore, or move
+// replicas during a migration. Filesystem backups are per-node and
+// refused on a multi-node cluster.
+func start3NodeReindexClusterWithS3Backup(
+	ctx context.Context, t *testing.T, backupBucket string, extraEnv ...string,
+) (*docker.DockerCompose, func()) {
+	t.Helper()
+	b := reindexClusterBuilder(t, extraEnv...).WithBackendS3(backupBucket, "us-east-1")
+	return startReindexCluster(ctx, t, b)
+}
+
+// reindexClusterBuilder is the docker-compose configuration shared by every
+// 3-node reindex test, before any backup backend is attached.
+func reindexClusterBuilder(t *testing.T, extraEnv ...string) *docker.Compose {
+	t.Helper()
 	if len(extraEnv)%2 != 0 {
-		t.Fatalf("start3NodeReindexCluster: extraEnv must be (key,value) pairs, got %d items", len(extraEnv))
+		t.Fatalf("reindexClusterBuilder: extraEnv must be (key,value) pairs, got %d items", len(extraEnv))
 	}
 
 	b := docker.New().
@@ -54,6 +73,13 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...str
 	for i := 0; i < len(extraEnv); i += 2 {
 		b = b.WithWeaviateEnv(extraEnv[i], extraEnv[i+1])
 	}
+	return b
+}
+
+// startReindexCluster starts the given builder, dumping startup logs on
+// failure so a bad config is diagnosable from CI output alone.
+func startReindexCluster(ctx context.Context, t *testing.T, b *docker.Compose) (*docker.DockerCompose, func()) {
+	t.Helper()
 	compose, err := b.Start(ctx)
 	if err != nil {
 		if compose != nil {

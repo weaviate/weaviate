@@ -222,7 +222,6 @@ type Config struct {
 	// MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it.
 	LazyLoadShardWarmupMinObjects       int64                          `json:"lazy_load_shard_warmup_min_objects" yaml:"lazy_load_shard_warmup_min_objects"`
 	ForceFullReplicasSearch             bool                           `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
-	TransferInactivityTimeout           time.Duration                  `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	HaltForTransferTimeout              time.Duration                  `json:"halt_for_transfer_timeout" yaml:"halt_for_transfer_timeout"`
 	RecountPropertiesAtStartup          bool                           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
@@ -343,6 +342,20 @@ type Config struct {
 	// Namespaces configures cluster-level namespace support. Namespaces can
 	// only be enabled on newly bootstrapped clusters (enforced at startup).
 	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
+
+	// DisableObjectIDEndpointsWithoutClass makes the /objects/{id} and
+	// /objects/{id}/references/{propertyName} endpoints that leave out the
+	// class answer 410 Gone, as they do with namespaces on.
+	DisableObjectIDEndpointsWithoutClass *runtime.DynamicValue[bool] `json:"disable_object_id_endpoints_without_class" yaml:"disable_object_id_endpoints_without_class"`
+
+	// DisableObjectsListWithoutClass makes GET /objects without the class
+	// parameter answer 410 Gone, as it does with namespaces on.
+	DisableObjectsListWithoutClass *runtime.DynamicValue[bool] `json:"disable_objects_list_without_class" yaml:"disable_objects_list_without_class"`
+
+	// DisableMultiTargetReferencesWithoutClass makes writes and validation refuse
+	// a beacon without a class on a property with several target classes, as
+	// with namespaces on. Deleting such a reference still works.
+	DisableMultiTargetReferencesWithoutClass *runtime.DynamicValue[bool] `json:"disable_multi_target_references_without_class" yaml:"disable_multi_target_references_without_class"`
 
 	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
 	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
@@ -1314,7 +1327,7 @@ type Namespaces struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Meta-Baseurl, X-Meta-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Meta-Baseurl, X-Meta-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key, X-Typesafeai-Api-Key, X-Typesafeai-Baseurl"
 )
 
 func (r ResourceUsage) Validate() error {

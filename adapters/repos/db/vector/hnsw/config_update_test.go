@@ -254,6 +254,36 @@ func TestUserConfigUpdates(t *testing.T) {
 				},
 				expectedError: nil,
 			},
+			{
+				name:          "changing pq rescore limit is accepted",
+				initial:       ent.UserConfig{PQ: ent.PQConfig{Enabled: true, RescoreLimit: ent.DefaultPQRescoreLimit}},
+				update:        ent.UserConfig{PQ: ent.PQConfig{Enabled: true, RescoreLimit: 50}},
+				expectedError: nil,
+			},
+			{
+				name:          "changing bq rescore limit is accepted",
+				initial:       ent.UserConfig{BQ: ent.BQConfig{Enabled: true, RescoreLimit: ent.DefaultBQRescoreLimit}},
+				update:        ent.UserConfig{BQ: ent.BQConfig{Enabled: true, RescoreLimit: 0}},
+				expectedError: nil,
+			},
+			{
+				name:          "changing sq rescore limit is accepted",
+				initial:       ent.UserConfig{SQ: ent.SQConfig{Enabled: true, RescoreLimit: ent.DefaultSQRescoreLimit}},
+				update:        ent.UserConfig{SQ: ent.SQConfig{Enabled: true, RescoreLimit: 200}},
+				expectedError: nil,
+			},
+			{
+				name:          "changing sq rescore factor is accepted",
+				initial:       ent.UserConfig{SQ: ent.SQConfig{Enabled: true, RescoreFactor: ent.RescoreFactorAuto}},
+				update:        ent.UserConfig{SQ: ent.SQConfig{Enabled: true, RescoreFactor: 3}},
+				expectedError: nil,
+			},
+			{
+				name:          "changing rq rescore factor is accepted",
+				initial:       ent.UserConfig{RQ: ent.RQConfig{Enabled: true, Bits: 8, RescoreFactor: 2}},
+				update:        ent.UserConfig{RQ: ent.RQConfig{Enabled: true, Bits: 8, RescoreFactor: ent.RescoreFactorAuto}},
+				expectedError: nil,
+			},
 		}
 
 		for _, test := range tests {

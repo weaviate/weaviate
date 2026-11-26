@@ -27,7 +27,7 @@ type sharedStateIndex struct {
 	droppedTargetOnly bool
 }
 
-func (i *sharedStateIndex) Drop(ctx context.Context, keepFiles bool) error {
+func (i *sharedStateIndex) Drop(ctx context.Context) error {
 	i.droppedWholeIndex = true
 	return nil
 }
@@ -43,7 +43,7 @@ type plainIndex struct {
 	dropped bool
 }
 
-func (i *plainIndex) Drop(ctx context.Context, keepFiles bool) error {
+func (i *plainIndex) Drop(ctx context.Context) error {
 	i.dropped = true
 	return nil
 }

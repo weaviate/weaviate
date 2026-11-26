@@ -183,6 +183,11 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		if err != nil {
 			return nil, err
 		}
+		if !h.Centroids.Built() {
+			// restarts find the single posting by its fixed id; the sequence
+			// still advanced, so no later posting takes it
+			postingID = singlePostingID
+		}
 		// use the vector as the centroid and register it in the SPTAG
 		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
@@ -223,17 +228,32 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	// update the posting membership and size caches
-	_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
+	single := !h.Centroids.Built()
+	var count uint32
+	if single {
+		// an analyze would reread all of the single posting after every
+		// append: it keeps no id list, and its size is persisted here
+		count, err = h.PostingSizes.Increment(ctx, centroidID)
+	} else {
+		_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
+		if err == nil {
+			count = h.PostingSizes.FastIncrement(centroidID)
+		}
+	}
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err
 	}
-	count := h.PostingSizes.FastIncrement(centroidID)
 
 	h.postingLocks.Unlock(centroidID)
 
+	limit := h.splitLimit()
+	if single && count <= limit {
+		return true, nil
+	}
+
 	if !reassigned {
-		if count > h.maxPostingSize*5 {
+		if uint64(count) > uint64(limit)*5 {
 			err = h.doSplit(ctx, centroidID, true)
 			if err != nil {
 				return false, err
@@ -243,7 +263,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		}
 
 		// If the posting is too big, split it asynchronously.
-		if count > h.maxPostingSize {
+		if count > limit {
 			err = h.taskQueue.EnqueueSplit(centroidID)
 			if err != nil {
 				return false, err
@@ -263,8 +283,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously
 	// however during a reassign, we want to split immediately.
-	max := h.maxPostingSize
-	if count > max {
+	if count > limit {
 		err = h.doSplit(ctx, centroidID, false)
 	} else {
 		// enqueue an analyze operation to persist the changes and update the posting map on disk
@@ -275,6 +294,15 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	return true, nil
+}
+
+// splitLimit is the size above which a posting is split. The single posting
+// has its own limit, and its split creates the centroid graph.
+func (h *HFresh) splitLimit() uint32 {
+	if h.Centroids.Built() {
+		return h.maxPostingSize
+	}
+	return max(h.bootstrapThreshold, h.maxPostingSize)
 }
 
 func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {

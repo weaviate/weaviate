@@ -78,7 +78,7 @@ func TestDropTeardown(t *testing.T) {
 
 			dropped := make(chan error, 1)
 			begin := time.Now()
-			go func() { dropped <- idx.Drop(dropCtx, false) }()
+			go func() { dropped <- idx.Drop(dropCtx) }()
 
 			select {
 			case err := <-dropped:

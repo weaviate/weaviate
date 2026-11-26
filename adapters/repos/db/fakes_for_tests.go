@@ -416,12 +416,6 @@ func (f *FakeRemoteClient) GetShardStatus(ctx context.Context,
 	return status, nil
 }
 
-func (f *FakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string, schemaVersion uint64,
-) error {
-	return nil
-}
-
 func (f *FakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, shardName,
 	fileName string, payload io.ReadSeekCloser,
 ) error {

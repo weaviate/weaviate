@@ -961,7 +961,7 @@ func (p *Persistent) buildBase(ctx context.Context, holdsWriteMu bool) (err erro
 	// remove it.
 	keepMark := false
 	defer func() {
-		if dropped := batch.Drop(ctx, false); err == nil && dropped != nil {
+		if dropped := batch.Drop(ctx); err == nil && dropped != nil {
 			p.logger.Warnf("drop the build of the base: %v", dropped)
 		}
 		if keepMark {
@@ -1439,7 +1439,7 @@ func (p *Persistent) ResumeAfterBackup(ctx context.Context) error {
 }
 
 // SnapshotMutableFiles fails for the same reason PrepareForBackup does.
-func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	return nil, errors.Wrap(ErrNotSupported, "backup")
 }
 
@@ -1456,15 +1456,14 @@ func (p *Persistent) Shutdown(ctx context.Context) error {
 	return p.teardown(ctx)
 }
 
-// Drop releases the index and, unless keepFiles is set, removes its directory
-// and its buckets.
-func (p *Persistent) Drop(ctx context.Context, keepFiles bool) error {
+// Drop releases the index and removes its directory and its buckets.
+func (p *Persistent) Drop(ctx context.Context) error {
 	p.stopMaintenance()
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err := p.teardown(ctx); err != nil || keepFiles {
+	if err := p.teardown(ctx); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(p.dir); err != nil {

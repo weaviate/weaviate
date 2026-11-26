@@ -419,6 +419,14 @@ type diskIndex struct {
 // (TestDiskCentroidCodes). It is a variable of the tests, not of a cell.
 var diskCentroidCodes bool
 
+// diskCentroidBits and diskCentroidCentering give, with diskCentroidCodes,
+// other codes than 8-bit RQ (centroidCodes.bits): for the measure of CRQ4 and
+// CRQ1. Zero bits is 8-bit RQ.
+var (
+	diskCentroidBits      int
+	diskCentroidCentering bool
+)
+
 // openDiskIndex opens a written index. uc carries the search tunables;
 // everything about the build comes from the directory. metrics and pread are
 // those of openDiskStore.
@@ -498,7 +506,7 @@ func openDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		}
 		graph, err = openCentroidGraphWith(ctx, logger, path(diskGraphDir), nil, centroidCycles{}, centroidCodes{
 			store: d.lsm, makeOptions: lsmkv.MakeNoopBucketOptions, id: helpers.PostingEdgeCentroidsID("cell"),
-			file: path(diskCentroidFile), dims: meta.Dims,
+			file: path(diskCentroidFile), dims: meta.Dims, bits: diskCentroidBits, centering: diskCentroidCentering,
 		})
 		if err != nil {
 			return nil, err

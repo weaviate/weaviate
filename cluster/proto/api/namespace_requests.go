@@ -11,15 +11,20 @@
 
 package api
 
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
+
 const (
 	// NamespaceLatestCommandPolicyVersion is bumped when a namespace RAFT
 	// command's wire shape requires version-gated apply handling.
 	NamespaceLatestCommandPolicyVersion = iota
 )
 
-// Namespace is the cluster-level control-plane entity. HomeNodes pins
-// every namespace-owned shard. The controller enforces len(HomeNodes)==1;
-// read it via Primary() to keep callers stable if that ever relaxes.
+// Namespace is the cluster-level control-plane entity. HomeNodes holds one
+// or more unique node names and pins every namespace-owned shard.
 type Namespace struct {
 	Name      string
 	HomeNodes []string
@@ -29,12 +34,47 @@ type Namespace struct {
 	StateChangeIndex uint64
 }
 
-// Primary returns the namespace's home node, or "" if unset.
-func (n Namespace) Primary() string {
-	if len(n.HomeNodes) == 0 {
-		return ""
+// MissingHomeNodes returns the HomeNodes entries not in candidates, in stored
+// order.
+func (n Namespace) MissingHomeNodes(candidates []string) []string {
+	var missing []string
+	for _, node := range n.HomeNodes {
+		if !slices.Contains(candidates, node) {
+			missing = append(missing, node)
+		}
 	}
-	return n.HomeNodes[0]
+	return missing
+}
+
+// CheckReplicationFactor refuses a factor above the HomeNodes count, because
+// each replica of a namespaced shard goes on a different home node.
+func (n Namespace) CheckReplicationFactor(factor int64) error {
+	if factor > int64(len(n.HomeNodes)) {
+		return fmt.Errorf("replication factor %d exceeds the %d home node(s) of the namespace; "+
+			"an administrator must add home nodes", factor, len(n.HomeNodes))
+	}
+	return nil
+}
+
+// CheckClassFactors refuses HomeNodes shorter than the largest value of
+// factors, which maps each class of the namespace onto its replication factor.
+// The error names the classes above the bound, so the caller knows which to lower.
+func (n Namespace) CheckClassFactors(factors map[string]int64) error {
+	var above []string
+	var largest int64
+	for class, factor := range factors {
+		if factor > int64(len(n.HomeNodes)) {
+			above = append(above, class)
+			largest = max(largest, factor)
+		}
+	}
+	if len(above) == 0 {
+		return nil
+	}
+	slices.Sort(above)
+	return fmt.Errorf("home_nodes has %d entries, fewer than the replication factor of collection(s) %s "+
+		"in namespace %q (largest %d); lower their replication factor or keep at least %d home nodes",
+		len(n.HomeNodes), strings.Join(above, ", "), n.Name, largest, largest)
 }
 
 // NamespaceState is the lifecycle state of a Namespace entity.

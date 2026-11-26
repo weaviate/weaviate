@@ -25,18 +25,20 @@ import (
 
 // AddNamespace proposes an AddNamespace RAFT command and returns the
 // persisted namespace alongside the apply version. An empty ns.HomeNodes
-// is filled from the cluster's storage candidates before propose. The
-// apply side rejects duplicates with [namespaces.ErrAlreadyExists] and
-// invalid names with [namespaces.ErrBadRequest]. Callers that need a
-// follow-up local read on a non-leader node should pass the returned
-// version to WaitForUpdate.
+// is filled by autoPickHomeNodes. Before propose, a list shorter than
+// MinimumFactor returns [namespaces.ErrBadRequest]. The apply side rejects
+// duplicates with [namespaces.ErrAlreadyExists] and invalid names with
+// [namespaces.ErrBadRequest]. Callers that need a follow-up local read on a
+// non-leader node should pass the returned version to WaitForUpdate.
 func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error) {
 	if len(ns.HomeNodes) == 0 {
-		picked, err := s.nextHomeNode(s.StorageCandidates())
+		picked, err := s.autoPickHomeNodes(ns.Name)
 		if err != nil {
-			return cmd.Namespace{}, 0, fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+			return cmd.Namespace{}, 0, err
 		}
-		ns.HomeNodes = []string{picked}
+		ns.HomeNodes = picked
+	} else if err := s.checkHomeNodesMinimum(ns.HomeNodes); err != nil {
+		return cmd.Namespace{}, 0, err
 	}
 
 	req := cmd.AddNamespaceRequest{
@@ -59,11 +61,16 @@ func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespac
 }
 
 // UpdateNamespace proposes an UpdateNamespace RAFT command and returns the
-// apply version. The apply side returns [namespaces.ErrNotFound] when the
-// target namespace does not exist, and [namespaces.ErrBadRequest] when
-// HomeNodes does not contain exactly one entry. Only HomeNodes is mutable;
-// existing live shards are not moved.
+// apply version. Only HomeNodes is mutable; existing live shards are not
+// moved. Before propose it refuses a list shorter than MinimumFactor with
+// [namespaces.ErrBadRequest]. The leader's PreApplyFilter refuses one shorter
+// than the largest factor among the namespace's classes, and the apply returns
+// the errors of [usecasesNamespaces.Controller.Update].
 func (s *Raft) UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
+	if err := s.checkHomeNodesMinimum(ns.HomeNodes); err != nil {
+		return 0, err
+	}
+
 	req := cmd.UpdateNamespaceRequest{
 		Namespace: ns,
 		Version:   cmd.NamespaceLatestCommandPolicyVersion,
@@ -162,16 +169,48 @@ func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) (uint64, 
 	return s.Execute(ctx, command)
 }
 
-// nextHomeNode picks the next home_node from nodes, rotating across calls.
+// autoPickHomeNodes picks MaximumFactor home nodes, at most the storage-node
+// count, for a namespace created without any. It refuses when no maximum is
+// set or there are fewer storage nodes than MinimumFactor.
+func (s *Raft) autoPickHomeNodes(namespace string) ([]string, error) {
+	repl := s.store.cfg.Replication
+	if repl.MaximumFactor <= 0 {
+		return nil, fmt.Errorf("%w: namespace %q has no home_nodes and REPLICATION_MAXIMUM_FACTOR is not set; pass home_nodes or set REPLICATION_MAXIMUM_FACTOR",
+			usecasesNamespaces.ErrBadRequest, namespace)
+	}
+	picked, err := s.nextHomeNodes(s.StorageCandidates(), repl.MaximumFactor)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	if len(picked) < repl.MinimumFactor {
+		return nil, fmt.Errorf("%w: only %d storage node(s) to auto-pick home nodes from; REPLICATION_MINIMUM_FACTOR is %d",
+			usecasesNamespaces.ErrBadRequest, len(picked), repl.MinimumFactor)
+	}
+	return picked, nil
+}
+
+// checkHomeNodesMinimum refuses a home-node list shorter than MinimumFactor,
+// which would leave no class creatable in the namespace.
+func (s *Raft) checkHomeNodesMinimum(homeNodes []string) error {
+	minFactor := s.store.cfg.Replication.MinimumFactor
+	if len(homeNodes) < minFactor {
+		return fmt.Errorf("%w: home_nodes has %d entries; REPLICATION_MINIMUM_FACTOR requires at least %d",
+			usecasesNamespaces.ErrBadRequest, len(homeNodes), minFactor)
+	}
+	return nil
+}
+
+// nextHomeNodes returns min(n, len(nodes)) distinct nodes, the iterator's next
+// node followed by the ones after it in sorted order, wrapping past the end.
 // Lazy StartRandom avoids biasing cold starts to nodes[0]; the iterator is
 // rebuilt whenever the candidate set changes, otherwise membership churn
 // would leave it rotating through a stale set. Inputs are sorted first
 // because StorageCandidates can hand back an unsorted memberlist slice on
 // the MetaVoterOnly fallback — without normalisation the cache key would
 // flip on every call and discard the rotation state.
-func (s *Raft) nextHomeNode(nodes []string) (string, error) {
+func (s *Raft) nextHomeNodes(nodes []string, n int) ([]string, error) {
 	if len(nodes) == 0 {
-		return "", errors.New("no storage candidates available")
+		return nil, errors.New("no storage candidates available")
 	}
 
 	sorted := slices.Clone(nodes)
@@ -183,10 +222,17 @@ func (s *Raft) nextHomeNode(nodes []string) (string, error) {
 	if s.homeNodeIterator == nil || !slices.Equal(s.homeNodeCandidates, sorted) {
 		it, err := clusterUtils.NewNodeIterator(sorted, clusterUtils.StartRandom)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		s.homeNodeIterator = it
 		s.homeNodeCandidates = sorted
 	}
-	return s.homeNodeIterator.Next(), nil
+
+	head := slices.Index(sorted, s.homeNodeIterator.Next())
+	count := min(n, len(sorted))
+	picked := make([]string, 0, count)
+	for i := range count {
+		picked = append(picked, sorted[(head+i)%len(sorted)])
+	}
+	return picked, nil
 }

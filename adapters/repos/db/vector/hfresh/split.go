@@ -53,6 +53,8 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			Trace("centroid not found, skipping split operation")
 		return nil
 	}
+	// the single posting has no centroid: its split creates the graph
+	firstSplit := !h.Centroids.Built()
 
 	// load the posting from disk
 	p, err := h.PostingStore.Get(ctx, postingID)
@@ -93,7 +95,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		}
 
 		// skip if the filtered posting is now too small
-		if lf := len(filtered); lf < int(h.maxPostingSize) {
+		if lf := len(filtered); lf < int(h.splitLimit()) {
 			if lf == lp {
 				// no changes, just return
 				return nil
@@ -183,7 +185,19 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	h.postingLocks.Unlock(postingID)
 	h.taskQueue.SplitDone(postingID)
 
-	if !reassign {
+	// a posting that outgrew twice the limit before its split ran leaves
+	// oversized children, and no append may come to split them
+	for i, id := range newPostingIDs {
+		if len(result[i].Posting) > int(h.maxPostingSize) {
+			err = h.taskQueue.EnqueueSplit(id)
+			if err != nil {
+				return errors.Wrapf(err, "failed to enqueue split for oversized posting %d", id)
+			}
+		}
+	}
+
+	// the first split has no old centroid to compare the vectors against
+	if !reassign || firstSplit {
 		return nil
 	}
 

@@ -48,7 +48,7 @@ func (h *hnsw) ResumeAfterBackup(ctx context.Context) error {
 // there are no in-place-mutated files (e.g. bbolt meta.db) that need to be
 // frozen into the staging directory during an active-shard backup. ListFiles
 // already captures every immutable file that belongs in the backup.
-func (h *hnsw) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+func (h *hnsw) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
 	return nil, nil
 }
 

@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/resolver"
@@ -87,6 +88,30 @@ func jitterUpTo(d time.Duration) time.Duration {
 	return time.Duration(rand.Int63n(int64(d)))
 }
 
+// RebalancePlanner is the planning loop of cluster rebalancing. Run blocks
+// until ctx ends. Wake never blocks.
+type RebalancePlanner interface {
+	Run(ctx context.Context) error
+	Wake()
+}
+
+// RebalancePlannerDeps are the planner dependencies that only this package
+// can supply. Every field is set.
+type RebalancePlannerDeps struct {
+	Logger *logrus.Logger
+	FSM    *replication.ShardReplicationFSM
+	// Raft proposes the planning outcome, manages the draft tasks and reads
+	// the schema.
+	Raft *Raft
+	// CurrentTerm is the Raft term the run records; the FSM refuses a completion
+	// whose log entry has another term.
+	CurrentTerm func() uint64
+	// ReadyToPlan is IsLeader() && Ready() && FSMHasCaughtUp().
+	ReadyToPlan func() bool
+	// Enabled is true when both replica movement and rebalancing are enabled.
+	Enabled func() bool
+}
+
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
 type Service struct {
@@ -94,7 +119,7 @@ type Service struct {
 
 	replicationEngine *replication.ShardReplicationEngine
 	opCleaner         *replication.OpCleaner
-	rebalancePlanner  *replication.RebalancePlanner
+	rebalancePlanner  RebalancePlanner
 	raftAddr          string
 	config            *Config
 
@@ -180,38 +205,42 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 
 	movementEnabled := boolGetter(cfg.Logger, cfg.ReplicaMovementEnabled, "REPLICA_MOVEMENT_ENABLED", false)
 	rebalanceEnabled := boolGetter(cfg.Logger, cfg.ReplicaRebalanceEnabled, "REPLICA_REBALANCE_ENABLED", false)
-	rebalancePlanner, err := replication.NewRebalancePlanner(replication.RebalancePlannerParams{
-		Logger:     cfg.Logger,
-		FSM:        fsm.replicationManager.GetReplicationFSM(),
-		Proposer:   raft,
-		Clock:      clockwork.NewRealClock(),
-		Registerer: prometheus.DefaultRegisterer,
-		Measure:    cfg.RebalanceMeasure,
-		Schema:     raft.SchemaReader(),
-		CurrentTerm: func() uint64 {
-			// The raft node is nil until the store opens.
-			rn := raft.store.raft.Load()
-			if rn == nil {
-				return 0
+	// A nil NewRebalancePlanner leaves the node without a planner: plans
+	// created on it stay in PLANNING.
+	var rebalancePlanner RebalancePlanner
+	if cfg.NewRebalancePlanner != nil {
+		rebalancePlanner, err = cfg.NewRebalancePlanner(RebalancePlannerDeps{
+			Logger: cfg.Logger,
+			FSM:    fsm.replicationManager.GetReplicationFSM(),
+			Raft:   raft,
+			CurrentTerm: func() uint64 {
+				// The raft node is nil until the store opens.
+				rn := raft.store.raft.Load()
+				if rn == nil {
+					return 0
+				}
+				return rn.CurrentTerm()
+			},
+			// The loop runs on every node; a pass on a follower ends here.
+			ReadyToPlan: func() bool {
+				return raft.store.IsLeader() && raft.store.Ready() && raft.store.FSMHasCaughtUp()
+			},
+			Enabled: func() bool { return movementEnabled() && rebalanceEnabled() },
+		})
+		if err != nil {
+			// Reachable only with a nil dependency.
+			rebalancePlanner = nil
+			if cfg.Logger != nil {
+				cfg.Logger.Errorf("could not construct the rebalance planner: %v", err)
 			}
-			return rn.CurrentTerm()
-		},
-		// The loop runs on every node; a pass on a follower ends here.
-		ReadyToPlan: func() bool {
-			return raft.store.IsLeader() && raft.store.Ready() && raft.store.FSMHasCaughtUp()
-		},
-		Enabled: func() bool { return movementEnabled() && rebalanceEnabled() },
-	})
-	if err != nil && cfg.Logger != nil {
-		// Reachable only with a nil dependency. New cannot return an error, so
-		// log it and leave the planner nil.
-		cfg.Logger.Errorf("could not construct the rebalance planner: %v", err)
+		}
 	}
 	if rebalancePlanner != nil {
-		// Every node wakes its own planner when a plan create is applied. Only
-		// the leader runs a planning pass, and only when it is ready and both
-		// flags are on.
-		fsm.replicationManager.SetPlanCreated(rebalancePlanner.Wake)
+		// Every node wakes its own planner when a plan create, stop or delete
+		// is applied. A pass does nothing unless this node is a ready leader.
+		// A ready leader's pass ends the draft tasks of plans that are no longer
+		// planning, even with a flag off. It plans only with both flags on.
+		fsm.replicationManager.SetPlanChanged(rebalancePlanner.Wake)
 	}
 
 	return &Service{
@@ -380,6 +409,35 @@ func (c *Service) Close(ctx context.Context) error {
 	c.logger.Info("closing raft-rpc server ...")
 	c.rpcServer.Close()
 	return nil
+}
+
+// SetDistributedTaskSchedulerNotifier shadows the method on the embedded Raft.
+// When a planner exists and notifier is non-nil, each wake from the
+// distributed task FSM goes to both notifier and the planner. The planner is
+// thereby woken by every distributed task apply that wakes the scheduler, in
+// every namespace. A nil notifier is not wrapped, so it disables wakes as it
+// does on Raft.
+func (c *Service) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	if c.rebalancePlanner == nil || notifier == nil {
+		c.Raft.SetDistributedTaskSchedulerNotifier(notifier)
+		return
+	}
+	c.Raft.SetDistributedTaskSchedulerNotifier(plannerWakingNotifier{
+		scheduler: notifier,
+		planner:   c.rebalancePlanner,
+	})
+}
+
+// plannerWakingNotifier's Wake never blocks: both targets drop a wake while
+// one is already pending.
+type plannerWakingNotifier struct {
+	scheduler distributedtask.SchedulerNotifier
+	planner   RebalancePlanner
+}
+
+func (n plannerWakingNotifier) Wake() {
+	n.scheduler.Wake()
+	n.planner.Wake()
 }
 
 // Ready returns or not whether the node is ready to accept requests.

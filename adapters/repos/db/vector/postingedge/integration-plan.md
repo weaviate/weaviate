@@ -615,7 +615,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 ### Verificación a 1M, corrida A: la base forzada a 99 000
 
-*20 de noviembre, de 17:01 a 19:09. En conteos, sin cronometrar. Resultado en `testdata/bench/integration-m1/dbpedia-1m-base99000.json`, con su log al lado.*
+*20 de noviembre, de 17:01 a 19:09. En conteos, sin cronometrar. Resultado en [`testdata/bench/integration-m1/dbpedia-1m-base99000.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/integration-m1/dbpedia-1m-base99000.json), con su log al lado.*
 
 - **Qué es:** `TestIntegrationScale` (`bench_integration_test.go`), el índice que abre el shard sobre un store propio, sin el shard alrededor. dbpedia-openai, 990 000 vectores de 1536 dimensiones, 5 000 queries, k = 10.
 - **Cómo entra:** por `AddBatch`, de 100 en 100 y en el orden de v5.0, con todos los parámetros de la clase por defecto y un `Flush` tras cada lote.
@@ -679,7 +679,7 @@ Tres estados por pieza: **lo tenemos**, **hay que adaptarlo** o **falta**.
 
 ### Verificación a 1M, corrida B: la base por defecto de 10 000, y reapertura
 
-*21 de noviembre, de 10:43 a 14:53. En conteos, sin cronometrar, con cuatro o cinco corridas de experimentos en la máquina. Código de `8f54557d02`: el del hito 1 más las etapas de reapertura del arnés. Resultado en `testdata/bench/integration-m1/dbpedia-1m-base10000.json`, con su log al lado.*
+*21 de noviembre, de 10:43 a 14:53. En conteos, sin cronometrar, con cuatro o cinco corridas de experimentos en la máquina. Código de `8f54557d02`: el del hito 1 más las etapas de reapertura del arnés. Resultado en [`testdata/bench/integration-m1/dbpedia-1m-base10000.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/integration-m1/dbpedia-1m-base10000.json), con su log al lado.*
 
 - **Qué es:** la corrida A con la base que tiene una clase creada sin tocar nada. El índice guarda aparte los 10 000 primeros vectores, construye con ellos 43 postings y crece 99 veces por inserts, sin refresco de aristas.
 - **Lo que añade el arnés:** tras medir el índice crecido, y otra vez con el 30 % borrado, cierra el índice y su store, los abre de disco y mide de nuevo. Cada búsqueda se pide dos veces en cada etapa, para no tomar por efecto de la reapertura una respuesta que cambie sola.
@@ -793,7 +793,7 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 
 **Tests.** Idéntico al gemelo en memoria en cada insert, con slots y con el bucket de lo que espera, con una reordenación de una vez y otra repartida sobre doscientos inserts con postings partiéndose debajo, y cerrado y abierto con cambios esperando (`TestGrowSlotsAndPendingEqualMemory`). Una copia de los ficheros tras un `sync` abre como el índice que era, y sin el bucket no (`TestGrowOpensWhatASyncLeft`). Una pasada que no acaba, parada o muerta, deja el índice como estaba. Una tabla de slots que haría leer otro vector, o ninguno, no abre y dice por qué. Por el índice del shard, con `-race`: la reordenación sola al doblar, junto a búsquedas, inserts y deletes, y un índice de la primera versión.
 
-**Verificación a 1M** (*21 de noviembre, de 15:34 a 17:21; código de `d30e5a7c64`; sin cronometrar, con otras corridas en la máquina; resultado en `testdata/bench/integration-m2/piece1-dbpedia-1m.json`, con su log al lado*). La corrida B con el formato nuevo: base de 10 000, 980 000 inserts de uno en uno, y las mismas etapas, más lo que lee el store por carga.
+**Verificación a 1M** (*21 de noviembre, de 15:34 a 17:21; código de `d30e5a7c64`; sin cronometrar, con otras corridas en la máquina; resultado en [`testdata/bench/integration-m2/piece1-dbpedia-1m.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/integration-m2/piece1-dbpedia-1m.json), con su log al lado*). La corrida B con el formato nuevo: base de 10 000, 980 000 inserts de uno en uno, y las mismas etapas, más lo que lee el store por carga.
 
 | | corrida B, formato de v5.0 | pieza 1, formato de v5.3 |
 |---|---|---|
@@ -860,7 +860,7 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 
 **Tests.** La pasada en disco, sin fusiones, es la del gemelo en memoria: se van los mismos vectores, cada arista recibe el mismo sustituto, y los dos índices son el mismo antes, después y a lo largo de los inserts que siguen, que leen las distancias guardadas para los sustitutos (`TestGrowCleanEqualsMemory`, seis casos, con rondas, reaperturas y compactación). Las fusiones van por invariantes y no contra el gemelo: los dos comparten el grafo de centroides, y las fusiones del gemelo cambian el vecino más cercano que vería el disco. Una pasada cortada entre dos pasos deja un índice, y la siguiente lo acaba. Por el índice del shard, con `-race`: la limpieza sola, junto a búsquedas, inserts y deletes, y un doc id dado otra vez.
 
-**Verificación a 1M: cumple** (*21 de noviembre, de 18:54 a 21:19; código de `cfc9eb8e75`; sin cronometrar, con el build de 10M en la máquina; resultado en `testdata/bench/integration-m2/piece2-churn-dbpedia-1m.json`, con su log al lado*). El churn de v6.2 sobre el índice integrado, en disco: una base de 760 000 vectores construida en lote, y diez rondas que borran al azar el 3 % de ella (22 800), insertan otros tantos nuevos y pasan la limpieza. Al final se mide en la malla de ef de v6.2 hasta 320, reabierto, y junto a un índice cuya base es el lote de los 760 000 vectores que quedan, construido y leído por el mismo código.
+**Verificación a 1M: cumple** (*21 de noviembre, de 18:54 a 21:19; código de `cfc9eb8e75`; sin cronometrar, con el build de 10M en la máquina; resultado en [`testdata/bench/integration-m2/piece2-churn-dbpedia-1m.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/integration-m2/piece2-churn-dbpedia-1m.json), con su log al lado*). El churn de v6.2 sobre el índice integrado, en disco: una base de 760 000 vectores construida en lote, y diez rondas que borran al azar el 3 % de ella (22 800), insertan otros tantos nuevos y pasan la limpieza. Al final se mide en la malla de ef de v6.2 hasta 320, reabierto, y junto a un índice cuya base es el lote de los 760 000 vectores que quedan, construido y leído por el mismo código.
 
 | | criterio | prototipo, celda B | integrado |
 |---|---|---|---|
@@ -935,7 +935,7 @@ Las tres piezas añaden trabajo que nadie pide con una llamada. Corre de dos man
 
 **Verificación a 1M: la corrida B repetida con refresco, y el lote.**
 
-*21 de noviembre, de 21:21 a 03:05, y el lote el 22 de 03:05 a 03:24. En conteos, sin cronometrar, con el build de 10M de HFresh en la máquina (carga de 150). Código de `33f154afa0`, el de las piezas 1 a 3, antes del diario. Resultados en `testdata/bench/integration-m2/piece3-refresh-dbpedia-1m.json` y `piece3-batch-dbpedia-1m.json`, con sus logs al lado.*
+*21 de noviembre, de 21:21 a 03:05, y el lote el 22 de 03:05 a 03:24. En conteos, sin cronometrar, con el build de 10M de HFresh en la máquina (carga de 150). Código de `33f154afa0`, el de las piezas 1 a 3, antes del diario. Resultados en [`testdata/bench/integration-m2/piece3-refresh-dbpedia-1m.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/integration-m2/piece3-refresh-dbpedia-1m.json) y `piece3-batch-dbpedia-1m.json`, con sus logs al lado.*
 
 - **Qué es:** el índice crece de su base por defecto de 10 000 a 990 000, 99 veces, con un llamador y con todo lo que hace por su cuenta puesto: refresco en línea, reordenación de vectores y la petición del bucket en un segmento. No se borra nada.
 - **El lote** es el mismo código con los 990 000 vectores como base, construida de una vez: 4 195 postings. No había un lote del índice integrado a este tamaño.
@@ -1032,7 +1032,7 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 **Verificación a 1M, de las piezas 4, 5 y 6 en una corrida.**
 
-*22 de noviembre, de 03:26 a 06:14. En conteos, sin cronometrar: hasta las 04:20 con mis tests al lado, y con los builds de 10M de los experimentos todo el tiempo. Código de `61ff6246d9`, todo el hito 2 menos la pieza 7. Resultado en `testdata/bench/integration-m2/piece456-writers-dbpedia-1m.json`, con su log al lado.*
+*22 de noviembre, de 03:26 a 06:14. En conteos, sin cronometrar: hasta las 04:20 con mis tests al lado, y con los builds de 10M de los experimentos todo el tiempo. Código de `61ff6246d9`, todo el hito 2 menos la pieza 7. Resultado en [`testdata/bench/integration-m2/piece456-writers-dbpedia-1m.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/integration-m2/piece456-writers-dbpedia-1m.json), con su log al lado.*
 
 - **Qué es:** la corrida de la pieza 3, de 10 000 a 990 000, con ocho llamadores de `AddBatch` a la vez, cada escritura por el diario, la base construida de fondo y los ciclos de un nodo sobre el grafo de centroides. Después se reabre, se compacta y se borra el 30 %.
 
@@ -1166,11 +1166,11 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 
 **Verificación a 1M.**
 
-*22 de noviembre, de 10:46 a 13:38. En conteos, sin cronometrar. Código de `0f982dc354`. Resultado en `testdata/bench/integration-m2/piece7-none-dbpedia-1m.json`, con su log al lado.*
+*22 de noviembre, de 10:46 a 13:38. En conteos, sin cronometrar. Código de `0f982dc354`. Resultado en [`testdata/bench/integration-m2/piece7-none-dbpedia-1m.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/integration-m2/piece7-none-dbpedia-1m.json), con su log al lado.*
 
 - **Qué es:** la corrida de las piezas 4, 5 y 6 con la clase en `none`: de 10 000 a 990 000 con ocho llamadores, el diario y los ciclos del nodo; medida, reabierta, compactada y reordenada; abierta después con los códigos en memoria sobre los mismos ficheros; y con el 30 % borrado.
 - **Corrió con el refresco al doblar encendido,** que era el default del código entonces: 420 003 vectores refrescados. Empezó antes de que el usuario decidiera apagarlo, el 22 hacia las 10:00.
-- **La referencia del prototipo** es la celda de halo de v4.0, en lote, a dbpedia 1M (`testdata/bench/v4.0/dbpedia-1m-disk-manifest.json` en `feat/posting-edge-index`): 3.00 lecturas y 182.8 KB por carga, y 34.5 MB residentes frente a los 105.7 de la celda de ruteo.
+- **La referencia del prototipo** es la celda de halo de v4.0, en lote, a dbpedia 1M ([`testdata/bench/v4.0/dbpedia-1m-disk-manifest.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.0/dbpedia-1m-disk-manifest.json) en `feat/posting-edge-index`): 3.00 lecturas y 182.8 KB por carga, y 34.5 MB residentes frente a los 105.7 de la celda de ruteo.
 
 **Veredicto: cumple.**
 

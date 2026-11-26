@@ -15,7 +15,9 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 // Merge a centroid that does not exist
@@ -202,8 +204,16 @@ func TestMergeNoCandidatesFound(t *testing.T) {
 	tf.Index.minPostingSize = 5
 	defer func() { tf.Index.minPostingSize = originalMin }()
 
+	versionBefore, err := tf.Index.PostingStore.versions.Get(t.Context(), postingID)
+	require.NoError(t, err)
+
 	err = tf.Index.doMerge(t.Context(), postingID)
 	require.NoError(t, err)
+
+	// every search on a small posting queues a merge
+	versionAfter, err := tf.Index.PostingStore.versions.Get(t.Context(), postingID)
+	require.NoError(t, err)
+	require.Equal(t, versionBefore, versionAfter, "a merge that changes nothing must not rewrite the posting")
 
 	var foundLog bool
 	for _, entry := range tf.Logs.Entries {
@@ -295,6 +305,22 @@ func TestMergeTaskQueueOperations(t *testing.T) {
 	require.False(t, tf.Index.taskQueue.MergeContains(postingID))
 }
 
+func TestMergeTaskRequeueStaysPending(t *testing.T) {
+	tf := createHFreshIndex(t)
+	require.NoError(t, tf.Index.scheduler.Close(t.Context()))
+	postingID := uint64(42)
+	require.NoError(t, tf.Index.taskQueue.EnqueueMerge(postingID))
+
+	tf.Index.postingLocks.Lock(postingID)
+	defer tf.Index.postingLocks.Unlock(postingID)
+	require.NoError(t, (&MergeTask{id: postingID, idx: tf.Index}).Execute(t.Context()))
+	require.True(t, tf.Index.taskQueue.MergeContains(postingID), "requeued merge must remain pending")
+
+	size := tf.Index.taskQueue.Size()
+	require.NoError(t, tf.Index.taskQueue.EnqueueMerge(postingID))
+	require.Equal(t, size, tf.Index.taskQueue.Size())
+}
+
 // Merge completes: the small posting folds into the large candidate and the
 // reassignment gate re-enqueues the merged vectors that sit closer to their
 // old centroid than to the surviving one.
@@ -362,5 +388,230 @@ func TestMergeSuccessfully(t *testing.T) {
 	for i := range largeVectors {
 		require.False(t, tf.Index.taskQueue.reassignList.Contains(900+uint64(i)),
 			"resident vector %d should not be enqueued for reassignment", 900+i)
+	}
+}
+
+type mergeSearchProvider struct {
+	distancer.Provider
+	beforeSearch func()
+}
+
+func (p *mergeSearchProvider) Type() string {
+	if f := p.beforeSearch; f != nil {
+		p.beforeSearch = nil
+		f()
+	}
+	return p.Provider.Type()
+}
+
+// A merge must retain current copies and only reassign vectors it moves.
+func TestMergeRetainsCurrentVectors(t *testing.T) {
+	tests := []struct {
+		name              string
+		source            Posting
+		candidate         Posting
+		want              []uint64
+		survivor          int
+		sourceCentroid    []float32
+		candidateCentroid []float32
+		reassignVersion   VectorVersion
+		reassigned        map[uint64]bool
+	}{
+		{
+			name:     "candidate survives",
+			source:   Posting{NewVector(0, 1, nil)},
+			want:     []uint64{0},
+			survivor: 1,
+		},
+		{
+			name: "source survives",
+			source: Posting{
+				NewVector(1, 2, nil),
+				NewVector(2, 2, nil),
+				NewVector(0, 1, nil),
+			},
+			want: []uint64{0, 1, 2},
+		},
+		{
+			name:              "candidate resident is not reassigned",
+			source:            Posting{NewVector(0, 1, nil)},
+			want:              []uint64{0},
+			survivor:          1,
+			candidateCentroid: []float32{0, 1, 0, 0},
+		},
+		{
+			name:              "shared candidate resident is not reassigned",
+			source:            Posting{NewVector(0, 2, nil)},
+			candidate:         Posting{NewVector(0, 2, nil), NewVector(1, 2, nil), NewVector(2, 2, nil)},
+			want:              []uint64{0, 1, 2},
+			survivor:          1,
+			candidateCentroid: []float32{0, 1, 0, 0},
+		},
+		{
+			name:              "shared wrapped candidate resident is not reassigned",
+			source:            Posting{NewVector(0, 2, nil), NewVector(0, 127, nil)},
+			candidate:         Posting{NewVector(0, 2, nil), NewVector(0, 127, nil), NewVector(1, 2, nil), NewVector(2, 2, nil)},
+			want:              []uint64{0, 1, 2},
+			survivor:          1,
+			candidateCentroid: []float32{0, 1, 0, 0},
+		},
+		{
+			name:              "current source copy precedes obsolete duplicate",
+			source:            Posting{NewVector(0, 2, nil), NewVector(0, 1, nil)},
+			want:              []uint64{0},
+			candidateCentroid: []float32{0, 1, 0, 0},
+		},
+		{
+			name:   "current source copy precedes wrapped version",
+			source: Posting{NewVector(0, 2, nil), NewVector(0, 127, nil)},
+			want:   []uint64{0},
+		},
+		{
+			name:      "source current copy excludes wrapped candidate",
+			source:    Posting{NewVector(0, 2, nil)},
+			candidate: Posting{NewVector(0, 127, nil)},
+			want:      []uint64{0},
+		},
+		{
+			name:           "smaller candidate has obsolete and resident entries",
+			source:         Posting{NewVector(0, 2, nil), NewVector(1, 2, nil)},
+			candidate:      Posting{NewVector(0, 2, nil), NewVector(4, 2, nil), NewVector(5, 1, nil)},
+			want:           []uint64{0, 1, 4},
+			sourceCentroid: []float32{0, 1, 0, 0},
+			reassigned:     map[uint64]bool{4: true},
+		},
+		{
+			name:            "newer copy in surviving candidate",
+			source:          Posting{NewVector(0, 2, nil)},
+			candidate:       Posting{NewVector(1, 2, nil)},
+			want:            []uint64{0, 1},
+			survivor:        1,
+			sourceCentroid:  []float32{1, 0, 0, 0},
+			reassignVersion: 2,
+		},
+		{
+			name:            "newer copy in removed candidate",
+			source:          Posting{NewVector(0, 2, nil), NewVector(2, 2, nil), NewVector(3, 2, nil)},
+			candidate:       Posting{NewVector(1, 2, nil)},
+			want:            []uint64{0, 1, 2, 3},
+			sourceCentroid:  []float32{1, 0, 0, 0},
+			reassignVersion: 2,
+			reassigned:      map[uint64]bool{0: true, 1: true},
+		},
+		{
+			name:            "newer copy after version wrap",
+			source:          Posting{NewVector(0, 127, nil)},
+			candidate:       Posting{NewVector(1, 2, nil)},
+			want:            []uint64{0, 1},
+			survivor:        1,
+			sourceCentroid:  []float32{1, 0, 0, 0},
+			reassignVersion: 127,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &mergeSearchProvider{Provider: distancer.NewL2SquaredProvider()}
+			tf := createHFreshIndex(t, withDistanceProvider(provider))
+			// Run only the selected tasks, without follow-up maintenance.
+			require.NoError(t, tf.Index.taskQueue.analyzeQueue.Pause(t.Context()))
+			require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(t.Context()))
+			require.NoError(t, tf.Index.taskQueue.mergeQueue.Pause(t.Context()))
+			require.NoError(t, tf.Index.taskQueue.reassignQueue.Pause(t.Context()))
+			vector := []float32{1, 0, 0, 0}
+			if tt.reassignVersion != 0 {
+				vector = []float32{0, 1, 0, 0}
+			}
+			initializeDimensions(t, &tf, vector)
+			tf.Index.minPostingSize = 4
+			tf.Index.maxPostingSize = 8
+			compressed := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(vector))
+
+			for _, id := range append(tt.want, 5) {
+				tf.Vectors.put(id, vector)
+				version := VectorVersion(2)
+				if id == 0 && tt.reassignVersion != 0 {
+					version = tt.reassignVersion
+				}
+				require.NoError(t, tf.Index.VersionMap.store.Set(t.Context(), id, version))
+			}
+			candidate := tt.candidate
+			if candidate == nil {
+				candidate = Posting{NewVector(0, 2, nil)}
+			}
+			postings := []Posting{tt.source, candidate}
+			postingIDs := make([]uint64, len(postings))
+			for i, posting := range postings {
+				for j, v := range posting {
+					posting[j] = NewVector(v.ID(), v.Version(), compressed)
+				}
+				id, err := tf.Index.IDs.Next()
+				require.NoError(t, err)
+				postingIDs[i] = id
+				centroid := vector
+				if i == 0 && tt.sourceCentroid != nil {
+					centroid = tt.sourceCentroid
+				}
+				if i == 1 && tt.candidateCentroid != nil {
+					centroid = tt.candidateCentroid
+				}
+				require.NoError(t, tf.Index.Centroids.Insert(id, &Centroid{
+					Uncompressed: centroid,
+					Compressed:   tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(centroid)),
+				}))
+				require.NoError(t, tf.Index.PostingStore.Put(t.Context(), id, posting))
+				require.NoError(t, tf.Index.setPostingVectorIDs(t.Context(), id, posting))
+			}
+
+			if tt.reassignVersion != 0 {
+				tf.Index.replicas = 1
+				require.NotEqual(t, tf.Index.postingLocks.Hash(postingIDs[0]), tf.Index.postingLocks.Hash(postingIDs[1]))
+				// Centroid search follows the source snapshot and precedes the
+				// candidate lock. Complete a real reassignment in that window.
+				provider.beforeSearch = func() {
+					require.NoError(t, tf.Index.taskQueue.EnqueueReassign(postingIDs[0], 0))
+					reassign := ReassignTask{vecID: 0, postingID: postingIDs[0], idx: tf.Index}
+					require.NoError(t, reassign.Execute(t.Context()))
+					version, err := tf.Index.VersionMap.Get(t.Context(), 0)
+					require.NoError(t, err)
+					require.Equal(t, tt.reassignVersion.Increment(), version)
+					posting, err := tf.Index.PostingStore.Get(t.Context(), postingIDs[1])
+					require.NoError(t, err)
+					require.Contains(t, posting, NewVector(0, version, compressed))
+				}
+			}
+
+			require.NoError(t, tf.Index.taskQueue.EnqueueMerge(postingIDs[0]))
+			task := MergeTask{id: postingIDs[0], idx: tf.Index}
+			require.NoError(t, task.Execute(t.Context()))
+			require.Nil(t, provider.beforeSearch, "reassignment must run during centroid search")
+			require.True(t, tf.Index.Centroids.Exists(postingIDs[tt.survivor]))
+			require.False(t, tf.Index.Centroids.Exists(postingIDs[1-tt.survivor]))
+			for _, posting := range postings {
+				for _, v := range posting {
+					assert.Equal(t, tt.reassigned[v.ID()], tf.Index.taskQueue.reassignList.Contains(v.ID()),
+						"only moved current entries should be reassigned: vector %d", v.ID())
+				}
+			}
+
+			var live []uint64
+			for _, id := range postingIDs {
+				posting, err := tf.Index.PostingStore.Get(t.Context(), id)
+				require.NoError(t, err)
+				posting, err = posting.GarbageCollect(tf.Index.VersionMap)
+				require.NoError(t, err)
+				for _, v := range posting {
+					version, err := tf.Index.VersionMap.Get(t.Context(), v.ID())
+					require.NoError(t, err)
+					if v.Version() == version {
+						live = append(live, v.ID())
+					}
+				}
+			}
+			assert.ElementsMatch(t, tt.want, live, "merge must retain every live current vector")
+
+			after, _, err := tf.Index.SearchByVector(t.Context(), vector, len(tt.want), nil)
+			require.NoError(t, err)
+			require.ElementsMatch(t, tt.want, after, "merged vectors must remain searchable")
+		})
 	}
 }
