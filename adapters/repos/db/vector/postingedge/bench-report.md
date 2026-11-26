@@ -389,6 +389,26 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **El heap de la tabla es el de la medida,** abierta una vez en `float32` y luego con códigos en el mismo proceso. Cae algo menos que los centroides (84 MB frente a 97 a 10M). Con un proceso por apertura (la tabla del heap de arriba) la celda de halo da 138.1 MB.
 - **Las cargas cambian a 10M porque el grafo de centroides con códigos da otro orden de entrada,** no porque falle nada: el recall sube un poco a la vez.
 
+### CRQ4 y CRQ1 para los centroides (pre-registro, 2026-11-26, antes de compilar nada)
+
+**El encargo (del usuario), sin prisa:** CRQ4 y CRQ1 para los centroides, con la misma medida. Si el ahorro sobre RQ8 son pocos MB, se documenta y se deja.
+
+**Cómo lo aplico (*mío*):**
+- El HNSW admite RQ de 4 y de 1 bit con centrado. Es el camino entrenado de la compresión: la media se ajusta con los centroides que haya, hasta su límite de entrenamiento.
+- **Una opción sin exportar** fija los bits y el centrado de los códigos de los centroides. El defecto sigue siendo RQ8.
+- **El rescore de los centroides sigue en 0,** como en RQ8. Lo que se mide es la compresión sola.
+- **La misma medida:** las cuatro celdas, de clones nuevos de las celdas en `float32`, porque la conversión no tiene vuelta. Cada celda se abre en RQ8, CRQ4 y CRQ1, en los ef de sus puntos de 0.95 y 0.99.
+- **El criterio de calidad es el de RQ8:** recall y cargas a ±2 % de `float32`, relativo.
+- **El de ahorro (*mío*, el usuario no lo cuantificó):** «pocos MB» es menos de 20 MB de heap a 10M frente a RQ8.
+  - Con menos, se documenta y se deja.
+  - Con más y con la calidad dentro del ±2 %, propongo el cambio al usuario, sin hacerlo por defecto.
+
+**Lo que espero (*mío*):**
+- **Los códigos:** a 10M, unos 17 MB con CRQ4 y unos 4.5 con CRQ1, frente a 33.2; a 1M, 3.4 y 0.9 frente a 6.5.
+  - El ahorro a 10M sería de 16 MB con CRQ4 y de 29 con CRQ1.
+- **CRQ4:** dentro del ±2 %.
+- **CRQ1 sin rescore:** fuera, sobre todo en las cargas, porque 1 bit ordena mal los centroides cercanos.
+
 ## La plana en `none` por lectura directa, y el corte de `none` (pre-registro, 2026-11-24 a las 21:50)
 
 **Estado: pre-registrado antes de compilar nada.**
