@@ -324,16 +324,28 @@ func (p PackedPostingMetadata) Iter() iter.Seq[uint64] {
 		for i := range count {
 			offset := i * uint32(bytesPerID)
 
-			// Decode ID
-			vID := uint64(0)
-			for j := range bytesPerID {
-				vID |= uint64(data[offset+uint32(j)]) << (j * 8)
-			}
+			vID := decodePostingID(data[offset:], bytesPerID)
 
 			if !yield(vID) {
 				return
 			}
 		}
+	}
+}
+
+// decodePostingID reads one ID using the packed format's byte width.
+func decodePostingID(data []byte, width int) uint64 {
+	switch width {
+	case 2:
+		return uint64(binary.LittleEndian.Uint16(data))
+	case 3:
+		return uint64(binary.LittleEndian.Uint16(data)) | uint64(data[2])<<16
+	case 4:
+		return uint64(binary.LittleEndian.Uint32(data))
+	case 5:
+		return uint64(binary.LittleEndian.Uint32(data)) | uint64(data[4])<<32
+	default:
+		return binary.LittleEndian.Uint64(data)
 	}
 }
 
@@ -347,13 +359,7 @@ func (p PackedPostingMetadata) GetAt(index int) uint64 {
 	start := 5
 	offset := index * bytesPerID
 
-	// Decode ID
-	vID := uint64(0)
-	for j := 0; j < bytesPerID; j++ {
-		vID |= uint64(p[start+offset+j]) << (j * 8)
-	}
-
-	return vID
+	return decodePostingID(p[start+offset:], bytesPerID)
 }
 
 // Count returns the number of vector IDs in the posting metadata.

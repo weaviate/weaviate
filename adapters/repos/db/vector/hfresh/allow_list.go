@@ -152,25 +152,10 @@ func (a *allowList) containsAllowedMember(id uint64, p *PostingMetadata) bool {
 			return false
 		}
 	}
-	scheme := Scheme(data[0])
-	width := scheme.BytesPerValue()
+	width := Scheme(data[0]).BytesPerValue()
 	data = data[5:]
 	for i := uint32(0); i < count; i++ {
-		offset := i * uint32(width)
-		var vectorID uint64
-		switch scheme {
-		case schemeID2Byte:
-			vectorID = uint64(binary.LittleEndian.Uint16(data[offset:]))
-		case schemeID3Byte:
-			vectorID = uint64(data[offset]) | uint64(data[offset+1])<<8 | uint64(data[offset+2])<<16
-		case schemeID4Byte:
-			vectorID = uint64(binary.LittleEndian.Uint32(data[offset:]))
-		case schemeID5Byte:
-			vectorID = uint64(data[offset]) | uint64(data[offset+1])<<8 | uint64(data[offset+2])<<16 |
-				uint64(data[offset+3])<<24 | uint64(data[offset+4])<<32
-		default:
-			vectorID = binary.LittleEndian.Uint64(data[offset:])
-		}
+		vectorID := decodePostingID(data[i*uint32(width):], width)
 		if a.AllowList.Contains(vectorID) {
 			a.allowedPostings.Visit(id)
 			return true
