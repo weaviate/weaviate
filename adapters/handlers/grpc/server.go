@@ -68,7 +68,7 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		grpc.MaxSendMsgSize(grpcConf.MaxMsgSize),
 	}
 
-	// TODO(dyma): Append these at the end so that the caller can override any of the options here.
+	// FIXME(dyma): Append these at the end so that the caller can override any of the options here?
 	o = append(o, options...)
 
 	// Add TLS creds for the GRPC connection, if defined.
@@ -82,21 +82,6 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		o = append(o, grpc.Creds(c))
 	}
 
-	var unaryInterceptors []grpc.UnaryServerInterceptor
-	unaryInterceptors = append(unaryInterceptors, makeAuthInterceptor())
-	unaryInterceptors = append(unaryInterceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
-	unaryInterceptors = append(unaryInterceptors, clientTrackingUnaryInterceptor(conf.ClientTracker, conf.IntegrationTracker))
-	unaryInterceptors = append(unaryInterceptors, serverStateUnaryInterceptor((*serverState)(state)))
-
-	// Add OpenTelemetry tracing interceptors
-	unaryInterceptors = append(unaryInterceptors, monitoring.GRPCTracingInterceptor())
-	unaryInterceptors = append(unaryInterceptors, makeDocsLinkUnaryInterceptor())
-
-	// TODO(dyma): redundant check, ChainUnaryInterceptor/ChainServerInterceptor already do that
-	if len(unaryInterceptors) > 0 {
-		o = append(o, grpc.ChainUnaryInterceptor(unaryInterceptors...))
-	}
-
 	allowAnonymous := state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled
 	authComposer := composer.New(
 		state.ServerConfig.Config.Authentication,
@@ -106,10 +91,21 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		state.OIDC,
 	)
 
-	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
-	o = append(o, grpc.ChainStreamInterceptor(clientTrackingStreamInterceptor(conf.ClientTracker, conf.IntegrationTracker)))
-	o = append(o, grpc.ChainStreamInterceptor(serverStateStreamInterceptor((*serverState)(state))))
-	o = append(o, grpc.ChainStreamInterceptor(makeDocsLinkStreamInterceptor()))
+	o = append(o, grpc.ChainUnaryInterceptor(
+		makeAuthInterceptor(),
+		makeMetricsInterceptor(state.Logger, state.Metrics),
+		clientTrackingUnaryInterceptor(conf.ClientTracker, conf.IntegrationTracker),
+		serverStateUnaryInterceptor((*serverState)(state)),
+		monitoring.GRPCTracingInterceptor(),
+		makeDocsLinkUnaryInterceptor(),
+	))
+
+	o = append(o, grpc.ChainStreamInterceptor(
+		makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer)),
+		clientTrackingStreamInterceptor(conf.ClientTracker, conf.IntegrationTracker),
+		serverStateStreamInterceptor((*serverState)(state)),
+		makeDocsLinkStreamInterceptor(),
+	))
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
@@ -120,7 +116,6 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 	})
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
-
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
 	return s, drainBatch
