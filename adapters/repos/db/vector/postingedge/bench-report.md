@@ -280,7 +280,7 @@ Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el li
 - **El índice de las curvas no es bit a bit el validado:** la misma secuencia de inserts, con otro grafo de centroides. Como en v5.0 y v5.1.
 - **Lo demás no cambia.**
 
-**Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** la validación pasa en cada checkpoint, el índice reorganizado devuelve lo mismo que el índice tal cual, y el script saca sus tablas con las cuatro filas del control al lado. Script en `testdata/bench/v5.3/scripts/run_v53.sh`, tablas en `rows_verdict.py`.
+**Una prueba de la sesión entera a 30 000 vectores, que no es un dato:** la validación pasa en cada checkpoint, el índice reorganizado devuelve lo mismo que el índice tal cual, y el script saca sus tablas con las cuatro filas del control al lado. Script en [`testdata/bench/v5.3/scripts/run_v53.sh`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.3/scripts/run_v53.sh), tablas en `rows_verdict.py`.
 
 ## v6.2: reparación en el churn (pre-registro, 2026-11-19)
 
@@ -454,7 +454,7 @@ Lint, con la etiqueta del banco y sin ella, y el linter de goroutines pasan. Los
 
 Escrito el 20 por la mañana, con la cola de la noche ya parada, antes de la corrida y de ningún dato suyo. El borrador se redactó de madrugada fuera del worktree, sin compilar, y se aplicó y compiló a las 09:56.
 
-**Qué es.** Dos etapas nuevas de `TestStreamDeletes`, `memory30` y `memorychurn`, que corren la pasada de cada celda con `deleteIndex.pass`, el mismo código que prueban los tests. El script es `testdata/bench/v6.2/scripts/run_v62.sh` y las tablas las saca `memory_verdict.py`.
+**Qué es.** Dos etapas nuevas de `TestStreamDeletes`, `memory30` y `memorychurn`, que corren la pasada de cada celda con `deleteIndex.pass`, el mismo código que prueban los tests. El script es [`testdata/bench/v6.2/scripts/run_v62.sh`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v6.2/scripts/run_v62.sh) y las tablas las saca `memory_verdict.py`.
 
 **Lo que el pre-registro dejaba abierto y fijo ahora** (*mío*, antes de ningún dato):
 
@@ -609,7 +609,7 @@ Código en `47788542d1` y `a2c97cc394`, después del pre-registro (`6db1f2c523`)
 
 ### Paso 2, cerrado: la corrida a 1M (de 17:56 a 19:43 del 19)
 
-Binario de `a2c97cc394`. Datos en `testdata/bench/v6.1/dbpedia-1m-repair.json` y tablas en `testdata/bench/v6.1/repair-verdict.md`.
+Binario de `a2c97cc394`. Datos en [`testdata/bench/v6.1/dbpedia-1m-repair.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v6.1/dbpedia-1m-repair.json) y tablas en [`testdata/bench/v6.1/repair-verdict.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v6.1/repair-verdict.md).
 
 - **Las dos etapas corrieron,** en 107 minutos: las seis celdas con el 30 % al azar y sus referencias en 72, y el churn en 28.
 - **Ningún stop:** ningún borrado devuelto, cobertura completa, ninguna lista reparada hacia un borrado, y tras la segunda fase ningún borrado en un posting ni arista hacia uno. El guardián de las 22:50 no tuvo nada que parar.
@@ -952,7 +952,7 @@ Código en `f3ec2c2ecd`, después del pre-registro (`d274cd0b5a`).
 
 ### Paso 2, primera parte: la primera corrida a 1M (de 14:26 a 15:41 del 19)
 
-Binario de `f3ec2c2ecd`. Datos en `testdata/bench/v6.0/dbpedia-1m-deletes.json` y tablas en `testdata/bench/v6.0/deletes-verdict.md` (`485d997f64`). Es la corrida pre-registrada: de ella sale el veredicto del criterio original para las celdas 1 a 4. La celda 1b, las referencias de llenado y el ruido entre corridas salen de la segunda, abajo.
+Binario de `f3ec2c2ecd`. Datos en [`testdata/bench/v6.0/dbpedia-1m-deletes.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v6.0/dbpedia-1m-deletes.json) y tablas en [`testdata/bench/v6.0/deletes-verdict.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v6.0/deletes-verdict.md) (`485d997f64`). Es la corrida pre-registrada: de ella sale el veredicto del criterio original para las celdas 1 a 4. La celda 1b, las referencias de llenado y el ruido entre corridas salen de la segunda, abajo.
 
 - **Las cinco etapas corrieron,** en 75 minutos: el lote del 100 % (4 195 postings de 236.0 miembros, 8 888 026 aristas), y después el 30 %, el 10 %, el 50 %, la agrupada y el churn.
 - **Ningún stop.** Ninguna búsqueda devolvió un vector borrado, y la cobertura es completa en cada celda y en cada ronda del churn.
@@ -1059,7 +1059,7 @@ Binario de `f3ec2c2ecd`. Datos en `testdata/bench/v6.0/dbpedia-1m-deletes.json` 
 
 ### Paso 2, segunda parte: la segunda corrida, con la celda 1b y las referencias de llenado (de 15:42 a 17:25 del 19)
 
-Binario de `936a323672`. Datos en `testdata/bench/v6.0/r2/dbpedia-1m-deletes.json`. Las tablas de las dos corridas, en `testdata/bench/v6.0/deletes-verdict.md`.
+Binario de `936a323672`. Datos en [`testdata/bench/v6.0/r2/dbpedia-1m-deletes.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v6.0/r2/dbpedia-1m-deletes.json). Las tablas de las dos corridas, en [`testdata/bench/v6.0/deletes-verdict.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v6.0/deletes-verdict.md).
 
 - **Las cinco etapas corrieron,** en 103 minutos, sobre un build nuevo del 100 %. En cada punto: la referencia de S = 236, dos referencias de llenado y las celdas 1, 1b, 2, 3 y 4. El churn, con la celda 4, la que eligió la primera corrida.
 - **Ningún stop.** El guardián de las 22:50 no tuvo nada que parar.
@@ -1309,11 +1309,11 @@ Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
 
 **Lo que mi expectativa de las listas releídas no tenía en cuenta:** escribí «menos de uno de cada cien» planes. En la prueba pequeña son 4 de cada cien con tandas de 32, en un índice de un centenar de postings. A 1M deberían ser muchos menos, y se medirá.
 
-**El script de la sesión y sus tablas** se escribieron después (`1e17992fab`): `testdata/bench/v5.2/scripts/run_v52.sh` y `parallel_inserts_verdict.py`.
+**El script de la sesión y sus tablas** se escribieron después (`1e17992fab`): [`testdata/bench/v5.2/scripts/run_v52.sh`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.2/scripts/run_v52.sh) y `parallel_inserts_verdict.py`.
 
 ### Paso 2, cerrado: las cuatro corridas a 1M (2026-11-20, de 06:39 a 09:51)
 
-**Estado: hechas, las cuatro. No sirve, por la regla como está escrita: N = 8 da 3.76 veces los inserts por segundo de N = 1, donde hacían falta 4, y sus cargas a 0.99 quedan un 15.8 % por encima, donde el límite era un 5 %. A igual ef los cuatro índices son el mismo: lo de 0.99 es del tamaño del ruido entre dos corridas.** Corrieron detrás de v4.1, de día. El binario es el de `4ff2563947`, construido el 19 a las 13:30. Los datos, en `testdata/bench/v5.2/dbpedia-1m-par-*-manifest.json`. Las tablas son las de `parallel-inserts-verdict.md`.
+**Estado: hechas, las cuatro. No sirve, por la regla como está escrita: N = 8 da 3.76 veces los inserts por segundo de N = 1, donde hacían falta 4, y sus cargas a 0.99 quedan un 15.8 % por encima, donde el límite era un 5 %. A igual ef los cuatro índices son el mismo: lo de 0.99 es del tamaño del ruido entre dos corridas.** Corrieron detrás de v4.1, de día. El binario es el de `4ff2563947`, construido el 19 a las 13:30. Los datos, en [`testdata/bench/v5.2/dbpedia-1m-par-*-manifest.json`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.2). Las tablas son las de `parallel-inserts-verdict.md`.
 
 **Validación, que es stop: pasa.** Las cuatro celdas tienen cobertura completa en cada checkpoint, del 20 al 100 %, y al acabar.
 
@@ -1413,7 +1413,7 @@ Código en `02b7010ea5`, después del pre-registro (`6883a2e604`).
 - **Las tres celdas, como en el paso 2:** N = 1; N = 4 con tandas de 32; y N = 8 con tandas de 32. La de tandas de 8 no se repite: no la pide el encargo.
 - **El mismo binario,** el de `4ff2563947`, y el mismo protocolo: del 10 al 100 %, la cobertura en cada checkpoint con el reloj parado, y la calidad del índice que deja cada celda.
 - **Cuándo:** la noche del 20, detrás de las repeticiones de las curvas marcadas, con 15 minutos sin teclado ni trackpad antes de cada celda. Una corrida por celda.
-- **Dónde:** índices nuevos en el volumen, y sus datos en `testdata/bench/v5.2/night/`. Los del paso 2 no se tocan.
+- **Dónde:** índices nuevos en el volumen, y sus datos en [`testdata/bench/v5.2/night/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.2/night). Los del paso 2 no se tocan.
 - **Qué se reporta:** los inserts por segundo de las tres y sus dos razones contra N = 1, junto a los del paso 2; la actividad de cada corrida; y las cargas a 0.95 y a 0.99, que dan además una segunda medida del ruido entre corridas.
 - **Si alguna corrida coincide con actividad,** se dice y no se repite otra vez sin que el usuario lo pida.
 - **Lo que espero** (*mío*, antes de ningún dato): N = 1 entre 172 y 182 por segundo, como la noche de v5.0. N = 8 entre 3.5 y 3.8 veces: el límite es que las búsquedas se estorban, y eso no depende de la hora. No espero que llegue a 4.
@@ -1528,7 +1528,7 @@ Código en `b098d01b1a` y `38b4269e55`, después del pre-registro (`328b178a14`)
 
 ### Paso 2, cerrado: la parte sin cronometrar a 1M (de 11:51 a 12:13 del 19)
 
-Binario de `b098d01b1a`. Tablas en `testdata/bench/v4.1/sketch-verdict.md`, que la sesión cronometrada completará.
+Binario de `b098d01b1a`. Tablas en [`testdata/bench/v4.1/sketch-verdict.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.1/sketch-verdict.md), que la sesión cronometrada completará.
 
 - **El build sale igual que el de v4.0:** 4 195 postings y 8 888 026 aristas, con los mismos tamaños de posting. Tardó 650 s, con las dos validaciones de v5.1 corriendo al lado.
 - **La celda actual, escrita otra vez de este build,** sale donde salió: ef 21 a 0.95 (recall 0.9513 y 18.58 cargas, donde v4.0 tuvo 18.59) y ef 188 a 0.99, donde v4.0 tuvo 187 (76.56 cargas frente a 76.30). El grafo de centroides se construye de nuevo y no entra exactamente igual.
@@ -1570,7 +1570,7 @@ Binario de `b098d01b1a`. Tablas en `testdata/bench/v4.1/sketch-verdict.md`, que 
 
 ### Paso 3, cerrado: la sesión cronometrada (2026-11-20, de 04:11 a 06:39)
 
-**Estado: hecha, en dos rondas y con los dos presupuestos. Ninguna curva es una opción, con ninguno de los dos presupuestos: la mejor, 768 bits con rescore 200, queda en frío a 0.95 a 1.49 veces de la celda actual, con el límite en 1.20.** Corrió detrás de la cola de la noche, fuera de la ventana de 23:00 a 03:00, como decía el pre-registro. El binario es el de `b098d01b1a`, construido el 19 a las 11:51. Los datos, en `testdata/bench/v4.1/dbpedia-1m-sketch-r1-*.json` y `-r2-*.json`. Las tablas son las de `sketch-verdict.md`, primera ronda.
+**Estado: hecha, en dos rondas y con los dos presupuestos. Ninguna curva es una opción, con ninguno de los dos presupuestos: la mejor, 768 bits con rescore 200, queda en frío a 0.95 a 1.49 veces de la celda actual, con el límite en 1.20.** Corrió detrás de la cola de la noche, fuera de la ventana de 23:00 a 03:00, como decía el pre-registro. El binario es el de `b098d01b1a`, construido el 19 a las 11:51. Los datos, en [`testdata/bench/v4.1/dbpedia-1m-sketch-r1-*.json`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.1) y `-r2-*.json`. Las tablas son las de `sketch-verdict.md`, primera ronda.
 
 **La lectura,** por el p50 en frío a 0.95 con 1 thread, sobre el de la celda actual en la misma pasada:
 
@@ -1898,14 +1898,14 @@ Se reporta al cerrar cada paso.
   - Una lista pendiente que se pierde antes de leerse.
   - La fila de un posting retirado que se queda.
 - **Humo a 30k, de punta a punta:** las dos K pasan la validación, la corrida cronometrada y las búsquedas. No es dato: comprueba el camino.
-- **El arnés:** K es una opción de la validación y de la corrida cronometrada. La sesión es `testdata/bench/v5.1/scripts/run_v51.sh` y el veredicto, `consolidated_verdict.py`, que lee al lado los resultados de v5.0.
+- **El arnés:** K es una opción de la validación y de la corrida cronometrada. La sesión es [`testdata/bench/v5.1/scripts/run_v51.sh`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.1/scripts/run_v51.sh) y el veredicto, `consolidated_verdict.py`, que lee al lado los resultados de v5.0.
 - **Dos precisiones del arnés:**
   - **La validación escribe lo pendiente en cada checkpoint,** como fija la corrección. Son filas que la corrida cronometrada no escribe hasta cerrar: se cuentan aparte, como escritas por checkpoint.
   - **La corrida cronometrada mete en su tiempo el volcado de lo pendiente al acabar,** que es lo que haría un cierre. Esto no estaba en el pre-registro, y se da también aparte.
 
 ### Paso 2, cerrado: la validación a 1M (2026-11-19, de 09:37 a 13:20)
 
-**Estado: el stop de corrección pasa con las dos K. La primera mitad del criterio no se cumple con ninguna: las lecturas por carga del último tramo bajan a 0.55 veces las de v5.0, con el límite en 0.50.** Sin cronometrar, las dos K a la vez y con otras corridas al lado. El binario es el del commit `00d97be422`. Los datos, en `testdata/bench/v5.1/dbpedia-1m-cons-k16-validate.json` y `-k64-validate.json`, y las tablas, en `consolidated-verdict.md`.
+**Estado: el stop de corrección pasa con las dos K. La primera mitad del criterio no se cumple con ninguna: las lecturas por carga del último tramo bajan a 0.55 veces las de v5.0, con el límite en 0.50.** Sin cronometrar, las dos K a la vez y con otras corridas al lado. El binario es el del commit `00d97be422`. Los datos, en [`testdata/bench/v5.1/dbpedia-1m-cons-k16-validate.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.1/dbpedia-1m-cons-k16-validate.json) y `-k64-validate.json`, y las tablas, en `consolidated-verdict.md`.
 
 - **Corrección, que es stop: pasa.** Con K = 16 y con K = 64, en cada insert el mismo posting, las mismas aristas y las mismas cuentas que el gemelo; y en cada checkpoint, con todo volcado, cobertura completa e índice idéntico. Cerrado y abierto otra vez, devuelve lo mismo que el gemelo en las 5 000 queries, en los dos puntos.
 - **Primera mitad del criterio: no se cumple.** En el tramo del 80 al 100 % una carga son 3.40 lecturas con K = 16 y 3.43 con K = 64, donde v5.0 tenía 6.23. Es 0.545 y 0.551 veces; la mitad eran 3.11.
@@ -2054,7 +2054,7 @@ Los miembros con cambios esperando y los bytes de sus listas y de sus distancias
 
 ### Paso 3, cerrado: la sesión cronometrada (noche del 19 al 20, de 00:34 a 04:02)
 
-**Estado: hecha. La segunda mitad del criterio tampoco se cumple: en frío a 0.95 el índice de K = 16 tarda 1.47 veces lo que la celda en lote y el de K = 64, 1.41, con el límite en 1.20. En caliente las aristas consolidadas sí cierran más de la mitad de la distancia de v5.0 con el lote; en frío no cierran nada.** De noche, con la máquina despierta y sin teclado ni trackpad en ningún tramo. El binario es el de `5d5203e096`, construido el 19 a las 10:14. Los datos, en `testdata/bench/v5.1/dbpedia-1m-cons-k16-manifest.json`, `-k64-manifest.json`, `-r1-*.json` y `-r2-*.json`. Las tablas son las de `consolidated-verdict.md`, primera ronda.
+**Estado: hecha. La segunda mitad del criterio tampoco se cumple: en frío a 0.95 el índice de K = 16 tarda 1.47 veces lo que la celda en lote y el de K = 64, 1.41, con el límite en 1.20. En caliente las aristas consolidadas sí cierran más de la mitad de la distancia de v5.0 con el lote; en frío no cierran nada.** De noche, con la máquina despierta y sin teclado ni trackpad en ningún tramo. El binario es el de `5d5203e096`, construido el 19 a las 10:14. Los datos, en [`testdata/bench/v5.1/dbpedia-1m-cons-k16-manifest.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.1/dbpedia-1m-cons-k16-manifest.json), `-k64-manifest.json`, `-r1-*.json` y `-r2-*.json`. Las tablas son las de `consolidated-verdict.md`, primera ronda.
 
 **Qué corrió:** los inserts de K = 16, de 00:34 a 01:51, y los de K = 64, de 01:51 a 03:12, cada uno del 10 % al 100 % con un escritor; y cuatro curvas en dos rondas, de 03:12 a 04:02: los dos índices que dejaron, el crecido de v5.0 que hay en disco y la celda de 512 bits en lote. Los dos índices acaban con cobertura completa y con sus puntos en ef 21 y ef 166.
 
@@ -2257,13 +2257,13 @@ Código en `45e586c572`, después del pre-registro (`3f2824cb6a`). Escrito mient
   - **Un fallo de página en frío trae 72.5 KiB del disco,** no una página de 16: el sistema lee por delante. Es lo que hace plausible la primera hipótesis: dos filas seguidas en el mismo segmento se traen juntas.
 - **Dos órdenes de lectura** (*mío*, antes de ningún dato): la cuenta del disco se toma dos veces, con la fila de miembros leída primero y con la de aristas primero. Donde las dos filas de un posting van seguidas en disco, la que se lee primero trae parte de la otra, y la diferencia entre los dos órdenes lo enseña.
 - **Se cuenta también en las dos celdas reorganizadas** (*mío*): la celda 2 de v5.0 y la nueva. El encargo pide los dos índices antes de reorganizar; las otras dos cuestan diez minutos cada una y dicen qué lee el formato candidato.
-- **La sesión:** `testdata/bench/v5.1/scripts/run_v51_combined.sh`, con sus tablas en `combined_verdict.py`. La puerta de la etapa cronometrada espera además a que no haya nada compilando en la máquina, porque hay otra sesión de trabajo en otro worktree.
+- **La sesión:** [`testdata/bench/v5.1/scripts/run_v51_combined.sh`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.1/scripts/run_v51_combined.sh), con sus tablas en `combined_verdict.py`. La puerta de la etapa cronometrada espera además a que no haya nada compilando en la máquina, porque hay otra sesión de trabajo en otro worktree.
 
 Lint, con la etiqueta del banco y sin ella, `go vet` también para Linux y el linter de goroutines pasan. Los tests del paquete entero pasan (135 s).
 
 ### Control combinado, paso 2: la celda nueva y lo que lee una carga en frío (2026-11-20, de 10:15 a 10:37)
 
-**Estado: hecho, sin cronometrar. La celda nueva devuelve lo mismo que el índice de K = 64 tal cual. Y la cuenta dice de dónde sale que v5.1 no mejore en frío: pide menos al store que v5.0 y trae más del disco, porque su fila de aristas, sola en su bucket, cuesta una lectura de disco propia, y en v5.0 viene casi gratis detrás de los miembros.** Corrió a la vez que v6.2, que no toca el volumen. El binario es el de `45e586c572`. Los datos, en `testdata/bench/v5.1/dbpedia-1m-comb-reorg.json` y `-comb-reads-*.json`. Las tablas son las de `combined-verdict.md`.
+**Estado: hecho, sin cronometrar. La celda nueva devuelve lo mismo que el índice de K = 64 tal cual. Y la cuenta dice de dónde sale que v5.1 no mejore en frío: pide menos al store que v5.0 y trae más del disco, porque su fila de aristas, sola en su bucket, cuesta una lectura de disco propia, y en v5.0 viene casi gratis detrás de los miembros.** Corrió a la vez que v6.2, que no toca el volumen. El binario es el de `45e586c572`. Los datos, en [`testdata/bench/v5.1/dbpedia-1m-comb-reorg.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.1/dbpedia-1m-comb-reorg.json) y `-comb-reads-*.json`. Las tablas son las de `combined-verdict.md`.
 
 **La celda nueva:**
 
@@ -2572,7 +2572,7 @@ Se reporta al cerrar cada paso.
 - **Lo que seguirá sin ser lo mismo:** HFresh construye desde cero y posting-edge crece desde un 10 % en lote; HFresh deja trabajo para después y posting-edge no; y el vector exacto de posting-edge va dentro de su insert.
 - **Lo esperado, antes de medir:** por escritor, el build de 10 dio 862 `Add` por segundo. Con uno solo, y los 9 workers de fondo para él, espero entre 1 000 y 3 000 hasta el último insert, y poco menos hasta la cola vacía.
 - **Lo que el binario añade:** un test del arnés de HFresh con esa opción. Nada en HFresh.
-- **Escrito a las 10:14,** después de confirmar la enmienda: `TestHFreshDiskInserts` en el arnés de HFresh y `testdata/bench/v5.0/scripts/run_hfresh_inserts.sh`. No escribe sobre un índice que ya exista. Humo a 30k, que no es dato: pasa, y da sus dos tiempos.
+- **Escrito a las 10:14,** después de confirmar la enmienda: `TestHFreshDiskInserts` en el arnés de HFresh y [`testdata/bench/v5.0/scripts/run_hfresh_inserts.sh`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.0/scripts/run_hfresh_inserts.sh). No escribe sobre un índice que ya exista. Humo a 30k, que no es dato: pasa, y da sus dos tiempos.
 
 ### Enmienda 5 (12:10 del 19): los inserts de HFresh con un escritor llevan el ciclo de limpieza de un shard
 
@@ -2611,7 +2611,7 @@ Se reporta al cerrar cada paso.
 
 ### Paso 3, cerrado: la validación a 1M, sin cronometrar (2026-11-18, de 15:04 a 17:53)
 
-**Estado: la validación pasa sus dos stops. El criterio 1 no se cumple, por medio punto. La sesión cronometrada queda en cola para la noche.** El binario es el del commit `fc9baee8c9`. Los datos, en `testdata/bench/v5.0/dbpedia-1m-grow-validate.json`, y el veredicto que escribe el script, en `grow-verdict.md`. Las tablas de abajo son las suyas.
+**Estado: la validación pasa sus dos stops. El criterio 1 no se cumple, por medio punto. La sesión cronometrada queda en cola para la noche.** El binario es el del commit `fc9baee8c9`. Los datos, en [`testdata/bench/v5.0/dbpedia-1m-grow-validate.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.0/dbpedia-1m-grow-validate.json), y el veredicto que escribe el script, en `grow-verdict.md`. Las tablas de abajo son las suyas.
 
 **Lo que sale:**
 
@@ -2769,7 +2769,7 @@ Por query y por carga, sobre las 5 000 queries. Los puntos son los del gemelo, q
 
 ### Paso 4, cerrado: la sesión cronometrada (noche del 18 al 19, de 23:27 a 01:17)
 
-**Estado: hecha. El criterio 2 no se cumple: 1.43 veces la celda en lote, con el límite en 1.20.** De noche, con la máquina despierta, sin teclado ni trackpad en ningún tramo. El binario es el del commit `37983e6358`. Los datos, en `testdata/bench/v5.0/dbpedia-1m-grow-manifest.json` y `dbpedia-1m-grow-r1-*.json` y `-r2-*.json`. Las tablas de abajo son las de `grow-verdict.md`.
+**Estado: hecha. El criterio 2 no se cumple: 1.43 veces la celda en lote, con el límite en 1.20.** De noche, con la máquina despierta, sin teclado ni trackpad en ningún tramo. El binario es el del commit `37983e6358`. Los datos, en [`testdata/bench/v5.0/dbpedia-1m-grow-manifest.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.0/dbpedia-1m-grow-manifest.json) y `dbpedia-1m-grow-r1-*.json` y `-r2-*.json`. Las tablas de abajo son las de `grow-verdict.md`.
 
 **Lo que sale:**
 
@@ -2909,7 +2909,7 @@ Primera ronda. En caliente: la pasada de QPS mediano de las cronometradas. En fr
 
 ### Paso 5, cerrado: el control de reorganización (2026-11-19, de 08:31 a 09:23)
 
-**Estado: hecho. La celda 2 queda a 1.07 veces de la celda en lote en frío a 0.95, dentro del 1.20: por la lectura del usuario, lo que falta es reorganización en segundo plano, y el formato vale.** De día, detrás de la sesión de HFresh en paralelo, con la máquina despierta y sin teclado ni trackpad en ningún tramo: llevaban 66 minutos sin usarse al arrancar. El binario es el del commit `3f1f905516`. Los datos, en `testdata/bench/v5.0/dbpedia-1m-grow-reorg.json` y `dbpedia-1m-grow-c1-*.json` y `-c2-*.json`. Las tablas de abajo son las de `reorg-verdict.md`.
+**Estado: hecho. La celda 2 queda a 1.07 veces de la celda en lote en frío a 0.95, dentro del 1.20: por la lectura del usuario, lo que falta es reorganización en segundo plano, y el formato vale.** De día, detrás de la sesión de HFresh en paralelo, con la máquina despierta y sin teclado ni trackpad en ningún tramo: llevaban 66 minutos sin usarse al arrancar. El binario es el del commit `3f1f905516`. Los datos, en [`testdata/bench/v5.0/dbpedia-1m-grow-reorg.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.0/dbpedia-1m-grow-reorg.json) y `dbpedia-1m-grow-c1-*.json` y `-c2-*.json`. Las tablas de abajo son las de `reorg-verdict.md`.
 
 **Lo que sale:**
 
@@ -3053,7 +3053,7 @@ Por el p50.
 - **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
 - **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
 
-**La repetición de la celda 1 (2026-11-20, de 00:27 a 00:34).** La curva marcada por deriva, sola, con el binario de entonces (`3f1f905516`), de noche y sin teclado ni trackpad. Datos en `testdata/bench/v5.0/dbpedia-1m-grow-night-grown1.json`.
+**La repetición de la celda 1 (2026-11-20, de 00:27 a 00:34).** La curva marcada por deriva, sola, con el binario de entonces (`3f1f905516`), de noche y sin teclado ni trackpad. Datos en [`testdata/bench/v5.0/dbpedia-1m-grow-night-grown1.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.0/dbpedia-1m-grow-night-grown1.json).
 
 | celda 1: un segmento | ronda 1, ms | ronda 2 | repetición de noche | sobre la ronda 1 |
 |---|---|---|---|---|
@@ -3078,7 +3078,7 @@ Por el p50.
 
 ### Los inserts de HFresh a 1M con un escritor (enmiendas 4 y 5; 2026-11-20, de 04:02 a 04:10)
 
-**Estado: medido, en una corrida. HFresh inserta 2 089 vectores por segundo con un escritor, y 2 076 contando hasta que sus colas de fondo quedan vacías. Son de 10.6 a 11.7 veces los de posting-edge con un escritor.** De noche, sin teclado ni trackpad en el tramo y sin eventos de energía. El binario es el de `39b47223c6`. Los datos, en `testdata/bench/v5.0/dbpedia-1m-hfresh-inserts-w1.json`.
+**Estado: medido, en una corrida. HFresh inserta 2 089 vectores por segundo con un escritor, y 2 076 contando hasta que sus colas de fondo quedan vacías. Son de 10.6 a 11.7 veces los de posting-edge con un escritor.** De noche, sin teclado ni trackpad en el tramo y sin eventos de energía. El binario es el de `39b47223c6`. Los datos, en [`testdata/bench/v5.0/dbpedia-1m-hfresh-inserts-w1.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v5.0/dbpedia-1m-hfresh-inserts-w1.json).
 
 | | inserts por segundo | escritores | qué hay dentro |
 |---|---|---|---|
@@ -3328,7 +3328,7 @@ Hasta que se decida, no se cronometra nada.
 **Lo que hay:**
 
 - **El arnés de HFresh,** en `adapters/repos/db/vector/hfresh/bench_disk_test.go`, con la etiqueta de los benchmarks: `TestHFreshDiskBuild` lo construye y barre searchProbe, `TestHFreshDiskCount` cuenta lo que lee el store, y `TestHFreshDiskTimed` lo cronometra en caliente y en frío, igual que `TestDiskTimed` a una celda.
-- **El script único,** `testdata/bench/v4.0/scripts/run_v40_disk.sh`, para macOS y Linux, con `drop_cache.py` (tira la caché en Linux sin root), `disk_verdict.py` y un `README.md` corto.
+- **El script único,** [`testdata/bench/v4.0/scripts/run_v40_disk.sh`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.0/scripts/run_v40_disk.sh), para macOS y Linux, con `drop_cache.py` (tira la caché en Linux sin root), `disk_verdict.py` y un `README.md` corto.
 
 **Con qué corre HFresh** (configuración por defecto, sin tocar nada):
 
@@ -3667,7 +3667,7 @@ Un hueco es un searchProbe que no hizo falta medir: el barrido de un rescoreLimi
 
 ### Resultados de v4.0, cronometrados: la sesión de día (2026-11-18, de 10:50 a 12:21)
 
-**Estado: hecha la sesión de dos rondas, y repetidas esa noche las cinco curvas que quedaron marcadas. Ningún veredicto cambia.** Lo de abajo es la primera ronda, salvo la tabla de criterios, que lleva las cifras de la repetición, y donde se dice. Los datos, por ronda y curva, en `testdata/bench/v4.0/dbpedia-1m-disk-r1-*.json` y `-r2-*.json`; los tramos, en `dbpedia-1m-disk-stretches.tsv`; el veredicto que escribe el script, en `disk-verdict.md`.
+**Estado: hecha la sesión de dos rondas, y repetidas esa noche las cinco curvas que quedaron marcadas. Ningún veredicto cambia.** Lo de abajo es la primera ronda, salvo la tabla de criterios, que lleva las cifras de la repetición, y donde se dice. Los datos, por ronda y curva, en [`testdata/bench/v4.0/dbpedia-1m-disk-r1-*.json`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.0) y `-r2-*.json`; los tramos, en `dbpedia-1m-disk-stretches.tsv`; el veredicto que escribe el script, en `disk-verdict.md`.
 
 **Los cuatro criterios:**
 
@@ -3881,7 +3881,7 @@ Las cinco curvas marcadas, cada una una vez, con las condiciones de siempre. Pas
 
 ### Resultados de v4.0: HFresh con sus postings leídos en paralelo (2026-11-19, de 07:10 a 08:24)
 
-**Estado: hecha la sesión de dos rondas de la enmienda 6. Dos curvas quedaron marcadas por actividad y se repitieron la noche del 19 al 20: confirman su primera ronda (abajo, «La repetición de noche»).** El binario es el del commit `ada5ebdf5a`. Los datos, en `testdata/bench/v4.0/dbpedia-1m-disk-p1-*.json` y `-p2-*.json`. Las tablas son las de `parallel-verdict.md`, primera ronda.
+**Estado: hecha la sesión de dos rondas de la enmienda 6. Dos curvas quedaron marcadas por actividad y se repitieron la noche del 19 al 20: confirman su primera ronda (abajo, «La repetición de noche»).** El binario es el del commit `ada5ebdf5a`. Los datos, en [`testdata/bench/v4.0/dbpedia-1m-disk-p1-*.json`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.0) y `-p2-*.json`. Las tablas son las de `parallel-verdict.md`, primera ronda.
 
 **Lo que sale:**
 
@@ -3980,7 +3980,7 @@ A título informativo: los criterios pre-registrados eran contra el HFresh de ma
 - **Deriva:** alguna mediana de la curva se separa un 10 % o más entre las dos rondas, sobre la primera.
 - **Actividad:** al acabar el tramo, el teclado y el trackpad llevaban sin usarse menos de lo que duró.
 
-**La repetición de noche (2026-11-20, de 00:14 a 00:27).** Las dos curvas marcadas, como se cronometraron entonces: el índice de v4.0 con su grafo sin limpiar, presupuesto de 8 y el binario de `ada5ebdf5a`. Sin teclado ni trackpad en ninguno de los dos tramos. Datos en `testdata/bench/v4.0/dbpedia-1m-disk-night-hfresh-best95-par.json` y `-night-hfresh-best99.json`.
+**La repetición de noche (2026-11-20, de 00:14 a 00:27).** Las dos curvas marcadas, como se cronometraron entonces: el índice de v4.0 con su grafo sin limpiar, presupuesto de 8 y el binario de `ada5ebdf5a`. Sin teclado ni trackpad en ninguno de los dos tramos. Datos en [`testdata/bench/v4.0/dbpedia-1m-disk-night-hfresh-best95-par.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.0/dbpedia-1m-disk-night-hfresh-best95-par.json) y `-night-hfresh-best99.json`.
 
 | curva | | ronda 1, ms | ronda 2 | repetición de noche | sobre la ronda 1 |
 |---|---|---|---|---|---|
@@ -4006,7 +4006,7 @@ A título informativo: los criterios pre-registrados eran contra el HFresh de ma
 
 ### Resultados de la enmienda 7, sin cronometrar: el HFresh limpio a 1M (2026-11-19, de 12:14 a 13:25)
 
-**Estado: preparado. La sesión cronometrada corrió la noche del 19 al 20: abajo, «Resultados de la enmienda 7, cronometrados».** Binarios de `39b47223c6`. El índice limpio es una copia del de v4.0, en `/Volumes/v40bench/v40/hf-node`; el original no se ha tocado. Datos en `testdata/bench/v4.0/node/`.
+**Estado: preparado. La sesión cronometrada corrió la noche del 19 al 20: abajo, «Resultados de la enmienda 7, cronometrados».** Binarios de `39b47223c6`. El índice limpio es una copia del de v4.0, en `/Volumes/v40bench/v40/hf-node`; el original no se ha tocado. Datos en [`testdata/bench/v4.0/node/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.0/node).
 
 - **El grafo de centroides:** de 57 433 nodos, 28 967 de ellos tombstones, a 28 466 nodos y ninguno, en una ronda de limpieza y 7.6 s.
 - **Con el grafo limpio HFresh pierde recall a igual configuración.** Por defecto (searchProbe 256, rescoreLimit 350), de 0.9674 a 0.9636. El techo del barrido no cambia: 0.9989.
@@ -4064,7 +4064,7 @@ A título informativo: los criterios pre-registrados eran contra el HFresh de ma
 
 ### Resultados de la enmienda 7, cronometrados: HFresh como en un nodo, junto a las dos celdas (noche del 19 al 20, de 23:00 a 00:14)
 
-**Estado: hecha, en dos rondas. Los dos criterios de v4.0, leídos con estos números, se cumplen, y ninguno cambia de signo. HFresh como en un nodo sale en frío algo más lento que lo publicado, no más rápido. Dos tramos de HFresh de la primera ronda quedan marcados por actividad; su segunda ronda, limpia, da lo mismo, con un 2.0 % de diferencia como mucho.** Los binarios son los de la preparación, de `39b47223c6`. Los datos, en `testdata/bench/v4.0/node/dbpedia-1m-node-n1-*.json` y `-n2-*.json`. Las tablas son las de `node-verdict.md`, primera ronda.
+**Estado: hecha, en dos rondas. Los dos criterios de v4.0, leídos con estos números, se cumplen, y ninguno cambia de signo. HFresh como en un nodo sale en frío algo más lento que lo publicado, no más rápido. Dos tramos de HFresh de la primera ronda quedan marcados por actividad; su segunda ronda, limpia, da lo mismo, con un 2.0 % de diferencia como mucho.** Los binarios son los de la preparación, de `39b47223c6`. Los datos, en [`testdata/bench/v4.0/node/dbpedia-1m-node-n1-*.json`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v4.0/node) y `-n2-*.json`. Las tablas son las de `node-verdict.md`, primera ronda.
 
 **Qué corrió:** las seis curvas de la enmienda, cada una en su proceso, en dos rondas. El presupuesto que dio el limitador fue de 20.0 por query con 1 thread y de 14.4 con 8, en las seis: también en las dos celdas de posting-edge, comprobado en sus logs. Cada proceso comprobó antes de cronometrar que su recall sobre las 5 000 queries era el de su manifiesto.
 
@@ -4500,7 +4500,7 @@ La referencia de v3.0, medida aquí: ruteo con el código completo, todas las ar
 
 ### Datos y reproducción de v3.1
 
-- **Datos:** `testdata/bench/v3.1/dbpedia-1m-haloprune-s236.json`, con los cuatro juegos de aristas, la referencia y las 24 celdas, y `testdata/bench/v3.1/prune-verdict.md`.
+- **Datos:** [`testdata/bench/v3.1/dbpedia-1m-haloprune-s236.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v3.1/dbpedia-1m-haloprune-s236.json), con los cuatro juegos de aristas, la referencia y las 24 celdas, y [`testdata/bench/v3.1/prune-verdict.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v3.1/prune-verdict.md).
 - **Pre-registro:** `242297c34f`. **Harness:** `763585e453`, con `TestHaloPrune` (`bench_halo_test.go`) y las podas y sus tests (`halo_test.go`).
 - **Binario:** `go test -tags postingedgebench -c -o $WORK/postingedge-v31.test ./adapters/repos/db/vector/postingedge/`.
 - **Cadena:** `WORK=<dir> caffeinate -s -i testdata/bench/v3.1/scripts/run_v31_prune.sh`. No espera a otros benchmarks: solo cuenta.
@@ -4810,7 +4810,7 @@ Con rescoreLimit 64. Entre paréntesis, frente a la referencia en el mismo ef.
 
 ### Datos y reproducción de v3.0
 
-En `testdata/bench/v3.0/`:
+En [`testdata/bench/v3.0/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v3.0):
 
 - `dbpedia-1m-halo-s236.json` y `dbpedia-1m-halo-s1024.json`: un build cada uno, con su trabajo (`build`), lo que tiene cada posting (`layout`, con miembros, aristas y endpoints distintos de cada uno en `counts`) y sus cuatro celdas (`cells`). Cada punto de una celda lleva el recall y, por query, las cargas y lo que suman los postings cargados: `membersMean`, `edgesMean` y `entriesMean`.
 - `halo-verdict.md`: las tablas, de `scripts/halo_verdict.py`, que aplica el modelo de bytes.
@@ -5233,7 +5233,7 @@ Los 99 004 vecinos que pide la regla, en cinco partes iguales por las aristas en
 
 ### Datos y reproducción de v2.4
 
-En `testdata/bench/v2.4/`:
+En [`testdata/bench/v2.4/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v2.4):
 
 - `dbpedia-1m-grow10-h1-ef80-doubling.json`: la celda. En `doubling`, cada tanda con su medida de antes (`before`), sus conteos (`stats`) y su medida de después (`after`); en `checkpoints`, el 10 % y el 100 %; en `rebuilt`, la referencia interna; y en `why`, la parte informativa: el refresco de todos (`refresh`), sus dos medidas (`refreshed` y `own`) y el análisis de la muestra (`analysis`).
   - `-cp10.json`, `-cp100.json`, `-doubling<tamaño>-before.json`, `-doubling<tamaño>-after.json`, `-rebuilt-edges.json`, `-why-refreshed.json` y `-why-own.json`: cada medida, escrita al acabarla.
@@ -5615,7 +5615,7 @@ Tras la etapa 3, las aristas de todos los vectores se reconstruyen con el constr
 
 ### Datos y reproducción de v2.3
 
-En `testdata/bench/v2.3/`:
+En [`testdata/bench/v2.3/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v2.3):
 
 - `dbpedia-1m-grow10-h1-ef80-refresh.json`: la celda, con el lote del 10 % (`batchBuild`) y sus checkpoints; en `refreshed`, cada etapa con sus conteos (`stats`, y dentro `work`, con el formato de las estadísticas de los inserts) y la medida de después (`after`, con el formato de un checkpoint); y en `rebuilt`, los conteos de la reconstrucción en lote (`work`), sus segundos y su medida (`edges`).
   - Cada medida lleva `repeatedEdges`, las listas con una arista repetida.
@@ -6023,7 +6023,7 @@ En millones. El incremental es su lote del 10 % más sus 891 000 inserts.
 
 ### Datos y reproducción de v2.2
 
-En `testdata/bench/v2.2/`:
+En [`testdata/bench/v2.2/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v2.2):
 
 - `dbpedia-1m-grow10-h1-ef<ef>.json`: una celda, con el lote del 10 % y sus conteos (`batchBuild`) y los checkpoints del 10, 20, 40, 60, 80 y 100 %.
   - Cada checkpoint lleva el grado por cohorte (`cohorts`) y las estadísticas acumuladas (`stats`), con las distancias exactas de los inserts: `assignDistances`, `searchCentroidDistances`, `inverseDistances`, `splitDistances`, `splitGraphDistances` y `cleanDistances`.
@@ -6279,7 +6279,7 @@ La celda de ef 80 corrió dos veces con el mismo camino de insert: la de v2.2, j
 
 ### Datos y reproducción del diagnóstico
 
-En `testdata/bench/v2.2/`:
+En [`testdata/bench/v2.2/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v2.2):
 
 - `dbpedia-1m-grow10-h1-ef80-run2.json`: la celda repetida, con sus checkpoints y, en `rebuilt`, los conteos de la reconstrucción (`work`), sus segundos y las dos medidas de después (`edges` y `graph`), con el formato de un checkpoint.
   - `-run2-cp<porcentaje>.json`, `-run2-rebuilt-edges.json` y `-run2-rebuilt-graph.json`: cada medida, escrita al acabarla.
@@ -6601,7 +6601,7 @@ Al 100 %, con 1 thread y sin cronometrar. Entre paréntesis, frente al lote:
 
 ### Datos y reproducción de v2.1
 
-En `testdata/bench/v2.1/`:
+En [`testdata/bench/v2.1/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v2.1):
 
 - `dbpedia-1m-stream-h1-ef<ef>.json`: una celda, con el checkpoint del 50 %, sus puntos de guardia (`guards`, al 60, 70, 80 y 90 %) y el checkpoint del 100 %. La de ef 20 lleva `stopped` y acaba en la guardia del 80 %.
   - `-cp<porcentaje>.json`: el mismo checkpoint, escrito al acabar de medirlo.
@@ -7198,7 +7198,7 @@ La regla se sigue como está escrita. Si se salta la celda 4, no se lanza a mano
 
 ### Datos y reproducción de v2.0
 
-En `testdata/bench/v2.0/`:
+En [`testdata/bench/v2.0/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v2.0):
 
 - `dbpedia-1m-stream-calibration.json`: la calibración de T.
 - `dbpedia-1m-stream-<celda>.json`: todos los checkpoints de una celda, con sus conteos, sus tiempos por fase y su malla de ef. Las celdas son `principal`, `h1`, `h2`, `natural`, `siblings` (la 5), `inverse-siblings` (la 6) y `h1-writes` (la repetición de H1).
@@ -7290,7 +7290,7 @@ Lo que cambia:
 
 Para la lectura de esta noche: con 1 thread, el kernel que corre predice un ratio en torno a 1.95x. La diferencia con la estimación del prototipo, 0.04, es menor que la que hay entre los dos builds de HNSW de v1.4 (2.10x y 2.14x). Esta noche no podrá separar una estimación de la otra.
 
-Las salidas están en `testdata/bench/v1.6/kernel-pr-estimate.md` (la tabla completa, con los QPS) y `v1.6/kernel-pr-rounds.txt` (las rondas).
+Las salidas están en [`testdata/bench/v1.6/kernel-pr-estimate.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.6/kernel-pr-estimate.md) (la tabla completa, con los QPS) y `v1.6/kernel-pr-rounds.txt` (las rondas).
 
 ### Si sale fuera: cómo se lee cada supuesto
 
@@ -7430,7 +7430,7 @@ Cronometrado contra la curva principal del mismo proceso. La deriva de la celda 
 - **4 no pasa a default.** El encargo lo pedía como sonda. Con 4 la entrada falla en el 11 % de las queries de wiki-dpr 1M, y a 0.95 no ahorra nada más que 8 en esa query.
 - **Un test asumía el 64:** `TestScanCodesAtTheFullWidthSearchLikeSharedCodes` compara dos builds y daba por hecho que el grafo de centroides se recorría entero. Ahora sube el ef de los dos grafos hasta el número de centroides, y lo dice. El grafo de centroides no es determinista (se construye con inserciones en paralelo), y con ef 8 dos builds pueden entrar por postings distintos.
 
-Datos en `testdata/bench/v1.6/`:
+Datos en [`testdata/bench/v1.6/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.6):
 
 - `{dbpedia,wikidpr}-1m-centroidef.json`: el build y los puntos con 64;
 - `{dbpedia,wikidpr}-1m-centroidef-centroidef{64,8,4}.json`: cada valor;
@@ -7696,7 +7696,7 @@ python3 v1.6/scripts/kernel_pr_estimate.py v1.6/kernel-pr-rounds.txt kernel/wiki
 
 ### Datos de la noche
 
-En `testdata/bench/v1.6/`:
+En [`testdata/bench/v1.6/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.6):
 
 - `wikidpr-10m-hnsw.json` y `wikidpr-10m-pe.json`: los dos brazos con el kernel del PR, con su segunda ronda en `-repeat.json`.
 - `wikidpr-10m-pe-centroidef{64,48,32,16,8}.json`: los puntos sin cronometrar del barrido. El de 8 lleva además el plan cronometrado, con su segunda ronda en `wikidpr-10m-pe-centroidef8-repeat.json`.
@@ -7830,7 +7830,7 @@ HNSW / posting-edge, hoy y estimado:
 | 10M | 0.99 | 1 | 1.36x a 1.72x | 1.12x a 1.41x | 1.09x a 1.37x |
 | 10M | 0.99 | 8 | 1.34x a 1.82x | 1.10x a 1.49x | 1.07x a 1.45x |
 
-Los rangos de 10M son los dos builds de HNSW. Posting-edge gana un 19 a 22 % a 10M a 0.95, y un 29 a 33 % a 0.99. HNSW gana un 6 a 9 %. La tabla completa, con los QPS, está en `testdata/bench/kernel/qps-estimate.md`.
+Los rangos de 10M son los dos builds de HNSW. Posting-edge gana un 19 a 22 % a 10M a 0.95, y un 29 a 33 % a 0.99. HNSW gana un 6 a 9 %. La tabla completa, con los QPS, está en [`testdata/bench/kernel/qps-estimate.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/kernel/qps-estimate.md).
 
 Lo que dice:
 
@@ -7877,7 +7877,7 @@ Del perfil de 10M, 1 thread, rescoreLimit 200, con el ratio contra el build de H
 
 ### Datos y reproducción
 
-En `testdata/bench/kernel/`:
+En [`testdata/bench/kernel/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/kernel):
 
 - `m1max-rounds.txt`: las diez rondas, en bruto.
 - `m1max-summary.md`: medianas y cocientes por ronda.
@@ -7962,7 +7962,7 @@ Trabajo por query a igual recall, 1 thread, del pase instrumentado:
 | 0.99 | cap 10 | 290 | 86.9 | 21.5 | 45 153 | 22 023 | 67 176 | 3 279 | 941 | 238 | 5 569 |
 | 0.99 | cap 8 | 359 | 100.9 | 25.0 | 45 629 | 25 518 | 71 148 | 3 339 | 1 092 | 241 | 5 883 |
 
-Las dos rondas de cada celda coinciden con medianas de −0.1 a +0.6 %, y punto a punto dentro de un ±3.3 %. Las tablas completas, con la comparación a igual ef, están en `testdata/bench/v1.5/cap-verdict.md`.
+Las dos rondas de cada celda coinciden con medianas de −0.1 a +0.6 %, y punto a punto dentro de un ±3.3 %. Las tablas completas, con la comparación a igual ef, están en [`testdata/bench/v1.5/cap-verdict.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.5/cap-verdict.md).
 
 ### Pre-registro
 
@@ -8003,7 +8003,7 @@ La pregunta sigue siendo la misma: si guardar menos aristas por vector, las más
 
 ### Datos y reproducción
 
-En `testdata/bench/v1.5/`:
+En [`testdata/bench/v1.5/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.5):
 
 - `wikidpr-10m-degree.json`: el build, con su memoria y sus diagnósticos.
 - `wikidpr-10m-degree-cap{0,10,8,0-2}.json`: las cuatro celdas, en el orden en que corrieron, y su segunda ronda en `-repeat.json`.
@@ -8337,7 +8337,7 @@ Los techos son el recall a ef=1024, salvo el de rescoreLimit 64 del código comp
 
 ### Datos y reproducción
 
-Resultados en `testdata/bench/v1.4/`:
+Resultados en [`testdata/bench/v1.4/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.4):
 
 - **Brazos cronometrados de la tarde:** `wikidpr-10m-{full,hnsw}.json` y `wikidpr-1m-{full,hnsw}-timed.json`. Cada uno tiene al lado su segunda ronda, en `-repeat.json`.
 - **Celda de 512 bits:** `wikidpr-{10m,1m}-code-512{,-timed}.json`, también con su `-repeat.json`.
@@ -8709,7 +8709,7 @@ Si no repite, la curva va como banda de varianza, con una nota del régimen: anc
 
 ### Datos y reproducción
 
-Resultados en `testdata/bench/v1.2/`: `dbpedia-1m-posting-{512,1024,2048}.json` (el control es `dbpedia-1m-code-full.json`), `dbpedia-1m-posting-{236,512}-batches.json` (rondas de 1, 2 y 4, con la repetición de la curva registrada de cada una), `dbpedia-1m-posting-236-batches-repeat.json` (la repetición del control de las 22:38, de la que solo vale la curva de rondas de 4 con 1 thread: ver "Ruido"), `dbpedia-1m-posting-236-batches-redo.json` (la de la mañana del 12, con rondas de 1, 2 y 4), `dbpedia-1m-control-8threads-last.json` (el último intento de la curva de 8 threads, la noche del 12 al 13; se compara con `v1.5/scripts/cmp_sessions.py`) y `edge-recall-posting-{512,1024,2048}{,-fine}.json` (la malla de P de cada S y su afinado). Las tablas salen de `TestCellReport`, con `-bench.report.cells.recalls` para los niveles de recall de más y `-bench.report.cells.repeats` para comparar dos corridas de una celda. La salida completa está en `testdata/bench/v1.2/cells-posting-size.md`.
+Resultados en [`testdata/bench/v1.2/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.2): `dbpedia-1m-posting-{512,1024,2048}.json` (el control es `dbpedia-1m-code-full.json`), `dbpedia-1m-posting-{236,512}-batches.json` (rondas de 1, 2 y 4, con la repetición de la curva registrada de cada una), `dbpedia-1m-posting-236-batches-repeat.json` (la repetición del control de las 22:38, de la que solo vale la curva de rondas de 4 con 1 thread: ver "Ruido"), `dbpedia-1m-posting-236-batches-redo.json` (la de la mañana del 12, con rondas de 1, 2 y 4), `dbpedia-1m-control-8threads-last.json` (el último intento de la curva de 8 threads, la noche del 12 al 13; se compara con `v1.5/scripts/cmp_sessions.py`) y `edge-recall-posting-{512,1024,2048}{,-fine}.json` (la malla de P de cada S y su afinado). Las tablas salen de `TestCellReport`, con `-bench.report.cells.recalls` para los niveles de recall de más y `-bench.report.cells.repeats` para comparar dos corridas de una celda. La salida completa está en [`testdata/bench/v1.2/cells-posting-size.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.2/cells-posting-size.md).
 
 ```bash
 # las tablas
@@ -9080,7 +9080,7 @@ Ninguno de esos puntos entra en una cifra de las tablas de arriba: los de 512 bi
 
 ### Datos y reproducción
 
-Resultados en `testdata/bench/v1.2/`: `dbpedia-1m-code-{full,768,768-margin-0.06,512,256}.json`, `dbpedia-1m-code-512-earlier-run.json` (la corrida anterior de la celda de 512 bits, solo con margen 0.08; es el contraste de repetición de "Ruido"), `dbpedia-1m-code-256-wide-rescore.json` (rescoreLimit 1600 y 3200, sin cronometrar), `dbpedia-1m-code-512-control-edges.json` (el diagnóstico), `dbpedia-1m-scan-256-sidecar-full.json` (la celda desacoplada), `dbpedia-1m-hnsw.json` (el brazo HNSW de esta noche; el del v1 sigue en `testdata/bench/dbpedia-1m-hnsw.json`), `dbpedia-1m-hnsw-prefetch-{nofix,fix}-{1,2}.json` (con y sin el fix, 1 thread), `dbpedia-1m-hnsw-prefetch-{nofix,fix}-8t-{1,2}.json` (1 y 8 threads) y `edge-recall-grid.json`. Las tablas salen de `TestCellReport`, y su salida completa está en `testdata/bench/v1.2/cells-code-budget.md`.
+Resultados en [`testdata/bench/v1.2/`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.2): `dbpedia-1m-code-{full,768,768-margin-0.06,512,256}.json`, `dbpedia-1m-code-512-earlier-run.json` (la corrida anterior de la celda de 512 bits, solo con margen 0.08; es el contraste de repetición de "Ruido"), `dbpedia-1m-code-256-wide-rescore.json` (rescoreLimit 1600 y 3200, sin cronometrar), `dbpedia-1m-code-512-control-edges.json` (el diagnóstico), `dbpedia-1m-scan-256-sidecar-full.json` (la celda desacoplada), `dbpedia-1m-hnsw.json` (el brazo HNSW de esta noche; el del v1 sigue en [`testdata/bench/dbpedia-1m-hnsw.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/dbpedia-1m-hnsw.json)), `dbpedia-1m-hnsw-prefetch-{nofix,fix}-{1,2}.json` (con y sin el fix, 1 thread), `dbpedia-1m-hnsw-prefetch-{nofix,fix}-8t-{1,2}.json` (1 y 8 threads) y `edge-recall-grid.json`. Las tablas salen de `TestCellReport`, y su salida completa está en [`testdata/bench/v1.2/cells-code-budget.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.2/cells-code-budget.md).
 
 ```bash
 # una celda (aquí la de 768 bits; -bench.codebits 0 y -bench.rescue 64 para el control)
@@ -9159,9 +9159,9 @@ Cada índice en su mejor configuración a cada recall, leída de su curva de ef:
 
 **Nota del v1.2 (2026-11-11).** Los ratios contra HNSW de esta tabla comparan dos sesiones: el brazo HNSW se midió a las 13:51 y el índice a las 17:04. Re-medidos los dos seguidos en una misma sesión, quedan en 2.27× / 1.93× / 2.32× con 1 thread y 2.38× / 1.99× / 2.35× con 8 (a recall 0.90 / 0.95 / 0.99). El pre-registro a iso-0.95 se sigue cumpliendo; el 2.01× a 0.99 con 1 thread no se sostiene. Detalle en "El brazo HNSW, re-medido", en la Fase B.
 
-![Recall@10 vs QPS, 1 thread, v1 y v1.1](testdata/bench/v1.1/recall-qps-threads1.svg)
+![Recall@10 vs QPS, 1 thread, v1 y v1.1](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.1/recall-qps-threads1.svg)
 
-![Recall@10 vs QPS, 8 threads, v1 y v1.1](testdata/bench/v1.1/recall-qps-threads8.svg)
+![Recall@10 vs QPS, 8 threads, v1 y v1.1](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.1/recall-qps-threads8.svg)
 
 En el punto default (ef=20, margen 0.06, rescore 64, lotes de 4, 1 thread): recall 0.9502, 1 219 QPS, latencia p50 0.70 ms y p95 1.73 ms, 2.3 rondas de media.
 
@@ -9265,7 +9265,7 @@ El constructor de aristas a cada P, sobre una misma partición (42 s) y asignaci
 - **Ruido:** 2 de los 63 puntos superan el 10 % de dispersión entre pasadas (M=0.08, ef=320, 8 threads; y lotes de 1, M=0.06, ef=10). Ninguno decide el default.
 - **Build y memoria no cambian:** 490 s en este run (515 s en el v1, mismas etapas) y 263.5 MB de índice.
 - **Lectura de las tablas iso-recall.** Desde esta ronda cada configuración se lee sobre su propia curva de ef y se toma la mejor, en vez de interpolar sobre la unión de todos los puntos, que con tres márgenes inventaba puntos intermedios entre curvas. Las cifras del v1 de más abajo están recalculadas así y se mueven menos de un 3 %.
-- Tablas completas de puntos de operación, trabajo por query y memoria del v1.1: `testdata/bench/v1.1/tables.md`. Resultados: `testdata/bench/v1.1/*.json`.
+- Tablas completas de puntos de operación, trabajo por query y memoria del v1.1: [`testdata/bench/v1.1/tables.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.1/tables.md). Resultados: [`testdata/bench/v1.1/*.json`](https://github.com/weaviate/weaviate/tree/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/v1.1).
 
 ## v1: veredicto contra las expectativas pre-registradas
 
@@ -9291,9 +9291,9 @@ La incógnita de la fase, la profundidad serial: a recall 0.95 (ef=20, lotes de 
 
 ## 1. Recall@10 vs QPS
 
-![Recall@10 vs QPS, 1 thread](testdata/bench/recall-qps-threads1.svg)
+![Recall@10 vs QPS, 1 thread](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/recall-qps-threads1.svg)
 
-![Recall@10 vs QPS, 8 threads](testdata/bench/recall-qps-threads8.svg)
+![Recall@10 vs QPS, 8 threads](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/recall-qps-threads8.svg)
 
 Las dos curvas son paralelas en escala logarítmica: la distancia entre ellas es un factor casi constante, no una pendiente distinta.
 
@@ -9564,7 +9564,7 @@ Lectura:
 - Con margen 0.08 se puntuaría el 44 % de los endpoints conservando el 99.2 % de los útiles; con 0.10, el 67 % y el 99.8 %.
 - **Es una heurística, no una cota.** El diagnóstico usa el umbral final y los 16 postings más cercanos como aproximación de los cargados, y resultó optimista: la medición real está en la sección del v1.1.
 
-Datos: `testdata/bench/dbpedia-1m-postingedge-reach.json`.
+Datos: [`testdata/bench/dbpedia-1m-postingedge-reach.json`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/testdata/bench/dbpedia-1m-postingedge-reach.json).
 
 ## Lo que este benchmark no cubre
 
