@@ -670,6 +670,10 @@ jobs:
             test: "--acceptance-only-fast-group-2"
           - name: "fast-group-3"
             test: "--acceptance-only-fast-group-3"
+          - name: "fast-group-4"
+            test: "--acceptance-only-fast-group-4"
+          - name: "fast-group-5"
+            test: "--acceptance-only-fast-group-5"
           - name: "fast-group-6"
             test: "--acceptance-only-fast-group-6"
           - name: "graphql"
@@ -704,6 +708,10 @@ jobs:
             test: "--acceptance-go-client-only-fast-group-2"
           - name: "go-client-group-3"
             test: "--acceptance-go-client-only-fast-group-3"
+          - name: "python"
+            test: "--acceptance-only-python"
+          - name: "python-namespaces"
+            test: "--acceptance-only-python-namespaces"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -735,20 +743,12 @@ jobs:
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
             test: "--acceptance-go-client-named-vectors-cluster"
-          - name: "fast-group-4"
-            test: "--acceptance-only-fast-group-4"
-          - name: "fast-group-5"
-            test: "--acceptance-only-fast-group-5"
           - name: "distributed-tasks"
             test: "--acceptance-distributed-tasks"
           - name: "compaction"
             test: "--acceptance-compaction"
           - name: "recovery"
             test: "--acceptance-recovery"
-          - name: "python"
-            test: "--acceptance-only-python"
-          - name: "python-namespaces"
-            test: "--acceptance-only-python-namespaces"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -772,7 +772,7 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "fast-group-5" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" || "$MATRIX_TEST" == "python-namespaces" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
