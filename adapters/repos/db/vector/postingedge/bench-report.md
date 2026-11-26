@@ -239,6 +239,62 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## Centroides en RQ8, sin rescore, como HFresh (pre-registro, 2026-11-26)
+
+**Estado: pre-registrado antes de compilar nada.** El encargo es del usuario. Lo que deja abierto lo fijo aquí, marcado como *mío*.
+
+### El encargo (del usuario)
+
+- Los vectores de los centroides en RQ de 8 bits, sin rescore, como HFresh.
+- Inventario de dónde se usan los vectores de los centroides, diciendo si alguno necesita el valor exacto.
+- Un índice que ya existe con centroides en `float32` se convierte al abrirlo, con su test.
+- Medida sin cronometrar, a 1M (dbpedia) y a 10M (wiki-dpr), `float32` frente a RQ8: recall y cargas a 0.95 y 0.99 a igual ef, y el heap de los centroides. **Sirve si el recall y las cargas quedan a ±2 %.**
+
+### Lo que hace HFresh
+
+- El grafo de sus centroides es un HNSW con RQ de 8 bits y `RescoreLimit: 0`. Busca solo con códigos.
+- Sus códigos viven en un bucket del store y en la caché comprimida del grafo. No guarda ninguna copia de los centroides en `float32`: su `VectorForIDThunk` devuelve nil.
+- Cuando necesita el vector de un centroide, se lo pide al grafo, que lo decodifica (`hnsw.Get`).
+
+### Inventario (en `feat/posting-edge-integration-m2`, `4470f2cd1a`)
+
+| dónde | qué lee | ¿necesita el valor exacto? |
+|---|---|---|
+| búsqueda (`search.go`, `disk.go`): `nearest` para entrar | el orden de los centroides más cercanos a la query | no: usa solo los ids |
+| asignación de un insert (`grow.go`): `nearest` | el orden de los centroides más cercanos al vector | no: usa solo los ids |
+| limpieza (`grow_clean.go`, `nearestPosting`): el posting más cercano a otro, para fusionarlos | el centroide del posting que se fusiona, como query del grafo | no: una aproximación sirve para elegir vecino |
+| split (`grow.go`): las medias nuevas al fichero y al grafo, y el padre fuera | las medias, calculadas de los miembros | las medias son exactas porque salen de los miembros; el grafo guarda su código |
+| build y reconstrucción del grafo (`writeCentroidGraph`, `rebuildCentroidGraph`) | los centroides del fichero `centroids.f32` | el fichero sigue en `float32` en disco; el grafo guarda los códigos |
+| constructor de aristas, halo, ruteo, regla de parada | no leen centroides | — |
+
+*Mío:* ningún uso necesita el valor exacto en memoria. El fichero `centroids.f32` se queda en disco, en `float32`, como fuente para convertir y para reconstruir el grafo.
+
+### Cómo lo aplico (*mío*)
+
+- **El grafo de un índice en disco** (`openCentroidGraphWith`), como el de HFresh:
+  - RQ de 8 bits y `RescoreLimit: 0`;
+  - sus códigos en un bucket del store del índice: el del shard, o el de la celda en el arnés;
+  - un id del grafo propio de cada índice, para que dos índices de un shard no compartan bucket;
+  - sin la copia en `float32` de los centroides.
+- **El ef del grafo no cambia** (`centroidEF`), para medir solo la compresión. El grafo en memoria del build sigue en `float32`, porque es transitorio.
+- **Conversión:** un grafo escrito en `float32` se comprime al abrir, y los vectores en `float32` se sueltan.
+- **La medida:**
+  - sobre clones APFS de las celdas `r512` y `halo512` de v4.0, a 1M dbpedia (`/Volumes/v40bench/v40/pe`) y a 10M wiki-dpr (`/Volumes/v40bench/tenm/pe`); la conversión escribe en el grafo y en el store;
+  - cada celda abierta dos veces, en `float32` y en RQ8, con las queries y la verdad de su manifiesto (5 000 a 1M, 1 000 a 10M) y k = 10;
+  - en el ef de sus puntos de 0.95 y 0.99 del manifiesto: recall y cargas por query;
+  - el heap de los centroides: bytes de los vectores en `float32` frente a los códigos en la caché del compresor, y el heap en uso tras abrir.
+- **El criterio:** RQ8 sirve si, a igual ef, el recall y las cargas quedan a ±2 % de `float32` en los dos puntos de las cuatro celdas.
+  - *Mío:* el ±2 % es relativo en las dos cosas. Daré además la diferencia de recall en absoluto.
+- **Si sirve,** RQ8 queda por defecto. **Si no,** se queda `float32` y se dice dónde falla.
+
+### Lo que espero (*mío*, antes de ningún dato)
+
+- **Recall:** a menos de 0.002 en absoluto en todos los puntos.
+- **Cargas:** a menos del 1 %.
+- **Heap de los centroides:**
+  - a 1M, de 25.9 MB a unos 6.5 MB (4 195 × unos 1 552 B);
+  - a 10M, de 131.2 MB a unos 33 MB (42 373 × unos 784 B), más lo que tenga la caché comprimida además del código.
+
 ## La plana en `none` por lectura directa, y el corte de `none` (pre-registro, 2026-11-24 a las 21:50)
 
 **Estado: pre-registrado antes de compilar nada.**
