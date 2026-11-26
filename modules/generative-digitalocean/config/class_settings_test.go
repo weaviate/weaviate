@@ -41,7 +41,7 @@ func TestClassSettings(t *testing.T) {
 			name:            "defaults",
 			cfg:             fakeClassConfig{},
 			expectedBaseURL: "https://inference.do-ai.run",
-			expectedModel:   "llama-4-maverick",
+			expectedModel:   "nemotron-3.5-super-vl",
 		},
 		{
 			name: "all properties set",

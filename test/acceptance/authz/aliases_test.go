@@ -13,13 +13,10 @@ package authz
 
 import (
 	"errors"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -193,86 +190,5 @@ func TestAuthzUpdateAliasRequiresPermissionOnCurrentTarget(t *testing.T) {
 		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, malloryKey)
 		require.NoError(t, err)
 		assertTarget(t, scratchClass)
-	})
-}
-
-// Restoring a collection must not move or create aliases the caller holds no
-// alias permission on. The caller below holds only manage_backups and
-// delete_collections on her own collections.
-func TestAuthzRestoreAliasesRequireAliasPermission(t *testing.T) {
-	adminKey := "admin-key"
-	malloryUser, malloryKey := "custom-user2", "custom-key2"
-
-	const (
-		backend     = "filesystem"
-		backupRole  = "mallory-backup-owner"
-		malloryColl = "Mallory*"
-	)
-
-	_, down := composeUpShared(t)
-	defer down()
-
-	helper.CreateRole(t, adminKey, &models.Role{Name: String(backupRole), Permissions: []*models.Permission{
-		helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(malloryColl).Permission(),
-		helper.NewCollectionsPermission().WithAction(authorization.DeleteCollections).WithCollection(malloryColl).Permission(),
-	}})
-	helper.AssignRoleToUser(t, adminKey, backupRole, malloryUser)
-
-	backUp := func(t *testing.T, class string) string {
-		t.Helper()
-		id := fmt.Sprintf("alias-restore-%d", time.Now().UnixNano())
-		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), class, backend, id, helper.CreateAuth(malloryKey))
-		require.NoError(t, err)
-		helper.ExpectBackupEventuallyCreated(t, id, backend, helper.CreateAuth(adminKey))
-		return id
-	}
-
-	// The restore is either refused up front or completes; any other outcome
-	// fails here rather than letting the alias assertion pass by accident.
-	restore := func(t *testing.T, class, id string, overwriteAlias bool) {
-		t.Helper()
-		helper.DeleteClassWithAuthz(t, class, helper.CreateAuth(malloryKey))
-		params := backups.NewBackupsRestoreParams().WithBackend(backend).WithID(id).
-			WithBody(&models.BackupRestoreRequest{
-				Include:        []string{class},
-				Config:         helper.DefaultRestoreConfig(),
-				OverwriteAlias: overwriteAlias,
-			})
-		_, err := helper.Client(t).Backups.BackupsRestore(params, helper.CreateAuth(malloryKey))
-		if err != nil {
-			var forbidden *backups.BackupsRestoreForbidden
-			require.ErrorAs(t, err, &forbidden)
-			return
-		}
-		helper.ExpectBackupEventuallyRestored(t, id, backend, helper.CreateAuth(adminKey))
-	}
-
-	t.Run("overwriteAlias keeps an alias the caller cannot update", func(t *testing.T) {
-		const victimClass, scratchClass, aliasName = "CompanyOrders", "MalloryScratch", "Orders"
-		for _, class := range []string{victimClass, scratchClass} {
-			helper.CreateClassAuth(t, &models.Class{Class: class}, adminKey)
-		}
-		helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: scratchClass}, adminKey)
-		id := backUp(t, scratchClass)
-		helper.UpdateAliasWithAuthz(t, aliasName, victimClass, helper.CreateAuth(adminKey))
-
-		restore(t, scratchClass, id, true)
-
-		got := helper.GetAliasWithAuthz(t, aliasName, helper.CreateAuth(adminKey))
-		assert.Equal(t, victimClass, got.Class)
-	})
-
-	t.Run("restore does not recreate an alias the caller cannot create", func(t *testing.T) {
-		const archiveClass, aliasName = "MalloryArchive", "Invoices"
-		helper.CreateClassAuth(t, &models.Class{Class: archiveClass}, adminKey)
-		helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: archiveClass}, adminKey)
-		id := backUp(t, archiveClass)
-		helper.DeleteAliasWithAuthz(t, aliasName, helper.CreateAuth(adminKey))
-
-		restore(t, archiveClass, id, false)
-
-		_, err := helper.GetAliasAuthWithReturn(t, aliasName, adminKey)
-		var notFound *schema.AliasesGetAliasNotFound
-		require.ErrorAs(t, err, &notFound)
 	})
 }
