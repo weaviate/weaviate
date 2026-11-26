@@ -310,7 +310,7 @@ func TestMuveraSearchBudgets(t *testing.T) {
 // narrow-probe misses is precisely such a feature's job.
 func TestSearchProbeChangesResults(t *testing.T) {
 	const (
-		nDocs  = 2500
+		nDocs  = 1000
 		tokens = 2
 		dim    = 16
 	)
@@ -325,6 +325,7 @@ func TestSearchProbeChangesResults(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return tf.Index.taskQueue.Size() == 0
 	}, 60*time.Second, 100*time.Millisecond, "background tasks did not drain")
+	require.Greater(t, tf.Index.PostingSizes.Count(), uint64(16))
 
 	probe := randomMultiVector(rng, tokens, dim)
 	queryFDE := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
