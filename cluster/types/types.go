@@ -30,8 +30,15 @@ type ClassState struct {
 // RaftResolver is passed to raft to resolver node ids to their real ip:port so that tranport can be established.
 type RaftResolver interface {
 	ServerAddr(id raft.ServerID) (raft.ServerAddress, error)
-	NewTCPTransport(bindAddr string, advertise net.Addr, maxPool int, timeout time.Duration, logger *logrus.Logger) (*raft.NetworkTransport, error)
+	NewTCPTransport(bindAddr string, advertise net.Addr, maxPool int, timeout time.Duration, logger *logrus.Logger) (RaftTransport, error)
 	NotResolvedNodes() map[raft.ServerID]struct{}
+}
+
+// RaftTransport is the transport handed to raft; raft enables pre-vote only if the transport implements it.
+type RaftTransport interface {
+	raft.Transport
+	raft.WithClose
+	raft.WithPreVote
 }
 
 const (

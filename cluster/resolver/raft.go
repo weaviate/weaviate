@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/types"
 )
 
 type raft struct {
@@ -55,37 +56,57 @@ func NewRaft(cfg RaftConfig) *raft {
 	}
 }
 
-// ServerAddr resolves server ID to a RAFT address
-// it's thread safe see https://github.com/hashicorp/raft/blob/main/net_transport.go#L389-L391
+// ServerAddr resolves a server ID to its RAFT address. transport calls it concurrently from every replication and
+// heartbeat goroutine.
 func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) {
 	// Get the address from the node id
 	if id == raftImpl.ServerID(a.LocalName) {
 		return raftImpl.ServerAddress(a.LocalAddress), nil
 	}
-	addr := a.ClusterStateReader.NodeAddress(string(id))
+	addr, ok := a.memberAddr(id)
 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
-	if addr == "" {
+	if !ok {
 		a.notResolvedNodes.Store(id, struct{}{})
 		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
 	a.notResolvedNodes.Delete(id)
+	return addr, nil
+}
 
+// memberAddr returns the RAFT address memberlist resolves id to.
+func (a *raft) memberAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, bool) {
+	addr := a.ClusterStateReader.NodeAddress(string(id))
+	if addr == "" {
+		return "", false
+	}
 	// If we are not running a local cluster we can immediately return, otherwise we need to lookup the port of the node
 	// as we can't use the default raft port locally.
 	if !a.IsLocalCluster {
-		return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", a.RaftPort))), nil
+		return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", a.RaftPort))), true
 	}
 	port, exists := a.NodeNameToPortMap[string(id)]
 	if !exists {
 		// if does not exist, use the default raft port, self healing from bad config
 		port = a.RaftPort
 	}
-	return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", port))), nil
+	return raftImpl.ServerAddress(net.JoinHostPort(addr, fmt.Sprintf("%d", port))), true
 }
 
-// NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
-// this resolver to resolve addresses based on server IDs.
+// memberAt returns a memberlist member, other than except and this node, whose RAFT address is addr, or "" if none.
+func (a *raft) memberAt(addr raftImpl.ServerAddress, except raftImpl.ServerID) string {
+	for _, name := range a.ClusterStateReader.AllNames() {
+		if name == a.LocalName || name == string(except) {
+			continue
+		}
+		if got, ok := a.memberAddr(raftImpl.ServerID(name)); ok && sameAddr(got, addr) {
+			return name
+		}
+	}
+	return ""
+}
+
+// NewTCPTransport returns a RAFT TCP transport that resolves server IDs on every outbound RPC (see transport).
 // This is particularly crucial as K8s assigns new IPs on each node restart.
 func (a *raft) NewTCPTransport(
 	bindAddr string,
@@ -93,14 +114,17 @@ func (a *raft) NewTCPTransport(
 	maxPool int,
 	timeout time.Duration,
 	logger *logrus.Logger,
-) (*raftImpl.NetworkTransport, error) {
+) (types.RaftTransport, error) {
 	cfg := &raftImpl.NetworkTransportConfig{
-		ServerAddressProvider: a,
-		MaxPool:               maxPool,
-		Timeout:               timeout,
-		Logger:                log.NewHCLogrusLogger("raft-net", logger),
+		MaxPool: maxPool,
+		Timeout: timeout,
+		Logger:  log.NewHCLogrusLogger("raft-net", logger),
 	}
-	return raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
+	inner, err := raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &transport{RaftTransport: inner, resolver: a, log: logger.WithField("action", "raft-net"), local: inner.LocalAddr()}, nil
 }
 
 func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {

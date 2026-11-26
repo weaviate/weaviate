@@ -282,7 +282,7 @@ type Store struct {
 	// raft is atomically published: Open assigns it while concurrently-served RPCs (JoinPeer/Leader) read it.
 	raft          atomic.Pointer[raft.Raft]
 	raftResolver  types.RaftResolver
-	raftTransport *raft.NetworkTransport
+	raftTransport types.RaftTransport
 
 	// applyTimeout timeout limit the amount of time raft waits for a command to be applied
 	applyTimeout time.Duration

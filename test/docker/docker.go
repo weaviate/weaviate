@@ -39,6 +39,7 @@ type DockerCompose struct {
 	network    *testcontainers.DockerNetwork
 	netOctet   int // second octet of this cluster's subnet (10.<netOctet>.0.0/16)
 	containers []*DockerContainer
+	movedIPs   map[string]string // container name -> IP set by MoveToIP
 }
 
 func (d *DockerCompose) Containers() []*DockerContainer {
@@ -565,7 +566,7 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName stri
 	// pass --ip to preserve it — otherwise Docker assigns a new IP and Raft/memberlist
 	// can't resolve the rejoining node.
 	args := []string{"network", "connect"}
-	if ip := staticIPForHostname(d.netOctet, container.name); ip != "" {
+	if ip := d.IP(container.name); ip != "" {
 		args = append(args, "--ip", ip)
 	}
 	args = append(args, networkName, containerID)
@@ -576,5 +577,51 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName stri
 
 	// sleep to make sure that the off node is detected by memberlist and connected to the network
 	time.Sleep(3 * time.Second)
+	return nil
+}
+
+// IP returns the fixed IP the container gets on its next start, or "" if Docker assigns it one.
+func (d *DockerCompose) IP(containerName string) string {
+	if ip, ok := d.movedIPs[containerName]; ok {
+		return ip
+	}
+	return staticIPForHostname(d.netOctet, containerName)
+}
+
+// SubnetIP returns 10.<octet>.0.<host> in this cluster's subnet. weaviate-<n> starts on host 10+n.
+func (d *DockerCompose) SubnetIP(host int) string {
+	return fmt.Sprintf("10.%d.0.%d", d.netOctet, host)
+}
+
+// MoveToIP reconnects a stopped container to the cluster network on ip, so it comes up there on its next start.
+// Its network alias is kept, so other containers still resolve it by name.
+func (d *DockerCompose) MoveToIP(ctx context.Context, containerName, ip string) error {
+	c := d.getContainerByName(containerName)
+	if c == nil {
+		return fmt.Errorf("container with name %s was not found", containerName)
+	}
+	if d.network == nil {
+		return fmt.Errorf("network is nil")
+	}
+	state, err := c.container.State(ctx)
+	if err != nil {
+		return fmt.Errorf("MoveToIP[%s]: %w", containerName, err)
+	}
+	if state.Running {
+		return fmt.Errorf("MoveToIP[%s]: container must be stopped", containerName)
+	}
+	id := c.container.GetContainerID()
+	for _, args := range [][]string{
+		{"network", "disconnect", d.network.Name, id},
+		{"network", "connect", "--ip", ip, "--alias", containerName, d.network.Name, id},
+	} {
+		if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("MoveToIP[%s]: docker %s: %w (output: %s)", containerName, strings.Join(args, " "), err, out)
+		}
+	}
+	if d.movedIPs == nil {
+		d.movedIPs = map[string]string{}
+	}
+	d.movedIPs[containerName] = ip
 	return nil
 }
