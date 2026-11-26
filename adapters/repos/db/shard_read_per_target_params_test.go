@@ -303,19 +303,31 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 
 func TestAnnotateVectorIndexParams(t *testing.T) {
 	params := &searchparams.VectorIndexParams{
-		EF: 64,
+		EF: 64, SearchProbe: 16, FilterStrategy: searchparams.FilterStrategyAcorn,
 		PerTarget: map[string]searchparams.VectorIndexParams{
 			"title": {EF: 128},
 			"body":  {SearchProbe: 32},
 		},
 	}
 
-	t.Run("records the request-wide ef and the sorted per-target names", func(t *testing.T) {
+	t.Run("records every request-wide knob and the sorted per-target names", func(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
 		annotateVectorIndexParams(ctx, params)
 		details := helpers.ExtractSlowQueryDetails(ctx)
 		assert.Equal(t, 64, details["vector_search_ef_requested"])
+		assert.Equal(t, 16, details["vector_search_probe_requested"])
+		assert.Equal(t, "acorn", details["vector_search_filter_strategy_requested"])
 		assert.Equal(t, []string{"body", "title"}, details["vector_index_params_per_target"])
+	})
+
+	t.Run("unset knobs leave no key", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		annotateVectorIndexParams(ctx, &searchparams.VectorIndexParams{EF: 64})
+		details := helpers.ExtractSlowQueryDetails(ctx)
+		assert.Equal(t, 64, details["vector_search_ef_requested"])
+		assert.NotContains(t, details, "vector_search_probe_requested")
+		assert.NotContains(t, details, "vector_search_filter_strategy_requested")
+		assert.NotContains(t, details, "vector_index_params_per_target")
 	})
 
 	t.Run("allocates nothing when the slow-query log is off", func(t *testing.T) {

@@ -578,7 +578,8 @@ func validateVectorIndexParams(in *pb.VectorIndexParams, maxEF, maxProbe int64, 
 		// the enum has no string to validate; an unknown number is a conversion error
 		return out, status.Errorf(codes.InvalidArgument, "%sfilter_strategy must be one of sweeping, acorn, pathseer, got %d", prefix, int32(fs))
 	}
-	if err := out.Validate(int(config.SearchCapOrDefault(maxEF)), int(config.SearchCapOrDefault(maxProbe)), searchparams.ProtoFieldNames); err != nil {
+	if err := out.Validate(int(config.SearchCapOrDefault(maxEF, config.DefaultHNSWMaxSearchEF)),
+		int(config.SearchCapOrDefault(maxProbe, config.DefaultHFreshMaxSearchProbe)), searchparams.ProtoFieldNames); err != nil {
 		return searchparams.VectorIndexParams{}, status.Errorf(codes.InvalidArgument, "%s%v", prefix, err)
 	}
 	return out, nil

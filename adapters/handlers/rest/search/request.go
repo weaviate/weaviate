@@ -107,8 +107,8 @@ func (h *Handler) parseVectorIndexParamsEntry(in *models.SearchVectorIndexParams
 	// the spec enum rejects unknown strategies at bind time; Validate covers direct callers
 	out.FilterStrategy = in.FilterStrategy
 
-	if err := out.Validate(int(config.SearchCapOrDefault(h.maxSearchEF)), int(config.SearchCapOrDefault(h.maxSearchProbe)),
-		searchparams.JSONFieldNames); err != nil {
+	if err := out.Validate(int(config.SearchCapOrDefault(h.maxSearchEF, config.DefaultHNSWMaxSearchEF)),
+		int(config.SearchCapOrDefault(h.maxSearchProbe, config.DefaultHFreshMaxSearchProbe)), searchparams.JSONFieldNames); err != nil {
 		return searchparams.VectorIndexParams{}, newAPIError(http.StatusUnprocessableEntity, "%s%v", prefix, err)
 	}
 	return out, nil

@@ -161,12 +161,14 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
-	Backup                           Backup                   `json:"backup" yaml:"backup"`
-	BackupGCS                        BackupGCS                `json:"backup_gcs" yaml:"backup_gcs"`
-	Name                             string                   `json:"name" yaml:"name"`
-	Debug                            bool                     `json:"debug" yaml:"debug"`
-	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults              int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	Backup              Backup        `json:"backup" yaml:"backup"`
+	BackupGCS           BackupGCS     `json:"backup_gcs" yaml:"backup_gcs"`
+	Name                string        `json:"name" yaml:"name"`
+	Debug               bool          `json:"debug" yaml:"debug"`
+	QueryDefaults       QueryDefaults `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults int64         `json:"query_maximum_results" yaml:"query_maximum_results"`
+	// HNSWMaxSearchEF and HFreshMaxSearchProbe cap the per-request ef and
+	// searchProbe; 0 means the default (10000), independent of query_maximum_results.
 	HNSWMaxSearchEF                  int64                    `json:"hnsw_max_search_ef" yaml:"hnsw_max_search_ef"`
 	HFreshMaxSearchProbe             int64                    `json:"hfresh_max_search_probe" yaml:"hfresh_max_search_probe"`
 	QueryHybridMaximumResults        int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`

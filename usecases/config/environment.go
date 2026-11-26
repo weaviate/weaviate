@@ -856,12 +856,12 @@ func FromEnv(config *Config) error {
 	}
 
 	// caps for per-request ef and search probe; file values are already set
-	maxSearchEF, err := resolveSearchCap("HNSW_MAX_SEARCH_EF", config.HNSWMaxSearchEF, config.QueryMaximumResults)
+	maxSearchEF, err := resolveSearchCap("HNSW_MAX_SEARCH_EF", config.HNSWMaxSearchEF, DefaultHNSWMaxSearchEF)
 	if err != nil {
 		return err
 	}
 	config.HNSWMaxSearchEF = maxSearchEF
-	maxSearchProbe, err := resolveSearchCap("HFRESH_MAX_SEARCH_PROBE", config.HFreshMaxSearchProbe, config.QueryMaximumResults)
+	maxSearchProbe, err := resolveSearchCap("HFRESH_MAX_SEARCH_PROBE", config.HFreshMaxSearchProbe, DefaultHFreshMaxSearchProbe)
 	if err != nil {
 		return err
 	}
@@ -2069,7 +2069,13 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 }
 
 const (
-	DefaultQueryMaximumResults       = int64(10000)
+	DefaultQueryMaximumResults = int64(10000)
+	// DefaultHNSWMaxSearchEF and DefaultHFreshMaxSearchProbe cap the per-request
+	// ef and searchProbe. They are deliberately not derived from
+	// QUERY_MAXIMUM_RESULTS, which limits result counts: a deployment that lowers
+	// it must not end up rejecting an ef its collections already run at.
+	DefaultHNSWMaxSearchEF           = int64(10000)
+	DefaultHFreshMaxSearchProbe      = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
 	DefaultQueryBoostDepth           = 100
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
@@ -2654,29 +2660,26 @@ func validateBackupDedupeConvergenceTimeout(val time.Duration) error {
 	return nil
 }
 
-// resolveSearchCap resolves the cap for one per-request vector search knob:
-// the envName env var, then the config-file value, then QUERY_MAXIMUM_RESULTS
-// (its default if non-positive). 0 falls through; a negative value is an error.
 // SearchCapOrDefault returns a resolved HNSW_MAX_SEARCH_EF /
-// HFRESH_MAX_SEARCH_PROBE, falling back to DefaultQueryMaximumResults when the
-// config was never resolved (tests building a handler by hand).
-func SearchCapOrDefault(v int64) int64 {
+// HFRESH_MAX_SEARCH_PROBE, or def when the config was never resolved (tests
+// building a handler by hand).
+func SearchCapOrDefault(v, def int64) int64 {
 	if v <= 0 {
-		return DefaultQueryMaximumResults
+		return def
 	}
 	return v
 }
 
-func resolveSearchCap(envName string, fileValue, queryMax int64) (int64, error) {
+// resolveSearchCap resolves the cap for one per-request vector search knob:
+// the envName env var, then the config-file value, then def. 0 falls through;
+// a negative value is an error.
+func resolveSearchCap(envName string, fileValue, def int64) (int64, error) {
 	if fileValue < 0 {
 		return 0, fmt.Errorf("%s must not be negative in the config file", strings.ToLower(envName))
 	}
 	resolved := fileValue
-	if resolved == 0 {
-		resolved = queryMax
-	}
 	if resolved <= 0 {
-		resolved = DefaultQueryMaximumResults
+		resolved = def
 	}
 	if v := os.Getenv(envName); v != "" {
 		asInt, err := strconv.Atoi(v)

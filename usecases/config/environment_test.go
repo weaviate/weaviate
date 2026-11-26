@@ -3191,15 +3191,15 @@ func TestEnvironmentHNSWMaxSearchEF(t *testing.T) {
 		expectedMaxEF int64
 		expectErr     bool
 	}{
-		{name: "unset follows QUERY_MAXIMUM_RESULTS default", expectedMaxEF: DefaultQueryMaximumResults},
-		{name: "unset follows explicit QUERY_MAXIMUM_RESULTS", maxResults: "5000", expectedMaxEF: 5000},
+		{name: "unset uses the cap's own default", expectedMaxEF: DefaultHNSWMaxSearchEF},
+		// the cap is a beam width, QUERY_MAXIMUM_RESULTS a result count: a
+		// deployment that lowers the latter keeps the ef its collections run at
+		{name: "QUERY_MAXIMUM_RESULTS does not apply", maxResults: "100", expectedMaxEF: DefaultHNSWMaxSearchEF},
 		{name: "explicit value wins", maxResults: "5000", maxEF: "20000", expectedMaxEF: 20000},
-		{name: "zero falls back", maxResults: "5000", maxEF: "0", expectedMaxEF: 5000},
+		{name: "zero falls back to the default", maxResults: "5000", maxEF: "0", expectedMaxEF: DefaultHNSWMaxSearchEF},
 		{name: "negative rejected", maxEF: "-1", expectErr: true},
 		{name: "not a number rejected", maxEF: "abc", expectErr: true},
-		// a broken QUERY_MAXIMUM_RESULTS must not turn the cap into "reject everything"
-		{name: "zero QUERY_MAXIMUM_RESULTS falls back to default", maxResults: "0", expectedMaxEF: DefaultQueryMaximumResults},
-		{name: "negative QUERY_MAXIMUM_RESULTS falls back to default", maxResults: "-1", expectedMaxEF: DefaultQueryMaximumResults},
+		{name: "broken QUERY_MAXIMUM_RESULTS leaves the cap alone", maxResults: "0", expectedMaxEF: DefaultHNSWMaxSearchEF},
 		{name: "config file value kept when env unset", maxResults: "5000", fileMaxEF: 777, expectedMaxEF: 777},
 		{name: "env overrides config file value", fileMaxEF: 777, maxEF: "20000", expectedMaxEF: 20000},
 		{name: "zero env falls back to config file value", fileMaxEF: 777, maxEF: "0", expectedMaxEF: 777},
@@ -3235,15 +3235,13 @@ func TestEnvironmentHFreshMaxSearchProbe(t *testing.T) {
 		expectedMaxProbe int64
 		expectErr        bool
 	}{
-		{name: "unset follows QUERY_MAXIMUM_RESULTS default", expectedMaxProbe: DefaultQueryMaximumResults},
-		{name: "unset follows explicit QUERY_MAXIMUM_RESULTS", maxResults: "5000", expectedMaxProbe: 5000},
+		{name: "unset uses the cap's own default", expectedMaxProbe: DefaultHFreshMaxSearchProbe},
+		{name: "QUERY_MAXIMUM_RESULTS does not apply", maxResults: "100", expectedMaxProbe: DefaultHFreshMaxSearchProbe},
 		{name: "explicit value wins", maxResults: "5000", maxProbe: "20000", expectedMaxProbe: 20000},
-		{name: "zero falls back", maxResults: "5000", maxProbe: "0", expectedMaxProbe: 5000},
+		{name: "zero falls back to the default", maxResults: "5000", maxProbe: "0", expectedMaxProbe: DefaultHFreshMaxSearchProbe},
 		{name: "negative rejected", maxProbe: "-1", expectErr: true},
 		{name: "not a number rejected", maxProbe: "abc", expectErr: true},
-		// a broken QUERY_MAXIMUM_RESULTS must not turn the cap into "reject everything"
-		{name: "zero QUERY_MAXIMUM_RESULTS falls back to default", maxResults: "0", expectedMaxProbe: DefaultQueryMaximumResults},
-		{name: "negative QUERY_MAXIMUM_RESULTS falls back to default", maxResults: "-1", expectedMaxProbe: DefaultQueryMaximumResults},
+		{name: "broken QUERY_MAXIMUM_RESULTS leaves the cap alone", maxResults: "0", expectedMaxProbe: DefaultHFreshMaxSearchProbe},
 		{name: "config file value kept when env unset", maxResults: "5000", fileMaxProbe: 777, expectedMaxProbe: 777},
 		{name: "env overrides config file value", fileMaxProbe: 777, maxProbe: "20000", expectedMaxProbe: 20000},
 		{name: "zero env falls back to config file value", fileMaxProbe: 777, maxProbe: "0", expectedMaxProbe: 777},

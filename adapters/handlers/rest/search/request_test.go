@@ -2459,8 +2459,8 @@ func TestTargetVectorIndexParams(t *testing.T) {
 }
 
 func TestParseVectorIndexParamsUnsetCaps(t *testing.T) {
-	// a handler built without resolved caps falls back to the default
-	// QUERY_MAXIMUM_RESULTS instead of rejecting every ef and searchProbe
+	// a handler built without resolved caps falls back to the caps' own
+	// defaults instead of rejecting every ef and searchProbe
 	h := &Handler{}
 	got, apiErr := h.parseVectorIndexParamsEntry(&models.SearchVectorIndexParams{
 		Ef: ptrInt64(500), SearchProbe: ptrInt64(64),
