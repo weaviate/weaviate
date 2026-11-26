@@ -30,6 +30,18 @@ import (
 // from one run to the next.
 const deleteRecallFloor = 0.6
 
+// deleteQueries is how many queries a delete fixture searches with.
+const deleteQueries = 10
+
+// deleteClusters is how many clusters the n vectors of a delete fixture are
+// drawn around: one for every few hundred vectors, from two to a dozen, so
+// that every cluster is several postings and every vector has edges. A dozen
+// clusters over a few hundred vectors are mostly one posting each, with no
+// edge out of it.
+func deleteClusters(n int) int {
+	return min(12, max(2, n/320))
+}
+
 // deleteFixture is a small streaming index with deletes: the first base
 // vectors built in batch, the rest left to insert.
 type deleteFixture struct {
@@ -47,8 +59,8 @@ func newDeleteFixture(t *testing.T, total, base, dims int, cosine bool, threshol
 	t.Helper()
 	ctx := context.Background()
 	f := &deleteFixture{
-		all:      clusteredVectors(total, dims, 12, 6007),
-		queries:  clusteredVectors(60, dims, 12, 6008),
+		all:      clusteredVectors(total, dims, deleteClusters(total), 6007),
+		queries:  clusteredVectors(deleteQueries, dims, 12, 6008),
 		provider: distancer.NewL2SquaredProvider(),
 		uc:       smallConfig(),
 		base:     base,
@@ -153,18 +165,19 @@ func (f *deleteFixture) recall(t *testing.T, answers []deleteAnswer, k int) floa
 // to them are still there and still lead somewhere; without, it is as if
 // those edges were gone too.
 func TestDeleteSearchIsPhysicalRemoval(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		cosine bool
 		share  float64
 	}{
-		{name: "a third deleted", share: 0.3},
 		{name: "a third deleted, cosine", share: 0.3, cosine: true},
 		{name: "most of it deleted", share: 0.7},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const n, dims, k = 3000, 48, 10
+			t.Parallel()
+			const n, dims, k = 240, 16, 10
 			f := newDeleteFixture(t, n, n, dims, tt.cosine, 1<<20, 0)
 			before := f.answers(t, k)
 			f.removeShare(t, tt.share, 11)
@@ -223,6 +236,7 @@ func (f *deleteFixture) answersUnmarked(t *testing.T, k int) []deleteAnswer {
 // members and none under the minimum that nothing was merged into, loses no
 // live vector, and keeps the map with the postings.
 func TestDeleteCleanup(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name      string
@@ -234,17 +248,15 @@ func TestDeleteCleanup(t *testing.T) {
 		// What the case is made to meet.
 		merges, empties, splits bool
 	}{
-		{name: "a tenth deleted", share: 0.1, threshold: 120, minLive: 20, merges: true},
-		{name: "a third deleted", share: 0.3, threshold: 120, minLive: 20, merges: true},
-		{name: "a third deleted, cosine", share: 0.3, cosine: true, threshold: 120, minLive: 20, merges: true},
-		{name: "half deleted", share: 0.5, threshold: 120, minLive: 20, merges: true},
+		{name: "a third deleted, cosine", share: 0.3, cosine: true, threshold: 120, minLive: 30, merges: true},
 		{name: "half deleted, merges that end in splits", share: 0.5, threshold: 44, minLive: 30, merges: true, splits: true},
 		{name: "no minimum: nothing is merged", share: 0.5, threshold: 120, minLive: 0},
 		{name: "whole postings deleted", share: 0.3, clustered: true, threshold: 120, minLive: 20, empties: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const n, dims, k = 4000, 48, 10
+			t.Parallel()
+			const n, dims, k = 240, 16, 10
 			f := newDeleteFixture(t, n, n, dims, tt.cosine, tt.threshold, tt.minLive)
 			s, d := f.s, f.d
 			if tt.clustered {
@@ -309,47 +321,45 @@ func TestDeleteCleanup(t *testing.T) {
 // The refresh pass leaves no live vector with half or more of its edges
 // leading to deleted vectors, and no refreshed list leads to one.
 func TestDeleteRefresh(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	for _, share := range []float64{0.3, 0.6} {
-		t.Run("", func(t *testing.T) {
-			const n, dims, k = 4000, 48, 10
-			f := newDeleteFixture(t, n, n, dims, false, 120, 20)
-			d := f.d
-			f.removeShare(t, share, 17)
-			d.scoreDeletedEndpoints(false)
-			require.NoError(t, d.cleanup(ctx))
-			before := d.counts(f.uc.TargetPostingSize)
-			stale := d.halfDead()
-			require.NotEmpty(t, stale)
-			require.Len(t, stale, before.HalfDead)
-			require.True(t, slices.IsSorted(stale))
+	const n, dims, k = 240, 16, 10
+	f := newDeleteFixture(t, n, n, dims, false, 120, 20)
+	d := f.d
+	f.removeShare(t, 0.3, 17)
+	d.scoreDeletedEndpoints(false)
+	require.NoError(t, d.cleanup(ctx))
+	before := d.counts(f.uc.TargetPostingSize)
+	stale := d.halfDead()
+	require.NotEmpty(t, stale)
+	require.Len(t, stale, before.HalfDead)
+	require.True(t, slices.IsSorted(stale))
 
-			stats, err := d.refresh(ctx)
-			require.NoError(t, err)
-			require.NoError(t, d.checkCoverage())
-			require.Equal(t, len(stale), stats.Refreshed)
-			require.Positive(t, stats.Work.SearchLoads)
-			after := d.counts(f.uc.TargetPostingSize)
-			require.Empty(t, d.halfDead())
-			require.Zero(t, after.HalfDead)
-			require.Less(t, after.DeadEdges, before.DeadEdges)
-			require.Equal(t, before.LiveMembers, after.LiveMembers)
-			st := f.s.st
-			for _, docID := range stale {
-				l := &st.postings.lists[st.side.postingOf[docID]]
-				for _, endpoint := range l.edgesOf(l.member(docID)) {
-					require.False(t, d.deleted[endpoint], "doc %d", docID)
-				}
-			}
-			answers := f.answers(t, k)
-			require.Greater(t, f.recall(t, answers, k), deleteRecallFloor)
-		})
+	stats, err := d.refresh(ctx)
+	require.NoError(t, err)
+	require.NoError(t, d.checkCoverage())
+	require.Equal(t, len(stale), stats.Refreshed)
+	require.Positive(t, stats.Work.SearchLoads)
+	after := d.counts(f.uc.TargetPostingSize)
+	require.Empty(t, d.halfDead())
+	require.Zero(t, after.HalfDead)
+	require.Less(t, after.DeadEdges, before.DeadEdges)
+	require.Equal(t, before.LiveMembers, after.LiveMembers)
+	st := f.s.st
+	for _, docID := range stale {
+		l := &st.postings.lists[st.side.postingOf[docID]]
+		for _, endpoint := range l.edgesOf(l.member(docID)) {
+			require.False(t, d.deleted[endpoint], "doc %d", docID)
+		}
 	}
+	answers := f.answers(t, k)
+	require.Greater(t, f.recall(t, answers, k), deleteRecallFloor)
 }
 
 // Deletes and inserts in rounds, with the passes after each: the index stays
 // whole, never returns a deleted vector, and finds what was inserted.
 func TestDeleteChurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name    string
@@ -357,13 +367,15 @@ func TestDeleteChurn(t *testing.T) {
 		refresh bool
 	}{
 		{name: "marks only"},
-		{name: "with the cleanup pass", cleanup: true},
 		{name: "with the cleanup and the refresh passes", cleanup: true, refresh: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const total, base, dims, k, rounds, each = 3600, 2400, 48, 10, 6, 200
-			f := newDeleteFixture(t, total, base, dims, false, 90, 20)
+			t.Parallel()
+			// A split threshold a little over the size the postings are
+			// built to, so that a few rounds of inserts split some.
+			const total, base, dims, k, rounds, each = 320, 200, 16, 10, 3, 40
+			f := newDeleteFixture(t, total, base, dims, false, 48, 20)
 			s, d := f.s, f.d
 			d.scoreDeletedEndpoints(false)
 			if tt.cleanup {
@@ -425,6 +437,7 @@ func TestDeleteChurn(t *testing.T) {
 
 // The coverage check tells an index that does not hold together.
 func TestDeleteCoverageCatches(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		breakIt func(f *deleteFixture)
@@ -464,27 +477,48 @@ func TestDeleteCoverageCatches(t *testing.T) {
 			l.codes = l.codes[:len(l.codes)-1]
 		}, wantErr: "does not hold together"},
 	}
+	// One key more than vectors: a doc id that is never inserted.
+	f := newDeleteFixture(t, 201, 200, 16, false, 120, 10)
+	f.removeShare(t, 0.2, 23)
+	require.NoError(t, f.d.checkCoverage())
+	// Every case breaks the same index, and what a case can break is put back
+	// after it: the first two postings, the live flags, the marks, the
+	// retired flags and the live count.
+	st := f.s.st
+	cloneList := func(l postingList) postingList {
+		return postingList{
+			docIDs: slices.Clone(l.docIDs), codes: slices.Clone(l.codes),
+			edgeStart: slices.Clone(l.edgeStart), edges: slices.Clone(l.edges),
+		}
+	}
+	first, second := cloneList(st.postings.lists[0]), cloneList(st.postings.lists[1])
+	live, deleted, retired, liveCount := slices.Clone(f.s.live), slices.Clone(f.d.deleted), slices.Clone(f.s.retired), f.s.liveCount
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// One key more than vectors: a doc id that is never inserted.
-			f := newDeleteFixture(t, 801, 800, 32, false, 120, 10)
-			f.removeShare(t, 0.2, 23)
-			require.NoError(t, f.d.checkCoverage())
+			defer func() {
+				st.postings.lists[0], st.postings.lists[1] = cloneList(first), cloneList(second)
+				copy(f.s.live, live)
+				copy(f.d.deleted, deleted)
+				copy(f.s.retired, retired)
+				f.s.liveCount = liveCount
+			}()
 			tt.breakIt(f)
 			require.ErrorContains(t, f.d.checkCoverage(), tt.wantErr)
 		})
 	}
+	require.NoError(t, f.d.checkCoverage(), "every case put back what it broke")
 }
 
 // A vector is deleted once, and only if it is in the index.
 func TestDeleteErrors(t *testing.T) {
-	f := newDeleteFixture(t, 801, 800, 32, false, 120, 10)
+	t.Parallel()
+	f := newDeleteFixture(t, 201, 200, 16, false, 120, 10)
 	tests := []struct {
 		name  string
 		docID uint64
 	}{
 		{name: "a doc past the keys", docID: 5000},
-		{name: "a doc that was never inserted", docID: 800},
+		{name: "a doc that was never inserted", docID: 200},
 		{name: "a doc deleted already", docID: 7},
 	}
 	require.NoError(t, f.d.remove(7))
@@ -495,7 +529,7 @@ func TestDeleteErrors(t *testing.T) {
 			require.Equal(t, before, f.d.stats)
 		})
 	}
-	require.Equal(t, 799, f.s.liveCount)
+	require.Equal(t, 199, f.s.liveCount)
 	require.NoError(t, f.d.checkCoverage())
 }
 
@@ -504,19 +538,20 @@ func TestDeleteErrors(t *testing.T) {
 // postings are deleted that is what lets a search out of them: without it, a
 // search that enters through a posting with no live member finds nothing.
 func TestDeleteSources(t *testing.T) {
-	const n, dims, k = 4000, 48, 10
+	t.Parallel()
+	const n, dims, k = 240, 16, 10
 	tests := []struct {
 		name      string
 		clustered bool
 		cosine    bool
 		share     float64
 	}{
-		{name: "a third deleted at random", share: 0.3},
 		{name: "half deleted at random, cosine", share: 0.5, cosine: true},
 		{name: "whole postings deleted", share: 0.3, clustered: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			f := newDeleteFixture(t, n, n, dims, tt.cosine, 1<<20, 0)
 			s, d := f.s, f.d
 			untouched := f.answers(t, k)

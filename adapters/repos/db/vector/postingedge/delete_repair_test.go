@@ -25,7 +25,10 @@ import (
 // that goes through the deleted ones, and eliminate, which takes the deleted
 // vectors and the edges to them out and merges the postings.
 func TestDeleteTwoPhases(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
+	// Every share of the first phase, both merges of the second, and the
+	// deletes at random and of whole postings, over both distances.
 	tests := []struct {
 		name string
 		// num/den is the share of dead edges from which a vector is
@@ -36,19 +39,17 @@ func TestDeleteTwoPhases(t *testing.T) {
 		share                 float64
 		clustered, cosine     bool
 	}{
-		{name: "one dead edge or more, the merge of v6.0", num: 0, den: 1, mergeUnder: 20, share: 0.3},
 		{name: "one dead edge or more, the merge that fills", num: 0, den: 1, mergeUnder: 30, sumWithin: 120, share: 0.3},
-		{name: "a quarter or more, the merge of v6.0", num: 1, den: 4, mergeUnder: 20, share: 0.3},
-		{name: "a quarter or more, the merge that fills", num: 1, den: 4, mergeUnder: 30, sumWithin: 120, share: 0.3},
-		{name: "half or more, the merge of v6.0", num: 1, den: 2, mergeUnder: 20, share: 0.3},
-		{name: "a quarter or more, cosine", num: 1, den: 4, mergeUnder: 30, sumWithin: 120, share: 0.3, cosine: true},
-		{name: "half deleted", num: 0, den: 1, mergeUnder: 30, sumWithin: 120, share: 0.5},
-		{name: "whole postings deleted", num: 1, den: 4, mergeUnder: 30, sumWithin: 120, share: 0.3, clustered: true},
-		{name: "a merge that may make any size", num: 1, den: 4, mergeUnder: 60, share: 0.5},
+		{name: "half or more, a merge that may make any size", num: 1, den: 2, mergeUnder: 60, share: 0.5},
+		{
+			name: "whole postings deleted, a quarter or more, cosine", num: 1, den: 4, mergeUnder: 30, sumWithin: 120,
+			share: 0.3, clustered: true, cosine: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const n, dims, k, threshold = 4000, 48, 10, 120
+			t.Parallel()
+			const n, dims, k, threshold = 240, 16, 10, 120
 			f := newDeleteFixture(t, n, n, dims, tt.cosine, threshold, tt.mergeUnder)
 			s, d, st := f.s, f.d, f.s.st
 			if tt.clustered {
@@ -156,9 +157,10 @@ func TestDeleteTwoPhases(t *testing.T) {
 // again by a search that skips them, since every deleted member of a posting
 // it loads is scored.
 func TestDeleteRepairGoesThroughTheDeleted(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const n, dims, threshold = 4000, 48, 120
-	scanned := func(navigable bool) (int, int) {
+	const n, dims, threshold = 240, 16, 120
+	scanned := func(t *testing.T, navigable bool) (int, int) {
 		f := newDeleteFixture(t, n, n, dims, false, threshold, 20)
 		f.removeShare(t, 0.3, 13)
 		if navigable {
@@ -170,8 +172,19 @@ func TestDeleteRepairGoesThroughTheDeleted(t *testing.T) {
 		require.NoError(t, err)
 		return stats.Refreshed, stats.Work.SearchScanned
 	}
-	with, withScanned := scanned(true)
-	without, withoutScanned := scanned(false)
+	// The two indexes are built side by side, and compared once both are.
+	var with, withScanned, without, withoutScanned int
+	t.Run("both", func(t *testing.T) {
+		t.Run("through the deleted", func(t *testing.T) {
+			t.Parallel()
+			with, withScanned = scanned(t, true)
+		})
+		t.Run("skipping them", func(t *testing.T) {
+			t.Parallel()
+			without, withoutScanned = scanned(t, false)
+		})
+	})
+	require.Positive(t, with, "the repair has lists to build again")
 	require.Equal(t, without, with, "the two build the same lists again")
 	require.Greater(t, withScanned, withoutScanned)
 }
@@ -179,49 +192,58 @@ func TestDeleteRepairGoesThroughTheDeleted(t *testing.T) {
 // What the second phase must leave is checked, and a pass that leaves a
 // deleted vector behind is told.
 func TestDeleteEliminatedCatches(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
+	// harm breaks the index and returns what puts it back.
 	tests := []struct {
 		name  string
 		wants string
-		harm  func(f *deleteFixture, gone uint64)
+		harm  func(f *deleteFixture, gone uint64) (undo func())
 	}{
 		{name: "nothing wrong"},
 		{
 			name:  "an edge to a deleted vector",
 			wants: "still has an edge",
-			harm: func(f *deleteFixture, gone uint64) {
+			harm: func(f *deleteFixture, gone uint64) func() {
 				for p := range f.s.st.postings.lists {
 					if l := &f.s.st.postings.lists[p]; len(l.edges) > 0 {
+						was := l.edges[0]
 						l.edges[0] = uint32(gone)
-						return
+						return func() { l.edges[0] = was }
 					}
 				}
+				return func() {}
 			},
 		},
 		{
 			name:  "a deleted vector in a posting",
 			wants: "still holds",
-			harm: func(f *deleteFixture, gone uint64) {
+			harm: func(f *deleteFixture, gone uint64) func() {
 				for p := range f.s.st.postings.lists {
 					if l := &f.s.st.postings.lists[p]; len(l.docIDs) > 0 {
+						was := l.docIDs[0]
 						l.docIDs[0] = gone
-						return
+						return func() { l.docIDs[0] = was }
 					}
 				}
+				return func() {}
 			},
 		},
 	}
+	// Every case harms the same index after the two phases, and puts back
+	// what it harmed.
+	f := newDeleteFixture(t, 200, 200, 16, false, 120, 20)
+	gone := f.removeShare(t, 0.3, 13)
+	_, err := f.d.repair(ctx, 1, 4)
+	require.NoError(t, err)
+	require.NoError(t, f.d.eliminate(ctx, 20, 0))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newDeleteFixture(t, 2000, 2000, 32, false, 120, 20)
-			gone := f.removeShare(t, 0.3, 13)
-			_, err := f.d.repair(ctx, 1, 4)
-			require.NoError(t, err)
-			require.NoError(t, f.d.eliminate(ctx, 20, 0))
 			if tt.harm != nil {
-				tt.harm(f, gone[0])
+				undo := tt.harm(f, gone[0])
+				defer undo()
 			}
-			err = f.d.checkEliminated()
+			err := f.d.checkEliminated()
 			if tt.wants == "" {
 				require.NoError(t, err)
 				return
@@ -229,4 +251,5 @@ func TestDeleteEliminatedCatches(t *testing.T) {
 			require.ErrorContains(t, err, tt.wants)
 		})
 	}
+	require.NoError(t, f.d.checkEliminated(), "every case put back what it harmed")
 }

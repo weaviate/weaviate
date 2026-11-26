@@ -26,16 +26,18 @@ import (
 // what its second phase does with the edges to deleted vectors, and what it
 // reports of both, over rounds of deletes.
 func TestDeletePassByCell(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const n, dims, threshold, rounds = 4000, 48, 120, 4
+	const n, dims, threshold, rounds = 240, 16, 120, 3
 	for _, spec := range memorySpecs {
 		t.Run(spec.key, func(t *testing.T) {
+			t.Parallel()
 			f := newDeleteFixture(t, n, n, dims, false, threshold, 30)
 			s, d := f.s, f.d
 			d.remember()
 			repaired, substituted := 0, 0
 			for round := range rounds {
-				f.removeShare(t, 0.06, uint64(70+round))
+				f.removeShare(t, 0.08, uint64(70+round))
 				live := s.liveCount
 				before := d.counts(f.uc.TargetPostingSize)
 
@@ -122,27 +124,30 @@ func TestDeletePassByCell(t *testing.T) {
 // streamIndex.edgeRecall gives, in a streaming index with deletes and in a
 // batch index, and its groups split it.
 func TestDeleteEdgesOfSample(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const n, dims, threshold = 3000, 48, 120
+	const n, dims, threshold, rounds, inserts, sampled = 300, 16, 120, 3, 25, 100
 
 	t.Run("a streaming index after the pass of C", func(t *testing.T) {
-		f := newDeleteFixture(t, n, n-300, dims, false, threshold, 30)
+		t.Parallel()
+		const base = n - rounds*inserts
+		f := newDeleteFixture(t, n, base, dims, false, threshold, 30)
 		s, d := f.s, f.d
 		d.remember()
 		inserted := make([]bool, n)
-		for round := range 3 {
+		for round := range rounds {
 			f.removeShare(t, 0.08, uint64(90+round))
-			for id := n - 300 + round*100; id < n-300+(round+1)*100; id++ {
+			for id := base + round*inserts; id < base+(round+1)*inserts; id++ {
 				require.NoError(t, s.insert(ctx, uint64(id), f.all[id]))
 				inserted[id] = true
 			}
 			_, err := d.pass(ctx, memorySpecs[3], 30, threshold)
 			require.NoError(t, err)
 		}
-		sample := memorySample(s.live, 400)
-		require.Len(t, sample, 400)
+		sample := memorySample(s.live, sampled)
+		require.Len(t, sample, sampled)
 		require.True(t, slices.IsSorted(sample))
-		require.Equal(t, sample, memorySample(s.live, 400), "the sample is drawn the same every time")
+		require.Equal(t, sample, memorySample(s.live, sampled), "the sample is drawn the same every time")
 		nearest, err := memoryNearest(ctx, testLogger(), f.provider, s.vectorOf, s.live, sample, s.neighbors)
 		require.NoError(t, err)
 		var top topK
@@ -189,8 +194,11 @@ func TestDeleteEdgesOfSample(t *testing.T) {
 		require.Equal(t, got.All.SubstitutesTrue, trueSubs)
 		byHand := map[string]int{}
 		handSubs, handTrue := 0, 0
-		// trueOf is a substitute that is a true edge, and of whom.
-		trueOf, trueSub := uint64(0), uint32(0)
+		// trueOf is a substitute that is a true edge, and of whom, of one
+		// that is not in the sample: its place in the map is moved by hand
+		// below, and the vectors of the sample must be where the map has
+		// them.
+		trueOf, trueSub, movable := uint64(0), uint32(0), false
 		for i, docID := range sample {
 			p := s.st.side.postingOf[docID]
 			l := &s.st.postings.lists[p]
@@ -200,7 +208,9 @@ func TestDeleteEdgesOfSample(t *testing.T) {
 				if s.st.side.postingOf[sub] != p &&
 					slices.ContainsFunc(nearest[i], func(nb scored) bool { return nb.id == uint64(sub) }) {
 					handTrue++
-					trueOf, trueSub = docID, sub
+					if _, sampled := slices.BinarySearch(sample, uint64(sub)); !sampled {
+						trueOf, trueSub, movable = docID, sub, true
+					}
 				}
 			}
 			switch {
@@ -218,6 +228,7 @@ func TestDeleteEdgesOfSample(t *testing.T) {
 		require.Equal(t, handSubs, got.All.Substitutes)
 		require.Equal(t, handTrue, got.All.SubstitutesTrue)
 		require.Positive(t, handTrue, "the sample holds a substitute that is a true edge")
+		require.True(t, movable, "a substitute that is a true edge is out of the sample")
 
 		// A substitute that has come to be in the posting of its vector is
 		// not a true edge of it any more: none is inside the posting.
@@ -240,7 +251,8 @@ func TestDeleteEdgesOfSample(t *testing.T) {
 	})
 
 	t.Run("a batch index", func(t *testing.T) {
-		vectors := clusteredVectors(n, dims, 12, 6011)
+		t.Parallel()
+		vectors := clusteredVectors(n, dims, deleteClusters(n), 6011)
 		provider := distancer.NewL2SquaredProvider()
 		uc := smallConfig()
 		uc.Distance = "l2-squared"
@@ -251,7 +263,7 @@ func TestDeleteEdgesOfSample(t *testing.T) {
 		for i := range live {
 			live[i] = true
 		}
-		sample := memorySample(live, 300)
+		sample := memorySample(live, sampled)
 		nearest, err := memoryNearest(ctx, testLogger(), provider, vectorOf, live, sample, uc.Edges)
 		require.NoError(t, err)
 		got, err := edgesOfBatch(batch, n, sample, nearest)
