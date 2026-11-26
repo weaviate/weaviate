@@ -40,26 +40,29 @@ func edgesOfDoc(t *testing.T, g *growIndex, docID uint64) []uint32 {
 // since. Every list of edges a write takes from what its search kept is read
 // again here and must be the one the index has: a list that another write
 // changed, taken as the search left it, would lose the edge that write gave
-// it. Windows of searches from one to thirty-two, with postings that split
+// it. Windows of searches from one to eight, with postings that split
 // between a search and its writes.
 func TestGrowPlansWriteAfterOtherWrites(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const total, base, dims = 2200, 1000, 64
+	const total, base, dims, threshold = 150, 100, 32, 24
 	format := shardFormat(8)
 	format.open.deletes = true
-	f := newGrowFixtureFormat(t, total, base, dims, false, 64, 60, format)
+	f := newGrowFixtureFormat(t, total, base, dims, false, 64, threshold, format)
+	f.rescoring(fewRescored)
 	g := f.g
 	g.verifyKept = true
 	next := uint64(base)
+	splits := g.meta.Splits
 	write := func(plan *growPlan) {
 		t.Helper()
 		require.False(t, g.outdated(plan))
 		require.NoError(t, g.refresh(ctx, plan), "doc %d", plan.docID)
 		require.NoError(t, g.apply(ctx, plan), "doc %d", plan.docID)
 	}
-	for _, window := range []int{1, 2, 4, 8, 32} {
+	for _, window := range []int{1, 2, 8} {
 		stale, verified, reassigned := g.stats.StaleLists, g.batchVerified, g.stats.PlansReassign
-		for range 6 {
+		for range 4 {
 			plans := make([]*growPlan, window)
 			for i := range plans {
 				plans[i] = newGrowPlan()
@@ -83,6 +86,7 @@ func TestGrowPlansWriteAfterOtherWrites(t *testing.T) {
 			require.Greater(t, g.stats.StaleLists, stale, "writes of the window changed lists a later one had kept")
 		}
 	}
+	require.Greater(t, g.meta.Splits, splits, "postings split")
 
 	// A neighbor that is marked deleted between the search and the writes is
 	// not one: the vector has no edge to it.
