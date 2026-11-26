@@ -57,17 +57,18 @@ import (
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
 // clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
 func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
+	conf := state.ServerConfig.Config.GRPC
 	o := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
-		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
+		grpc.MaxRecvMsgSize(conf.MaxMsgSize),
+		grpc.MaxSendMsgSize(conf.MaxMsgSize),
 	}
 
 	o = append(o, options...)
 
 	// Add TLS creds for the GRPC connection, if defined.
-	if len(state.ServerConfig.Config.GRPC.CertFile) > 0 || len(state.ServerConfig.Config.GRPC.KeyFile) > 0 {
-		c, err := credentials.NewServerTLSFromFile(state.ServerConfig.Config.GRPC.CertFile,
-			state.ServerConfig.Config.GRPC.KeyFile)
+	if len(conf.CertFile) > 0 || len(conf.KeyFile) > 0 {
+		c, err := credentials.NewServerTLSFromFile(conf.CertFile,
+			conf.KeyFile)
 		if err != nil {
 			state.Logger.WithField("action", "grpc_startup").
 				Fatalf("grpc server TLS credential error: %s", err)
@@ -394,6 +395,7 @@ func makeDocsLinkStreamInterceptor() grpc.StreamServerInterceptor {
 }
 
 func withDocsLink(err error) error {
+	// NOTE(dyma): MessageWithDocsLink will check Documented too, maybe there isn't a need to do it twice.
 	if _, ok := enterrors.Documented(err); !ok {
 		return err
 	}
