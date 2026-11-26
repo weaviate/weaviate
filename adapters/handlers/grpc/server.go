@@ -380,7 +380,7 @@ func contextWithMetadataValues(ctx context.Context, ct *telemetry.ClientTracker,
 	}
 
 	// Fallback to the peer connection address.
-	if sourceIP == "" {
+	if sourceIP == "unknown" {
 		if p, ok := peer.FromContext(ctx); ok {
 			addr := p.Addr.String()
 			if host, _, err := net.SplitHostPort(addr); err == nil {

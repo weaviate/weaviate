@@ -28,6 +28,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
@@ -40,54 +42,127 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
-// func TestMakeClientIdentifierInterceptor(t *testing.T) {
-// 	interceptor := makeClientIdentifierInterceptor()
-//
-// 	tests := []struct {
-// 		name        string
-// 		headerValue string
-// 	}{
-// 		{
-// 			name:        "python client",
-// 			headerValue: "weaviate-client-python/4.10.0",
-// 		},
-// 		{
-// 			name:        "go client",
-// 			headerValue: "weaviate-client-go/2.5.0",
-// 		},
-// 		{
-// 			name:        "no header",
-// 			headerValue: "",
-// 		},
-// 	}
-//
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			ctx := context.Background()
-// 			if tt.headerValue != "" {
-// 				md := metadata.Pairs("x-weaviate-client", tt.headerValue)
-// 				ctx = metadata.NewIncomingContext(ctx, md)
-// 			}
-//
-// 			var capturedCtx context.Context
-// 			handler := func(ctx context.Context, req any) (any, error) {
-// 				capturedCtx = ctx
-// 				return nil, nil
-// 			}
-//
-// 			_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{}, handler)
-// 			assert.NoError(t, err)
-//
-// 			if tt.headerValue != "" {
-// 				assert.Equal(t, tt.headerValue, capturedCtx.Value("clientIdentifier"))
-// 			} else {
-// 				assert.Nil(t, capturedCtx.Value("clientIdentifier"))
-// 			}
-// 		})
-// 	}
-// }
+// mockAddr returns itself as [net.Addr.String].
+type mockAddr string
+
+var _ net.Addr = (*mockAddr)(nil)
+
+func (a mockAddr) Network() string { return "mock" }
+func (a mockAddr) String() string  { return string(a) }
+
+func TestContextWithMetadataValues(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	ct := telemetry.NewClientTracker(logger)
+	t.Cleanup(ct.Stop)
+
+	it := telemetry.NewIntegrationTracker(logger)
+	t.Cleanup(it.Stop)
+
+	const client = telemetry.ClientTypeGo
+	const client_version = "v0.67.0"
+	const x_weaviate_client = string("weaviate-client-" + client + "/" + client_version)
+	const integration = "langchain"
+	const integration_version = "v0.420.0"
+	const x_weaviate_client_integration = integration + "/" + integration_version
+
+	for _, tt := range []struct {
+		name string
+		md   metadata.MD
+		peer *peer.Peer
+
+		clientID    any // Expected "clientIdentifier" value.
+		sourceIP    any // Expected "sourceIp" value.
+		integration any // Expected X-Weaviate-Client-Integration header.
+	}{
+		{
+			name: "IP in X-Real-IP",
+			md: metadata.Pairs(
+				"x-weaviate-client", x_weaviate_client,
+				"x-real-ip", "65.41.169.99",
+				"x-weaviate-client-integration", x_weaviate_client_integration,
+			),
+			clientID:    x_weaviate_client,
+			sourceIP:    "65.41.169.99",
+			integration: x_weaviate_client_integration,
+		},
+		{
+			name: "IP in X-Forwarded-For",
+			md: metadata.Pairs(
+				"x-weaviate-client", x_weaviate_client,
+				"x-forwarded-for", "65.41.169.99,110.44.57.14",
+				"x-weaviate-client-integration", x_weaviate_client_integration,
+			),
+			clientID:    x_weaviate_client,
+			sourceIP:    "65.41.169.99",
+			integration: x_weaviate_client_integration,
+		},
+		{
+			name:     "IPv4 from connection peer",
+			peer:     &peer.Peer{Addr: mockAddr("65.41.169.99")},
+			sourceIP: "65.41.169.99",
+		},
+		{
+			name:     "IPv4:port from connection peer",
+			peer:     &peer.Peer{Addr: mockAddr("65.41.169.99:80")},
+			sourceIP: "65.41.169.99",
+		},
+		{
+			name:     "IPv6 from connection peer",
+			peer:     &peer.Peer{Addr: mockAddr("3e91:4f1c:5475:8e36:f71:b8bd:902a:5c37")},
+			sourceIP: "3e91:4f1c:5475:8e36:f71:b8bd:902a:5c37",
+		},
+		{
+			name:     "IPv6:80 from connection peer",
+			peer:     &peer.Peer{Addr: mockAddr("[3e91:4f1c:5475:8e36:f71:b8bd:902a:5c37]:80")},
+			sourceIP: "3e91:4f1c:5475:8e36:f71:b8bd:902a:5c37",
+		},
+		{
+			name:     "IPv6 loopback from connection peer",
+			peer:     &peer.Peer{Addr: mockAddr("::1")},
+			sourceIP: "127.0.0.1",
+		},
+		{
+			name:     "IPv6 loopback :80 from connection peer",
+			peer:     &peer.Peer{Addr: mockAddr("[::1]:80")},
+			sourceIP: "127.0.0.1",
+		},
+		{
+			name:     "source IP unknown",
+			sourceIP: "unknown",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			inctx := context.Background()
+			if tt.md != nil {
+				inctx = metadata.NewIncomingContext(inctx, tt.md)
+			}
+			if tt.peer != nil {
+				inctx = peer.NewContext(inctx, tt.peer)
+			}
+
+			ctx := contextWithMetadataValues(inctx, ct, it)
+
+			require.Equal(t, tt.clientID, ctx.Value("clientIdentifier"), "client SDK")
+			require.Equal(t, tt.sourceIP, ctx.Value("sourceIp"), "source IP")
+
+			if tt.clientID != nil {
+				v := ct.GetAndReset()[client]
+				require.Len(t, v, 1, "# client SDKs")
+				require.EqualValuesf(t, v[client_version], 1, "times %s recorded", x_weaviate_client)
+			}
+
+			if tt.integration != nil {
+				v := it.GetAndReset()[integration]
+				require.Len(t, v, 1, "# integration clients")
+				require.EqualValuesf(t, v[integration_version], 1, "times %s recorded", x_weaviate_client_integration)
+			}
+		})
+	}
+}
 
 // newGRPCBatchMetrics builds the two vecs makeMetricsInterceptor writes,
 // standalone so a subtest cannot see another's samples.
