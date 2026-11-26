@@ -37,9 +37,36 @@ import (
 // putObjectLSM, updateVectorIndex, WriteWALs). The process dies between the
 // last two: what is on disk is the files as they are at that point, without
 // what the store still buffers. The object and its vector come back after the
-// restart both or neither: a posting-edge index that writes its journal as it
-// goes must not bring back the vector of an object the store lost.
+// restart both or neither.
+//
+// Two places the vector can be when the process dies:
+//   - the index flushed, as updateVectorIndex has it do when the index is not
+//     asynchronous: the index empties its journal, so the store writes the
+//     log of the objects first (PersistentConfig.WriteObjectsLog), and both
+//     come back;
+//   - the index took the vector and did not flush yet: it is in the journal
+//     only, which the index applies again when it opens, and the object is
+//     not in the store: the index asks the shard and drops it
+//     (PersistentConfig.ObjectExists).
 func TestPostingEdge_CrashBetweenTheIndexAndTheLogOfTheObject(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		// flushed has the vector reach the index as a put does, flush
+		// included, and otherwise through Add alone.
+		flushed bool
+		// back is whether the object and its vector come back.
+		back bool
+	}{
+		{name: "the index flushed", flushed: true, back: true},
+		{name: "the vector is in the journal only", flushed: false, back: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			crashBetweenTheIndexAndTheLogOfTheObject(t, tt.flushed, tt.back)
+		})
+	}
+}
+
+func crashBetweenTheIndexAndTheLogOfTheObject(t *testing.T, flushed, back bool) {
 	const (
 		class = "PostingEdgeCrash"
 		dims  = 32
@@ -70,6 +97,7 @@ func TestPostingEdge_CrashBetweenTheIndexAndTheLogOfTheObject(t *testing.T) {
 	require.NoError(t, persistent.Settle(ctx))
 	// Everything so far is on disk, as after any request.
 	require.NoError(t, shard.store.WriteWALs())
+	require.NoError(t, persistent.Flush())
 
 	// The put, up to the vector index, and the files as a crash leaves them.
 	obj := createRandomObjects(r, class, 1, dims)[0]
@@ -77,7 +105,14 @@ func TestPostingEdge_CrashBetweenTheIndexAndTheLogOfTheObject(t *testing.T) {
 	require.NoError(t, err)
 	status, err := shard.putObjectLSM(ctx, obj, id)
 	require.NoError(t, err)
-	require.NoError(t, shard.updateVectorIndex(ctx, obj.Vector, status, ""))
+	if flushed {
+		require.NoError(t, shard.updateVectorIndex(ctx, obj.Vector, status, ""))
+	} else {
+		require.NoError(t, persistent.Add(ctx, status.docID, obj.Vector))
+		journal, err := os.Stat(filepath.Join(dirs[0], "journal.log"))
+		require.NoError(t, err)
+		require.Positive(t, journal.Size(), "the vector is in the journal")
+	}
 	files := map[string][]byte{}
 	require.NoError(t, filepath.WalkDir(shard.path(), func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -107,6 +142,7 @@ func TestPostingEdge_CrashBetweenTheIndexAndTheLogOfTheObject(t *testing.T) {
 	assert.Equal(t, objectBack, vectorBack,
 		"doc %d: the object and its vector come back both or neither (object %v, vector %v)",
 		status.docID, objectBack, vectorBack)
+	assert.Equal(t, back, objectBack, "doc %d: the object is back", status.docID)
 	next := createRandomObjects(r, class, 1, dims)[0]
 	assert.NoError(t, restored.PutObject(ctx, next), "an object put after the restart is indexed")
 }
