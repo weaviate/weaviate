@@ -211,6 +211,23 @@ type PersistentConfig struct {
 	// MakeBucketOptions gives the options of the buckets the index keeps in
 	// the store of the shard.
 	MakeBucketOptions lsmkv.MakeBucketOptions
+	// ObjectExists tells whether the store of the shard holds the object of a
+	// doc id. When the index opens it asks, for every vector its journal put
+	// back, and drops those whose objects are not there (dropOrphans): what a
+	// transfer that writes after the flush of the store copies with the
+	// journal, or a process that dies between the put of a vector and the
+	// write of the logs of the store leaves. The shard opens its store of
+	// objects before its vector indexes. Nil asks nothing.
+	ObjectExists func(ctx context.Context, docID uint64) (bool, error)
+	// WriteObjectsLog hands the log of the store of objects to the system,
+	// as the store does after a put. The index calls it before what its
+	// journal tells leaves the journal (a sync, and the flush of the vectors
+	// kept aside), so that a vector reaches the system by its own way only
+	// after its object: a shard flushes its vector indexes before it writes
+	// the logs of its store, and a process that dies in between would leave
+	// the vector without its object and outside the journal, where
+	// dropOrphans does not look. Nil calls nothing.
+	WriteObjectsLog func() error
 	// BaseSize is how many vectors the index gathers before it builds its
 	// first postings, DefaultBaseSize when 0.
 	BaseSize int
@@ -358,10 +375,19 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 			_ = p.g.release(ctx)
 			return nil, errors.Wrap(err, "open the vectors kept aside")
 		}
+		if err := p.dropOrphans(ctx); err != nil {
+			_ = p.closeStaging(ctx)
+			_ = p.g.release(ctx)
+			return nil, errors.Wrap(err, "drop the vectors whose objects are not in the store")
+		}
 	case os.IsNotExist(statErr):
 		// Without a meta there is no base, and the vectors are kept aside.
 		if err := p.openWithoutMeta(ctx); err != nil {
 			return nil, err
+		}
+		if err := p.dropOrphans(ctx); err != nil {
+			_ = p.closeStaging(ctx)
+			return nil, errors.Wrap(err, "drop the vectors whose objects are not in the store")
 		}
 	default:
 		return nil, errors.Wrap(statErr, "look for the meta of the index")
@@ -395,10 +421,12 @@ func (p *Persistent) growOpen() growOpen {
 		// A shard flushes its indexes and may stop without closing them:
 		// what waits in memory of the edges is on disk too. And it may die
 		// in the middle of a write: every write goes through the journal.
-		keepPending: true,
-		journal:     true,
-		noCodes:     p.noCodes,
-		centroidsID: p.centroidsID(),
+		keepPending:  true,
+		journal:      true,
+		noCodes:      p.noCodes,
+		centroidsID:  p.centroidsID(),
+		checkObjects: p.cfg.ObjectExists != nil,
+		objectsFirst: p.cfg.WriteObjectsLog,
 		cycles: centroidCycles{
 			tombstones: p.cfg.TombstoneCallbacks, commitLogs: p.cfg.CommitLogCallbacks,
 			logThreshold: p.cfg.CommitLogThreshold, everyCycle: p.cfg.centroidsEveryCycle,
@@ -1410,6 +1438,11 @@ func (p *Persistent) Flush() error {
 		return nil
 	}
 	if p.staging != nil {
+		// Nothing journals the vectors kept aside: their objects reach the
+		// system first.
+		if err := p.writeObjectsLog(); err != nil {
+			return err
+		}
 		if err := p.staging.WriteWAL(); err != nil {
 			return errors.Wrap(err, "write the log of the vectors kept aside")
 		}

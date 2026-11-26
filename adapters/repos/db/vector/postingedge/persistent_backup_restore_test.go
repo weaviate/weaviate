@@ -119,6 +119,9 @@ func persistentBackupRestoresTheIndexItTook(t *testing.T, cacheMode string) {
 					c.index.g.recovered.Records, c.index.g.recovered.GraphRebuilt)
 				require.Equal(t, cut.marked, c.index.g.recovered.GraphRebuilt,
 					"the centroid graph is built again where it changed during the backup")
+				// As 8-bit RQ codes in a bucket of the store, by default:
+				// built again from the file of the centroids.
+				require.True(t, c.index.g.st.centroids.codes, "the centroids are codes")
 				c.covered(t, "restored")
 				c.vectorsIntact(t, "restored")
 			}

@@ -396,6 +396,8 @@ type growIndex struct {
 	graphMarked bool
 	keepJournal bool
 	recovered   growRecovered
+	// objectsFirst runs at the start of every sync (growOpen.objectsFirst).
+	objectsFirst func() error
 	// The buckets of the index, as its writes see them (growBucket): what a
 	// step writes waits in the journal until the step ends.
 	postings *growBucket
@@ -746,6 +748,15 @@ type growOpen struct {
 	// cycles are the cycles of the node that keep the centroid graph: none
 	// in the experiments.
 	cycles centroidCycles
+	// checkObjects keeps the doc ids the journal put back in a file until
+	// whoever opens the index has asked the shard about their objects
+	// (Persistent.dropOrphans): the journal is emptied when the index opens,
+	// and an open that dies before asking leaves them to the next.
+	checkObjects bool
+	// objectsFirst, if there is one, runs before what the journal tells
+	// leaves it (sync): it hands the logs of the objects the vectors belong
+	// to to the system (PersistentConfig.WriteObjectsLog).
+	objectsFirst func() error
 	// centroidsID, with a store, has the centroid graph keep the centroids as
 	// 8-bit RQ codes in a bucket of that store, named by it, and nothing of
 	// them in float32 in memory (centroidCodes). Empty, they are in float32.
@@ -1263,7 +1274,10 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if err != nil {
 		return nil, errors.Wrap(err, "read the meta")
 	}
-	g := &growIndex{dir: dir, logger: logger, provider: provider, l2: distancer.NewL2SquaredProvider()}
+	g := &growIndex{
+		dir: dir, logger: logger, provider: provider, l2: distancer.NewL2SquaredProvider(),
+		objectsFirst: opts.objectsFirst,
+	}
 	if err := json.Unmarshal(raw, &g.meta); err != nil {
 		return nil, errors.Wrap(err, "parse the meta")
 	}
@@ -1272,6 +1286,17 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	journaled, err := readGrowJournal(path(growJournalFile))
 	if err != nil {
 		return nil, err
+	}
+	// The vectors the journal puts back, for whoever asks the shard whether
+	// their objects are there, with those an open that died before asking
+	// left to ask about.
+	g.recovered.Placed = placedBy(journaled)
+	if opts.checkObjects {
+		left, err := readGrowCheck(path(growCheckFile))
+		if err != nil {
+			return nil, err
+		}
+		g.recovered.Placed = unionIDs(g.recovered.Placed, left)
 	}
 	if len(journaled) > 0 {
 		last := journaled[len(journaled)-1].meta
@@ -1541,6 +1566,13 @@ func growScan(bucket *lsmkv.Bucket, visit func(key, value []byte) error) error {
 // commit log of the centroid graph and the meta. The store logs its writes
 // as they come.
 func (g *growIndex) sync() error {
+	// What the journal tells leaves it below: the objects of its vectors
+	// reach the system first.
+	if g.objectsFirst != nil {
+		if err := g.objectsFirst(); err != nil {
+			return errors.Wrap(err, "write the log of the objects")
+		}
+	}
 	if err := g.st.centroids.graph.Flush(); err != nil {
 		return errors.Wrap(err, "flush the centroid graph")
 	}
