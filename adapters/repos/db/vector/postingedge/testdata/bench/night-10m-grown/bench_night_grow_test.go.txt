@@ -1,0 +1,598 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package postingedge
+
+import (
+	"bufio"
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"math"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/pprof"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+	"unsafe"
+
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+	"github.com/weaviate/weaviate/usecases/byteops"
+)
+
+// The night of 10M grown by inserts (bench-report.md of
+// feat/posting-edge-index, "10M crecido por inserts"): TestNightGrow grows
+// the index, TestNightHeap opens what it left and profiles the heap.
+//
+// Parameters, from the environment:
+//   - PE_DATASET: a raw dataset directory (meta.txt, train.f32 or
+//     train.embedded with a train_offset line), already L2-normalized.
+//   - PE_DIR: where the index goes; empty for TestNightGrow.
+//   - PE_OUT: the JSON written after every stretch (TestNightGrow) or at the
+//     end (TestNightHeap).
+//   - PE_N: how many train rows go in (all of them if 0).
+//   - PE_CALLERS: how many callers add at once once there is a base (8).
+//   - PE_CACHE: the rq.cacheMode (routing).
+//   - PE_BUDGET: the budget of what waits of the edges, in bytes (0 for the
+//     default of the index).
+//   - PE_STRETCH: the seconds of a stretch (300).
+//   - PE_MINFREE: the GB the disk of PE_DIR must keep free; under it the run
+//     stops, shutting the index first (8).
+//   - PE_HEAP: the heap profile TestNightHeap writes (run it with
+//     -test.memprofilerate=1).
+
+func nightEnvInt(t *testing.T, name string, def int64) int64 {
+	s := os.Getenv(name)
+	if s == "" {
+		return def
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	require.NoError(t, err, name)
+	return v
+}
+
+func nightEnv(name, def string) string {
+	if s := os.Getenv(name); s != "" {
+		return s
+	}
+	return def
+}
+
+// nightTrain is the train set of a raw dataset, read a vector at a time from
+// its file: 10M vectors of 768 dimensions are 30.7 GB, more than the run
+// should hold.
+type nightTrain struct {
+	file   *os.File
+	offset int64
+	rows   int
+	dims   int
+}
+
+func openNightTrain(dir string) (*nightTrain, error) {
+	meta, err := os.Open(filepath.Join(dir, "meta.txt"))
+	if err != nil {
+		return nil, err
+	}
+	defer meta.Close()
+	shapes := map[string][2]int{}
+	scanner := bufio.NewScanner(meta)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 3 {
+			continue
+		}
+		a, errA := strconv.Atoi(fields[1])
+		b, errB := strconv.Atoi(fields[2])
+		if errA == nil && errB == nil {
+			shapes[fields[0]] = [2]int{a, b}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	shape, ok := shapes["train"]
+	if !ok {
+		return nil, errors.Errorf("%s: no train line in meta.txt", dir)
+	}
+	path := filepath.Join(dir, "train.f32")
+	if _, err := os.Stat(path); err != nil {
+		path = filepath.Join(dir, "train.embedded")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return &nightTrain{file: file, offset: int64(shapes["train_offset"][0]), rows: shape[0], dims: shape[1]}, nil
+}
+
+// read reads the vectors of ids into vectors, reusing buf.
+func (tr *nightTrain) read(ids []uint64, buf []byte) ([][]float32, []byte, error) {
+	size := 4 * tr.dims
+	if cap(buf) < size {
+		buf = make([]byte, size)
+	}
+	buf = buf[:size]
+	vectors := make([][]float32, len(ids))
+	for i, id := range ids {
+		if _, err := tr.file.ReadAt(buf, tr.offset+int64(id)*int64(size)); err != nil {
+			return nil, buf, errors.Wrapf(err, "read train row %d", id)
+		}
+		vec := make([]float32, tr.dims)
+		byteops.CopyBytesToSlice(vec, buf)
+		vectors[i] = vec
+	}
+	return vectors, buf, nil
+}
+
+// nightShardBucketOptions are the options a shard gives the buckets of its
+// vector index (Shard.makeDefaultBucketOptions) with the defaults of a node:
+// no allocation checker, no pread, segments of any size, dynamic memtables of
+// 10 to 200 MB, and every segment loaded when the store opens.
+func nightShardBucketOptions(strategy string, custom ...lsmkv.BucketOption) []lsmkv.BucketOption {
+	options := []lsmkv.BucketOption{
+		lsmkv.WithStrategy(strategy),
+		lsmkv.WithPread(false),
+		lsmkv.WithMaxSegmentSize(math.MaxInt64),
+		lsmkv.WithSegmentsChecksumValidationEnabled(false),
+		lsmkv.WithMinMMapSize(8192),
+		lsmkv.WithMinWalThreshold(4096),
+		lsmkv.WithWriteSegmentInfoIntoFileName(true),
+		lsmkv.WithWriteMetadata(false),
+		lsmkv.WithDirtyThreshold(60 * time.Second),
+		lsmkv.WithSegmentsCleanupInterval(0),
+		lsmkv.WithDynamicMemtableSizing(10<<20, 200<<20, 15, 45),
+		lsmkv.WithLazySegmentLoading(false),
+	}
+	return append(options, custom...)
+}
+
+// nightStore is the store of a shard with its cycles: flush and compaction
+// on the tickers of a node, and the tombstone and commit log cycles of a
+// vector index. With cycles false they are groups no one calls, for an open
+// that only measures.
+type nightStore struct {
+	store                  *lsmkv.Store
+	flush, compaction      cyclemanager.CycleCallbackGroup
+	tombstones, commitLogs cyclemanager.CycleCallbackGroup
+	managers               []cyclemanager.CycleManager
+}
+
+func openNightStore(t *testing.T, dir string, logger logrus.FieldLogger, cycles bool) *nightStore {
+	s := &nightStore{}
+	if !cycles {
+		noop := cyclemanager.NewCallbackGroupNoop()
+		s.flush, s.compaction, s.tombstones, s.commitLogs = noop, noop, noop, noop
+	} else {
+		routines := 2 * runtime.GOMAXPROCS(0)
+		s.compaction = cyclemanager.NewCallbackGroup("night/compaction", logger, routines)
+		s.flush = cyclemanager.NewCallbackGroup("night/flush", logger, routines)
+		s.tombstones = cyclemanager.NewCallbackGroup("night/tombstones", logger, routines)
+		s.commitLogs = cyclemanager.NewCallbackGroup("night/commitlogs", logger, routines)
+		s.managers = []cyclemanager.CycleManager{
+			cyclemanager.NewManager("night/compaction", cyclemanager.CompactionCycleTicker(true), s.compaction.CycleCallback, logger),
+			cyclemanager.NewManager("night/flush", cyclemanager.MemtableFlushCycleTicker(true), s.flush.CycleCallback, logger),
+			cyclemanager.NewManager("night/commitlogs", cyclemanager.HnswCommitLoggerCycleTicker(true), s.commitLogs.CycleCallback, logger),
+			cyclemanager.NewManager("night/tombstones", cyclemanager.NewFixedTicker(300*time.Second), s.tombstones.CycleCallback, logger),
+		}
+	}
+	var err error
+	s.store, err = lsmkv.New(filepath.Join(dir, "lsm"), dir, logger, nil, nil, s.compaction,
+		cyclemanager.NewCallbackGroupNoop(), s.flush)
+	require.NoError(t, err)
+	for _, m := range s.managers {
+		m.Start()
+	}
+	return s
+}
+
+func (s *nightStore) config(dir string, logger logrus.FieldLogger, budget int64) PersistentConfig {
+	return PersistentConfig{
+		ID:                 "main",
+		ShardName:          "night",
+		ClassName:          "Night",
+		RootPath:           dir,
+		Logger:             logger,
+		DistanceProvider:   distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions:  nightShardBucketOptions,
+		TombstoneCallbacks: s.tombstones,
+		CommitLogCallbacks: s.commitLogs,
+		// HNSWMaxLogSize of a node over five, as a shard gives it.
+		CommitLogThreshold: (500 << 20) / 5,
+		pendingBudget:      budget,
+	}
+}
+
+// stopCycles stops the managers of the cycles, before the store shuts.
+func (s *nightStore) stopCycles(ctx context.Context) {
+	for _, m := range s.managers {
+		<-m.Stop(ctx)
+	}
+	s.managers = nil
+}
+
+// nightRusage is what the system accounts to this process so far
+// (proc_pid_rusage, RUSAGE_INFO_V2): the bytes it read from and wrote to
+// disk, its page-ins and its footprint.
+type nightRusage struct {
+	BytesRead    uint64 `json:"diskBytesRead"`
+	BytesWritten uint64 `json:"diskBytesWritten"`
+	Pageins      uint64 `json:"pageins"`
+	Footprint    uint64 `json:"physFootprint"`
+	UserNs       uint64 `json:"userNs"`
+	SystemNs     uint64 `json:"systemNs"`
+}
+
+func readNightRusage() (nightRusage, error) {
+	const procInfoCallPidRusage, rusageInfoV2 = 9, 2
+	var buf [256]byte
+	_, _, errno := syscall.Syscall6(syscall.SYS_PROC_INFO, procInfoCallPidRusage, uintptr(os.Getpid()), rusageInfoV2, 0,
+		uintptr(unsafe.Pointer(&buf[0])), 0)
+	if errno != 0 {
+		return nightRusage{}, errors.Wrap(errno, "read the resource usage of the process")
+	}
+	// The uint64 of index i of rusage_info_v2, after its uuid of 16 bytes.
+	word := func(i int) uint64 { return binary.LittleEndian.Uint64(buf[16+8*i:]) }
+	// Its times are in units of mach_absolute_time: 125/3 ns on Apple silicon.
+	ns := func(i int) uint64 {
+		if runtime.GOARCH == "arm64" {
+			return word(i) * 125 / 3
+		}
+		return word(i)
+	}
+	return nightRusage{
+		UserNs: ns(0), SystemNs: ns(1), Pageins: word(4), Footprint: word(7),
+		BytesRead: word(16), BytesWritten: word(17),
+	}, nil
+}
+
+// nightDirBytes sums the sizes of the files under dir.
+func nightDirBytes(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
+}
+
+func nightFreeBytes(dir string) (uint64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(dir, &st); err != nil {
+		return 0, err
+	}
+	return st.Bavail * uint64(st.Bsize), nil
+}
+
+type nightStretch struct {
+	At        string  `json:"at"`
+	Inserted  int     `json:"inserted"`
+	Seconds   float64 `json:"seconds"`
+	PerSecond float64 `json:"perSecond"`
+	// PostingsGivenOut counts every posting id the index has given, retired
+	// ones included; LivePostings those not retired.
+	PostingsGivenOut int `json:"postingsGivenOut"`
+	LivePostings     int `json:"livePostings"`
+	Splits           int `json:"splits"`
+	// Rows of edges written, and by the budget, so far; what waits now.
+	RowWrites       growIO `json:"rowWrites"`
+	RowWritesBudget int    `json:"rowWritesBudget"`
+	RowDists        growIO `json:"rowDistWrites"`
+	PendingLog      growIO `json:"pendingLogWrites"`
+	PendingHeap     int64  `json:"pendingHeap"`
+	PendingPostings int    `json:"pendingPostings"`
+	PendingMembers  int64  `json:"pendingMembers"`
+	JournalRecords  int64  `json:"journalRecords"`
+	JournalBytes    int64  `json:"journalBytes"`
+	// What the system accounted to the process, so far, and the write
+	// amplification of this stretch: the bytes written to disk over the bytes
+	// of the vectors that went in (4 a dimension).
+	Rusage             nightRusage `json:"rusage"`
+	WriteAmplification float64     `json:"writeAmplification"`
+	DirBytes           int64       `json:"dirBytes"`
+	FreeBytes          uint64      `json:"freeBytes"`
+	HeapInuse          uint64      `json:"heapInuse"`
+	HeapAlloc          uint64      `json:"heapAlloc"`
+	NumGC              uint32      `json:"numGC"`
+}
+
+type nightResult struct {
+	Dataset      string         `json:"dataset"`
+	Rows         int            `json:"rows"`
+	Dims         int            `json:"dims"`
+	Callers      int            `json:"callers"`
+	CacheMode    string         `json:"cacheMode"`
+	Budget       int64          `json:"pendingBudget"`
+	Procs        int            `json:"procs"`
+	Base         int            `json:"base"`
+	BaseSeconds  float64        `json:"baseSeconds"`
+	Inserted     int            `json:"inserted"`
+	Seconds      float64        `json:"seconds"`
+	SettleSecs   float64        `json:"settleSeconds"`
+	ShutSeconds  float64        `json:"shutSeconds"`
+	Stretches    []nightStretch `json:"stretches"`
+	Meta         growMeta       `json:"meta"`
+	Stats        growStats      `json:"stats"`
+	DirBytesDone int64          `json:"dirBytesAtEnd"`
+	Done         bool           `json:"done"`
+}
+
+func writeNightJSON(t *testing.T, path string, v any) {
+	raw, err := json.MarshalIndent(v, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, raw, 0o644))
+}
+
+// TestNightGrow grows an index by inserts from the dataset, in the shuffled
+// order of the scale runs (TestIntegrationScale), through the index a shard
+// opens over a store opened as a shard opens its own. The base is the
+// default of the index; after it, PE_CALLERS callers add a batch of 100 each
+// at once, and the index is flushed after every round, as a shard flushes its
+// indexes after a request that writes. Every stretch writes PE_OUT again.
+func TestNightGrow(t *testing.T) {
+	datasetDir, dir, out := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_OUT")
+	if datasetDir == "" || dir == "" || out == "" {
+		t.Skip("no PE_DATASET, PE_DIR and PE_OUT given")
+	}
+	ctx := context.Background()
+	train, err := openNightTrain(datasetDir)
+	require.NoError(t, err)
+	defer train.file.Close()
+	n := train.rows
+	if limit := int(nightEnvInt(t, "PE_N", 0)); limit > 0 {
+		n = min(n, limit)
+	}
+	callers := int(nightEnvInt(t, "PE_CALLERS", 8))
+	budget := nightEnvInt(t, "PE_BUDGET", 0)
+	stretchEvery := time.Duration(nightEnvInt(t, "PE_STRETCH", 300)) * time.Second
+	minFree := uint64(nightEnvInt(t, "PE_MINFREE", 8)) << 30
+
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "%s is not empty", dir)
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	st := openNightStore(t, dir, logger, true)
+	p, err := Open(st.config(dir, logger, budget), uc, st.store)
+	require.NoError(t, err)
+	shut := func() {
+		if p == nil {
+			return
+		}
+		begin := time.Now()
+		require.NoError(t, p.Flush())
+		require.NoError(t, p.Shutdown(ctx))
+		st.stopCycles(ctx)
+		require.NoError(t, st.store.Shutdown(ctx))
+		p = nil
+		t.Logf("shut in %s", time.Since(begin).Round(time.Second))
+	}
+	defer shut()
+
+	order := make([]uint64, train.rows)
+	for i := range order {
+		order[i] = uint64(i)
+	}
+	rand.New(rand.NewPCG(1, 1)).Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
+	order = order[:n]
+
+	result := &nightResult{
+		Dataset: datasetDir, Rows: n, Dims: train.dims, Callers: callers, CacheMode: uc.RQ.CacheMode,
+		Budget: p.cfg.pendingBudget, Procs: runtime.GOMAXPROCS(0),
+	}
+	const batch = 100
+	inserted := 0
+	begin := time.Now()
+	var insertTime time.Duration
+	lastAt, lastInserted := time.Now(), 0
+	last, err := readNightRusage()
+	require.NoError(t, err)
+	stretch := func() {
+		now := time.Now()
+		usage, err := readNightRusage()
+		require.NoError(t, err)
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		dirBytes, err := nightDirBytes(dir)
+		require.NoError(t, err)
+		free, err := nightFreeBytes(dir)
+		require.NoError(t, err)
+		s := nightStretch{
+			At: now.Format("15:04:05"), Inserted: inserted, Seconds: now.Sub(begin).Seconds(),
+			PerSecond: float64(inserted-lastInserted) / now.Sub(lastAt).Seconds(),
+			Rusage:    usage, DirBytes: dirBytes, FreeBytes: free,
+			HeapInuse: mem.HeapInuse, HeapAlloc: mem.HeapAlloc, NumGC: mem.NumGC,
+		}
+		if vectors := inserted - lastInserted; vectors > 0 {
+			s.WriteAmplification = float64(usage.BytesWritten-last.BytesWritten) / float64(vectors*4*train.dims)
+		}
+		p.mu.RLock()
+		g := p.g
+		s.PostingsGivenOut, s.Splits = g.meta.Postings, g.meta.Splits
+		s.RowWrites, s.RowWritesBudget, s.RowDists, s.PendingLog = g.stats.RowWrites, g.stats.RowWritesBudget,
+			g.stats.RowDists, g.stats.PendingLog
+		s.PendingHeap, s.PendingPostings, s.PendingMembers = g.pendingHeap(), len(g.pending), g.pendingMembers
+		if g.journal != nil {
+			s.JournalRecords, s.JournalBytes = g.journal.records, g.journal.bytes
+		}
+		result.Meta, result.Stats = g.meta, g.stats
+		p.mu.RUnlock()
+		s.LivePostings = livePostings(g)
+		result.Stretches = append(result.Stretches, s)
+		result.Inserted, result.Seconds = inserted, insertTime.Seconds()
+		writeNightJSON(t, out, result)
+		t.Logf("%s %d of %d in (%.1f %%): %.0f inserts a second | %d postings live, %d given out | rows of edges "+
+			"%.0f B an insert so far, %d by the budget | waiting %.1f MB | written %.2f times the vectors | heap %.0f MB | "+
+			"%.1f GB on disk, %.1f GB free",
+			s.At, inserted, n, 100*float64(inserted)/float64(n), s.PerSecond, s.LivePostings, s.PostingsGivenOut,
+			float64(s.RowWrites.Bytes)/float64(max(inserted-result.Base, 1)), s.RowWritesBudget,
+			float64(s.PendingHeap)/1e6, s.WriteAmplification, float64(mem.HeapInuse)/1e6, float64(dirBytes)/1e9,
+			float64(free)/1e9)
+		lastAt, lastInserted, last = now, inserted, usage
+		if free < minFree {
+			shut()
+			t.Fatalf("STOP: %.1f GB free on the disk of %s, under %d GB: the index is shut with %d of %d in",
+				float64(free)/1e9, dir, minFree>>30, inserted, n)
+		}
+	}
+
+	bufs := make([][]byte, callers)
+	for inserted < n {
+		wasBuilt := p.g != nil
+		round := 1
+		if wasBuilt {
+			round = callers
+		}
+		to := min(inserted+batch*round, n)
+		clock := time.Now()
+		adding := enterrors.NewErrorGroupWrapper(logger)
+		for from, c := inserted, 0; from < to; from, c = from+batch, c+1 {
+			upto := min(from+batch, to)
+			adding.Go(func() error {
+				vectors, buf, err := train.read(order[from:upto], bufs[c])
+				bufs[c] = buf
+				if err != nil {
+					return err
+				}
+				return p.AddBatch(ctx, order[from:upto], vectors)
+			})
+		}
+		if err := adding.Wait(); err != nil {
+			shut()
+			t.Fatalf("inserts %d to %d: %v", inserted, to, err)
+		}
+		if !wasBuilt {
+			require.NoError(t, p.settleBase(ctx))
+		}
+		require.NoError(t, p.Flush())
+		took := time.Since(clock)
+		switch {
+		case !wasBuilt && p.g != nil:
+			result.BaseSeconds, result.Base = took.Seconds(), to
+			t.Logf("the base: %d vectors in %d postings, built in %s", p.g.meta.Live, p.g.meta.Postings,
+				took.Round(time.Second))
+			lastAt, lastInserted = time.Now(), to
+		case wasBuilt:
+			insertTime += took
+		}
+		inserted = to
+		if p.g != nil && (time.Since(lastAt) >= stretchEvery || inserted == n) {
+			stretch()
+		}
+	}
+	settle := time.Now()
+	require.NoError(t, p.Settle(ctx))
+	result.SettleSecs = time.Since(settle).Seconds()
+	stretch()
+	shutAt := time.Now()
+	shut()
+	result.ShutSeconds = time.Since(shutAt).Seconds()
+	result.DirBytesDone, err = nightDirBytes(dir)
+	require.NoError(t, err)
+	result.Done = true
+	writeNightJSON(t, out, result)
+	t.Logf("done: %d vectors, %.0f s of inserts after the base, %.1f GB on disk", n, result.Seconds,
+		float64(result.DirBytesDone)/1e9)
+}
+
+// TestNightHeap opens the index TestNightGrow left, in the cache mode of
+// PE_CACHE, over the store as a shard opens it but with no cycle running,
+// collects, and writes the profile of the heap in use with nothing of a
+// harness loaded. Run it with -test.memprofilerate=1.
+func TestNightHeap(t *testing.T) {
+	dir, heapOut, out := os.Getenv("PE_DIR"), os.Getenv("PE_HEAP"), os.Getenv("PE_OUT")
+	if dir == "" || heapOut == "" || out == "" {
+		t.Skip("no PE_DIR, PE_HEAP and PE_OUT given")
+	}
+	ctx := context.Background()
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	begin := time.Now()
+	st := openNightStore(t, dir, logger, false)
+	p, err := Open(st.config(dir, logger, 0), uc, st.store)
+	require.NoError(t, err)
+	opened := time.Since(begin)
+	defer func() {
+		require.NoError(t, p.Shutdown(ctx))
+		require.NoError(t, st.store.Shutdown(ctx))
+	}()
+	runtime.GC()
+	runtime.GC()
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	file, err := os.Create(heapOut)
+	require.NoError(t, err)
+	require.NoError(t, pprof.Lookup("heap").WriteTo(file, 0))
+	require.NoError(t, file.Close())
+
+	p.mu.RLock()
+	g := p.g
+	deleted := 0
+	for _, d := range g.deleted {
+		if d {
+			deleted++
+		}
+	}
+	info := map[string]any{
+		"cacheMode": uc.RQ.CacheMode, "openSeconds": opened.Seconds(),
+		"heapInuse": mem.HeapInuse, "heapAlloc": mem.HeapAlloc, "heapSys": mem.HeapSys, "sys": mem.Sys,
+		"meta": g.meta, "noCodes": g.noCodes, "liveSlots": len(g.live), "deletedLen": len(g.deleted),
+		"deleted": deleted, "builtAtLen": len(g.builtAt), "pendingHeap": g.pendingHeap(),
+		"pendingPostings": len(g.pending), "pendingMembers": g.pendingMembers, "pendingBytes": g.pendingBytes,
+	}
+	p.mu.RUnlock()
+	info["livePostings"] = livePostings(g)
+	stats, err := g.st.centroids.graph.Stats()
+	require.NoError(t, err)
+	info["centroidGraph"] = map[string]any{
+		"layers": stats.DistributionLayers, "tombstones": stats.NumTombstones, "cacheSize": stats.CacheSize,
+		"compressed": stats.Compressed, "type": stats.CompressionType,
+	}
+	writeNightJSON(t, out, info)
+	t.Logf("cache mode %s: opened in %s, heap in use %.1f MB, allocated and in use %.1f MB", uc.RQ.CacheMode,
+		opened.Round(time.Second), float64(mem.HeapInuse)/1e6, float64(mem.HeapAlloc)/1e6)
+}
