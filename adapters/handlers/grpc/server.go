@@ -22,8 +22,6 @@ import (
 
 	"google.golang.org/grpc/peer"
 
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -78,13 +76,6 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 
 	var unaryInterceptors []grpc.UnaryServerInterceptor
 	unaryInterceptors = append(unaryInterceptors, makeAuthInterceptor())
-
-	// If sentry is enabled add automatic spans on gRPC requests
-	if state.ServerConfig.Config.Sentry.Enabled {
-		unaryInterceptors = append(unaryInterceptors, grpc_middleware.ChainUnaryServer(
-			grpc_sentry.UnaryServerInterceptor(),
-		))
-	}
 
 	if state.Metrics != nil {
 		unaryInterceptors = append(unaryInterceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
