@@ -315,3 +315,55 @@ func TestRemoveReference_StoredUntypedRefs(t *testing.T) {
 		})
 	}
 }
+
+// TestRemoveReference_UntypedKeepsSurvivorMetadata: removing one reference
+// from an untyped list writes the others back, and must keep their metadata
+// (e.g. the classification a kNN classification attached), not only the
+// beacon.
+func TestRemoveReference_UntypedKeepsSurvivorMetadata(t *testing.T) {
+	const (
+		target = "11111111-1111-1111-1111-111111111111"
+		other  = "22222222-2222-2222-2222-222222222222"
+	)
+	logger, _ := test.NewNullLogger()
+	stored := func() interface{} {
+		return []interface{}{
+			map[string]interface{}{"beacon": "weaviate://localhost/Animal/" + target},
+			map[string]interface{}{
+				"beacon": "weaviate://localhost/Animal/" + other,
+				"classification": map[string]interface{}{
+					"winningCount": float64(3), "losingCount": float64(1), "overallCount": float64(4),
+				},
+			},
+		}
+	}
+	assertSurvivor := func(t *testing.T, obj *models.Object) {
+		t.Helper()
+		refs, ok := obj.Properties.(map[string]interface{})["refs"].(models.MultipleRef)
+		require.True(t, ok)
+		require.Len(t, refs, 1)
+		assert.Equal(t, strfmt.URI("weaviate://localhost/Animal/"+other), refs[0].Beacon)
+		require.NotNil(t, refs[0].Classification, "survivor's classification metadata")
+		assert.Equal(t, int64(3), refs[0].Classification.WinningCount)
+		assert.Equal(t, int64(1), refs[0].Classification.LosingCount)
+		assert.Equal(t, int64(4), refs[0].Classification.OverallCount)
+	}
+
+	t.Run("byte exact", func(t *testing.T) {
+		obj := &models.Object{Properties: map[string]interface{}{"refs": stored()}}
+		ok, errmsg := removeReferenceByteExact(obj, "refs", strfmt.URI("weaviate://localhost/Animal/"+target))
+		require.Empty(t, errmsg)
+		require.True(t, ok)
+		assertSurvivor(t, obj)
+	})
+
+	t.Run("structural", func(t *testing.T) {
+		obj := &models.Object{Properties: map[string]interface{}{"refs": stored()}}
+		r, err := crossref.Parse("weaviate://localhost/Animal/" + target)
+		require.NoError(t, err)
+		ok, errmsg := removeReferenceStructural(obj, "refs", "Zoo", r, logger)
+		require.Empty(t, errmsg)
+		require.True(t, ok)
+		assertSurvivor(t, obj)
+	})
+}

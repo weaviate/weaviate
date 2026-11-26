@@ -12,9 +12,9 @@
 package crossref
 
 import (
+	"encoding/json"
 	"fmt"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -40,11 +40,21 @@ func AsMultipleRef(value interface{}) (models.MultipleRef, error) {
 			if !ok {
 				return nil, fmt.Errorf("expected ref element %d to be a map, got %T", i, elem)
 			}
-			beacon, ok := asMap["beacon"].(string)
-			if !ok {
+			if _, ok := asMap["beacon"].(string); !ok {
 				return nil, fmt.Errorf("expected ref element %d to have a string %q, got %T", i, "beacon", asMap["beacon"])
 			}
-			refs[i] = &models.SingleRef{Beacon: strfmt.URI(beacon)}
+			// decode every SingleRef field (class, href, classification,
+			// schema), not only the beacon: callers that remove one reference
+			// write the others back, and must not strip their metadata
+			raw, err := json.Marshal(asMap)
+			if err != nil {
+				return nil, fmt.Errorf("encode ref element %d: %w", i, err)
+			}
+			ref := &models.SingleRef{}
+			if err := json.Unmarshal(raw, ref); err != nil {
+				return nil, fmt.Errorf("decode ref element %d: %w", i, err)
+			}
+			refs[i] = ref
 		}
 		return refs, nil
 	default:

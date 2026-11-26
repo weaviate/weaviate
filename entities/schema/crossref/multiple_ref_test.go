@@ -14,6 +14,7 @@ package crossref
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -49,4 +50,39 @@ func TestAsMultipleRef(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// TestAsMultipleRef_KeepsAllFields: converting an untyped reference must keep
+// every SingleRef field, since callers write converted references back.
+func TestAsMultipleRef_KeepsAllFields(t *testing.T) {
+	const beacon = "weaviate://localhost/Animal/11111111-1111-1111-1111-111111111111"
+	closestLosing := 0.7
+	got, err := AsMultipleRef([]interface{}{map[string]interface{}{
+		"beacon": beacon,
+		"class":  "Animal",
+		"href":   "/v1/objects/Animal/11111111-1111-1111-1111-111111111111",
+		"classification": map[string]interface{}{
+			"winningCount":           float64(3),
+			"losingCount":            float64(1),
+			"overallCount":           float64(4),
+			"closestWinningDistance": 0.2,
+			"closestLosingDistance":  closestLosing,
+		},
+		"schema": map[string]interface{}{"name": "Fido"},
+	}})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	ref := got[0]
+	assert.Equal(t, strfmt.URI(beacon), ref.Beacon)
+	assert.Equal(t, strfmt.URI("Animal"), ref.Class)
+	assert.Equal(t, strfmt.URI("/v1/objects/Animal/11111111-1111-1111-1111-111111111111"), ref.Href)
+	require.NotNil(t, ref.Classification)
+	assert.Equal(t, int64(3), ref.Classification.WinningCount)
+	assert.Equal(t, int64(1), ref.Classification.LosingCount)
+	assert.Equal(t, int64(4), ref.Classification.OverallCount)
+	assert.InDelta(t, 0.2, ref.Classification.ClosestWinningDistance, 1e-9)
+	require.NotNil(t, ref.Classification.ClosestLosingDistance)
+	assert.InDelta(t, closestLosing, *ref.Classification.ClosestLosingDistance, 1e-9)
+	assert.Equal(t, map[string]interface{}{"name": "Fido"}, ref.Schema)
 }
