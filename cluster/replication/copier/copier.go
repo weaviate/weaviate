@@ -315,25 +315,17 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			}
 		}
 
-		// The name must point inside the shard directory. It must not name the
-		// directory itself: the ".tmp" file would then sit beside the directory,
-		// not in it. The first element of its cleaned form must not be "..",
-		// even if it comes back into the directory, as "../shard/fileA" does. An
-		// honest source never sends such a name. A first element that only
-		// begins with "..", as in "..meta", is a name inside the directory. The
-		// shard directory may not exist yet, so the check reads only the path
-		// text.
-		localFilePath, err := diskio.JoinInRoot(shardBase, meta.FileName)
-		if cleaned := filepath.Clean(meta.FileName); err == nil &&
-			(cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator))) {
-			err = errors.New("it leaves the shard directory")
+		// filepath.IsLocal refuses an empty name and an absolute name. It also
+		// refuses a name whose cleaned form starts with a ".." element, such as
+		// "../shard/fileA", even though that name comes back into the shard
+		// directory. IsLocal accepts a name that cleans to ".". That name is the
+		// shard directory itself, and its ".tmp" file would sit beside the
+		// directory, so the check refuses it too. The check reads only the
+		// name's text, because the shard directory may not exist yet.
+		if !filepath.IsLocal(meta.FileName) || filepath.Clean(meta.FileName) == "." {
+			return fmt.Errorf("file name %q from source node is not a path inside the shard directory", meta.FileName)
 		}
-		if err == nil && localFilePath == shardBase {
-			err = errors.New("it names the shard directory itself")
-		}
-		if err != nil {
-			return fmt.Errorf("file name %q from source node is not a path inside the shard directory: %w", meta.FileName, err)
-		}
+		localFilePath := filepath.Join(shardBase, meta.FileName)
 
 		_, checksum, err := integrity.CRC32(localFilePath)
 		if err != nil {

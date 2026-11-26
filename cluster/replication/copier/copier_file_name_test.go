@@ -13,6 +13,7 @@ package copier_test
 
 import (
 	"context"
+	"fmt"
 	"hash/crc32"
 	"io/fs"
 	"os"
@@ -60,6 +61,7 @@ func TestDownloadWorkerFileName(t *testing.T) {
 		},
 		{name: "dot names the shard directory itself", fileName: "."},
 		{name: "empty name names the shard directory itself", fileName: ""},
+		{name: "nested name that cleans to the shard directory itself", fileName: "nested/.."},
 		{name: "traversal back into the shard directory", fileName: "../shard"},
 		{name: "traversal that leaves and re-enters the shard directory", fileName: "../shard/fileA"},
 		{name: "nested name that leaves and re-enters the shard directory", fileName: "nested/../../shard/fileA"},
@@ -145,6 +147,9 @@ func TestDownloadWorkerFileName(t *testing.T) {
 			require.ElementsMatch(t, wantPaths, gotPaths, "no file or directory may be created for a refused name")
 			mockClient.AssertNotCalled(t, "GetReplicaSnapshotFile", mock.Anything, mock.Anything)
 			require.ErrorContains(t, err, "not a path inside the shard directory")
+			// The error quotes the name the source sent, not the local path.
+			require.ErrorContains(t, err, fmt.Sprintf("%q", tt.fileName))
+			require.NotContains(t, err.Error(), dataRoot)
 		})
 	}
 }
