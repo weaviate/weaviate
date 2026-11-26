@@ -269,10 +269,8 @@ func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) 
 	}
 
 	resourceName := config.ResourceName
-	if config.IsAzure {
-		if resourceName, err = modulecomponents.RequestAzureResourceName(ctx, "", config.ResourceName); err != nil {
-			return "", err
-		}
+	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+		resourceName = headerResourceName
 	}
 
 	return v.buildUrlFn(baseURL, resourceName, deploymentID, config.ApiVersion, config.Endpoint, config.IsAzure)

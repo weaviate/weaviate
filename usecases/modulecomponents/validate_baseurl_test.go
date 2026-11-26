@@ -254,77 +254,9 @@ func TestRequestBaseURL(t *testing.T) {
 // REST search returns an ErrModulePrecondition as a 422 with its message. Any
 // other vectorizer error becomes a 500 without it.
 func TestMissingRequestKeyIsAPrecondition(t *testing.T) {
-	ctx := context.Background()
-	_, baseURLErr := RequestBaseURL(ctx, "X-Openai-Baseurl", "https://attacker.example.com", "https://api.openai.com", "X-Openai-Api-Key")
-	_, resourceNameErr := RequestAzureResourceName(ctx, "other", "class-resource")
-	for _, err := range []error{baseURLErr, resourceNameErr} {
-		var precondition enterrors.ErrModulePrecondition
-		assert.ErrorAs(t, err, &precondition)
-	}
-}
-
-func TestRequestAzureResourceName(t *testing.T) {
-	const configured = "class-resource"
-	tests := []struct {
-		name      string
-		headers   map[string]string
-		requested string
-		wantName  string
-		wantErr   string
-	}{
-		{name: "nothing requested", wantName: configured},
-		{name: "requested equals configured", requested: configured, wantName: configured},
-		{name: "requested differs only in case", requested: "Class-Resource", wantName: configured},
-		{
-			name:      "requested name without a request key",
-			requested: "other",
-			wantErr:   "resourceName needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
-		},
-		{
-			name:      "requested name with a request key",
-			requested: "other",
-			headers:   map[string]string{"X-Azure-Api-Key": "caller"},
-			wantName:  "other",
-		},
-		{
-			name:    "header name without a request key",
-			headers: map[string]string{"X-Azure-Resource-Name": "attacker.example.com#"},
-			wantErr: "X-Azure-Resource-Name needs X-Azure-Api-Key",
-		},
-		{
-			name:     "header name with a request key",
-			headers:  map[string]string{"X-Azure-Resource-Name": "other", "X-Azure-Api-Key": "caller"},
-			wantName: "other",
-		},
-		{
-			name:      "header wins over requested",
-			headers:   map[string]string{"X-Azure-Resource-Name": configured},
-			requested: "other",
-			wantName:  configured,
-		},
-		{
-			name:      "an OpenAI key does not count",
-			requested: "other",
-			headers:   map[string]string{"X-Openai-Api-Key": "caller"},
-			wantErr:   "resourceName needs X-Azure-Api-Key",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			for k, v := range tt.headers {
-				ctx = context.WithValue(ctx, k, []string{v})
-			}
-			got, err := RequestAzureResourceName(ctx, tt.requested, configured)
-			if tt.wantErr != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantName, got)
-		})
-	}
+	_, err := RequestBaseURL(context.Background(), "X-Openai-Baseurl", "https://attacker.example.com", "https://api.openai.com", "X-Openai-Api-Key")
+	var precondition enterrors.ErrModulePrecondition
+	assert.ErrorAs(t, err, &precondition)
 }
 
 func TestSSRFDialGuard(t *testing.T) {

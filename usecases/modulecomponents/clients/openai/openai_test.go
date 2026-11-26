@@ -396,7 +396,6 @@ func TestClient(t *testing.T) {
 			"X-Azure-Deployment-Id", []string{"spoofDeployment"})
 		ctxWithValue = context.WithValue(ctxWithValue,
 			"X-Azure-Resource-Name", []string{"spoofResource"})
-		ctxWithValue = context.WithValue(ctxWithValue, "X-Azure-Api-Key", []string{"callerKey"})
 
 		buildURL, err := c.buildURL(ctxWithValue, config)
 		require.NoError(t, err)

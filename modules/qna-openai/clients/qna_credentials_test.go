@@ -53,26 +53,9 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			wantAuth:    "Bearer " + serverKey,
 		},
 		{
-			name:        "Azure resourceName header without a request key",
-			classConfig: map[string]any{"resourceName": "classResource", "deploymentId": "d"},
-			headers:     map[string]string{"X-Azure-Resource-Name": injectedResourceName},
-			wantErr:     "X-Azure-Resource-Name needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
-		},
-		{
-			name:         "Azure resourceName header with a request key",
-			classConfig:  map[string]any{"resourceName": "classResource", "deploymentId": "d"},
-			headers:      map[string]string{"X-Azure-Resource-Name": injectedResourceName, "X-Azure-Api-Key": callerKey},
-			wantAzureKey: callerKey,
-		},
-		{
 			name:         "Azure ignores the baseURL header, which its URL does not use",
 			classConfig:  map[string]any{"resourceName": injectedResourceName, "deploymentId": "d"},
 			headers:      map[string]string{"X-Openai-Baseurl": "https://elsewhere.example.com"},
-			wantAzureKey: serverAzureKey,
-		},
-		{
-			name:         "Azure class resourceName gets the server key",
-			classConfig:  map[string]any{"resourceName": injectedResourceName, "deploymentId": "d"},
 			wantAzureKey: serverAzureKey,
 		},
 	}

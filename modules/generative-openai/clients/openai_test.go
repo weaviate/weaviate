@@ -182,7 +182,6 @@ func TestGetAnswer(t *testing.T) {
 			"X-Azure-Deployment-Id", []string{"headerDeploymentId"})
 		ctxWithValue = context.WithValue(ctxWithValue,
 			"X-Azure-Resource-Name", []string{"headerResourceName"})
-		ctxWithValue = context.WithValue(ctxWithValue, "X-Azure-Api-Key", []string{"callerKey"})
 
 		buildURL, _, err := c.buildOpenAIUrl(ctxWithValue, params, settings)
 		require.NoError(t, err)

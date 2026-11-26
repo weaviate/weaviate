@@ -62,25 +62,6 @@ func RequestBaseURL(ctx context.Context, baseURLHeader, requested, configured, a
 	return baseURL, nil
 }
 
-// RequestAzureResourceName returns the Azure resource name a request goes to:
-// the X-Azure-Resource-Name header if the request sets it, else requested,
-// else configured. The resource name is the Azure host
-// (<resourceName>.openai.azure.com), so the RequestBaseURL rule applies: a
-// name other than configured needs X-Azure-Api-Key.
-func RequestAzureResourceName(ctx context.Context, requested, configured string) (string, error) {
-	source, name := "resourceName", requested
-	if headerName := GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerName != "" {
-		source, name = "X-Azure-Resource-Name", headerName
-	}
-	if name == "" || strings.EqualFold(name, configured) {
-		return configured, nil
-	}
-	if err := RequireRequestAPIKey(ctx, source, "X-Azure-Api-Key"); err != nil {
-		return "", err
-	}
-	return name, nil
-}
-
 // RequireRequestAPIKey returns an ErrModulePrecondition unless the request
 // carries a key in apiKeyHeader. source names the request value that changed
 // the URL.

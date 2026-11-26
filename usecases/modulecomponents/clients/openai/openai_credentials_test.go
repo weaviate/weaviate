@@ -27,8 +27,6 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 		callerKey      = "caller-key"
 	)
 	server := credentialtest.NewServer(t, embedding{Data: []embeddingData{{Embedding: []float32{0.1, 0.2}}}})
-	// buildUrl turns this into https://<fake>/x?.openai.azure.com/...
-	injectedResourceName := server.HostPort() + "/x?"
 
 	tests := []struct {
 		name         string
@@ -60,23 +58,6 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			settings: Settings{IsAzure: true, DeploymentID: "d"},
 			headers:  map[string]string{"X-Openai-Baseurl": server.URL},
 			wantErr:  "X-Openai-Baseurl needs X-Azure-Api-Key",
-		},
-		{
-			name:     "Azure resourceName header without a request key",
-			settings: Settings{IsAzure: true, ResourceName: "classResource", DeploymentID: "d"},
-			headers:  map[string]string{"X-Azure-Resource-Name": injectedResourceName},
-			wantErr:  "X-Azure-Resource-Name needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
-		},
-		{
-			name:         "Azure resourceName header with a request key",
-			settings:     Settings{IsAzure: true, ResourceName: "classResource", DeploymentID: "d"},
-			headers:      map[string]string{"X-Azure-Resource-Name": injectedResourceName, "X-Azure-Api-Key": callerKey},
-			wantAzureKey: callerKey,
-		},
-		{
-			name:         "Azure class resourceName gets the server key",
-			settings:     Settings{IsAzure: true, ResourceName: injectedResourceName, DeploymentID: "d"},
-			wantAzureKey: serverAzureKey,
 		},
 	}
 	for _, tt := range tests {

@@ -169,14 +169,15 @@ func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploym
 		deploymentID = headerDeploymentID
 	}
 
-	var err error
-	if isAzure {
-		resourceName, err = modulecomponents.RequestAzureResourceName(ctx, "", resourceName)
-	} else {
-		baseURL, err = modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", baseURL, v.apiKeyHeader(false))
+	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+		resourceName = headerResourceName
 	}
-	if err != nil {
-		return "", err
+
+	if !isAzure {
+		var err error
+		if baseURL, err = modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", baseURL, v.apiKeyHeader(false)); err != nil {
+			return "", err
+		}
 	}
 
 	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)

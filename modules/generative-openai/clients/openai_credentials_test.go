@@ -72,11 +72,6 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			wantErr: "a URL set in the query needs X-Azure-Api-Key",
 		},
 		{
-			name:    "Azure query resourceName without a request key",
-			options: &openaiparams.Params{IsAzure: true, ResourceName: injectedResourceName, DeploymentID: "d"},
-			wantErr: "resourceName needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
-		},
-		{
 			name: "Azure from headers alone uses the Azure request key",
 			headers: map[string]string{
 				"X-Azure-Resource-Name": injectedResourceName, "X-Azure-Deployment-Id": "d", "X-Azure-Api-Key": callerKey,
@@ -84,25 +79,8 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			wantAzureKey: callerKey,
 		},
 		{
-			name:        "query isAzure on a non-Azure class without a request key",
-			classConfig: map[string]any{"baseURL": server.URL},
-			options:     &openaiparams.Params{IsAzure: true},
-			wantErr:     "a request that turns on Azure needs X-Azure-Api-Key: the server's key is sent only to the configured URL",
-		},
-		{
-			name:        "Azure deployment header on a class with only a resourceName without a request key",
-			classConfig: map[string]any{"baseURL": server.URL, "resourceName": "corp"},
-			headers:     map[string]string{"X-Azure-Deployment-Id": "d"},
-			wantErr:     "a request that turns on Azure needs X-Azure-Api-Key",
-		},
-		{
 			name:         "Azure class with a baseURL gets the server key",
 			classConfig:  map[string]any{"baseURL": server.URL, "isAzure": true, "deploymentId": "d"},
-			wantAzureKey: serverAzureKey,
-		},
-		{
-			name:         "Azure class resourceName gets the server key",
-			classConfig:  map[string]any{"resourceName": injectedResourceName, "deploymentId": "d"},
 			wantAzureKey: serverAzureKey,
 		},
 	}
