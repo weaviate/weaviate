@@ -33,6 +33,7 @@ import (
 
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
@@ -52,7 +53,7 @@ func TestRestoreRefusesCraftedTopLevelEntries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithBackendFilesystem().WithWeaviate().Start(ctx)
+	compose, err := docker.New().WithBackendFilesystem().WithWeaviateWithGRPC().Start(ctx)
 	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -121,6 +122,7 @@ func TestRestoreRefusesCraftedTopLevelEntries(t *testing.T) {
 	require.NoError(t, compose.StopAt(ctx, 0, nil))
 	require.NoError(t, compose.StartAt(ctx, 0))
 	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 	container = compose.GetWeaviate().Container()
 	requireNodeHealthy(t)
 	after, _ = readFile(ctx, t, container, dataRoot+"/classifications.db")
@@ -130,6 +132,9 @@ func TestRestoreRefusesCraftedTopLevelEntries(t *testing.T) {
 	require.NoError(t, err)
 	helper.ExpectBackupEventuallyRestored(t, cleanID, backend, nil)
 	require.EqualValues(t, numObjects, moduleshelper.GetClassCount(t, className, ""))
+	resp, err := helper.ClientGRPC(t).Aggregate(ctx, &pb.AggregateRequest{Collection: className, ObjectsCount: true})
+	require.NoError(t, err)
+	require.EqualValues(t, numObjects, resp.GetSingleResult().GetObjectsCount())
 }
 
 func craftChunk(ctx context.Context, t *testing.T, c testcontainers.Container, backupID string) {
