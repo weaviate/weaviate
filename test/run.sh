@@ -71,6 +71,7 @@ function main() {
   run_acceptance_drop_vector_index_async_indexing_group1=false
   run_acceptance_drop_vector_index_async_indexing_group2=false
   run_acceptance_backups=false
+  run_acceptance_backup_crafted_archive=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -142,6 +143,7 @@ function main() {
           --acceptance-drop-vector-index-async-indexing-group1|-advia1) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group1=true;;
           --acceptance-drop-vector-index-async-indexing-group2|-advia2) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group2=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
+          --acceptance-backup-crafted-archive|-abca) run_all_tests=false; run_acceptance_backup_crafted_archive=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -198,6 +200,7 @@ function main() {
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
               "--acceptance-backups | -ab"\
+              "--acceptance-backup-crafted-archive | -abca"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -508,6 +511,11 @@ function main() {
     echo "running backup/restore acceptance tests"
     run_acceptance_backups
   fi
+
+  if $run_acceptance_backup_crafted_archive; then
+    echo "running crafted backup archive acceptance tests"
+    run_acceptance_backup_crafted_archive
+  fi
   echo "Done!"
 }
 
@@ -710,6 +718,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_blockmax_ageout' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/backups' \
+    | grep -v 'test/acceptance/backup_crafted_archive' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
@@ -779,7 +788,7 @@ function get_aof_group() {
     2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
     3) echo "test/acceptance/grpc" ;;
     4) echo "test/acceptance/alter_schema test/acceptance/namespace test/acceptance/namespace_limits test/acceptance/vector_index_restrictions" ;;
-    6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups" ;;
+    6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups test/acceptance/backup_crafted_archive" ;;
     *) echo "" ;;
   esac
 }
@@ -1213,6 +1222,13 @@ function run_acceptance_backups() {
   echo_green "acceptance — backups"
   run_aof_group "backups" \
     test/acceptance/backups
+}
+
+function run_acceptance_backup_crafted_archive() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-crafted-archive"
+  run_aof_group "backup-crafted-archive" \
+    test/acceptance/backup_crafted_archive
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
