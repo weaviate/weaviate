@@ -337,12 +337,12 @@ func TestTransferSnapshotControlWithoutWindow(t *testing.T) {
 						requireAllSearchable(t, restored, objs, len(objs))
 						return
 					}
-					found := 0
-					for _, o := range objs {
-						if vectorStateOf(t, restored, o.ID(), o.Vector, 10).inSearch {
-							found++
-						}
-					}
+					// Right after the load HFresh can search nothing in a
+					// posting whose analysis had not run before the snapshot
+					// (TestHFreshSearchesRightAfterReopen pins it): the
+					// control gives the replay the load starts its time, so
+					// that it does not fail on that gap one run in five.
+					_, found := foundOverTime(t, restored, objs, 10, 30*time.Second)
 					require.GreaterOrEqualf(t, found, len(objs)*95/100, "%d of %d found by vector search", found, len(objs))
 				})
 			}
