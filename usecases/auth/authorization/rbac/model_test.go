@@ -1194,3 +1194,42 @@ func TestEnforce_UncompilablePolicyMatchesNothing(t *testing.T) {
 		})
 	}
 }
+
+func TestCovers(t *testing.T) {
+	tests := []struct {
+		name          string
+		policy        string
+		pattern       string
+		colonEndsName bool
+		want          bool
+	}{
+		{name: "wildcard covers a prefix", policy: "users/.*", pattern: "users/a.*", want: true},
+		{name: "prefix covers a longer prefix", policy: "users/a.*", pattern: "users/ab.*", want: true},
+		{name: "prefix covers a dotted name", policy: "users/.*@x.com", pattern: "users/john.doe@x.com", want: true},
+		{name: "bare star covers anything", policy: "*", pattern: "users/.*", want: true},
+		{name: "slash star is a wildcard", policy: "users/*", pattern: "users/a.*", want: true},
+		{name: "one-or-more covers a whole-name wildcard", policy: "users/..*", pattern: "users/.*", want: true},
+		{name: "one-or-more does not cover a wildcard after a prefix", policy: "users/a..*", pattern: "users/a.*", want: false},
+		{name: "fixed length does not cover a wildcard", policy: "users/a..", pattern: "users/a.*", want: false},
+		{name: "a dot does not cover a wildcard", policy: "users/.*.com", pattern: "users/.*com", want: false},
+		{name: "a literal does not cover a dot", policy: "users/john_doe", pattern: "users/john.doe", want: false},
+		{name: "a negated class covers no pattern", policy: "users/([^a].*)", pattern: "users/.*", want: false},
+		{name: "an alternation covers no pattern", policy: "users/(a..|a)", pattern: "users/a.*", want: false},
+		{name: "a bounded pattern covers no wildcard", policy: "users/a.?.?", pattern: "users/a.*", want: false},
+		{name: "an escaped dot covers no dot", policy: `users/john\.doe`, pattern: "users/john.doe", want: false},
+		{name: "a namespace class covers a namespace", policy: "schema/collections/[^/:]+:Movies/shards/#", pattern: "schema/collections/customer1:Movies/shards/#", want: true},
+		{name: "a namespace class covers no wildcard", policy: "schema/collections/[^/:]+:.*/shards/#", pattern: "schema/collections/.*/shards/#", want: false},
+		{name: "a namespace class covers no dot", policy: "schema/collections/[^/:]+:Movies/shards/#", pattern: "schema/collections/a.:Movies/shards/#", want: false},
+		{name: "a name after a namespace is not empty", policy: "users/customer1:..*", pattern: "users/customer1:.*", colonEndsName: true, want: true},
+		{name: "an opaque ID can end in a colon", policy: "users/a:..*", pattern: "users/a:.*", want: false},
+		{name: "a tenant policy does not cover the collection", policy: "schema/collections/Movies/shards/.*", pattern: "schema/collections/Movies/shards/#", want: false},
+		{name: "one-or-more covers a wildcard with a fixed suffix", policy: "users/..*", pattern: "users/.*@x.com", want: true},
+		{name: "plus reads as one-or-more", policy: "users/.+", pattern: "users/.*@x.com", want: true},
+		{name: "a two-character minimum does not cover a one-character name", policy: "users/.*..", pattern: "users/a.*", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, weaviateKeyMatch(coverRequest(tt.pattern, tt.colonEndsName), tt.policy))
+		})
+	}
+}

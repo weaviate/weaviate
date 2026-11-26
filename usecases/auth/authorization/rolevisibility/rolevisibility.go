@@ -15,10 +15,11 @@
 package rolevisibility
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"regexp/syntax"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -131,53 +132,13 @@ func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer,
 	return errs
 }
 
-// authorizeResource returns an error unless the caller holds verb on resource.
-// A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*",
-// and the result must also pass with each name at its shortest. A wildcard passes
-// all of these, and so can a pattern that excludes names, such as "[^a]*".
+// authorizeResource returns an error unless one permission the caller holds
+// matches every name resource matches. A segment with regex syntax beyond '.'
+// and '*' is checked as ".*", which matches more. A ':' ends a name only when
+// namespaces are enabled, and never in group IDs, which are not namespaced.
 func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, namespacesEnabled bool, principal *models.Principal, verb, resource string) error {
-	wildcard := regexSegmentsToWildcard(resource)
-	// A caller pattern such as ".." matches the text ".*" without holding
-	// every name, so the stored text must pass as well.
-	if wildcard != resource {
-		if err := authorizePolicy(ctx, authorizer, principal, verb, resource); err != nil {
-			return err
-		}
-	}
-	if err := authorizePolicy(ctx, authorizer, principal, verb, wildcard); err != nil {
-		return err
-	}
-	// A caller pattern such as "a.." matches the text "a.*" but not "a".
-	if shortest := shortestNames(wildcard, namespacesEnabled); shortest != wildcard {
-		return authorizePolicy(ctx, authorizer, principal, verb, shortest)
-	}
-	return nil
-}
-
-// shortestNames drops each ".*" from resource and turns each other '.' into
-// "X", leaving "X" where a name would be empty, since none is. Names end at
-// '/', and at the ':' after a namespace only when namespaces are enabled.
-// Otherwise, and always in group IDs, which are never namespaced, ':' is part
-// of an opaque ID.
-func shortestNames(resource string, namespacesEnabled bool) string {
-	if !strings.Contains(resource, ".") {
-		return resource
-	}
 	colonEndsName := namespacesEnabled && !strings.HasPrefix(resource, authorization.GroupsDomain+"/")
-	segments := strings.Split(resource, "/")
-	for i, segment := range segments {
-		parts := []string{segment}
-		if colonEndsName {
-			parts = strings.Split(segment, ":")
-		}
-		for j, part := range parts {
-			if short := strings.ReplaceAll(strings.ReplaceAll(part, ".*", ""), ".", "X"); short != part {
-				parts[j] = cmp.Or(short, "X")
-			}
-		}
-		segments[i] = strings.Join(parts, ":")
-	}
-	return strings.Join(segments, "/")
+	return authorizePolicy(authorization.WithCover(ctx, colonEndsName), authorizer, principal, verb, regexSegmentsToWildcard(resource))
 }
 
 // regexSyntax lists the regex characters a stored pattern can carry besides
@@ -191,6 +152,11 @@ func regexSegmentsToWildcard(resource string) string {
 	if !strings.ContainsAny(resource, regexSyntax) {
 		return resource
 	}
+	// A '|' outside parentheses, as in rows stored before conv grouped them,
+	// splits the whole resource, so it can reach any domain.
+	if topLevelAlternation(resource) {
+		return "*"
+	}
 	segments := strings.Split(resource, "/")
 	for i, segment := range segments {
 		if !strings.ContainsAny(segment, regexSyntax) {
@@ -200,14 +166,26 @@ func regexSegmentsToWildcard(resource string) string {
 		if strings.ContainsAny(ns, regexSyntax) {
 			ns = ""
 		}
-		// "a:?b" also matches "ab": the ':' is optional, the "a" is not.
+		// "a:?b" also matches "ab", which a namespace-bearing domain may read as
+		// another namespace's "b", so nothing of it is kept.
 		if ns != "" && strings.HasPrefix(segment[len(ns)+1:], "?") {
-			segments[i] = ns + ".*"
-			continue
+			ns = ""
 		}
 		segments[i] = namespacing.QualifiedName(ns, ".*")
 	}
 	return strings.Join(segments, "/")
+}
+
+// keyMatch5Param is the placeholder KeyMatch5 rewrites to "[^/]+" in a policy.
+var keyMatch5Param = regexp.MustCompile(`\{[^/]+\}`)
+
+// topLevelAlternation reports whether resource, read the way KeyMatch5 reads a
+// policy, splits into whole alternative resources. A pattern that does not
+// parse counts too.
+func topLevelAlternation(resource string) bool {
+	policy := keyMatch5Param.ReplaceAllString(strings.ReplaceAll(resource, "/*", "/.*"), "[^/]+")
+	re, err := syntax.Parse(policy, syntax.Perl)
+	return err != nil || re.Op == syntax.OpAlternate
 }
 
 // authorizePolicy checks each verb of the policy on its own. A denied verb of a

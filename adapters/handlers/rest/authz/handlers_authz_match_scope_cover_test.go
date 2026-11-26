@@ -50,6 +50,8 @@ func TestMatchScopeGrantsReachingPastHeld(t *testing.T) {
 				matchRoles(authorization.UpdateRoles, "*"),
 				users(authorization.ReadUsers, "a*"),
 				users(authorization.UpdateUsers, "a.."),
+				users(authorization.UpdateUsers, "a"),
+				users(authorization.DeleteUsers, "[^a]*"),
 				users(authorization.AssignAndRevokeUsers, "*"),
 			}},
 			&models.Role{Name: String("a-updaters"), Permissions: []*models.Permission{users(authorization.UpdateUsers, "a*")}},
@@ -68,7 +70,10 @@ func TestMatchScopeGrantsReachingPastHeld(t *testing.T) {
 		forbidden bool
 	}{
 		{name: "an optional letter reaches every user", perm: users(authorization.ReadUsers, "a?*"), forbidden: true},
-		{name: "a wildcard reaches past a fixed number of letters", perm: users(authorization.UpdateUsers, "a*"), forbidden: true},
+		{name: "a wildcard reaches past a fixed number of letters, even with the prefix held", perm: users(authorization.UpdateUsers, "a*"), forbidden: true},
+		{name: "a held negated class covers no alternation", perm: users(authorization.DeleteUsers, "eu|admin"), forbidden: true},
+		{name: "a held negated class covers no wildcard", perm: users(authorization.DeleteUsers, "*"), forbidden: true},
+		{name: "a held negated class covers a name it matches", perm: users(authorization.DeleteUsers, "bob")},
 		{name: "a negated class reaches past a prefix", perm: users(authorization.ReadUsers, "[^b]*"), forbidden: true},
 		{name: "a narrower prefix", perm: users(authorization.ReadUsers, "ab*")},
 		{name: "a name of the held length", perm: users(authorization.UpdateUsers, "abc")},

@@ -404,6 +404,7 @@ func operatorOnlyResource(path string) bool {
 // nothing. KeyMatch5 panics on it, which casbin turns into an error failing
 // the whole Enforce call.
 func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
+	reqObj, cover, colonEndsName := cutCover(reqObj)
 	if strings.HasSuffix(reqObj, collectionShardSuffix) && tenantLevelPolicy(polObj) {
 		return false
 	}
@@ -418,6 +419,10 @@ func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
 			matched = false
 		}
 	}()
+	// A granted pattern without '.' or '*' is a single name, matched as one.
+	if cover && strings.ContainsAny(reqObj, ".*") {
+		return covers(polObj, reqObj, colonEndsName)
+	}
 	return casbinutil.KeyMatch5(reqObj, polObj)
 }
 
@@ -433,6 +438,118 @@ func tenantLevelPolicy(polObj string) bool {
 	}
 	i := strings.LastIndex(polObj, namespacing.ShardsMidSeg)
 	return i >= 0 && polObj[i+len(namespacing.ShardsMidSeg):] != "#"
+}
+
+// Cover suffixes mark a request for a granted pattern (authorization.WithCover).
+// authorize denies any resource that already holds a NUL.
+const (
+	coverSuffix          = "\x00cover"
+	coverNamespaceSuffix = "\x00coverns"
+)
+
+func coverRequest(pattern string, colonEndsName bool) string {
+	if colonEndsName {
+		return pattern + coverNamespaceSuffix
+	}
+	return pattern + coverSuffix
+}
+
+func cutCover(reqObj string) (pattern string, cover, colonEndsName bool) {
+	if pattern, ok := strings.CutSuffix(reqObj, coverNamespaceSuffix); ok {
+		return pattern, true, true
+	}
+	pattern, cover = strings.CutSuffix(reqObj, coverSuffix)
+	return pattern, cover, false
+}
+
+// covers reports whether policy matches every resource pattern matches, where
+// no name is empty (see authorization.WithCover). The pattern may hold only
+// literals, '.' and ".*"; the policy may also hold the namespace class
+// anyNamespacePattern adds, and a bare "*" matches anything. Anything else does
+// not cover, whatever it would match.
+func covers(policy, pattern string, colonEndsName bool) bool {
+	if policy == "*" || policy == pattern {
+		return true
+	}
+	// KeyMatch5 reads "/*" in a policy as "/.*", and the pattern is one.
+	g, ok := coverTokens(strings.ReplaceAll(pattern, "/*", "/.*"), false, colonEndsName)
+	if !ok {
+		return false
+	}
+	h, ok := coverTokens(strings.ReplaceAll(policy, "/*", "/.*"), true, false)
+	if !ok {
+		return false
+	}
+	// next[j] holds for g[i+1:] and cur[j] for g[i:]: is it covered by h[j:]?
+	next, cur := make([]bool, len(h)+1), make([]bool, len(h)+1)
+	for i := len(g); i >= 0; i-- {
+		cur[len(h)] = i == len(g)
+		for j := len(h) - 1; j >= 0; j-- {
+			more := i < len(g)
+			switch h[j].kind {
+			case tokenAnyString:
+				cur[j] = cur[j+1] || (more && next[j])
+			case tokenNamespace:
+				cur[j] = more && g[i].kind == tokenLiteral && g[i].c != '/' && g[i].c != ':' && (next[j+1] || next[j])
+			case tokenAnyChar:
+				if more && g[i].kind == tokenAnyString {
+					// The pattern's ".*" is either empty or starts with the one character.
+					cur[j] = next[j] && cur[j+1]
+				} else {
+					cur[j] = more && next[j+1]
+				}
+			default:
+				cur[j] = more && g[i] == h[j] && next[j+1]
+			}
+		}
+		next, cur = cur, next
+	}
+	return next[0]
+}
+
+type coverToken struct {
+	kind byte
+	c    byte
+}
+
+const (
+	tokenLiteral byte = iota
+	tokenAnyChar
+	tokenAnyString
+	tokenNamespace
+)
+
+// namespaceClass is anyNamespacePattern without its ':'.
+var namespaceClass = strings.TrimSuffix(anyNamespacePattern, schema.NamespaceSeparator)
+
+// coverTokens splits s for covers. In a pattern, a name that is only ".*" is
+// read as "..*", since no name is empty.
+func coverTokens(s string, policy, colonEndsName bool) ([]coverToken, bool) {
+	ends := func(c byte) bool { return c == '/' || (colonEndsName && c == ':') }
+	tokens := make([]coverToken, 0, len(s)+1)
+	for i := 0; i < len(s); i++ {
+		switch {
+		case policy && strings.HasPrefix(s[i:], namespaceClass):
+			tokens = append(tokens, coverToken{kind: tokenNamespace})
+			i += len(namespaceClass) - 1
+		case policy && strings.HasPrefix(s[i:], ".+"):
+			tokens = append(tokens, coverToken{kind: tokenAnyChar}, coverToken{kind: tokenAnyString})
+			i++
+		case strings.HasPrefix(s[i:], ".*"):
+			if !policy && i > 0 && ends(s[i-1]) && (i+2 == len(s) || ends(s[i+2])) {
+				tokens = append(tokens, coverToken{kind: tokenAnyChar})
+			}
+			tokens = append(tokens, coverToken{kind: tokenAnyString})
+			i++
+		case s[i] == '.':
+			tokens = append(tokens, coverToken{kind: tokenAnyChar})
+		case strings.IndexByte(`\+?()[]{}|^$*`, s[i]) >= 0:
+			return nil, false
+		default:
+			tokens = append(tokens, coverToken{kind: tokenLiteral, c: s[i]})
+		}
+	}
+	return tokens, true
 }
 
 // namespaceAwareMatcher reports whether policy resource pattern polObj
