@@ -62,7 +62,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	if m.config.Config.Namespaces.Enabled {
+	if m.config.Config.Namespaces.Enabled || m.config.Config.DisableObjectsListWithoutClass.Get() {
 		return nil, NewErrEndpointGone("listing objects without a class is not supported; specify the ?class= query parameter")
 	}
 

@@ -56,7 +56,7 @@ func TestAuthzViewerEndpoints(t *testing.T) {
 		{endpoint: "classifications/id", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
 		{endpoint: "cluster/statistics", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
 		{endpoint: "graphql", methods: []string{"POST"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "objects", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "objects", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"class\": \"c\"}")}},
 		{endpoint: "objects/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
 		{endpoint: "objects/RandomClass/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
 		{endpoint: "objects/" + UUID1.String() + "/references/prop", methods: []string{"DELETE", "POST"}, success: []bool{false, false}, arrayReq: false},

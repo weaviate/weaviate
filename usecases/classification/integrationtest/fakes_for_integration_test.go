@@ -514,12 +514,6 @@ func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
 	return "", nil
 }
 
-func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string, schemaVersion uint64,
-) error {
-	return nil
-}
-
 func (f *fakeRemoteClient) DigestObjects(ctx context.Context,
 	hostName, indexName, shardName string, ids []strfmt.UUID,
 ) (result []types.RepairResponse, err error) {

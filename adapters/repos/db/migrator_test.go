@@ -54,7 +54,6 @@ func TestUpdateIndexTenants(t *testing.T) {
 		originalStatus string
 		incomingStatus string
 		expectedStatus storagestate.Status
-		getClass       bool
 	}{
 		{
 			name:           "when tenant is marked as COLD in incoming state while being HOT in original index",
@@ -67,7 +66,6 @@ func TestUpdateIndexTenants(t *testing.T) {
 			originalStatus: models.TenantActivityStatusCOLD,
 			incomingStatus: models.TenantActivityStatusHOT,
 			expectedStatus: storagestate.StatusReady,
-			getClass:       true,
 		},
 	}
 
@@ -82,9 +80,8 @@ func TestUpdateIndexTenants(t *testing.T) {
 					Enabled: true,
 				},
 			}
-			if tt.getClass {
-				mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class)
-			}
+			// every shard load reads the class
+			mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class)
 			logger := logrus.New()
 			scheduler := queue.NewScheduler(queue.SchedulerOptions{
 				Logger:  logger,

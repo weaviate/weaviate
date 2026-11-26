@@ -216,6 +216,57 @@ func TestDisableGraphQLRuntimeOverride(t *testing.T) {
 	})
 }
 
+// The env var sets the default, the overrides file changes it through the
+// registered config, and removing the key restores the env value.
+func TestDisableEndpointsWithoutClassConfig(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	flags := []struct {
+		env   string
+		key   string
+		value func(Config) *runtime.DynamicValue[bool]
+	}{
+		{
+			env: "DISABLE_OBJECT_ID_ENDPOINTS_WITHOUT_CLASS", key: "disable_object_id_endpoints_without_class",
+			value: func(c Config) *runtime.DynamicValue[bool] { return c.DisableObjectIDEndpointsWithoutClass },
+		},
+		{
+			env: "DISABLE_OBJECTS_LIST_WITHOUT_CLASS", key: "disable_objects_list_without_class",
+			value: func(c Config) *runtime.DynamicValue[bool] { return c.DisableObjectsListWithoutClass },
+		},
+		{
+			env: "DISABLE_MULTI_TARGET_REFERENCES_WITHOUT_CLASS", key: "disable_multi_target_references_without_class",
+			value: func(c Config) *runtime.DynamicValue[bool] { return c.DisableMultiTargetReferencesWithoutClass },
+		},
+	}
+	for _, f := range flags {
+		for _, envSet := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s=%t", f.env, envSet), func(t *testing.T) {
+				if envSet {
+					t.Setenv(f.env, "true")
+				}
+				conf := Config{}
+				require.NoError(t, FromEnv(&conf))
+				require.Equal(t, envSet, f.value(conf).Get())
+
+				registered := BuildRegisteredRuntimeConfig(&conf)
+				apply := func(overrides string) {
+					parsed, err := ParseRuntimeConfig([]byte(overrides))
+					require.NoError(t, err)
+					require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
+				}
+
+				apply(fmt.Sprintf("%s: %t", f.key, !envSet))
+				assert.Equal(t, !envSet, f.value(conf).Get())
+
+				apply("")
+				assert.Equal(t, envSet, f.value(conf).Get())
+			})
+		}
+	}
+}
+
 func TestBackupMaxIndividualFilesRuntimeOverride(t *testing.T) {
 	// ParseRuntimeConfig ignores unknown keys, so only an explicit assertion catches a
 	// renamed or misspelled yaml tag.
