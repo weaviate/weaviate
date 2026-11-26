@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1077,6 +1078,201 @@ func TestFileWriter_Write_StripRenamesInnerIndexDir(t *testing.T) {
 	_, err = os.Stat(filepath.Join(tempDir, TempDirectory, "Foo", "ns1:foo"))
 	require.True(t, os.IsNotExist(err),
 		"source-indexID dir must not survive the strip rename")
+}
+
+func tarOfEntries(t *testing.T, entries ...string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, name := range entries {
+		if strings.HasSuffix(name, "/") {
+			require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeDir, Mode: 0o755}))
+			continue
+		}
+		body := []byte("evil")
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body))}))
+		_, err := tw.Write(body)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	return buf.Bytes()
+}
+
+func TestFileWriter_Write_RefusesForeignTopLevelEntries(t *testing.T) {
+	tests := []struct {
+		name         string
+		descName     string
+		materialized string
+		entries      []string
+		baseEntries  []string
+		wantErr      string
+		wantStaged   string
+	}{
+		{name: "only index dir", descName: "Movies", materialized: "Movies", entries: []string{"movies/s1/seg.db"}, wantStaged: "movies/s1/seg.db"},
+		{name: "root file", descName: "Movies", materialized: "Movies", entries: []string{"classifications.db"}, wantErr: "classifications.db"},
+		{name: "other class dir", descName: "Movies", materialized: "Movies", entries: []string{"otherclass/x"}, wantErr: "otherclass"},
+		{name: "index name as regular file", descName: "Movies", materialized: "Movies", entries: []string{"movies"}, wantErr: "movies"},
+		{name: "case variant", descName: "Movies", materialized: "Movies", entries: []string{"Movies/x"}, wantErr: "Movies"},
+		{name: "index dir plus root file", descName: "Movies", materialized: "Movies", entries: []string{"movies/s1/seg.db", "classifications.db"}, wantErr: "classifications.db"},
+		{name: "strip", descName: "ns1:Foo", materialized: "Foo", entries: []string{"ns1:foo/s1/seg.db"}, wantStaged: "foo/s1/seg.db"},
+		{name: "strip plus root file", descName: "ns1:Foo", materialized: "Foo", entries: []string{"ns1:foo/s1/seg.db", "evil.db"}, wantErr: "evil.db"},
+		{name: "root file from base backup", descName: "Movies", materialized: "Movies", entries: []string{"movies/s1/seg.db"}, baseEntries: []string{"classifications.db"}, wantErr: "classifications.db"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			served := map[string][]byte{"cur/n1/" + chunkKey(tc.descName, 0): tarOfEntries(t, tc.entries...)}
+			shard := &backup.ShardDescriptor{Name: "s1", Node: "n1"}
+			if tc.baseEntries != nil {
+				baseKey := chunkKey(tc.descName, 9)
+				served["base/n1/"+baseKey] = tarOfEntries(t, tc.baseEntries...)
+				shard.IncrementalBackupInfo.FilesPerBackup = map[string][]backup.IncrementalBackupInfo{
+					"base": {{File: "x", ChunkKeys: []string{baseKey}}},
+				}
+			}
+
+			mockBackend := modulecapabilities.NewMockBackupBackend(t)
+			mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+			mockBackend.EXPECT().
+				Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, backupID, key, _, _ string, w io.WriteCloser) (int64, error) {
+					defer w.Close()
+					data, ok := served[backupID+"/"+key]
+					if !ok {
+						return 0, fmt.Errorf("chunk not found: %s/%s", backupID, key)
+					}
+					return io.Copy(w, bytes.NewReader(data))
+				})
+
+			fw := newFileWriter(nil, nodeStore{
+				objectStore: objectStore{backend: mockBackend, backupId: "cur/n1", node: "n1"},
+			}, logrus.New())
+			desc := &backup.ClassDescriptor{
+				Name:   tc.descName,
+				Shards: []*backup.ShardDescriptor{shard},
+				Chunks: map[int32][]string{0: {"s1"}},
+			}
+
+			err := fw.Write(context.Background(), desc, tc.materialized, "", "", backup.CompressionNone)
+			classTempDir := filepath.Join(tempDir, TempDirectory, tc.materialized)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				_, statErr := os.Stat(classTempDir)
+				require.True(t, os.IsNotExist(statErr), "staging dir must be removed, got %v", statErr)
+				return
+			}
+			require.NoError(t, err)
+			require.FileExists(t, filepath.Join(classTempDir, tc.wantStaged))
+		})
+	}
+}
+
+func TestRestoreClassDir_OnlyAdoptsIndexDir(t *testing.T) {
+	writeFile := func(t *testing.T, p, content string) {
+		t.Helper()
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	}
+	assertAbsent := func(t *testing.T, p string) {
+		t.Helper()
+		_, err := os.Lstat(p)
+		require.True(t, os.IsNotExist(err), "%s must not exist, got %v", p, err)
+	}
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, stage, data string)
+		wantErr string
+		check   func(t *testing.T, data string)
+	}{
+		{
+			name: "index dir moved",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "movies", "s1", "seg.db"), "seg")
+			},
+			check: func(t *testing.T, data string) {
+				require.FileExists(t, filepath.Join(data, "movies", "s1", "seg.db"))
+			},
+		},
+		{
+			name: "root file refused",
+			setup: func(t *testing.T, stage, data string) {
+				writeFile(t, filepath.Join(data, "classifications.db"), "good")
+				writeFile(t, filepath.Join(stage, "classifications.db"), "evil")
+			},
+			wantErr: "classifications.db",
+			check: func(t *testing.T, data string) {
+				got, err := os.ReadFile(filepath.Join(data, "classifications.db"))
+				require.NoError(t, err)
+				require.Equal(t, "good", string(got))
+			},
+		},
+		{
+			name: "other class dir refused",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "otherclass", "x"), "evil")
+			},
+			wantErr: "otherclass",
+			check: func(t *testing.T, data string) {
+				assertAbsent(t, filepath.Join(data, "otherclass"))
+			},
+		},
+		{
+			name: "index name as regular file refused",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "movies"), "evil")
+			},
+			wantErr: "movies",
+			check: func(t *testing.T, data string) {
+				assertAbsent(t, filepath.Join(data, "movies"))
+			},
+		},
+		{
+			name: "index name as symlink refused",
+			setup: func(t *testing.T, stage, _ string) {
+				target := t.TempDir()
+				writeFile(t, filepath.Join(target, "s1", "seg.db"), "evil")
+				require.NoError(t, os.MkdirAll(stage, 0o755))
+				require.NoError(t, os.Symlink(target, filepath.Join(stage, "movies")))
+			},
+			wantErr: "movies",
+			check: func(t *testing.T, data string) {
+				assertAbsent(t, filepath.Join(data, "movies"))
+			},
+		},
+		{
+			name: "index dir moved and root file refused",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "movies", "s1", "seg.db"), "seg")
+				writeFile(t, filepath.Join(stage, "classifications.db"), "evil")
+			},
+			wantErr: "classifications.db",
+			check: func(t *testing.T, data string) {
+				require.FileExists(t, filepath.Join(data, "movies", "s1", "seg.db"))
+				assertAbsent(t, filepath.Join(data, "classifications.db"))
+			},
+		},
+		{
+			name:  "no staging dir",
+			check: func(t *testing.T, data string) {},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			data := t.TempDir()
+			stage := filepath.Join(data, TempDirectory, "Movies")
+			if tc.setup != nil {
+				tc.setup(t, stage, data)
+			}
+			err := RestoreClassDir(data)("Movies")
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			tc.check(t, data)
+			assertAbsent(t, stage)
+		})
+	}
 }
 
 // incrementalTestEnv provides shared infrastructure for incremental backup round-trip tests.

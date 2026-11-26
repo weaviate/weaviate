@@ -936,7 +936,37 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, m
 
 	}
 
+	if err := validateStagedClassDir(classTempDir, strings.ToLower(materializedName)); err != nil {
+		return fmt.Errorf("validate staged files: %w", err)
+	}
+
 	return nil
+}
+
+func isStagedIndexDir(e os.DirEntry, want string) bool {
+	return e.Name() == want && e.Type().IsDir() // Type() does not follow symlinks
+}
+
+// validateStagedClassDir removes classTempDir if it holds anything besides the indexDir directory.
+func validateStagedClassDir(classTempDir, indexDir string) error {
+	entries, err := os.ReadDir(classTempDir)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", classTempDir, err)
+	}
+	var foreign []string
+	for _, e := range entries {
+		if !isStagedIndexDir(e, indexDir) {
+			foreign = append(foreign, e.Name())
+		}
+	}
+	if len(foreign) == 0 {
+		return nil
+	}
+	err = fmt.Errorf("staging dir %s holds foreign entries %q: only directory %q is allowed", classTempDir, foreign, indexDir)
+	if rerr := os.RemoveAll(classTempDir); rerr != nil {
+		err = errors.Join(err, fmt.Errorf("remove %s: %w", classTempDir, rerr))
+	}
+	return err
 }
 
 // writeTempFiles writes class files into a temporary directory
@@ -1049,27 +1079,39 @@ func routinePoolSize(percentage int) int {
 // RestoreClassDir returns a func that restores classes on the filesystem directly from the temporary class backup stored on disk.
 // This function is invoked by the Raft store when a restoration request is sent by the backup coordinator.
 func RestoreClassDir(dataPath string) func(class string) error {
-	return func(class string) error {
+	return func(class string) (err error) {
 		classTempDir := filepath.Join(dataPath, TempDirectory, class)
 		// nothing to restore
 		if _, err := os.Stat(classTempDir); err != nil {
 			return nil
 		}
-		defer os.RemoveAll(classTempDir)
+		defer func() {
+			if rerr := os.RemoveAll(classTempDir); rerr != nil {
+				err = errors.Join(err, fmt.Errorf("remove %s: %w", classTempDir, rerr))
+			}
+		}()
 		files, err := os.ReadDir(classTempDir)
 		if err != nil {
-			return fmt.Errorf("read %s", classTempDir)
+			return fmt.Errorf("read %s: %w", classTempDir, err)
 		}
-		destDir := dataPath
 
-		for _, key := range files {
-			from := path.Join(classTempDir, key.Name())
-			to := path.Join(destDir, key.Name())
+		indexDir := strings.ToLower(class)
+		var errs []error
+		var refused []string
+		for _, e := range files {
+			if !isStagedIndexDir(e, indexDir) {
+				refused = append(refused, e.Name())
+				continue
+			}
+			from := filepath.Join(classTempDir, indexDir)
+			to := filepath.Join(dataPath, indexDir)
 			if err := os.Rename(from, to); err != nil {
-				return fmt.Errorf("move %s %s: %w", from, to, err)
+				errs = append(errs, fmt.Errorf("move %s %s: %w", from, to, err))
 			}
 		}
-
-		return nil
+		if len(refused) > 0 {
+			errs = append(errs, fmt.Errorf("refused staged entries %q in %s: only directory %q is adopted", refused, classTempDir, indexDir))
+		}
+		return errors.Join(errs...)
 	}
 }
