@@ -44,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -274,6 +275,14 @@ func testShardMultiTenant(t testing.TB, ctx context.Context, className string, i
 		false, false, false, indexOpts...)
 }
 
+// emptySchemaReader is a local schema that holds no class, so a GetIndex miss
+// returns at once.
+func emptySchemaReader(t *testing.T) schemaUC.SchemaReader {
+	sr := schemaUC.NewMockSchemaReader(t)
+	sr.EXPECT().ReadOnlyVersionedClass(mock.Anything).Return(versioned.Class{}).Maybe()
+	return sr
+}
+
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
 	return createTestDatabaseWithNamespaces(t, metrics, nil, classes...)
@@ -319,6 +328,7 @@ func openTestDatabase(t *testing.T, dir string, shardState *sharding.State, metr
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyVersionedClass(mock.Anything).Return(versioned.Class{}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()

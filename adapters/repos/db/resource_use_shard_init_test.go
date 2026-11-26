@@ -530,7 +530,7 @@ func TestNewCollection_InheritsResourcePressureBeforeReconcile(t *testing.T) {
 	// visible with its shards built, waiting on the stalled reconcile.
 	var index *Index
 	require.Eventually(t, func() bool {
-		index = f.repo.GetIndex(schema.ClassName(className))
+		index = f.repo.registeredIndex(schema.ClassName(className))
 		return index != nil
 	}, 10*time.Second, time.Millisecond, "the index was never published")
 

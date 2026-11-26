@@ -12,60 +12,88 @@
 package db
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
-	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestGetIndex(t *testing.T) {
-	db := testDB(t, t.TempDir(), []*models.Class{}, make(map[string]*sharding.State))
+	const class = "Article"
+	registered := &Index{}
 
-	// empty indices
-	db.indices = map[string]*Index{}
-	idx := db.GetIndex(schema.ClassName("test1"))
-	require.Nil(t, idx)
+	tests := []struct {
+		name string
+		// indices is db.indices when GetIndex is called; afterWait replaces it
+		// once the wait returns.
+		indices   map[string]*Index
+		afterWait map[string]*Index
+		// version is the class version in the local schema, 0 for a class it
+		// does not hold. waitErr is what waiting for it returns.
+		version uint64
+		waitErr error
+		want    *Index
+	}{
+		{
+			name:    "a registered index needs no schema lookup",
+			indices: map[string]*Index{"article": registered},
+			want:    registered,
+		},
+		{
+			name: "a class the local schema does not hold is missing at once",
+		},
+		{
+			name:      "a class being applied is found once its version is applied",
+			version:   7,
+			afterWait: map[string]*Index{"article": registered},
+			want:      registered,
+		},
+		{
+			name:    "a class whose apply registered no index is missing",
+			version: 7,
+		},
+		{
+			name:    "a failed wait reads as missing",
+			version: 7,
+			waitErr: errors.New("wait timed out"),
+		},
+	}
 
-	// after 20 ms
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		db.indexLock.Lock()
-		defer db.indexLock.Unlock()
-		db.indices = map[string]*Index{
-			"test1": {},
-		}
-	}()
-	idx = db.GetIndex(schema.ClassName("test1"))
-	require.NotNil(t, idx)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			db := &DB{logger: logger, indices: tt.indices, schemaReader: schemaReader}
+			if tt.indices == nil {
+				db.indices = map[string]*Index{}
+				schemaReader.EXPECT().ReadOnlyVersionedClass(class).
+					Return(versioned.Class{Version: tt.version}).Once()
+			}
+			if tt.version > 0 {
+				schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
+					RunAndReturn(func(context.Context, uint64) error {
+						if tt.afterWait != nil {
+							db.indexLock.Lock()
+							db.indices = tt.afterWait
+							db.indexLock.Unlock()
+						}
+						return tt.waitErr
+					}).Once()
+			}
 
-	// after 50 ms
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		db.indexLock.Lock()
-		defer db.indexLock.Unlock()
-		db.indices = map[string]*Index{
-			"test2": {},
-		}
-	}()
-	idx = db.GetIndex(schema.ClassName("test2"))
-	require.NotNil(t, idx)
-
-	// after 100 ms
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		db.indexLock.Lock()
-		defer db.indexLock.Unlock()
-		db.indices = map[string]*Index{
-			"test3": {},
-		}
-	}()
-	idx = db.GetIndex(schema.ClassName("test3"))
-	require.NotNil(t, idx)
+			require.Same(t, tt.want, db.GetIndex(class))
+		})
+	}
 }
 
 // TestDB_scanStartupProgress covers the subtle counting in scanStartupProgress

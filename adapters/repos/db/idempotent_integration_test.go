@@ -256,7 +256,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		t.Run("before index update", func(t *testing.T) {
 			existing := localMigrator.db.GetIndex(schema.ClassName(existingClass.Class))
 			assert.NotNil(t, existing)
-			missing := localMigrator.db.GetIndex(schema.ClassName(missingClass.Class))
+			missing := localMigrator.db.registeredIndex(schema.ClassName(missingClass.Class))
 			assert.Nil(t, missing)
 		})
 

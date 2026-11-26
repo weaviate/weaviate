@@ -161,6 +161,8 @@ func Test_DB_WaitsForSchemaVersion_BeforeIndexLookup(t *testing.T) {
 				schemaReader := schemaUC.NewMockSchemaReader(t)
 				schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
 					Return(tt.waitErr).Once()
+				// Foo is not in the local schema, so the index lookup waits no further.
+				schemaReader.EXPECT().ReadOnlyVersionedClass("Foo").Return(versioned.Class{}).Maybe()
 				db := &DB{
 					logger:       logger,
 					indices:      map[string]*Index{},
@@ -387,6 +389,13 @@ func TestReadsWaitForTheIndexOfAClassBeingApplied(t *testing.T) {
 			waitErrReturned: false,
 		},
 		{
+			name: "GetIndex",
+			read: func(ctx context.Context, db *DB) (bool, error) {
+				return db.GetIndex(applyingClass) != nil, nil
+			},
+			waitErrReturned: false,
+		},
+		{
 			name: "GetShardsStatus",
 			read: func(ctx context.Context, db *DB) (bool, error) {
 				res, err := NewMigrator(db, logger, "node1").GetShardsStatus(ctx, applyingClass, "")
@@ -466,4 +475,143 @@ func TestIndexForReadReportsAMissingIndexWithoutError(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Nil(t, idx)
+}
+
+// errWaitedInApply fails a wait SchemaManager.apply would make for its own
+// version, which this node marks applied only after the apply returns.
+var errWaitedInApply = errors.New("waited for the version being applied")
+
+// TestApplyLookupsDoNotWaitForTheClassVersion runs the migrator calls
+// SchemaManager.apply makes while the class they touch is still being applied
+// and its index is not registered. None may wait for the class version, or
+// sleep on a miss.
+func TestApplyLookupsDoNotWaitForTheClassVersion(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	calls := []struct {
+		name string
+		call func(ctx context.Context, m *Migrator) error
+	}{
+		{"LoadShardForMovement", func(ctx context.Context, m *Migrator) error {
+			return m.LoadShardForMovement(ctx, applyingClass, "shard1")
+		}},
+		{"LoadShardForNewReplica", func(ctx context.Context, m *Migrator) error {
+			return m.LoadShardForNewReplica(ctx, applyingClass, "shard1")
+		}},
+		{"DropShard", func(ctx context.Context, m *Migrator) error {
+			return m.DropShard(ctx, applyingClass, "shard1")
+		}},
+		{"ReconcileAsyncReplicationForShard", func(ctx context.Context, m *Migrator) error {
+			return m.ReconcileAsyncReplicationForShard(ctx, applyingClass, "shard1")
+		}},
+		{"ShutdownShard", func(ctx context.Context, m *Migrator) error {
+			return m.ShutdownShard(ctx, applyingClass, "shard1")
+		}},
+		{"AddProperty", func(ctx context.Context, m *Migrator) error {
+			return m.AddProperty(ctx, applyingClass, &models.Property{Name: "p", DataType: []string{"text"}})
+		}},
+		{"UpdateProperty", func(ctx context.Context, m *Migrator) error {
+			return m.UpdateProperty(ctx, applyingClass, &models.Property{Name: "p", DataType: []string{"text"}})
+		}},
+		{"UpdateShardStatus", func(ctx context.Context, m *Migrator) error {
+			return m.UpdateShardStatus(ctx, applyingClass, "shard1", "READY", applyingClassVersion)
+		}},
+		{"NewTenants", func(ctx context.Context, m *Migrator) error {
+			return m.NewTenants(ctx, &models.Class{Class: applyingClass}, nil)
+		}},
+		{"UpdateTenants", func(ctx context.Context, m *Migrator) error {
+			return m.UpdateTenants(ctx, &models.Class{Class: applyingClass}, nil, false)
+		}},
+		{"UpdateTenantsForProcess", func(ctx context.Context, m *Migrator) error {
+			return m.UpdateTenantsForProcess(ctx, &models.Class{Class: applyingClass}, nil)
+		}},
+		{"DeleteTenants", func(ctx context.Context, m *Migrator) error {
+			return m.DeleteTenants(ctx, applyingClass, nil)
+		}},
+		{"UpdateVectorIndexConfig", func(ctx context.Context, m *Migrator) error {
+			return m.UpdateVectorIndexConfig(ctx, applyingClass, enthnsw.NewDefaultUserConfig())
+		}},
+		{"UpdateVectorIndexConfigs", func(ctx context.Context, m *Migrator) error {
+			return m.UpdateVectorIndexConfigs(ctx, applyingClass, nil)
+		}},
+		{"GetVectorIndexNames", func(ctx context.Context, m *Migrator) error {
+			m.GetVectorIndexNames(applyingClass)
+			return nil
+		}},
+		{"DropVectorIndex", func(ctx context.Context, m *Migrator) error {
+			return m.DropVectorIndex(ctx, applyingClass, "v")
+		}},
+		{"UpdateInvertedIndexConfig", func(ctx context.Context, m *Migrator) error {
+			return m.UpdateInvertedIndexConfig(ctx, applyingClass, invertedConfig())
+		}},
+		{"UpdateReplicationConfig", func(ctx context.Context, m *Migrator) error {
+			return m.UpdateReplicationConfig(ctx, applyingClass, &models.ReplicationConfig{Factor: 1})
+		}},
+		{"DropClass", func(ctx context.Context, m *Migrator) error {
+			return m.DropClass(ctx, applyingClass, false)
+		}},
+	}
+
+	waited := false
+	db := newApplyingDB(t, func(func()) error { waited = true; return errWaitedInApply })
+	m := NewMigrator(db, logger, "node1")
+
+	for _, c := range calls {
+		t.Run(c.name, func(t *testing.T) {
+			waited = false
+			start := time.Now()
+
+			err := c.call(t.Context(), m)
+
+			require.NotErrorIs(t, err, errWaitedInApply)
+			require.False(t, waited, "an apply lookup waited for the version being applied")
+			// GetIndex used to retry a miss 3 times 50ms apart.
+			require.Less(t, time.Since(start), 150*time.Millisecond)
+		})
+	}
+}
+
+// TestAddClassDoesNotWaitForItsOwnVersion recreates a class whose version the
+// apply has already put in the local schema, as Migrator.AddClass runs inside
+// SchemaManager.apply. The duplicate check must not wait for that version.
+func TestAddClassDoesNotWaitForItsOwnVersion(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	create := []struct {
+		name string
+		call func(ctx context.Context, m *Migrator, class *models.Class) error
+	}{
+		{"AddClass", func(ctx context.Context, m *Migrator, class *models.Class) error {
+			return m.AddClass(ctx, class)
+		}},
+		{"UpdateIndex", func(ctx context.Context, m *Migrator, class *models.Class) error {
+			return m.UpdateIndex(ctx, class, singleShardState())
+		}},
+	}
+
+	for _, c := range create {
+		t.Run(c.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:               applyingClass,
+				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+				InvertedIndexConfig: invertedConfig(),
+			}
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			require.NoError(t, db.DeleteIndex(applyingClass))
+			waited := false
+			db.SetSchemaReader(&applyingSchemaReader{
+				SchemaReader: db.schemaReader,
+				className:    applyingClass,
+				version:      applyingClassVersion,
+				finishApply:  func() error { waited = true; return errWaitedInApply },
+			})
+
+			require.NoError(t, c.call(t.Context(), NewMigrator(db, logger, "node1"), class))
+
+			require.False(t, waited, "the duplicate check waited for the version being applied")
+			require.True(t, db.IndexExists(applyingClass))
+			require.ErrorContains(t, NewMigrator(db, logger, "node1").AddClass(t.Context(), class),
+				"already found locally")
+		})
+	}
 }

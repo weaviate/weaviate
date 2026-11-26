@@ -23,7 +23,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -33,7 +32,6 @@ import (
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
-	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -491,31 +489,23 @@ type Config struct {
 	WeaviateLicense bool
 }
 
-// GetIndex returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
+// GetIndex returns className's index, or nil. On a miss for a class the local
+// schema holds, it first waits until this node has applied that class version;
+// a failed wait is logged and returns nil. Never call it from
+// SchemaManager.apply, which would wait for its own version: use
+// registeredIndex there.
 func (db *DB) GetIndex(className schema.ClassName) *Index {
-	var (
-		index  *Index
-		exists bool
-	)
-	// TODO-RAFT remove backoff. Eventual consistency handled by versioning
-	backoff.Retry(func() error {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-
-		index, exists = db.indices[indexID(className)]
-		if !exists {
-			return fmt.Errorf("index for class %v not found locally", index)
-		}
-		return nil
-	}, utils.NewBackoff())
-
+	// TODO: take the caller's ctx so a cancelled request stops the wait, and
+	// return a failed wait instead of logging it.
+	index, err := db.indexForRead(context.Background(), className)
+	if err != nil {
+		db.logger.WithField("class", className).Warnf("look up index: %v", err)
+	}
 	return index
 }
 
 // registeredIndex returns the index registered for className, or nil, without
-// GetIndex's retries.
+// waiting.
 func (db *DB) registeredIndex(className schema.ClassName) *Index {
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
@@ -597,7 +587,7 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 
 // IndexExists returns if an index exists
 func (db *DB) IndexExists(className schema.ClassName) bool {
-	return db.GetIndex(className) != nil
+	return db.registeredIndex(className) != nil
 }
 
 // TODO-RAFT: Because of interfaces and import order we can't have this function just return the same index interface
@@ -695,7 +685,7 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 // leaves it alone: DELETE_CLASS validates nothing, so a name differing only by
 // case reaches the store while the schema keeps the live class.
 func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error) {
-	index := db.GetIndex(className)
+	index := db.registeredIndex(className)
 	if index == nil {
 		return false, nil
 	}
