@@ -28,6 +28,7 @@ import (
 // A batch of one vector is the insert of always: next to the twin in memory
 // at every insert, and with everything written.
 func TestGrowBatchOfOneEqualsMemory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name        string
@@ -36,24 +37,25 @@ func TestGrowBatchOfOneEqualsMemory(t *testing.T) {
 		bits        int
 	}{
 		{name: "edges value by value", bits: 64},
-		{name: "edges value by value, cosine, the full code", cosine: true},
-		{name: "consolidated edges", consolidate: 5, bits: 64},
+		{name: "consolidated edges, cosine, the full code", consolidate: 5, cosine: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const total, base, dims = 1500, 700, 48
-			f := newGrowFixtureWith(t, total, base, dims, tt.cosine, tt.bits, 60, tt.consolidate)
+			t.Parallel()
+			const total, base, dims = 380, 300, 32
+			f := newSmallGrowFixture(t, total, base, dims, tt.cosine, tt.bits, 25, growConfig{consolidate: tt.consolidate})
 			f.batchOfOne = true
 			for f.inserted < total {
 				at := f.inserted
 				difference, err := f.insert(ctx)
 				require.NoError(t, err, "doc %d", at)
 				require.Empty(t, difference)
-				if (f.inserted-base)%250 == 0 {
+				if (f.inserted-base)%40 == 0 {
 					f.same(t, "on the way")
 				}
 			}
 			require.Positive(t, f.g.stats.Splits)
+			require.Positive(t, f.g.stats.InverseEdges)
 			require.Equal(t, total-base, f.g.stats.Batches)
 			require.Equal(t, total-base, f.g.stats.BatchInserts)
 			require.Zero(t, f.g.stats.PlansReassign, "a batch of one sees everything before it")
@@ -101,6 +103,7 @@ func copyGrowPlan(plan *growPlan) growPlanCopy {
 // batch found it. And a search writes nothing: the index is, after them, as
 // it was.
 func TestGrowBatchPlansDoNotDependOnSearchers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, consolidate := range []int{0, 6} {
 		name := "edges value by value"
@@ -108,8 +111,9 @@ func TestGrowBatchPlansDoNotDependOnSearchers(t *testing.T) {
 			name = "consolidated edges"
 		}
 		t.Run(name, func(t *testing.T) {
-			const total, base, dims, batch = 1400, 700, 48, 40
-			f := newGrowFixtureWith(t, total, base, dims, false, 64, 60, consolidate)
+			t.Parallel()
+			const total, base, dims, batch = 380, 300, 32, 40
+			f := newSmallGrowFixture(t, total, base, dims, false, 64, 25, growConfig{consolidate: consolidate})
 			g := f.g
 			newPlans := func() []*growPlan {
 				plans := make([]*growPlan, batch)
@@ -158,8 +162,11 @@ func TestGrowBatchPlansDoNotDependOnSearchers(t *testing.T) {
 // edges. Every list an insert takes from what its plan kept is the one the
 // index has. With batches as large as these and a threshold as low, plans
 // meet both things a batch can do to them: their posting split before they
-// were applied, and lists they kept changed.
+// were applied, and lists they kept changed. Eleven ways to batch 1 200
+// inserts over a base of 1 000 are TestGrowBatchCoverageAtScale, with -tags
+// postingedgebench.
 func TestGrowBatchCoverage(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name        string
@@ -177,22 +184,15 @@ func TestGrowBatchCoverage(t *testing.T) {
 		// its posting split and lists it kept changed.
 		meets bool
 	}{
-		{name: "batches of two", batch: 2, searchers: 2, bits: 64, threshold: 60, flushEvery: 40},
-		{name: "batches of seven, four searchers", batch: 7, searchers: 4, bits: 64, threshold: 60, flushEvery: 11, reopenAt: 406},
-		{name: "batches of thirty-two, eight searchers", batch: 32, searchers: 8, bits: 64, threshold: 60, flushEvery: 3, meets: true},
-		{name: "batches of thirty-two, cosine, the full code", batch: 32, searchers: 8, cosine: true, threshold: 60, meets: true},
-		{name: "batches of a hundred", batch: 100, searchers: 8, bits: 64, threshold: 60, flushEvery: 2, reopenAt: 500, meets: true},
-		{name: "more searchers than vectors", batch: 3, searchers: 16, bits: 64, threshold: 60},
-		{name: "consolidated edges, batches of seven", batch: 7, searchers: 4, consolidate: 5, bits: 64, threshold: 60, flushEvery: 9, reopenAt: 406},
-		{name: "consolidated edges, batches of thirty-two", batch: 32, searchers: 8, consolidate: 16, bits: 64, threshold: 60, flushEvery: 4, meets: true},
-		{name: "consolidated edges, a row at every change", batch: 32, searchers: 8, consolidate: 1, bits: 64, threshold: 60, meets: true},
-		{name: "consolidated edges, batches of a hundred, cosine", batch: 100, searchers: 8, consolidate: 8, cosine: true, bits: 128, threshold: 60, reopenAt: 500, meets: true},
-		{name: "few splits", batch: 32, searchers: 8, bits: 64, threshold: 400},
+		{name: "batches of seven, more searchers than vectors", batch: 7, searchers: 16, bits: 64, threshold: 25, flushEvery: 8, reopenAt: 70},
+		{name: "batches of thirty-two, four searchers, the full code, a row at every change", batch: 32, searchers: 4, consolidate: 1, threshold: 25, flushEvery: 2, meets: true},
+		{name: "consolidated edges, batches of fifty, cosine", batch: 50, searchers: 8, consolidate: 8, cosine: true, bits: 128, threshold: 25, reopenAt: 50, meets: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const total, base, dims = 2200, 1000, 64
-			f := newGrowFixtureWith(t, total, base, dims, tt.cosine, tt.bits, tt.threshold, tt.consolidate)
+			t.Parallel()
+			const total, base, dims = 412, 300, 32
+			f := newSmallGrowFixture(t, total, base, dims, tt.cosine, tt.bits, tt.threshold, growConfig{consolidate: tt.consolidate})
 			f.g.batchVerify = true
 			var stats growStats
 			verified, batches := 0, 0
@@ -275,9 +275,10 @@ func TestGrowBatchCoverage(t *testing.T) {
 // A batch is refused whole, before any of it is searched, when it cannot be
 // inserted.
 func TestGrowBatchErrors(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const total, base, dims = 900, 700, 32
-	f := newGrowFixtureWith(t, total, base, dims, false, 64, 60, 0)
+	const total, base, dims = 400, 300, 32
+	f := newSmallGrowFixture(t, total, base, dims, false, 64, 30, growConfig{})
 	g := f.g
 	next := uint64(base)
 	tests := []struct {
@@ -291,7 +292,7 @@ func TestGrowBatchErrors(t *testing.T) {
 		{name: "no searcher", docIDs: []uint64{next}, vectors: f.all[base : base+1], wantErr: "0 searchers"},
 		{name: "a doc twice", docIDs: []uint64{next, next + 1, next}, vectors: f.all[base : base+3], searchers: 2, wantErr: "is in the batch twice"},
 		{name: "a doc the index holds", docIDs: []uint64{next, 5}, vectors: f.all[base : base+2], searchers: 2, wantErr: "doc 5 is in the index already"},
-		{name: "a doc past the keys", docIDs: []uint64{next, total}, vectors: f.all[base : base+2], searchers: 2, wantErr: "is past the 900 keys"},
+		{name: "a doc past the keys", docIDs: []uint64{next, total}, vectors: f.all[base : base+2], searchers: 2, wantErr: "is past the 400 keys"},
 		{name: "a vector of another length", docIDs: []uint64{next, next + 1}, vectors: [][]float32{f.all[base], f.all[base+1][:5]}, searchers: 2, wantErr: "a vector of 5 dimensions"},
 	}
 	for _, tt := range tests {

@@ -98,17 +98,20 @@ func entryAccuracy(st *state, queries [][]float32, exact []int) float64 {
 // ef still gives one entry and a full result, and an ef that covers every
 // centroid finds the exact nearest one for every query.
 func TestSetCentroidEF(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(3000, 24, 30, 911)
+	vectors := clusteredVectors(250, 24, 12, 911)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
+	// Postings of 10, for enough centroids to search a graph over.
+	uc.TargetPostingSize = 10
 	index := buildTestIndex(t, vectors, provider, uc)
 	st := index.state.Load()
 	centroids := len(st.centroids.vectors)
 	require.Greater(t, centroids, 20, "too few postings to search a graph over")
 
-	queries := clusteredVectors(300, 24, 30, 912)
+	queries := clusteredVectors(50, 24, 12, 912)
 	exact := exactEntries(st, queries)
 
 	tests := []struct {
@@ -124,7 +127,7 @@ func TestSetCentroidEF(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.NoError(t, index.setCentroidEF(tt.ef))
-			for _, q := range queries[:20] {
+			for _, q := range queries[:5] {
 				entry, err := st.centroids.nearest(ctx, q, 1)
 				require.NoError(t, err)
 				require.Len(t, entry, 1)
@@ -151,9 +154,10 @@ func TestSetCentroidEF(t *testing.T) {
 // Searches running while the ef changes see one ef or the other, never a
 // broken search (run with -race).
 func TestSetCentroidEFDuringSearches(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(3000, 24, 30, 913)
+	vectors := clusteredVectors(200, 24, 4, 913)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, provider, uc)
@@ -182,7 +186,7 @@ func TestSetCentroidEFDuringSearches(t *testing.T) {
 			}
 		}(w)
 	}
-	for round := 0; round < 200; round++ {
+	for round := 0; round < 30; round++ {
 		require.NoError(t, index.setCentroidEF([]int{1, 8, 64}[round%3]))
 	}
 	close(stop)

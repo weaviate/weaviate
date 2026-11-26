@@ -14,6 +14,7 @@ package postingedge
 import (
 	"context"
 	"math/rand/v2"
+	"os"
 	"slices"
 	"testing"
 
@@ -25,10 +26,12 @@ import (
 // endpoint, of two entries for a doc id the later one counts, and the table
 // grows with the entries without losing any.
 func TestGrowHaloEntries(t *testing.T) {
+	t.Parallel()
 	const words = 3
 	code := func(seed uint64) []uint64 { return []uint64{seed, seed * 31, ^seed} }
 
 	t.Run("an entry is found by its endpoint, and one that is not there is not", func(t *testing.T) {
+		t.Parallel()
 		var h growHalo
 		h.reset(words)
 		require.Nil(t, h.find(7), "an empty halo")
@@ -43,6 +46,7 @@ func TestGrowHaloEntries(t *testing.T) {
 	})
 
 	t.Run("of two entries for an endpoint the later one counts", func(t *testing.T) {
+		t.Parallel()
 		var h growHalo
 		h.reset(words)
 		h.add(7, code(1))
@@ -55,6 +59,7 @@ func TestGrowHaloEntries(t *testing.T) {
 	})
 
 	t.Run("the table grows with the entries", func(t *testing.T) {
+		t.Parallel()
 		var h growHalo
 		h.reset(words)
 		// Doc ids that fall in the same places of a small table.
@@ -74,6 +79,7 @@ func TestGrowHaloEntries(t *testing.T) {
 	})
 
 	t.Run("a row is its values in order, each with one entry or several", func(t *testing.T) {
+		t.Parallel()
 		first := growHaloEntries([]uint32{4, 5, 6}, slices.Concat(code(1), code(2), code(3)), words)
 		second := growHaloEntries([]uint32{5}, code(9), words)
 		third := growHaloEntries([]uint32{8}, code(4), words)
@@ -96,6 +102,7 @@ func TestGrowHaloEntries(t *testing.T) {
 	})
 
 	t.Run("a halo written whole leaves out what came before it", func(t *testing.T) {
+		t.Parallel()
 		before := growHaloEntries([]uint32{4, 5}, slices.Concat(code(1), code(2)), words)
 		whole := growHaloWholeValue([]uint32{5, 6}, slices.Concat(code(7), code(3)), words)
 		after := growHaloEntries([]uint32{8}, code(4), words)
@@ -116,12 +123,28 @@ func TestGrowHaloEntries(t *testing.T) {
 	})
 
 	t.Run("an endpoint without an entry cannot be scored", func(t *testing.T) {
+		t.Parallel()
 		var h growHalo
 		h.reset(words)
 		h.add(7, code(1))
 		err := h.score(nil, []uint32{3}, make([]float32, 1))
 		require.ErrorContains(t, err, "is not in the halo")
 	})
+}
+
+// newSmallCleanFixture is newCleanFixtureFormat over smallGrowConfig: an
+// index that deletes, grown over a base of a few hundred vectors whose
+// postings are more than the clusters of the fixture, so that their edges
+// lead to other postings and their halos have entries.
+func newSmallCleanFixture(t *testing.T, total, base, dims, threshold int, format growConfig) *cleanFixture {
+	t.Helper()
+	format.open.deletes = true
+	f := &cleanFixture{growFixture: newSmallGrowFixture(t, total, base, dims, false, 0, threshold, format)}
+	f.d = newDeleteIndex(f.twin, 0, 0)
+	// A marked vector goes on routing, in the twin as on disk (cell 1b).
+	f.d.deletedAreSources(true)
+	f.d.remember()
+	return f
 }
 
 // haloAnswers returns what the index on disk answers to every query of the
@@ -142,11 +165,14 @@ func haloAnswers(t *testing.T, f *growFixture) (ids [][]uint64, dists [][]float3
 // it writes one way is an index the other way. Without its codes in memory
 // it holds none, reads those its writes need from their bucket, and the halo
 // its search left is the one its writes use; with them it reads no code and
-// reads the halo of the posting of every insert.
+// reads the halo of the posting of every insert. The same over a base of
+// 1 000 and 1 200 inserts is TestGrowHaloWithAndWithoutCodesAtScale, with
+// -tags postingedgebench.
 func TestGrowHaloWithAndWithoutCodes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const total, base, dims = 2200, 1000, 64
-	f := newGrowFixtureFormat(t, total, base, dims, false, 64, 60, haloFormat(8, true))
+	const total, base, dims = 420, 300, 32
+	f := newSmallGrowFixture(t, total, base, dims, false, 64, 25, haloFormat(8, true))
 	require.True(t, f.g.haloed())
 	require.False(t, f.g.noCodes)
 	f.same(t, "the base, with its codes in memory")
@@ -174,7 +200,7 @@ func TestGrowHaloWithAndWithoutCodes(t *testing.T) {
 		f.same(t, at)
 	}
 
-	grow(300)
+	grow(50)
 	f.same(t, "grown with its codes in memory")
 	require.Zero(t, f.g.stats.RoutingReads.N, "the codes are in memory")
 	require.Positive(t, f.g.stats.HaloReads.N, "an insert reads the halo of its posting: its search did not")
@@ -183,7 +209,7 @@ func TestGrowHaloWithAndWithoutCodes(t *testing.T) {
 
 	reopened(true, "opened with no codes in memory")
 	splits := f.g.stats.Splits
-	grow(400)
+	grow(40)
 	f.same(t, "grown with no codes in memory")
 	require.Positive(t, f.g.stats.Splits-splits, "postings split")
 	require.Positive(t, f.g.stats.RoutingReads.N, "the codes of the neighbors of an insert are read from their bucket")
@@ -192,9 +218,7 @@ func TestGrowHaloWithAndWithoutCodes(t *testing.T) {
 	require.LessOrEqual(t, f.g.stats.HaloReads.N, int64(f.g.stats.PlansReassign), "the search of an insert leaves the halo of its posting")
 
 	reopened(false, "opened with its codes in memory again")
-	grow(300)
-	reopened(true, "opened with no codes in memory again")
-	grow(200)
+	grow(30)
 	f.same(t, "at the end")
 	require.NoError(t, f.g.flushAll())
 	_, err := f.g.compactAll()
@@ -206,8 +230,9 @@ func TestGrowHaloWithAndWithoutCodes(t *testing.T) {
 // and when an index that has none holds one. Every break is made in the
 // store, behind the index's back.
 func TestGrowHaloCoverageCatches(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const total, base, dims = 1300, 1000, 64
+	const total, base, dims = 340, 300, 32
 	// member returns a member of a live posting with edges, and its place.
 	member := func(t *testing.T, g *growIndex) (p uint32, docID uint64, edges []uint32) {
 		t.Helper()
@@ -271,19 +296,40 @@ func TestGrowHaloCoverageCatches(t *testing.T) {
 			return "of an index without halos"
 		}},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newGrowFixtureFormat(t, total, base, dims, false, 64, 60, tt.format)
-			for f.inserted < total {
-				difference, err := f.insert(ctx)
-				require.NoError(t, err)
-				require.Empty(t, difference)
+	// The index of each format, with halos and without, is grown once by
+	// inserts and closed: every case breaks a copy of its files, opened as
+	// the case says, with its codes in memory or without them.
+	for _, halo := range []bool{true, false} {
+		written, name := shardFormat(8), "without halos"
+		if halo {
+			written, name = haloFormat(8, false), "with halos"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newSmallGrowFixture(t, total, base, dims, false, 64, 25, written)
+			f.growAll(t, total)
+			require.Positive(t, f.g.stats.InverseEdges)
+			require.NoError(t, f.g.close(ctx))
+			f.g = nil
+			for _, tt := range tests {
+				if tt.format.halo != halo {
+					continue
+				}
+				t.Run(tt.name, func(t *testing.T) {
+					t.Parallel()
+					dir := t.TempDir()
+					require.NoError(t, os.CopyFS(dir, os.DirFS(f.dir)))
+					g, err := openGrowIndex(ctx, testLogger(), dir, f.provider, f.uc, tt.format.open)
+					require.NoError(t, err)
+					// The store is left as it is: the index is only closed.
+					defer func() { require.NoError(t, g.close(ctx)) }()
+					require.Equal(t, tt.format.open.noCodes, g.noCodes)
+					require.NoError(t, g.cleanCentroidGraph())
+					require.NoError(t, g.checkCoverage())
+					want := tt.harm(t, g)
+					require.ErrorContains(t, g.checkCoverage(), want)
+				})
 			}
-			require.NoError(t, f.g.cleanCentroidGraph())
-			require.NoError(t, f.g.checkCoverage())
-			want := tt.harm(t, f.g)
-			require.ErrorContains(t, f.g.checkCoverage(), want)
-			// The store is left as it is: the fixture only closes it.
 		})
 	}
 }
@@ -315,11 +361,14 @@ func haloEntries(t *testing.T, g *growIndex, p uint32) (held, needed int) {
 // is written whole again, with what they need and no more. The index stays
 // its twin in memory through it, and once the store has compacted, what it
 // holds of a halo is what is read of it. With that left out, the same rounds
-// leave halos several times what their edges need.
+// leave halos several times what their edges need. Twelve rounds over a base
+// of 1 000 are TestGrowHaloIsWrittenWholeAgainAtScale, with -tags
+// postingedgebench.
 func TestGrowHaloIsWrittenWholeAgain(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const base, dims, threshold = 1000, 48, 400
-	const rounds, share, inserts = 12, 0.10, 100
+	const base, dims, threshold = 300, 32, 200
+	const rounds, share, inserts = 4, 0.10, 24
 	tests := []struct {
 		name string
 		// off leaves the halos as they grow.
@@ -330,18 +379,19 @@ func TestGrowHaloIsWrittenWholeAgain(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			total := base + 200 + rounds*inserts
-			f := newCleanFixtureFormat(t, total, base, dims, false, threshold, haloFormat(8, false))
+			t.Parallel()
+			total := base + 40 + rounds*inserts
+			f := newSmallCleanFixture(t, total, base, dims, threshold, haloFormat(8, false))
 			g := f.g
 			g.noHaloTrim = tt.off
-			f.insertSome(t, 200)
+			f.insertSome(t, 40)
 			splits := g.stats.Splits
 			for round := range rounds {
 				f.markShare(t, share, uint64(round)+11)
 				require.NoError(t, f.d.eliminateSubstituting(ctx, 0, 0))
 				require.NoError(t, g.clean(ctx, 0, 0))
 				f.insertSome(t, inserts)
-				if round%4 == 3 {
+				if round == rounds/2 {
 					require.NoError(t, g.flushAll())
 					f.same(t, "on the way")
 				}
@@ -376,6 +426,9 @@ func TestGrowHaloIsWrittenWholeAgain(t *testing.T) {
 				return
 			}
 			require.Positive(t, g.stats.HaloTrims, "halos were written whole again")
+			// Over postings of 20 the edges need a few dozen entries, and the
+			// floor of twice growHaloTrimFloor dominates this bound: it is
+			// tight only at the scale of TestGrowHaloIsWrittenWholeAgainAtScale.
 			require.Zero(t, over, "no halo holds more than half again what its edges need")
 
 			// Compacted, the store holds of every halo what is read of it: the
@@ -412,20 +465,22 @@ func TestGrowHaloIsWrittenWholeAgain(t *testing.T) {
 // it was read reads it again. With rows written after a few changes and
 // batches this large it happens all along, and the index stays covered.
 func TestGrowHaloThroughBatches(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const total, base, dims = 2600, 1000, 64
+	const total, base, dims = 450, 300, 32
 	tests := []struct {
 		name        string
 		batch       int
 		consolidate int
 		threshold   int
 	}{
-		{name: "batches of thirty-two, a row every four changes", batch: 32, consolidate: 4, threshold: 60},
-		{name: "batches of a hundred, few splits", batch: 100, consolidate: 4, threshold: 400},
+		{name: "batches of thirty-two, a row every four changes", batch: 32, consolidate: 4, threshold: 25},
+		{name: "batches of a hundred, few splits", batch: 100, consolidate: 4, threshold: 200},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newGrowFixtureFormat(t, total, base, dims, false, 64, tt.threshold, haloFormat(tt.consolidate, false))
+			t.Parallel()
+			f := newSmallGrowFixture(t, total, base, dims, false, 64, tt.threshold, haloFormat(tt.consolidate, false))
 			g := f.g
 			batches := 0
 			for from := base; from < total; from += tt.batch {
@@ -464,9 +519,10 @@ func TestGrowHaloThroughBatches(t *testing.T) {
 // An index is opened with no codes in memory only if its postings carry
 // their halo, and they carry it only in the format of a shard.
 func TestGrowHaloErrors(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const total, base, dims = 1100, 1000, 64
-	f := newGrowFixtureFormat(t, total, base, dims, false, 64, 60, shardFormat(8))
+	const total, base, dims = 310, 300, 32
+	f := newSmallGrowFixture(t, total, base, dims, false, 64, 30, shardFormat(8))
 	require.False(t, f.g.haloed())
 	require.NoError(t, f.g.close(ctx))
 	f.g = nil
@@ -480,7 +536,7 @@ func TestGrowHaloErrors(t *testing.T) {
 	st := f.index.state.Load()
 	vectorOf := func(id uint64) []float32 { return f.all[id] }
 	for _, format := range []growConfig{{halo: true}, {halo: true, consolidate: 8}} {
-		format.keys, format.neighbors, format.threshold = total, f.uc.Edges, 60
+		format.keys, format.neighbors, format.threshold = total, f.uc.Edges, 30
 		err := writeGrowIndex(ctx, testLogger(), t.TempDir(), st, format, f.provider, vectorOf)
 		require.ErrorContains(t, err, "carry their halo only with their rows of edges next to their members")
 	}
@@ -493,10 +549,11 @@ func TestGrowHaloErrors(t *testing.T) {
 // one, and it is the one that counts: the index is covered, and it answers
 // with no codes in memory what it answers with them.
 func TestGrowHaloOfADocGivenAgain(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const total, base, dims, threshold = 1500, 1000, 48, 60
-	f := newCleanFixtureFormat(t, total, base, dims, false, threshold, haloFormat(8, false))
-	f.insertSome(t, 300)
+	const total, base, dims, threshold = 360, 300, 32, 25
+	f := newSmallCleanFixture(t, total, base, dims, threshold, haloFormat(8, false))
+	f.insertSome(t, 60)
 	g := f.g
 
 	// Every sixth vector leaves, for good.

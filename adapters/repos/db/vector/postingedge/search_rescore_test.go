@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -31,8 +32,9 @@ import (
 // whole search, so that one delete broke every query that came near it. Any
 // other failure to read a vector still fails the search.
 func TestRescoreLeavesOutVectorsThatAreGone(t *testing.T) {
-	const n, k = 600, 10
-	all := clusteredVectors(n+20, 24, 8, 2718)
+	t.Parallel()
+	const n, k = 80, 10
+	all := clusteredVectors(n+5, 24, 3, 2718)
 	vectors, queries := all[:n], all[n:]
 	truth := normalizedCopy(vectors)
 	provider := distancer.NewCosineDistanceProvider()
@@ -89,30 +91,36 @@ func TestRescoreLeavesOutVectorsThatAreGone(t *testing.T) {
 		{"several readers", context.Background()},
 	}
 
+	// One index serves every case: its store reads through the case that
+	// runs. The build reads no vector from the store, so every case searches
+	// the same index. The cases run one after the other.
+	var read atomic.Pointer[func(id uint64) error]
+	cfg := testConfig(t, vectors, 0, provider)
+	stored := cfg.TempVectorForIDWithViewThunk
+	cfg.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice,
+		view common.BucketView,
+	) ([]float32, error) {
+		if err := (*read.Load())(id); err != nil {
+			return nil, err
+		}
+		return stored(ctx, id, container, view)
+	}
+	// Every posting is an entry and every vector is rescored: the answer is
+	// the exact one over the vectors that are there.
+	uc := smallConfig()
+	uc.Distance = "cosine"
+	uc.EntryPostings = n
+	uc.RescoreLimit = 2 * n
+	index, err := New(cfg, uc)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Shutdown(context.Background())) })
+	require.NoError(t, index.AddBatch(context.Background(), sequentialIDs(n, 0), vectors))
+	require.NoError(t, index.Build(context.Background()))
+
 	for _, tt := range tests {
 		for _, budget := range budgets {
 			t.Run(tt.name+"/"+budget.name, func(t *testing.T) {
-				cfg := testConfig(t, vectors, 0, provider)
-				stored := cfg.TempVectorForIDWithViewThunk
-				cfg.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice,
-					view common.BucketView,
-				) ([]float32, error) {
-					if err := tt.read(id); err != nil {
-						return nil, err
-					}
-					return stored(ctx, id, container, view)
-				}
-				// Every posting is an entry and every vector is rescored: the
-				// answer is the exact one over the vectors that are there.
-				uc := smallConfig()
-				uc.Distance = "cosine"
-				uc.EntryPostings = n
-				uc.RescoreLimit = 2 * n
-				index, err := New(cfg, uc)
-				require.NoError(t, err)
-				t.Cleanup(func() { require.NoError(t, index.Shutdown(context.Background())) })
-				require.NoError(t, index.AddBatch(context.Background(), sequentialIDs(n, 0), vectors))
-				require.NoError(t, index.Build(context.Background()))
+				read.Store(&tt.read)
 
 				there := make([][]float32, 0, n)
 				ids := make([]uint64, 0, n)

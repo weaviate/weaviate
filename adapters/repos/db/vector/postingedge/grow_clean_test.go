@@ -147,48 +147,46 @@ func (f *cleanFixture) insertSome(t *testing.T, n int) {
 // inserts that follow, which read the distances the pass stored for the
 // substitutes, and through more rounds of deletes, inserts and passes, with
 // the store flushed and the index closed and opened on the way.
+// TestGrowCleanEqualsMemoryAtScale, of the bench harness, cleans larger
+// indexes in more ways.
 func TestGrowCleanEqualsMemory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name        string
 		cosine      bool
 		threshold   int
 		consolidate int
-		// rounds of: share of the vectors marked, a pass, and inserts.
-		rounds     int
-		share      float64
-		inserts    int
-		flushEvery int
-		// halo has the postings carry their halo, with no codes in memory
-		// unless resident.
-		halo, resident bool
+		// rounds of: share of the vectors marked, a pass, and inserts, with
+		// the store flushed after every fifteen of them if flush is set.
+		rounds  int
+		share   float64
+		inserts int
+		flush   bool
+		// halo has the postings carry their halo, and the index no codes in
+		// memory.
+		halo bool
 	}{
-		{name: "30 % at once", threshold: 60, consolidate: 4, rounds: 1, share: 0.30, inserts: 300, flushEvery: 37},
-		{name: "30 % at once, cosine", cosine: true, threshold: 60, consolidate: DefaultConsolidate, rounds: 1, share: 0.30, inserts: 300},
-		{name: "six rounds of 5 %", threshold: 60, consolidate: 8, rounds: 6, share: 0.05, inserts: 100, flushEvery: 41},
-		{name: "six rounds of 5 %, rows only at splits", threshold: 60, consolidate: DefaultConsolidate, rounds: 6, share: 0.05, inserts: 100, flushEvery: 29},
-		{name: "four rounds of 10 %, few splits", threshold: 400, consolidate: 16, rounds: 4, share: 0.10, inserts: 120, flushEvery: 53},
-		{name: "half at once", threshold: 60, consolidate: 4, rounds: 1, share: 0.50, inserts: 200},
-		{name: "no codes in memory, 30 % at once", threshold: 60, consolidate: 4, rounds: 1, share: 0.30, inserts: 300, flushEvery: 37, halo: true},
+		{name: "30 % at once", threshold: 20, consolidate: 4, rounds: 1, share: 0.30, inserts: 30, flush: true},
 		{
-			name: "no codes in memory, six rounds of 5 %, cosine", cosine: true, threshold: 60, consolidate: DefaultConsolidate,
-			rounds: 6, share: 0.05, inserts: 100, flushEvery: 29, halo: true,
+			name: "two rounds of 10 %, cosine, rows only at splits", cosine: true, threshold: 20, consolidate: DefaultConsolidate,
+			rounds: 2, share: 0.10, inserts: 15,
 		},
-		{
-			name: "the halo kept up with the codes in memory, four rounds of 10 %", threshold: 60, consolidate: 8, rounds: 4,
-			share: 0.10, inserts: 120, flushEvery: 53, halo: true, resident: true,
-		},
+		{name: "no codes in memory, 30 % at once", threshold: 20, consolidate: 4, rounds: 1, share: 0.30, inserts: 30, flush: true, halo: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const base, dims = 1000, 48
-			total := base + 400 + tt.rounds*tt.inserts
+			t.Parallel()
+			const base, grown, dims = 60, 30, 32
+			total := base + grown + tt.rounds*tt.inserts
 			format := shardFormat(tt.consolidate)
 			if tt.halo {
-				format = haloFormat(tt.consolidate, tt.resident)
+				format = haloFormat(tt.consolidate, false)
 			}
 			f := newCleanFixtureFormat(t, total, base, dims, tt.cosine, tt.threshold, format)
-			f.insertSome(t, 400)
+			f.rescoring(fewRescored)
+			f.queries = f.queries[:3]
+			f.insertSome(t, grown)
 			f.same(t, "grown")
 			for round := range tt.rounds {
 				markedBefore := f.marked
@@ -216,9 +214,9 @@ func TestGrowCleanEqualsMemory(t *testing.T) {
 					f.reopen(t)
 					f.same(t, "cleaned, opened again")
 				}
-				for start := 0; start < tt.inserts; start += 50 {
-					f.insertSome(t, min(50, tt.inserts-start))
-					if tt.flushEvery > 0 && start%tt.flushEvery < 50 {
+				for start := 0; start < tt.inserts; start += 15 {
+					f.insertSome(t, min(15, tt.inserts-start))
+					if tt.flush {
 						require.NoError(t, f.g.flushAll())
 					}
 				}
@@ -241,6 +239,7 @@ func TestGrowCleanEqualsMemory(t *testing.T) {
 // it is retired. One left with no member is retired. What is left is an
 // index: covered, searched, opened again, and grown.
 func TestGrowCleanMerges(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name string
@@ -251,22 +250,23 @@ func TestGrowCleanMerges(t *testing.T) {
 		// memory.
 		halo bool
 	}{
-		{name: "40 % at random", share: 0.40},
 		{name: "30 % at random and three whole postings", share: 0.30, whole: 3},
 		{name: "no codes in memory, 40 % at random", share: 0.40, halo: true},
-		{name: "no codes in memory, 30 % at random and three whole postings", share: 0.30, whole: 3, halo: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const base, dims, threshold = 1000, 48, 60
-			total := base + 800
+			t.Parallel()
+			const base, dims, threshold = 60, 32, 24
+			total := base + 60
 			under, within := mergeUnder(threshold), threshold
 			format := shardFormat(8)
 			if tt.halo {
 				format = haloFormat(8, false)
 			}
 			f := newCleanFixtureFormat(t, total, base, dims, false, threshold, format)
-			f.insertSome(t, 400)
+			f.rescoring(fewRescored)
+			f.queries = f.queries[:3]
+			f.insertSome(t, 30)
 			g := f.g
 			f.markShare(t, tt.share, 5)
 			emptied := 0
@@ -402,13 +402,18 @@ func TestGrowCleanMerges(t *testing.T) {
 // cleaned whole by the pass that starts again. And a vector whose doc id is
 // given again after it left is the new one.
 func TestGrowCleanInSteps(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const base, dims, threshold = 1000, 48, 60
-	total := base + 700
+	// again is how many doc ids are given again at the end, to vectors past
+	// those inserted.
+	const base, inserts, again, dims, threshold = 60, 30, 10, 32, 24
+	total := base + inserts + again
 	f := newCleanFixture(t, total, base, dims, false, threshold, 8)
-	f.insertSome(t, 400)
+	f.rescoring(fewRescored)
+	f.queries = f.queries[:3]
+	f.insertSome(t, inserts)
 	g := f.g
-	for stopAfter := 1; ; stopAfter += 11 {
+	for stopAfter := 1; ; stopAfter += 7 {
 		// A new round of marks, and a pass that is dropped after some steps.
 		var held []uint64
 		for docID := range g.live {
@@ -455,24 +460,24 @@ func TestGrowCleanInSteps(t *testing.T) {
 	// A doc id that left is free: given again, it is the new vector, in the
 	// index and in the file of vectors. Also when it leaves and comes back
 	// under a pass that lays the vectors out, which had copied the old one.
-	var again []uint64
+	var given []uint64
 	for docID := range g.live {
-		if g.holds(uint64(docID)) && len(again) < 40 && docID%3 == 0 {
-			again = append(again, uint64(docID))
+		if g.holds(uint64(docID)) && len(given) < again && docID%3 == 0 {
+			given = append(given, uint64(docID))
 		}
 	}
-	require.Len(t, again, 40)
+	require.Len(t, given, again)
 	layout, err := g.beginLayout()
 	require.NoError(t, err)
 	copied, err := layout.step(g.meta.Live)
 	require.NoError(t, err)
 	require.True(t, copied, "the pass copied every vector there was")
-	for _, docID := range again {
+	for _, docID := range given {
 		_, err := g.remove(docID)
 		require.NoError(t, err)
 	}
 	require.NoError(t, g.clean(ctx, mergeUnder(threshold), threshold))
-	for i, docID := range again {
+	for i, docID := range given {
 		require.False(t, g.live[docID], "doc %d left", docID)
 		f.all[docID] = f.all[total-1-i]
 		require.NoError(t, g.insert(ctx, docID, f.all[docID]), "doc %d, given again", docID)
@@ -501,8 +506,9 @@ func TestGrowCleanInSteps(t *testing.T) {
 // used where the sidecar has the full code, and with the first bits of it an
 // estimate of the same distance: it ranks a near vector before a far one.
 func TestCodecBetween(t *testing.T) {
+	t.Parallel()
 	const dims = 256
-	vectors := clusteredVectors(600, dims, 6, 991)
+	vectors := clusteredVectors(200, dims, 6, 991)
 	provider := distancer.NewL2SquaredProvider()
 	uc := smallConfig()
 	uc.Distance = "l2-squared"

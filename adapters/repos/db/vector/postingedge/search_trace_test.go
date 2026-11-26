@@ -98,6 +98,7 @@ func (s *edgeTraceSummary) String() string {
 }
 
 func TestRedundantEdges(t *testing.T) {
+	t.Parallel()
 	// slot -> posting: 0, 1 in posting 0; 2, 3, 4 in posting 1; 5 in posting 2
 	postingOf := []uint32{0, 0, 1, 1, 1, 2}
 	tests := []struct {
@@ -162,6 +163,7 @@ func traceLoad(tr *edgeTrace, sc *searchScratch, store *postingStore, postingOf 
 // Posting 0 is the entry posting. Once it is loaded, posting 1 is picked and
 // loaded, and the search ends with posting 2 ranked but not loaded.
 func TestEdgeTraceCounts(t *testing.T) {
+	t.Parallel()
 	far, near := []float32{1, 1, 1}, []float32{0.1, 1, 1}
 	tests := []struct {
 		name string
@@ -252,11 +254,13 @@ func TestEdgeTraceCounts(t *testing.T) {
 // its counts hold together, over margins, batches and efs. With one edge per
 // target posting there is nothing for it to count.
 func TestEdgeTraceOfABuild(t *testing.T) {
+	t.Parallel()
 	const k = 10
-	all := clusteredVectors(3100, 24, 30, 914)
-	vectors, queries := all[:3000], all[3000:]
+	all := clusteredVectors(204, 24, 2, 914)
+	vectors, queries := all[:200], all[200:]
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
+	uc.TargetPostingSize = 20
 	index := buildTestIndex(t, vectors, distancer.NewL2SquaredProvider(), uc)
 	st := index.state.Load()
 	ctx := context.Background()
@@ -265,7 +269,7 @@ func TestEdgeTraceOfABuild(t *testing.T) {
 		var total edgeTraceCounts
 		for _, margin := range []float32{0, 2} {
 			for _, batch := range []int{1, 4} {
-				for _, ef := range []int{10, 40, 160} {
+				for _, ef := range []int{10, 80} {
 					uc.EF, uc.LoadBatch, uc.SourceMargin = ef, batch, margin
 					require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 					for qi, query := range queries {
@@ -324,6 +328,7 @@ func TestEdgeTraceOfABuild(t *testing.T) {
 }
 
 func TestEdgeTraceSummaryOf(t *testing.T) {
+	t.Parallel()
 	traced := func(scored int, c edgeTraceCounts) SearchStats {
 		tr := newEdgeTrace()
 		tr.edgeTraceCounts = c

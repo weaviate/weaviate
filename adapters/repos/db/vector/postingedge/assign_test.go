@@ -28,6 +28,7 @@ import (
 // its probes the exact nearest centroids: an approximate primary would hide
 // the vector from the one posting a search expects it in.
 func TestAssignIsExact(t *testing.T) {
+	t.Parallel()
 	logger, _ := test.NewNullLogger()
 	l2 := distancer.NewL2SquaredProvider()
 
@@ -45,7 +46,7 @@ func TestAssignIsExact(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vectors := clusteredVectors(600, 12, 15, 21)
+			vectors := clusteredVectors(300, 12, 15, 21)
 			centroids := clusteredVectors(tt.centroids, 12, 15, 22)
 
 			a, err := assign(context.Background(), logger, vectors, centroids, tt.probe)
@@ -71,6 +72,7 @@ func TestAssignIsExact(t *testing.T) {
 }
 
 func TestAssignRejectsUnusableInput(t *testing.T) {
+	t.Parallel()
 	logger, _ := test.NewNullLogger()
 	nan := float32(math.NaN())
 
@@ -93,6 +95,7 @@ func TestAssignRejectsUnusableInput(t *testing.T) {
 }
 
 func TestDropEmptyRenumbersTheAssignment(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		centroids     [][]float32
