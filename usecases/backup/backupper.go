@@ -163,6 +163,11 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			// Clear the base ID so the descriptor reflects the full backup we actually took.
 			baseBackupID = ""
 		}
+		if err := validateBaseChunkKeys(baseDescrs); err != nil {
+			b.logger.WithFields(logFields).Error(err)
+			b.publishFailure(err)
+			return
+		}
 
 		result := backup.BackupDescriptor{
 			StartedAt:       startedAt,
@@ -186,6 +191,24 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	enterrors.GoWrapper(f, b.logger)
 
 	return ret, nil
+}
+
+// validateBaseChunkKeys refuses bases whose chunk keys would be copied into the new backup unrestorable.
+func validateBaseChunkKeys(baseDescrs []*backup.BaseBackupDescriptor) error {
+	for _, d := range baseDescrs {
+		for _, cls := range d.Classes {
+			for _, shard := range cls.Shards {
+				for file, info := range shard.BigFilesChunk {
+					for _, k := range info.ChunkKeys {
+						if !isChunkKeyOf(cls.Name, k) {
+							return fmt.Errorf("base backup class=%q shard=%q file=%q: invalid chunk key %q", cls.Name, shard.Name, file, k)
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 type ChainDescriptor interface {
@@ -228,6 +251,9 @@ func resolveBaseBackupChain[T ChainDescriptor](
 	nextID := baseBackupID
 
 	for {
+		if err := validateID(nextID); err != nil {
+			return nil, fmt.Errorf("base backup id %q: %w", nextID, err)
+		}
 		// Check for circular references
 		if _, ok := visitedIDs[nextID]; ok {
 			return nil, fmt.Errorf("circular references in backup ids detected, all visited IDs: %v, circular ID %v", visitedIDs, nextID)

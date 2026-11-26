@@ -1944,3 +1944,107 @@ func (s *countingSnapshotter) Snapshot(...string) ([]byte, error) {
 }
 
 func (s *countingSnapshotter) Restore([]byte, bool) error { return nil }
+
+func TestValidateIncrementalRefs(t *testing.T) {
+	descWith := func(class, baseID, key string) *backup.BackupDescriptor {
+		return &backup.BackupDescriptor{Classes: []backup.ClassDescriptor{{
+			Name: class,
+			Shards: []*backup.ShardDescriptor{{
+				Name: "s1", Node: "n1",
+				IncrementalBackupInfo: backup.IncrementalBackupInfos{FilesPerBackup: map[string][]backup.IncrementalBackupInfo{
+					baseID: {{File: "s1/big.db", ChunkKeys: []string{chunkKey(class, 1), key}}},
+				}},
+			}},
+		}}}
+	}
+	tests := []struct {
+		name    string
+		desc    *backup.BackupDescriptor
+		wantErr []string
+	}{
+		{name: "first chunk", desc: descWith("Class", "base-1", "Class/chunk-0")},
+		{name: "later chunk", desc: descWith("Class", "base_1", "Class/chunk-17")},
+		{name: "namespace-qualified class", desc: descWith("ns1:Foo", "base-1", "ns1:Foo/chunk-3")},
+		{name: "no incremental info", desc: &backup.BackupDescriptor{Classes: []backup.ClassDescriptor{{
+			Name: "Class", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}},
+		}}}},
+		{name: "traversal key", desc: descWith("Class", "base-1", "../../../secret.tar"), wantErr: []string{"Class", "s1", "base-1", "../../../secret.tar"}},
+		{name: "other class key", desc: descWith("Class", "base-1", "Other/chunk-1"), wantErr: []string{"Other/chunk-1"}},
+		{name: "leading zero", desc: descWith("Class", "base-1", "Class/chunk-01"), wantErr: []string{"Class/chunk-01"}},
+		{name: "plus sign", desc: descWith("Class", "base-1", "Class/chunk-+1"), wantErr: []string{"Class/chunk-+1"}},
+		{name: "negative chunk", desc: descWith("Class", "base-1", "Class/chunk--1"), wantErr: []string{"Class/chunk--1"}},
+		{name: "trailing path", desc: descWith("Class", "base-1", "Class/chunk-1/../../x"), wantErr: []string{"Class/chunk-1/../../x"}},
+		{name: "int32 overflow", desc: descWith("Class", "base-1", "Class/chunk-99999999999"), wantErr: []string{"Class/chunk-99999999999"}},
+		{name: "empty key", desc: descWith("Class", "base-1", ""), wantErr: []string{`""`}},
+		{name: "traversal base id", desc: descWith("Class", "../escape", "Class/chunk-1"), wantErr: []string{"../escape"}},
+		{name: "nested base id", desc: descWith("Class", "a/b", "Class/chunk-1"), wantErr: []string{"a/b"}},
+		{name: "uppercase base id", desc: descWith("Class", "UPPER", "Class/chunk-1"), wantErr: []string{"UPPER"}},
+		{name: "empty base id", desc: descWith("Class", "", "Class/chunk-1"), wantErr: []string{"base backup id"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateIncrementalRefs(tc.desc)
+			if len(tc.wantErr) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, want := range tc.wantErr {
+				assert.Contains(t, err.Error(), want)
+			}
+		})
+	}
+}
+
+func TestIsChunkKeyOf(t *testing.T) {
+	tests := []struct {
+		class, key string
+		want       bool
+	}{
+		{"Class", "Class/chunk-0", true},
+		{"Class", "Class/chunk-2147483647", true},
+		{"ns1:Foo", "ns1:Foo/chunk-1", true},
+		{"Class", "Class/chunk-2147483648", false},
+		{"Class", "Class/chunk-", false},
+		{"Class", "Class/chunk-1 ", false},
+		{"Class", "Class/chunk-0x1", false},
+		{"Class", "ClassX/chunk-1", false},
+		{"Class", "/Class/chunk-1", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.class+"|"+tc.key, func(t *testing.T) {
+			assert.Equal(t, tc.want, isChunkKeyOf(tc.class, tc.key))
+		})
+	}
+}
+
+func TestValidateBaseChunkKeys(t *testing.T) {
+	baseWith := func(key string) *backup.BaseBackupDescriptor {
+		return &backup.BaseBackupDescriptor{Classes: []backup.BaseClassDescriptor{{
+			Name: "Class",
+			Shards: []backup.BaseShardDescriptor{{Name: "s1", BigFilesChunk: map[string]backup.BigFileInfo{
+				"s1/big.db": {ChunkKeys: []string{"Class/chunk-1", key}},
+			}}},
+		}}}
+	}
+	tests := []struct {
+		name    string
+		descrs  []*backup.BaseBackupDescriptor
+		wantErr string
+	}{
+		{name: "none"},
+		{name: "canonical", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2")}},
+		{name: "traversal", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2"), baseWith("../../evil")}, wantErr: "../../evil"},
+		{name: "other class", descrs: []*backup.BaseBackupDescriptor{baseWith("Other/chunk-2")}, wantErr: "Other/chunk-2"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBaseChunkKeys(tc.descrs)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
