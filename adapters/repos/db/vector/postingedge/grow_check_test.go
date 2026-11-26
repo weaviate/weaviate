@@ -107,9 +107,18 @@ func (g *growIndex) checkCoverage() error {
 		return errors.Errorf("%d routing codes on disk for %d live docs", coded, g.meta.Live)
 	}
 
-	if len(g.retired) != g.meta.Postings || len(g.size) != g.meta.Postings || len(st.centroids.vectors) != g.meta.Postings {
+	// With codes the centroids are in the graph alone, and nothing of them in
+	// float32: the graph holds the live ones (below).
+	centroids := len(st.centroids.vectors)
+	if st.centroids.codes {
+		if centroids != 0 {
+			return errors.Errorf("a centroid graph with codes holds %d centroids in float32", centroids)
+		}
+		centroids = g.meta.Postings
+	}
+	if len(g.retired) != g.meta.Postings || len(g.size) != g.meta.Postings || centroids != g.meta.Postings {
 		return errors.Errorf("%d postings, %d retired flags, %d sizes and %d centroids",
-			g.meta.Postings, len(g.retired), len(g.size), len(st.centroids.vectors))
+			g.meta.Postings, len(g.retired), len(g.size), centroids)
 	}
 	count := make([]uint8, keys)
 	var dp diskPosting

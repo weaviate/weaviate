@@ -26,6 +26,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -412,6 +413,12 @@ type diskIndex struct {
 	rounds  sync.Pool // *diskRound
 }
 
+// diskCentroidCodes has openDiskIndex keep the centroids as codes in the store
+// of the cell, as an index a shard opens keeps them, converting a cell written
+// with them in float32: for the measure of what the codes cost
+// (TestDiskCentroidCodes). It is a variable of the tests, not of a cell.
+var diskCentroidCodes bool
+
 // openDiskIndex opens a written index. uc carries the search tunables;
 // everything about the build comes from the directory. metrics and pread are
 // those of openDiskStore.
@@ -481,17 +488,33 @@ func openDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		}
 	}
 
-	flat, err := readArray(path(diskCentroidFile), 4, meta.Postings*meta.Dims, getFloat32)
-	if err != nil {
-		return nil, errors.Wrap(err, "read the centroids")
-	}
-	centroids := make([][]float32, meta.Postings)
-	for p := range centroids {
-		centroids[p] = flat[p*meta.Dims : (p+1)*meta.Dims : (p+1)*meta.Dims]
-	}
-	graph, err := openCentroidGraph(ctx, logger, path(diskGraphDir), centroids)
-	if err != nil {
-		return nil, err
+	var graph *centroidIndex
+	if diskCentroidCodes {
+		// The centroids as codes in the store of the cell, as an index a shard
+		// opens keeps them (centroidCodes): the store opens first, and a cell
+		// written with its centroids in float32 converts here.
+		if d.lsm, d.bucket, err = openDiskStore(ctx, logger, dir, metrics, pread); err != nil {
+			return nil, err
+		}
+		graph, err = openCentroidGraphWith(ctx, logger, path(diskGraphDir), nil, centroidCycles{}, centroidCodes{
+			store: d.lsm, makeOptions: lsmkv.MakeNoopBucketOptions, id: helpers.PostingEdgeCentroidsID("cell"),
+			file: path(diskCentroidFile), dims: meta.Dims,
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		flat, err := readArray(path(diskCentroidFile), 4, meta.Postings*meta.Dims, getFloat32)
+		if err != nil {
+			return nil, errors.Wrap(err, "read the centroids")
+		}
+		centroids := make([][]float32, meta.Postings)
+		for p := range centroids {
+			centroids[p] = flat[p*meta.Dims : (p+1)*meta.Dims : (p+1)*meta.Dims]
+		}
+		if graph, err = openCentroidGraph(ctx, logger, path(diskGraphDir), centroids); err != nil {
+			return nil, err
+		}
 	}
 	postings := meta.Postings
 	d.st = &state{
@@ -537,8 +560,10 @@ func openDiskIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		return nil, errors.Errorf("the vectors take %d bytes, expected %d", info.Size(), want)
 	}
 
-	if d.lsm, d.bucket, err = openDiskStore(ctx, logger, dir, metrics, pread); err != nil {
-		return nil, err
+	if d.lsm == nil {
+		if d.lsm, d.bucket, err = openDiskStore(ctx, logger, dir, metrics, pread); err != nil {
+			return nil, err
+		}
 	}
 	d.ix, err = New(Config{
 		ID:                           "disk",

@@ -1,0 +1,155 @@
+## 2026-11-25 09:35:34 the day chain starts: ABC; the binary is 3f3139e0f402ecde, built 2026-11-24 09:01
+## held: pid 21179(caffeinate): [0x00252925000197c2] 00:00:00 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 21177)
+## held: pid 21179(caffeinate): [0x00252925000797c3] 00:00:00 PreventSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 21177)
+## 2026-11-25 09:35:34 process A: the night chain starts
+## nothing starts after 2026-11-26 08:00
+## 2026-11-25 09:35 the marker is up; the binary is 3f3139e0f402ecde, built 2026-11-24 09:01
+## 2026-11-25 09:35 process A starts: filters-retime-A-dbpedia-1m
+## 2026-11-25 16:22 process A ended with 0
+round 1, ours graph, far 0.1 % (ef 10), 1 thread, warm: p50 332.596 ms, p95 351.678, p99 361.176 | 3 QPS | 3898.9 loads, 64.0 vectors read
+round 1, ours graph, far 0.1 % (ef 10), 1 thread, cold: p50 341.221 ms, p95 711.956, p99 737.224 | 50 batches of 10, halves at p50 339.852 and 341.688 ms | 3870.6 loads, 64.0 vectors read
+round 1, ours graph, random 7 % (ef 10), 1 thread, warm: p50 4.120 ms, p95 15.194, p99 23.327 | 176 QPS | 65.8 loads, 63.9 vectors read
+round 1, ours graph, random 7 % (ef 10), 1 thread, cold: p50 10.472 ms, p95 35.325, p99 52.792 | 50 batches of 10, halves at p50 9.926 and 10.861 ms | 66.9 loads, 63.9 vectors read
+round 1, ours graph, random 5 % (ef 10), 1 thread, warm: p50 5.172 ms, p95 19.044, p99 27.387 | 144 QPS | 81.3 loads, 63.9 vectors read
+round 1, ours graph, random 5 % (ef 10), 1 thread, cold: p50 12.534 ms, p95 41.534, p99 57.756 | 50 batches of 10, halves at p50 11.563 and 12.916 ms | 82.4 loads, 63.9 vectors read
+round 1, ours graph, random 3 % (ef 10), 1 thread, warm: p50 8.413 ms, p95 29.216, p99 41.718 | 91 QPS | 116.0 loads, 63.8 vectors read
+round 1, ours graph, random 3 % (ef 10), 1 thread, cold: p50 18.029 ms, p95 61.779, p99 82.717 | 50 batches of 10, halves at p50 17.953 and 18.130 ms | 118.6 loads, 63.8 vectors read
+round 1, ours flat, random 50 % (ef 10), 1 thread, warm: p50 21.207 ms, p95 21.509, p99 21.775 | 47 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 50 % (ef 10), 1 thread, cold: p50 29.616 ms, p95 30.784, p99 31.670 | 50 batches of 10, halves at p50 29.633 and 29.601 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 10 % (ef 10), 1 thread, warm: p50 5.529 ms, p95 5.707, p99 5.901 | 180 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 10 % (ef 10), 1 thread, cold: p50 13.372 ms, p95 14.153, p99 14.485 | 50 batches of 10, halves at p50 13.375 and 13.370 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 1 % (ef 10), 1 thread, warm: p50 1.256 ms, p95 1.308, p99 1.331 | 792 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 1 % (ef 10), 1 thread, cold: p50 7.588 ms, p95 9.463, p99 9.772 | 50 batches of 10, halves at p50 7.570 and 7.712 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 0.1 % (ef 10), 1 thread, warm: p50 0.756 ms, p95 0.799, p99 0.827 | 1319 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 0.1 % (ef 10), 1 thread, cold: p50 1.161 ms, p95 8.843, p99 9.197 | 50 batches of 10, halves at p50 1.140 and 1.161 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 50 % (ef 10), 1 thread, warm: p50 21.246 ms, p95 21.566, p99 21.797 | 47 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 50 % (ef 10), 1 thread, cold: p50 29.357 ms, p95 30.283, p99 30.812 | 50 batches of 10, halves at p50 29.298 and 29.428 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 10 % (ef 10), 1 thread, warm: p50 5.550 ms, p95 5.665, p99 5.737 | 180 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 10 % (ef 10), 1 thread, cold: p50 12.917 ms, p95 13.945, p99 14.433 | 50 batches of 10, halves at p50 12.864 and 12.985 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 1 % (ef 10), 1 thread, warm: p50 1.258 ms, p95 1.304, p99 1.343 | 792 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 1 % (ef 10), 1 thread, cold: p50 8.681 ms, p95 9.631, p99 10.106 | 50 batches of 10, halves at p50 8.631 and 8.688 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 0.1 % (ef 10), 1 thread, warm: p50 0.752 ms, p95 0.789, p99 0.807 | 1323 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 0.1 % (ef 10), 1 thread, cold: p50 7.887 ms, p95 8.900, p99 9.337 | 50 batches of 10, halves at p50 7.841 and 7.919 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 50 % (ef 10), 1 thread, warm: p50 21.238 ms, p95 21.442, p99 21.904 | 47 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 50 % (ef 10), 1 thread, cold: p50 29.691 ms, p95 30.394, p99 30.947 | 50 batches of 10, halves at p50 29.683 and 29.702 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 10 % (ef 10), 1 thread, warm: p50 5.518 ms, p95 5.648, p99 5.731 | 181 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 10 % (ef 10), 1 thread, cold: p50 13.658 ms, p95 14.363, p99 14.651 | 50 batches of 10, halves at p50 13.658 and 13.653 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 1 % (ef 10), 1 thread, warm: p50 1.289 ms, p95 1.341, p99 1.374 | 772 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 1 % (ef 10), 1 thread, cold: p50 9.077 ms, p95 9.631, p99 10.018 | 50 batches of 10, halves at p50 9.100 and 9.073 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 0.1 % (ef 10), 1 thread, warm: p50 0.803 ms, p95 0.842, p99 0.862 | 1240 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 0.1 % (ef 10), 1 thread, cold: p50 8.020 ms, p95 8.853, p99 9.362 | 50 batches of 10, halves at p50 7.956 and 8.072 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 7 % (ef 10), 1 thread, warm: p50 4.280 ms, p95 4.422, p99 4.720 | 232 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 7 % (ef 10), 1 thread, cold: p50 12.062 ms, p95 12.759, p99 13.094 | 50 batches of 10, halves at p50 12.011 and 12.106 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 5 % (ef 10), 1 thread, warm: p50 3.445 ms, p95 3.552, p99 3.804 | 289 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 5 % (ef 10), 1 thread, cold: p50 11.204 ms, p95 11.892, p99 12.309 | 50 batches of 10, halves at p50 11.217 and 11.180 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 3 % (ef 10), 1 thread, warm: p50 2.185 ms, p95 2.289, p99 2.353 | 454 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 3 % (ef 10), 1 thread, cold: p50 9.672 ms, p95 10.444, p99 10.771 | 50 batches of 10, halves at p50 9.646 and 9.679 ms | 0.0 loads, 507.0 vectors read
+round 2, ours graph, random 50 % (ef 16), 1 thread, warm: p50 1.695 ms, p95 6.041, p99 11.153 | 426 QPS | 24.4 loads, 64.0 vectors read
+round 2, ours graph, random 50 % (ef 16), 1 thread, cold: p50 4.976 ms, p95 15.044, p99 21.991 | 50 batches of 10, halves at p50 4.811 and 5.238 ms | 24.4 loads, 64.0 vectors read
+round 2, ours graph, random 10 % (ef 10), 1 thread, warm: p50 3.231 ms, p95 12.254, p99 19.561 | 221 QPS | 50.6 loads, 63.9 vectors read
+round 2, ours graph, random 10 % (ef 10), 1 thread, cold: p50 8.152 ms, p95 27.086, p99 42.043 | 50 batches of 10, halves at p50 7.468 and 8.658 ms | 51.0 loads, 64.0 vectors read
+round 2, ours graph, random 1 % (ef 10), 1 thread, warm: p50 20.400 ms, p95 57.227, p99 78.377 | 42 QPS | 258.5 loads, 63.6 vectors read
+round 2, ours graph, random 1 % (ef 10), 1 thread, cold: p50 41.836 ms, p95 113.631, p99 149.370 | 50 batches of 10, halves at p50 40.073 and 42.685 ms | 262.7 loads, 63.6 vectors read
+round 2, ours graph, random 0.1 % (ef 10), 1 thread, warm: p50 107.214 ms, p95 199.736, p99 243.275 | 9 QPS | 1320.4 loads, 63.9 vectors read
+round 2, ours graph, random 0.1 % (ef 10), 1 thread, cold: p50 162.480 ms, p95 339.106, p99 450.060 | 50 batches of 10, halves at p50 163.793 and 159.327 ms | 1353.3 loads, 63.9 vectors read
+round 2, ours graph, near 50 % (ef 21), 1 thread, warm: p50 1.376 ms, p95 4.454, p99 8.504 | 532 QPS | 18.9 loads, 64.0 vectors read
+round 2, ours graph, near 50 % (ef 21), 1 thread, cold: p50 4.476 ms, p95 11.941, p99 17.852 | 50 batches of 10, halves at p50 4.316 and 4.670 ms | 18.9 loads, 64.0 vectors read
+round 2, ours graph, near 10 % (ef 18), 1 thread, warm: p50 1.321 ms, p95 4.940, p99 8.896 | 541 QPS | 18.5 loads, 64.0 vectors read
+round 2, ours graph, near 10 % (ef 18), 1 thread, cold: p50 4.316 ms, p95 12.350, p99 17.019 | 50 batches of 10, halves at p50 4.156 and 4.616 ms | 18.4 loads, 64.0 vectors read
+round 2, ours graph, near 1 % (ef 12), 1 thread, warm: p50 1.356 ms, p95 7.467, p99 16.579 | 421 QPS | 21.7 loads, 63.9 vectors read
+round 2, ours graph, near 1 % (ef 12), 1 thread, cold: p50 4.351 ms, p95 17.685, p99 31.205 | 50 batches of 10, halves at p50 4.265 and 4.590 ms | 21.7 loads, 63.9 vectors read
+round 2, ours graph, near 0.1 % (ef 10), 1 thread, warm: p50 2.004 ms, p95 18.579, p99 41.585 | 202 QPS | 50.0 loads, 63.7 vectors read
+round 2, ours graph, near 0.1 % (ef 10), 1 thread, cold: p50 5.451 ms, p95 39.065, p99 91.659 | 50 batches of 10, halves at p50 5.087 and 5.709 ms | 52.7 loads, 63.8 vectors read
+round 2, ours graph, far 50 % (ef 14), 1 thread, warm: p50 5.059 ms, p95 19.438, p99 32.359 | 142 QPS | 84.7 loads, 64.0 vectors read
+round 2, ours graph, far 50 % (ef 14), 1 thread, cold: p50 12.575 ms, p95 45.918, p99 69.256 | 50 batches of 10, halves at p50 11.857 and 13.014 ms | 85.7 loads, 64.0 vectors read
+round 2, ours graph, far 10 % (ef 12), 1 thread, warm: p50 50.282 ms, p95 143.138, p99 188.235 | 17 QPS | 698.1 loads, 64.0 vectors read
+round 2, ours graph, far 10 % (ef 12), 1 thread, cold: p50 86.251 ms, p95 258.293, p99 331.462 | 50 batches of 10, halves at p50 91.113 and 79.684 ms | 704.6 loads, 64.0 vectors read
+round 2, ours graph, far 1 % (ef 10), 1 thread, warm: p50 270.157 ms, p95 333.512, p99 343.065 | 4 QPS | 2842.2 loads, 64.0 vectors read
+round 2, ours graph, far 1 % (ef 10), 1 thread, cold: p50 304.622 ms, p95 587.393, p99 682.758 | 50 batches of 10, halves at p50 302.362 and 305.657 ms | 2836.6 loads, 64.0 vectors read
+round 2, ours graph, far 0.1 % (ef 10), 1 thread, warm: p50 328.564 ms, p95 338.921, p99 342.347 | 3 QPS | 3898.9 loads, 64.0 vectors read
+round 2, ours graph, far 0.1 % (ef 10), 1 thread, cold: p50 334.203 ms, p95 708.111, p99 716.393 | 50 batches of 10, halves at p50 333.906 and 334.772 ms | 3870.6 loads, 64.0 vectors read
+round 2, ours graph, random 7 % (ef 10), 1 thread, warm: p50 4.216 ms, p95 15.018, p99 24.225 | 176 QPS | 65.8 loads, 63.9 vectors read
+round 2, ours graph, random 7 % (ef 10), 1 thread, cold: p50 10.522 ms, p95 35.659, p99 51.361 | 50 batches of 10, halves at p50 10.309 and 10.945 ms | 66.9 loads, 63.9 vectors read
+round 2, ours graph, random 5 % (ef 10), 1 thread, warm: p50 5.120 ms, p95 19.290, p99 27.443 | 143 QPS | 81.3 loads, 63.9 vectors read
+round 2, ours graph, random 5 % (ef 10), 1 thread, cold: p50 12.470 ms, p95 43.802, p99 56.762 | 50 batches of 10, halves at p50 11.751 and 13.172 ms | 82.4 loads, 63.9 vectors read
+round 2, ours graph, random 3 % (ef 10), 1 thread, warm: p50 8.405 ms, p95 29.640, p99 41.444 | 90 QPS | 116.0 loads, 63.8 vectors read
+round 2, ours graph, random 3 % (ef 10), 1 thread, cold: p50 18.830 ms, p95 63.269, p99 81.156 | 50 batches of 10, halves at p50 18.693 and 19.218 ms | 118.6 loads, 63.8 vectors read
+round 2, ours flat, random 50 % (ef 10), 1 thread, warm: p50 25.215 ms, p95 26.775, p99 27.431 | 40 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 50 % (ef 10), 1 thread, cold: p50 29.525 ms, p95 30.383, p99 30.996 | 50 batches of 10, halves at p50 29.547 and 29.500 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 10 % (ef 10), 1 thread, warm: p50 5.447 ms, p95 5.617, p99 5.764 | 183 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 10 % (ef 10), 1 thread, cold: p50 13.348 ms, p95 14.116, p99 14.449 | 50 batches of 10, halves at p50 13.391 and 13.305 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 1 % (ef 10), 1 thread, warm: p50 1.233 ms, p95 1.289, p99 1.312 | 807 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 1 % (ef 10), 1 thread, cold: p50 7.610 ms, p95 9.355, p99 9.633 | 50 batches of 10, halves at p50 7.619 and 7.590 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 0.1 % (ef 10), 1 thread, warm: p50 0.747 ms, p95 0.792, p99 0.818 | 1334 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 0.1 % (ef 10), 1 thread, cold: p50 1.186 ms, p95 8.875, p99 9.174 | 50 batches of 10, halves at p50 1.192 and 1.164 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 50 % (ef 10), 1 thread, warm: p50 25.580 ms, p95 27.344, p99 27.978 | 39 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 50 % (ef 10), 1 thread, cold: p50 29.269 ms, p95 30.186, p99 30.510 | 50 batches of 10, halves at p50 29.248 and 29.271 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 10 % (ef 10), 1 thread, warm: p50 8.272 ms, p95 9.889, p99 11.027 | 121 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 10 % (ef 10), 1 thread, cold: p50 12.933 ms, p95 13.712, p99 14.030 | 50 batches of 10, halves at p50 12.919 and 12.933 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 1 % (ef 10), 1 thread, warm: p50 1.263 ms, p95 1.364, p99 1.958 | 775 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 1 % (ef 10), 1 thread, cold: p50 8.608 ms, p95 9.499, p99 10.208 | 50 batches of 10, halves at p50 8.609 and 8.601 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 0.1 % (ef 10), 1 thread, warm: p50 0.787 ms, p95 2.987, p99 3.659 | 840 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 0.1 % (ef 10), 1 thread, cold: p50 7.820 ms, p95 8.870, p99 9.200 | 50 batches of 10, halves at p50 7.906 and 7.794 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 50 % (ef 10), 1 thread, warm: p50 24.071 ms, p95 25.438, p99 26.400 | 41 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 50 % (ef 10), 1 thread, cold: p50 29.650 ms, p95 30.664, p99 32.069 | 50 batches of 10, halves at p50 29.736 and 29.609 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 10 % (ef 10), 1 thread, warm: p50 8.006 ms, p95 9.820, p99 11.182 | 123 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 10 % (ef 10), 1 thread, cold: p50 13.487 ms, p95 14.087, p99 14.522 | 50 batches of 10, halves at p50 13.499 and 13.471 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 1 % (ef 10), 1 thread, warm: p50 1.266 ms, p95 2.879, p99 4.020 | 657 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 1 % (ef 10), 1 thread, cold: p50 9.177 ms, p95 9.697, p99 10.269 | 50 batches of 10, halves at p50 9.203 and 9.131 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 0.1 % (ef 10), 1 thread, warm: p50 0.759 ms, p95 0.804, p99 0.831 | 1306 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 0.1 % (ef 10), 1 thread, cold: p50 8.179 ms, p95 9.059, p99 9.884 | 50 batches of 10, halves at p50 8.195 and 8.166 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 7 % (ef 10), 1 thread, warm: p50 4.279 ms, p95 4.444, p99 4.676 | 232 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 7 % (ef 10), 1 thread, cold: p50 12.159 ms, p95 12.788, p99 12.978 | 50 batches of 10, halves at p50 12.050 and 12.219 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 5 % (ef 10), 1 thread, warm: p50 3.440 ms, p95 3.603, p99 3.685 | 288 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 5 % (ef 10), 1 thread, cold: p50 11.246 ms, p95 11.988, p99 14.335 | 50 batches of 10, halves at p50 11.244 and 11.252 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 3 % (ef 10), 1 thread, warm: p50 2.179 ms, p95 2.308, p99 2.365 | 454 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 3 % (ef 10), 1 thread, cold: p50 9.763 ms, p95 10.513, p99 10.805 | 50 batches of 10, halves at p50 9.807 and 9.749 ms | 0.0 loads, 507.0 vectors read
+--- PASS: TestIntegrationFilters (24390.73s)
+PASS
+## 2026-11-25 16:22 the chain ended; failed: none
+## 2026-11-25 16:22:06 process A ended with 0: the Mac did not sleep since 2026-11-25 09:35:34
+## held: pid 21179(caffeinate): [0x00252925000197c2] 06:46:33 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 21177)
+## held: pid 21179(caffeinate): [0x00252925000797c3] 06:46:33 PreventSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 21177)
+## 2026-11-25 16:22:07 process B: the night chain starts
+## nothing starts after 2026-11-26 08:00
+## 2026-11-25 16:22 the marker is up; the binary is 3f3139e0f402ecde, built 2026-11-24 09:01
+## 2026-11-25 16:22 process B starts: filters-retime-B-dbpedia-1m
+## 2026-11-25 16:26 process B ended with 1
+hnsw built: 990000 vectors in 1m43s, map[acornFilterRatio:0.4 distance:cosine efConstruction:128 filterStrategy:acorn flatSearchCutoff:40000 maxConnections:32 rqBits:1 rqCentering:false rqRescoreLimit:512 rqTrainingLimit:10000]
+hnsw acorn, random 10 % at recall 0.95: ef 129, recall 0.9503, 0.0 loads, 129.0 vectors read
+hnsw acorn, random 1 % at recall 0.95: ef 37, recall 0.9512, 0.0 loads, 37.0 vectors read
+hnsw acorn, near 1 % at recall 0.95: ef 41, recall 0.9503, 0.0 loads, 41.0 vectors read
+hnsw acorn, far 1 % at recall 0.95: ef 146, recall 0.9501, 0.0 loads, 146.0 vectors read
+the wait before the timed rounds: waiting from 16:26 for 900 s without keyboard or trackpad
+        the machine is quiet at 16:26
+round 1, hnsw acorn, random 10 % (ef 129), 1 thread, warm: p50 3.759 ms, p95 5.652, p99 6.115 | 266 QPS | 0.0 loads, 129.0 vectors read
+--- FAIL: TestIntegrationFilters (268.98s)
+FAIL
+## 2026-11-25 16:26 the chain ended; failed: B
+## 2026-11-25 16:26:37 process B ended with 1: the Mac did not sleep since 2026-11-25 16:22:07
+## held: pid 21179(caffeinate): [0x00252925000197c2] 06:51:05 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 21177)
+## held: pid 21179(caffeinate): [0x00252925000797c3] 06:51:05 PreventSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 21177)
+## 2026-11-25 16:26:39 process C: the night chain starts
+## nothing starts after 2026-11-26 08:00
+## 2026-11-25 16:26 the marker is up; the binary is 3f3139e0f402ecde, built 2026-11-24 09:01
+## 2026-11-25 16:26 process C starts: filters-retime-C-dbpedia-1m
+## 2026-11-25 16:30 process C ended with 1
+hnsw built: 990000 vectors in 1m42s, map[acornFilterRatio:0.4 distance:cosine efConstruction:128 filterStrategy:acorn flatSearchCutoff:40000 maxConnections:32 rqBits:1 rqCentering:true rqRescoreLimit:512 rqTrainingLimit:10000]
+hnsw acorn, random 10 % at recall 0.95: ef 66, recall 0.9511, 0.0 loads, 66.0 vectors read
+hnsw acorn, random 1 % at recall 0.95: ef 17, recall 0.9573, 0.0 loads, 17.0 vectors read
+hnsw acorn, near 1 % at recall 0.95: ef 18, recall 0.9552, 0.0 loads, 18.0 vectors read
+hnsw acorn, far 1 % at recall 0.95: ef 30, recall 0.9534, 0.0 loads, 30.0 vectors read
+the wait before the timed rounds: waiting from 16:29 for 900 s without keyboard or trackpad
+        the machine is quiet at 16:29
+round 1, hnsw acorn, random 10 % (ef 66), 1 thread, warm: p50 2.171 ms, p95 3.502, p99 3.803 | 453 QPS | 0.0 loads, 66.0 vectors read
+--- FAIL: TestIntegrationFilters (214.45s)
+FAIL
+## 2026-11-25 16:30 the chain ended; failed: C
+## 2026-11-25 16:30:14 process C ended with 1: the Mac did not sleep since 2026-11-25 16:26:39
+## 2026-11-25 16:30:15 the day chain ended; failed or slept: B C

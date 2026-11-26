@@ -173,11 +173,25 @@ func PostingEdgeBucketNames(indexID string) []string {
 		PostingEdgeBucketEdgeDists, PostingEdgeBucketDeleted, PostingEdgeBucketStaging,
 		PostingEdgeBucketPending,
 	}
-	names := make([]string, len(kinds))
+	names := make([]string, len(kinds), len(kinds)+1)
 	for i, kind := range kinds {
 		names[i] = PostingEdgeBucketName(kind, indexID)
 	}
-	return names
+	return append(names, PostingEdgeCentroidCodesBucketName(indexID))
+}
+
+// PostingEdgeCentroidsID is the id of the graph over the centroids of a
+// posting-edge index, which keeps them as 8-bit RQ codes in a bucket of the
+// store of the shard. It names that bucket, and is one of its own for every
+// index of the shard.
+func PostingEdgeCentroidsID(indexID string) string {
+	return fmt.Sprintf("%s_postingedge_centroids_%s", VectorsBucketLSM, indexID)
+}
+
+// PostingEdgeCentroidCodesBucketName is the bucket the graph over the
+// centroids of a posting-edge index keeps their codes in.
+func PostingEdgeCentroidCodesBucketName(indexID string) string {
+	return CompressedBucketNameForID(PostingEdgeCentroidsID(indexID))
 }
 
 // HFreshPostingsBucketName is the LSM bucket holding hfresh's posting lists.

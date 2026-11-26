@@ -1,0 +1,82 @@
+## nothing starts after 2026-11-26 08:00
+## 2026-11-25 20:35:45 the repeat chain waits for the day chain of R (pid 41756) to end
+## 2026-11-25 22:02:48 the day chain of R has ended
+## 2026-11-25 22:02 the marker is up; the binary is b975317b6f4fa58d, built 2026-11-25 17:14
+## held: pid 71154(caffeinate): [0x0025bb6900018c05] 01:27:03 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+## held: pid 71154(caffeinate): [0x0025bb6900078c06] 01:27:03 PreventSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+## 2026-11-25 22:02:48 process A2 starts: filters-retime-repeat-A-dbpedia-1m
+ours flat, random 50 % at recall 0.95: ef 10, recall 0.9963, 0.0 loads, 507.0 vectors read
+ours flat, near 50 % at recall 0.95: ef 10, recall 0.9953, 0.0 loads, 507.0 vectors read
+ours flat, near 10 % at recall 0.95: ef 10, recall 0.9951, 0.0 loads, 507.0 vectors read
+ours flat, far 50 % at recall 0.95: ef 10, recall 0.9889, 0.0 loads, 507.0 vectors read
+ours flat, far 10 % at recall 0.95: ef 10, recall 0.9789, 0.0 loads, 507.0 vectors read
+the wait before the timed rounds: waiting from 22:05 for 900 s without keyboard or trackpad
+        the machine is quiet at 22:05
+round 1, ours flat, random 50 % (ef 10), 1 thread, warm: p50 21.411 ms, p95 21.766, p99 22.131 | 47 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, random 50 % (ef 10), 1 thread, cold: p50 29.490 ms, p95 30.499, p99 31.240 | 50 batches of 10, halves at p50 29.498 and 29.487 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 50 % (ef 10), 1 thread, warm: p50 21.047 ms, p95 21.299, p99 21.585 | 47 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 50 % (ef 10), 1 thread, cold: p50 28.954 ms, p95 29.984, p99 30.375 | 50 batches of 10, halves at p50 28.982 and 28.931 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 10 % (ef 10), 1 thread, warm: p50 5.510 ms, p95 5.678, p99 5.760 | 180 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, near 10 % (ef 10), 1 thread, cold: p50 12.865 ms, p95 13.784, p99 14.045 | 50 batches of 10, halves at p50 12.910 and 12.793 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 50 % (ef 10), 1 thread, warm: p50 21.139 ms, p95 21.532, p99 21.809 | 47 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 50 % (ef 10), 1 thread, cold: p50 29.607 ms, p95 30.705, p99 31.690 | 50 batches of 10, halves at p50 29.655 and 29.563 ms | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 10 % (ef 10), 1 thread, warm: p50 6.839 ms, p95 8.065, p99 8.718 | 144 QPS | 0.0 loads, 507.0 vectors read
+round 1, ours flat, far 10 % (ef 10), 1 thread, cold: p50 13.384 ms, p95 14.056, p99 14.230 | 50 batches of 10, halves at p50 13.403 and 13.353 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 50 % (ef 10), 1 thread, warm: p50 23.796 ms, p95 25.618, p99 26.335 | 42 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, random 50 % (ef 10), 1 thread, cold: p50 29.394 ms, p95 30.117, p99 30.424 | 50 batches of 10, halves at p50 29.382 and 29.398 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 50 % (ef 10), 1 thread, warm: p50 24.101 ms, p95 25.738, p99 26.613 | 41 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 50 % (ef 10), 1 thread, cold: p50 29.196 ms, p95 30.050, p99 30.604 | 50 batches of 10, halves at p50 29.216 and 29.190 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 10 % (ef 10), 1 thread, warm: p50 8.264 ms, p95 9.864, p99 10.969 | 120 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, near 10 % (ef 10), 1 thread, cold: p50 12.992 ms, p95 13.829, p99 14.093 | 50 batches of 10, halves at p50 12.973 and 13.001 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 50 % (ef 10), 1 thread, warm: p50 23.922 ms, p95 25.556, p99 26.138 | 42 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 50 % (ef 10), 1 thread, cold: p50 29.614 ms, p95 30.266, p99 30.623 | 50 batches of 10, halves at p50 29.637 and 29.579 ms | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 10 % (ef 10), 1 thread, warm: p50 7.862 ms, p95 9.551, p99 10.929 | 125 QPS | 0.0 loads, 507.0 vectors read
+round 2, ours flat, far 10 % (ef 10), 1 thread, cold: p50 13.531 ms, p95 14.178, p99 16.275 | 50 batches of 10, halves at p50 13.571 and 13.504 ms | 0.0 loads, 507.0 vectors read
+--- PASS: TestIntegrationFilters (3135.07s)
+PASS
+## 2026-11-25 22:55:04 process A2 ended with 0: the Mac did not sleep since 2026-11-25 22:02:48
+## held: pid 71154(caffeinate): [0x0025bb6900018c05] 02:19:20 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+## held: pid 71154(caffeinate): [0x0025bb6900078c06] 02:19:20 PreventSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+## 2026-11-25 22:55:05 process B2 starts: filters-retime-repeat-B-dbpedia-1m
+hnsw built: 990000 vectors in 1m46s, map[acornFilterRatio:0.4 distance:cosine efConstruction:128 filterStrategy:acorn flatSearchCutoff:40000 maxConnections:32 rqBits:1 rqCentering:false rqRescoreLimit:512 rqTrainingLimit:10000]
+hnsw acorn, near 1 % at recall 0.95: ef 41, recall 0.9503, 0.0 loads, 41.0 vectors read
+the wait before the timed rounds: waiting from 22:57 for 900 s without keyboard or trackpad
+        the machine is quiet at 22:57
+round 1, hnsw acorn, near 1 % (ef 41), 1 thread, warm: p50 3.753 ms, p95 3.955, p99 4.097 | 268 QPS | 0.0 loads, 41.0 vectors read
+round 1, hnsw acorn, near 1 % (ef 41), 1 thread, cold: p50 9.700 ms, p95 16.685, p99 22.421 | 50 batches of 10, halves at p50 10.231 and 9.243 ms | 0.0 loads, 41.0 vectors read
+round 2, hnsw acorn, near 1 % (ef 41), 1 thread, warm: p50 3.718 ms, p95 3.888, p99 4.075 | 271 QPS | 0.0 loads, 41.0 vectors read
+round 2, hnsw acorn, near 1 % (ef 41), 1 thread, cold: p50 7.269 ms, p95 16.078, p99 21.503 | 50 batches of 10, halves at p50 5.753 and 9.160 ms | 0.0 loads, 41.0 vectors read
+--- PASS: TestIntegrationFilters (291.41s)
+PASS
+## 2026-11-25 22:59:57 process B2 ended with 0: the Mac did not sleep since 2026-11-25 22:55:05
+## held: pid 71154(caffeinate): [0x0025bb6900018c05] 02:24:13 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+## held: pid 71154(caffeinate): [0x0025bb6900078c06] 02:24:13 PreventSystemSleep named: "caffeinate command-line tool"  
+## held: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+## 2026-11-25 22:59:59 process C2 starts: filters-retime-repeat-C-dbpedia-1m
+hnsw built: 990000 vectors in 1m42s, map[acornFilterRatio:0.4 distance:cosine efConstruction:128 filterStrategy:acorn flatSearchCutoff:40000 maxConnections:32 rqBits:1 rqCentering:true rqRescoreLimit:512 rqTrainingLimit:10000]
+hnsw acorn, random 10 % at recall 0.95: ef 67, recall 0.9505, 0.0 loads, 67.0 vectors read
+hnsw acorn, near 1 % at recall 0.95: ef 18, recall 0.9556, 0.0 loads, 18.0 vectors read
+hnsw acorn, far 1 % at recall 0.95: ef 30, recall 0.9525, 0.0 loads, 30.0 vectors read
+the wait before the timed rounds: waiting from 23:02 for 900 s without keyboard or trackpad
+        the machine is quiet at 23:02
+round 1, hnsw acorn, random 10 % (ef 67), 1 thread, warm: p50 2.198 ms, p95 3.576, p99 3.914 | 449 QPS | 0.0 loads, 67.0 vectors read
+round 1, hnsw acorn, random 10 % (ef 67), 1 thread, cold: p50 5.814 ms, p95 13.457, p99 19.084 | 50 batches of 10, halves at p50 5.676 and 5.937 ms | 0.0 loads, 67.0 vectors read
+round 1, hnsw acorn, near 1 % (ef 18), 1 thread, warm: p50 2.983 ms, p95 3.193, p99 3.628 | 336 QPS | 0.0 loads, 18.0 vectors read
+round 1, hnsw acorn, near 1 % (ef 18), 1 thread, cold: p50 8.240 ms, p95 14.523, p99 17.973 | 50 batches of 10, halves at p50 9.447 and 6.703 ms | 0.0 loads, 18.0 vectors read
+round 1, hnsw acorn, far 1 % (ef 30), 1 thread, warm: p50 3.261 ms, p95 3.512, p99 3.682 | 310 QPS | 0.0 loads, 30.0 vectors read
+round 1, hnsw acorn, far 1 % (ef 30), 1 thread, cold: p50 8.848 ms, p95 14.783, p99 17.923 | 50 batches of 10, halves at p50 9.146 and 7.903 ms | 0.0 loads, 30.0 vectors read
+round 2, hnsw acorn, random 10 % (ef 67), 1 thread, warm: p50 2.154 ms, p95 3.424, p99 3.833 | 461 QPS | 0.0 loads, 67.0 vectors read
+round 2, hnsw acorn, random 10 % (ef 67), 1 thread, cold: p50 5.901 ms, p95 13.588, p99 19.641 | 50 batches of 10, halves at p50 5.833 and 5.902 ms | 0.0 loads, 67.0 vectors read
+round 2, hnsw acorn, near 1 % (ef 18), 1 thread, warm: p50 3.298 ms, p95 3.689, p99 3.778 | 302 QPS | 0.0 loads, 18.0 vectors read
+round 2, hnsw acorn, near 1 % (ef 18), 1 thread, cold: p50 10.508 ms, p95 14.685, p99 17.772 | 50 batches of 10, halves at p50 10.427 and 10.665 ms | 0.0 loads, 18.0 vectors read
+round 2, hnsw acorn, far 1 % (ef 30), 1 thread, warm: p50 3.260 ms, p95 3.532, p99 3.691 | 311 QPS | 0.0 loads, 30.0 vectors read
+round 2, hnsw acorn, far 1 % (ef 30), 1 thread, cold: p50 9.042 ms, p95 14.619, p99 18.151 | 50 batches of 10, halves at p50 7.596 and 9.850 ms | 0.0 loads, 30.0 vectors read
+--- PASS: TestIntegrationFilters (626.25s)
+PASS
+## 2026-11-25 23:10:25 process C2 ended with 0: the Mac did not sleep since 2026-11-25 22:59:59
+## 2026-11-25 23:10:27 the repeat chain ended; failed or slept: none
