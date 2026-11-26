@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/objects/validation"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
@@ -116,12 +115,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	prevObj := obj.Object()
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClasses)
 	if err != nil {
-		if errors.As(err, &authzerrs.Forbidden{}) {
-			return nil, err
-		}
-		if validation.IsReferenceAuthorizationError(err) {
-			return nil, NewErrInternal("validate object: %w", err)
-		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return nil, NewErrInternal("validate object: %w", err)
 		}

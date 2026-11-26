@@ -29,7 +29,6 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/objects/validation"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
@@ -141,12 +140,6 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	prevObj := obj.Object()
 	if err := m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClass); err != nil {
-		if errors.As(err, &authzerrs.Forbidden{}) {
-			return &Error{err.Error(), StatusForbidden, err}
-		}
-		if validation.IsReferenceAuthorizationError(err) {
-			return &Error{"validate object", StatusInternalServerError, err}
-		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return &Error{"validate object", StatusInternalServerError, err}
 		}

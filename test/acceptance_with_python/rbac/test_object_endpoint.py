@@ -68,7 +68,6 @@ def test_obj_insert_ref(
 
     required_permissions = [
         Permissions.data(collection=source.name, create=True),
-        Permissions.data(collection=target.name, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -157,7 +156,6 @@ def test_obj_replace_ref(
 
     required_permissions = [
         Permissions.data(collection=source.name, update=True),
-        Permissions.data(collection=target.name, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -249,7 +247,6 @@ def test_obj_update_ref(
 
     required_permissions = [
         Permissions.data(collection=source.name, update=True),
-        Permissions.data(collection=target.name, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(

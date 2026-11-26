@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -102,7 +101,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.authorizer, m.config.Config.Namespaces.Enabled)
+		principal, m.config.Config.Namespaces.Enabled)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -145,19 +144,15 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		}
 
 		// only check authZ once per class/tenant combination
-		targetTenant := validation.ReferenceTargetTenant(parsedTargetRefs[i].Class, tenant)
-		checkName := parsedTargetRefs[i].Class + "#" + targetTenant
+		checkName := parsedTargetRefs[i].Class + "#" + tenant
 		if _, ok := previouslyAuthorized[checkName]; !ok {
-			if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, targetTenant)...); err != nil {
+			if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, tenant)...); err != nil {
 				return referenceAuthorizationError(err)
 			}
 			previouslyAuthorized[checkName] = struct{}{}
 		}
 
-		if err := input.validateExistence(ctx, validator, targetTenant, parsedTargetRefs[i]); err != nil {
-			if errors.As(err, &autherrs.Forbidden{}) || validation.IsReferenceAuthorizationError(err) {
-				return referenceAuthorizationError(err)
-			}
+		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
 			if errors.Is(err, replicaerrors.ErrReplicas) {
 				return &Error{"validate existence", StatusInternalServerError, err}
 			}

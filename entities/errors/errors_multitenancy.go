@@ -16,9 +16,8 @@ import (
 )
 
 var (
-	ErrTenantNotActive              = errors.New("tenant not active")
-	ErrTenantNotFound               = errors.New("tenant not found")
-	ErrTenantForNonMultiTenantClass = errors.New("has multi-tenancy disabled, but request was with tenant")
+	ErrTenantNotActive = errors.New("tenant not active")
+	ErrTenantNotFound  = errors.New("tenant not found")
 )
 
 func IsTenantNotFound(err error) bool {

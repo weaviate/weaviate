@@ -22,11 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
@@ -39,7 +36,7 @@ var (
 )
 
 func TestValidationReferencesInObject(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, &authorization.DummyAuthorizer{}, false)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
 
 	class := &models.Class{
 		Class: "From",
@@ -63,7 +60,7 @@ func TestValidationReferencesInObject(t *testing.T) {
 }
 
 func TestValidationReference(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, &authorization.DummyAuthorizer{}, false)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
 
 	cref := &models.SingleRef{Beacon: strfmt.URI(BEACON + "To/" + UuidUpper)}
 	ref, err := validator.ValidateSingleRef(cref)
@@ -72,75 +69,26 @@ func TestValidationReference(t *testing.T) {
 }
 
 func TestValidateExistence(t *testing.T) {
-	tenantErr := fmt.Errorf("class To %w", enterrors.ErrTenantForNonMultiTenantClass)
-	tenantNotFoundErr := fmt.Errorf("validate tenant: %w", enterrors.ErrTenantNotFound)
-	tenantNotActiveErr := fmt.Errorf("validate tenant: %w", enterrors.ErrTenantNotActive)
+	tenantErr := errors.New("has multi-tenancy disabled, but request was with tenant")
 	replicasErr := fmt.Errorf("check existence: %w",
 		replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 replicas down")))
-	storageErr := errors.New("connection refused")
-	retryErr := errors.New("retry failed")
+	otherErr := errors.New("connection refused")
 
 	tests := []struct {
-		name        string
-		initialErr  error
-		retryErr    error
-		denyRetry   bool
-		wantTenants []string
-		wantAuth    int
-		check       func(t *testing.T, err error)
+		name     string
+		retryErr error
+		check    func(t *testing.T, err error)
 	}{
 		{
-			name:        "replica shortage on the tenant-scoped check is returned without retry",
-			initialErr:  replicasErr,
-			denyRetry:   true,
-			wantTenants: []string{"tenantA"},
+			name:     "replica shortage on the tenant-less retry is returned",
+			retryErr: replicasErr,
 			check: func(t *testing.T, err error) {
 				require.ErrorIs(t, err, replicaerrors.ErrReplicas)
 			},
 		},
 		{
-			name:        "missing tenant is returned without retry",
-			initialErr:  tenantNotFoundErr,
-			denyRetry:   true,
-			wantTenants: []string{"tenantA"},
-			check: func(t *testing.T, err error) {
-				require.ErrorIs(t, err, enterrors.ErrTenantNotFound)
-			},
-		},
-		{
-			name:        "inactive tenant is returned without retry",
-			initialErr:  tenantNotActiveErr,
-			denyRetry:   true,
-			wantTenants: []string{"tenantA"},
-			check: func(t *testing.T, err error) {
-				require.ErrorIs(t, err, enterrors.ErrTenantNotActive)
-			},
-		},
-		{
-			name:        "storage error is returned without retry",
-			initialErr:  storageErr,
-			denyRetry:   true,
-			wantTenants: []string{"tenantA"},
-			check: func(t *testing.T, err error) {
-				require.ErrorIs(t, err, storageErr)
-			},
-		},
-		{
-			name:        "replica shortage on the tenant-less retry is returned",
-			initialErr:  tenantErr,
-			retryErr:    replicasErr,
-			wantTenants: []string{"tenantA", ""},
-			wantAuth:    1,
-			check: func(t *testing.T, err error) {
-				require.ErrorIs(t, err, replicaerrors.ErrReplicas)
-			},
-		},
-		{
-			name:        "other retry errors return the tenant-scoped error",
-			initialErr:  tenantErr,
-			retryErr:    retryErr,
-			wantTenants: []string{"tenantA", ""},
-			wantAuth:    1,
+			name:     "other retry errors return the tenant-scoped error",
+			retryErr: otherErr,
 			check: func(t *testing.T, err error) {
 				require.Equal(t, tenantErr, err)
 			},
@@ -154,19 +102,14 @@ func TestValidateExistence(t *testing.T) {
 				if tenant == "" {
 					return false, tt.retryErr
 				}
-				return false, tt.initialErr
+				return false, tenantErr
 			}
-			authorizer := mocks.NewMockAuthorizer()
-			if tt.denyRetry {
-				authorizer.Deny(authorization.ShardsData("To", "")...)
-			}
-			validator := New(stub, &config.WeaviateConfig{}, nil, nil, authorizer, false)
+			validator := New(stub, &config.WeaviateConfig{}, nil, nil, false)
 			ref := &crossref.Ref{Class: "To", TargetID: strfmt.UUID(UuidLower)}
 
 			err := validator.ValidateExistence(context.Background(), ref, "ref", "tenantA")
 			tt.check(t, err)
-			require.Equal(t, tt.wantTenants, tenants)
-			require.Len(t, authorizer.Calls(), tt.wantAuth)
+			require.Equal(t, []string{"tenantA", ""}, tenants)
 		})
 	}
 }

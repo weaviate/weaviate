@@ -75,11 +75,11 @@ func TestClasslessBeaconDoesNotNameMultiTenantCollections(t *testing.T) {
 
 	roleName := t.Name() + "-role"
 	readData, createData := authorization.ReadData, authorization.CreateData
-	allCollections, articleName := "*", article
+	articleName := article
 	helper.CreateRole(t, adminKey, &models.Role{
 		Name: &roleName,
 		Permissions: []*models.Permission{
-			{Action: &readData, Data: &models.PermissionData{Collection: &allCollections}},
+			{Action: &readData, Data: &models.PermissionData{Collection: &articleName}},
 			{Action: &createData, Data: &models.PermissionData{Collection: &articleName}},
 		},
 	})

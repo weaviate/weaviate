@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -613,28 +612,24 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, err
 	}
 
-	refForValidation := ref
-	shortTarget := ref.Class
+	// NS handling for inline-payload refs. className is already qualified
+	// (caller's resolveNS); QualifyRefTarget is the shared policy.
 	if ref.Class != "" {
-		qualifiedTarget, normalizedTarget, qerr := namespacing.QualifyRefTarget(
+		qualifiedTarget, shortTarget, qerr := namespacing.QualifyRefTarget(
 			v.principal, v.namespacesEnabled, className, ref.Class)
 		if qerr != nil {
 			return nil, qerr
 		}
-		shortTarget = normalizedTarget
+		// Existence check uses qualified; stored beacon stays short.
 		refQualified := *ref
 		refQualified.Class = qualifiedTarget
-		refForValidation = &refQualified
-	}
-	targetTenant := ReferenceTargetTenant(refForValidation.Class, tenant)
-	if err := v.authorizer.Authorize(ctx, v.principal, authorization.READ,
-		authorization.ShardsData(refForValidation.Class, targetTenant)...); err != nil {
-		return nil, wrapReferenceAuthorizationError(err)
-	}
-	if err = v.ValidateExistence(ctx, refForValidation, errVal, targetTenant); err != nil {
+		if err = v.ValidateExistence(ctx, &refQualified, errVal, tenant); err != nil {
+			return nil, err
+		}
+		ref.Class = shortTarget
+	} else if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
 		return nil, err
 	}
-	ref.Class = shortTarget
 	return ref.SingleRef(), nil
 }
 

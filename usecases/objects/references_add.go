@@ -89,7 +89,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.authorizer, m.config.Config.Namespaces.Enabled)
+		principal, m.config.Config.Namespaces.Enabled)
 	targetRef, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -136,14 +136,10 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Ref.Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, targetRef.TargetID).String())
 	}
 
-	targetTenant := validation.ReferenceTargetTenant(targetRef.Class, tenant)
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, targetTenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
 		return referenceAuthorizationError(err)
 	}
-	if err := input.validateExistence(ctx, validator, targetTenant, targetRef); err != nil {
-		if errors.As(err, &autherrs.Forbidden{}) || validation.IsReferenceAuthorizationError(err) {
-			return referenceAuthorizationError(err)
-		}
+	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return &Error{"validate existence", StatusInternalServerError, err}
 		}
@@ -177,7 +173,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		// MT validation uses targetRef (qualified); storage `target` is short.
 		_, err = validateReferenceMultiTenancy(ctx, principal,
 			m.schemaManager, m.authorizer, m.vectorRepo, source, targetRef, tenant,
-			targetTenant, fetchedClass)
+			tenant, fetchedClass)
 		if err != nil {
 			switch {
 			case errors.As(err, &autherrs.Forbidden{}):

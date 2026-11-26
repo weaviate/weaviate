@@ -18,7 +18,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/multitenancy"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -118,7 +117,6 @@ func Test_SingleTenantValidator(t *testing.T) {
 				require.Error(t, err)
 				var multiTenancyErr objects.ErrMultiTenancy
 				require.ErrorAs(t, err, &multiTenancyErr)
-				require.ErrorIs(t, err, enterrors.ErrTenantForNonMultiTenantClass)
 				require.Contains(t, err.Error(), "multi-tenancy disabled")
 			} else {
 				require.NoError(t, err)
