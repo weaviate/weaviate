@@ -74,7 +74,7 @@ func RolePoliciesVisibleToPrincipal(ctx context.Context, authorizer authorizatio
 	}
 	// List endpoints run this for every role, so stop at the first policy the caller lacks.
 	for i := range policies {
-		if AuthorizePolicies(ctx, authorizer, namespacesEnabled, principal, namespace, policies[i:i+1]) != nil {
+		if AuthorizePolicies(ctx, authorizer, principal, namespace, policies[i:i+1]) != nil {
 			return false
 		}
 	}
@@ -103,7 +103,7 @@ func AuthorizeRolePermissions(ctx context.Context, authorizer authorization.Auth
 				errs = errors.Join(errs, err)
 				continue
 			}
-			errs = errors.Join(errs, authorizeResource(ctx, authorizer, namespacesEnabled, principal, policy.Verb, resource))
+			errs = errors.Join(errs, authorizeResource(ctx, authorizer, principal, policy.Verb, resource))
 		}
 	}
 	return errs
@@ -111,7 +111,7 @@ func AuthorizeRolePermissions(ctx context.Context, authorizer authorization.Auth
 
 // AuthorizePolicies returns an error unless the caller holds every permission
 // the policies grant, projecting each resource into a non-empty namespace first.
-func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer, namespacesEnabled bool, principal *models.Principal, namespace string, policies []authorization.Policy) error {
+func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, namespace string, policies []authorization.Policy) error {
 	var errs error
 	for _, policy := range policies {
 		// Permission-less roles carry this placeholder; it grants nothing.
@@ -125,18 +125,16 @@ func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer,
 			errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
 			continue
 		}
-		errs = errors.Join(errs, authorizeResource(ctx, authorizer, namespacesEnabled, principal, policy.Verb, resource))
+		errs = errors.Join(errs, authorizeResource(ctx, authorizer, principal, policy.Verb, resource))
 	}
 	return errs
 }
 
 // authorizeResource returns an error unless one permission the caller holds
-// matches every name resource matches. A segment with regex syntax beyond '.'
-// and '*' is checked as ".*", which matches more. A ':' ends a name only when
-// namespaces are enabled, and never in group IDs, which are not namespaced.
-func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, namespacesEnabled bool, principal *models.Principal, verb, resource string) error {
-	colonEndsName := namespacesEnabled && !strings.HasPrefix(resource, authorization.GroupsDomain+"/")
-	return authorizePolicy(authorization.WithCover(ctx, colonEndsName), authorizer, principal, verb, regexSegmentsToWildcard(resource))
+// matches every name that resource matches. A segment with regex syntax beyond
+// '.' and '*' is checked as ".*", which matches more.
+func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, verb, resource string) error {
+	return authorizePolicy(authorization.WithCover(ctx), authorizer, principal, verb, regexSegmentsToWildcard(resource))
 }
 
 // regexSyntax lists the regex characters a stored pattern can carry besides
@@ -144,8 +142,8 @@ func authorizeResource(ctx context.Context, authorizer authorization.Authorizer,
 const regexSyntax = `\+?()[]{}|^$`
 
 // regexSegmentsToWildcard replaces each segment using regexSyntax with ".*",
-// keeping its "<ns>:" qualifier, so the result matches every name resource
-// does and holds only what the coverage check reads. It relies on an
+// keeping its "<ns>:" qualifier, so the result matches every name that
+// resource does and holds only what the coverage check reads. It relies on an
 // alternation staying inside its segment, which conv's grouping ensures for
 // every row written or read back.
 func regexSegmentsToWildcard(resource string) string {
@@ -161,8 +159,7 @@ func regexSegmentsToWildcard(resource string) string {
 		if strings.ContainsAny(ns, regexSyntax) {
 			ns = ""
 		}
-		// "a:?b" also matches "ab", which a namespace-bearing domain may read as
-		// another namespace's "b", so nothing of it is kept.
+		// "a:?b" also matches "ab", which "a:.*" does not, so nothing of it is kept.
 		if ns != "" && strings.HasPrefix(segment[len(ns)+1:], "?") {
 			ns = ""
 		}

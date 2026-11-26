@@ -715,6 +715,11 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 							Collection: String("Collection1"),
 						},
 					},
+					// Three-letter user names starting with "a".
+					{
+						Action: String(authorization.UpdateUsers),
+						Users:  &models.PermissionUsers{Users: String("a..")},
+					},
 				},
 			}),
 			adminAuth,
@@ -766,6 +771,35 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		require.Error(t, err)
 		var parsed *authz.CreateRoleForbidden
 		require.True(t, errors.As(err, &parsed))
+	})
+
+	t.Run("limited user cannot create a role whose user pattern reaches past theirs", func(t *testing.T) {
+		usersRole := "a-users-role"
+		helper.DeleteRole(t, adminKey, usersRole)
+		defer helper.DeleteRole(t, adminKey, usersRole)
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name:        &usersRole,
+				Permissions: []*models.Permission{{Action: String(authorization.UpdateUsers), Users: &models.PermissionUsers{Users: String("a*")}}},
+			}),
+			limitedAuth,
+		)
+		var forbidden *authz.CreateRoleForbidden
+		require.True(t, errors.As(err, &forbidden), "expected 403, got %T: %v", err, err)
+	})
+
+	t.Run("limited user can create a role with a user name their pattern covers", func(t *testing.T) {
+		usersRole := "abc-users-role"
+		helper.DeleteRole(t, adminKey, usersRole)
+		defer helper.DeleteRole(t, adminKey, usersRole)
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name:        &usersRole,
+				Permissions: []*models.Permission{{Action: String(authorization.UpdateUsers), Users: &models.PermissionUsers{Users: String("abc")}}},
+			}),
+			limitedAuth,
+		)
+		require.NoError(t, err)
 	})
 
 	t.Run("limited user can update role within their scope", func(t *testing.T) {

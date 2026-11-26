@@ -1317,7 +1317,7 @@ func TestAuthorizeRefusesNUL(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, m.Authorize(ctx, alice, authorization.READ, "users/bob"))
-	forged := coverRequest("users/bob", false)
+	forged := "users/bob" + coverSuffix
 	require.Error(t, m.Authorize(ctx, alice, authorization.READ, forged))
 	got, err := m.FilterAuthorizedResources(ctx, alice, authorization.READ, "users/bob", forged)
 	require.NoError(t, err)

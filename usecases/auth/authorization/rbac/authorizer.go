@@ -91,15 +91,15 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	}
 	permResults := make([]logrus.Fields, 0, len(uniqueResources))
 
-	cover, colonEndsName := authorization.CoverFrom(ctx)
+	cover := authorization.IsCover(ctx)
 	for _, resource := range uniqueResources {
 		request := resource
 		if cover {
-			request = coverRequest(resource, colonEndsName)
+			request = resource + coverSuffix
 		}
 		var allowed bool
 		var err error
-		// Only coverRequest may put a NUL in a request.
+		// A forged cover suffix would match as the name before it.
 		if strings.IndexByte(resource, 0) < 0 {
 			allowed, err = m.checkPermissions(principal, request, verb)
 		}
@@ -200,7 +200,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 	permResults := make([]logrus.Fields, 0, len(uniqueResources))
 
 	for _, resource := range uniqueResources {
-		// Only coverRequest may put a NUL in a request.
+		// A forged cover suffix would match as the name before it.
 		if strings.IndexByte(resource, 0) >= 0 {
 			continue
 		}

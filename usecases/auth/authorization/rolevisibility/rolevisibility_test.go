@@ -316,9 +316,9 @@ func TestGrantedVerbs(t *testing.T) {
 	}
 }
 
-// TestRegexSegmentsToWildcard has one row per kind of regex syntax conv stores,
-// each letting a pattern match a name its text does not contain. In the last
-// row the "<ns>:" qualifier carries regex syntax, so it is dropped too.
+// TestRegexSegmentsToWildcard covers the regex syntax conv stores, each letting
+// a pattern match a name its text does not contain. The "<ns>:" qualifier is
+// dropped when it carries regex syntax or when a '?' makes its colon optional.
 func TestRegexSegmentsToWildcard(t *testing.T) {
 	tests := []struct {
 		resource string
@@ -448,6 +448,10 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		updateUsers("a-and-two-or-a-users", "a..|a"),
 		updateUsers("a-up-to-two-more-users", "a.?.?"),
 		updateUsers("one-or-more-users", ".+"),
+		updateUsers("one-or-more-colon-any-users", ".+:*"),
+		updateUsers("any-colon-any-users", "*:*"),
+		updateUsers("x-or-y-domain-users", "*@x.com|*@y.com"),
+		updateUsers("bob-dot-smith", "bob.smith"),
 		updateUsers("three-character-users", "..."),
 		updateUsers("e-acute-and-one-users", "é."),
 		role("a-colon-non-empty-groups", authorization.ReadGroups, groups("a:.*")),
@@ -467,7 +471,7 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 
 	// A denied manage permission is reported once, under the action an admin can grant.
 	deniedManageBackups := "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to manage_backups [[Domain: backups,Collection: *]]"
-	// A pattern with regex syntax beyond '.' and '*' must pass as stored and as ".*".
+	// A pattern with regex syntax beyond '.' and '*' is checked as ".*".
 	deniedAllUsers := "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: *]]"
 	deniedAllMoviesTenants := "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to read_data [[Domain: data, Collection: Movies, Tenant: *]]"
 
@@ -507,8 +511,8 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "a grant that makes a colon optional needs every user", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-optional-colon-b"}, wantDenied: deniedAllUsers},
 		{name: "a caller pattern matching every non-empty name covers a wildcard with a suffix", caller: "caller", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"dot-com-users"}},
 		{name: "a dot counts a multi-byte character once", caller: "caller", callerRoles: []string{"three-character-users"}, targetRoles: []string{"e-acute-and-one-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: é.]]"},
-		{name: "a caller pattern of one or more characters covers every user", caller: "caller", callerRoles: []string{"one-or-more-users"}, targetRoles: []string{"user-updater"}},
-		// The shapes in weaviate/dirk-claude-issues#303: each grant reaches a name no held pattern does.
+		{name: "a caller pattern of one or more characters does not cover every user, which includes an empty name", caller: "caller", callerRoles: []string{"one-or-more-users"}, targetRoles: []string{"user-updater"}, wantDenied: deniedAllUsers},
+		// Each grant below reaches a name no held pattern does.
 		{name: "a dot in the held pattern does not cover a granted wildcard: *.com, *com", caller: "caller", callerRoles: []string{"dot-com-users"}, targetRoles: []string{"com-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: *com]]"},
 		{name: "a dot in the held pattern does not cover a granted wildcard: team.*, team*", caller: "caller", callerRoles: []string{"team-dot-users"}, targetRoles: []string{"team-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: team*]]"},
 		{name: "a dot in the held pattern does not cover a granted wildcard: eu-.., eu-*", caller: "caller", callerRoles: []string{"eu-dash-and-two-users"}, targetRoles: []string{"eu-dash-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: eu-*]]"},
@@ -521,8 +525,12 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "a dotted suffix pattern covers itself and a name it matches", caller: "caller", callerRoles: []string{"dot-com-users"}, targetRoles: []string{"dot-com-users", "john-at-x-com"}},
 		{name: "a dotted name covers itself", caller: "caller", callerRoles: []string{"john-dot-doe"}, targetRoles: []string{"john-dot-doe"}},
 		{name: "a dotted pattern covers a dotted name it matches", caller: "caller", callerRoles: []string{"dot-doe-users"}, targetRoles: []string{"john-dot-doe"}},
-		{name: "a confined caller pattern matching every non-empty name covers its namespace's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"customer1-users"}, namespacesEnabled: true},
-		{name: "a caller pattern matching every non-empty name covers a wildcard and an alternation", caller: "caller", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"user-updater", "eu-or-admin-users"}},
+		{name: "a confined caller pattern of one or more characters does not cover its namespace's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"customer1-users"}, namespacesEnabled: true, wantDenied: deniedAllUsers},
+		{name: "a confined caller holding every user covers its namespace's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"user-updater"}, targetRoles: []string{"customer1-users"}, namespacesEnabled: true},
+		{name: "a pattern needing a name before a colon does not cover one that may be empty there", caller: "caller", callerRoles: []string{"one-or-more-colon-any-users"}, targetRoles: []string{"any-colon-any-users"}, namespacesEnabled: true, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: *:*]]"},
+		{name: "a caller pattern of one or more characters does not cover a wildcard", caller: "caller", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"user-updater"}, wantDenied: deniedAllUsers},
+		{name: "a held alternation covers a dotted name one branch covers", caller: "caller", callerRoles: []string{"x-or-y-domain-users"}, targetRoles: []string{"john-at-x-com"}},
+		{name: "a held negated class covers a dotted name it matches", caller: "caller", callerRoles: []string{"not-a-users"}, targetRoles: []string{"bob-dot-smith"}},
 		{name: "a confined caller pattern needing more after a prefix does not cover the prefix's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"customer1-a-and-two-users"}, targetRoles: []string{"customer1-a-users"}, namespacesEnabled: true, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a*]]"},
 		{name: "global caller: a bare user grant is checked in the target's namespace", namespacesEnabled: true, caller: "ops", callerRoles: []string{"bob-reader"}, targetNamespace: "customer1", targetRoles: []string{"bob-reader"}, wantDenied: "rbac: authorization, forbidden action: user 'ops' has insufficient permissions to read_users [[Domain: users, User: customer1:bob]]"},
 		{name: "a grant bound to another namespace gives the target nothing", namespacesEnabled: true, caller: "ops", callerRoles: []string{"user-updater"}, targetNamespace: "customer1", targetRoles: []string{"foreign-movies-reader"}},

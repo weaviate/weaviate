@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"regexp/syntax"
 	"slices"
 	"strconv"
@@ -405,7 +406,7 @@ func operatorOnlyResource(path string) bool {
 // nothing. KeyMatch5 panics on it, which casbin turns into an error failing
 // the whole Enforce call.
 func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
-	reqObj, cover, colonEndsName := cutCover(reqObj)
+	reqObj, cover := strings.CutSuffix(reqObj, coverSuffix)
 	if strings.HasSuffix(reqObj, collectionShardSuffix) && tenantLevelPolicy(polObj) {
 		return false
 	}
@@ -422,7 +423,7 @@ func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
 	}()
 	// A granted pattern without '.' or '*' is a single name, matched as one.
 	if cover && strings.ContainsAny(reqObj, ".*") {
-		return covers(polObj, reqObj, colonEndsName)
+		return covers(polObj, reqObj)
 	}
 	return casbinutil.KeyMatch5(reqObj, polObj)
 }
@@ -441,122 +442,252 @@ func tenantLevelPolicy(polObj string) bool {
 	return i >= 0 && polObj[i+len(namespacing.ShardsMidSeg):] != "#"
 }
 
-// Cover suffixes mark a request for a granted pattern (authorization.WithCover).
-// authorize denies any resource that already holds a NUL.
-const (
-	coverSuffix          = "\x00cover"
-	coverNamespaceSuffix = "\x00coverns"
-)
+// coverSuffix marks a request for a granted pattern (authorization.WithCover).
+// authorize and FilterAuthorizedResources refuse any resource already holding a NUL.
+const coverSuffix = "\x00cover"
 
-func coverRequest(pattern string, colonEndsName bool) string {
-	if colonEndsName {
-		return pattern + coverNamespaceSuffix
-	}
-	return pattern + coverSuffix
-}
-
-func cutCover(reqObj string) (pattern string, cover, colonEndsName bool) {
-	if pattern, ok := strings.CutSuffix(reqObj, coverNamespaceSuffix); ok {
-		return pattern, true, true
-	}
-	pattern, cover = strings.CutSuffix(reqObj, coverSuffix)
-	return pattern, cover, false
-}
-
-// covers reports whether policy matches every resource pattern matches, where
-// no name is empty (see authorization.WithCover). The pattern may hold only
-// literals, '.' and ".*"; the policy may also hold the namespace class
-// anyNamespacePattern adds, and a bare "*" matches anything. Anything else does
-// not cover, whatever it would match.
-func covers(policy, pattern string, colonEndsName bool) bool {
-	if policy == "*" || policy == pattern {
+// covers reports whether policy matches every resource that pattern matches.
+// The pattern holds only literals, '.' and ".*"; coverText writes it with its
+// '.' and ".*" as two reserved runes. The policy, read as KeyMatch5 reads it,
+// becomes a regexp over that text in which a character class matches only the
+// literals it matches, a '.' also the pattern's '.', and only an unbounded
+// repeat of '.' the pattern's ".*". A match then holds for every name the
+// pattern stands for. A bare "*" policy matches anything.
+func covers(policy, pattern string) bool {
+	if policy == "*" {
 		return true
 	}
-	// KeyMatch5 reads "/*" in a policy as "/.*", and the pattern is one.
-	g, ok := coverTokens(strings.ReplaceAll(pattern, "/*", "/.*"), false, colonEndsName)
-	if !ok {
+	text, ok := coverText(strings.ReplaceAll(pattern, "/*", "/.*"))
+	if !ok || strings.ContainsAny(policy, coverRunes) {
 		return false
 	}
-	h, ok := coverTokens(strings.ReplaceAll(policy, "/*", "/.*"), true, false)
-	if !ok {
+	re, err := syntax.Parse(keyMatch5Placeholder.ReplaceAllString(strings.ReplaceAll(policy, "/*", "/.*"), "[^/]+"), syntax.Perl)
+	if err != nil || !coverRegexp(re) {
 		return false
 	}
-	// next[j] holds for g[i+1:] and cur[j] for g[i:]: is it covered by h[j:]?
-	next, cur := make([]bool, len(h)+1), make([]bool, len(h)+1)
-	for i := len(g); i >= 0; i-- {
-		cur[len(h)] = i == len(g)
-		for j := len(h) - 1; j >= 0; j-- {
-			more := i < len(g)
-			switch h[j].kind {
-			case tokenAnyString:
-				cur[j] = cur[j+1] || (more && next[j])
-			case tokenNamespace:
-				cur[j] = more && g[i].kind == tokenLiteral && g[i].c != '/' && g[i].c != ':' && (next[j+1] || next[j])
-			case tokenAnyChar:
-				if more && g[i].kind == tokenAnyString {
-					// The pattern's ".*" is either empty or starts with the one character.
-					cur[j] = next[j] && cur[j+1]
-				} else {
-					cur[j] = more && next[j+1]
-				}
-			default:
-				cur[j] = more && g[i] == h[j] && next[j+1]
-			}
-		}
-		next, cur = cur, next
-	}
-	return next[0]
+	var expr strings.Builder
+	expr.WriteString(`\A(?:`)
+	writeRegexp(&expr, re)
+	expr.WriteString(`)\z`)
+	matcher, err := regexp.Compile(expr.String())
+	return err == nil && matcher.MatchString(text)
 }
 
-type coverToken struct {
-	kind byte
-	c    rune
+// writeRegexp prints re, which coverRegexp rewrote, as regexp syntax. Unlike
+// re.String it never scans a class for case folding, which takes milliseconds
+// for the large classes coverRegexp builds.
+func writeRegexp(b *strings.Builder, re *syntax.Regexp) {
+	group := func(sub *syntax.Regexp) {
+		b.WriteString("(?:")
+		writeRegexp(b, sub)
+		b.WriteString(")")
+	}
+	switch re.Op {
+	case syntax.OpLiteral:
+		if re.Flags&syntax.FoldCase != 0 {
+			b.WriteString("(?i:")
+		}
+		for _, r := range re.Rune {
+			fmt.Fprintf(b, `\x{%x}`, r)
+		}
+		if re.Flags&syntax.FoldCase != 0 {
+			b.WriteString(")")
+		}
+	case syntax.OpCharClass:
+		if len(re.Rune) == 0 {
+			b.WriteString(`[^\x{0}-\x{10ffff}]`)
+			return
+		}
+		b.WriteString("[")
+		for i := 0; i+1 < len(re.Rune); i += 2 {
+			fmt.Fprintf(b, `\x{%x}-\x{%x}`, re.Rune[i], re.Rune[i+1])
+		}
+		b.WriteString("]")
+	case syntax.OpBeginLine:
+		b.WriteString(`(?m:^)`)
+	case syntax.OpEndLine:
+		b.WriteString(`(?m:$)`)
+	case syntax.OpBeginText:
+		b.WriteString(`\A`)
+	case syntax.OpEndText:
+		b.WriteString(`\z`)
+	case syntax.OpCapture:
+		group(re.Sub[0])
+	case syntax.OpStar, syntax.OpPlus, syntax.OpQuest:
+		group(re.Sub[0])
+		b.WriteString(map[syntax.Op]string{syntax.OpStar: "*", syntax.OpPlus: "+", syntax.OpQuest: "?"}[re.Op])
+	case syntax.OpRepeat:
+		group(re.Sub[0])
+		switch re.Max {
+		case -1:
+			fmt.Fprintf(b, "{%d,}", re.Min)
+		case re.Min:
+			fmt.Fprintf(b, "{%d}", re.Min)
+		default:
+			fmt.Fprintf(b, "{%d,%d}", re.Min, re.Max)
+		}
+	case syntax.OpConcat:
+		for _, sub := range re.Sub {
+			group(sub)
+		}
+	case syntax.OpAlternate:
+		for i, sub := range re.Sub {
+			if i > 0 {
+				b.WriteString("|")
+			}
+			group(sub)
+		}
+	case syntax.OpEmptyMatch:
+	default:
+		// OpNoMatch, and any op coverRegexp should have rewritten: match nothing.
+		b.WriteString(`[^\x{0}-\x{10ffff}]`)
+	}
 }
 
 const (
-	tokenLiteral byte = iota
-	tokenAnyChar
-	tokenAnyString
-	tokenNamespace
+	coverAnyChar   = '\uE000' // a '.' in the pattern
+	coverAnyString = '\uE001' // a ".*" in the pattern
+	coverRunes     = string(coverAnyChar) + string(coverAnyString)
 )
 
-// namespaceClass is anyNamespacePattern without its ':'.
-var namespaceClass = strings.TrimSuffix(anyNamespacePattern, schema.NamespaceSeparator)
+// keyMatch5Placeholder is what KeyMatch5 rewrites to "[^/]+" in a policy.
+var keyMatch5Placeholder = regexp.MustCompile(`\{[^/]+\}`)
 
-// coverTokens splits s for covers into characters, as the regex '.' counts
-// them. In a pattern, a name that is only ".*" is read as "..*", since no name
-// is empty.
-func coverTokens(s string, policy, colonEndsName bool) ([]coverToken, bool) {
-	ends := func(c byte) bool { return c == '/' || (colonEndsName && c == ':') }
-	tokens := make([]coverToken, 0, len(s)+1)
-	for i := 0; i < len(s); i++ {
-		switch {
-		case policy && strings.HasPrefix(s[i:], namespaceClass):
-			tokens = append(tokens, coverToken{kind: tokenNamespace})
-			i += len(namespaceClass) - 1
-		case policy && strings.HasPrefix(s[i:], ".+"):
-			tokens = append(tokens, coverToken{kind: tokenAnyChar}, coverToken{kind: tokenAnyString})
-			i++
-		case strings.HasPrefix(s[i:], ".*"):
-			if !policy && i > 0 && ends(s[i-1]) && (i+2 == len(s) || ends(s[i+2])) {
-				tokens = append(tokens, coverToken{kind: tokenAnyChar})
+func coverText(pattern string) (string, bool) {
+	if !utf8.ValidString(pattern) || strings.ContainsAny(pattern, coverRunes) {
+		return "", false
+	}
+	text := strings.ReplaceAll(pattern, ".*", string(coverAnyString))
+	text = strings.ReplaceAll(text, ".", string(coverAnyChar))
+	return text, regexp.QuoteMeta(text) == text
+}
+
+// coverRegexp rewrites re in place for covers. It refuses word boundaries,
+// which would read the reserved runes as non-word characters.
+func coverRegexp(re *syntax.Regexp) bool {
+	switch re.Op {
+	case syntax.OpWordBoundary, syntax.OpNoWordBoundary:
+		return false
+	case syntax.OpAnyCharNotNL, syntax.OpAnyChar:
+		*re = *anyRune(re.Op == syntax.OpAnyCharNotNL, false)
+		return true
+	case syntax.OpCharClass:
+		re.Rune = withoutRange(re.Rune, coverAnyChar, coverAnyString)
+		return true
+	case syntax.OpLiteral:
+		return !strings.ContainsAny(string(re.Rune), coverRunes)
+	case syntax.OpConcat:
+		return coverConcat(re)
+	default:
+		if minimum, notNL, ok := unboundedAny(re); ok {
+			*re = *atLeast(minimum, notNL)
+			return true
+		}
+		for _, sub := range re.Sub {
+			if !coverRegexp(sub) {
+				return false
 			}
-			tokens = append(tokens, coverToken{kind: tokenAnyString})
-			i++
-		case s[i] == '.':
-			tokens = append(tokens, coverToken{kind: tokenAnyChar})
-		case strings.IndexByte(`\+?()[]{}|^$*`, s[i]) >= 0:
-			return nil, false
-		default:
-			c, size := utf8.DecodeRuneInString(s[i:])
-			if c == utf8.RuneError && size == 1 {
-				return nil, false
+		}
+		return true
+	}
+}
+
+// coverConcat reads each run of '.' nodes holding an unbounded repeat, such as
+// "..*", as one run of at least as many characters.
+func coverConcat(re *syntax.Regexp) bool {
+	var subs []*syntax.Regexp
+	for i := 0; i < len(re.Sub); {
+		minimum, notNL, unbounded, j := 0, false, false, i
+		for ; j < len(re.Sub); j++ {
+			sub := re.Sub[j]
+			if m, nl, ok := unboundedAny(sub); ok {
+				minimum, notNL, unbounded = minimum+m, notNL || nl, true
+			} else if sub.Op == syntax.OpAnyCharNotNL || sub.Op == syntax.OpAnyChar {
+				minimum, notNL = minimum+1, notNL || sub.Op == syntax.OpAnyCharNotNL
+			} else {
+				break
 			}
-			tokens = append(tokens, coverToken{kind: tokenLiteral, c: c})
-			i += size - 1
+		}
+		if unbounded {
+			subs = append(subs, atLeast(minimum, notNL))
+			i = j
+			continue
+		}
+		if j == i {
+			j++
+		}
+		for ; i < j; i++ {
+			if !coverRegexp(re.Sub[i]) {
+				return false
+			}
+			subs = append(subs, re.Sub[i])
 		}
 	}
-	return tokens, true
+	re.Sub = subs
+	return true
+}
+
+// unboundedAny reports whether re is ".*" or ".+", and its minimum count.
+// KeyMatch5 has rewritten every "{...}" already.
+func unboundedAny(re *syntax.Regexp) (minimum int, notNL, ok bool) {
+	if len(re.Sub) != 1 || (re.Sub[0].Op != syntax.OpAnyCharNotNL && re.Sub[0].Op != syntax.OpAnyChar) {
+		return 0, false, false
+	}
+	notNL = re.Sub[0].Op == syntax.OpAnyCharNotNL
+	switch re.Op {
+	case syntax.OpStar:
+		return 0, notNL, true
+	case syntax.OpPlus:
+		return 1, notNL, true
+	default:
+		return 0, false, false
+	}
+}
+
+// atLeast matches a run of at least minimum characters: minimum literals or
+// pattern '.'s, with the pattern's ".*" anywhere among them.
+func atLeast(minimum int, notNL bool) *syntax.Regexp {
+	anything := &syntax.Regexp{Op: syntax.OpStar, Sub: []*syntax.Regexp{anyRune(notNL, true)}}
+	if minimum == 0 {
+		return anything
+	}
+	one := &syntax.Regexp{Op: syntax.OpConcat, Sub: []*syntax.Regexp{anything, anyRune(notNL, false)}}
+	return &syntax.Regexp{Op: syntax.OpConcat, Sub: []*syntax.Regexp{
+		{Op: syntax.OpRepeat, Min: minimum, Max: minimum, Sub: []*syntax.Regexp{one}},
+		anything,
+	}}
+}
+
+// anyRune is a class of every rune but '\n' when notNL, and but the pattern's
+// ".*" unless withAnyString.
+func anyRune(notNL, withAnyString bool) *syntax.Regexp {
+	class := []rune{0, utf8.MaxRune}
+	if notNL {
+		class = withoutRange(class, '\n', '\n')
+	}
+	if !withAnyString {
+		class = withoutRange(class, coverAnyString, coverAnyString)
+	}
+	return &syntax.Regexp{Op: syntax.OpCharClass, Rune: class}
+}
+
+// withoutRange returns the class ranges with lo..hi taken out.
+func withoutRange(class []rune, lo, hi rune) []rune {
+	out := make([]rune, 0, len(class)+2)
+	for i := 0; i+1 < len(class); i += 2 {
+		a, b := class[i], class[i+1]
+		if b < lo || a > hi {
+			out = append(out, a, b)
+			continue
+		}
+		if a < lo {
+			out = append(out, a, lo-1)
+		}
+		if b > hi {
+			out = append(out, hi+1, b)
+		}
+	}
+	return out
 }
 
 // namespaceAwareMatcher reports whether policy resource pattern polObj

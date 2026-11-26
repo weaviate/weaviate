@@ -30,7 +30,7 @@ import (
 
 // TestMatchScopeGrantsReachingPastHeld drives a MATCH-scope role manager
 // through the REST handlers with the real enforcer. Each refused grant reaches
-// names the manager's own pattern does not.
+// names the manager's own pattern does not, except a class, which is checked as ".*".
 func TestMatchScopeGrantsReachingPastHeld(t *testing.T) {
 	users := func(action, pattern string) *models.Permission {
 		return &models.Permission{Action: String(action), Users: &models.PermissionUsers{Users: String(pattern)}}

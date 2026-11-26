@@ -127,7 +127,7 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 	if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_MATCH), authorization.Roles(roleName)...); err == nil {
 		// Verify user has all permissions they're trying to grant. The policies
 		// are in stored form already, so nothing is projected.
-		return rolevisibility.AuthorizePolicies(ctx, h.authorizer, h.namespacesEnabled, principal, "", policies)
+		return rolevisibility.AuthorizePolicies(ctx, h.authorizer, principal, "", policies)
 	}
 
 	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)

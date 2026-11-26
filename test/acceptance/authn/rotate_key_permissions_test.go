@@ -57,3 +57,46 @@ func testRotateKeyNeedsTargetPermissions(t *testing.T) {
 	info := helper.GetInfoForOwnUser(t, targetKey)
 	require.Equal(t, target, *info.Username)
 }
+
+// testRotateKeyNeedsCoveringPattern checks that a caller whose update_users
+// pattern matches the text of the target's wildcard, without covering every
+// user it reaches, cannot rotate the target's key.
+func testRotateKeyNeedsCoveringPattern(t *testing.T) {
+	adminKey := "admin-key"
+	updateUsers := authorization.UpdateUsers
+
+	callerUser := "RotateKeyPatternCaller"
+	helper.DeleteUser(t, callerUser, adminKey)
+	callerKey := helper.CreateUser(t, callerUser, adminKey)
+	defer helper.DeleteUser(t, callerUser, adminKey)
+	notA := "[^a]*"
+	callerRole := "RotateKeyNotAUsers"
+	helper.DeleteRole(t, adminKey, callerRole)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name:        &callerRole,
+		Permissions: []*models.Permission{{Action: &updateUsers, Users: &models.PermissionUsers{Users: &notA}}},
+	})
+	defer helper.DeleteRole(t, adminKey, callerRole)
+	helper.AssignRoleToUser(t, adminKey, callerRole, callerUser)
+
+	target := "RotateKeyWildcardTarget"
+	helper.DeleteUser(t, target, adminKey)
+	targetKey := helper.CreateUser(t, target, adminKey)
+	defer helper.DeleteUser(t, target, adminKey)
+	all := "*"
+	targetRole := "RotateKeyAllUsers"
+	helper.DeleteRole(t, adminKey, targetRole)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name:        &targetRole,
+		Permissions: []*models.Permission{{Action: &updateUsers, Users: &models.PermissionUsers{Users: &all}}},
+	})
+	defer helper.DeleteRole(t, adminKey, targetRole)
+	helper.AssignRoleToUser(t, adminKey, targetRole, target)
+
+	_, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(target), helper.CreateAuth(callerKey))
+	var forbidden *users.RotateUserAPIKeyForbidden
+	require.True(t, errors.As(err, &forbidden), "expected 403, got %T: %v", err, err)
+
+	info := helper.GetInfoForOwnUser(t, targetKey)
+	require.Equal(t, target, *info.Username)
+}

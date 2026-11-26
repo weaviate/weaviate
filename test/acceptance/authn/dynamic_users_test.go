@@ -59,6 +59,7 @@ func TestDynamicUsers(t *testing.T) {
 	t.Run("with_static_user", testWithStaticUser)
 	t.Run("suspend_and_activate", testSuspendAndActivate)
 	t.Run("rotate_key_needs_target_permissions", testRotateKeyNeedsTargetPermissions)
+	t.Run("rotate_key_needs_covering_pattern", testRotateKeyNeedsCoveringPattern)
 }
 
 func testCreateUser(t *testing.T) {
