@@ -330,6 +330,10 @@ func TestRegexSegmentsToWildcard(t *testing.T) {
 		{resource: "users/eu{0}admin", want: "users/.*"},
 		{resource: `users/\x61dmin`, want: "users/.*"},
 		{resource: "users/(admin|customer2:eu)", want: "users/.*"},
+		{resource: "users/customer1:b?", want: "users/customer1:.*"},
+		{resource: "users/customer1:?b", want: "users/customer1.*"},
+		{resource: "users/customer1:+b", want: "users/customer1:.*"},
+		{resource: "users/customer1:{2}b", want: "users/customer1:.*"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.resource, func(t *testing.T) {
@@ -375,6 +379,9 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 	collections := func(collection string) models.Permission {
 		return models.Permission{Collections: &models.PermissionCollections{Collection: &collection}}
 	}
+	groups := func(group string) models.Permission {
+		return models.Permission{Groups: &models.PermissionGroups{Group: &group, GroupType: models.GroupTypeOidc}}
+	}
 	all := "*"
 	updateUsers := func(name, users string) *models.Role {
 		return &models.Role{Name: authorization.String(name), Permissions: []*models.Permission{{
@@ -415,7 +422,14 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		updateUsers("a-colon-non-empty", "a:.*"),
 		updateUsers("a-colon-any", "a:*"),
 		updateUsers("customer1-users", "customer1:*"),
+		updateUsers("a-optional-colon-b", "a:?b"),
+		updateUsers("customer1-optional-colon-b", "customer1:?b"),
+		updateUsers("john-dot-doe", "john.doe"),
+		updateUsers("john-escaped-dot-doe", `john\.doe`),
+		updateUsers("dot-doe-users", "*.doe"),
 		role("bob-reader", authorization.ReadUsers, users("bob")),
+		role("a-colon-non-empty-groups", authorization.ReadGroups, groups("a:.*")),
+		role("a-colon-any-groups", authorization.ReadGroups, groups("a:*")),
 		role("foreign-movies-reader", authorization.ReadCollections, collections("customer2:Movies")),
 	)
 	require.NoError(t, err)
@@ -463,6 +477,14 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "a caller wildcard covers itself and a longer prefix", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-users", "ab-users"}},
 		{name: "a caller pattern needing more before a colon does not cover the wildcard there", caller: "caller", callerRoles: []string{"a-and-two-colon-bob"}, targetRoles: []string{"a-colon-bob"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a:bob]]"},
 		{name: "a caller pattern needing more after a colon does not cover the wildcard there", caller: "caller", callerRoles: []string{"a-colon-non-empty"}, targetRoles: []string{"a-colon-any"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a:]]"},
+		{name: "a group pattern needing more after a colon does not cover the wildcard there, even with namespaces", caller: "caller", callerRoles: []string{"a-colon-non-empty-groups"}, targetRoles: []string{"a-colon-any-groups"}, namespacesEnabled: true, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to read_groups []"},
+		{name: "a group wildcard after a colon covers itself with namespaces", caller: "caller", callerRoles: []string{"a-colon-any-groups"}, targetRoles: []string{"a-colon-any-groups"}, namespacesEnabled: true},
+		{name: "a kept prefix does not cover a grant that makes its colon optional", caller: "caller", callerRoles: []string{"a-colon-any"}, targetRoles: []string{"a-optional-colon-b"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a*]]"},
+		{name: "a namespace does not cover a grant that makes its colon optional", caller: "caller", callerRoles: []string{"customer1-users"}, targetRoles: []string{"customer1-optional-colon-b"}, namespacesEnabled: true, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: customer1*]]"},
+		{name: "a literal dot does not cover a grant's any-character dot", caller: "caller", callerRoles: []string{"john-escaped-dot-doe"}, targetRoles: []string{"john-dot-doe"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: johnXdoe]]"},
+		{name: "a prefix wildcard covers a grant that makes the colon after it optional", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-optional-colon-b"}},
+		{name: "a dotted name covers itself", caller: "caller", callerRoles: []string{"john-dot-doe"}, targetRoles: []string{"john-dot-doe"}},
+		{name: "a dotted pattern covers a dotted name it matches", caller: "caller", callerRoles: []string{"dot-doe-users"}, targetRoles: []string{"john-dot-doe"}},
 		{name: "a confined caller pattern matching every non-empty name covers its namespace's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"customer1-users"}, namespacesEnabled: true},
 		{name: "a caller pattern matching every non-empty name covers a wildcard and an alternation", caller: "caller", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"user-updater", "eu-or-admin-users"}},
 		{name: "a confined caller pattern needing more after a prefix does not cover the prefix's wildcard", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"customer1-a-and-two-users"}, targetRoles: []string{"customer1-a-users"}, namespacesEnabled: true, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: a]]"},

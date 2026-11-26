@@ -154,21 +154,24 @@ func authorizeResource(ctx context.Context, authorizer authorization.Authorizer,
 	return nil
 }
 
-// shortestNames drops each ".*" from resource, leaving "X" where a name would
-// be empty, since none is. Names end at '/', and at the ':' after a namespace
-// only when namespaces are enabled; otherwise ':' is part of an opaque ID.
+// shortestNames drops each ".*" from resource and turns each other '.' into
+// "X", leaving "X" where a name would be empty, since none is. Names end at
+// '/', and at the ':' after a namespace only when namespaces are enabled.
+// Otherwise, and always in group IDs, which are never namespaced, ':' is part
+// of an opaque ID.
 func shortestNames(resource string, namespacesEnabled bool) string {
-	if !strings.Contains(resource, ".*") {
+	if !strings.Contains(resource, ".") {
 		return resource
 	}
+	colonEndsName := namespacesEnabled && !strings.HasPrefix(resource, authorization.GroupsDomain+"/")
 	segments := strings.Split(resource, "/")
 	for i, segment := range segments {
 		parts := []string{segment}
-		if namespacesEnabled {
+		if colonEndsName {
 			parts = strings.Split(segment, ":")
 		}
 		for j, part := range parts {
-			if short := strings.ReplaceAll(part, ".*", ""); short != part {
+			if short := strings.ReplaceAll(strings.ReplaceAll(part, ".*", ""), ".", "X"); short != part {
 				parts[j] = cmp.Or(short, "X")
 			}
 		}
@@ -196,6 +199,11 @@ func regexSegmentsToWildcard(resource string) string {
 		ns := namespacing.NamespaceFromQualified(segment)
 		if strings.ContainsAny(ns, regexSyntax) {
 			ns = ""
+		}
+		// "a:?b" also matches "ab": the ':' is optional, the "a" is not.
+		if ns != "" && strings.HasPrefix(segment[len(ns)+1:], "?") {
+			segments[i] = ns + ".*"
+			continue
 		}
 		segments[i] = namespacing.QualifiedName(ns, ".*")
 	}
