@@ -131,6 +131,14 @@ func startWeaviate(ctx context.Context,
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(clusterPort))
 		hasClusterPort = true
 	}
+	// Expose the raft ports so tests can reach them from the host as an outside peer would.
+	raftPorts := map[EndpointName]nat.Port{}
+	for name, key := range map[EndpointName]string{RAFT: "RAFT_PORT", RAFT_RPC: "RAFT_INTERNAL_RPC_PORT"} {
+		if p, ok := env[key]; ok && p != "" {
+			raftPorts[name] = nat.Port(p + "/tcp")
+			exposedPorts = append(exposedPorts, p+"/tcp")
+		}
+	}
 	grpcPort := nat.Port("50051/tcp")
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, "50051/tcp")
@@ -239,6 +247,13 @@ func startWeaviate(ctx context.Context,
 			return nil, fmt.Errorf("startWeaviate(%s): get cluster endpoint: %w", containerName, err)
 		}
 		endpoints[CLUSTER] = endpoint{clusterPort, clusterURI}
+	}
+	for name, port := range raftPorts {
+		uri, err := c.PortEndpoint(ctx, port, "")
+		if err != nil {
+			return nil, fmt.Errorf("startWeaviate(%s): get %s endpoint: %w", containerName, name, err)
+		}
+		endpoints[name] = endpoint{port, uri}
 	}
 	if exposeGRPCPort {
 		grpcUri, err := c.PortEndpoint(ctx, grpcPort, "")

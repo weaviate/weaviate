@@ -785,7 +785,7 @@ function run_aof_group() {
 function get_aof_group() {
   case "$1" in
     1) echo "test/acceptance/multi_node test/acceptance/actions" ;;
-    2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
+    2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/raft_auth test/acceptance/batch_request_endpoints" ;;
     3) echo "test/acceptance/grpc" ;;
     4) echo "test/acceptance/alter_schema test/acceptance/namespace test/acceptance/namespace_limits test/acceptance/vector_index_restrictions" ;;
     6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups test/acceptance/backup_crafted_archive" ;;

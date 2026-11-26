@@ -71,6 +71,9 @@ var (
 	DEBUG   EndpointName = "debug"
 	CLUSTER EndpointName = "cluster"
 	MCP     EndpointName = "mcp"
+	// RAFT and RAFT_RPC are the raft transport and the cluster gRPC service ports.
+	RAFT     EndpointName = "raft"
+	RAFT_RPC EndpointName = "raft-rpc"
 )
 
 type endpoint struct {
@@ -107,6 +110,16 @@ func (d *DockerContainer) McpURI() string {
 
 func (d *DockerContainer) ClusterURI() string {
 	return d.GetEndpoint(CLUSTER)
+}
+
+// RaftURI returns the host:port of the raft transport, if exposed.
+func (d *DockerContainer) RaftURI() string {
+	return d.GetEndpoint(RAFT)
+}
+
+// RaftRPCURI returns the host:port of the cluster gRPC service, if exposed.
+func (d *DockerContainer) RaftRPCURI() string {
+	return d.GetEndpoint(RAFT_RPC)
 }
 
 func (d *DockerContainer) GetEndpoint(name EndpointName) string {
