@@ -16,7 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -869,4 +871,109 @@ func TestIndexShutdownAbortsInFlightNodeStatusScan(t *testing.T) {
 	assert.Empty(t, status, "a closing index must not report shards")
 	require.ErrorIs(t, scanErr, errIndexShutdown,
 		"a scan aborted by shutdown must say so, not report an empty collection")
+}
+
+func TestNodeStatusScanDoesNotDeadlockAPendingCloseLockWriter(t *testing.T) {
+	tests := []struct {
+		name    string
+		write   func(idx *Index, shard string) error
+		scanErr error
+	}{
+		{name: "reinit shard", write: func(idx *Index, shard string) error {
+			return idx.IncomingReinitShard(testCtx(), shard)
+		}},
+		{name: "index shutdown", scanErr: errIndexShutdown, write: func(idx *Index, _ string) error {
+			return idx.Shutdown(testCtx())
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, migrator, schemaGetter := newLazyLoadRepo(t, multiShardState(), withShardUnloader(newFakeShardUnloader()))
+			selector, ok := repo.nodeSelector.(*cluster.MockNodeSelector)
+			require.True(t, ok)
+			selector.EXPECT().ClusterHealthScore().Return(0).Maybe()
+			var deadlocked atomic.Bool
+			t.Cleanup(func() {
+				if !deadlocked.Load() {
+					require.NoError(t, repo.Shutdown(context.Background()))
+				}
+			})
+			class := newClassWithWarmProp("NodesCloseLock")
+			require.NoError(t, migrator.AddClass(testCtx(), class))
+			schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+			idx := repo.GetIndex(schema.ClassName(class.Class))
+			require.NotNil(t, idx)
+
+			var names []string
+			require.NoError(t, idx.shards.Range(func(name string, _ ShardLike) error {
+				names = append(names, name)
+				return nil
+			}))
+			slices.Sort(names)
+			require.Greater(t, len(names), 1)
+			for _, name := range names {
+				_, release, err := idx.GetShard(testCtx(), name)
+				require.NoError(t, err)
+				release()
+			}
+
+			idx.shardCreateLocks.Lock(names[0])
+			var unlock sync.Once
+			release := func() { unlock.Do(func() { idx.shardCreateLocks.Unlock(names[0]) }) }
+			defer release()
+
+			scanDone := make(chan error, 1)
+			enterrors.GoWrapper(func() {
+				_, err := repo.LocalNodeStatus(testCtx(), "", "", verbosity.OutputVerbose)
+				scanDone <- err
+			}, idx.logger)
+			require.Eventually(t, func() bool {
+				return goroutineParkedIn("(*Index).nodeStatusShard(", "(*KeyRWLocker).RLock(")
+			}, 10*time.Second, time.Millisecond)
+
+			writeDone := make(chan error, 1)
+			enterrors.GoWrapper(func() { writeDone <- tt.write(idx, names[len(names)-1]) }, idx.logger)
+			require.Eventually(t, func() bool {
+				if idx.closeLock.TryRLock() {
+					idx.closeLock.RUnlock()
+					return false
+				}
+				return true
+			}, 10*time.Second, time.Millisecond)
+
+			release()
+			for name, done := range map[string]chan error{"scan": scanDone, "writer": writeDone} {
+				select {
+				case err := <-done:
+					if want := tt.scanErr; want != nil && name == "scan" {
+						require.ErrorIs(t, err, want)
+					} else {
+						require.NoError(t, err, name)
+					}
+				case <-time.After(10 * time.Second):
+					deadlocked.Store(true)
+					buf := make([]byte, 1<<22)
+					t.Fatalf("%s deadlocked on closeLock\n%s", name, buf[:runtime.Stack(buf, true)])
+				}
+			}
+		})
+	}
+}
+
+func goroutineParkedIn(frames ...string) bool {
+	buf := make([]byte, 1<<22)
+	n := runtime.Stack(buf, true)
+	for ; n == len(buf); n = runtime.Stack(buf, true) {
+		buf = make([]byte, 2*len(buf))
+	}
+	for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+		parked := true
+		for _, frame := range frames {
+			parked = parked && strings.Contains(g, frame)
+		}
+		if parked {
+			return true
+		}
+	}
+	return false
 }
