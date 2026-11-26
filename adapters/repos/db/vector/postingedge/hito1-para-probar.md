@@ -180,6 +180,11 @@ Un error de la configuración de la clase llega envuelto en «invalid posting-ed
 - **Un índice al que le falta su `meta.json` ya no abre vacío borrándolo todo** (desde el 23 de noviembre). Da error al abrir, dice qué ficheros hay y no borra nada. Lo único que el índice borra por su cuenta es lo que escribió un build de su base que no acabó. Y solo si ese build dejó la lista de lo que creaba y los vectores de los que partía siguen apartados. Cada vez deja una línea en el log con lo que borró y por qué.
   - *Verificado por tests:* el proceso que muere a mitad del build, el build que falla sin morir, una copia hecha a mitad de un build y restaurada en otro sitio, y los casos en que no borra nada.
 
+- **Los centroides ocupan una cuarta parte, y los de los postings retirados ya no ocupan nada** (desde el 26 de noviembre).
+  - Se guardan como códigos RQ de 8 bits, sin rescore, como en HFresh: a 10M el índice en `none` pasa de 236.6 a 152.8 MB de heap tras abrir, con el mismo recall y las mismas cargas (lo más que se separa es un 0.4 %).
+  - **Un índice creado antes se convierte la primera vez que se abre:** el arranque tarda algo más esa vez, sin error.
+  - *Verificado por tests y medido a 1M y 10M sobre copias de los índices de los experimentos.*
+
 **Lo que sigue igual que en el hito 1:** lo de «Qué falla por diseño», arriba con sus errores.
 
 ## Lo que falta
