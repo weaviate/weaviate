@@ -25,8 +25,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/resolver"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -179,6 +182,138 @@ func TestMakeMetricsInterceptor(t *testing.T) {
 		assert.Zero(t, grpcBatchCount(t, metrics, "ns_a"))
 		assert.Zero(t, grpcBatchCount(t, metrics, ""))
 	})
+}
+
+func TestServerState_admit(t *testing.T) {
+	for _, tt := range []struct {
+		method string     // Full method name.
+		mode   string     // Operational mode.
+		code   codes.Code // Expected status code, zero is codes.OK.
+		err    error      // Expected error.
+	}{
+		// Healthcheck requests.
+		{method: grpc_health_v1.Health_Check_FullMethodName, mode: config.READ_WRITE},
+		{method: grpc_health_v1.Health_Check_FullMethodName, mode: config.READ_ONLY},
+		{method: grpc_health_v1.Health_Check_FullMethodName, mode: config.WRITE_ONLY},
+		{method: grpc_health_v1.Health_Check_FullMethodName, mode: config.SCALE_OUT},
+
+		{method: grpc_health_v1.Health_Watch_FullMethodName, mode: config.READ_WRITE},
+		{method: grpc_health_v1.Health_Watch_FullMethodName, mode: config.READ_ONLY},
+		{method: grpc_health_v1.Health_Watch_FullMethodName, mode: config.WRITE_ONLY},
+		{method: grpc_health_v1.Health_Watch_FullMethodName, mode: config.SCALE_OUT},
+
+		{method: grpc_health_v1.Health_List_FullMethodName, mode: config.READ_WRITE},
+		{method: grpc_health_v1.Health_List_FullMethodName, mode: config.READ_ONLY},
+		{method: grpc_health_v1.Health_List_FullMethodName, mode: config.WRITE_ONLY},
+		{method: grpc_health_v1.Health_List_FullMethodName, mode: config.SCALE_OUT},
+
+		// Read requests.
+		{method: pbv1.Weaviate_Aggregate_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv1.Weaviate_Aggregate_FullMethodName, mode: config.READ_ONLY},
+		{method: pbv1.Weaviate_Aggregate_FullMethodName, mode: config.SCALE_OUT},
+		{
+			method: pbv1.Weaviate_Aggregate_FullMethodName, mode: config.WRITE_ONLY,
+			code: codes.Unavailable, err: config.ErrWriteOnlyModeEnabled,
+		},
+
+		{method: pbv1.Weaviate_Search_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv1.Weaviate_Search_FullMethodName, mode: config.READ_ONLY},
+		{method: pbv1.Weaviate_Search_FullMethodName, mode: config.SCALE_OUT},
+		{
+			method: pbv1.Weaviate_Search_FullMethodName, mode: config.WRITE_ONLY,
+			code: codes.Unavailable, err: config.ErrWriteOnlyModeEnabled,
+		},
+
+		{method: pbv1.Weaviate_TenantsGet_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv1.Weaviate_TenantsGet_FullMethodName, mode: config.READ_ONLY},
+		{method: pbv1.Weaviate_TenantsGet_FullMethodName, mode: config.SCALE_OUT},
+		{
+			method: pbv1.Weaviate_TenantsGet_FullMethodName, mode: config.WRITE_ONLY,
+			code: codes.Unavailable, err: config.ErrWriteOnlyModeEnabled,
+		},
+
+		// Write requests.
+		{method: pbv1.Weaviate_BatchObjects_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv1.Weaviate_BatchObjects_FullMethodName, mode: config.WRITE_ONLY},
+		{
+			method: pbv1.Weaviate_BatchObjects_FullMethodName, mode: config.READ_ONLY,
+			code: codes.Unavailable, err: config.ErrReadOnlyModeEnabled,
+		},
+		{
+			method: pbv1.Weaviate_BatchObjects_FullMethodName, mode: config.SCALE_OUT,
+			code: codes.Unavailable, err: config.ErrScaleOutModeEnabled,
+		},
+
+		{method: pbv1.Weaviate_BatchStream_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv1.Weaviate_BatchStream_FullMethodName, mode: config.WRITE_ONLY},
+		{
+			method: pbv1.Weaviate_BatchStream_FullMethodName, mode: config.READ_ONLY,
+			code: codes.Unavailable, err: config.ErrReadOnlyModeEnabled,
+		},
+		{
+			method: pbv1.Weaviate_BatchStream_FullMethodName, mode: config.SCALE_OUT,
+			code: codes.Unavailable, err: config.ErrScaleOutModeEnabled,
+		},
+
+		{method: pbv1.Weaviate_BatchReferences_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv1.Weaviate_BatchReferences_FullMethodName, mode: config.WRITE_ONLY},
+		{
+			method: pbv1.Weaviate_BatchReferences_FullMethodName, mode: config.READ_ONLY,
+			code: codes.Unavailable, err: config.ErrReadOnlyModeEnabled,
+		},
+		{
+			method: pbv1.Weaviate_BatchReferences_FullMethodName, mode: config.SCALE_OUT,
+			code: codes.Unavailable, err: config.ErrScaleOutModeEnabled,
+		},
+
+		{method: pbv1.Weaviate_BatchDelete_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv1.Weaviate_BatchDelete_FullMethodName, mode: config.WRITE_ONLY},
+		{
+			method: pbv1.Weaviate_BatchDelete_FullMethodName, mode: config.READ_ONLY,
+			code: codes.Unavailable, err: config.ErrReadOnlyModeEnabled,
+		},
+		{
+			method: pbv1.Weaviate_BatchDelete_FullMethodName, mode: config.SCALE_OUT,
+			code: codes.Unavailable, err: config.ErrScaleOutModeEnabled,
+		},
+	} {
+		t.Run(fmt.Sprintf("method=%s mode=%s", tt.method, tt.mode), func(t *testing.T) {
+			ss := serverState{
+				Cluster: new(cluster.State),
+				ServerConfig: &config.WeaviateConfig{
+					Config: config.Config{
+						OperationalMode: runtime.NewDynamicValue(tt.mode),
+					},
+				},
+			}
+
+			t.Run("maintenance mode on", func(t *testing.T) {
+				ss.Cluster.SetMaintenanceModeForLocalhost(true)
+
+				err := ss.admit(tt.method)
+				st, ok := status.FromError(err)
+
+				assert.True(t, ok, "interceptor must return gRPC status.Status")
+				assert.Equal(t, st.Code(), codes.Unavailable, "error status code")
+				require.ErrorContains(t, err, "maintenance mode")
+			})
+
+			t.Run("maintenance mode off", func(t *testing.T) {
+				ss.Cluster.SetMaintenanceModeForLocalhost(false)
+
+				err := ss.admit(tt.method)
+				st, ok := status.FromError(err)
+
+				require.True(t, ok, "interceptor must return gRPC status.Status")
+				assert.Equal(t, st.Code(), tt.code, "response status code")
+				if tt.err == nil {
+					require.NoError(t, err, "should admit request")
+				} else {
+					require.ErrorContains(t, err, tt.err.Error(), "should reject request")
+				}
+			})
+		})
+	}
 }
 
 type rpcDesc struct {
