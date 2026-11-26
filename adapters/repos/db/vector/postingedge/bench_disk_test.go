@@ -745,6 +745,13 @@ func TestDiskTimed(t *testing.T) {
 		require.NoError(t, writeHeapProfile(*benchDiskHeap))
 		t.Logf("cell %s: heap profile in %s, of %.1f MB allocated and in use", cell.Spec.Name, *benchDiskHeap,
 			float64(mem.HeapAlloc)/1e6)
+		if disk.st != nil && disk.st.centroids != nil {
+			stats, err := disk.st.centroids.graph.Stats()
+			require.NoError(t, err)
+			t.Logf("cell %s: centroid graph: %d centroids of %d dims, nodes by layer %v, %d tombstones, cache %d, "+
+				"compressed %v (%q)", cell.Spec.Name, len(disk.st.centroids.vectors), stats.Dimensions,
+				stats.DistributionLayers, stats.NumTombstones, stats.CacheSize, stats.Compressed, stats.CompressionType)
+		}
 		require.NoError(t, disk.close(ctx))
 		return
 	}

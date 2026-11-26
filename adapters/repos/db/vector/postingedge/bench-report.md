@@ -239,6 +239,53 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Solo medido en arm64,** en un M1 Max. x86 y sus kernels (AVX2, AVX-512) están sin medir.
 - **El índice sigue siendo solo en memoria.** El formato en disco y su lector viven en los tests (v4.0): miden el camino de lectura, y nada escribe en disco de forma incremental. El diseño está en `disk-design.md`.
 
+## El heap tras abrir, por componente, a 1M y a 10M (2026-11-26, sin cronometrar)
+
+**Encargo del usuario:** el desglose del heap de los índices que ya existen, `filter1m` a 1M y `tenm` a 10M, en `none` y en `routing`, cuadrado con los 35 y los 236 MB medidos en `none`.
+
+**Cómo:**
+- Un perfil de heap con todas las asignaciones (`-test.memprofilerate=1`), tras abrir y recolectar, agrupado por quién asigna.
+- Las celdas de v4.0 (`tenm` a 10M y `v40` a 1M, la de los 35 MB) se abren con `TestDiskTimed -bench.diskheap`, como se midieron. El arnés dice además el grafo de centroides por capas.
+- `filter1m` se abre con `TestFilteredIndexHeap` (`bench_heap_test.go` de `feat/posting-edge-integration`), sin arnés.
+- En MB decimales, como `HeapInuse / 1e6`.
+
+| componente | `tenm` `none` (10M) | `tenm` `routing` | `filter1m` `routing` (1M) | `filter1m` `none` (calculado) | v4.0 `none` 1M (el de los 35) |
+|---|---:|---:|---:|---:|---:|
+| vectores de los centroides (`float32`, sin comprimir) | 131.2 | 131.2 | 50.0 | 50.0 | 25.9 |
+| grafo HNSW de los centroides | 6.5 | 6.5 | 0.9 | 0.9 | 0.7 |
+| docID → posting | 80.2 (con el slot) | 80.2 (con el slot) | 5.0 | 5.0 | 7.9 (con el slot) |
+| docID → slot | — | — | 5.0 | 5.0 | — |
+| docID → cuándo se hicieron sus aristas | — | — | 5.0 | 5.0 | — |
+| vivos por docID y tamaño por posting | — | — | 1.3 | 1.3 | — |
+| tombstones | 0 | 0 | 1.2 | 1.2 | 0 |
+| códigos de ruteo | — | 720.0 | 89.1 | — | — |
+| cambios de aristas pendientes de consolidar | — | — | 25.2 | 25.2 | — |
+| `lsmkv`: bloom, memtables e índices de segmento | 0.2 | 0.2 | 10.7 | 10.7 | 0.0 |
+| resto, cada parte por debajo de 1 MB | 0.2 | 0.1 | 0.5 | 0.5 | 0.2 |
+| **el índice** | **218.3** | **938.2** | **193.9** | **≈ 104.8** | **34.7** |
+| arnés: queries y manifiesto | 3.3 | 3.3 | 0 | — | 31.7 |
+| asignado fuera del perfil | 5.5 | 5.6 | 5.4 | — | 5.6 |
+| hueco libre en spans en uso | 9.2 | 9.4 | 16.8 | — | 2.7 |
+| **heap en uso medido** | **236.3** | **956.4** | **216.1** | — | **74.7** |
+
+- **Los 236 MB se reproducen (236.3) y cuadran.** Quedan 14.7 MB sin componente: 5.5 asignados fuera del perfil, que son unos 5.5 fijos en cada proceso, y 9.2 de hueco libre en spans.
+- **Los 35 MB cuadran.** El mismo índice da hoy 34.7 MB, 0.3 menos. Los 8.3 de entonces sin atribuir son los 5.6 + 2.7 de hoy.
+- **Centroides:** en `float32` sin comprimir, no en RQ8, y una sola copia. Son el 60 % del índice en `none` a 10M.
+  - La caché del grafo solo reserva los huecos al abrir (1.2 MB a 10M) y no copia vectores. Bajo búsquedas no lo he medido.
+- **El grafo de centroides:**
+  - **a 10M:** 42 373 nodos (41 073 solo en la capa 0, 1 261 hasta la 1, 38 hasta la 2 y 1 en la 3), sin compresión: 3.1 MB de nodos, 2.1 de conexiones y 1.2 de caché;
+  - **en `filter1m`:** 4 239 nodos y 165 tombstones.
+- **`filter1m` en `none` no abre, y está bien:** se creció en `routing` y sus postings no llevan halo. Su columna es la de `routing` menos los códigos.
+- **`filter1m` en `none` no es comparable con los 35:** es un índice crecido, y aquel se construyó de una vez. Lo que lleva de más:
+  - 24.8 MB de centroides retirados: 8 105 posting ids dados, 4 074 vivos;
+  - 25.2 de aristas pendientes de consolidar;
+  - 10.5 de bloom de sus buckets en el store del shard;
+  - 5.0 del mapa de cuándo se hicieron las aristas;
+  - 2.5 de vivos y tombstones;
+  - unos 2 de que los mapas por docID cubren 1.24 M ids, no los 990 000 vivos.
+
+**Después:** el usuario pidió que los centroides retirados se liberen (`4470f2cd1a` en `feat/posting-edge-integration-m2`) y los centroides en RQ8 (abajo). La tabla se rehará con los dos.
+
 ## Centroides en RQ8, sin rescore, como HFresh (pre-registro, 2026-11-26)
 
 **Estado: pre-registrado antes de compilar nada.** El encargo es del usuario. Lo que deja abierto lo fijo aquí, marcado como *mío*.
