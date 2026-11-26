@@ -92,7 +92,7 @@ func TestGrowDropsTheTableOfWhenEdgesWereBuilt(t *testing.T) {
 	require.NoError(t, dropped.g.checkBuilt())
 }
 
-// The index a shard opens caps what waits of its edges at 64 MB, and keeps no
+// The index a shard opens caps what waits of its edges at 128 MB, and keeps no
 // table of when its edges were built while the refresh is off. With a budget
 // small enough to hold, it answers as it does without one.
 func TestPersistentCapsWhatWaitsOfItsEdges(t *testing.T) {

@@ -189,10 +189,13 @@ const (
 	// before its row of edges is written again: the K of v5.1 and v5.3.
 	DefaultConsolidate = 64
 	// DefaultPendingBudget caps the heap of the changes to the edges that
-	// wait for the rows of their postings (growOpen.pendingBudget): 64 MB, by
-	// the user's decision of 2026-11-26. Without a cap it grows with the
-	// postings, to about 260 MB at 10M vectors.
-	DefaultPendingBudget = 64 << 20
+	// wait for the rows of their postings (growOpen.pendingBudget): 128 MB, by
+	// the user's rule of 2026-11-26. Without a cap it grows with the
+	// postings, to about 260 MB at 10M vectors. With 64 MB the index grew 35
+	// % slower than with 128 MB (the median of three runs each, 60 000
+	// vectors of 768 dimensions with the budget scaled per posting), past the
+	// 15 % the rule allowed, and wrote its rows of edges 1.8 times as often.
+	DefaultPendingBudget = 128 << 20
 
 	growBucketPrefix = "postingedge_grow_"
 )
