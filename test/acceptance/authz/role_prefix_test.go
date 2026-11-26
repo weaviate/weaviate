@@ -27,7 +27,7 @@ import (
 
 func TestAuthzRolePrefixAliasRefused(t *testing.T) {
 	_, down := composeUpShared(t)
-	defer down()
+	t.Cleanup(down)
 
 	managerUser := "custom-user"
 	managerAuth := helper.CreateAuth(sharedPlainPrincipals[managerUser])
