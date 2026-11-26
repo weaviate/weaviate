@@ -782,10 +782,19 @@ func (g *growIndex) rebuildCentroidGraph(ctx context.Context, opts growOpen) err
 	if err := os.RemoveAll(dir); err != nil {
 		return errors.Wrap(err, "remove the centroid graph to build it again")
 	}
+	if old.store != nil {
+		// The codes go with the graph: the bucket keeps those of the centroids
+		// that were deleted from the graph and not yet taken out of it, which
+		// the graph built again does not hold and would never take out.
+		if err := os.RemoveAll(filepath.Join(old.store.GetDir(), old.bucket)); err != nil {
+			return errors.Wrap(err, "remove the codes of the centroid graph to build it again")
+		}
+	}
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		return errors.Wrap(err, "make the directory of the centroid graph")
 	}
-	graph, err := openCentroidGraphWith(ctx, g.logger, dir, vectors, opts.cycles)
+	graph, err := openCentroidGraphWith(ctx, g.logger, dir, vectors, opts.cycles,
+		opts.centroidCodes(filepath.Join(g.dir, diskCentroidFile), g.meta.Dims))
 	if err != nil {
 		return err
 	}
@@ -794,7 +803,11 @@ func (g *growIndex) rebuildCentroidGraph(ctx context.Context, opts growOpen) err
 		if size == 0 {
 			continue
 		}
-		if err := graph.graph.Add(ctx, uint64(p), vectors[p]); err != nil {
+		centroid, err := graph.publishedVector(ctx, uint64(p))
+		if err != nil {
+			return errors.Wrapf(err, "read the centroid of posting %d to build the graph again", p)
+		}
+		if err := graph.graph.Add(ctx, uint64(p), centroid); err != nil {
 			return errors.Wrapf(err, "add the centroid of posting %d to the graph built again", p)
 		}
 	}

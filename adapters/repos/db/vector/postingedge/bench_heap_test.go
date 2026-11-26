@@ -72,20 +72,30 @@ func TestFilteredIndexHeap(t *testing.T) {
 }
 
 // logCentroidGraph logs the graph over the centroids as HNSW tells it: its
-// nodes by layer, its tombstones, its cache and its compression.
+// nodes by layer, its tombstones, its cache and its compression, and how many
+// centroids the index holds in float32 (none with codes).
 func logCentroidGraph(t *testing.T, c *centroidIndex) {
 	stats, err := c.graph.Stats()
 	require.NoError(t, err)
+	held := 0
+	c.mu.RLock()
+	for _, v := range c.vectors {
+		if v != nil {
+			held++
+		}
+	}
+	c.mu.RUnlock()
 	raw, err := json.Marshal(struct {
-		Centroids  int          `json:"centroids"`
-		Dims       int          `json:"dims"`
-		Layers     map[int]uint `json:"nodesByLayer"`
-		Tombstones int          `json:"tombstones"`
-		CacheSize  int32        `json:"cacheSize"`
-		Compressed bool         `json:"compressed"`
-		Type       string       `json:"compressionType"`
+		Float32Held int          `json:"float32Held"`
+		Codes       bool         `json:"codes"`
+		Dims        int          `json:"dims"`
+		Layers      map[int]uint `json:"nodesByLayer"`
+		Tombstones  int          `json:"tombstones"`
+		CacheSize   int32        `json:"cacheSize"`
+		Compressed  bool         `json:"compressed"`
+		Type        string       `json:"compressionType"`
 	}{
-		len(c.vectors), int(stats.Dimensions), stats.DistributionLayers, stats.NumTombstones, stats.CacheSize,
+		held, c.codes, int(stats.Dimensions), stats.DistributionLayers, stats.NumTombstones, stats.CacheSize,
 		stats.Compressed, stats.CompressionType,
 	})
 	require.NoError(t, err)
