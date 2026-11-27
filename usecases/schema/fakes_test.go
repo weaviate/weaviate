@@ -103,6 +103,10 @@ func (f *fakeSchemaManager) GetAliasesForClass(class string) []*models.Alias {
 	return nil
 }
 
+func (f *fakeSchemaManager) ClassLive(string) map[string]map[string]uint64 {
+	return nil
+}
+
 func (f *fakeSchemaManager) Join(ctx context.Context, nodeID, raftAddr string, voter bool) error {
 	args := f.Called(ctx, nodeID, raftAddr, voter)
 	return args.Error(0)

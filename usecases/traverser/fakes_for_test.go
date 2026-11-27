@@ -293,6 +293,10 @@ func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
 	return nil
 }
 
+func (f *fakeSchemaGetter) ClassLive(string) map[string]map[string]uint64 {
+	return nil
+}
+
 type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,

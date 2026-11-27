@@ -339,6 +339,7 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
+	db.SetEndedReindexTaskReader(fakeEndedReindexTasks{})
 	require.Nil(t, db.WaitForStartup(testCtx()))
 	migrator := NewMigrator(db, logger, "node1")
 

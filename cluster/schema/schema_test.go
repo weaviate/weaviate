@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 	"testing"
@@ -895,6 +896,48 @@ func Test_schemaDeepCopy(t *testing.T) {
 		}
 		<-done
 	})
+}
+
+func TestSchema_LiveState(t *testing.T) {
+	ss := &sharding.State{Physical: map[string]sharding.Physical{}}
+	for _, tc := range []struct {
+		name string
+		live map[string]map[string]uint64
+	}{
+		{name: "live generations survive a snapshot and are copied", live: map[string]map[string]uint64{"body": {"searchable": 2, "filterable": 1}}},
+		{name: "a class with no live generation writes no key", live: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+			require.NoError(t, s.addClass(&models.Class{Class: "C"}, ss, 1))
+			for property, generations := range tc.live {
+				if s.classes["C"].Live == nil {
+					s.classes["C"].Live = map[string]map[string]uint64{}
+				}
+				s.classes["C"].Live[property] = maps.Clone(generations)
+			}
+
+			copies, fromClassLive := s.MetaClasses(), s.ClassLive("C")
+			for _, generations := range s.classes["C"].Live {
+				generations["searchable"] = 99
+			}
+			snapshot, err := json.Marshal(copies)
+			require.NoError(t, err)
+
+			parser := NewMockParser(t)
+			parser.EXPECT().ParseClass(mock.Anything).Return(nil)
+			restored := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+			_, err = restored.Restore(snapshot, parser)
+			require.NoError(t, err)
+			require.Equal(t, tc.live, restored.ClassLive("C"))
+			require.Equal(t, tc.live, fromClassLive)
+
+			var raw map[string]map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(snapshot, &raw))
+			_, hasKey := raw["C"]["live"]
+			require.Equal(t, tc.live != nil, hasKey)
+		})
+	}
 }
 
 func TestSchemaRestoreLegacyWithEmptyClasses(t *testing.T) {
