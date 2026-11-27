@@ -172,6 +172,7 @@ type Compose struct {
 	removeEnvs                     map[string]struct{}
 	weaviateFiles                  []testcontainers.ContainerFile
 	weaviateHostGateway            bool
+	weaviateDataVolumes            bool
 }
 
 func New() *Compose {
@@ -678,6 +679,15 @@ func (d *Compose) WithWeaviateHostGateway() *Compose {
 	return d
 }
 
+// WithWeaviateDataVolumes mounts a named volume per Weaviate node at its data
+// directory, so ReplaceNodeWithEnv can start a new container on the old data.
+// When startCluster retries a node start, the retry mounts the volume the
+// failed attempt wrote to.
+func (d *Compose) WithWeaviateDataVolumes() *Compose {
+	d.weaviateDataVolumes = true
+	return d
+}
+
 // WithWeaviateFiles copies the given files into each Weaviate container
 // before it starts. Useful for injecting configuration files such as runtime
 // override YAML.
@@ -1076,7 +1086,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 				containers = append(containers, c)
 			}
 		}
-		return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, err
+		return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers, dataVolumes: d.weaviateDataVolumes}, err
 	}
 
 	if d.withSecondWeaviate {
@@ -1094,17 +1104,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.containerFiles(), d.weaviateHostGateway)
+		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.containerFiles(), d.weaviateHostGateway, d.weaviateDataVolumes)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
 		if err != nil {
-			return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, errors.Wrapf(err, "start %s", hostname)
+			return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers, dataVolumes: d.weaviateDataVolumes}, errors.Wrapf(err, "start %s", hostname)
 		}
 	}
 
-	return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, nil
+	return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers, dataVolumes: d.weaviateDataVolumes}, nil
 }
 
 func (d *Compose) With1NodeCluster() *Compose {
@@ -1273,7 +1283,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules,
-				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.containerFiles(), d.weaviateHostGateway)
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.containerFiles(), d.weaviateHostGateway, d.weaviateDataVolumes)
 			cancel()
 			if err == nil {
 				if attempt > 0 {

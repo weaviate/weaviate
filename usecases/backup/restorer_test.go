@@ -233,6 +233,41 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, time.Duration(0), resp.Timeout)
 	})
 
+	t.Run("RejectIncrementalRefsOutsideBackup", func(t *testing.T) {
+		tests := []struct {
+			name, baseID, key string
+		}{
+			{name: "chunk key", baseID: "base-1", key: "../../../secret.tar"},
+			{name: "base id", baseID: "../escape", key: chunkKey(cls, 1)},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				shard := *metadata.Classes[0].Shards[0]
+				shard.IncrementalBackupInfo = backup.IncrementalBackupInfos{FilesPerBackup: map[string][]backup.IncrementalBackupInfo{
+					tc.baseID: {{File: "dir3/big", ChunkKeys: []string{tc.key}}},
+				}}
+				crafted := metadata
+				crafted.Classes = []backup.ClassDescriptor{metadata.Classes[0]}
+				crafted.Classes[0].Shards = []*backup.ShardDescriptor{&shard}
+				req := req
+				req.Duration = time.Hour
+				backend := newFakeBackend()
+				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(crafted), nil)
+				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				backend.On("SourceDataPath").Return(t.TempDir())
+				backend.On("Read", any, any, any, any).Return(int64(0), ErrAny)
+				m := createManager(&fakeSourcer{}, nil, backend, nil)
+				resp := m.OnCanCommit(ctx, &req)
+				assert.Contains(t, resp.Err, "corrupted backup file")
+				assert.Contains(t, resp.Err, tc.baseID)
+				assert.Equal(t, time.Duration(0), resp.Timeout)
+				assert.Error(t, m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend}))
+				m.restorer.waitForCompletion(req.Backend, req.ID, 10, 20)
+				backend.AssertNotCalled(t, "Read", any, any, any, any)
+			})
+		}
+	})
+
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
@@ -253,6 +288,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		backend := newFakeBackend()
+		backend.chunks = map[string][]byte{chunkKey(cls, 1): tarGzWithFile(t, strings.ToLower(cls)+"/cT9eTErXgmTX/marker")}
 		sourcer := &fakeSourcer{}
 		bytes := marshalMeta(metadata)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
@@ -298,6 +334,36 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 			sourceNode:   sourceNode,
 			stagedShards: []string{"Shard1"},
 		}}, sourcer.adoptedCalls())
+	})
+
+	t.Run("RefusesForeignTopLevelStagedEntries", func(t *testing.T) {
+		req := req
+		req.Duration = time.Hour
+		dataPath := t.TempDir()
+		rootFile := filepath.Join(dataPath, "classifications.db")
+		require.NoError(t, os.WriteFile(rootFile, []byte("good"), 0o644))
+		backend := newFakeBackend()
+		backend.chunks = map[string][]byte{chunkKey(cls, 1): tarGzWithFile(t,
+			strings.ToLower(cls)+"/Shard1/marker", "classifications.db", "otherclass/x")}
+		sourcer := &fakeSourcer{}
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(metadata), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(dataPath)
+		backend.On("Read", any, nodeHome, chunkKey(cls, 1), mock.Anything).Return(int64(0), nil)
+		m := createManager(sourcer, nil, backend, nil)
+		assert.Empty(t, m.OnCanCommit(ctx, &req).Err)
+		assert.Nil(t, m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend}))
+		st := m.restorer.waitForCompletion(req.Backend, req.ID, 12, 50)
+		assert.Equal(t, backup.Failed, st.Status)
+		assert.Contains(t, st.Err, "classifications.db")
+		_, err := os.Stat(filepath.Join(dataPath, TempDirectory, cls))
+		assert.True(t, os.IsNotExist(err), "staging dir must be removed, got %v", err)
+		require.NoError(t, RestoreClassDir(dataPath)(cls))
+		got, err := os.ReadFile(rootFile)
+		require.NoError(t, err)
+		assert.Equal(t, "good", string(got))
+		_, err = os.Stat(filepath.Join(dataPath, "otherclass"))
+		assert.True(t, os.IsNotExist(err), "otherclass must not reach the data root, got %v", err)
 	})
 
 	t.Run("Abort", func(t *testing.T) {
@@ -640,12 +706,14 @@ func TestAttemptGates(t *testing.T) {
 	}
 }
 
-func tarGzWithFile(t *testing.T, name string) []byte {
+func tarGzWithFile(t *testing.T, names ...string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644}))
+	for _, name := range names {
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644}))
+	}
 	require.NoError(t, tw.Close())
 	require.NoError(t, gz.Close())
 	return buf.Bytes()

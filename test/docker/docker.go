@@ -17,7 +17,9 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -39,6 +41,8 @@ type DockerCompose struct {
 	network    *testcontainers.DockerNetwork
 	netOctet   int // second octet of this cluster's subnet (10.<netOctet>.0.0/16)
 	containers []*DockerContainer
+	// weaviate nodes mount a data volume, see WithWeaviateDataVolumes
+	dataVolumes bool
 }
 
 func (d *DockerCompose) Containers() []*DockerContainer {
@@ -372,6 +376,47 @@ func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
 		return err
 	}
 	return d.StartAt(ctx, idx)
+}
+
+// ReplaceNodeWithEnv replaces the weaviate node named weaviate-<n> (0-based
+// name suffix, unlike GetWeaviateNode which is 1-based) with a new container,
+// like a Kubernetes rolling update. As at cluster start, the image comes from
+// TEST_WEAVIATE_IMAGE. If that variable is unset, the image is rebuilt from
+// the Dockerfile. The new container gets the old env with set applied on
+// top. It keeps the old hostname, IP, and data volume, so the node keeps its
+// data and Raft identity. The cluster must be built with
+// WithWeaviateDataVolumes. Files and the host gateway are not carried over.
+func (d *DockerCompose) ReplaceNodeWithEnv(ctx context.Context, n int, set map[string]string) error {
+	if !d.dataVolumes {
+		return errors.New("ReplaceNodeWithEnv: cluster not built with WithWeaviateDataVolumes")
+	}
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	old := d.containers[idx]
+	if err := d.StopAt(ctx, idx, nil); err != nil {
+		return fmt.Errorf("ReplaceNodeWithEnv[%s]: stop: %w", old.name, err)
+	}
+	// Remove the old container first: the new one reuses its hostname alias
+	// and static IP. Removing a container keeps its named volumes.
+	if err := testcontainers.TerminateContainer(old.container, testcontainers.StopContext(ctx)); err != nil {
+		return fmt.Errorf("ReplaceNodeWithEnv[%s]: remove old container: %w", old.name, err)
+	}
+
+	env := maps.Clone(old.envSettings)
+	maps.Copy(env, set)
+	_, hasGRPC := old.endpoints[GRPC]
+	_, hasDebug := old.endpoints[DEBUG]
+	// Modules are not passed: the cloned env already carries ENABLE_MODULES.
+	c, err := startWeaviate(ctx, nil /* enableModules */, env,
+		d.network.Name, d.netOctet, os.Getenv(envTestWeaviateImage), old.name, hasGRPC, hasDebug,
+		false /* tmpfsData */, "/v1/.well-known/ready" /* wellKnownEndpoint */, nil /* files */, false /* hostGateway */, true /* dataVolume */)
+	if err != nil {
+		return fmt.Errorf("ReplaceNodeWithEnv[%s]: %w", old.name, err)
+	}
+	d.containers[idx] = c
+	return nil
 }
 
 // EnsureRunning starts the weaviate node named weaviate-<n> (0-based name

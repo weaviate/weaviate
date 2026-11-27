@@ -13,7 +13,6 @@ package filter
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -89,8 +88,12 @@ func (f *ResourceFilter[T]) Filter(
 		return items
 	}
 
+	allowed := make(map[string]struct{}, len(allowedList))
+	for _, r := range allowedList {
+		allowed[r] = struct{}{}
+	}
 	for _, item := range items {
-		if slices.Contains(allowedList, resourceFn(item)) {
+		if _, ok := allowed[resourceFn(item)]; ok {
 			filtered = append(filtered, item)
 		}
 	}
