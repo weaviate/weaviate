@@ -305,17 +305,6 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	return specs
 }
 
-// buildReindexUnitSpecs groups by shard only for a multi-tenant semantic run, whose tenants swap one at a time.
-func buildReindexUnitSpecs(shardOwnership map[string][]string, isMT bool, mt db.ReindexMigrationType) []distributedtask.UnitSpec {
-	specs := unitSpecsPerReplica(shardOwnership)
-	if !isMT || !db.IsSemanticMigration(mt) {
-		for i := range specs {
-			specs[i].GroupID = ""
-		}
-	}
-	return specs
-}
-
 func unitSpecsPerReplica(shardOwnership map[string][]string) []distributedtask.UnitSpec {
 	var specs []distributedtask.UnitSpec
 	for nodeName, shards := range shardOwnership {

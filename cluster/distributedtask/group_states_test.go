@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // endRecordingRules compacts every ended task and takes t1 from the task named "older".
@@ -42,6 +43,8 @@ func (r *endRecordingRules) Ended(task *Task, existing []*Task) EndRuling {
 }
 
 func (r *endRecordingRules) BornSwitched(*Task) bool { return r.born }
+
+func (r *endRecordingRules) Units(TaskHeader, *sharding.State) ([]UnitSpec, error) { return nil, nil }
 
 func newRulesTestManager(t *testing.T, rules *endRecordingRules, seed ...*Task) *Manager {
 	t.Helper()

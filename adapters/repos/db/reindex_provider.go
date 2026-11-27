@@ -2153,7 +2153,7 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 		return
 	}
 	for _, propName := range payload.Properties {
-		if migrated, _, covered := ReindexMigratedTenants(runs, propName, payload); len(migrated) > 0 {
+		if migrated, covered := ReindexMigratedTenants(runs, propName, payload); len(migrated) > 0 {
 			logger.WithFields(map[string]any{
 				"property":         propName,
 				"migration_type":   payload.MigrationType,
@@ -2570,85 +2570,11 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 	return h.doneCh
 }
 
-// ShardReplicaOwnershipForMT returns shard ownership for the named tenants
-// (all, if empty) that still need work, or every one if none do; [ErrTenantsNotHot] if any of those isn't HOT: a COLD
-// tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
-func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, target *ReindexTaskPayload, property string,
-	tenantNames []string, tasks []*distributedtask.Task,
-) (map[string][]string, error) {
-	className := target.Collection
-	_, paid, _ := ReindexMigratedTenants(ReindexRuns(tasks), property, target)
-	result := make(map[string][]string)
-	notHot := 0
-	tenantSet := make(map[string]struct{}, len(tenantNames))
-	for _, tn := range tenantNames {
-		tenantSet[tn] = struct{}{}
-	}
-
-	err := db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
-		}
-
-		inScope := func(shardName string) bool {
-			_, ok := tenantSet[shardName]
-			return ok || len(tenantSet) == 0
-		}
-		rerunAll := true
-		for shardName := range state.Physical {
-			if _, isPaid := paid[shardName]; inScope(shardName) && !isPaid {
-				rerunAll = false
-				break
-			}
-		}
-
-		for shardName, shard := range state.Physical {
-			if _, isPaid := paid[shardName]; !inScope(shardName) || (isPaid && !rerunAll) {
-				continue
-			}
-
-			switch entschema.ActivityStatus(shard.Status) {
-			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
-			default:
-				notHot++
-				continue
-			}
-
-			for _, node := range shard.BelongsToNodes {
-				if node != "" {
-					result[node] = append(result[node], shardName)
-				}
-			}
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
-	}
-	if notHot > 0 {
-		return nil, &TenantsNotHotError{Count: notHot}
-	}
-
-	// Sort shard names per node for determinism.
-	for _, shards := range result {
-		sort.Strings(shards)
-	}
-
-	return result, nil
-}
-
 // ErrTenantsNotHot refuses a reindex that targets tenants which are not HOT.
 // It names no tenant: a collection-wide caller may lack permission to read
 // tenants. A tenant mid freeze or unfreeze rejects a HOT update until done.
 var ErrTenantsNotHot = errors.New("some target tenants are not HOT and cannot be reindexed; " +
 	"once any freeze or unfreeze in progress finishes, set them to HOT")
-
-// TenantsNotHotError counts the target tenants that still need work and are not HOT.
-type TenantsNotHotError struct{ Count int }
-
-func (e *TenantsNotHotError) Error() string { return ErrTenantsNotHot.Error() }
-func (e *TenantsNotHotError) Unwrap() error { return ErrTenantsNotHot }
 
 // ShardReplicaOwnership returns a map of node name to shard names, with one
 // entry per replica. Unlike ShardOwnership (which assigns each shard to one

@@ -53,6 +53,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const (
@@ -299,14 +300,14 @@ type Store struct {
 
 	// tenantAddLocks serializes AddTenants per class on the leader so the
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
-	tenantAddLocks *evictingKeyRWLocker
+	tenantAddLocks *evictingKeyLocker
 
 	// collectionAddLocks serializes AddClass per namespace on the leader so the
 	// pre-commit collection-cap check cannot race the apply that increments the
 	// count.
 	collectionAddLocks *entsync.KeyLocker
 
-	taskMovementLocks *evictingKeyRWLocker
+	taskMovementLocks *evictingKeyLocker
 
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
@@ -430,6 +431,19 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		},
 		TaskRules: cfg.DistributedTaskRules,
 		ClassLive: schemaReader.ClassLive,
+		ReadSharding: func(collection string, read func(*sharding.State)) error {
+			err := schemaReader.Read(collection, false, func(_ *models.Class, state *sharding.State) error {
+				read(state)
+				return nil
+			})
+			if errors.Is(err, schema.ErrClassNotFound) {
+				return distributedtask.NewCollectionGoneError(collection)
+			}
+			if err != nil {
+				return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
+			}
+			return nil
+		},
 	})
 
 	schemaManager.SetMutationGuard(distributedTasksManager)
@@ -463,9 +477,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
-		tenantAddLocks:          newEvictingKeyRWLocker(),
+		tenantAddLocks:          newEvictingKeyLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
-		taskMovementLocks:       newEvictingKeyRWLocker(),
+		taskMovementLocks:       newEvictingKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),

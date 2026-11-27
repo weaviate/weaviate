@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // TaskRules shapes a namespace's tasks inside the applies. Its methods must be
@@ -25,6 +27,9 @@ type TaskRules interface {
 	Admit(task *Task, existing []*Task, live map[string]map[string]uint64) (takesOver *Task, err error)
 	Ended(task *Task, existing []*Task) EndRuling
 	BornSwitched(task *Task) bool
+	// Units lists the units of a task submitted without any, from the sharding state at the task's log index,
+	// in an order that never follows a map, so every replica stores the same task.
+	Units(header TaskHeader, state *sharding.State) ([]UnitSpec, error)
 }
 
 type EndRuling struct {

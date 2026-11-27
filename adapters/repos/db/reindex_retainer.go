@@ -82,8 +82,8 @@ type ReindexRun struct {
 }
 
 // ReindexMigratedTenants reads property's failed/cancelled runs since the last finished flip. migrated:
-// newest decided swap went to target; covered: held by target's runs; paid: no replica still owes it.
-func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, paid, covered map[string]struct{}) {
+// newest decided swap went to target; covered: held by target's runs.
+func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, covered map[string]struct{}) {
 	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
 	var onProperty []ReindexRun
 	for _, run := range runs {
@@ -93,7 +93,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	}
 	slices.SortFunc(onProperty, func(a, b ReindexRun) int { return cmp.Compare(b.Task.Version, a.Task.Version) })
 
-	migrated, paid, covered = map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
+	migrated, covered = map[string]struct{}{}, map[string]struct{}{}
 	swappedSince := map[string]struct{}{}
 	for _, run := range onProperty {
 		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
@@ -109,9 +109,6 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 		for group := range run.Task.SwapDecidedGroups {
 			if _, seen := swappedSince[group]; same && !seen {
 				migrated[group] = struct{}{}
-				if len(run.Task.SwapsOwed[group]) == 0 {
-					paid[group] = struct{}{}
-				}
 			}
 			swappedSince[group] = struct{}{}
 		}
@@ -121,7 +118,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 			}
 		}
 	}
-	return migrated, paid, covered
+	return migrated, covered
 }
 
 func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string, tenantCounts bool) string {
@@ -175,7 +172,7 @@ func ReindexPartialRun(runs []ReindexRun, collection, property string, indexType
 	if partial == nil {
 		return nil, nil, nil
 	}
-	if migrated, _, covered = ReindexMigratedTenants(runs, property, &partial.Payload); len(migrated) == 0 {
+	if migrated, covered = ReindexMigratedTenants(runs, property, &partial.Payload); len(migrated) == 0 {
 		return nil, nil, nil // a newer finished flip covered it, or no tenant still serves target
 	}
 	return partial, migrated, covered

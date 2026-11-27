@@ -94,9 +94,13 @@ var (
 
 	ErrTaskBlockedByReplicaMovement = errors.New("task blocked by an in-flight replica movement")
 
-	ErrTaskReplicasChanged = errors.New("task built against replicas that have since changed")
-
 	ErrTaskTenantsNotHot = errors.New("task names tenants that are not HOT")
+
+	ErrTaskTenantsMissing = errors.New("task names tenants that do not exist")
+
+	ErrTaskHasNoUnits = errors.New("task has no units")
+
+	ErrTaskCollectionGone = errors.New("task names a collection that does not exist")
 
 	ErrNothingLeftToCancel = errors.New("nothing left to cancel")
 
@@ -113,14 +117,37 @@ func NewBlockedByReplicaMovementError(collection string) error {
 		fmt.Sprintf("collection %q has a replica movement in flight", collection))
 }
 
-func NewReplicasChangedError(collection string) error {
-	return wrapPermanent(ErrTaskReplicasChanged,
-		fmt.Sprintf("the shards or replicas of collection %q changed while the task was submitted; resubmit it against the current state", collection))
+// NewTenantsNotHotError puts count first in the message, where TenantsNotHotCount reads it back after the gRPC hop.
+func NewTenantsNotHotError(collection string, count int) error {
+	return wrapPermanent(ErrTaskTenantsNotHot,
+		fmt.Sprintf("%d target tenants of collection %q are not HOT; activate them and resubmit", count, collection))
 }
 
-func NewTenantsNotHotError(collection string) error {
-	return wrapPermanent(ErrTaskTenantsNotHot,
-		fmt.Sprintf("some target tenants of collection %q are not HOT; activate them and resubmit", collection))
+func TenantsNotHotCount(err error) (int, bool) {
+	marker := "[dtm-perm/" + idForSentinel(ErrTaskTenantsNotHot) + "] "
+	msg := err.Error()
+	i := strings.Index(msg, marker)
+	if i < 0 {
+		return 0, false
+	}
+	var count int
+	if _, err := fmt.Sscanf(msg[i+len(marker):], "%d", &count); err != nil {
+		return 0, false
+	}
+	return count, true
+}
+
+func NewTenantsMissingError(collection string) error {
+	return wrapPermanent(ErrTaskTenantsMissing,
+		fmt.Sprintf("some target tenants of collection %q do not exist", collection))
+}
+
+func NewHasNoUnitsError(collection string) error {
+	return wrapPermanent(ErrTaskHasNoUnits, fmt.Sprintf("collection %q has no shards", collection))
+}
+
+func NewCollectionGoneError(collection string) error {
+	return wrapPermanent(ErrTaskCollectionGone, fmt.Sprintf("collection %q does not exist", collection))
 }
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
@@ -156,8 +183,10 @@ var permanentMarkers = []permanentMarker{
 	{ErrTaskNotInFinalizingState, "task-not-finalizing"},
 	{ErrTaskConflict, "task-conflict"},
 	{ErrTaskBlockedByReplicaMovement, "task-blocked-by-movement"},
-	{ErrTaskReplicasChanged, "task-replicas-changed"},
 	{ErrTaskTenantsNotHot, "task-tenants-not-hot"},
+	{ErrTaskTenantsMissing, "task-tenants-missing"},
+	{ErrTaskHasNoUnits, "task-has-no-units"},
+	{ErrTaskCollectionGone, "task-collection-gone"},
 	{ErrNothingLeftToCancel, "nothing-left-to-cancel"},
 	{ErrTaskPartlyMigrated, "task-partly-migrated"},
 }

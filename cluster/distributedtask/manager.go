@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -56,6 +57,7 @@ type Manager struct {
 	readOnlyClass func(collection string) *models.Class
 	taskRules     map[string]TaskRules
 	classLive     func(collection string) map[string]map[string]uint64
+	readSharding  func(collection string, read func(*sharding.State)) error
 	stateListener StateListener
 	pendingStates []stateNote
 
@@ -335,6 +337,8 @@ type ManagerParameters struct {
 	ReadOnlyClass           func(collection string) *models.Class
 	TaskRules               map[string]TaskRules
 	ClassLive               func(collection string) map[string]map[string]uint64
+	// ReadSharding runs read on the collection's sharding state as applied so far.
+	ReadSharding func(collection string, read func(*sharding.State)) error
 }
 
 func NewManager(params ManagerParameters) *Manager {
@@ -358,6 +362,7 @@ func NewManager(params ManagerParameters) *Manager {
 		readOnlyClass:           params.ReadOnlyClass,
 		taskRules:               params.TaskRules,
 		classLive:               params.ClassLive,
+		readSharding:            params.ReadSharding,
 
 		logger: params.Logger,
 	}
@@ -622,6 +627,17 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 				Status: UnitStatusPending,
 			}
 		}
+	} else if rules := m.taskRules[r.Namespace]; rules != nil && header != nil {
+		specs, err := m.unitsFromSharding(rules, header)
+		if err != nil {
+			return err
+		}
+		newTask.Units = make(map[string]*Unit, len(specs))
+		for _, spec := range specs {
+			newTask.Units[spec.ID] = &Unit{
+				ID: spec.ID, GroupID: spec.GroupID, Shard: spec.Shard, NodeID: spec.Node, Status: UnitStatusPending,
+			}
+		}
 	} else {
 		return fmt.Errorf("task %s/%s must have at least one unit", r.Namespace, r.Id)
 	}
@@ -645,6 +661,24 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	m.notifySchedulerWithLock()
 
 	return nil
+}
+
+// unitsFromSharding reads the sharding state at this log index, so every replica builds the same units.
+func (m *Manager) unitsFromSharding(rules TaskRules, header TaskHeader) ([]UnitSpec, error) {
+	var specs []UnitSpec
+	var rulesErr error
+	if err := m.readSharding(header.Collection(), func(state *sharding.State) {
+		specs, rulesErr = rules.Units(header, state)
+	}); err != nil {
+		return nil, err
+	}
+	if rulesErr != nil {
+		return nil, rulesErr
+	}
+	if len(specs) == 0 {
+		return nil, NewHasNoUnitsError(header.Collection())
+	}
+	return specs, nil
 }
 
 // findStartedUnitWithLock validates that the task exists, is running, has units, the unit

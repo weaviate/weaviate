@@ -842,35 +842,6 @@ func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
 	require.Equal(t, "node-2", unitToNode["shard-b__node-2"])
 }
 
-// A group per shard puts a run on the per-tenant barrier, which only a multi-tenant semantic run may use.
-func TestBuildReindexUnitSpecs(t *testing.T) {
-	ownership := map[string][]string{"node-2": {"shard-b", "shard-a"}, "node-1": {"shard-a"}}
-	for _, tc := range []struct {
-		name    string
-		isMT    bool
-		mt      db.ReindexMigrationType
-		grouped bool
-	}{
-		{name: "multi-tenant semantic run", isMT: true, mt: db.ReindexTypeChangeTokenization, grouped: true},
-		{name: "single-tenant semantic run", mt: db.ReindexTypeChangeTokenization},
-		{name: "multi-tenant rebuild", isMT: true, mt: db.ReindexTypeRebuildSearchable},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			want := []distributedtask.UnitSpec{
-				{ID: "shard-a__node-1", Shard: "shard-a", Node: "node-1"},
-				{ID: "shard-a__node-2", Shard: "shard-a", Node: "node-2"},
-				{ID: "shard-b__node-2", Shard: "shard-b", Node: "node-2"},
-			}
-			if tc.grouped {
-				for i := range want {
-					want[i].GroupID = want[i].Shard
-				}
-			}
-			require.Equal(t, want, buildReindexUnitSpecs(ownership, tc.isMT, tc.mt))
-		})
-	}
-}
-
 func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
 	// Critical contract: GroupID == shardName so OnGroupCompleted fires
 	// per-tenant for MT semantic migrations.

@@ -700,29 +700,6 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	}
 
 	payload := buildReindexPayload(class, collection, properties, plan, tenants)
-	// One unit per shard per replica: each replica has its own local copy.
-	var shardOwnership map[string][]string
-	var err error
-	if isMT {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, &payload, propertyName, tenants, reindexTasks)
-	} else {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
-	}
-	var notHot *db.TenantsNotHotError
-	if errors.As(err, &notHot) {
-		msg := err.Error()
-		if h.mayReadTenants(ctx, principal, collection) {
-			msg = fmt.Sprintf("%s (tenants still needing work that are not HOT: %d)", msg, notHot.Count)
-		}
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal, msg))
-	}
-	if err != nil {
-		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-			fmt.Sprintf("getting shard ownership: %v", err)))
-	}
-	if len(shardOwnership) == 0 {
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
-	}
 
 	// Human-readable task ID with a random suffix for uniqueness.
 	// Format: "Collection:migration-type:property:ab3f".
@@ -741,11 +718,11 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	unitSpecs := buildReindexUnitSpecs(shardOwnership, isMT, migrationType)
+	// No unit specs: every replica builds the units from its sharding state when it applies the task.
 	if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
-		ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
+		ctx, db.ReindexNamespace, taskID, payload, nil, semantic,
 	); err != nil {
-		return h.mapSubmitTaskError(principal, collection, taskID, err)
+		return h.mapSubmitTaskError(ctx, principal, collection, taskID, err)
 	}
 
 	// Operational audit line for a privileged cluster-wide operation.
@@ -900,7 +877,7 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 }
 
 // mapSubmitTaskError logs an ErrTaskConflict error but leaves it out of the 409, so the caller never sees the in-flight task's ID it names.
-func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collection, taskID string, err error) middleware.Responder {
+func (h *indexesHandlers) mapSubmitTaskError(ctx context.Context, principal *models.Principal, collection, taskID string, err error) middleware.Responder {
 	if errors.Is(err, distributedtask.ErrTaskConflict) {
 		h.appState.Logger.WithFields(logrus.Fields{
 			"collection": collection,
@@ -915,11 +892,21 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 			fmt.Sprintf("collection %q has a replica movement in flight; retry after it completes", collection)))
 	}
 	if errors.Is(err, distributedtask.ErrTaskTenantsNotHot) {
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal, db.ErrTenantsNotHot.Error()))
+		msg := db.ErrTenantsNotHot.Error()
+		if count, ok := distributedtask.TenantsNotHotCount(err); ok && h.mayReadTenants(ctx, principal, collection) {
+			msg = fmt.Sprintf("%s (target tenants that are not HOT: %d)", msg, count)
+		}
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, msg))
 	}
-	if errors.Is(err, distributedtask.ErrTaskReplicasChanged) {
+	if errors.Is(err, distributedtask.ErrTaskTenantsMissing) {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "some target tenants do not exist"))
+	}
+	if errors.Is(err, distributedtask.ErrTaskHasNoUnits) {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
+	}
+	if errors.Is(err, distributedtask.ErrTaskCollectionGone) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
-			fmt.Sprintf("the shards or replicas of collection %q changed while the reindex was submitted; resubmit it against the current state", collection)))
+			fmt.Sprintf("collection %q was deleted while the reindex was submitted", collection)))
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))

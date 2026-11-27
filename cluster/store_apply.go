@@ -12,11 +12,8 @@
 package cluster
 
 import (
-	"cmp"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,12 +25,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -58,19 +52,14 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// Tenant deletes, tenant updates and class deletes hold taskMovementLocks shared until they apply, so a submit waits for them.
-	collection, task, err := st.taskOrMovementCollection(req)
+	// taskMovementLocks is held until the apply returns, so a submit or movement on a collection is checked only after an earlier one there has applied.
+	collection, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
-	switch key := classLockKey(cmp.Or(collection, req.Class)); {
-	case collection != "":
-		st.taskMovementLocks.Lock(key)
-		defer st.taskMovementLocks.Unlock(key)
-	case req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT ||
-		req.Type == api.ApplyRequest_TYPE_DELETE_CLASS:
-		st.taskMovementLocks.RLock(key)
-		defer st.taskMovementLocks.RUnlock(key)
+	if collection != "" {
+		st.taskMovementLocks.Lock(classLockKey(collection))
+		defer st.taskMovementLocks.Unlock(classLockKey(collection))
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
@@ -93,7 +82,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req, collection, task); err != nil {
+	if err := st.admitPropose(req, collection); err != nil {
 		return 0, err
 	}
 
@@ -141,8 +130,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace has a header decoder that reads a collection from its payload.
-func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. collection is "" unless the command is a replicate or a task whose namespace has a header decoder that reads a collection from its payload.
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
@@ -152,10 +141,7 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
-	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
-		return err
-	}
-	return st.admitTaskReplicas(task, collection)
+	return st.admitTaskOrMovement(req.Type, collection)
 }
 
 // classLockKey gives every spelling of a class one key, since the schema matches class names with strings.EqualFold.
@@ -163,78 +149,24 @@ func classLockKey(class string) string {
 	return strings.ToLower(strings.ToUpper(class))
 }
 
-// admitTaskReplicas refuses a task naming a shard that is not HOT, or one whose units no longer match the current replicas of the shards they name. A replica with no unit is never reindexed.
-// A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
-func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
-	if task == nil || collection == "" {
-		return nil
-	}
-	taskReplicas := map[string][]string{}
-	for _, spec := range task.UnitSpecs {
-		if spec.Shard != "" {
-			taskReplicas[spec.Shard] = append(taskReplicas[spec.Shard], spec.Node)
-		}
-	}
-	if len(taskReplicas) == 0 {
-		return nil
-	}
-
-	changed, notHot := false, false
-	if err := st.schemaManager.NewSchemaReader().Read(collection, false, func(_ *models.Class, state *sharding.State) error {
-		for shard, nodes := range taskReplicas {
-			physical := state.Physical[shard]
-			if !sameNodes(nodes, physical.BelongsToNodes) {
-				changed = true
-				return nil
-			}
-			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
-				notHot = true
-			}
-		}
-		return nil
-	}); errors.Is(err, schema.ErrClassNotFound) {
-		changed = true
-	} else if err != nil {
-		return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
-	}
-	if changed {
-		return distributedtask.NewReplicasChangedError(collection)
-	}
-	if notHot {
-		return distributedtask.NewTenantsNotHotError(collection)
-	}
-	return nil
-}
-
-func sameNodes(a, b []string) bool {
-	// The submit path skips empty node names, so the comparison must too.
-	notEmpty := func(nodes []string) []string {
-		nodes = slices.DeleteFunc(slices.Clone(nodes), func(n string) bool { return n == "" })
-		slices.Sort(nodes)
-		return slices.Compact(nodes)
-	}
-	return slices.Equal(notEmpty(a), notEmpty(b))
-}
-
-// taskOrMovementCollection also returns the decoded task of a task add, so admitPropose need not decode it again.
-func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, *api.AddDistributedTaskRequest, error) {
+func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		sub := &api.ReplicationReplicateShardRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return "", nil, fmt.Errorf("unmarshal replicate subcommand: %w", err)
+			return "", fmt.Errorf("unmarshal replicate subcommand: %w", err)
 		}
-		return sub.SourceCollection, nil, nil
+		return sub.SourceCollection, nil
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		sub := &api.AddDistributedTaskRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return "", nil, fmt.Errorf("unmarshal add-task subcommand: %w", err)
+			return "", fmt.Errorf("unmarshal add-task subcommand: %w", err)
 		}
-		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), sub, nil
+		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), nil
 
 	default:
-		return "", nil, nil
+		return "", nil
 	}
 }
 

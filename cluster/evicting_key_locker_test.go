@@ -13,7 +13,6 @@ package cluster
 
 import (
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,31 +20,24 @@ import (
 )
 
 // A caller left on an entry dropped under contention deadlocks the rest or, under -race, races on the counter.
-func TestEvictingKeyRWLocker_ContendedKey(t *testing.T) {
+func TestEvictingKeyLocker_ContendedKey(t *testing.T) {
 	const (
 		callers    = 32
 		iterations = 500
 		key        = "k"
 	)
-	l := newEvictingKeyRWLocker()
+	l := newEvictingKeyLocker()
 	counter := 0
-	var lastSeen atomic.Int64
 
 	var wg sync.WaitGroup
-	for c := range callers {
+	for range callers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for range iterations {
-				if c%2 == 0 {
-					l.Lock(key)
-					counter++
-					l.Unlock(key)
-				} else {
-					l.RLock(key)
-					lastSeen.Store(int64(counter))
-					l.RUnlock(key)
-				}
+				l.Lock(key)
+				counter++
+				l.Unlock(key)
 			}
 		}()
 	}
@@ -60,6 +52,6 @@ func TestEvictingKeyRWLocker_ContendedKey(t *testing.T) {
 		t.Fatal("a caller never got its lock")
 	}
 
-	require.Equal(t, callers/2*iterations, counter)
+	require.Equal(t, callers*iterations, counter)
 	require.Zero(t, lockEntries(l))
 }

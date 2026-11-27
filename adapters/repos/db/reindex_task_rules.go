@@ -14,10 +14,14 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
+	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type ReindexTaskRules struct{}
@@ -115,6 +119,61 @@ func (ReindexTaskRules) Ended(task *distributedtask.Task, existing []*distribute
 func (ReindexTaskRules) BornSwitched(task *distributedtask.Task) bool {
 	h, ok := ReindexHeaderOf(task)
 	return ok && h.Generation > 0 && len(h.Tenants) == 0
+}
+
+// Units gives each replica of each shard in scope one unit, shards by name and replicas in their stored
+// order. A missing named tenant, or any shard in scope that is not HOT, refuses the whole run.
+func (ReindexTaskRules) Units(header distributedtask.TaskHeader, state *sharding.State) ([]distributedtask.UnitSpec, error) {
+	h, ok := header.(ReindexTaskHeader)
+	if !ok {
+		return nil, fmt.Errorf("not a reindex task header: %T", header)
+	}
+	shards := slices.Compact(slices.Sorted(slices.Values(h.Tenants)))
+	if len(shards) == 0 {
+		shards = slices.Sorted(maps.Keys(state.Physical))
+	}
+	grouped := state.PartitioningEnabled && IsSemanticMigration(h.MigrationType)
+	specs := make([]distributedtask.UnitSpec, 0, 3*len(shards))
+	missing, notHot := false, 0
+	for _, name := range shards {
+		physical, ok := state.Physical[name]
+		switch {
+		case !ok:
+			missing = true
+			continue
+		case !isHotTenant(physical.Status):
+			notHot++
+			continue
+		}
+		group := ""
+		if grouped {
+			group = name
+		}
+		for _, node := range physical.BelongsToNodes {
+			if node != "" {
+				specs = append(specs, distributedtask.UnitSpec{
+					ID: MigrationUnitID(name, node), GroupID: group, Shard: name, Node: node,
+				})
+			}
+		}
+	}
+	if missing {
+		return nil, distributedtask.NewTenantsMissingError(h.Collection())
+	}
+	if notHot > 0 {
+		return nil, distributedtask.NewTenantsNotHotError(h.Collection(), notHot)
+	}
+	return specs, nil
+}
+
+// isHotTenant also accepts an unset status, which a shard of a single-tenant collection has.
+func isHotTenant(status string) bool {
+	switch entschema.ActivityStatus(status) {
+	case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
+		return true
+	default:
+		return false
+	}
 }
 
 func coversIndexTypes(types []string, older ReindexMigrationType) bool {

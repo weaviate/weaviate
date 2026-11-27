@@ -1097,7 +1097,7 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
+			op: cmd.GetType().String(),
 			updateSchema: func() error {
 				if s.distributedTaskManager == nil {
 					return s.schema.addTenants(cmd.Class, cmd.Version, req)
@@ -1113,7 +1113,7 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 				return nil
 			},
 			updateStore: func() error { return s.db.AddTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
+			schemaOnly:  schemaOnly,
 		},
 	)
 }
