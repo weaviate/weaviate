@@ -617,7 +617,8 @@ func TestPersistentDeletes(t *testing.T) {
 			}
 
 			// A deleted vector does not come back by adding it again: while
-			// it is marked in its posting, its doc id is taken.
+			// it is marked in its posting, its doc id is taken, and the add is
+			// left out as the replay it is (persistent_replay.go).
 			for _, id := range tt.deleted {
 				if id >= uint64(tt.added) {
 					continue
@@ -626,7 +627,8 @@ func TestPersistentDeletes(t *testing.T) {
 				inPosting := g != nil && int(id) < len(g.live) && g.live[id]
 				err := f.index.Add(ctx, id, f.vectors[id])
 				if inPosting {
-					require.ErrorIs(t, err, ErrNotSupported, "doc %d is still in its posting", id)
+					require.NoError(t, err, "doc %d is still in its posting", id)
+					require.False(t, f.index.ContainsDoc(id), "doc %d stays deleted", id)
 					continue
 				}
 				// Deleted while it was kept aside, nothing led to it: it went
@@ -770,15 +772,6 @@ func TestPersistentRejects(t *testing.T) {
 		{name: "a query that is not finite", with: persistentBase, call: func(f *persistentFixture) error {
 			_, _, err := f.index.SearchByVector(ctx, notFinite, 3, nil)
 			return err
-		}},
-		{name: "a doc id it holds", with: 5, want: ErrNotSupported, call: func(f *persistentFixture) error {
-			return f.index.Add(ctx, 3, f.vectors[3])
-		}},
-		{name: "a doc id it holds, with a base", with: persistentBase, want: ErrNotSupported, call: func(f *persistentFixture) error {
-			return f.index.Add(ctx, 3, f.vectors[3])
-		}},
-		{name: "a doc id twice in a batch", with: 5, want: ErrNotSupported, call: func(f *persistentFixture) error {
-			return f.index.AddBatch(ctx, []uint64{100, 101, 100}, f.vectors[:3])
 		}},
 		{name: "a doc id past what it addresses", with: 5, call: func(f *persistentFixture) error {
 			return f.index.Add(ctx, math.MaxUint32, f.vectors[0])
