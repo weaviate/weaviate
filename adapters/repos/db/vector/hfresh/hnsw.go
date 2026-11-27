@@ -282,7 +282,8 @@ func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) 
 		return &results, nil
 	}
 
-	ids, distances, err := g.SearchByVector(context.TODO(), query, k, allowList)
+	// request params apply to the posting budget, never to the centroid graph
+	ids, distances, err := g.SearchByVector(context.TODO(), query, k, allowList, nil)
 	if err != nil {
 		return nil, err
 	}

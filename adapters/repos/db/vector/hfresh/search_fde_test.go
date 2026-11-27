@@ -190,7 +190,7 @@ func TestSearchByMultiVectorBackwardCompatibility(t *testing.T) {
 
 	// Search using the public API
 	k := 10
-	ids, dists, err := tf.Index.SearchByMultiVector(ctx, queryVecs, k, nil)
+	ids, dists, err := tf.Index.SearchByMultiVector(ctx, queryVecs, k, nil, nil)
 	require.NoError(t, err)
 
 	// Verify we get results
@@ -241,7 +241,7 @@ func TestSearchByVectorUnchanged(t *testing.T) {
 
 	// Search
 	k := 10
-	ids, dists, err := tf.Index.SearchByVector(ctx, query, k, nil)
+	ids, dists, err := tf.Index.SearchByVector(ctx, query, k, nil, nil)
 	require.NoError(t, err)
 
 	assert.LessOrEqual(t, len(ids), k)
@@ -286,7 +286,7 @@ func TestMuveraSearchBudgets(t *testing.T) {
 			if tt.searchProbe > 0 {
 				updateSearchProbe(t, &tf, tt.searchProbe)
 			}
-			routing, rerank := tf.Index.muveraSearchBudgets(tt.k)
+			routing, rerank := tf.Index.muveraSearchBudgets(tt.k, nil)
 			require.Equal(t, tt.wantRouting, routing, "routingBudget")
 			require.Equal(t, tt.wantRerank, rerank, "rerankBudget")
 		})
@@ -347,10 +347,10 @@ func TestSearchProbeChangesResults(t *testing.T) {
 
 	// end to end: the collection-level searchProbe drives the same budgets
 	updateSearchProbe(t, &tf, 16)
-	routing, rerank := tf.Index.muveraSearchBudgets(10)
+	routing, rerank := tf.Index.muveraSearchBudgets(10, nil)
 	require.Equal(t, 16, routing)
 	require.Equal(t, 350, rerank)
-	ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 10, nil)
+	ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 10, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ids, 10)
 }

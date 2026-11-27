@@ -3181,3 +3181,89 @@ func TestEnvironmentBackupDedupeConvergenceTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentHNSWMaxSearchEF(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxResults    string
+		maxEF         string
+		fileMaxEF     int64 // hnsw_max_search_ef parsed from the config file
+		expectedMaxEF int64
+		expectErr     bool
+	}{
+		{name: "unset uses the cap's own default", expectedMaxEF: DefaultHNSWMaxSearchEF},
+		// the cap is a beam width, QUERY_MAXIMUM_RESULTS a result count: a
+		// deployment that lowers the latter keeps the ef its collections run at
+		{name: "QUERY_MAXIMUM_RESULTS does not apply", maxResults: "100", expectedMaxEF: DefaultHNSWMaxSearchEF},
+		{name: "explicit value wins", maxResults: "5000", maxEF: "20000", expectedMaxEF: 20000},
+		{name: "zero falls back to the default", maxResults: "5000", maxEF: "0", expectedMaxEF: DefaultHNSWMaxSearchEF},
+		{name: "negative rejected", maxEF: "-1", expectErr: true},
+		{name: "not a number rejected", maxEF: "abc", expectErr: true},
+		{name: "broken QUERY_MAXIMUM_RESULTS leaves the cap alone", maxResults: "0", expectedMaxEF: DefaultHNSWMaxSearchEF},
+		{name: "config file value kept when env unset", maxResults: "5000", fileMaxEF: 777, expectedMaxEF: 777},
+		{name: "env overrides config file value", fileMaxEF: 777, maxEF: "20000", expectedMaxEF: 20000},
+		{name: "zero env falls back to config file value", fileMaxEF: 777, maxEF: "0", expectedMaxEF: 777},
+		{name: "negative config file value rejected", fileMaxEF: -5, expectErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.maxResults != "" {
+				t.Setenv("QUERY_MAXIMUM_RESULTS", tt.maxResults)
+			}
+			if tt.maxEF != "" {
+				t.Setenv("HNSW_MAX_SEARCH_EF", tt.maxEF)
+			}
+			conf := Config{HNSWMaxSearchEF: tt.fileMaxEF}
+			err := FromEnv(&conf)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedMaxEF, conf.HNSWMaxSearchEF)
+		})
+	}
+}
+
+func TestEnvironmentHFreshMaxSearchProbe(t *testing.T) {
+	tests := []struct {
+		name             string
+		maxResults       string
+		maxProbe         string
+		fileMaxProbe     int64 // hfresh_max_search_probe parsed from the config file
+		expectedMaxProbe int64
+		expectErr        bool
+	}{
+		{name: "unset uses the cap's own default", expectedMaxProbe: DefaultHFreshMaxSearchProbe},
+		{name: "QUERY_MAXIMUM_RESULTS does not apply", maxResults: "100", expectedMaxProbe: DefaultHFreshMaxSearchProbe},
+		{name: "explicit value wins", maxResults: "5000", maxProbe: "20000", expectedMaxProbe: 20000},
+		{name: "zero falls back to the default", maxResults: "5000", maxProbe: "0", expectedMaxProbe: DefaultHFreshMaxSearchProbe},
+		{name: "negative rejected", maxProbe: "-1", expectErr: true},
+		{name: "not a number rejected", maxProbe: "abc", expectErr: true},
+		{name: "broken QUERY_MAXIMUM_RESULTS leaves the cap alone", maxResults: "0", expectedMaxProbe: DefaultHFreshMaxSearchProbe},
+		{name: "config file value kept when env unset", maxResults: "5000", fileMaxProbe: 777, expectedMaxProbe: 777},
+		{name: "env overrides config file value", fileMaxProbe: 777, maxProbe: "20000", expectedMaxProbe: 20000},
+		{name: "zero env falls back to config file value", fileMaxProbe: 777, maxProbe: "0", expectedMaxProbe: 777},
+		{name: "negative config file value rejected", fileMaxProbe: -5, expectErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.maxResults != "" {
+				t.Setenv("QUERY_MAXIMUM_RESULTS", tt.maxResults)
+			}
+			if tt.maxProbe != "" {
+				t.Setenv("HFRESH_MAX_SEARCH_PROBE", tt.maxProbe)
+			}
+			conf := Config{HFreshMaxSearchProbe: tt.fileMaxProbe}
+			err := FromEnv(&conf)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedMaxProbe, conf.HFreshMaxSearchProbe)
+		})
+	}
+}

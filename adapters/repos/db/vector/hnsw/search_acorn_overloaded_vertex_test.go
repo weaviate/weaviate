@@ -79,7 +79,7 @@ func TestSearchOverloadedVertexConnections(t *testing.T) {
 			)
 			require.NotPanics(t, func() {
 				ids, _, err = index.SearchByVector(ctx, queries[0], 10,
-					helpers.NewAllowList(allowed...))
+					helpers.NewAllowList(allowed...), nil)
 			})
 			require.Nil(t, err)
 			require.NotEmpty(t, ids)

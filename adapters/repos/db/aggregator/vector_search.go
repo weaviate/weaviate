@@ -121,7 +121,7 @@ func (a *Aggregator) performVectorSearch(ctx context.Context,
 		if err != nil {
 			return nil, nil, err
 		}
-		idsFound, dists, err := a.vectorIndex.SearchByVector(ctx, vec, limit, ids)
+		idsFound, dists, err := a.vectorIndex.SearchByVector(ctx, vec, limit, ids, nil)
 		if err != nil {
 			return idsFound, nil, err
 		}
@@ -131,7 +131,7 @@ func (a *Aggregator) performVectorSearch(ctx context.Context,
 		if err != nil {
 			return nil, nil, err
 		}
-		idsFound, dists, err := multiIndex.SearchByMultiVector(ctx, vec, limit, ids)
+		idsFound, dists, err := multiIndex.SearchByMultiVector(ctx, vec, limit, ids, nil)
 		if err != nil {
 			return idsFound, nil, err
 		}
@@ -150,13 +150,13 @@ func (a *Aggregator) performVectorDistanceSearch(ctx context.Context,
 		if err != nil {
 			return nil, nil, err
 		}
-		return a.vectorIndex.SearchByVectorDistance(ctx, vec, targetDist, maxLimit, ids)
+		return a.vectorIndex.SearchByVectorDistance(ctx, vec, targetDist, maxLimit, ids, nil)
 	case [][]float32:
 		multiIndex, err := a.multiVectorIndex()
 		if err != nil {
 			return nil, nil, err
 		}
-		return multiIndex.SearchByMultiVectorDistance(ctx, vec, targetDist, maxLimit, ids)
+		return multiIndex.SearchByMultiVectorDistance(ctx, vec, targetDist, maxLimit, ids, nil)
 	default:
 		return nil, nil, fmt.Errorf("perform vector distance search: unrecognized search vector type: %T", searchVector)
 	}

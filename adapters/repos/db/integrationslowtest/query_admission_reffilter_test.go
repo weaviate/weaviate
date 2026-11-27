@@ -499,7 +499,7 @@ func TestObjectVectorSearchHoldsGrantForWholeSearch(t *testing.T) {
 	// limit<0 forces a brute-force distance search over every matched Article
 	// vector, so the vector phase runs long enough to be sampled.
 	_, _, err := shard.ObjectVectorSearch(ctx, searchVec, []string{""}, 100, -1,
-		filter, nil, nil, additional.Properties{}, nil, []string{"title"})
+		filter, nil, nil, additional.Properties{}, nil, []string{"title"}, nil)
 	close(searchDone)
 	close(stop)
 	require.NoError(t, err)
@@ -550,7 +550,7 @@ func TestPureVectorSearchIsAdmitted(t *testing.T) {
 	// brute-force distance search over every vector so it runs long enough
 	// to be sampled.
 	_, _, err := shard.ObjectVectorSearch(ctx, searchVec, []string{""}, 100, -1,
-		nil, nil, nil, additional.Properties{}, nil, []string{"title"})
+		nil, nil, nil, additional.Properties{}, nil, []string{"title"}, nil)
 	close(stop)
 	require.NoError(t, err)
 

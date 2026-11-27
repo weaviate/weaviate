@@ -104,6 +104,7 @@ func (c *concurrentSearchClient) SearchShard(ctx context.Context, _, _, _ string
 	_ []models.Vector, _ []string, _ float32, _ int, _ *filters.LocalFilter,
 	_ *searchparams.KeywordRanking, _ []filters.Sort, _ *filters.Cursor,
 	_ *searchparams.GroupBy, _ additional.Properties, _ *dto.TargetCombination, _ []string,
+	_ *searchparams.VectorIndexParams,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	c.mu.Lock()
 	c.arrived++

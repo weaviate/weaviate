@@ -98,7 +98,7 @@ func TestPathseerPrefilterKeepsBurnedPathReachable(t *testing.T) {
 	})
 
 	allow := helpers.NewAllowList(0, 2, 4)
-	res, _, err := index.SearchByVector(ctx, []float32{0, 0}, 1, allow)
+	res, _, err := index.SearchByVector(ctx, []float32{0, 0}, 1, allow, nil)
 	require.Nil(t, err)
 	assert.Equal(t, []uint64{4}, res,
 		"member 4 must be found through bridge 3 even though 3 was first "+
@@ -169,7 +169,7 @@ func TestPathseerSubEfAllowListStaysBounded(t *testing.T) {
 
 	distCalls.Store(0)
 	allow := helpers.NewAllowList(1, 2, 3)
-	res, _, err := index.SearchByVector(ctx, []float32{0, 0}, 3, allow)
+	res, _, err := index.SearchByVector(ctx, []float32{0, 0}, 3, allow, nil)
 	require.Nil(t, err)
 	assert.ElementsMatch(t, []uint64{1, 2, 3}, res, "all members must be returned")
 	// Ungated, the search distance-computes essentially every node in the
@@ -216,7 +216,7 @@ func TestPathseerTolerantOfNilNodes(t *testing.T) {
 	index.nodes[3] = nil
 
 	allow := helpers.NewAllowList(0, 2, 4)
-	res, _, err := index.SearchByVector(ctx, []float32{0, 0}, 1, allow)
+	res, _, err := index.SearchByVector(ctx, []float32{0, 0}, 1, allow, nil)
 	require.Nil(t, err)
 	assert.Equal(t, []uint64{4}, res,
 		"members reachable around the nil slot must still be found")
@@ -263,7 +263,7 @@ func TestFilterStrategyConfigUpdateIsAtomic(t *testing.T) {
 				done <- assert.AnError
 				return
 			}
-			if _, _, err := index.SearchByVector(ctx, []float32{0, 0}, 1, allow); err != nil {
+			if _, _, err := index.SearchByVector(ctx, []float32{0, 0}, 1, allow, nil); err != nil {
 				done <- err
 				return
 			}
@@ -314,7 +314,7 @@ func TestPathseerEdgeAllowLists(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _, err := index.SearchByVector(ctx, []float32{0, 0}, tc.k, tc.allow)
+			res, _, err := index.SearchByVector(ctx, []float32{0, 0}, tc.k, tc.allow, nil)
 			require.Nil(t, err)
 			assert.ElementsMatch(t, tc.expect, res)
 		})

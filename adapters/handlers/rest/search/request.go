@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -77,7 +79,127 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 	}
 	out.Pagination = pagination
 
+	vectorIndexParams, apiErr := h.parseVectorIndexParamsEntry(common.VectorIndexParams, "vectorIndexParams.")
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	if !vectorIndexParams.IsZero() {
+		out.VectorIndexParams = &vectorIndexParams
+	}
+
 	return out, nil
+}
+
+// parseVectorIndexParamsEntry validates one vectorIndexParams object, the
+// request-wide one or a targetVectorIndexParams entry named by prefix. An
+// absent field or 0 means the collection's configured value.
+func (h *Handler) parseVectorIndexParamsEntry(in *models.SearchVectorIndexParams, prefix string) (searchparams.VectorIndexParams, *APIError) {
+	var out searchparams.VectorIndexParams
+	if in == nil {
+		return out, nil
+	}
+	if in.Ef != nil {
+		out.EF = int(*in.Ef)
+	}
+	if in.SearchProbe != nil {
+		out.SearchProbe = int(*in.SearchProbe)
+	}
+	// the spec enum rejects unknown strategies at bind time; Validate covers direct callers
+	out.FilterStrategy = in.FilterStrategy
+
+	if err := out.Validate(int(config.SearchCapOrDefault(h.maxSearchEF, config.DefaultHNSWMaxSearchEF)),
+		int(config.SearchCapOrDefault(h.maxSearchProbe, config.DefaultHFreshMaxSearchProbe)), searchparams.JSONFieldNames); err != nil {
+		return searchparams.VectorIndexParams{}, newAPIError(http.StatusUnprocessableEntity, "%s%v", prefix, err)
+	}
+	return out, nil
+}
+
+// applyTargetVectorIndexParams validates targetVectorIndexParams against
+// the resolved targets and stores them in out.VectorIndexParams.PerTarget.
+func (h *Handler) applyTargetVectorIndexParams(out *dto.GetParams, common *models.SearchCommon, targetVectors []string) *APIError {
+	if len(common.TargetVectorIndexParams) == 0 {
+		return nil
+	}
+	if len(targetVectors) == 0 {
+		return newAPIError(http.StatusUnprocessableEntity,
+			"targetVectorIndexParams requires named target vectors; collection %s is searched on its legacy vector, use vectorIndexParams", out.ClassName)
+	}
+
+	isTarget := make(map[string]bool, len(targetVectors))
+	for _, target := range targetVectors {
+		isTarget[target] = true
+	}
+
+	// sorted, so several invalid keys always report the same one
+	names := make([]string, 0, len(common.TargetVectorIndexParams))
+	for name := range common.TargetVectorIndexParams {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	perTarget := make(map[string]searchparams.VectorIndexParams, len(common.TargetVectorIndexParams))
+	for _, name := range names {
+		entry := common.TargetVectorIndexParams[name]
+		if !isTarget[name] {
+			return newAPIError(http.StatusUnprocessableEntity,
+				"targetVectorIndexParams[%s]: not a target vector of this request", name)
+		}
+		params, apiErr := h.parseVectorIndexParamsEntry(entry, "targetVectorIndexParams["+name+"].")
+		if apiErr != nil {
+			return apiErr
+		}
+		if params.IsZero() {
+			continue
+		}
+		perTarget[name] = params
+	}
+	if len(perTarget) == 0 {
+		return nil
+	}
+
+	if out.VectorIndexParams == nil {
+		out.VectorIndexParams = &searchparams.VectorIndexParams{}
+	}
+	out.VectorIndexParams.PerTarget = perTarget
+	return nil
+}
+
+// resolveSearchTargets resolves the target vectors and fills what depends on
+// them: the target combination and the per-target vector search params.
+func (h *Handler) resolveSearchTargets(out *dto.GetParams, class *models.Class, common *models.SearchCommon,
+	targetVector string, targetVectorList []string, combination *models.SearchTargetCombination,
+) ([]string, *APIError) {
+	targetVectors, apiErr := resolveTargetVectors(class, targetVector, targetVectorList)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	targetCombination, apiErr := parseTargetCombination(combination, targetVectors)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	out.TargetVectorCombination = targetCombination
+
+	if apiErr := h.applyTargetVectorIndexParams(out, common, targetVectors); apiErr != nil {
+		return nil, apiErr
+	}
+
+	return targetVectors, nil
+}
+
+// parseTargetCombination maps targetCombination onto the engine's positional
+// form, see dto.NewTargetCombination.
+func parseTargetCombination(combination *models.SearchTargetCombination, targetVectors []string) (*dto.TargetCombination, *APIError) {
+	var method string
+	var weights map[string]float64
+	if combination != nil {
+		method, weights = combination.Method, combination.Weights
+	}
+	targetCombination, err := dto.NewTargetCombination(method, targetVectors, weights)
+	if err != nil {
+		return nil, newAPIError(http.StatusUnprocessableEntity, "targetCombination: %v", err)
+	}
+	return targetCombination, nil
 }
 
 // fillSelectionAndFilter fills the fields every search type shares: the
@@ -128,7 +250,7 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 		return dto.GetParams{}, apiErr
 	}
 
-	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	targetVectors, apiErr := h.resolveSearchTargets(&out, class, common, body.TargetVector, body.TargetVectors, body.TargetCombination)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
@@ -154,6 +276,14 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	getClass classGetterFunc, principal *models.Principal,
 ) (dto.GetParams, *APIError) {
 	common := &body.SearchCommon
+	if common.VectorIndexParams != nil {
+		return dto.GetParams{}, newAPIError(http.StatusUnprocessableEntity,
+			"vectorIndexParams is not applicable to bm25 search")
+	}
+	if len(common.TargetVectorIndexParams) > 0 {
+		return dto.GetParams{}, newAPIError(http.StatusUnprocessableEntity,
+			"targetVectorIndexParams is not applicable to bm25 search")
+	}
 	out, apiErr := h.baseParams(className, common)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
@@ -282,7 +412,7 @@ func (h *Handler) buildNearObjectParams(class *models.Class, className string, b
 		return dto.GetParams{}, apiErr
 	}
 
-	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	targetVectors, apiErr := h.resolveSearchTargets(&out, class, common, body.TargetVector, body.TargetVectors, body.TargetCombination)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
@@ -359,7 +489,7 @@ func (h *Handler) buildNearVectorParams(class *models.Class, className string, b
 		return dto.GetParams{}, apiErr
 	}
 
-	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	targetVectors, apiErr := h.resolveSearchTargets(&out, class, common, body.TargetVector, body.TargetVectors, body.TargetCombination)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
@@ -381,7 +511,7 @@ func (h *Handler) buildNearVectorParams(class *models.Class, className string, b
 // parser: the caller brings the query vector, so no vectorizer module is
 // required.
 func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, targetVectors []string) (*searchparams.NearVector, *APIError) {
-	vector, apiErr := parseVector(body.Vector)
+	vectors, apiErr := parseNearVectorVectors(body, targetVectors)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -395,12 +525,76 @@ func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, 
 	}
 
 	return &searchparams.NearVector{
-		Vectors:       []models.Vector{vector},
+		Vectors:       vectors,
 		TargetVectors: targetVectors,
 		Certainty:     certainty,
 		Distance:      distance,
 		WithDistance:  withDistance,
 	}, nil
+}
+
+const errVectorXorVectorPerTarget = "exactly one of vector and vectorPerTarget must be set"
+
+// parseNearVectorVectors returns one query vector per target, in target
+// order: vectorPerTarget is reordered, a single vector is repeated (as gRPC
+// does). Without targets (legacy vector) the single vector is used as is.
+func parseNearVectorVectors(body *models.SearchNearVectorRequest, targetVectors []string) ([]models.Vector, *APIError) {
+	if (body.Vector == nil) == (body.VectorPerTarget == nil) {
+		return nil, newAPIError(http.StatusUnprocessableEntity, errVectorXorVectorPerTarget)
+	}
+
+	if body.Vector != nil {
+		vector, apiErr := parseVector(body.Vector)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		if len(targetVectors) <= 1 {
+			return []models.Vector{vector}, nil
+		}
+		vectors := make([]models.Vector, len(targetVectors))
+		for i := range targetVectors {
+			vectors[i] = vector
+		}
+		return vectors, nil
+	}
+
+	// A non-object value never gets here: the model types the field as a map,
+	// so the body decoder rejects it with 400.
+	byTarget := body.VectorPerTarget
+	if len(byTarget) == 0 {
+		return nil, newAPIError(http.StatusBadRequest,
+			"vectorPerTarget must be a non-empty object mapping target vector names to vectors")
+	}
+	if len(targetVectors) == 0 {
+		return nil, newAPIError(http.StatusUnprocessableEntity,
+			"vectorPerTarget requires named target vectors; collection is searched on its legacy vector, use vector")
+	}
+
+	isTarget := make(map[string]bool, len(targetVectors))
+	for _, target := range targetVectors {
+		isTarget[target] = true
+	}
+	for name := range byTarget {
+		if !isTarget[name] {
+			return nil, newAPIError(http.StatusUnprocessableEntity,
+				"vectorPerTarget[%s]: not a target vector of this request", name)
+		}
+	}
+
+	vectors := make([]models.Vector, len(targetVectors))
+	for i, target := range targetVectors {
+		value, ok := byTarget[target]
+		if !ok {
+			return nil, newAPIError(http.StatusUnprocessableEntity, "vector for target %q is required", target)
+		}
+		vector, apiErr := parseVector(value)
+		if apiErr != nil {
+			apiErr.Err = fmt.Errorf("vectorPerTarget[%s]: %w", target, apiErr.Err)
+			return nil, apiErr
+		}
+		vectors[i] = vector
+	}
+	return vectors, nil
 }
 
 // rejectMultiVectorTarget rejects a flat query vector aimed at a multi-vector
@@ -457,7 +651,7 @@ func (h *Handler) buildHybridParams(class *models.Class, className string, body 
 		return dto.GetParams{}, apiErr
 	}
 
-	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	targetVectors, apiErr := h.resolveSearchTargets(&out, class, common, body.TargetVector, body.TargetVectors, body.TargetCombination)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
@@ -642,13 +836,30 @@ func (h *Handler) parsePagination(common *models.SearchCommon) (*filters.Paginat
 	return pagination, nil
 }
 
-// resolveTargetVectors resolves the target vector for the search: a
-// collection with exactly one named vector selects it implicitly, a
-// collection with several requires targetVector.
-func resolveTargetVectors(class *models.Class, targetVector string) ([]string, *APIError) {
+// resolveTargetVectors resolves targetVector or targetVectors (mutually
+// exclusive). Without either, a single named vector is selected implicitly,
+// several are rejected, and a legacy vector resolves to no target.
+func resolveTargetVectors(class *models.Class, targetVector string, targetVectorList []string) ([]string, *APIError) {
+	if targetVector != "" && len(targetVectorList) > 0 {
+		return nil, newAPIError(http.StatusUnprocessableEntity, "targetVector and targetVectors are mutually exclusive")
+	}
+
 	var targetVectors []string
 	if targetVector != "" {
 		targetVectors = []string{targetVector}
+	}
+	if len(targetVectorList) > 0 {
+		seen := make(map[string]bool, len(targetVectorList))
+		for _, target := range targetVectorList {
+			if target == "" {
+				return nil, newAPIError(http.StatusBadRequest, "targetVectors entries must not be empty")
+			}
+			if seen[target] {
+				return nil, newAPIError(http.StatusBadRequest, "targetVectors: %q is listed more than once", target)
+			}
+			seen[target] = true
+		}
+		targetVectors = targetVectorList
 	}
 
 	if len(targetVectors) == 0 && !modelsext.ClassHasLegacyVectorIndex(class) {

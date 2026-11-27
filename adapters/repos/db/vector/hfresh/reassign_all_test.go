@@ -42,7 +42,7 @@ func TestEnqueueReassignAllRecoversEmptyCentroidGraph(t *testing.T) {
 	postingID, posting := createPostingWithVectors(t, &tf, vecs, 100)
 	require.NoError(t, index.PostingStore.Put(t.Context(), postingID, posting))
 	require.NoError(t, index.setPostingVectorIDs(t.Context(), postingID, posting))
-	ids, _, err := index.SearchByVector(t.Context(), vecs[0], 3, nil)
+	ids, _, err := index.SearchByVector(t.Context(), vecs[0], 3, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, ids)
 
@@ -71,14 +71,14 @@ func TestEnqueueReassignAllRecoversEmptyCentroidGraph(t *testing.T) {
 			require.NoError(t, index.PostingStore.Put(t.Context(), result.ID, p))
 			require.NoError(t, index.setPostingVectorIDs(t.Context(), result.ID, p))
 		}
-		ids, _, err = index.SearchByVector(t.Context(), vecs[0], 3, nil)
+		ids, _, err = index.SearchByVector(t.Context(), vecs[0], 3, nil, nil)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []uint64{100, 101, 102}, ids)
 	}
 
 	require.NoError(t, index.Shutdown(t.Context()))
 	index = makeHFreshWithConfig(t, store, cfg, uc)
-	ids, _, err = index.SearchByVector(t.Context(), vecs[0], 3, nil)
+	ids, _, err = index.SearchByVector(t.Context(), vecs[0], 3, nil, nil)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []uint64{100, 101, 102}, ids, "recovery must survive restart")
 }

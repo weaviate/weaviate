@@ -43,7 +43,7 @@ func TestFlatSearchSkipsCandidatesDeletedMidQuery(t *testing.T) {
 	allowList := helpers.NewAllowList(allowIDs...)
 
 	searchCtx := context.WithValue(t.Context(), searchMarker{}, true)
-	ids, _, err := index.SearchByVector(searchCtx, vectors[deletedID], 10, allowList)
+	ids, _, err := index.SearchByVector(searchCtx, vectors[deletedID], 10, allowList, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, ids)
 	require.NotContains(t, ids, deletedID,

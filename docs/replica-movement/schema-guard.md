@@ -65,7 +65,7 @@ Blocking is **scoped to the affected collection** — other collections are unto
 
 These make no on-disk structural change, so they are safe during a move:
 
-- Search-time knobs: `ef`, `efMin`, `efMax`, `efFactor`, `flatSearchCutoff`
+- Search-time knobs: `ef`, `efMin`, `efMax`, `efFactor`, `flatSearchCutoff`. `ef` can also be overridden per request via `vectorIndexParams` on gRPC and REST `/v1/search` requests without any schema change, capped by `HNSW_MAX_SEARCH_EF`.
 - BM25 `k1` / `b`, stopwords
 - Replication factor, `autoTenantCreation` / `autoTenantActivation`
 - Creating a new tenant (a separate shard, unrelated to the moving one)

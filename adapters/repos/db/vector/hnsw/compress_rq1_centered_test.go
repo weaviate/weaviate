@@ -144,7 +144,7 @@ func Test_CompressCenteredRQ1RecallAfterCompression(t *testing.T) {
 
 	var hits, wanted int
 	for i, q := range queries {
-		ids, _, err := index.SearchByVector(ctx, q, k, nil)
+		ids, _, err := index.SearchByVector(ctx, q, k, nil, nil)
 		require.NoError(t, err)
 		truth := map[uint64]bool{}
 		for _, id := range truths[i] {
@@ -214,7 +214,7 @@ func Test_CompressCenteredRQ1SurvivesRestart(t *testing.T) {
 
 	control := make([][]uint64, queriesSize)
 	for i := range queries {
-		control[i], _, err = index.SearchByVector(ctx, queries[i], k, nil)
+		control[i], _, err = index.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -234,7 +234,7 @@ func Test_CompressCenteredRQ1SurvivesRestart(t *testing.T) {
 	assert.Equal(t, "rq", restarted.CompressionStats().CompressionType())
 
 	for i := range queries {
-		results, _, err := restarted.SearchByVector(ctx, queries[i], k, nil)
+		results, _, err := restarted.SearchByVector(ctx, queries[i], k, nil, nil)
 		require.NoError(t, err, "search must work against the restored quantizer")
 		assert.ElementsMatch(t, control[i], results,
 			"restored index must return the same results as before the restart")

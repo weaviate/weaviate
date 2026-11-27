@@ -1530,14 +1530,14 @@ func TestShardWithGeneratedVectorIndexIDs(t *testing.T) {
 					if hnswCfg, ok := cfg.(enthnsw.UserConfig); ok && hnswCfg.Multivector.Enabled {
 						multi, ok := index.(VectorIndexMulti)
 						require.True(t, ok, "vector %q", name)
-						ids, _, err := multi.SearchByMultiVector(ctx, probe.MultiVectors[name], 1, nil)
+						ids, _, err := multi.SearchByMultiVector(ctx, probe.MultiVectors[name], 1, nil, nil)
 						return ids, err
 					}
 					vec := probe.Vectors[name]
 					if name == "" {
 						vec = probe.Vector
 					}
-					ids, _, err := index.SearchByVector(ctx, vec, 1, nil)
+					ids, _, err := index.SearchByVector(ctx, vec, 1, nil, nil)
 					return ids, err
 				}
 				want := []uint64{uint64(docs - 1)}

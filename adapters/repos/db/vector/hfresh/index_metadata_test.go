@@ -76,7 +76,7 @@ func TestSingleCentroidSurvivesCompactionAndRestart(t *testing.T) {
 
 	for round := 0; round < 3; round++ {
 		for _, vector := range vectors {
-			ids, _, err := index.SearchByVector(t.Context(), vector, len(vectors), nil)
+			ids, _, err := index.SearchByVector(t.Context(), vector, len(vectors), nil, nil)
 			require.NoError(t, err)
 			require.ElementsMatch(t, []uint64{0, 1, 2}, ids, "restart %d", round)
 		}
@@ -187,7 +187,7 @@ func requireSelfSearchExcept(t *testing.T, index *HFresh, vectors [][]float32, s
 		if i == skip {
 			continue
 		}
-		ids, _, err := index.SearchByVector(t.Context(), v, 1, nil)
+		ids, _, err := index.SearchByVector(t.Context(), v, 1, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
 	}
@@ -225,7 +225,7 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 		return inMemoryVersion(index.VersionMap, 7).Deleted()
 	}, 10*time.Second, 10*time.Millisecond, "the version warmup must load the delete")
 
-	ids, _, err := index.SearchByVector(t.Context(), all[7], 1, nil)
+	ids, _, err := index.SearchByVector(t.Context(), all[7], 1, nil, nil)
 	require.NoError(t, err)
 	require.NotEqual(t, []uint64{7}, ids, "delete must survive the restart")
 	requireSelfSearchExcept(t, index, all, 7)
@@ -281,7 +281,7 @@ func TestSinglePostingRestartAfterMerge(t *testing.T) {
 	require.False(t, index.Centroids.Built())
 	requireSinglePostingSize(t, index, 390)
 	for i := 10; i < 400; i++ {
-		ids, _, err := index.SearchByVector(t.Context(), all[i], 1, nil)
+		ids, _, err := index.SearchByVector(t.Context(), all[i], 1, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
 	}
@@ -360,7 +360,7 @@ func TestSinglePostingRestartAllDeleted(t *testing.T) {
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	all := addRestartVectors(t, index, vectors, 10, 300)
 	for id := 10; id < 300; id++ {
-		ids, _, err := index.SearchByVector(t.Context(), all[id], 1, nil)
+		ids, _, err := index.SearchByVector(t.Context(), all[id], 1, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{uint64(id)}, ids, "vector %d", id)
 	}
@@ -869,7 +869,7 @@ func TestRecoveryAfterPartialFlush(t *testing.T) {
 			requireReachable := func(h *HFresh, ids []uint64) {
 				var missing []uint64
 				for _, id := range ids {
-					found, _, err := h.SearchByVector(t.Context(), vectors[id], 1, nil)
+					found, _, err := h.SearchByVector(t.Context(), vectors[id], 1, nil, nil)
 					require.NoError(t, err)
 					if len(found) == 0 || found[0] != id {
 						missing = append(missing, id)

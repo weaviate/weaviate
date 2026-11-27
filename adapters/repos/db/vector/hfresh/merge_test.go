@@ -609,7 +609,7 @@ func TestMergeRetainsCurrentVectors(t *testing.T) {
 			}
 			assert.ElementsMatch(t, tt.want, live, "merge must retain every live current vector")
 
-			after, _, err := tf.Index.SearchByVector(t.Context(), vector, len(tt.want), nil)
+			after, _, err := tf.Index.SearchByVector(t.Context(), vector, len(tt.want), nil, nil)
 			require.NoError(t, err)
 			require.ElementsMatch(t, tt.want, after, "merged vectors must remain searchable")
 		})

@@ -243,7 +243,7 @@ func (f *bootstrapFixture) requireReachable(t *testing.T, ids ...uint64) {
 	t.Helper()
 	for _, id := range ids {
 		ctx, cancel := context.WithTimeout(f.ctx, 30*time.Second)
-		found, _, err := f.index.SearchByVector(ctx, f.vectors[id], len(f.vectors), nil)
+		found, _, err := f.index.SearchByVector(ctx, f.vectors[id], len(f.vectors), nil, nil)
 		cancel()
 		require.NoError(t, err)
 		require.ElementsMatch(t, ids, found, "search from %d", id)
@@ -507,7 +507,7 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 				require.Equal(t, ep, f.index.getEntrypoint())
 				f.index.nodeByID(ep).unmarkAsMaintenance()
 				f.index.nodeByID(others[1]).unmarkAsMaintenance()
-				found, _, err := f.index.SearchByVector(f.ctx, f.vectors[3], 4, nil)
+				found, _, err := f.index.SearchByVector(f.ctx, f.vectors[3], 4, nil, nil)
 				require.NoError(t, err)
 				require.Contains(t, found, uint64(3))
 				require.Contains(t, found, ep)

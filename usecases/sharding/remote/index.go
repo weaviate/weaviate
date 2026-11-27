@@ -86,6 +86,7 @@ type IndexClient interface {
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+		vectorIndexParams *searchparams.VectorIndexParams,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
@@ -274,10 +275,11 @@ func (ri *Index) SearchAllReplicas(ctx context.Context,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
+	vectorIndexParams *searchparams.VectorIndexParams,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
 		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, vectorIndexParams)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
@@ -299,6 +301,7 @@ func (ri *Index) SearchShard(ctx context.Context, shard string,
 	adds additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
+	vectorIndexParams *searchparams.VectorIndexParams,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, string, error) {
 	type result struct {
 		objects       []*storobj.Object
@@ -307,7 +310,7 @@ func (ri *Index) SearchShard(ctx context.Context, shard string,
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, vectorIndexParams)
 		if err != nil {
 			return nil, err
 		}
@@ -423,7 +426,6 @@ func (ri *Index) queryAllReplicas(
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
-				var searchResult ReplicasSearchResult
 
 				if errC := ctx.Err(); errC != nil {
 					mu.Lock()
@@ -433,7 +435,10 @@ func (ri *Index) queryAllReplicas(
 				}
 
 				queriesSent.Add(1)
-				if searchResult, err = queryOne(node); err != nil {
+				// local: every replica's goroutine runs at once, so it must not
+				// write the enclosing function's err
+				searchResult, err := queryOne(node)
+				if err != nil {
 					mu.Lock()
 					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
 					mu.Unlock()

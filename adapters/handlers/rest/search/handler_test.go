@@ -292,6 +292,8 @@ func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[strin
 		// matches DefaultQueryCrossReferenceDepthLimit
 		CrossRefDepthLimit: 5,
 		MaximumResults:     10000,
+		MaxSearchEF:        10000,
+		MaxSearchProbe:     10000,
 		Logger:             logrus.New(),
 	})
 	return deps
@@ -1285,6 +1287,24 @@ func TestNearVectorHandlerHappyPath(t *testing.T) {
 	assert.Empty(t, params.ModuleParams)
 	assert.Nil(t, params.KeywordRanking)
 	assert.Nil(t, params.HybridSearch)
+	assert.Nil(t, params.TargetVectorCombination)
+}
+
+// TestNearVectorHandlerMultiTarget: a two-target body reaches the traverser
+// with one vector per target, in target order, and the combination.
+func TestNearVectorHandlerMultiTarget(t *testing.T) {
+	deps := newTestHandlerWithClass(t, namedVectorsClass("title_vec", "plot_vec"))
+
+	_, apiErr := doNearVector(t, deps, nil, "MultiVec",
+		`{"vectorPerTarget":{"title_vec":[0.1,0.2],"plot_vec":[0.3,0.4,0.5]},"targetVectors":["plot_vec","title_vec"],`+
+			`"targetCombination":{"method":"manualWeights","weights":{"title_vec":0.2,"plot_vec":0.8}}}`)
+	require.Nil(t, apiErr)
+
+	params := deps.searcher.lastParams
+	require.NotNil(t, params.NearVector)
+	assert.Equal(t, []string{"plot_vec", "title_vec"}, params.NearVector.TargetVectors)
+	assert.Equal(t, []models.Vector{[]float32{0.3, 0.4, 0.5}, []float32{0.1, 0.2}}, params.NearVector.Vectors)
+	assert.Equal(t, &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.8, 0.2}}, params.TargetVectorCombination)
 }
 
 // mustHybridModel is mustModel for the hybrid request model.

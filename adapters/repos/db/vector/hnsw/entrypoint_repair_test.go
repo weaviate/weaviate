@@ -107,7 +107,7 @@ func TestEntrypointRepair_GlobalEntrypointUnderMaintenance(t *testing.T) {
 
 	assert.Equal(t, originalEntrypoint, index.getEntrypoint(), "an entrypoint under maintenance is not replaced")
 	assert.Equal(t, persisted, commitLogger.setEntrypointCalls.Load(), "nothing to persist")
-	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil)
+	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, ids, newID)
 }
@@ -135,7 +135,7 @@ func TestEntrypointRepair_DeadEntrypoint(t *testing.T) {
 	assert.True(t, index.hasTombstone(originalEntrypoint), "the dead entrypoint is tombstoned")
 	assert.False(t, index.hasTombstone(repaired))
 	assert.Equal(t, persisted+1, commitLogger.setEntrypointCalls.Load(), "one repair persisted")
-	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil)
+	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, ids, newID)
 	assert.NotContains(t, ids, originalEntrypoint)
@@ -173,7 +173,7 @@ func TestEntrypointRepair_AllNodesUnderMaintenance(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("insert did not terminate while every node was under maintenance")
 	}
-	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil)
+	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, ids, newID)
 }

@@ -373,7 +373,7 @@ func TestSinglePostingMode(t *testing.T) {
 
 	assertSelfSearch := func(t *testing.T, tf *TestHFresh, vectors [][]float32) {
 		for i, v := range vectors {
-			ids, _, err := tf.Index.SearchByVector(ctx, v, 1, nil)
+			ids, _, err := tf.Index.SearchByVector(ctx, v, 1, nil, nil)
 			require.NoError(t, err)
 			require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
 		}
@@ -405,7 +405,7 @@ func TestSinglePostingMode(t *testing.T) {
 
 		// deletes are honoured by the scan
 		require.NoError(t, tf.Index.Delete(3))
-		ids, _, err := tf.Index.SearchByVector(ctx, vectors[3], 1, nil)
+		ids, _, err := tf.Index.SearchByVector(ctx, vectors[3], 1, nil, nil)
 		require.NoError(t, err)
 		require.NotEqual(t, []uint64{3}, ids)
 
@@ -415,7 +415,7 @@ func TestSinglePostingMode(t *testing.T) {
 		for id := uint64(5); id < uint64(flatSearchCutoff+6); id++ {
 			allowed = append(allowed, id)
 		}
-		ids, _, err = tf.Index.SearchByVector(ctx, vectors[0], 1, helpers.NewAllowList(allowed...))
+		ids, _, err = tf.Index.SearchByVector(ctx, vectors[0], 1, helpers.NewAllowList(allowed...), nil)
 		require.NoError(t, err)
 		require.Len(t, ids, 1)
 		require.GreaterOrEqual(t, ids[0], uint64(5))
@@ -463,7 +463,7 @@ func TestSinglePostingMode(t *testing.T) {
 		requireSinglePostingSize(t, tf.Index, 500)
 		requireNoSinglePostingIDs(t, tf.Index)
 		for i := 700; i < len(vectors); i++ {
-			ids, _, err := tf.Index.SearchByVector(ctx, vectors[i], 1, nil)
+			ids, _, err := tf.Index.SearchByVector(ctx, vectors[i], 1, nil, nil)
 			require.NoError(t, err)
 			require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
 		}
@@ -488,7 +488,7 @@ func TestSinglePostingMode(t *testing.T) {
 		for id := uint64(1_000_000); len(allowed) <= flatSearchCutoff; id++ {
 			allowed = append(allowed, id)
 		}
-		ids, _, err := tf.Index.SearchByVector(ctx, vectors[0], 1, helpers.NewAllowList(allowed...))
+		ids, _, err := tf.Index.SearchByVector(ctx, vectors[0], 1, helpers.NewAllowList(allowed...), nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, ids)
 
@@ -572,7 +572,7 @@ func TestSinglePostingMode(t *testing.T) {
 		}
 		assertSelfSearch := func() {
 			for i, doc := range docs {
-				ids, _, err := tf.Index.SearchByMultiVector(ctx, doc, 1, nil)
+				ids, _, err := tf.Index.SearchByMultiVector(ctx, doc, 1, nil, nil)
 				require.NoError(t, err)
 				require.Equal(t, []uint64{uint64(i)}, ids, "document %d", i)
 			}

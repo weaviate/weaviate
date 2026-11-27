@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -45,7 +46,44 @@ const (
 	PATHSEER
 )
 
-func (h *hnsw) searchTimeEF(k int) int {
+// String returns the strategy's config name; rre is internal only.
+func (s FilterStrategy) String() string {
+	switch s {
+	case SWEEPING:
+		return searchparams.FilterStrategySweeping
+	case ACORN:
+		return searchparams.FilterStrategyAcorn
+	case RRE:
+		return "rre"
+	case PATHSEER:
+		return searchparams.FilterStrategyPathseer
+	default:
+		return "unknown"
+	}
+}
+
+// effectiveFilterStrategy returns the requested strategy, else the configured one (also for names this node does not know).
+// Callers apply the ACORN fallback.
+func (h *hnsw) effectiveFilterStrategy(params *searchparams.VectorIndexParams) FilterStrategy {
+	switch params.FilterStrategyOrEmpty() {
+	case searchparams.FilterStrategySweeping:
+		return SWEEPING
+	case searchparams.FilterStrategyAcorn:
+		return ACORN
+	case searchparams.FilterStrategyPathseer:
+		return PATHSEER
+	default:
+		return FilterStrategy(h.configuredFilterStrategy.Load())
+	}
+}
+
+// searchTimeEF returns the beam width for k results: the request's ef if set,
+// else the configured one, never below k.
+func (h *hnsw) searchTimeEF(k int, params *searchparams.VectorIndexParams) int {
+	if reqEF := params.EFOrZero(); reqEF > 0 {
+		return max(reqEF, k)
+	}
+
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
@@ -81,21 +119,35 @@ func (h *hnsw) autoEfFromK(k int) int {
 
 func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	k int, allowList helpers.AllowList,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
 	vector = h.normalizeVec(vector)
+	ef := h.searchTimeEF(k, params)
+	// annotate only overrides: boxing into any allocates
+	requested := params.EFOrZero()
+	if requested > 0 {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_requested", requested)
+	}
+	if fs := params.FilterStrategyOrEmpty(); fs != "" {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_filter_strategy_requested", fs)
+	}
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
+		// brute force has no beam to report; ef only caps compressed rescoring
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
-		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
+		return h.flatSearch(ctx, vector, k, ef, allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
+	if requested > 0 {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_effective", ef)
+	}
+	return h.knnSearchByVector(ctx, vector, k, ef, allowList, params)
 }
 
-func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	if !h.multivector.Load() {
 		return nil, nil, errors.New("multivector search is not enabled")
 	}
@@ -108,7 +160,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
 		overfetch := 2
-		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
+		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList, params)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -132,7 +184,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		return h.flatMultiSearch(ctx, vectors, k, allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByMultiVector(ctx, vectors, k, allowList)
+	return h.knnSearchByMultiVector(ctx, vectors, k, allowList, params)
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
@@ -147,9 +199,12 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByVector, h.logger)
+		func(ctx context.Context, vec []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+			return h.SearchByVector(ctx, vec, k, allow, params)
+		}, h.logger)
 }
 
 // SearchByMultiVectorDistance wraps SearchByMultiVector, and calls it recursively until
@@ -164,9 +219,12 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByMultiVector, h.logger)
+		func(ctx context.Context, vec [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+			return h.SearchByMultiVector(ctx, vec, k, allow, params)
+		}, h.logger)
 }
 
 func (h *hnsw) initMuveraEncoder(vectors [][]float32) error {
@@ -228,8 +286,10 @@ func (h *hnsw) cacheSize() int64 {
 	return size
 }
 
-func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
-	if allowList == nil || FilterStrategy(h.configuredFilterStrategy.Load()) != ACORN {
+// acornEnabled reports whether a filtered search with strategy uses ACORN,
+// which also needs a selective enough filter.
+func (h *hnsw) acornEnabled(allowList helpers.AllowList, strategy FilterStrategy) bool {
+	if allowList == nil || strategy != ACORN {
 		return false
 	}
 
@@ -242,8 +302,8 @@ func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
 	return true
 }
 
-func (h *hnsw) pathseerEnabled(allowList helpers.AllowList) bool {
-	return allowList != nil && FilterStrategy(h.configuredFilterStrategy.Load()) == PATHSEER
+func (h *hnsw) pathseerEnabled(allowList helpers.AllowList, strategy FilterStrategy) bool {
+	return allowList != nil && strategy == PATHSEER
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
@@ -252,13 +312,12 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
 ) (*priorityqueue.Queue[any], error,
 ) {
-	// keep strategy selection consistent with knnSearchByVector: callers of
-	// this helper (KnnSearchByVectorMaxDist) previously fell back to
-	// sweeping silently when filterStrategy was pathseer
-	if h.pathseerEnabled(allowList) {
+	// inserts, geo and upper layers keep the configured strategy
+	configured := FilterStrategy(h.configuredFilterStrategy.Load())
+	if h.pathseerEnabled(allowList, configured) {
 		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, PATHSEER)
 	}
-	if h.acornEnabled(allowList) {
+	if h.acornEnabled(allowList, configured) {
 		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN)
 	}
 	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING)
@@ -1034,8 +1093,9 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 	}
 }
 
+// params is only read for the filter strategy; ef is already resolved.
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
-	ef int, allowList helpers.AllowList,
+	ef int, allowList helpers.AllowList, params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil
@@ -1118,8 +1178,9 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	h.shardedNodeLocks.RLock(entryPointID)
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
-	useAcorn := h.acornEnabled(allowList)
-	usePathseer := h.pathseerEnabled(allowList)
+	wantStrategy := h.effectiveFilterStrategy(params)
+	useAcorn := h.acornEnabled(allowList, wantStrategy)
+	usePathseer := h.pathseerEnabled(allowList, wantStrategy)
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	if usePathseer {
 		if entryPointNode == nil {
@@ -1175,6 +1236,10 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		}
 	} else {
 		strategy = SWEEPING
+	}
+	// the strategy that runs, after fallbacks; only for request overrides
+	if params.FilterStrategyOrEmpty() != "" {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_filter_strategy_effective", strategy.String())
 	}
 
 	if allowList != nil && (useAcorn || (usePathseer && strategy == RRE)) {
@@ -1254,11 +1319,19 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	return ids, dists, nil
 }
 
-func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
+	ef := h.searchTimeEF(kPrime, params)
+	if requested := params.EFOrZero(); requested > 0 {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_requested", requested)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_ef_effective", ef)
+	}
+	if fs := params.FilterStrategyOrEmpty(); fs != "" {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hnsw_filter_strategy_requested", fs)
+	}
 	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, ef, allowList, params)
 		if err != nil {
 			return nil, nil, err
 		}

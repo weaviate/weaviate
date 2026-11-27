@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -45,9 +46,15 @@ const (
 	intermediateRescoreMinPool = 1024
 )
 
-func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	// Normalize before any search path to ensure consistent distance calculations
 	vector = h.normalizeVec(vector)
+
+	// annotate only overrides: boxing into any allocates
+	requestedProbe := params.SearchProbeOrZero()
+	if requestedProbe > 0 {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_requested", requestedProbe)
+	}
 
 	// this must run before any search path reads the quantizer or distancer,
 	// including flatSearch, which uses the distancer
@@ -57,8 +64,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	if !h.muvera.Load() && allowList != nil && allowList.Len() < flatSearchCutoff {
+		// brute force has no probe to report; boxing a bool does not allocate
+		helpers.AnnotateSlowQueryLog(ctx, "hfresh_flat_search", true)
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_flat_search", false)
 
 	// The candidate pool must be at least as large as the requested k:
 	// rescoreLimit is a quality floor for the RQ1 candidate depth, not a cap
@@ -73,9 +83,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	var selectedCentroids []uint64
 	var postings []Posting
 
-	// If k is larger than the configured number of candidates, use k as the candidate number
-	// to enlarge the search space.
-	candidateCentroidNum := max(k, int(atomic.LoadUint32(&h.searchProbe)))
+	// at least k candidates, whatever the configured or requested probe
+	candidateCentroidNum := h.searchProbeFor(k, params)
+	if requestedProbe > 0 {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_effective", candidateCentroidNum)
+	}
 
 	nAllowList := allowList
 	if allowList != nil {
@@ -110,7 +122,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// the first split may have emptied the single posting after the centroid
 	// search picked it: the graph now holds its vectors
 	if !built && h.Centroids.Built() {
-		return h.SearchByVector(ctx, vector, k, allowList)
+		return h.SearchByVector(ctx, vector, k, allowList, params)
 	}
 
 	visited := h.visitedPool.Borrow()
@@ -304,6 +316,7 @@ func (h *HFresh) SearchByVectorDistance(
 	targetDistance float32,
 	maxLimit int64,
 	allow helpers.AllowList,
+	params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {
 	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
 	var resultIDs []uint64
@@ -311,7 +324,7 @@ func (h *HFresh) SearchByVectorDistance(
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow)
+		ids, dist, err := h.SearchByVector(ctx, vector, totalLimit, allow, params)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}
@@ -446,7 +459,7 @@ func (ks *ResultSet) Reset(k int) {
 	ks.k = k
 }
 
-func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
 		return nil, nil, ErrMuveraNotEnabled
 	}
@@ -477,7 +490,11 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	// Encode query vectors into FDE (Fast Dense Encoding) representation
 	queryFDE := h.muveraEncoder.EncodeQuery(vectors)
 
-	routingBudget, rerankBudget := h.muveraSearchBudgets(k)
+	routingBudget, rerankBudget := h.muveraSearchBudgets(k, params)
+	if requestedProbe := params.SearchProbeOrZero(); requestedProbe > 0 {
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_requested", requestedProbe)
+		helpers.AnnotateSlowQueryLogDistinct(ctx, "hfresh_search_probe_effective", routingBudget)
+	}
 
 	candidateIDs, err := h.searchByFDE(ctx, queryFDE, routingBudget, rerankBudget, allow)
 	if err != nil {
@@ -487,10 +504,18 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	return h.computeLateInteraction(ctx, vectors, k, candidateIDs)
 }
 
+// searchProbeFor returns max(k, requested probe, else configured probe).
+func (h *HFresh) searchProbeFor(k int, params *searchparams.VectorIndexParams) int {
+	if params.SearchProbeOrZero() > 0 {
+		return max(k, params.SearchProbe)
+	}
+	return max(k, int(atomic.LoadUint32(&h.searchProbe)))
+}
+
 // muveraSearchBudgets computes the decoupled budgets for a multi-vector
 // search:
 //   - routingBudget (centroid selection and posting scan breadth) is
-//     max(k, searchProbe). searchProbe defaults to 256 at schema parse time
+//     searchProbeFor(k, params). searchProbe defaults to 256 at schema parse time
 //     and is respected in BOTH directions: a low explicit probe genuinely
 //     reduces routing work (latency/recall knob), it is not floored by
 //     rescoreLimit. This matches the pre-decoupling behavior, where the
@@ -503,10 +528,9 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 // silently capped searches with k > rescoreLimit at rescoreLimit results
 // . Any further rework of this path must preserve max(k, ...)
 // semantics for both budgets.
-func (h *HFresh) muveraSearchBudgets(k int) (routingBudget, rerankBudget int) {
-	searchProbe := int(atomic.LoadUint32(&h.searchProbe))
+func (h *HFresh) muveraSearchBudgets(k int, params *searchparams.VectorIndexParams) (routingBudget, rerankBudget int) {
 	rescoreLimit := int(atomic.LoadUint32(&h.rescoreLimit))
-	return max(k, searchProbe), max(k, rescoreLimit)
+	return h.searchProbeFor(k, params), max(k, rescoreLimit)
 }
 
 // selectCentroids filters a centroid search result down to the candidates
@@ -755,7 +779,7 @@ func float32SliceInto(dst []float32, raw []byte) []float32 {
 	return dst
 }
 
-func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, params *searchparams.VectorIndexParams) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
 		return nil, nil, ErrMuveraNotEnabled
 	}
@@ -766,7 +790,7 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dists, err := h.SearchByMultiVector(ctx, vectors, totalLimit, allow)
+		ids, dists, err := h.SearchByMultiVector(ctx, vectors, totalLimit, allow, params)
 		if err != nil {
 			return false, errors.Wrap(err, "multi-vector search")
 		}

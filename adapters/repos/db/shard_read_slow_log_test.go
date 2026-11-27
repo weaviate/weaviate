@@ -41,7 +41,7 @@ func TestShardSearchSlowLogRecord(t *testing.T) {
 		},
 		"ObjectVectorSearch": func(ctx context.Context, s ShardLike) {
 			_, _, _ = s.ObjectVectorSearch(ctx, []models.Vector{[]float32{1, 2}}, []string{""}, 0, 10,
-				filter, nil, nil, additional.Properties{}, nil, nil)
+				filter, nil, nil, additional.Properties{}, nil, nil, nil)
 		},
 	}
 	for name, search := range tests {

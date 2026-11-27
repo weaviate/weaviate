@@ -90,12 +90,12 @@ func TestIntermediateRescoreCorrectsRQ1(t *testing.T) {
 		probe := randomMultiVector(rand.New(rand.NewSource(int64(1000+probeSeed))), tokens, dim)
 
 		tf.Index.disableIntermediateRescore = true
-		oldIDs, _, err := tf.Index.SearchByMultiVector(ctx, probe, 1, nil)
+		oldIDs, _, err := tf.Index.SearchByMultiVector(ctx, probe, 1, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, oldIDs, 1)
 
 		tf.Index.disableIntermediateRescore = false
-		newIDs, _, err := tf.Index.SearchByMultiVector(ctx, probe, 1, nil)
+		newIDs, _, err := tf.Index.SearchByMultiVector(ctx, probe, 1, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, newIDs, 1)
 
@@ -186,7 +186,7 @@ func TestIntermediateRescoreSkipsMissingFDE(t *testing.T) {
 	binary.BigEndian.PutUint64(key, 1)
 	require.NoError(t, tf.Index.store.Bucket(tf.Index.id+"_muvera_vectors").Delete(key))
 
-	ids, _, err := tf.Index.SearchByMultiVector(context.Background(), [][]float32{onehot(0)}, 2, nil)
+	ids, _, err := tf.Index.SearchByMultiVector(context.Background(), [][]float32{onehot(0)}, 2, nil, nil)
 	require.NoError(t, err, "a missing FDE must be skipped, not fail the search")
 	require.Equal(t, []uint64{0}, ids)
 }
@@ -198,10 +198,10 @@ func TestSingleVectorPathUnaffectedByIntermediateRescore(t *testing.T) {
 	tf, probe := populateRandomSingleVectorIndex(t, 300, 32, 42)
 
 	tf.Index.disableIntermediateRescore = false
-	on, onD, err := tf.Index.SearchByVector(context.Background(), probe, 20, nil)
+	on, onD, err := tf.Index.SearchByVector(context.Background(), probe, 20, nil, nil)
 	require.NoError(t, err)
 	tf.Index.disableIntermediateRescore = true
-	off, offD, err := tf.Index.SearchByVector(context.Background(), probe, 20, nil)
+	off, offD, err := tf.Index.SearchByVector(context.Background(), probe, 20, nil, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, on, off)

@@ -264,16 +264,17 @@ func TestRESTSearchNearVector(t *testing.T) {
 		require.Len(t, results(t, out), 2)
 	})
 
-	t.Run("absent vector is rejected at bind time", func(t *testing.T) {
+	t.Run("absent vector is rejected", func(t *testing.T) {
+		// vectorPerTarget is the alternative, so the handler checks this, with
+		// the same 422 v1.41.0 returned from request validation.
 		for name, body := range map[string]map[string]any{
 			"omitted": {"limit": 1},
 			"null":    {"vector": nil},
 		} {
 			status, out := postNearVector(t, "Verse", body)
 			require.Equal(t, http.StatusUnprocessableEntity, status, "%s: %v", name, out)
-			assert.Contains(t, errMessage(t, out), "vector", "%s: %v", name, out)
-			// bind-tier errors use the same ErrorResponse shape as handler errors
-			assert.Contains(t, out, "error", "bind errors must be ErrorResponse-shaped: %v", out)
+			assert.Contains(t, errMessage(t, out), "exactly one of vector and vectorPerTarget must be set", "%s: %v", name, out)
+			assert.Contains(t, out, "error", "errors must be ErrorResponse-shaped: %v", out)
 		}
 	})
 

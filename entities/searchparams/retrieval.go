@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type SelectionMMR struct {
@@ -28,6 +29,110 @@ type SelectionMMR struct {
 
 type Selection struct {
 	MMR *SelectionMMR `json:"mmr,omitempty"`
+}
+
+// Filter strategy names accepted per request, aliased from the hnsw config.
+const (
+	FilterStrategySweeping = hnsw.FilterStrategySweeping
+	FilterStrategyAcorn    = hnsw.FilterStrategyAcorn
+	FilterStrategyPathseer = hnsw.FilterStrategyPathseer
+)
+
+// VectorIndexParams overrides vector index search settings for one request; zero fields mean the collection default.
+// It travels between nodes as JSON, so a new field's zero value must mean "default".
+type VectorIndexParams struct {
+	EF             int                          `json:"ef,omitempty"`
+	SearchProbe    int                          `json:"searchProbe,omitempty"`
+	FilterStrategy string                       `json:"filterStrategy,omitempty"`
+	PerTarget      map[string]VectorIndexParams `json:"perTarget,omitempty"`
+}
+
+// EFOrZero is nil-safe.
+func (p *VectorIndexParams) EFOrZero() int {
+	if p == nil {
+		return 0
+	}
+	return p.EF
+}
+
+// SearchProbeOrZero is nil-safe.
+func (p *VectorIndexParams) SearchProbeOrZero() int {
+	if p == nil {
+		return 0
+	}
+	return p.SearchProbe
+}
+
+// FilterStrategyOrEmpty is nil-safe.
+func (p *VectorIndexParams) FilterStrategyOrEmpty() string {
+	if p == nil {
+		return ""
+	}
+	return p.FilterStrategy
+}
+
+// IsZero reports whether p sets nothing, per-target entries included.
+func (p *VectorIndexParams) IsZero() bool {
+	return p == nil || (p.EF == 0 && p.SearchProbe == 0 && p.FilterStrategy == "" && len(p.PerTarget) == 0)
+}
+
+// FieldNames spells VectorIndexParams' fields the way a wire format does.
+type FieldNames struct {
+	EF, SearchProbe, FilterStrategy string
+}
+
+var (
+	JSONFieldNames  = FieldNames{EF: "ef", SearchProbe: "searchProbe", FilterStrategy: "filterStrategy"}
+	ProtoFieldNames = FieldNames{EF: "ef", SearchProbe: "search_probe", FilterStrategy: "filter_strategy"}
+)
+
+// Validate checks one entry (not PerTarget) against the caps and known strategies. A cap <= 0 means no cap; a nil p is valid.
+func (p *VectorIndexParams) Validate(maxEF, maxProbe int, names FieldNames) error {
+	if p == nil {
+		return nil
+	}
+	switch {
+	case p.EF < 0:
+		return fmt.Errorf("%s must be >= 0, got %d", names.EF, p.EF)
+	case maxEF > 0 && p.EF > maxEF:
+		return fmt.Errorf("%s %d exceeds HNSW_MAX_SEARCH_EF (%d)", names.EF, p.EF, maxEF)
+	case p.SearchProbe < 0:
+		return fmt.Errorf("%s must be >= 0, got %d", names.SearchProbe, p.SearchProbe)
+	case maxProbe > 0 && p.SearchProbe > maxProbe:
+		return fmt.Errorf("%s %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", names.SearchProbe, p.SearchProbe, maxProbe)
+	}
+	switch p.FilterStrategy {
+	case "", FilterStrategySweeping, FilterStrategyAcorn, FilterStrategyPathseer:
+		return nil
+	default:
+		return fmt.Errorf("%s must be one of sweeping, acorn, pathseer, got %q", names.FilterStrategy, p.FilterStrategy)
+	}
+}
+
+// ForTarget merges the entry for name over the request-wide values; a per-target zero never unsets a request-wide value.
+// The result has no PerTarget.
+func (p *VectorIndexParams) ForTarget(name string) *VectorIndexParams {
+	if p == nil {
+		return nil
+	}
+	entry, ok := p.PerTarget[name]
+	if !ok {
+		if len(p.PerTarget) == 0 {
+			return p
+		}
+		return &VectorIndexParams{EF: p.EF, SearchProbe: p.SearchProbe, FilterStrategy: p.FilterStrategy}
+	}
+	merged := VectorIndexParams{EF: p.EF, SearchProbe: p.SearchProbe, FilterStrategy: p.FilterStrategy}
+	if entry.EF > 0 {
+		merged.EF = entry.EF
+	}
+	if entry.SearchProbe > 0 {
+		merged.SearchProbe = entry.SearchProbe
+	}
+	if entry.FilterStrategy != "" {
+		merged.FilterStrategy = entry.FilterStrategy
+	}
+	return &merged
 }
 
 type NearVector struct {

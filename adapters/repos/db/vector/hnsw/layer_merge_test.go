@@ -82,7 +82,7 @@ func idRange(from, to uint64) []uint64 {
 func (f *bootstrapFixture) requireFinds(t *testing.T, ids ...uint64) {
 	t.Helper()
 	for _, id := range ids {
-		found, _, err := f.index.SearchByVector(f.ctx, f.vectors[id], len(f.vectors), nil)
+		found, _, err := f.index.SearchByVector(f.ctx, f.vectors[id], len(f.vectors), nil, nil)
 		require.NoError(t, err)
 		require.Subset(t, found, ids, "search from %d", id)
 	}
@@ -303,7 +303,7 @@ func requireAllReachable(t *testing.T, index *hnsw, vectors [][]float32, live []
 	ctx := context.Background()
 	unreachable := map[uint64]struct{}{}
 	for _, id := range live {
-		found, _, err := index.SearchByVector(ctx, vectors[id], len(live), nil)
+		found, _, err := index.SearchByVector(ctx, vectors[id], len(live), nil, nil)
 		require.NoError(t, err)
 		if !containsID(found, id) {
 			unreachable[id] = struct{}{}

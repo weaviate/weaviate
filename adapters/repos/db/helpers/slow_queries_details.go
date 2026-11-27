@@ -12,6 +12,7 @@
 package helpers
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -120,6 +121,22 @@ func AnnotateSlowQueryLogAppendReducible[T any, R any](ctx context.Context, key 
 	}
 
 	registerReducerLocked(details, key, reduce)
+}
+
+// AnnotateSlowQueryLogDistinct records value under key without overwriting
+// earlier values, for keys several searches of one request write (one per
+// target vector or shard). The log shows the single value when all agree,
+// otherwise the sorted distinct values.
+func AnnotateSlowQueryLogDistinct[T cmp.Ordered](ctx context.Context, key string, value T) {
+	AnnotateSlowQueryLogAppendReducible(ctx, key, value, distinctValues[T])
+}
+
+func distinctValues[T cmp.Ordered](values []T) any {
+	distinct := slices.Compact(slices.Sorted(slices.Values(values)))
+	if len(distinct) == 1 {
+		return distinct[0]
+	}
+	return distinct
 }
 
 // AnnotateSlowQueryLogAppendManyReducible is AnnotateSlowQueryLogAppendReducible

@@ -855,6 +855,18 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
 	}
 
+	// caps for per-request ef and search probe; file values are already set
+	maxSearchEF, err := resolveSearchCap("HNSW_MAX_SEARCH_EF", config.HNSWMaxSearchEF, DefaultHNSWMaxSearchEF)
+	if err != nil {
+		return err
+	}
+	config.HNSWMaxSearchEF = maxSearchEF
+	maxSearchProbe, err := resolveSearchCap("HFRESH_MAX_SEARCH_PROBE", config.HFreshMaxSearchProbe, DefaultHFreshMaxSearchProbe)
+	if err != nil {
+		return err
+	}
+	config.HFreshMaxSearchProbe = maxSearchProbe
+
 	if v := os.Getenv("QUERY_HYBRID_MAXIMUM_RESULTS"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -2057,7 +2069,10 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 }
 
 const (
-	DefaultQueryMaximumResults       = int64(10000)
+	DefaultQueryMaximumResults = int64(10000)
+	// caps for per-request ef / searchProbe, independent of QUERY_MAXIMUM_RESULTS
+	DefaultHNSWMaxSearchEF           = int64(10000)
+	DefaultHFreshMaxSearchProbe      = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
 	DefaultQueryBoostDepth           = 100
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
@@ -2640,4 +2655,36 @@ func validateBackupDedupeConvergenceTimeout(val time.Duration) error {
 		return fmt.Errorf("duration between %s and %s expected, got %s", MinBackupDedupeConvergenceTimeout, MaxBackupDedupeConvergenceTimeout, val)
 	}
 	return nil
+}
+
+// SearchCapOrDefault returns v, or def when v was never resolved.
+func SearchCapOrDefault(v, def int64) int64 {
+	if v <= 0 {
+		return def
+	}
+	return v
+}
+
+// resolveSearchCap resolves env var, then config file, then def; 0 falls through.
+func resolveSearchCap(envName string, fileValue, def int64) (int64, error) {
+	if fileValue < 0 {
+		return 0, fmt.Errorf("%s must not be negative in the config file", strings.ToLower(envName))
+	}
+	resolved := fileValue
+	if resolved <= 0 {
+		resolved = def
+	}
+	if v := os.Getenv(envName); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s as int: %w", envName, err)
+		}
+		if asInt < 0 {
+			return 0, fmt.Errorf("%s must not be negative", envName)
+		}
+		if asInt > 0 {
+			resolved = int64(asInt)
+		}
+	}
+	return resolved, nil
 }

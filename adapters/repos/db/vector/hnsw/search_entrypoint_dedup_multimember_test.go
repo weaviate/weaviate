@@ -113,7 +113,7 @@ func TestSearchEntrypointSeedDuplicate_MultiMember(t *testing.T) {
 	copy(query, vectors[ep])
 	query[0] += 1e-4
 
-	ids, _, err := index.SearchByVector(ctx, query, k, allow)
+	ids, _, err := index.SearchByVector(ctx, query, k, allow, nil)
 	require.NoError(t, err)
 
 	seen := map[uint64]bool{}

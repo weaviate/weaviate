@@ -122,7 +122,7 @@ func TestEntrypoint_ConcurrentInsertsIntoGoneGraph(t *testing.T) {
 			}
 
 			for _, id := range ids {
-				found, _, err := index.SearchByVector(ctx, vectors[id], len(vectors), nil)
+				found, _, err := index.SearchByVector(ctx, vectors[id], len(vectors), nil, nil)
 				require.NoError(t, err)
 				require.Subset(t, found, ids, "search from %d", id)
 			}

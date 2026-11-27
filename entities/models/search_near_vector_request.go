@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// SearchNearVectorRequest Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (`SearchCommon`) with the near-vector-specific `vector`, `certainty`, `distance` and `targetVector`.
+// SearchNearVectorRequest Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (`SearchCommon`) with the near-vector-specific `vector`, `vectorPerTarget`, `certainty`, `distance`, `targetVector`, `targetVectors` and `targetCombination`.
 //
 // swagger:model SearchNearVectorRequest
 type SearchNearVectorRequest struct {
@@ -36,12 +36,20 @@ type SearchNearVectorRequest struct {
 	// Maximum vector distance of a match. Mutually exclusive with `certainty`.
 	Distance *float64 `json:"distance,omitempty"`
 
-	// The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.
+	// How the per-target results of a multi-target search are combined. Only meaningful with several `targetVectors`; omitted defaults to `minimum`.
+	TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
+	// The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector, unless `targetVectors` is set.
 	TargetVector string `json:"targetVector,omitempty"`
 
-	// The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. `[0.12, -0.3, 0.98]`. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.
-	// Required: true
-	Vector interface{} `json:"vector"`
+	// The named vectors to search, for a multi-target search. Mutually exclusive with `targetVector`. The per-target results are merged as `targetCombination` specifies.
+	TargetVectors []string `json:"targetVectors"`
+
+	// The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. `[0.12, -0.3, 0.98]`. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Exactly one of `vector` and `vectorPerTarget` must be set.
+	Vector interface{} `json:"vector,omitempty"`
+
+	// One query vector per target vector, keyed by target vector name, e.g. `{"title": [0.1, 0.2], "body": [0.3, 0.4, 0.5]}`. The keys must be exactly the request's target vectors. Each value has the form of `vector`. Exactly one of `vector` and `vectorPerTarget` must be set.
+	VectorPerTarget map[string]interface{} `json:"vectorPerTarget,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -59,9 +67,15 @@ func (m *SearchNearVectorRequest) UnmarshalJSON(raw []byte) error {
 
 		Distance *float64 `json:"distance,omitempty"`
 
+		TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
 		TargetVector string `json:"targetVector,omitempty"`
 
-		Vector interface{} `json:"vector"`
+		TargetVectors []string `json:"targetVectors"`
+
+		Vector interface{} `json:"vector,omitempty"`
+
+		VectorPerTarget map[string]interface{} `json:"vectorPerTarget,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -71,9 +85,15 @@ func (m *SearchNearVectorRequest) UnmarshalJSON(raw []byte) error {
 
 	m.Distance = dataAO1.Distance
 
+	m.TargetCombination = dataAO1.TargetCombination
+
 	m.TargetVector = dataAO1.TargetVector
 
+	m.TargetVectors = dataAO1.TargetVectors
+
 	m.Vector = dataAO1.Vector
+
+	m.VectorPerTarget = dataAO1.VectorPerTarget
 
 	return nil
 }
@@ -92,18 +112,30 @@ func (m SearchNearVectorRequest) MarshalJSON() ([]byte, error) {
 
 		Distance *float64 `json:"distance,omitempty"`
 
+		TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
 		TargetVector string `json:"targetVector,omitempty"`
 
-		Vector interface{} `json:"vector"`
+		TargetVectors []string `json:"targetVectors"`
+
+		Vector interface{} `json:"vector,omitempty"`
+
+		VectorPerTarget map[string]interface{} `json:"vectorPerTarget,omitempty"`
 	}
 
 	dataAO1.Certainty = m.Certainty
 
 	dataAO1.Distance = m.Distance
 
+	dataAO1.TargetCombination = m.TargetCombination
+
 	dataAO1.TargetVector = m.TargetVector
 
+	dataAO1.TargetVectors = m.TargetVectors
+
 	dataAO1.Vector = m.Vector
+
+	dataAO1.VectorPerTarget = m.VectorPerTarget
 
 	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
 	if errAO1 != nil {
@@ -122,7 +154,7 @@ func (m *SearchNearVectorRequest) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateVector(formats); err != nil {
+	if err := m.validateTargetCombination(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -132,10 +164,21 @@ func (m *SearchNearVectorRequest) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SearchNearVectorRequest) validateVector(formats strfmt.Registry) error {
+func (m *SearchNearVectorRequest) validateTargetCombination(formats strfmt.Registry) error {
 
-	if m.Vector == nil {
-		return errors.Required("vector", "body", nil)
+	if swag.IsZero(m.TargetCombination) { // not required
+		return nil
+	}
+
+	if m.TargetCombination != nil {
+		if err := m.TargetCombination.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("targetCombination")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("targetCombination")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -150,9 +193,29 @@ func (m *SearchNearVectorRequest) ContextValidate(ctx context.Context, formats s
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateTargetCombination(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *SearchNearVectorRequest) contextValidateTargetCombination(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TargetCombination != nil {
+		if err := m.TargetCombination.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("targetCombination")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("targetCombination")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

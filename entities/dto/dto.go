@@ -60,6 +60,7 @@ type GetParams struct {
 	GroupBy                 *searchparams.GroupBy
 	Selection               *searchparams.Selection
 	Boost                   *filters.Boost
+	VectorIndexParams       *searchparams.VectorIndexParams
 	TargetVectorCombination *TargetCombination
 	Group                   *GroupParams
 	ModuleParams            map[string]interface{}

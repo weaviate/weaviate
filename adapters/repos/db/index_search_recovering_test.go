@@ -82,11 +82,11 @@ func (p *recoveringSearchPeers) SearchShard(ctx context.Context, host, _, shard 
 	vector []models.Vector, targetVector []string, distance float32, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, adds additional.Properties,
-	targetCombination *dto.TargetCombination, properties []string,
+	targetCombination *dto.TargetCombination, properties []string, vectorIndexParams *searchparams.VectorIndexParams,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	if idx, ok := p.servedBy[host]; ok {
 		return idx.IncomingSearch(ctx, shard, vector, targetVector, distance, limit, filters,
-			keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, vectorIndexParams)
 	}
 	return []*storobj.Object{recoveringSearchObject()}, []float32{0.5}, nil, nil
 }
@@ -220,8 +220,8 @@ func recoveringSearchIndex(t *testing.T, recovering string) *Index {
 			RunAndReturn(func(context.Context, int, *filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, *filters.Cursor, additional.Properties, []string) ([]*storobj.Object, []float32, error) {
 				return []*storobj.Object{recoveringSearchObject()}, []float32{0.5}, nil
 			}).Maybe()
-		healthy.EXPECT().ObjectVectorSearch(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string) ([]*storobj.Object, []float32, error) {
+		healthy.EXPECT().ObjectVectorSearch(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.VectorIndexParams) ([]*storobj.Object, []float32, error) {
 				return []*storobj.Object{recoveringSearchObject()}, []float32{0.5}, nil
 			}).Maybe()
 		healthy.EXPECT().Aggregate(mock.Anything, mock.Anything, mock.Anything).Return(
@@ -281,7 +281,7 @@ func TestSearchFailsOverOffARecoveringReplica(t *testing.T) {
 	}{
 		{"vector", func(ctx context.Context, idx *Index, repl *additional.ReplicationProperties) (int, error) {
 			objs, _, err := idx.objectVectorSearch(ctx, []models.Vector{[]float32{1, 2}}, nil, 0, 10, nil, nil, nil,
-				additional.Properties{}, repl, "", nil, nil)
+				additional.Properties{}, repl, "", nil, nil, nil)
 			return len(objs), err
 		}},
 		{"bm25", func(ctx context.Context, idx *Index, repl *additional.ReplicationProperties) (int, error) {

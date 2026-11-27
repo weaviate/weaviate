@@ -619,6 +619,7 @@ func (c *searchRemoteClient) SearchShard(ctx context.Context, hostName, indexNam
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
 	properties []string,
+	_ *searchparams.VectorIndexParams,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return c.objects, make([]float32, len(c.objects)), nil, nil
 }

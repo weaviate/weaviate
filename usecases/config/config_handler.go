@@ -161,12 +161,15 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
-	Backup                           Backup                   `json:"backup" yaml:"backup"`
-	BackupGCS                        BackupGCS                `json:"backup_gcs" yaml:"backup_gcs"`
-	Name                             string                   `json:"name" yaml:"name"`
-	Debug                            bool                     `json:"debug" yaml:"debug"`
-	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults              int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	Backup              Backup        `json:"backup" yaml:"backup"`
+	BackupGCS           BackupGCS     `json:"backup_gcs" yaml:"backup_gcs"`
+	Name                string        `json:"name" yaml:"name"`
+	Debug               bool          `json:"debug" yaml:"debug"`
+	QueryDefaults       QueryDefaults `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults int64         `json:"query_maximum_results" yaml:"query_maximum_results"`
+	// per-request ef / searchProbe caps; 0 = default
+	HNSWMaxSearchEF                  int64                    `json:"hnsw_max_search_ef" yaml:"hnsw_max_search_ef"`
+	HFreshMaxSearchProbe             int64                    `json:"hfresh_max_search_probe" yaml:"hfresh_max_search_probe"`
 	QueryHybridMaximumResults        int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
 	QueryBoostDefaultDepth           int                      `json:"query_boost_default_depth" yaml:"query_boost_default_depth"`
 	QueryNestedCrossReferenceLimit   int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`

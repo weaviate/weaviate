@@ -107,7 +107,7 @@ func TestEntrypointRepair_DeletedEntrypoints(t *testing.T) {
 	search := func(t *testing.T, idx *hnsw) ([]uint64, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		ids, _, err := idx.SearchByVector(ctx, query, k, nil)
+		ids, _, err := idx.SearchByVector(ctx, query, k, nil, nil)
 		require.NoError(t, ctx.Err(), "search did not terminate — repair loop is stuck")
 		return ids, err
 	}

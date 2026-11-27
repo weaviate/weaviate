@@ -72,8 +72,14 @@ type SearchCommon struct {
 	// Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).
 	SinglePrompt *string `json:"singlePrompt,omitempty"`
 
+	// Per-target overrides of vectorIndexParams keyed by target vector name, e.g. {"title": {"ef": 256}}. Unset fields fall back to vectorIndexParams, then to the collection config.
+	TargetVectorIndexParams map[string]*SearchVectorIndexParams `json:"targetVectorIndexParams,omitempty"`
+
 	// The tenant to search in a multi-tenant collection.
 	Tenant string `json:"tenant,omitempty"`
+
+	// Per-request vector search tuning. Applies to vector-based searches (near-vector, near-object, near-text, hybrid); rejected on bm25 search.
+	VectorIndexParams *SearchVectorIndexParams `json:"vectorIndexParams,omitempty"`
 
 	// A conditional filter to limit the objects that are searched.
 	Where *WhereFilter `json:"where,omitempty"`
@@ -96,6 +102,14 @@ func (m *SearchCommon) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateReturnReferences(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTargetVectorIndexParams(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVectorIndexParams(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -235,6 +249,51 @@ func (m *SearchCommon) validateReturnReferences(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *SearchCommon) validateTargetVectorIndexParams(formats strfmt.Registry) error {
+	if swag.IsZero(m.TargetVectorIndexParams) { // not required
+		return nil
+	}
+
+	for k := range m.TargetVectorIndexParams {
+
+		if err := validate.Required("targetVectorIndexParams"+"."+k, "body", m.TargetVectorIndexParams[k]); err != nil {
+			return err
+		}
+		if val, ok := m.TargetVectorIndexParams[k]; ok {
+			if err := val.Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("targetVectorIndexParams" + "." + k)
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("targetVectorIndexParams" + "." + k)
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *SearchCommon) validateVectorIndexParams(formats strfmt.Registry) error {
+	if swag.IsZero(m.VectorIndexParams) { // not required
+		return nil
+	}
+
+	if m.VectorIndexParams != nil {
+		if err := m.VectorIndexParams.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("vectorIndexParams")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("vectorIndexParams")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *SearchCommon) validateWhere(formats strfmt.Registry) error {
 	if swag.IsZero(m.Where) { // not required
 		return nil
@@ -263,6 +322,14 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 	}
 
 	if err := m.contextValidateReturnReferences(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateTargetVectorIndexParams(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateVectorIndexParams(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -307,6 +374,37 @@ func (m *SearchCommon) contextValidateReturnReferences(ctx context.Context, form
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *SearchCommon) contextValidateTargetVectorIndexParams(ctx context.Context, formats strfmt.Registry) error {
+
+	for k := range m.TargetVectorIndexParams {
+
+		if val, ok := m.TargetVectorIndexParams[k]; ok {
+			if err := val.ContextValidate(ctx, formats); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *SearchCommon) contextValidateVectorIndexParams(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.VectorIndexParams != nil {
+		if err := m.VectorIndexParams.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("vectorIndexParams")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("vectorIndexParams")
+			}
+			return err
+		}
 	}
 
 	return nil

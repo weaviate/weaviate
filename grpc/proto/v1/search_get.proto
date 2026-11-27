@@ -51,9 +51,38 @@ message SearchRequest {
 
   optional Boost boost = 62;
 
+  // per-request vector index params, requires a near* or hybrid search
+  optional VectorIndexParams vector_index_params = 63;
+
+  // per-target overrides of vector_index_params
+  repeated VectorIndexParamsForTarget vector_index_params_for_targets = 64;
+
   bool uses_123_api = 100 [deprecated = true];
   bool uses_125_api = 101 [deprecated = true];
-  bool uses_127_api = 102; 
+  bool uses_127_api = 102;
+}
+
+// UNSPECIFIED uses the collection's filterStrategy
+enum FilterStrategy {
+  FILTER_STRATEGY_UNSPECIFIED = 0;
+  FILTER_STRATEGY_SWEEPING = 1;
+  FILTER_STRATEGY_ACORN = 2;
+  FILTER_STRATEGY_PATHSEER = 3;
+}
+
+// each index type reads only the fields it supports
+message VectorIndexParams {
+  // HNSW only, 0/unset uses the collection config
+  optional uint32 ef = 1;
+  // HFresh only, 0/unset uses the collection config
+  optional uint32 search_probe = 2;
+  // HNSW only, applies to filtered searches
+  optional FilterStrategy filter_strategy = 3;
+}
+
+message VectorIndexParamsForTarget {
+  string target = 1;
+  VectorIndexParams params = 2;
 }
 
 message GroupBy {

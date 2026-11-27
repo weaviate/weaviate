@@ -47,6 +47,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type generativeParser interface {
@@ -252,6 +254,21 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	} else {
 		out.Pagination.Limit = int(config.QueryDefaults.Limit)
 	}
+
+	// as on REST: params need a vector search (near* or hybrid)
+	if (req.VectorIndexParams != nil || len(req.VectorIndexParamsForTargets) > 0) && !vectorSearch {
+		if req.Bm25Search != nil {
+			return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_index_params / vector_index_params_for_targets is not applicable to bm25 search")
+		}
+		return dto.GetParams{}, status.Errorf(codes.InvalidArgument, "vector_index_params / vector_index_params_for_targets requires a near* or hybrid search")
+	}
+
+	vsp, err := extractVectorIndexParams(req.VectorIndexParams, req.VectorIndexParamsForTargets,
+		targetVectors, class.Class, config.HNSWMaxSearchEF, config.HFreshMaxSearchProbe)
+	if err != nil {
+		return dto.GetParams{}, err
+	}
+	out.VectorIndexParams = vsp
 
 	// Hybrid search now has the ability to run subsearches using the real nearvector and neartext searches.  So we need to extract those settings the same way we prepare for the real searches.
 	if hs := req.HybridSearch; hs != nil {
@@ -469,6 +486,90 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	return out, nil
 }
 
+// extractVectorIndexParams returns nil when nothing is set.
+func extractVectorIndexParams(in *pb.VectorIndexParams, perTarget []*pb.VectorIndexParamsForTarget,
+	targetVectors []string, className string, maxEF, maxProbe int64,
+) (*searchparams.VectorIndexParams, error) {
+	out, err := validateVectorIndexParams(in, maxEF, maxProbe, "vector_index_params.")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(perTarget) > 0 {
+		if len(targetVectors) == 0 {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"vector_index_params_for_targets requires named vectors; collection %s has none", className)
+		}
+		out.PerTarget = make(map[string]searchparams.VectorIndexParams, len(perTarget))
+		seen := make(map[string]struct{}, len(perTarget))
+		for i, entry := range perTarget {
+			target := entry.GetTarget()
+			if target == "" {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"vector_index_params_for_targets[%d]: target must be set", i)
+			}
+			if entry.GetParams() == nil {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"vector_index_params_for_targets[%s]: params must be set", target)
+			}
+			if _, dup := seen[target]; dup {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"vector_index_params_for_targets: target %q given more than once", target)
+			}
+			if !slices.Contains(targetVectors, target) {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"vector_index_params_for_targets: %q is not a target vector of this request (targets: %v)", target, targetVectors)
+			}
+			p, err := validateVectorIndexParams(entry.GetParams(), maxEF, maxProbe,
+				fmt.Sprintf("vector_index_params_for_targets[%s].", target))
+			if err != nil {
+				return nil, err
+			}
+			if p.IsZero() {
+				// empty entry: valid no-op
+				seen[target] = struct{}{}
+				continue
+			}
+			seen[target] = struct{}{}
+			out.PerTarget[target] = p
+		}
+		if len(out.PerTarget) == 0 {
+			out.PerTarget = nil
+		}
+	}
+
+	if out.IsZero() {
+		return nil, nil
+	}
+	return &out, nil
+}
+
+func validateVectorIndexParams(in *pb.VectorIndexParams, maxEF, maxProbe int64, prefix string) (searchparams.VectorIndexParams, error) {
+	var out searchparams.VectorIndexParams
+	if in == nil {
+		return out, nil
+	}
+	out.EF = int(in.GetEf())
+	out.SearchProbe = int(in.GetSearchProbe())
+	switch fs := in.GetFilterStrategy(); fs {
+	case pb.FilterStrategy_FILTER_STRATEGY_UNSPECIFIED:
+	case pb.FilterStrategy_FILTER_STRATEGY_SWEEPING:
+		out.FilterStrategy = searchparams.FilterStrategySweeping
+	case pb.FilterStrategy_FILTER_STRATEGY_ACORN:
+		out.FilterStrategy = searchparams.FilterStrategyAcorn
+	case pb.FilterStrategy_FILTER_STRATEGY_PATHSEER:
+		out.FilterStrategy = searchparams.FilterStrategyPathseer
+	default:
+		// the enum has no string to validate; an unknown number is a conversion error
+		return out, status.Errorf(codes.InvalidArgument, "%sfilter_strategy must be one of sweeping, acorn, pathseer, got %d", prefix, int32(fs))
+	}
+	if err := out.Validate(int(config.SearchCapOrDefault(maxEF, config.DefaultHNSWMaxSearchEF)),
+		int(config.SearchCapOrDefault(maxProbe, config.DefaultHFreshMaxSearchProbe)), searchparams.ProtoFieldNames); err != nil {
+		return searchparams.VectorIndexParams{}, status.Errorf(codes.InvalidArgument, "%s%v", prefix, err)
+	}
+	return out, nil
+}
+
 func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class) (*searchparams.GroupBy, error) {
 	if len(groupIn.Path) != 1 {
 		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
@@ -601,10 +702,10 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 	switch in.Combination {
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE:
 		combinationType = dto.Average
-		weights = extractTargetCombinationAverageWeights(in.TargetVectors)
+		weights = dto.ImplicitWeights(combinationType, len(in.TargetVectors))
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM:
 		combinationType = dto.Sum
-		weights = extractTargetCombinationSumWeights(in.TargetVectors)
+		weights = dto.ImplicitWeights(combinationType, len(in.TargetVectors))
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
@@ -623,22 +724,6 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 		return nil, fmt.Errorf("unknown combination method %v", in.Combination)
 	}
 	return &dto.TargetCombination{Weights: weights, Type: combinationType}, nil
-}
-
-func extractTargetCombinationAverageWeights(targetVectors []string) []float32 {
-	weights := make([]float32, len(targetVectors))
-	for i := range targetVectors {
-		weights[i] = 1.0 / float32(len(targetVectors))
-	}
-	return weights
-}
-
-func extractTargetCombinationSumWeights(targetVectors []string) []float32 {
-	weights := make([]float32, len(targetVectors))
-	for i := range targetVectors {
-		weights[i] = 1.0
-	}
-	return weights
 }
 
 func extractWeights(in *pb.Targets, weights []float32) error {
@@ -1488,15 +1573,9 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 
 		if detectCombinationWeights {
 			switch combinationType {
-			case dto.Average:
-				fixedWeights := extractTargetCombinationAverageWeights(detectedTargetVectorNames)
+			case dto.Average, dto.Sum:
 				adjustedTargetCombination = &dto.TargetCombination{
-					Type: dto.Average, Weights: fixedWeights,
-				}
-			case dto.Sum:
-				fixedWeights := extractTargetCombinationSumWeights(detectedTargetVectorNames)
-				adjustedTargetCombination = &dto.TargetCombination{
-					Type: dto.Sum, Weights: fixedWeights,
+					Type: combinationType, Weights: dto.ImplicitWeights(combinationType, len(detectedTargetVectorNames)),
 				}
 			default:
 				adjustedTargetCombination = &dto.TargetCombination{

@@ -115,7 +115,7 @@ func TestFlatSearchOnTornDownStore(t *testing.T) {
 
 			var searchErr error
 			require.NotPanics(t, func() {
-				_, _, searchErr = index.SearchByVector(ctx, []float32{1, 2, 3, 4}, 10, nil)
+				_, _, searchErr = index.SearchByVector(ctx, []float32{1, 2, 3, 4}, 10, nil, nil)
 			})
 			require.Error(t, searchErr)
 			require.False(t, strings.Contains(searchErr.Error(), "panic"),

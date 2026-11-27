@@ -1043,7 +1043,7 @@ func TestIndex_DebugResetVectorIndexHFresh(t *testing.T) {
 			vidx, _ = getVectorIndexAndQueue(t, shard, targetVector)
 			require.Eventually(t, func() bool {
 				for _, obj := range live {
-					ids, _, err := vidx.SearchByVector(ctx, vectorOf(obj), 5, nil)
+					ids, _, err := vidx.SearchByVector(ctx, vectorOf(obj), 5, nil, nil)
 					if err != nil || !slices.Contains(ids, obj.DocID) {
 						return false
 					}
@@ -1053,7 +1053,7 @@ func TestIndex_DebugResetVectorIndexHFresh(t *testing.T) {
 			waitForVectorQueue(t, shard, targetVector)
 
 			for _, obj := range deleted {
-				ids, _, err := vidx.SearchByVector(ctx, vectorOf(obj), 5, nil)
+				ids, _, err := vidx.SearchByVector(ctx, vectorOf(obj), 5, nil, nil)
 				require.NoError(t, err)
 				assert.NotContainsf(t, ids, obj.DocID, "deleted doc %d came back", obj.DocID)
 

@@ -42,8 +42,14 @@ type SearchNearObjectRequest struct {
 	// Format: uuid
 	ID *strfmt.UUID `json:"id"`
 
-	// The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector.
+	// How the per-target results of a multi-target search are combined. Only meaningful with several `targetVectors`; omitted defaults to `minimum`.
+	TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
+	// The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector, unless `targetVectors` is set.
 	TargetVector string `json:"targetVector,omitempty"`
+
+	// The named vectors to search, for a multi-target search. Mutually exclusive with `targetVector`. The per-target results are merged as `targetCombination` specifies.
+	TargetVectors []string `json:"targetVectors"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -63,7 +69,11 @@ func (m *SearchNearObjectRequest) UnmarshalJSON(raw []byte) error {
 
 		ID *strfmt.UUID `json:"id"`
 
+		TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
 		TargetVector string `json:"targetVector,omitempty"`
+
+		TargetVectors []string `json:"targetVectors"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -75,7 +85,11 @@ func (m *SearchNearObjectRequest) UnmarshalJSON(raw []byte) error {
 
 	m.ID = dataAO1.ID
 
+	m.TargetCombination = dataAO1.TargetCombination
+
 	m.TargetVector = dataAO1.TargetVector
+
+	m.TargetVectors = dataAO1.TargetVectors
 
 	return nil
 }
@@ -96,7 +110,11 @@ func (m SearchNearObjectRequest) MarshalJSON() ([]byte, error) {
 
 		ID *strfmt.UUID `json:"id"`
 
+		TargetCombination *SearchTargetCombination `json:"targetCombination,omitempty"`
+
 		TargetVector string `json:"targetVector,omitempty"`
+
+		TargetVectors []string `json:"targetVectors"`
 	}
 
 	dataAO1.Certainty = m.Certainty
@@ -105,7 +123,11 @@ func (m SearchNearObjectRequest) MarshalJSON() ([]byte, error) {
 
 	dataAO1.ID = m.ID
 
+	dataAO1.TargetCombination = m.TargetCombination
+
 	dataAO1.TargetVector = m.TargetVector
+
+	dataAO1.TargetVectors = m.TargetVectors
 
 	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
 	if errAO1 != nil {
@@ -128,6 +150,10 @@ func (m *SearchNearObjectRequest) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateTargetCombination(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -147,6 +173,26 @@ func (m *SearchNearObjectRequest) validateID(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *SearchNearObjectRequest) validateTargetCombination(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.TargetCombination) { // not required
+		return nil
+	}
+
+	if m.TargetCombination != nil {
+		if err := m.TargetCombination.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("targetCombination")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("targetCombination")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ContextValidate validate this search near object request based on the context it is used
 func (m *SearchNearObjectRequest) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
@@ -156,9 +202,29 @@ func (m *SearchNearObjectRequest) ContextValidate(ctx context.Context, formats s
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateTargetCombination(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *SearchNearObjectRequest) contextValidateTargetCombination(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TargetCombination != nil {
+		if err := m.TargetCombination.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("targetCombination")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("targetCombination")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

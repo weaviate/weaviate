@@ -42,13 +42,13 @@ func TestSingleVectorQueryOnMultiVectorIndexRejected(t *testing.T) {
 
 	t.Run("limit-based search rejected", func(t *testing.T) {
 		_, _, err := shard.ObjectVectorSearch(ctx, singleQuery, []string{""},
-			0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+			0, 10, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 		require.ErrorContains(t, err, "does not accept single vectors")
 	})
 
 	t.Run("distance-based search rejected", func(t *testing.T) {
 		_, _, err := shard.ObjectVectorSearch(ctx, singleQuery, []string{""},
-			0.5, -1, nil, nil, nil, additional.Properties{}, nil, nil)
+			0.5, -1, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 		require.ErrorContains(t, err, "does not accept single vectors")
 	})
 
@@ -62,7 +62,7 @@ func TestSingleVectorQueryOnMultiVectorIndexRejected(t *testing.T) {
 
 		found, _, err := shard.ObjectVectorSearch(ctx,
 			[]models.Vector{[][]float32{{0.1, 0.2, 0.3}}}, []string{""},
-			0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+			0, 10, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, found, 1)
 	})

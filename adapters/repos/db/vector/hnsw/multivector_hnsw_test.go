@@ -22,11 +22,13 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -117,9 +119,23 @@ func TestMultiVectorHnsw(t *testing.T) {
 
 	t.Run("inspect a query", func(t *testing.T) {
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
+		}
+	})
+
+	t.Run("per-request params reach every token search", func(t *testing.T) {
+		params := &searchparams.VectorIndexParams{EF: 200, FilterStrategy: searchparams.FilterStrategySweeping}
+		for i, query := range multiQueries {
+			sctx := helpers.InitSlowQueryDetails(ctx)
+			ids, _, err := vectorIndex.SearchByMultiVector(sctx, query, k, nil, params)
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
+			details := helpers.ExtractSlowQueryDetails(sctx)
+			require.Equal(t, 200, details["hnsw_ef_requested"])
+			require.Equal(t, 200, details["hnsw_ef_effective"])
+			require.Equal(t, "sweeping", details["hnsw_filter_strategy_requested"])
 		}
 	})
 
@@ -132,14 +148,14 @@ func TestMultiVectorHnsw(t *testing.T) {
 		err := vectorIndex.DeleteMulti(1)
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 1, multiVectors[1])
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -152,14 +168,14 @@ func TestMultiVectorHnsw(t *testing.T) {
 		err = vectorIndex.DeleteMulti(2)
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 2, multiVectors[2])
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -317,7 +333,7 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 
 	t.Run("inspect a query", func(t *testing.T) {
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -332,14 +348,14 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 		err := vectorIndex.DeleteMulti(0)
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 0, multiVectors[0])
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -398,7 +414,7 @@ func TestMultivectorPersistence(t *testing.T) {
 	})
 
 	for i, query := range multiQueries {
-		ids, _, err := index.SearchByMultiVector(ctx, query, k, nil)
+		ids, _, err := index.SearchByMultiVector(ctx, query, k, nil, nil)
 		require.Nil(t, err)
 		require.Equal(t, expectedResults[i], ids)
 	}
@@ -438,7 +454,7 @@ func TestMultivectorPersistence(t *testing.T) {
 	require.Nil(t, err)
 
 	for i, query := range multiQueries {
-		ids, _, err := secondIndex.SearchByMultiVector(ctx, query, k, nil)
+		ids, _, err := secondIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 		require.Nil(t, err)
 		require.Equal(t, expectedResults[i], ids)
 	}
@@ -479,7 +495,7 @@ func TestMultiVectorRescoreUsesCacheNotViewThunk(t *testing.T) {
 	}
 
 	for i, query := range multiQueries {
-		ids, _, err := index.SearchByMultiVector(ctx, query, 10, nil)
+		ids, _, err := index.SearchByMultiVector(ctx, query, 10, nil, nil)
 		require.Nil(t, err)
 		require.Equal(t, expectedResults[i], ids)
 	}
@@ -537,9 +553,21 @@ func TestMuveraHnsw(t *testing.T) {
 
 	t.Run("inspect a query", func(t *testing.T) {
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
+		}
+	})
+
+	t.Run("per-request ef is floored at the MUVERA overfetch", func(t *testing.T) {
+		for i, query := range multiQueries {
+			sctx := helpers.InitSlowQueryDetails(ctx)
+			ids, _, err := vectorIndex.SearchByMultiVector(sctx, query, k, nil, &searchparams.VectorIndexParams{EF: 5})
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
+			details := helpers.ExtractSlowQueryDetails(sctx)
+			require.Equal(t, 5, details["hnsw_ef_requested"])
+			require.Equal(t, 2*k, details["hnsw_ef_effective"], "MUVERA searches 2k candidates")
 		}
 	})
 
@@ -554,14 +582,14 @@ func TestMuveraHnsw(t *testing.T) {
 		err = vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 1, multiVectors[1])
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -576,14 +604,14 @@ func TestMuveraHnsw(t *testing.T) {
 		err = vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 2, multiVectors[2])
 		require.Nil(t, err)
 		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -632,7 +660,7 @@ func TestEmptyMuvera(t *testing.T) {
 	})
 
 	t.Run("inspect a query", func(t *testing.T) {
-		ids, _, err := vectorIndex.SearchByMultiVector(ctx, multiQueries[0], k, nil)
+		ids, _, err := vectorIndex.SearchByMultiVector(ctx, multiQueries[0], k, nil, nil)
 		require.Nil(t, err)
 		require.Equal(t, []uint64{}, ids)
 	})

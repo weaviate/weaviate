@@ -147,6 +147,7 @@ type shards interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+		vectorIndexParams *searchparams.VectorIndexParams,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -743,7 +744,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, err := shared.IndicesPayloads.SearchParams.
+		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, vectorIndexParams, err := shared.IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -754,10 +755,11 @@ func (i *indices) postSearchObjects() http.Handler {
 		i.logger.WithFields(logrus.Fields{
 			"shard":  shard,
 			"action": "Search",
+			"ef":     vectorIndexParams.EFOrZero(),
 		}).Debug("searching ...")
 
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
-			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, vectorIndexParams)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
