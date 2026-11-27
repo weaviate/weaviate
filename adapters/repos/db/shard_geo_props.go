@@ -203,6 +203,25 @@ func (s *Shard) updatePropertySpecificIndices(ctx context.Context, object *storo
 	return nil
 }
 
+// flushGeoQueues flushes the geo index queues after a single object write, so
+// that what the write added to them is durable against a process crash once
+// acknowledged, as its vector index write already is. With synchronous indexing
+// that is the geo index's HNSW commit log, with async indexing the queue's
+// chunk file. Like updateVectorIndex it skips the flush when the write did not
+// touch the geo indices (see updateGeoIndex). Batches flush in flushWALs.
+func (s *Shard) flushGeoQueues(status objectInsertStatus) error {
+	if status.docIDPreserved || status.skipUpsert {
+		return nil
+	}
+
+	return s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			return errors.Wrapf(err, "flush geo index of property %q", propName)
+		}
+		return nil
+	})
+}
+
 func (s *Shard) updatePropertySpecificIndex(ctx context.Context, propName string,
 	index propertyspecific.Index, obj *storobj.Object,
 	status objectInsertStatus,
