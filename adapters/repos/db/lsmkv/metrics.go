@@ -35,6 +35,7 @@ var bucketStrategiesLabels = [][]string{
 	{StrategyRoaringSet},
 	{StrategyRoaringSetRange},
 	{StrategyInverted},
+	{StrategyGeoPoints},
 }
 
 var readOpsLabels = [][]string{

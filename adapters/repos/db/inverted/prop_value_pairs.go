@@ -45,8 +45,11 @@ type propValuePair struct {
 	hasFilterableIndex bool
 	hasSearchableIndex bool
 	hasRangeableIndex  bool
-	nested             nestedInfo
-	Class              *models.Class // The schema
+	// a geoRange on a property whose geo index is a geopoints bucket; any
+	// other geoRange is served by the property's HNSW geo index
+	hasGeoBucketIndex bool
+	nested            nestedInfo
+	Class             *models.Class // The schema
 
 	// containsKeys holds pre-encoded on-disk keys for a flat, single-property
 	// Contains(Any|All|None) filter. When it holds any, resolveDocIDs routes to
@@ -475,13 +478,17 @@ func (pv *propValuePair) readFromBucket(ctx context.Context, s *Searcher, limit 
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
-	b := s.store.Bucket(bucketName)
+	// pinned until the read returns: disabling the index shuts the bucket
+	// down, and without the pin that can happen between this lookup and the
+	// read taking its view of the segments
+	b, release := s.store.AcquireBucketForRead(bucketName)
+	defer release()
 
 	// TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.
-	if b == nil && pv.operator != filters.OperatorWithinGeoRange {
-		// a nil bucket is ok for a WithinGeoRange filter, as this query is not
-		// served by the inverted index, but propagated to a secondary index in
-		// .docPointers()
+	if b == nil && (pv.operator != filters.OperatorWithinGeoRange || pv.hasGeoBucketIndex) {
+		// a nil bucket is ok for a WithinGeoRange filter on an HNSW geo index,
+		// as this query is not served by a bucket, but propagated to a
+		// secondary index in .docPointers()
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
@@ -498,6 +505,10 @@ func (pv *propValuePair) getBucketName() string {
 			return helpers.BucketNestedFromPropNameLSM(pv.prop)
 		}
 		return ""
+	}
+
+	if pv.hasGeoBucketIndex {
+		return helpers.BucketGeoFromPropNameLSM(pv.prop)
 	}
 
 	if pv.hasRangeableIndex {

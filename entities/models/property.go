@@ -44,6 +44,10 @@ type Property struct {
 	// If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.
 	DisableDuplicatedReferences *bool `json:"disableDuplicatedReferences,omitempty"`
 
+	// The index that serves `withinGeoRange` filters on this property. Applicable only to properties of data type `geoCoordinates` with a filterable index. Immutable after creation.<br/><br/>- `hnsw` (default): An HNSW graph. A filter returns at most 800 objects (`HNSW_GEO_INDEX_EF`).<br/>- `bkd`: A BKD tree per LSM segment. Filters are exact and unbounded.
+	// Enum: [hnsw bkd]
+	GeoIndexType string `json:"geoIndexType,omitempty"`
+
 	// Whether to include this property in the filterable, Roaring Bitmap index. If `false`, this property cannot be used in `where` filters. <br/><br/>Note: Unrelated to vectorization behavior.
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
 
@@ -80,6 +84,10 @@ type Property struct {
 func (m *Property) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateGeoIndexType(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateNestedProperties(formats); err != nil {
 		res = append(res, err)
 	}
@@ -95,6 +103,48 @@ func (m *Property) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+var propertyTypeGeoIndexTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["hnsw","bkd"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		propertyTypeGeoIndexTypePropEnum = append(propertyTypeGeoIndexTypePropEnum, v)
+	}
+}
+
+const (
+
+	// PropertyGeoIndexTypeHnsw captures enum value "hnsw"
+	PropertyGeoIndexTypeHnsw string = "hnsw"
+
+	// PropertyGeoIndexTypeBkd captures enum value "bkd"
+	PropertyGeoIndexTypeBkd string = "bkd"
+)
+
+// prop value enum
+func (m *Property) validateGeoIndexTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, propertyTypeGeoIndexTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Property) validateGeoIndexType(formats strfmt.Registry) error {
+	if swag.IsZero(m.GeoIndexType) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateGeoIndexTypeEnum("geoIndexType", "body", m.GeoIndexType); err != nil {
+		return err
+	}
+
 	return nil
 }
 

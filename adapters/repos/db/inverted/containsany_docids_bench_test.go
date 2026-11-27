@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -1112,4 +1113,145 @@ func TestDocBitmap_SlowLogEntryFields(t *testing.T) {
 		require.Len(t, entries, 1)
 		require.Equal(t, "geo", entries[0]["strategy"])
 	})
+
+	t.Run("a geo bucket leaf", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		geoBucketName := helpers.BucketGeoFromPropNameLSM("location")
+		require.NoError(t, f.store.CreateOrLoadBucket(ctx, geoBucketName,
+			lsmkv.WithStrategy(lsmkv.StrategyGeoPoints)))
+		geoBucket := f.store.Bucket(geoBucketName)
+		require.NoError(t, geoBucket.GeoPointsAdd(7, 52.5, 13.4))
+
+		lat, lon := float32(52.5), float32(13.4)
+		bm, err := f.searcher.docBitmap(ctx, geoBucket, 0, &propValuePair{
+			prop: "location", operator: filters.OperatorWithinGeoRange, hasGeoBucketIndex: true,
+			valueGeoRange: &filters.GeoRange{
+				GeoCoordinates: &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
+				Distance:       1000,
+			},
+		})
+		require.NoError(t, err)
+		require.Equal(t, []uint64{7}, bm.IDs())
+		bm.release()
+
+		entries, ok := docBitmapSlowLogEntries(ctx)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		require.Equal(t, lsmkv.StrategyGeoPoints, entries[0]["strategy"])
+		require.Equal(t, 1, entries[0]["count"])
+	})
+}
+
+// TestGeoRangeBucketResolution pins which index a geoRange leaf goes to: the
+// geopoints bucket only for a property that opted into it, and an error rather
+// than the HNSW fallback when that bucket is missing.
+func TestGeoRangeBucketResolution(t *testing.T) {
+	vFalse := false
+	geo := schema.DataTypeGeoCoordinates.PropString()
+	tests := []struct {
+		name       string
+		prop       *models.Property
+		wantBucket string
+	}{
+		{name: "type unset", prop: &models.Property{Name: "p", DataType: geo}, wantBucket: helpers.BucketFromPropNameLSM("p")},
+		{name: "hnsw", prop: &models.Property{Name: "p", DataType: geo, GeoIndexType: models.PropertyGeoIndexTypeHnsw}, wantBucket: helpers.BucketFromPropNameLSM("p")},
+		{name: "bkd", prop: &models.Property{Name: "p", DataType: geo, GeoIndexType: models.PropertyGeoIndexTypeBkd}, wantBucket: helpers.BucketGeoFromPropNameLSM("p")},
+		{name: "bkd without a filterable index", prop: &models.Property{Name: "p", DataType: geo, GeoIndexType: models.PropertyGeoIndexTypeBkd, IndexFilterable: &vFalse}, wantBucket: ""},
+		{name: "bkd on a text property", prop: &models.Property{Name: "p", DataType: schema.DataTypeText.PropString(), GeoIndexType: models.PropertyGeoIndexTypeBkd}, wantBucket: helpers.BucketFromPropNameLSM("p")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pv := &propValuePair{
+				prop: "p", operator: filters.OperatorWithinGeoRange,
+				hasFilterableIndex: HasFilterableIndex(test.prop),
+				hasGeoBucketIndex:  HasGeoBucketIndex(test.prop),
+			}
+			require.Equal(t, test.wantBucket, pv.getBucketName())
+		})
+	}
+
+	t.Run("a missing geo bucket is an error", func(t *testing.T) {
+		f := newContainsFixture(t, 10)
+		_, err := (&propValuePair{
+			prop: "p", operator: filters.OperatorWithinGeoRange,
+			hasFilterableIndex: true, hasGeoBucketIndex: true,
+			Class: &models.Class{InvertedIndexConfig: &models.InvertedIndexConfig{}},
+		}).readFromBucket(context.Background(), f.searcher, 0)
+		require.ErrorContains(t, err, "bucket for prop p not found")
+	})
+}
+
+// blockingCtx parks the first Err call until released, which stops a geo range
+// search between two segments.
+type blockingCtx struct {
+	context.Context
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingCtx) Err() error {
+	c.once.Do(func() {
+		close(c.entered)
+		<-c.release
+	})
+	return c.Context.Err()
+}
+
+// TestGeoBucketPinnedForRangeSearch pins that removing a geo bucket, as
+// disabling the property's filterable index does, waits for a range search
+// that is already reading it instead of closing its segments underneath it.
+func TestGeoBucketPinnedForRangeSearch(t *testing.T) {
+	f := newContainsFixture(t, 10)
+	bucketName := helpers.BucketGeoFromPropNameLSM("location")
+	require.NoError(t, f.store.CreateOrLoadBucket(context.Background(), bucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyGeoPoints)))
+	bucket := f.store.Bucket(bucketName)
+	require.NoError(t, bucket.GeoPointsAdd(7, 52.5, 13.4))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	lat, lon := float32(52.5), float32(13.4)
+	pv := &propValuePair{
+		prop: "location", operator: filters.OperatorWithinGeoRange,
+		hasFilterableIndex: true, hasGeoBucketIndex: true,
+		valueGeoRange: &filters.GeoRange{
+			GeoCoordinates: &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
+			Distance:       1000,
+		},
+		Class: &models.Class{InvertedIndexConfig: &models.InvertedIndexConfig{}},
+	}
+
+	ctx := &blockingCtx{Context: context.Background(), entered: make(chan struct{}), release: make(chan struct{})}
+	type result struct {
+		ids []uint64
+		err error
+	}
+	searched := make(chan result, 1)
+	go func() {
+		dbm, err := pv.readFromBucket(ctx, f.searcher, 0)
+		if err != nil {
+			searched <- result{err: err}
+			return
+		}
+		searched <- result{ids: dbm.IDs()}
+	}()
+	<-ctx.entered
+
+	removed := make(chan error, 1)
+	go func() { removed <- f.store.ShutdownBucket(context.Background(), bucketName) }()
+
+	select {
+	case err := <-removed:
+		t.Fatalf("the bucket was shut down under a running range search (err: %v)", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(ctx.release)
+	res := <-searched
+	require.NoError(t, res.err)
+	require.Equal(t, []uint64{7}, res.ids)
+	require.NoError(t, <-removed)
+
+	_, err := pv.readFromBucket(context.Background(), f.searcher, 0)
+	require.ErrorContains(t, err, "bucket for prop location not found")
 }

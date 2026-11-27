@@ -147,7 +147,18 @@ func (s *Shard) removeHFreshArtifacts(ctx context.Context, targetVector, physica
 
 // DebugResetGeoIndex is DebugResetVectorIndex for propName's geo index. It is
 // for debugging only, under the same assumptions.
+//
+// A property with a geo bucket is rebuilt from the stored objects before this
+// returns; the bucket is unavailable meanwhile.
 func (s *Shard) DebugResetGeoIndex(ctx context.Context, propName string) error {
+	class := s.index.getSchema.ReadOnlyClass(s.index.Config.ClassName.String())
+	if class == nil {
+		return fmt.Errorf("could not find class %s in schema", s.index.Config.ClassName)
+	}
+	if prop, err := schema.GetPropertyByName(class, propName); err == nil && usesGeoBucket(prop) {
+		return s.rebuildGeoBucketFromObjects(ctx, propName, s.makeDefaultBucketOptions)
+	}
+
 	if !s.index.AsyncIndexingEnabled {
 		return fmt.Errorf("async indexing is not enabled")
 	}

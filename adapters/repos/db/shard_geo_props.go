@@ -15,6 +15,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -309,4 +311,61 @@ func (s *Shard) deleteFromGeoIndex(propName string, index propertyspecific.Index
 	}
 
 	return nil
+}
+
+// isGeoHNSWProp: prop's geo index, if it has one, is the HNSW graph. Unlike
+// createsGeoIndex it ignores the filterable flag, so it also names the
+// property whose index was just turned off.
+func isGeoHNSWProp(prop *models.Property) bool {
+	dt, _ := schema.AsPrimitive(prop.DataType)
+	return dt == schema.DataTypeGeoCoordinates && prop.GeoIndexType != models.PropertyGeoIndexTypeBkd
+}
+
+// geoHNSWDirs: the geo graph's commit log, the snapshot directory of versions
+// before the two were unified, and its async indexing queue.
+func geoHNSWDirs(shardPath, propName string) []string {
+	id := geoPropID(propName)
+	return []string{
+		filepath.Join(shardPath, id+".hnsw.commitlog.d"),
+		filepath.Join(shardPath, id+".hnsw.snapshot.d"),
+		filepath.Join(shardPath, id+".queue.d"),
+	}
+}
+
+// dropGeoProp removes propName's geo graph and queue from the shard and from
+// disk, once the property's filterable index is turned off. Without it the
+// graph would stay registered and written to until the next restart, and its
+// files would stay for good.
+func (s *Shard) dropGeoProp(ctx context.Context, propName string) error {
+	// no index may be under construction for the prop, as in initGeoProp
+	s.geoInitLock.Lock()
+	defer s.geoInitLock.Unlock()
+
+	// writers hold the read lock for a whole update, so none is mid-write on
+	// the graph or the queue once they are unregistered
+	s.propertyIndicesLock.Lock()
+	propIndex, hasIndex := s.propertyIndices[propName]
+	geoQueue := s.geoQueues[propName]
+	delete(s.propertyIndices, propName)
+	delete(s.geoQueues, propName)
+	s.propertyIndicesLock.Unlock()
+
+	ec := errorcompounder.New()
+	if geoQueue != nil {
+		ec.AddWrapf(geoQueue.Drop(ctx), "drop geo index queue of prop %q", propName)
+	}
+	if hasIndex && propIndex.GeoIndex != nil {
+		// the graph, not the geo index: a search may still hold the geo index,
+		// and geo.Index.Drop leaves it with a nil graph
+		if graph, ok := propIndex.GeoIndex.UnderlyingVectorIndex().(VectorIndex); ok {
+			ec.AddWrapf(graph.Drop(ctx), "drop geo index of prop %q", propName)
+		} else {
+			ec.AddWrapf(propIndex.GeoIndex.Drop(ctx), "drop geo index of prop %q", propName)
+		}
+	}
+	// whatever a shard that never loaded the index still has on disk
+	for _, dir := range geoHNSWDirs(s.path(), propName) {
+		ec.AddWrapf(os.RemoveAll(dir), "remove geo index dir %q", dir)
+	}
+	return ec.ToError()
 }

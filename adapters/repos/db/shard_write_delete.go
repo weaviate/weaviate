@@ -198,6 +198,10 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 
+	if err = s.deleteFromGeoBuckets(previousObject, docID); err != nil {
+		return fmt.Errorf("delete from geo buckets: %w", err)
+	}
+
 	// Mirrors the delete into the ingest bucket for scope props suppressed
 	// above; no-op absent a migration.
 	if err = s.migrationDoubleWriteDelete(st, previousObject, docID); err != nil {

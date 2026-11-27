@@ -748,6 +748,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
 		hasRangeableIndex:  s.hasUsableRangeableIndex(prop),
+		hasGeoBucketIndex:  HasGeoBucketIndex(prop),
 		Class:              class,
 	}, nil
 }

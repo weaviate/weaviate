@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -399,6 +400,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "object creation in hashtree")
 		}
 
+		// under the lock: a delete or update of this object running in between
+		// would retire the doc ID this write is about to index
+		if err := s.updateGeoBuckets(ctx, obj, status); err != nil {
+			return errors.Wrap(err, "update geo buckets")
+		}
+
 		return nil
 	}(); err != nil {
 		return objectInsertStatus{}, err
@@ -730,43 +737,83 @@ func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, ski
 	return false, true
 }
 
+// geoPropsEqual reports whether prev and next carry the same coordinates in
+// the same properties. A value that only looks like coordinates counts as one:
+// the worst a false match does is give the object a new doc ID.
 func geoPropsEqual(prevProps, nextProps map[string]interface{}) bool {
 	geoPropsCompared := map[string]struct{}{}
 
 	for name, prevVal := range prevProps {
-		switch prevGeoVal := prevVal.(type) {
-		case *models.GeoCoordinates:
-			nextVal, ok := nextProps[name]
-			if !ok {
-				// matching prop does not exist in next
-				return false
-			}
-
-			switch nextGeoVal := nextVal.(type) {
-			case *models.GeoCoordinates:
-				if !reflect.DeepEqual(prevGeoVal, nextGeoVal) {
-					// matching geo props in prev and next differ
-					return false
-				}
-			default:
-				// matching prop in next is not geo
-				return false
-			}
-			geoPropsCompared[name] = struct{}{}
+		prevGeoVal, ok := asGeoCoordinates(prevVal)
+		if !ok {
+			continue
 		}
+		nextGeoVal, ok := asGeoCoordinates(nextProps[name])
+		if !ok || prevGeoVal != nextGeoVal {
+			// matching prop is missing from next, is not geo, or differs
+			return false
+		}
+		geoPropsCompared[name] = struct{}{}
 	}
 
 	for name, nextVal := range nextProps {
-		switch nextVal.(type) {
-		case *models.GeoCoordinates:
-			if _, ok := geoPropsCompared[name]; !ok {
-				// matching geo prop does not exist in prev
-				return false
-			}
+		if _, ok := asGeoCoordinates(nextVal); !ok {
+			continue
+		}
+		if _, ok := geoPropsCompared[name]; !ok {
+			// matching geo prop does not exist in prev
+			return false
 		}
 	}
 
 	return true
+}
+
+// latLon is a comparable copy of coordinates; an unset half stays unset.
+type latLon struct {
+	lat, lon       float32
+	hasLat, hasLon bool
+}
+
+// asGeoCoordinates reads coordinates from the model type or from the map a
+// merge carries after its JSON transport, which geoPropsEqual has to see as
+// the same thing.
+func asGeoCoordinates(val interface{}) (latLon, bool) {
+	switch v := val.(type) {
+	case *models.GeoCoordinates:
+		if v == nil {
+			return latLon{}, false
+		}
+		var out latLon
+		if v.Latitude != nil {
+			out.lat, out.hasLat = *v.Latitude, true
+		}
+		if v.Longitude != nil {
+			out.lon, out.hasLon = *v.Longitude, true
+		}
+		return out, true
+	case map[string]interface{}:
+		if len(v) != 2 {
+			return latLon{}, false
+		}
+		lat, okLat := asFloat32(v["latitude"])
+		lon, okLon := asFloat32(v["longitude"])
+		return latLon{lat: lat, lon: lon, hasLat: true, hasLon: true}, okLat && okLon
+	}
+	return latLon{}, false
+}
+
+func asFloat32(val interface{}) (float32, bool) {
+	switch v := val.(type) {
+	case float64:
+		return float32(v), true
+	case float32:
+		return v, true
+	case json.Number:
+		f, err := v.Float64()
+		return float32(f), err == nil
+	}
+	return 0, false
 }
 
 func timeToString(t time.Time) string {

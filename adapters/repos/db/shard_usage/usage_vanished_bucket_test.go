@@ -60,10 +60,13 @@ func TestUnloadedSizesSkipVanishedBucket(t *testing.T) {
 			want:     0,
 		},
 		{
-			name:    "indices, all buckets present",
-			calc:    CalculateUnloadedIndicesSize,
-			present: []string{helpers.BucketFromPropNameLSM("title"), helpers.DimensionsBucketLSM},
-			want:    2 * bucketSizeBytes,
+			name: "indices, all buckets present",
+			calc: CalculateUnloadedIndicesSize,
+			present: []string{
+				helpers.BucketFromPropNameLSM("title"), helpers.DimensionsBucketLSM,
+				helpers.BucketGeoFromPropNameLSM("location"),
+			},
+			want: 3 * bucketSizeBytes,
 		},
 		{
 			name:     "indices, one bucket vanished",

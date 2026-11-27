@@ -232,6 +232,11 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return errors.Wrap(err, "object merge in hashtree")
 		}
 
+		// under the lock, for the reason given in putObjectLSM
+		if err := s.updateGeoBuckets(ctx, obj, status); err != nil {
+			return errors.Wrap(err, "update geo buckets")
+		}
+
 		return nil
 	}(); err != nil {
 		return nil, objectInsertStatus{}, err

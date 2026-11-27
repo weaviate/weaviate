@@ -108,7 +108,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		if createsGeoIndex(prop) {
+		if createsGeoIndex(prop) && !usesGeoBucket(prop) {
 			geoProps = append(geoProps, &propCopy)
 		} else {
 			eg.Go(func() error {
@@ -192,9 +192,16 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+			mainBucket, ok := mainBucketForProperty(prop, indexType)
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
+			}
+			if indexType == "filterable" && isGeoHNSWProp(prop) {
+				// its filterable index is a graph beside the shard, not a bucket
+				if err := s.dropGeoProp(ctx, prop.Name); err != nil {
+					return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
+				}
+				continue
 			}
 			s.retirePropertyOverlay(prop.Name, indexType)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
@@ -323,6 +330,22 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 // and "cat" searchable share a bucket name, so a sweep of either reaches the
 // other's sidecars.
 func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
+	return mainBucketForPropertyIndexOfType(propName, false, indexType)
+}
+
+// mainBucketForProperty is mainBucketForPropertyIndex for a property whose
+// schema is known: the filterable index of a geoCoordinates property with
+// geoIndexType "bkd" is its geo bucket, not a roaringset one.
+func mainBucketForProperty(prop *models.Property, indexType string) (string, bool) {
+	dt, _ := schema.AsPrimitive(prop.DataType)
+	geoBucket := dt == schema.DataTypeGeoCoordinates && prop.GeoIndexType == models.PropertyGeoIndexTypeBkd
+	return mainBucketForPropertyIndexOfType(prop.Name, geoBucket, indexType)
+}
+
+func mainBucketForPropertyIndexOfType(propName string, geoBucket bool, indexType string) (string, bool) {
+	if indexType == "filterable" && geoBucket {
+		return helpers.BucketGeoFromPropNameLSM(propName), true
+	}
 	switch indexType {
 	case "filterable":
 		return helpers.BucketFromPropNameLSM(propName), true
@@ -462,6 +485,9 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return err
 	}
 
+	if usesGeoBucket(prop) {
+		return s.initGeoBucket(ctx, prop, makeBucketOptions)
+	}
 	if createsGeoIndex(prop) {
 		return s.initGeoProp(prop)
 	}

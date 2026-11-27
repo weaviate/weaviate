@@ -273,6 +273,60 @@ func TestGeoPropsEqual(t *testing.T) {
 			},
 			expectedEqual: true,
 		},
+		{
+			// coordinates added as a map, as a merge carries them after JSON transport
+			prevProps:     map[string]interface{}{"other": "a"},
+			nextProps:     map[string]interface{}{"other": "a", "geo": map[string]interface{}{"latitude": float64(float32(1.23)), "longitude": float64(float32(2.34))}},
+			expectedEqual: false,
+		},
+		{
+			// the same coordinates as model type and as a map
+			prevProps:     map[string]interface{}{"geo": &models.GeoCoordinates{Latitude: ptrFloat32(1.23), Longitude: ptrFloat32(2.34)}},
+			nextProps:     map[string]interface{}{"geo": map[string]interface{}{"latitude": float64(float32(1.23)), "longitude": float64(float32(2.34))}},
+			expectedEqual: true,
+		},
+		{
+			// the same coordinates as a map and as model type
+			prevProps:     map[string]interface{}{"geo": map[string]interface{}{"latitude": float64(float32(1.23)), "longitude": float64(float32(2.34))}},
+			nextProps:     map[string]interface{}{"geo": &models.GeoCoordinates{Latitude: ptrFloat32(1.23), Longitude: ptrFloat32(2.34)}},
+			expectedEqual: true,
+		},
+		{
+			// coordinates changed by a map
+			prevProps:     map[string]interface{}{"geo": &models.GeoCoordinates{Latitude: ptrFloat32(1.23), Longitude: ptrFloat32(2.34)}},
+			nextProps:     map[string]interface{}{"geo": map[string]interface{}{"latitude": float64(float32(1.23)), "longitude": float64(float32(-2.34))}},
+			expectedEqual: false,
+		},
+		{
+			// coordinates changed, both maps
+			prevProps:     map[string]interface{}{"geo": map[string]interface{}{"latitude": float64(float32(1.23)), "longitude": float64(float32(2.34))}},
+			nextProps:     map[string]interface{}{"geo": map[string]interface{}{"latitude": float64(float32(1.23)), "longitude": float64(float32(-2.34))}},
+			expectedEqual: false,
+		},
+		{
+			// map-valued coordinates removed
+			prevProps:     map[string]interface{}{"geo": map[string]interface{}{"latitude": float64(float32(1.23)), "longitude": float64(float32(2.34))}},
+			nextProps:     map[string]interface{}{"other": "a"},
+			expectedEqual: false,
+		},
+		{
+			// a longitude set where there was none
+			prevProps:     map[string]interface{}{"geo": &models.GeoCoordinates{Latitude: ptrFloat32(1.23)}},
+			nextProps:     map[string]interface{}{"geo": &models.GeoCoordinates{Latitude: ptrFloat32(1.23), Longitude: ptrFloat32(2.34)}},
+			expectedEqual: false,
+		},
+		{
+			// an object property that only shares the key names
+			prevProps:     map[string]interface{}{"obj": map[string]interface{}{"latitude": "north", "longitude": "east"}},
+			nextProps:     map[string]interface{}{"obj": map[string]interface{}{"latitude": "south", "longitude": "east"}},
+			expectedEqual: true,
+		},
+		{
+			// an object property with more than the two keys
+			prevProps:     map[string]interface{}{"obj": map[string]interface{}{"latitude": 1.0, "longitude": 2.0, "name": "a"}},
+			nextProps:     map[string]interface{}{"obj": map[string]interface{}{"latitude": 3.0, "longitude": 2.0, "name": "a"}},
+			expectedEqual: true,
+		},
 	}
 
 	for i, tc := range testCases {

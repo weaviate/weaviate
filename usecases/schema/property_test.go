@@ -726,6 +726,38 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 
 	handler, _ := newTestHandler(t, &fakeDB{})
 
+	t.Run("validates geoIndexType", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			dataType     schema.DataType
+			geoIndexType string
+			wantErr      string
+		}{
+			{name: "geo, unset", dataType: schema.DataTypeGeoCoordinates},
+			{name: "geo, hnsw", dataType: schema.DataTypeGeoCoordinates, geoIndexType: models.PropertyGeoIndexTypeHnsw},
+			{name: "geo, bkd", dataType: schema.DataTypeGeoCoordinates, geoIndexType: models.PropertyGeoIndexTypeBkd},
+			{name: "geo, unknown", dataType: schema.DataTypeGeoCoordinates, geoIndexType: "rtree", wantErr: "`geoIndexType` \"rtree\" is not supported"},
+			{name: "geo, wrong case", dataType: schema.DataTypeGeoCoordinates, geoIndexType: "BKD", wantErr: "`geoIndexType` \"BKD\" is not supported"},
+			{name: "text, unset", dataType: schema.DataTypeText},
+			{name: "text, bkd", dataType: schema.DataTypeText, geoIndexType: models.PropertyGeoIndexTypeBkd, wantErr: "`geoIndexType` is allowed only for the geoCoordinates data type"},
+			{name: "number, hnsw", dataType: schema.DataTypeNumber, geoIndexType: models.PropertyGeoIndexTypeHnsw, wantErr: "`geoIndexType` is allowed only for the geoCoordinates data type"},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				err := handler.validatePropertyIndexing(&models.Property{
+					Name:         "prop",
+					DataType:     test.dataType.PropString(),
+					GeoIndexType: test.geoIndexType,
+				})
+				if test.wantErr == "" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, test.wantErr)
+				}
+			})
+		}
+	})
+
 	t.Run("validates indexInverted + indexFilterable + indexSearchable combinations", func(t *testing.T) {
 		type testCase struct {
 			propName            string
