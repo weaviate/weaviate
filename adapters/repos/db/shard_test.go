@@ -675,6 +675,56 @@ func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
 		"tombstones did not drain: %d remaining", numTombstones())
 }
 
+func TestShard_PutObject_RemovesOldDocIDFromMissingNamedVector(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  schemaConfig.VectorIndexConfig
+	}{
+		{name: "hnsw", cfg: hnsw.UserConfig{}},
+		{name: "flat", cfg: flat.UserConfig{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "TestClass"
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className},
+				hnsw.UserConfig{}, false, false, false,
+				func(i *Index) {
+					i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+						"kept":    tt.cfg,
+						"removed": tt.cfg,
+					}
+				},
+			)
+			defer func() {
+				require.NoError(t, idx.drop())
+				require.NoError(t, os.RemoveAll(idx.Config.RootPath))
+			}()
+
+			obj := testObject(className)
+			obj.Vectors = map[string][]float32{"kept": {1, 2, 3}, "removed": {4, 5, 6}}
+			require.NoError(t, shd.PutObject(ctx, obj))
+			prev, err := shd.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+			require.NoError(t, err)
+
+			next := testObject(className)
+			next.Object.ID = obj.ID()
+			next.Vectors = map[string][]float32{"kept": {1, 2, 4}}
+			require.NoError(t, shd.PutObject(ctx, next))
+			cur, err := shd.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+			require.NoError(t, err)
+			require.NotEqual(t, prev.DocID, cur.DocID)
+
+			kept, _ := getVectorIndexAndQueue(t, shd, "kept")
+			removed, _ := getVectorIndexAndQueue(t, shd, "removed")
+			assert.True(t, kept.ContainsDoc(cur.DocID))
+			assert.False(t, kept.ContainsDoc(prev.DocID))
+			assert.False(t, removed.ContainsDoc(prev.DocID))
+			assert.False(t, removed.ContainsDoc(cur.DocID))
+		})
+	}
+}
+
 // A vector payload whose shape does not match the target's index must be
 // refused before anything is written, never panic or fail later in indexing.
 // Flat, dynamic and hfresh never take multi-vectors; hnsw only takes the kind

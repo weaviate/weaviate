@@ -74,17 +74,51 @@ func (p *Provider) UsingRef2Vec(className string) bool {
 		return false
 	}
 
-	cfg := class.ModuleConfig
-	if cfg == nil {
-		return false
+	if cfg, ok := class.ModuleConfig.(map[string]any); ok {
+		for modName := range cfg {
+			if p.implementsReferenceVectorizer(p.GetByName(modName)) {
+				return true
+			}
+		}
 	}
 
-	for modName := range cfg.(map[string]any) {
-		if p.implementsReferenceVectorizer(p.GetByName(modName)) {
+	for _, vectorConfig := range class.VectorConfig {
+		if p.isRef2VecNamedVector(vectorConfig) {
 			return true
 		}
 	}
 
+	return false
+}
+
+// UpdateRefVector is UpdateVector for an object whose references changed.
+// Named reference vectors are recomputed from scratch, so one left without
+// references is removed instead of keeping its previous value.
+func (p *Provider) UpdateRefVector(ctx context.Context, object *models.Object, class *models.Class,
+	findObjectFn modulecapabilities.FindObjectFn,
+	logger logrus.FieldLogger,
+) error {
+	for name, vectorConfig := range class.VectorConfig {
+		if p.isRef2VecNamedVector(vectorConfig) {
+			delete(object.Vectors, name)
+		}
+	}
+	return p.UpdateVector(ctx, object, class, findObjectFn, logger)
+}
+
+func (p *Provider) isRef2VecNamedVector(vectorConfig models.VectorConfig) bool {
+	if modelsext.IsVectorIndexDropped(vectorConfig) {
+		return false
+	}
+	vectorizer, ok := vectorConfig.Vectorizer.(map[string]any)
+	if !ok {
+		return false
+	}
+	for modName := range vectorizer {
+		if p.implementsReferenceVectorizer(p.GetByName(modName)) {
+			return true
+		}
+	}
 	return false
 }
 

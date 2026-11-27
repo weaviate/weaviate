@@ -670,6 +670,67 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func Test_ReferenceAdd_Ref2Vec_DroppedNamedVector(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	sch := articleSchemaForTest()
+	article := sch.Objects.Classes[1]
+	article.Vectorizer = ""
+	article.ModuleConfig = nil
+	article.VectorIndexConfig = nil
+	article.VectorConfig = map[string]models.VectorConfig{
+		"centroid": {
+			Vectorizer: map[string]interface{}{"ref2vec-centroid": map[string]interface{}{
+				"referenceProperties": []string{"hasParagraphs"},
+			}},
+			VectorIndexType:   "hnsw",
+			VectorIndexConfig: hnsw.UserConfig{},
+		},
+		"dropped": {
+			Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+			VectorIndexType: "none",
+		},
+	}
+	m := newFakeGetManager(sch)
+
+	parentID := strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4")
+	refID := strfmt.UUID("494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea")
+	req := AddReferenceInput{
+		Class:    "Article",
+		ID:       parentID,
+		Property: "hasParagraphs",
+		Ref:      models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Paragraph/" + refID)},
+	}
+	parent := &search.Result{
+		ID:        parentID,
+		ClassName: "Article",
+		Schema:    map[string]interface{}{},
+		Vectors: models.Vectors{
+			"centroid": []float32{1, 2, 3},
+			"dropped":  []float32{4, 5, 6},
+		},
+	}
+
+	var stored *models.Object
+	m.repo.On("Exists", "Article", parentID).Return(true, nil)
+	m.repo.On("Exists", "Paragraph", refID).Return(true, nil)
+	m.repo.On("Object", "Article", parentID, search.SelectProperties{}, additional.Properties{}, "").Return(parent, nil)
+	m.repo.On("AddReference", mock.Anything, mock.Anything).Return(nil)
+	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
+	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
+	m.repo.On("PutObject", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		stored = args.Get(0).(*models.Object)
+	}).Return(nil)
+
+	require.Nil(t, m.Manager.AddObjectReference(ctx, nil, &req, nil, ""))
+	require.NotNil(t, stored)
+	assert.Contains(t, stored.Vectors, "centroid")
+	assert.NotContains(t, stored.Vectors, "dropped")
+}
+
 func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 	t.Parallel()
 

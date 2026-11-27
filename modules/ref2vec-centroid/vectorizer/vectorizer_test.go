@@ -105,6 +105,14 @@ func TestVectorizer_Object(t *testing.T) {
 				expectedResult: nil,
 			},
 			{
+				name: "missing reference target is skipped",
+				objectSearchResults: []objectSearchResult{
+					{},
+					{res: &search.Result{Vector: []float32{2, 4, 6}}},
+				},
+				expectedResult: []float32{2, 4, 6},
+			},
+			{
 				name: "expected error - mismatched vector dimensions",
 				objectSearchResults: []objectSearchResult{
 					{res: &search.Result{Vector: []float32{1, 2, 3, 4, 5, 6, 7, 8, 9}}},
@@ -136,6 +144,7 @@ func TestVectorizer_Object(t *testing.T) {
 
 				obj := &models.Object{
 					Properties: map[string]interface{}{"toRef": modelRefs},
+					Vector:     []float32{9, 9, 9},
 				}
 				vectorizer, err := New(cfg, repo.Object)
 				assert.Nil(t, err)
@@ -143,8 +152,11 @@ func TestVectorizer_Object(t *testing.T) {
 				if test.expectedCalcError != nil {
 					assert.EqualError(t, err, test.expectedCalcError.Error())
 				} else {
+					assert.NoError(t, err)
 					assert.EqualValues(t, test.expectedResult, vec)
 				}
+				// the object's own vector is left to the caller
+				assert.EqualValues(t, []float32{9, 9, 9}, obj.Vector)
 			})
 		}
 	})
