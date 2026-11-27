@@ -60,6 +60,7 @@ func startWeaviate(ctx context.Context,
 			return path[:strings.Index(path, "/test/modules")]
 		}
 		targetArch := runtime.GOARCH
+		licenseServerURL := "http://127.0.0.1:1"
 		gitHashBytes, err := exec.Command("git", "rev-parse", "--short", "HEAD").CombinedOutput()
 		if err != nil {
 			return nil, err
@@ -70,8 +71,9 @@ func startWeaviate(ctx context.Context,
 			Context:    contextPath,
 			Dockerfile: "Dockerfile",
 			BuildArgs: map[string]*string{
-				"TARGETARCH":   &targetArch,
-				"GIT_REVISION": &gitHash,
+				"TARGETARCH":         &targetArch,
+				"GIT_REVISION":       &gitHash,
+				"LICENSE_SERVER_URL": &licenseServerURL,
 			},
 			PrintBuildLog: true,
 			KeepImage:     false,

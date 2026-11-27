@@ -67,7 +67,7 @@ type State struct {
 	Crons *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
-	License       *license.State
+	License       license.StateProvider
 	LDIntegration *configRuntime.LDIntegration
 	Logger        *logrus.Logger
 	gqlMutex      sync.Mutex

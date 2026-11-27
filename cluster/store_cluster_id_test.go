@@ -99,10 +99,10 @@ func TestClusterID_ApplySemantics(t *testing.T) {
 	}
 }
 
-// TestClusterID_TelemetryDisabledSkipsCommit covers the telemetry gate on
+// TestClusterID_CommitDisabledSkipsCommit covers the cluster-ID gate on
 // maybeCommitClusterID. The store has no raft/schema manager, so without the
 // gate these cases panic in Execute instead of returning.
-func TestClusterID_TelemetryDisabledSkipsCommit(t *testing.T) {
+func TestClusterID_CommitDisabledSkipsCommit(t *testing.T) {
 	tests := []struct {
 		name   string
 		preset string // simulate a snapshot restore before the leader callback ("" skips)

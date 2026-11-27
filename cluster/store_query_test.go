@@ -66,6 +66,7 @@ func newDynUserQueryStore(t *testing.T) (*Store, string, string) {
 		NamespacesController:   nsController,
 		DynamicUserController:  dynUser,
 		TelemetryEnabled:       true,
+		ClusterIDEnabled:       true,
 	}
 	s := NewFSM(cfg, prometheus.NewPedanticRegistry())
 	return &s, userID, identifier

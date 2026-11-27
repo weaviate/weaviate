@@ -16,6 +16,7 @@ import (
 	"net/url"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -28,7 +29,7 @@ import (
 )
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	modulesProvider ModulesProvider, licenseState *license.State, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+	modulesProvider ModulesProvider, licenseProvider license.StateProvider, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
 	metricRequestsTotal := newMiscRequestsTotal(metrics, logger)
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
@@ -51,16 +52,31 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			Modules:            metaInfos,
 			GrpcMaxMessageSize: int64(serverConfig.Config.GRPC.MaxMsgSize),
 		}
-		if licenseState != nil {
+		if licenseProvider != nil {
+			licenseState := licenseProvider.Current()
 			// A Community Edition node has no license, so it has no license
-			// status or id; those fields only exist for Enterprise Edition.
+			// status, id, or timestamps; those fields only exist for Enterprise Edition.
 			res.License = &models.MetaLicense{
 				Edition:           string(licenseState.Edition()),
 				DocumentationHref: license.EnterpriseDocsURL,
+				Enforcing:         false,
 			}
 			if licenseState.Edition() == license.EditionEnterprise {
 				res.License.Status = string(licenseState.Status)
 				res.License.LicenseID = licenseState.LicenseID
+				res.License.ClusterMismatch = licenseState.ClusterMismatch
+				if !licenseState.ExpiresAt.IsZero() {
+					expiresAt := strfmt.DateTime(licenseState.ExpiresAt)
+					res.License.ExpiresAt = &expiresAt
+				}
+				if !licenseState.LastCheckedAt.IsZero() {
+					lastCheckedAt := strfmt.DateTime(licenseState.LastCheckedAt)
+					res.License.LastCheckedAt = &lastCheckedAt
+				}
+				if licenseState.Status != license.StatusValid && !licenseState.GracePeriodEndsAt.IsZero() {
+					gracePeriodEndsAt := strfmt.DateTime(licenseState.GracePeriodEndsAt)
+					res.License.GracePeriodEndsAt = &gracePeriodEndsAt
+				}
 			}
 		}
 		metricRequestsTotal.logOk("")

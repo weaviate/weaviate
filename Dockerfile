@@ -31,6 +31,8 @@ ARG BUILD_USER="unknown"
 ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
+ARG LICENSE_SERVER_URL="https://license.weaviate.io"
+ARG LICENSE_SERVER_KEYS="kSqW93_D-AqI:QtbmlPpmSqodZMBBP2nNyjNyGRNjz3Ejm_KXtNrMVFs,srv-2026-09:xntuOBLp6UT9ek7dmbO6fpRscU40FCccICGO9ftEZ2Q"
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
 RUN GOOS=linux GOARCH=${TARGETARCH} \
@@ -39,7 +41,9 @@ RUN GOOS=linux GOARCH=${TARGETARCH} \
         -X github.com/weaviate/weaviate/usecases/build.Branch=${GIT_BRANCH} \
         -X github.com/weaviate/weaviate/usecases/build.Revision=${GIT_REVISION} \
         -X github.com/weaviate/weaviate/usecases/build.BuildUser=${BUILD_USER} \
-        -X github.com/weaviate/weaviate/usecases/build.BuildDate=${BUILD_DATE}" \
+        -X github.com/weaviate/weaviate/usecases/build.BuildDate=${BUILD_DATE} \
+        -X github.com/weaviate/weaviate/adapters/clients/license.DefaultServerURL=${LICENSE_SERVER_URL} \
+        -X github.com/weaviate/weaviate/adapters/clients/license.productionServerKeys=${LICENSE_SERVER_KEYS}" \
       -o /weaviate-server ./cmd/weaviate-server
 
 
