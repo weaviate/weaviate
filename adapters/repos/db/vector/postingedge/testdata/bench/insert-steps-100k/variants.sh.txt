@@ -1,0 +1,31 @@
+#!/bin/bash
+# What step 1 is worth inside the batches (bench-report.md of
+# feat/posting-edge-index, 2026-11-27): step 3 as it is (s3), with the plans
+# as before step 1 (s3n) and with the plan of a caller alone keeping its
+# budget (s3a), in turn, at 100k with 1 and 8 callers, two passes. Nothing
+# here builds.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+R=$S/r100
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+COMMON="-bench.dataset $D -bench.limit 100000 -bench.queries 1000 -test.v -test.timeout 0"
+integ() { # binary-name callers pass
+  local b=$1 c=$2 p=$3 dir=$R/runs-variants/$1-c$2-p$3
+  mkdir -p $dir/index
+  date "+== %H:%M:%S $b callers $c pass $p"
+  (cd $R/$b/adapters/repos/db/vector/postingedge && PE_RUSAGE=$dir/rusage.json $R/$b-w.test \
+    -test.run '^(TestIntegrationScale|TestZZWritten)$' $COMMON \
+    -bench.integrationdir $dir/index -bench.integrationout $dir/result.json -bench.integrationbase 10000 \
+    -bench.integrationwriters $c -bench.integrationcycles -bench.integrationdelete 0 -bench.integrationreopen=false \
+    -bench.integrationefs 40,160 > $dir/run.log 2>&1)
+  echo "$b c$c p$p exit $?"
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/r100/runs-variants -type d -name index -prune -exec rm -rf {} +
+}
+for p in 1 2; do
+  for c in 1 8; do
+    for b in s3 s3n s3a; do
+      integ $b $c $p
+    done
+  done
+done
+date "+== %H:%M:%S done"

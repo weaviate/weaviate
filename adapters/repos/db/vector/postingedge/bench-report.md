@@ -1240,6 +1240,174 @@ Una corrida de cada una. Todas hacen el mismo trabajo por insert: 93.9 postings 
 - **Es una extrapolación de 3.3M a 10M** con la forma de la curva de la noche, y supone que los ficheros siguen en la caché de disco: el índice de 10M son unos 40 GB en una máquina de 64.
 - **Pasa por debajo de las 10 horas, así que va el de 10M.**
 
+#### La decisión del paso 1 (del usuario, 27 de noviembre a las 16:45): fuera
+
+- **Los planes de los inserts conservan el presupuesto de quien llama.** El camino de lectura en línea queda para quien llame con presupuesto 1. La celda en frío limpia con 8 llamadores no se mide.
+- **En `m2`, en local:** `c04d1c0b8a`, encima de los pasos, con su test (`TestPersistentSearchesReadAsTheirCallerAllows`). Falla si los planes vuelven a llevar presupuesto 1 y si se quita la lectura en línea.
+- **Los commits medidos (`1a27c5a8e7` a `cd67cc6466`) se suben tal cual, y este va detrás (*mío*).** Así cada cifra de arriba apunta a un commit que existe en `m2`.
+- **El mensaje de `1a27c5a8e7` lleva la cifra falsa de los 1.7 ms creando gorutinas.** No lo reescribo, por lo mismo; `c04d1c0b8a` la corrige en el suyo.
+
+#### Las variantes del paso 1 a 100k (de 16:17 a 16:55): por mi regla también sale
+
+| binario | llamadores | inserts/s (p1, p2) | media | frente a `s3` |
+|---|---:|---|---:|---:|
+| `s3`, los pasos 1 a 3 | 1 | 326.3, 325.3 | 325.8 | |
+| `s3n`, sin el paso 1 | 1 | 333.5, 328.2 | 330.9 | 1.016 |
+| `s3a`, reparto para quien va solo | 1 | 335.7, 330.9 | 333.3 | 1.023 |
+| `s3` | 8 | 1 198.7, 1 177.1 | 1 187.9 | |
+| `s3n` | 8 | 1 183.9, 1 177.6 | 1 180.7 | 0.994 |
+| `s3a` | 8 | 1 190.9, 1 181.4 | 1 186.2 | 0.999 |
+
+- **`s3n` iguala a `s3` con 8 llamadores** (0.994, dentro del 2 %). Por la regla pre-registrada, el paso 1 no aporta nada a 100k y sale. Coincide con la decisión del usuario.
+- **Con un llamador, quitarlo gana un 1.6 %.** Lo escrito y el recall no cambian.
+- **`s3a` cumple su regla a 100k** (+2.3 % con un llamador, empate con 8) **y no la cumplía a 3.3M** (−6.5 % con un llamador). No entra.
+
+#### El paso 4 y la regla de reorganización a 100k (de 15:14 a 16:17): no pierden ritmo, y el diario baja dos tercios
+
+Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seguía dentro, y se alterna con la cabeza (`c6c8b2e347`), dos pasadas.
+
+| binario | llamadores | inserts/s (p1, p2) | media | frente a la cabeza | escrito, MB (media) | diario, B por insert | layouts (vectores reescritos) |
+|---|---:|---|---:|---:|---:|---:|---|
+| cabeza | 1 | 339.3, 339.5 | 339.4 | | 2 357 | 9 722 | 3 (140 262) |
+| pasos 1 a 4 | 1 | 326.4, 323.5 | 325.0 | 0.957 | 2 349 | 3 344 | 3 (140 374) |
+| cabeza | 8 | 332.6, 334.3 | 333.5 | | 2 368 | 9 737 | 3 (140 998) |
+| pasos 1 a 4 | 8 | 1 198.4, 1 197.5 | 1 198.0 | **3.59** | 2 413 | 3 271 | 3 (142 310) |
+| cabeza | 1 | 339.4, 340.6 | 340.0 | | 2 376 | 9 722 | 3 (140 250) |
+| pasos 1 a 4 y la regla | 1 | 326.5, 322.0 | 324.3 | 0.954 | 2 343 | 3 338 | 2 (140 100) |
+| cabeza | 8 | 331.2, 332.8 | 332.0 | | 2 357 | 9 741 | 3 (140 972) |
+| pasos 1 a 4 y la regla | 8 | 1 198.3, 1 197.8 | 1 198.0 | **3.61** | 2 416 | 3 286 | 2 (140 580) |
+
+- **El paso 4 no mueve el ritmo y deja el diario en un tercio:** de 9 722 a 3 344 B por insert a 1 536 dimensiones, donde el vector son 6 144 B. Los pasos 1 a 3 daban 0.957 y 3.57 veces la cabeza; con el paso 4, 0.957 y 3.59.
+- **Lo que llega a disco no baja:** 0.997 y 1.019 veces la cabeza. El diario se reescribe sobre sí mismo, y el sistema no llega a pasar a disco todo lo que el índice le entrega.
+  - **Corrige una cifra mía de arriba:** los «9.8 GB menos de los 27.0» de la noche son bytes entregados al fichero del diario, no bytes en disco. En disco el paso 4 ahorra poco.
+- **La regla de reorganización deja los layouts en dos, no en uno como escribí.** Uno a 40 000 mientras ingiere, y otro al acabar: lo hace el `Settle` del arnés, con la regla del índice en reposo. Reescribe los mismos 140 000 vectores, y el total escrito no cambia (0.986 y 1.025).
+  - **A 100k ni gana ni pierde.** Lo que quita son reescrituras durante una ingesta larga: de 10 000 a 10M, 3.4M vectores por el camino donde eran 10.2M. Eso lo mide el crecimiento de 10M.
+- **El recall no cambia** (0.001 o menos).
+- **Veredicto (*mío*):**
+  - el paso 4 no pierde y deja el diario en un tercio: entra;
+  - la regla no pierde, y su ganancia está a una escala que 100k no ve. Entra con la serie porque el 10M va con ella, y lo que valga lo dice esa corrida, con sus layouts y sus bytes por tramo. Si allí no gana, sale.
+
+#### Un fallo encontrado al dimensionar el disco del 10M: una reorganización no miraba si cabía (arreglado, `44c35ee9b9`)
+
+- **Qué pasaba:** un layout escribe todos los vectores otra vez en ficheros nuevos, y los viejos siguen hasta que acaba. Los vectores están dos veces en disco. Nada miraba el espacio antes ni durante.
+  - Uno que no cabía escribía hasta llenar el disco, solo entonces fallaba y borraba lo suyo.
+  - Mientras tanto, los inserts, el store y todo lo demás que escribe en ese disco se quedaban sin sitio. Un nodo pone sus shards en solo lectura mucho antes.
+- **Dónde lo vi:** el último layout de 10M escribe 30.7 GB, y al acabar la ingesta quedarán unos 5 libres.
+- **El arreglo:** antes de empezar, el layout pide los bytes libres del disco y exige lo que escribe más un cuarto (*mío*). Sin eso no arranca.
+  - El índice sigue como está, queda un aviso en el log y `Settle` no devuelve error.
+  - Se reintenta como uno que falló: cuando el índice ha crecido un 10 %.
+  - Si el disco no contesta, el layout arranca, como antes.
+- **Test:** `TestPersistentLaysOutOnlyWithRoomOnTheDisk`, cinco casos con el espacio dado por el test. Sin la comprobación fallan los tres casos sin sitio.
+- **No lo he reproducido llenando un disco de verdad.** Que un layout sin sitio lo llena sale de leer el código; el test fija la decisión nueva.
+- **Un límite del diseño que esto deja a la vista:** un layout necesita libre el tamaño de los vectores más un cuarto. Un índice que ocupe la mitad de su disco o más no se reorganiza, y sus vectores nuevos se quedan en orden de llegada. Va a la nota para Rodrigo.
+
+#### 10M crecido por inserts, con la serie (pre-registro, 27 de noviembre a las 17:10, antes de ejecutarlo)
+
+**El encargo (del usuario, 16:45):** lanzarlo en cuanto la máquina quede libre, con 8 llamadores, con la serie y sin las tablas por docID.
+
+**Cómo lo aplico (*mío*):** como el de la noche del 26 («10M crecido por inserts, una noche», arriba), con estos cambios.
+- **El código:** `m2` con la serie, `44c35ee9b9` en local. Lleva los pasos 2 a 4, la regla de reorganización, los vectores perdidos, los planes con el presupuesto de quien llama y la comprobación de espacio del layout.
+  - El binario se compiló a las 17:03, antes de escribir esto. No se ha ejecutado.
+- **El arnés:** el mismo `TestNightGrow`, sin cambios. Wiki-dpr 10M, base de 10 000, 8 llamadores con lotes de 100 y `Flush` tras cada ronda, el store y los ciclos de un shard, tramos de 5 minutos.
+- **El disco:** 42 GB libres tras borrar el índice de la noche. El índice ocupará unos 37. El arnés para si quedan menos de 4 GB libres, donde antes eran 8.
+  - **El layout final no cabe** (30.7 GB) **y no se hará:** el `Settle` del final lo saltará con un aviso. El índice de 10M queda con su último layout a 2.56M, con 3 de cada 4 vectores en orden de llegada.
+  - El heap no depende de eso. La búsqueda en frío sí, y no la mido sobre este índice.
+  - El layout de 2.56M sí cabe: 7.9 GB más un cuarto, con unos 32 libres entonces.
+- **Marcador y espera:** el marcador de sesión cronometrada, 15 minutos de teclado y ratón quietos, y `caffeinate -i -s`.
+- **Lo que se reporta:** como entonces. Por tramo, inserts por segundo, postings, filas, amplificación de escritura y bytes en disco; al acabar, el heap por componente y el registro de energía. Además, los layouts hechos y sus bytes, que es la medida de la regla de reorganización.
+- **El índice se conserva al acabar.** Sobre clones suyos van los 20 000 inserts de antes y después de las tablas por docID (encargo del usuario, con el mismo umbral del 3 %).
+
+**Lo que espero (*mío*):**
+- **Unas 8 horas, entre 7 y 9,** por la cuenta de arriba: cerca de 900 inserts por segundo al empezar y unos 300 al acabar.
+- **Si la caché de disco no alcanza, el final irá más lento.** El índice son 37 GB y la máquina tiene 64 de RAM, con el heap dentro. A 3.3M, con las lecturas repartidas, en frío salían 323 por segundo donde en caliente 373.
+- **Layouts:** cuatro, a 40 000, 160 000, 640 000 y 2.56M. Unos 10.4 GB reescritos, donde la noche reescribió 15.8 solo hasta 3.3M.
+- **Lo escrito:** la noche acabó en 49 KB por insert, 16 veces el vector. Espero algo menos, y no mucho menos: la mitad era compactación, que ningún paso toca.
+- **Si para por disco,** doy los tramos hasta ahí y lo digo.
+
+#### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
+
+**HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
+
+Del manifiesto (`testdata/bench/v4.0/10m/wikidpr-10m-hfresh-build-manifest.json`) y del arnés (`TestHFreshDiskBuild`):
+
+| | |
+|---|---|
+| inserts, hasta que vuelve el último `Add` | 2 893 s: 3 457 por segundo |
+| trabajo de fondo, hasta que la cola queda vacía | 1 842 s |
+| total | 4 735 s, 79 min: 2 112 por segundo |
+| escritores | 10: una gorutina por núcleo (`ConcurrentlyWithError`), un `Add` por vector, sin lotes |
+| workers de fondo | 9, los del planificador por defecto, corriendo también durante los inserts |
+| el índice que dejó | 146 926 postings, 5.02 entradas por vector |
+
+- **Su trabajo de fondo está incluido, contado aparte.** Los 1 842 s son la espera a que la cola de splits, merges y reasignaciones quede vacía, más las rondas de búsqueda que el arnés repite hasta que no queda ningún merge por hacer.
+- **No incluye** escribir los vectores exactos en el bucket de objetos (el arnés lo hace antes de arrancar el reloj), ni el último flush, ni las 2 059 compactaciones del final.
+- **Hubo un build anterior,** el que murió en su barrido: 34 min 42 s de inserts y 27 min 28 s de fondo.
+- **La máquina no estaba libre:** los dos corrieron con la otra sesión usándola. Entonces escribí que valían como orden de magnitud.
+
+**Por qué no es comparable con nuestro crecimiento de 10M:**
+- **Escritores:** 10 allí, 8 aquí.
+- **Lo que entra en el reloj:** nuestro insert escribe su vector exacto dentro del reloj. El de HFresh no: sus vectores ya estaban escritos como objetos.
+- **Lotes:** nuestros llamadores entregan lotes de 100 y hacen `Flush` tras cada ronda. Allí cada gorutina llama a `Add` vector a vector, sin `Flush`.
+- **La máquina:** compartida allí; libre, con la espera de inactividad, aquí.
+
+**Lo que propongo medir (*mío*):** HFresh sobre wiki-dpr 10M con 8 escritores en su arnés de inserts (`TestHFreshDiskInserts`, el de las enmiendas 4 y 5 de v5.0), con sus 9 workers de fondo y los ciclos del store, y la máquina libre. Da los inserts por segundo hasta el último insert y hasta que la cola queda vacía.
+- **Tarda** unos 80 minutos, más la escritura de los objetos.
+- **El disco decide cuándo:** HFresh a 10M ocupa 39 GB y llegó a 61 GiB mientras se construía. No cabe junto a nuestro índice de 10M, y con el nuestro borrado tampoco: quedarían unos 42 GB libres. **Hace falta liberar unos 25 GB más, y eso lo decide el usuario.**
+- **Si no hay disco,** la alternativa es comparar hasta 3.3M: HFresh pediría allí unos 20 GiB, por proporción, y nuestro crecimiento da el ritmo tramo a tramo.
+- La cifra de punta a punta, por un shard con indexación asíncrona, es otra medida y va con las definitivas de 1M.
+
+#### Qué parte de los 11.2 ms de un insert a 3.3M se puede quitar (análisis, a petición del usuario, 27 de noviembre)
+
+**Cerca de la mitad, en el papel: unos 3 ms bajando `efConstruction` a 80, 1 ms en los vectores exactos y de 1 a 2 ms en el recorrido. Nada de esto está medido. Lo único con datos propios es el `efConstruction`, y son de 1M de dbpedia en memoria.**
+
+**El punto de partida:** el perfil de `s` con un llamador, en caliente, sobre el índice de 3.3M (`testdata/bench/night-10m-grown/c33/warm-s-c1/cpu.prof`). Son 220.3 s de muestras en 20 000 inserts, 11.0 ms por insert, con 11.2 de reloj. Es un perfil con un solo hilo ocupado, que es cuando cuadra con la CPU que cuenta el sistema.
+
+| dónde | ms por insert | parte |
+|---|---:|---:|
+| **recorrer los postings cargados** (`visit`) | **5.57** | **51 %** |
+| — seguir las aristas (`collectEndpoints`): el posting de cada extremo y el conjunto de visitados | 2.39 | |
+| — puntuar los extremos nuevos, con su código leído de la tabla en RAM | 1.44 | |
+| — el bucle de los miembros y su puntuación | 1.52 | |
+| — elegir los postings siguientes y la cola de candidatos | 0.23 | |
+| **leer las filas del store** (`fetch`) | **2.27** | **21 %** |
+| — miembros: la fila de `lsmkv`, su copia y su decodificación | 1.12 | |
+| — aristas: sus filas y la unión de las listas | 1.13 | |
+| **leer los 150 vectores exactos** (`pread`) | **1.33** | **12 %** |
+| el resto del plan (elegir la tanda, guardar lo cargado) | 0.27 | 2 % |
+| fuera de los planes: compactación (0.4), recolector, aplicador (0.15), ciclos | 1.57 | 14 % |
+
+Por insert: 93.9 postings cargados en 23.2 rondas, 3.99 MB de filas leídas del store y 150 vectores exactos.
+
+**1. Menos cargas con `efConstruction` 80: unos 2.9 ms, el 26 %.**
+- **De dónde sale:** el recorrido y las filas (7.84 ms) van con el número de postings cargados. En v2.2, a 1M de dbpedia en memoria, un insert cargaba 23.1 postings con ef 80 y 36.8 con ef 160: 0.63 veces.
+- **Lo que no toca:** los 150 vectores exactos. El rescore de un insert es el de la búsqueda (`rescoreLimit`), no depende del ef.
+- **El precio, medido en v2.1 y v2.2:** frente a ef 320, un 4 % más de cargas por query a 0.95 y de un 16 a un 20 % más a 0.99. Entre ef 80 y ef 160 las corridas no separaban a 0.99. El usuario decidió entonces 80 por la regla y 160 si el objetivo es 0.99, y el valor por defecto acordado es 160.
+- **Lo que no sé:** si el 0.63 vale a 3.3M de wiki-dpr y leyendo de disco. Aquí un insert carga 93.9 postings, no 36.8, y la búsqueda en disco carga de 4 en 4.
+- **Con 8 llamadores** serían de 373 a unos 500 inserts por segundo a 3.3M, si el factor aguanta.
+
+**2. Los vectores exactos: hasta 1 ms, el 9 %, y solo en caliente.**
+- **Son 150 `pread` de 3 072 B, a 8.9 µs cada uno** desde la caché de páginas. Casi todo es la llamada al sistema.
+- **Leer menos.** Un insert busca 16 vecinos y rescora 150 candidatos, lo que la regla da a 768d para una query. Con 64, como a 1 536d, serían 0.57 ms: 0.76 menos. El riesgo es la calidad de las aristas a 768d, donde el código de 512 bits estima peor. Hay que medir el recall de arista frente al rescore del insert.
+- **Leer más barato.** Con el fichero mapeado en memoria no hay llamada al sistema: una copia de 3 KB por vector, por debajo de 1 µs. Serían 1.2 ms menos.
+  - En frío es peor que hoy: un fallo de página bloquea el hilo sin que el planificador de Go lo sepa, y no se puede repartir. Es el mismo daño que hacía el paso 1 con el disco frío.
+  - En Linux un `pread` desde caché cuesta menos que aquí, así que allí la ganancia es menor. No lo he medido.
+- **Nada de esto quita las lecturas a disco** de un índice que no cabe en la caché: son 150 por insert, al azar.
+
+**3. El recorrido de los postings: de 1 a 2 ms, sin tocar el número de cargas.**
+- **Seguir las aristas, 2.39 ms.** Por cada arista de cada miembro de cada posting cargado se mira si el extremo ya está visitado (0.61 ms) y en qué posting está (una lectura a una tabla de 13 MB que no cabe en la caché del núcleo, y de 40 MB a 10M).
+  - Guardar en la arista el posting de su extremo quita esa lectura. Son 4 B más por arista en disco, y un dato que caduca cuando el extremo cambia de posting en un split. *Estimación mía: de 0.5 a 1 ms.*
+  - Las tablas por docID añaden una indirección justo en esa lectura. Es lo que hay que vigilar en su medida a 10M.
+- **Puntuar los extremos, 1.44 ms.** El código de cada extremo nuevo se lee al azar de una tabla de 211 MB (640 MB a 10M). Ya va con prefetch. Lo que lo quita de verdad es tener los códigos junto a las aristas, que es lo que hace `none` con el halo, a cambio de leer más bytes por posting.
+- **Las filas, 2.27 ms.** `lsmkv` copia cada fila al devolverla: el proceso gasta 0.9 ms por insert en `memmove`, casi todo de esos 3.99 MB. Leer la fila sin copiarla cuando está en un solo segmento quitaría la mayor parte. *Estimación mía: de 0.5 a 0.9 ms.*
+
+**La suma, en el papel:** de 11.0 ms a unos 6, es decir de 373 a unos 700 inserts por segundo a 3.3M con 8 llamadores. Con menos cargas, lo que ahorra el punto 3 también encoge. **Es una suma de estimaciones sobre partes del perfil, y cada una tiene un precio de calidad o de formato que no está medido.**
+
+**El orden que propongo para la rama de mejoras (*mío*):**
+1. `efConstruction` 80 sobre el índice integrado, a 1M y sobre un clon del 10M: inserts por segundo, cargas y recall a 0.95 y 0.99 frente a 160. Es un parámetro, no hay código que escribir.
+2. El rescore del insert en 64 a 768d, con el recall de arista. Es una línea.
+3. La fila sin copia.
+4. El posting del extremo en la arista: cambia el formato, va el último.
+
 ### Dejar la base en su mejor estado, medirla y congelarla (plan del usuario, 2026-11-27 a las 12:20)
 
 **El encargo (del usuario), en tres puntos, con un resumen al cerrar cada uno:**

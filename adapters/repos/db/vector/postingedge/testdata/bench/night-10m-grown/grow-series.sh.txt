@@ -1,0 +1,38 @@
+#!/bin/bash
+# 10M of wiki-dpr grown by inserts with 8 callers and the series of the insert
+# steps on m2 (bench-report.md of feat/posting-edge-index, "10M crecido por
+# inserts, con la serie", 2026-11-27): the harness of the night of the 26th
+# (TestNightGrow), with the marker of the timed session and the usual wait for
+# an idle machine. Grow, then the heap of what it left in another process,
+# then the power log. Run under caffeinate -i -s. The binary is built before,
+# once ($G/grow.test); nothing here builds. The index stays: the 20 000
+# inserts of the tables by doc id go over clones of it.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+G=$S/grow10m
+B=$G/grow.test
+D=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+
+printf '10M of wiki-dpr grown by inserts with 8 callers (grow10m/grow.sh), timed, since %s for about eight hours; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+# The usual wait: the keyboard and the trackpad idle for 15 minutes.
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %H:%M:%S idle for $(hid_idle) s"
+
+cd $G/src/adapters/repos/db/vector/postingedge || exit 2
+date "+== %Y-%m-%d %H:%M:%S grow" | tee $G/start.txt
+PE_DATASET=$D PE_DIR=$G/index PE_OUT=$G/grow.json PE_CALLERS=8 PE_STRETCH=300 PE_MINFREE=4 \
+  $B -test.run '^TestNightGrow$' -test.v -test.timeout 0 > $G/grow.log 2>&1
+echo "grow exit $?"
+date "+== %H:%M:%S heap routing"
+PE_DIR=$G/index PE_CACHE=routing PE_HEAP=$G/heap-routing.heap PE_OUT=$G/heap-routing.json \
+  $B -test.run '^TestNightHeap$' -test.v -test.timeout 0 -test.memprofilerate=1 > $G/heap-routing.log 2>&1
+echo "heap exit $?"
+go tool pprof -raw $B $G/heap-routing.heap 2>/dev/null > $G/heap-routing.raw
+echo "raw exit $?"
+date "+== %Y-%m-%d %H:%M:%S done" | tee $G/end.txt
+pmset -g log > $G/pmset.log 2>&1
+echo "pmset exit $?"
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

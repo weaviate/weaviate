@@ -1,0 +1,26 @@
+#!/bin/bash
+# The chain of 2026-11-27 after the 3.3M inserts with the steps: the cells
+# that were missing to decide step 1 (night10m/c33b.sh, amendment 2); then
+# step 4, the journal without the vector, and step 4 with the layout rule of
+# an ingest (s5), each against the head at 100k as the steps before; and the
+# variants of step 1 inside the batches at 100k (variants.sh). Nothing here
+# builds. The indexes of the runs are not kept: their results are.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+R=$S/r100
+printf 'the 3.3M inserts that decide step 1, steps 4 and 5 and the variants of step 1 at 100k (r100/chain4.sh), timed, since %s for about two and a half hours; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+# The usual wait: the keyboard and the trackpad idle for 15 minutes.
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %H:%M:%S idle for $(hid_idle) s: the 3.3M inserts that decide step 1"
+bash $S/night10m/c33b.sh > $S/night10m/c33b.out 2>&1
+for step in s4 s5; do
+  date "+== %H:%M:%S $step"
+  bash $R/steps.sh $step > $R/steps-$step.out 2>&1
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/r100/runs-s4 /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/r100/runs-s5 -type d -name index -prune -exec rm -rf {} + 2>/dev/null
+done
+date "+== %H:%M:%S variants of step 1"
+bash $R/variants.sh > $R/variants.out 2>&1
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock
+date "+== %H:%M:%S done"
