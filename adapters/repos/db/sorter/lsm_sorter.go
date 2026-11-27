@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/pkg/errors"
@@ -60,7 +61,17 @@ func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className s
 	return &lsmSorter{bucket, dataTypesHelper, comparableValuesExtractor, store, invertedDisabled}, nil
 }
 
+func checkLimit(limit int) error {
+	if limit < 0 {
+		return fmt.Errorf("negative sort limit %d", limit)
+	}
+	return nil
+}
+
 func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
+	if err := checkLimit(limit); err != nil {
+		return nil, err
+	}
 	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper, s.invertedSorterDisabled)
 	useInverted, err := queryPlanner.Do(ctx, nil, limit, sort)
 	if err != nil {
@@ -68,16 +79,20 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 	}
 
 	startTime := time.Now()
-	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START EXECUTING")
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		fmt.Sprintf("START EXECUTING with %s strategy", strategyName(useInverted, sort)))
 	defer func() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			fmt.Sprintf("COMPLETED EXECUTING in %s", time.Since(startTime)))
 	}()
 
 	if useInverted {
-		is := NewInvertedSorter(s.store, s.dataTypesHelper)
-		return is.SortDocIDs(ctx, limit, sort, nil)
+		return s.sortInverted(ctx, limit, sort, nil)
 	}
+	return s.sortAllByObjects(ctx, limit, sort)
+}
+
+func (s *lsmSorter) sortAllByObjects(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
 	count, err := s.bucket.Count(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("count object: %w", err)
@@ -90,6 +105,9 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 }
 
 func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
+	if err := checkLimit(limit); err != nil {
+		return nil, err
+	}
 	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper, s.invertedSorterDisabled)
 	useInverted, err := queryPlanner.Do(ctx, ids, limit, sort)
 	if err != nil {
@@ -97,15 +115,15 @@ func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.So
 	}
 
 	startTime := time.Now()
-	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START EXECUTING")
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		fmt.Sprintf("START EXECUTING with %s strategy", strategyName(useInverted, sort)))
 	defer func() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			fmt.Sprintf("COMPLETED EXECUTING in %s", time.Since(startTime)))
 	}()
 
 	if useInverted {
-		is := NewInvertedSorter(s.store, s.dataTypesHelper)
-		return is.SortDocIDs(ctx, limit, sort, ids)
+		return s.sortInverted(ctx, limit, sort, ids)
 	}
 
 	helper, err := s.createHelper(sort, validateLimit(limit, ids.Len()))
@@ -113,6 +131,52 @@ func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.So
 		return nil, err
 	}
 	return helper.getSortedDocIDs(ctx, ids)
+}
+
+// sortInverted orders a multi-property sort through the objects bucket over only
+// the candidates the inverted index yields for the first property. Past
+// FullScanCandidateShare of the objects, an unfiltered sort reads them all instead.
+func (s *lsmSorter) sortInverted(ctx context.Context, limit int, sort []filters.Sort,
+	ids helpers.AllowList,
+) ([]uint64, error) {
+	is := NewInvertedSorter(s.store, s.dataTypesHelper)
+	if len(sort) == 1 {
+		return is.SortDocIDs(ctx, limit, sort, ids)
+	}
+
+	maxCandidates := math.MaxInt
+	if ids == nil {
+		count, err := s.bucket.CountApproximate()
+		if err != nil {
+			return nil, fmt.Errorf("count object: %w", err)
+		}
+		maxCandidates = int(FullScanCandidateShare * float64(count))
+	}
+	candidates, err := is.Candidates(ctx, limit, sort[0], ids, maxCandidates)
+	if errors.Is(err, errTooManyCandidates) {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("more than %d sort candidates, sorting all objects from objects bucket", maxCandidates))
+		return s.sortAllByObjects(ctx, limit, sort)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("collect sort candidates: %w", err)
+	}
+	helper, err := s.createHelper(sort, validateLimit(limit, len(candidates)))
+	if err != nil {
+		return nil, err
+	}
+	return helper.getSortedDocIDs(ctx, helpers.NewAllowList(candidates...))
+}
+
+func strategyName(useInverted bool, sort []filters.Sort) string {
+	switch {
+	case !useInverted:
+		return "objects bucket"
+	case len(sort) == 1:
+		return "inverted index"
+	default:
+		return "inverted index candidates"
+	}
 }
 
 func (s *lsmSorter) SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
