@@ -1247,19 +1247,23 @@ func TestEnvironmentRedactInternals(t *testing.T) {
 	tests := []struct {
 		name     string
 		value    []string
+		fromFile bool
 		expected bool
 	}{
-		{"true", []string{"true"}, true},
-		{"on", []string{"on"}, true},
-		{"false", []string{"false"}, false},
-		{"not given", []string{}, false},
+		{name: "env true", value: []string{"true"}, expected: true},
+		{name: "env on", value: []string{"on"}, expected: true},
+		{name: "env false", value: []string{"false"}},
+		{name: "not given"},
+		{name: "file on, env not given", fromFile: true, expected: true},
+		{name: "file on, env true", value: []string{"true"}, fromFile: true, expected: true},
+		{name: "file on, env false", value: []string{"false"}, fromFile: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if len(tt.value) == 1 {
 				t.Setenv("REDACT_INTERNALS", tt.value[0])
 			}
-			conf := Config{}
+			conf := Config{RedactInternals: tt.fromFile}
 			require.NoError(t, FromEnv(&conf))
 			require.Equal(t, tt.expected, conf.RedactInternals)
 		})
