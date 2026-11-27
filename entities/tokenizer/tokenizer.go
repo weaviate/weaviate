@@ -119,7 +119,7 @@ func InitOptionalTokenizers() {
 			if err != nil {
 				return err
 			}
-			Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
+			enableTokenization(models.PropertyTokenizationKagomeKr)
 			return nil
 		}(); err != nil {
 			logger.WithField("tokenizer", "kagome_kr").Error(err)
@@ -134,12 +134,23 @@ func InitOptionalTokenizers() {
 			if err != nil {
 				return err
 			}
-			Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
+			enableTokenization(models.PropertyTokenizationKagomeJa)
 			return nil
 		}(); err != nil {
 			logger.WithField("tokenizer", "kagome_ja").Error(err)
 		}
 	}
+}
+
+// enableTokenization records a tokenization as available. It is idempotent:
+// initialization skips its work when the dictionary is already loaded, so an
+// append guarded by that check ran once per process and could not put the
+// entry back after a test restored the list.
+func enableTokenization(name string) {
+	if slices.Contains(Tokenizations, name) {
+		return
+	}
+	Tokenizations = append(Tokenizations, name)
 }
 
 func init_gse() error {
@@ -152,10 +163,14 @@ func init_gse() error {
 			return fmt.Errorf("load ja dictionary: %w", err)
 		}
 		gseTokenizer = &seg
-		UseGse = true
-		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
 		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationGse).Observe(time.Since(startTime).Seconds())
 	}
+	// Outside the guard: the flag says the tokenizer is usable, which is true
+	// whenever the dictionary is loaded, not only on the call that loaded it.
+	// Setting it inside meant a second init found the segmenter already there,
+	// skipped the block, and left the flag off.
+	UseGse = true
+	enableTokenization(models.PropertyTokenizationGse)
 	return nil
 }
 
@@ -169,10 +184,10 @@ func init_gse_ch() error {
 			return fmt.Errorf("load zh dictionary: %w", err)
 		}
 		gseTokenizerCh = &seg
-		UseGseCh = true
-		Tokenizations = append(Tokenizations, models.PropertyTokenizationGseCh)
 		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationGseCh).Observe(time.Since(startTime).Seconds())
 	}
+	UseGseCh = true
+	enableTokenization(models.PropertyTokenizationGseCh)
 	return nil
 }
 
@@ -528,4 +543,24 @@ func TokenizeAndCountDuplicatesForClass(tokenization string, in string, class st
 	}
 
 	return unique, boosts
+}
+
+// SaveOptionalTokenizerState captures the process-global state that
+// InitOptionalTokenizers mutates and returns a function restoring it.
+//
+// t.Setenv puts the environment back but not the state derived from it: the
+// UseGse flags, the Kagome tokenizers and the Tokenizations list all outlive
+// the test that enabled them, so a later test asking whether an optional
+// tokenizer is disabled sees it enabled. Tests that call
+// InitOptionalTokenizers should register this with t.Cleanup.
+func SaveOptionalTokenizerState() func() {
+	useGse, useGseCh := UseGse, UseGseCh
+	savedKagome := tokenizers
+	savedTokenizations := append([]string(nil), Tokenizations...)
+
+	return func() {
+		UseGse, UseGseCh = useGse, useGseCh
+		tokenizers = savedKagome
+		Tokenizations = savedTokenizations
+	}
 }
