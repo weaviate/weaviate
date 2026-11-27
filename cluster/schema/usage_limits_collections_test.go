@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -31,7 +32,9 @@ func TestPreApplyFilter_CollectionCap(t *testing.T) {
 
 	newManager := func(t *testing.T, cap int) *SchemaManager {
 		t.Helper()
-		sm := NewSchemaManager(nodeID, nil, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+		// The controller holds no namespace, so PreApplyFilter skips its home-node checks.
+		namespaces := usecasesNamespaces.NewController(logrus.New())
+		sm := NewSchemaManager(nodeID, nil, nil, namespaces, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetCollectionLimit(func() int { return cap }, nil)
 		return sm
 	}

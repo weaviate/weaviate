@@ -1071,7 +1071,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := enforceNamespaceStartupInvariants(
 			appState.ServerConfig.Config.Namespaces.Enabled,
 			appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
-			appState.ServerConfig.Config.Replication.MaximumFactor,
 			classNames,
 			appState.ClusterService.NamespaceCount(),
 			roleNames,
@@ -1276,7 +1275,7 @@ func initReindexAndDistributedTasks(
 // A class name is considered namespace-qualified iff it contains
 // entschema.NamespaceSeparator (":"), which is forbidden in plain class names
 // by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
-func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, groupingSubjects []string, staticAPIKeyUsers []string) error {
+func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, classNames []string, nsCount int, roleNames []string, groupingSubjects []string, staticAPIKeyUsers []string) error {
 	var nonNamespacedCount, namespacedCount int
 	var nonNamespacedExample, namespacedExample string
 	for _, name := range classNames {
@@ -1296,12 +1295,6 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 	switch {
 	case enabled && !lsmSkipWriteClassNameEnabled:
 		return fmt.Errorf("internal invariant violated: NAMESPACES_ENABLED=true but LSMSkipWriteClassNameEnabled=false; env-var wiring in usecases/config/environment.go is broken")
-	case enabled && maxReplicationFactor != 1:
-		// The leader does not yet check a namespaced class's factor or a
-		// tenant's nodes against its own home_nodes, so above factor 1 a node
-		// that lags a home_nodes or factor change can propose placements those
-		// home_nodes no longer allow.
-		return fmt.Errorf("NAMESPACES_ENABLED=true requires REPLICATION_MAXIMUM_FACTOR=1; got %d", maxReplicationFactor)
 	case enabled && nonNamespacedCount > 0:
 		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced collection(s) (e.g. %q); namespaces can only be enabled on newly bootstrapped clusters or on clusters whose collections are all already namespace-qualified", nonNamespacedCount, nonNamespacedExample)
 	case !enabled && nsCount > 0:

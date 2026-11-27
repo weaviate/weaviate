@@ -23,12 +23,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// homeNodeShards splits the shards reported by GET /v1/nodes/<class> into
-// those on homeNode and a count of shards seen on any other node. Asserts
-// through c so an EventuallyWithT caller retries: /nodes fans out to every
-// node and 404s until all followers have applied the AddClass. ok is false
-// when the call has not yet succeeded.
-func homeNodeShards(t *testing.T, c *assert.CollectT, qualifiedClass, homeNode, key string) (homeShards []*models.NodeShardStatus, otherNodeShardCount int, ok bool) {
+// verboseNodes returns the nodes GET /v1/nodes/<class> reports, with their
+// shards, and ok false until the call succeeds. It asserts through c, so an
+// EventuallyWithT caller retries the 404 that /nodes returns until every
+// follower has applied the AddClass.
+func verboseNodes(t *testing.T, c *assert.CollectT, qualifiedClass, key string) (nodeList []*models.NodeStatus, ok bool) {
 	t.Helper()
 	verbose := "verbose"
 	resp, err := helper.Client(t).Nodes.NodesGetClass(
@@ -36,12 +35,23 @@ func homeNodeShards(t *testing.T, c *assert.CollectT, qualifiedClass, homeNode, 
 		helper.CreateAuth(key),
 	)
 	if !assert.NoError(c, err) {
-		return nil, 0, false
+		return nil, false
 	}
 	if !assert.NotNil(c, resp.Payload) {
+		return nil, false
+	}
+	return resp.Payload.Nodes, true
+}
+
+// homeNodeShards splits the shards verboseNodes reports into those on
+// homeNode and a count of shards seen on any other node.
+func homeNodeShards(t *testing.T, c *assert.CollectT, qualifiedClass, homeNode, key string) (homeShards []*models.NodeShardStatus, otherNodeShardCount int, ok bool) {
+	t.Helper()
+	nodeList, ok := verboseNodes(t, c, qualifiedClass, key)
+	if !ok {
 		return nil, 0, false
 	}
-	for _, n := range resp.Payload.Nodes {
+	for _, n := range nodeList {
 		if n.Name == homeNode {
 			homeShards = n.Shards
 			continue

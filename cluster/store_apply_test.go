@@ -535,7 +535,7 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	}
 
 	// Initialize the schema manager with replication FSM
-	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, nil, prometheus.NewPedanticRegistry(), mockStore.logger)
+	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, mockStore.cfg.NamespacesController, prometheus.NewPedanticRegistry(), mockStore.logger)
 	mockStore.store.schemaManager.SetReplicationFSM(mockStore.replicationFSM)
 
 	return mockStore, log

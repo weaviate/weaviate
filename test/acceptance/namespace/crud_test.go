@@ -155,8 +155,8 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 		// GetNamespace routes through the leader and reports the new
 		// home_node immediately, so it can't tell us whether *this*
 		// node's controller has caught up — and that's the one placement
-		// reads from. Probe via class creation (the same code path) with
-		// fresh names per try, dropping any that land on the old node.
+		// reads from. Probe via class creation (the same code path), retrying
+		// while the leader refuses a create this node places on the old node.
 		var probeName string
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			probeName = fmt.Sprintf("ClassB_%d", time.Now().UnixNano())

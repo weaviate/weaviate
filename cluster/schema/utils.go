@@ -25,3 +25,13 @@ func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {
 	}
 	return tenants[:n]
 }
+
+func tenantNames(tenants []*cmd.Tenant) []string {
+	names := make([]string, 0, len(tenants))
+	for _, t := range tenants {
+		if t != nil {
+			names = append(names, t.Name)
+		}
+	}
+	return names
+}

@@ -29,7 +29,6 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 		name                         string
 		enabled                      bool
 		lsmSkipWriteClassNameEnabled bool
-		maxReplicationFac            int
 		classNames                   []string
 		nsCount                      int
 		roleNames                    []string
@@ -42,13 +41,11 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			name:                         "enabled, fresh cluster",
 			enabled:                      true,
 			lsmSkipWriteClassNameEnabled: true,
-			maxReplicationFac:            1,
 		},
 		{
 			name:                         "enabled, only namespaced classes",
 			enabled:                      true,
 			lsmSkipWriteClassNameEnabled: true,
-			maxReplicationFac:            1,
 			classNames:                   []string{qualified("tenant1", "Movie")},
 			nsCount:                      1,
 		},
@@ -56,7 +53,6 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			name:                         "enabled, non-namespaced class present",
 			enabled:                      true,
 			lsmSkipWriteClassNameEnabled: true,
-			maxReplicationFac:            1,
 			classNames:                   []string{"Movie"},
 			wantErr:                      true,
 			errSubstr:                    "non-namespaced collection",
@@ -65,7 +61,6 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			name:                         "enabled, mixed but contains legacy class",
 			enabled:                      true,
 			lsmSkipWriteClassNameEnabled: true,
-			maxReplicationFac:            1,
 			classNames:                   []string{qualified("tenant1", "Movie"), "Legacy"},
 			nsCount:                      1,
 			wantErr:                      true,
@@ -75,34 +70,12 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			name:                         "enabled but lsm skip write classname disabled",
 			enabled:                      true,
 			lsmSkipWriteClassNameEnabled: false,
-			maxReplicationFac:            1,
 			wantErr:                      true,
 			errSubstr:                    "internal invariant violated",
 		},
 		{
-			name:                         "enabled, MaximumFactor unset",
-			enabled:                      true,
-			lsmSkipWriteClassNameEnabled: true,
-			maxReplicationFac:            0,
-			wantErr:                      true,
-			errSubstr:                    "REPLICATION_MAXIMUM_FACTOR",
-		},
-		{
-			name:                         "enabled, MaximumFactor=3",
-			enabled:                      true,
-			lsmSkipWriteClassNameEnabled: true,
-			maxReplicationFac:            3,
-			wantErr:                      true,
-			errSubstr:                    "REPLICATION_MAXIMUM_FACTOR",
-		},
-		{
 			name:    "disabled, fresh cluster",
 			enabled: false,
-		},
-		{
-			name:              "disabled, MaximumFactor>1 is allowed",
-			enabled:           false,
-			maxReplicationFac: 3,
 		},
 		{
 			name:       "disabled, legacy classes only",
@@ -196,7 +169,6 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			name:                         "enabled, qualified RBAC rows are normal",
 			enabled:                      true,
 			lsmSkipWriteClassNameEnabled: true,
-			maxReplicationFac:            1,
 			roleNames:                    []string{qualified("tenant1", "editor")},
 			groupingSubjects:             []string{"db:tenant1:bob"},
 		},
@@ -204,7 +176,7 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount, tt.roleNames, tt.groupingSubjects, tt.staticAPIKeyUsers)
+			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.classNames, tt.nsCount, tt.roleNames, tt.groupingSubjects, tt.staticAPIKeyUsers)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)

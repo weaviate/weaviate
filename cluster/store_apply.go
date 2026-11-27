@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
@@ -58,6 +59,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
+	// An AddTenants or AddClass takes its cap lock above before homeNodesLocks.
+	unlockHomeNodes, err := st.lockHomeNodes(req)
+	if err != nil {
+		return 0, err
+	}
+	defer unlockHomeNodes()
+
 	// Tenant deletes, tenant updates and class deletes hold taskMovementLocks shared until they apply, so a submit waits for them.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
@@ -73,21 +81,14 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.taskMovementLocks.RUnlock(key)
 	}
 
-	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the tenant,
-	// collection and task-movement locks, not before: each is held across the
+	// WriteTenantNodes and PreApplyFilter below read in-memory FSM state, so a
+	// leader that has not drained what it inherited must not run them yet. After the tenant,
+	// collection, home-node and task-movement locks, not before: each is held across the
 	// apply, so a caller can wait on it long enough for leadership to turn over,
 	// and a term confirmed before the wait says nothing about the term it wakes
 	// up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
 		return 0, err
-	}
-
-	// Parse the underlying command before pre execute filtering to avoid queryinf the schema is the underlying command
-	// is invalid
-	cmdBytes, err := proto.Marshal(req)
-	if err != nil {
-		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 
 	if err := refuseUnknownFields(req); err != nil {
@@ -99,6 +100,25 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// entity the caller named.
 	if err := st.admitPropose(req, collection, task); err != nil {
 		return 0, err
+	}
+
+	// WriteTenantNodes runs after admitPropose, so a suspended namespace still
+	// answers with its state, and before the entry is encoded, since it rewrites req.
+	err = st.schemaManager.WriteTenantNodes(req, st.storageCandidates)
+	if errors.Is(err, schema.ErrClassNotFound) {
+		// A follower can forward req for a class it has applied and this leader has
+		// only committed. Barrier waits for that apply, and WriteTenantNodes looks again.
+		if err := st.raft.Load().Barrier(st.applyTimeout).Error(); err != nil {
+			return 0, fmt.Errorf("%w: %w", types.ErrFSMNotCaughtUp, err)
+		}
+		err = st.schemaManager.WriteTenantNodes(req, st.storageCandidates)
+	}
+	if err != nil {
+		return 0, err
+	}
+	cmdBytes, err := proto.Marshal(req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 
 	// Call the filtering to avoid committing to the FSM unnecessary updates
@@ -122,6 +142,42 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
 	}
 	return resp.Version, resp.Error
+}
+
+// lockHomeNodes locks the namespace whose HomeNodes PreApplyFilter reads for a class
+// create, restore or update, and WriteTenantNodes for a tenant add. Those commands
+// share it, and an UPDATE_NAMESPACE takes it exclusively. A tenant update skips it, so
+// no activation waits behind a home-node update. WriteTenantNodes can then give an
+// unfreeze the HomeNodes a pending UPDATE_NAMESPACE replaces.
+func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
+		ns, err := updatedNamespace(req)
+		if err != nil {
+			return nil, err
+		}
+		st.homeNodesLocks.Lock(ns)
+		return func() { st.homeNodesLocks.Unlock(ns) }, nil
+	case api.ApplyRequest_TYPE_ADD_CLASS, api.ApplyRequest_TYPE_RESTORE_CLASS, api.ApplyRequest_TYPE_UPDATE_CLASS,
+		api.ApplyRequest_TYPE_ADD_TENANT:
+		ns := namespacing.NamespaceFromQualified(req.Class)
+		if ns == "" {
+			return func() {}, nil
+		}
+		st.homeNodesLocks.RLock(ns)
+		return func() { st.homeNodesLocks.RUnlock(ns) }, nil
+	default:
+		return func() {}, nil
+	}
+}
+
+// updatedNamespace returns the name of the namespace an UPDATE_NAMESPACE changes.
+func updatedNamespace(req *api.ApplyRequest) (string, error) {
+	sub := &api.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return "", fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return sub.Namespace.Name, nil
 }
 
 // refuseUnknownFields refuses an update carrying a field this binary does not
@@ -320,11 +376,11 @@ func (st *Store) admitNamespaceUpdate(req *api.ApplyRequest) error {
 	if req.Type != api.ApplyRequest_TYPE_UPDATE_NAMESPACE {
 		return nil
 	}
-	sub := &api.UpdateNamespaceRequest{}
-	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-		return fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
+	ns, err := updatedNamespace(req)
+	if err != nil {
+		return err
 	}
-	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, sub.Namespace.Name)
+	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, ns)
 }
 
 // admitCreateLike refuses a create-like, property or class update command

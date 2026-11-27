@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -31,6 +33,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -40,6 +44,7 @@ type Manager struct {
 	replicationFSM *ShardReplicationFSM
 	schemaReader   schema.SchemaReader
 	nodeSelector   cluster.NodeSelector
+	namespaces     namespaces.Exister
 	logger         logrus.FieldLogger
 
 	// localNodeID is embedded in node-reached-state broadcasts so peers
@@ -82,6 +87,12 @@ func (m *Manager) Close() {
 
 func (m *Manager) SetLogger(logger logrus.FieldLogger) {
 	m.logger = logger
+}
+
+// SetNamespaces installs the lookup QueryReplicationScalePlan reads a namespaced
+// collection's home nodes from. Without it, every namespaced plan fails.
+func (m *Manager) SetNamespaces(exister namespaces.Exister) {
+	m.namespaces = exister
 }
 
 func (m *Manager) SetNodeReachedStateSubmitter(
@@ -577,8 +588,12 @@ func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error)
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	var shardingState *sharding.State
+	var (
+		shardingState *sharding.State
+		className     string
+	)
 	m.schemaReader.Read(subCommand.Collection, true, func(c *models.Class, s *sharding.State) error {
+		className = c.Class
 		stateCopy := s.DeepCopy()
 		shardingState = &stateCopy
 		return nil
@@ -588,6 +603,12 @@ func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error)
 		return nil, fmt.Errorf("%w: %s", ErrClassNotFound, subCommand.Collection)
 	}
 
+	factor := int(subCommand.ReplicationFactor)
+	ns, err := m.scalePlanNamespace(className)
+	if err != nil {
+		return nil, err
+	}
+
 	currentShards := make(map[string][]string, len(shardingState.Physical))
 	desiredShards := make(map[string][]string, len(shardingState.Physical))
 
@@ -595,7 +616,7 @@ func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error)
 		currentShards[name] = make([]string, len(shard.BelongsToNodes))
 		copy(currentShards[name], shard.BelongsToNodes)
 
-		if err := shard.AdjustReplicas(int(subCommand.ReplicationFactor), m.nodeSelector); err != nil {
+		if err := m.adjustReplicas(&shard, factor, ns); err != nil {
 			return nil, err
 		}
 
@@ -670,6 +691,72 @@ func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error)
 		return nil, fmt.Errorf("could not marshal query response: %w", err)
 	}
 	return payload, nil
+}
+
+// scalePlanNamespace returns the namespace of class, or nil for an unqualified
+// class.
+func (m *Manager) scalePlanNamespace(class string) (*cmd.Namespace, error) {
+	name := namespacing.NamespaceFromQualified(class)
+	if name == "" {
+		return nil, nil
+	}
+	var (
+		ns cmd.Namespace
+		ok bool
+	)
+	if m.namespaces != nil {
+		ns, ok = m.namespaces.GetNamespace(name)
+	}
+	if !ok {
+		return nil, fmt.Errorf("namespace %q of collection %q does not exist", name, class)
+	}
+	return &ns, nil
+}
+
+// adjustReplicas sets shard's replicas to factor. For a class in ns, a raise
+// adds the first home nodes that are storage candidates, so a raise past the
+// home-node count is a bad request. A shrink needs no home node.
+func (m *Manager) adjustReplicas(shard *sharding.Physical, factor int, ns *cmd.Namespace) error {
+	storageCandidates := m.nodeSelector.StorageCandidates()
+	if ns == nil {
+		return shard.AdjustReplicas(factor, storageCandidates)
+	}
+	shard.BelongsToNodes = homeNodesFirst(*ns, shard.BelongsToNodes, storageCandidates)
+	if homeNodes := len(ns.HomeNodes); factor > homeNodes && factor > len(shard.BelongsToNodes) {
+		return fmt.Errorf("%w: requested replication factor %d adds replicas to shard %q and exceeds the %d home node(s) of namespace %q; "+
+			"request at most %d, or an administrator must add home nodes", schema.ErrBadRequest, factor, shard.Name, homeNodes, ns.Name, homeNodes)
+	}
+	pool := slices.Clone(shard.BelongsToNodes)
+	for _, n := range ns.PlacementNodes(storageCandidates, len(ns.HomeNodes)) {
+		if !slices.Contains(pool, n) {
+			pool = append(pool, n)
+		}
+	}
+	err := shard.AdjustReplicas(factor, pool)
+	if errors.Is(err, sharding.ErrNotEnoughStorageReplicas) {
+		return fmt.Errorf("home node(s) %s of namespace %q are not storage candidates: %w",
+			strings.Join(ns.MissingHomeNodes(storageCandidates), ", "), ns.Name, err)
+	}
+	return err
+}
+
+// homeNodesFirst orders replicas for a shrink, which keeps the first ones. Home
+// nodes of ns that are storage candidates lead, then other storage candidates,
+// its other home nodes and the rest. Home nodes keep HomeNodes order.
+func homeNodesFirst(ns cmd.Namespace, replicas, storageCandidates []string) []string {
+	var live []string
+	for _, node := range replicas {
+		if slices.Contains(storageCandidates, node) {
+			live = append(live, node)
+		}
+	}
+	ordered := make([]string, 0, len(replicas))
+	for _, node := range slices.Concat(ns.PlacementNodes(live, len(replicas)), live, ns.PlacementNodes(replicas, len(replicas)), replicas) {
+		if !slices.Contains(ordered, node) {
+			ordered = append(ordered, node)
+		}
+	}
+	return ordered
 }
 
 func diffNodesPerShard(before, after map[string][]string) map[string]struct {

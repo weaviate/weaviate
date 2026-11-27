@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -719,7 +721,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	t.Run("While its namespace is suspended a copy is refused before any step, and applies once it is active", func(t *testing.T) {
 		const nsClass = "alpha:Books"
 		namespaces := m.cfg.NamespacesController
-		require.NoError(t, namespaces.Create(command.Namespace{Name: "alpha", HomeNodes: []string{sourceNode}}, nsCreateIndex))
+		require.NoError(t, namespaces.Create(command.Namespace{Name: "alpha", HomeNodes: []string{sourceNode, removeNode}}, nsCreateIndex))
 		_, err := r.AddClass(ctx, &models.Class{Class: nsClass}, &sharding.State{
 			PartitioningEnabled: true,
 			Physical: map[string]sharding.Physical{
@@ -759,7 +761,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	t.Run("While its namespace is being deleted a copy is refused before any step", func(t *testing.T) {
 		const nsClass = "beta:Books"
 		namespaces := m.cfg.NamespacesController
-		require.NoError(t, namespaces.Create(command.Namespace{Name: "beta", HomeNodes: []string{sourceNode}}, nsCreateIndex))
+		require.NoError(t, namespaces.Create(command.Namespace{Name: "beta", HomeNodes: []string{sourceNode, removeNode}}, nsCreateIndex))
 		_, err := r.AddClass(ctx, &models.Class{Class: nsClass}, &sharding.State{
 			PartitioningEnabled: true,
 			Physical: map[string]sharding.Physical{
@@ -921,6 +923,140 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{sourceNode, removeNode}, after.Physical[shard].BelongsToNodes)
 	})
+}
+
+// TestGetReplicationScalePlan_NamespacedClassPicksHomeNodes pins which replicas
+// a scale plan for acme:Books adds and removes on its one shard.
+func TestGetReplicationScalePlan_NamespacedClassPicksHomeNodes(t *testing.T) {
+	const (
+		sourceNode = "Node-1"
+		removeNode = "Node-3"
+		nonHome    = "Node-4"
+	)
+	tests := []struct {
+		name        string
+		homeNodes   []string
+		replicas    []string
+		selector    []string // the store's storage candidates; localhost when nil
+		factor      int
+		wantAdded   []string
+		wantRemoved []string
+		wantErr     error
+		wantErrText string
+	}{
+		{
+			name:      "a raise adds the next home node in list order",
+			homeNodes: []string{"Node-3", "Node-2", "Node-1"}, replicas: []string{"Node-3"},
+			selector: []string{"Node-1", "Node-2", "Node-3"}, factor: 2, wantAdded: []string{"Node-2"},
+		},
+		{
+			name:      "a shrink with no home node a storage candidate keeps the first home node",
+			homeNodes: []string{sourceNode, removeNode}, replicas: []string{removeNode, sourceNode},
+			factor: 1, wantRemoved: []string{removeNode},
+		},
+		{
+			name:      "a shrink drops a non-home replica first",
+			homeNodes: []string{sourceNode, removeNode}, replicas: []string{nonHome, sourceNode},
+			factor: 1, wantRemoved: []string{nonHome},
+		},
+		{
+			name:      "a raise keeps a non-home replica",
+			homeNodes: []string{sourceNode, removeNode}, replicas: []string{nonHome},
+			selector: []string{sourceNode, removeNode}, factor: 2, wantAdded: []string{sourceNode},
+		},
+		{
+			name:      "a shrink keeps a home node that is a storage candidate ahead of one that is not",
+			homeNodes: []string{"n1", "n2"}, replicas: []string{"n2", "n1"},
+			selector: []string{"n2"}, factor: 1, wantRemoved: []string{"n1"},
+		},
+		{
+			name:      "a shrink keeps home nodes that are storage candidates in list order",
+			homeNodes: []string{"n2", "n1"}, replicas: []string{"n1", "n2"},
+			selector: []string{"n1", "n2"}, factor: 1, wantRemoved: []string{"n1"},
+		},
+		{
+			name:      "a shrink keeps a non-home storage candidate ahead of a home node that is not one",
+			homeNodes: []string{sourceNode}, replicas: []string{nonHome, sourceNode},
+			selector: []string{nonHome}, factor: 1, wantRemoved: []string{sourceNode},
+		},
+		{
+			name:      "a raise skips a home node that is not a storage candidate",
+			homeNodes: []string{"n1", "n2", "n3"}, replicas: []string{"n1"},
+			selector: []string{"n1", "n3"}, factor: 2, wantAdded: []string{"n3"},
+		},
+		{
+			name:      "a raise counts a non-home replica toward the factor",
+			homeNodes: []string{"n1", "n2", "n3"}, replicas: []string{"n1", "x"},
+			selector: []string{"n1", "n2", "x"}, factor: 3, wantAdded: []string{"n2"},
+		},
+		{
+			name:      "a raise past the home nodes that are storage candidates is refused",
+			homeNodes: []string{"n1", "n2"}, replicas: []string{"n1"},
+			selector: []string{"n1"}, factor: 2, wantErrText: `home node(s) n2 of namespace "acme"`,
+		},
+		{
+			name:      "a raise above the home-node count is a bad request",
+			homeNodes: []string{"n1", "n2"}, replicas: []string{"n1"},
+			selector: []string{"n1", "n2"}, factor: 3,
+			wantErr: schema.ErrBadRequest, wantErrText: `exceeds the 2 home node(s) of namespace "acme"`,
+		},
+		{
+			name:      "a raise above the home-node count is a bad request on a shard above that count",
+			homeNodes: []string{"n1"}, replicas: []string{"n1", "n2"},
+			selector: []string{"n1", "n2", "n3"}, factor: 3,
+			wantErr: schema.ErrBadRequest, wantErrText: `exceeds the 1 home node(s) of namespace "acme"`,
+		},
+		{
+			name:      "a shrink above the home-node count keeps the home nodes first",
+			homeNodes: []string{"n1"}, replicas: []string{"n2", "n3", "n1"},
+			selector: []string{"n1", "n2", "n3"}, factor: 2, wantRemoved: []string{"n3"},
+		},
+		{
+			name:      "a factor above the home-node count that equals the replica count changes nothing",
+			homeNodes: []string{"n1"}, replicas: []string{"n1", "n2"},
+			selector: []string{"n1", "n2"}, factor: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var tweaks []func(*Config)
+			if tt.selector != nil {
+				tweaks = append(tweaks, func(c *Config) { c.NodeSelector = mocks.NewMockNodeSelector(tt.selector...) })
+			}
+			srv, m := newBarrierTestStore(t, tweaks...)
+			ctx := context.Background()
+
+			// The leader refuses a create with a replica off the home nodes, so a
+			// non-home replica gets there through a later home_nodes update.
+			createHomeNodes := slices.Clone(tt.homeNodes)
+			for _, node := range tt.replicas {
+				if !slices.Contains(createHomeNodes, node) {
+					createHomeNodes = append(createHomeNodes, node)
+				}
+			}
+			namespaces := m.cfg.NamespacesController
+			require.NoError(t, namespaces.Create(command.Namespace{Name: "acme", HomeNodes: createHomeNodes}, nsCreateIndex))
+			_, err := srv.AddClass(ctx, &models.Class{Class: "acme:Books"}, &sharding.State{
+				PartitioningEnabled: true,
+				Physical:            map[string]sharding.Physical{"ShardA": {Name: "ShardA", BelongsToNodes: tt.replicas}},
+			})
+			require.NoError(t, err)
+			require.NoError(t, namespaces.Update(command.Namespace{Name: "acme", HomeNodes: tt.homeNodes}))
+
+			plan, err := srv.GetReplicationScalePlan(ctx, "acme:Books", tt.factor)
+			if tt.wantErrText != "" {
+				require.ErrorContains(t, err, tt.wantErrText)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+				}
+				return
+			}
+			require.NoError(t, err)
+			actions := plan.ShardReplicationScaleActions["ShardA"]
+			assert.ElementsMatch(t, tt.wantAdded, slices.Collect(maps.Keys(actions.AddNodes)))
+			assert.ElementsMatch(t, tt.wantRemoved, slices.Collect(maps.Keys(actions.RemoveNodes)))
+		})
+	}
 }
 
 // TestClusterID_CommittedByRealRaftLeader drives cluster-id commit through a

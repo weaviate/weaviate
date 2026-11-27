@@ -332,7 +332,8 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, uint64, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants:               make([]*api.Tenant, 0, len(status)),
+		Tenants: make([]*api.Tenant, 0, len(status)),
+		// TODO(v1.42): send nil for a namespaced class when Handler.tenantClusterNodes does.
 		ClusterNodes:          m.membership.StorageCandidates(),
 		ImplicitUpdateRequest: true,
 	}
@@ -400,7 +401,8 @@ func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string,
 	}
 
 	req := &api.UpdateTenantsRequest{
-		Tenants:               make([]*api.Tenant, len(tenants)),
+		Tenants: make([]*api.Tenant, len(tenants)),
+		// TODO(v1.42): send nil for a namespaced class when Handler.tenantClusterNodes does.
 		ClusterNodes:          m.membership.StorageCandidates(),
 		ImplicitUpdateRequest: true,
 	}

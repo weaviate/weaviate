@@ -34,6 +34,22 @@ type Namespace struct {
 	StateChangeIndex uint64
 }
 
+// PlacementNodes returns the HomeNodes entries that available holds, in
+// HomeNodes order, cut to the first factor of them. A factor of 0 or less
+// returns nil. The caller decides what a list shorter than factor means.
+func (n Namespace) PlacementNodes(available []string, factor int) []string {
+	var nodes []string
+	for _, node := range n.HomeNodes {
+		if len(nodes) >= factor {
+			break
+		}
+		if slices.Contains(available, node) {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
+}
+
 // MissingHomeNodes returns the HomeNodes entries not in candidates, in stored
 // order.
 func (n Namespace) MissingHomeNodes(candidates []string) []string {
@@ -47,13 +63,19 @@ func (n Namespace) MissingHomeNodes(candidates []string) []string {
 }
 
 // CheckReplicationFactor refuses a factor above the HomeNodes count, because
-// each replica of a namespaced shard goes on a different home node.
-func (n Namespace) CheckReplicationFactor(factor int64) error {
-	if factor > int64(len(n.HomeNodes)) {
-		return fmt.Errorf("replication factor %d exceeds the %d home node(s) of the namespace; "+
-			"an administrator must add home nodes", factor, len(n.HomeNodes))
+// each replica of a namespaced shard goes on a different home node. Its error
+// suggests the count as a lower factor only when it is at least minimumFactor.
+func (n Namespace) CheckReplicationFactor(factor, minimumFactor int64) error {
+	homeNodes := int64(len(n.HomeNodes))
+	if factor <= homeNodes {
+		return nil
 	}
-	return nil
+	lower := ""
+	if homeNodes >= minimumFactor {
+		lower = fmt.Sprintf("lower the collection's replication factor to at most %d, or ", homeNodes)
+	}
+	return fmt.Errorf("replication factor %d exceeds the %d home node(s) of the namespace; "+
+		"%san administrator must add home nodes", factor, homeNodes, lower)
 }
 
 // CheckClassFactors refuses HomeNodes shorter than the largest value of

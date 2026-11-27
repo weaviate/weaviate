@@ -29,7 +29,11 @@ import (
 
 const shardNameLength = 12
 
-var ErrReplicaAlreadyExists = errors.New("replica already exists")
+var (
+	ErrReplicaAlreadyExists = errors.New("replica already exists")
+	// ErrNotEnoughStorageReplicas is AdjustReplicas' refusal of a raise past its candidates.
+	ErrNotEnoughStorageReplicas = errors.New("not enough storage replicas")
+)
 
 type State struct {
 	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
@@ -236,8 +240,9 @@ func (p *Physical) DeleteReplica(replica string) error {
 	return nil
 }
 
-// AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
-func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
+// AdjustReplicas shrinks the replica set (p.BelongsToNodes) to its first count
+// entries, or extends it with candidates in their order.
+func (p *Physical) AdjustReplicas(count int, candidates []string) error {
 	if count < 0 {
 		return fmt.Errorf("negative replication factor: %d", count)
 	}
@@ -265,13 +270,12 @@ func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
 		return nil
 	}
 
-	names := nodes.StorageCandidates()
-	if count > len(names) {
-		return fmt.Errorf("not enough storage replicas: found %d want %d", len(names), count)
+	if count > len(candidates) {
+		return fmt.Errorf("%w: found %d want %d", ErrNotEnoughStorageReplicas, len(candidates), count)
 	}
 
 	// make sure included nodes are unique
-	for _, n := range names {
+	for _, n := range candidates {
 		if !available[n] {
 			p.BelongsToNodes = append(p.BelongsToNodes, n)
 			available[n] = true
