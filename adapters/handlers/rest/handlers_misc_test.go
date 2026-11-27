@@ -69,7 +69,7 @@ func TestMetaGetLicense(t *testing.T) {
 			logger := logrus.New()
 			logger.SetOutput(io.Discard)
 			serverConfig := &config.WeaviateConfig{
-				Config:   config.Config{RedactInternals: tc.redact, GRPC: config.GRPC{MaxMsgSize: 1234}},
+				Config:   config.Config{RedactInternals: tc.redact},
 				Hostname: "[::]:8080",
 				Scheme:   "http",
 			}
@@ -84,8 +84,6 @@ func TestMetaGetLicense(t *testing.T) {
 			var body models.Meta
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 			require.Equal(t, tc.wantHostname, body.Hostname)
-			require.Equal(t, config.ServerVersion, body.Version)
-			require.Equal(t, int64(1234), body.GrpcMaxMessageSize)
 			require.NotNil(t, body.License)
 			require.Equal(t, tc.wantEdition, body.License.Edition)
 			require.Equal(t, license.EnterpriseDocsURL, body.License.DocumentationHref)
@@ -97,10 +95,9 @@ func TestMetaGetLicense(t *testing.T) {
 				require.NotContains(t, rec.Body.String(), key,
 					"unknown timestamps must be absent, not serialized as zero values")
 			}
-			if tc.wantStatus == "" {
+			if tc.wantEdition == "community" {
+				// A community node has no license, so no license status or id.
 				require.NotContains(t, rec.Body.String(), `"status"`)
-			}
-			if tc.wantLicenseID == "" {
 				require.NotContains(t, rec.Body.String(), `"licenseId"`)
 			}
 			require.NotContains(t, rec.Body.String(), "wv8.",

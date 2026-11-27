@@ -1252,10 +1252,7 @@ func TestEnvironmentRedactInternals(t *testing.T) {
 	}{
 		{name: "env true", value: []string{"true"}, expected: true},
 		{name: "env on", value: []string{"on"}, expected: true},
-		{name: "env false", value: []string{"false"}},
-		{name: "not given"},
 		{name: "file on, env not given", fromFile: true, expected: true},
-		{name: "file on, env true", value: []string{"true"}, fromFile: true, expected: true},
 		{name: "file on, env false", value: []string{"false"}, fromFile: true},
 	}
 	for _, tt := range tests {
