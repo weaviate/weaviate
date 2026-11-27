@@ -45,19 +45,7 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		Logger:             appState.Logger,
 	})
 
-	// swagger-layer errors (bind validation, security, routing) on search
-	// and aggregate routes use the same ErrorResponse shape as handler errors
-	defaultServeError := api.ServeError
-	if defaultServeError == nil {
-		defaultServeError = openapierrors.ServeError
-	}
-	api.ServeError = func(rw http.ResponseWriter, r *http.Request, err error) {
-		if r != nil && (restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)) {
-			restsearch.ServeError(rw, r, err)
-			return
-		}
-		defaultServeError(rw, r, err)
-	}
+	setupSearchServeError(api)
 
 	api.SearchSearchNearTextHandler = searchops.SearchNearTextHandlerFunc(
 		func(params searchops.SearchNearTextParams, principal *models.Principal) middleware.Responder {
@@ -112,6 +100,24 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 			}
 			return aggregateops.NewAggregateOK().WithPayload(payload)
 		})
+}
+
+// setupSearchServeError makes swagger-layer errors (bind validation, security,
+// routing) on search and aggregate routes use the same ErrorResponse shape as
+// handler errors. It classifies on the escaped path, because that is the
+// string the router looks up.
+func setupSearchServeError(api *operations.WeaviateAPI) {
+	defaultServeError := api.ServeError
+	if defaultServeError == nil {
+		defaultServeError = openapierrors.ServeError
+	}
+	api.ServeError = func(rw http.ResponseWriter, r *http.Request, err error) {
+		if r != nil && (restsearch.IsSearchRoute(r.URL.EscapedPath()) || restsearch.IsAggregateRoute(r.URL.EscapedPath())) {
+			restsearch.ServeError(rw, r, err)
+			return
+		}
+		defaultServeError(rw, r, err)
+	}
 }
 
 // searchErrPayload renders a search APIError as the standard REST error body,
