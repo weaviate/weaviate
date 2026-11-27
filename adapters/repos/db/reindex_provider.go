@@ -105,6 +105,9 @@ type ReindexProvider struct {
 	swapRetryOnce    sync.Once
 	swapRetry        *logrusext.Sampler
 
+	recorderRetryOnce sync.Once
+	recorderRetry     *logrusext.Sampler
+
 	// sealedUnits/sealedTasks count teardowns, guarded by [mu]. A seal, not a [liveUnits] read, which is stale on return.
 	sealedUnits unitClaims
 	sealedTasks unitClaims
@@ -429,6 +432,13 @@ func (p *ReindexProvider) swapRetrySampler() *logrusext.Sampler {
 	return p.swapRetry
 }
 
+func (p *ReindexProvider) recorderRetrySampler() *logrusext.Sampler {
+	p.recorderRetryOnce.Do(func() {
+		p.recorderRetry = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
+	})
+	return p.recorderRetry
+}
+
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -503,36 +513,107 @@ func (p *ReindexProvider) processUnits(
 	recorder distributedtask.TaskCompletionRecorder,
 ) {
 	limiter := distributedtask.NewConcurrencyLimiter(p.concurrency())
+	pending := pendingUnits{idle: make(chan struct{}, 1)}
 
 	// defer Wait so an early return on Acquire ctx-cancel still drains
 	// spawned per-unit goroutines before OnTaskCompleted's cleanup runs.
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	dispatch := func(units []string) bool {
+		for _, unitID := range units {
+			if err := limiter.Acquire(ctx); err != nil {
+				return false
+			}
+			pending.start()
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				defer limiter.Release()
+				pending.finish(unitID, p.processOneUnit(ctx, task, payload, idx, unitID, recorder))
+			}, p.logger)
+		}
+		return true
+	}
+
+	open := make([]string, 0, len(localUnits))
 	for _, unitID := range localUnits {
 		unit := task.Units[unitID]
-		if unit != nil && (unit.Status == distributedtask.UnitStatusCompleted || unit.Status == distributedtask.UnitStatusFailed) {
-			continue
+		if unit == nil || (unit.Status != distributedtask.UnitStatusCompleted && unit.Status != distributedtask.UnitStatusFailed) {
+			open = append(open, unitID)
 		}
-
-		if err := limiter.Acquire(ctx); err != nil {
-			return
-		}
-
-		wg.Add(1)
-		unitID := unitID
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			defer limiter.Release()
-
-			p.processOneUnit(ctx, task, payload, idx, unitID, recorder)
-		}, p.logger)
 	}
+	if !dispatch(open) {
+		return
+	}
+
+	// The handle retries its deferred units itself, because a relaunch would clone the whole task.
+	ticker := time.NewTicker(deferredUnitRetryInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-pending.idle:
+			if pending.done() {
+				return
+			}
+		case <-ticker.C:
+			if retry := pending.take(); !dispatch(retry) || pending.done() {
+				return
+			}
+		}
+	}
+}
+
+const deferredUnitRetryInterval = 2 * time.Second
+
+// pendingUnits tracks the units processUnits still owes, in flight or deferred to the next retry.
+type pendingUnits struct {
+	mu       sync.Mutex
+	inFlight int
+	deferred []string
+	idle     chan struct{}
+}
+
+func (u *pendingUnits) start() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.inFlight++
+}
+
+func (u *pendingUnits) finish(unitID string, retry bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if retry {
+		u.deferred = append(u.deferred, unitID)
+	}
+	if u.inFlight--; u.inFlight == 0 && len(u.deferred) == 0 {
+		select {
+		case u.idle <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (u *pendingUnits) take() []string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	retry := u.deferred
+	u.deferred = nil
+	return retry
+}
+
+func (u *pendingUnits) done() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.inFlight == 0 && len(u.deferred) == 0
 }
 
 // processOneUnit executes reindex on a single unit (shard replica).
 // For semantic migrations (e.g. change-tokenization), the task is cached so that
 // OnGroupCompleted can reuse the same instance to run the swap phase — this
 // preserves double-write callbacks registered during reindex.
+// It reports retry only while a hold or a seal keeps the unit from starting.
 func (p *ReindexProvider) processOneUnit(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -540,7 +621,7 @@ func (p *ReindexProvider) processOneUnit(
 	idx *Index,
 	unitID string,
 	recorder distributedtask.TaskCompletionRecorder,
-) {
+) (retry bool) {
 	shardName := task.UnitShard(unitID)
 	logger := p.logger.WithField("taskID", task.ID).
 		WithField("unit", unitID).WithField("shard", shardName)
@@ -549,7 +630,7 @@ func (p *ReindexProvider) processOneUnit(
 	shard, err := lookupShardByName(idx, shardName)
 	if err != nil {
 		p.failUnit(ctx, task, unitID, recorder, err.Error())
-		return
+		return false
 	}
 
 	// Load up front, so a shard that cannot load fails the unit before it is claimed.
@@ -557,38 +638,37 @@ func (p *ReindexProvider) processOneUnit(
 	if unwrapErr != nil {
 		p.failUnit(ctx, task, unitID, recorder,
 			fmt.Sprintf("unwrap shard: %v", unwrapErr))
-		return
+		return false
 	}
 	// A rerun swap deletes the canonical directory, which an unreadable record
 	// may still need: it could hold writes the staged copy never saw.
 	if store := concreteShard.migrationRecordStore(); store != nil {
 		if fault := unreadableRecordFault(store); fault != "" {
 			p.failUnit(ctx, task, unitID, recorder, fault)
-			return
+			return false
 		}
 	}
-	// A held shard's unit is not failed, so the scheduler relaunches the task once its other local units end.
 	if p.unitWaitsOnHold(concreteShard, task.ID, unitID) {
-		return
+		return true
 	}
 
 	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 	if !entered {
 		p.teardownHeldSampler().WithSampling(func(l logrus.FieldLogger) {
 			l.WithField("taskID", task.ID).WithField("unit", unitID).WithField("shard", shardName).
-				Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
+				Warn("reindex provider: a teardown holds this unit, so it is not started; the handle retries it")
 		})
-		return
+		return true
 	}
 	defer release()
 
 	logger.Info("reindex provider: starting unit")
 
-	if err := recorder.UpdateDistributedTaskUnitProgress(
-		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, 0.0,
-	); err != nil {
-		logger.Errorf("reindex provider: failed to report initial progress: %v", err)
-		return
+	if !p.recordOutcome(ctx, logger, "initial progress", func() error {
+		return recorder.UpdateDistributedTaskUnitProgress(
+			ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, 0.0)
+	}) {
+		return false
 	}
 
 	// For semantic migrations (change-tokenization, enable-filterable), use
@@ -601,7 +681,7 @@ func (p *ReindexProvider) processOneUnit(
 	if semantic {
 		if !p.claimActiveWorker(task.TaskDescriptor, unitID) {
 			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
-			return
+			return false
 		}
 		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 	}
@@ -618,7 +698,7 @@ func (p *ReindexProvider) processOneUnit(
 		fresh, createErr := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 		if createErr != nil {
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
-			return
+			return false
 		}
 		seeded := make(map[MigrationRecordKey]struct{}, len(tasks))
 		for _, t := range tasks {
@@ -644,7 +724,7 @@ func (p *ReindexProvider) processOneUnit(
 		tasks, createErr = p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 		if createErr != nil {
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
-			return
+			return false
 		}
 	}
 	// Compose per-task progress into a single per-unit envelope so the
@@ -686,22 +766,21 @@ func (p *ReindexProvider) processOneUnit(
 			// FAILED on a shutdown signal.
 			if errors.Is(runErr, context.Canceled) {
 				logger.Infof("reindex provider: unit interrupted by shutdown; will resume after restart: %v", runErr)
-				return
+				return false
 			}
 			p.failUnit(ctx, task, unitID, recorder,
 				fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr))
-			return
+			return false
 		}
 	}
 
 	logger.Info("reindex provider: unit completed")
 
-	if err := recorder.RecordDistributedTaskUnitCompletion(
-		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID,
-	); err != nil {
-		logger.Errorf("reindex provider: failed to record completion: %v", err)
-		return
-	}
+	p.recordOutcome(ctx, logger, "completion", func() error {
+		return recorder.RecordDistributedTaskUnitCompletion(
+			ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID)
+	})
+	return false
 }
 
 const migrationUnitContentionWindow = time.Minute
@@ -888,25 +967,6 @@ func (p *ReindexProvider) payloadOf(task *distributedtask.Task) (*ReindexTaskPay
 	return &h.ReindexTaskPayload, nil
 }
 
-// failUnit records that the given unit has failed. The recorder call
-// goes through RAFT (RecordDistributedTaskUnitFailure → applyDistributedTaskCommand),
-// so transient errors are possible: leadership loss, network blip, RAFT
-// timeout. If the FSM never learns the unit failed, the task stays in
-// "started", and once this handle is done the scheduler relaunches the task
-// since this node's unit is still non-terminal: it reruns every tick instead of failing.
-//
-// Retry the recorder call a few times with backoff to ride out transient
-// RAFT issues. If the retries also fail, log the recorder error with the
-// full context and the original failure reason so operators can replay
-// it manually (recording the failure is idempotent because the FSM keys
-// by (taskID, version, nodeID, unitID)).
-//
-// Permanent FSM rejections — "task does not exist", "task is no longer
-// running", "unit ... is already terminal", "unit ... belongs to node X
-// not Y" — are NOT retried: the FSM is in a stable state where another
-// retry will return the same error. We log them at warning level (not
-// the loud "manual operator action required" alarm) because the FSM is
-// internally consistent; the local node just lost a race.
 func (p *ReindexProvider) failUnit(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -916,48 +976,42 @@ func (p *ReindexProvider) failUnit(
 ) {
 	logger := p.logger.WithField("taskID", task.ID).WithField("unit", unitID)
 	logger.Errorf("reindex provider: unit failed: %s", errMsg)
+	p.recordOutcome(ctx, logger, "unit failure", func() error {
+		return recorder.RecordDistributedTaskUnitFailure(
+			ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, errMsg)
+	})
+}
 
-	const maxAttempts = 3
-	backoff := 200 * time.Millisecond
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		recErr := recorder.RecordDistributedTaskUnitFailure(
-			ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, errMsg,
-		)
-		if recErr == nil {
-			return
+// recorderRetryMaxBackoff caps a waiting worker at one recorder write per minute.
+const recorderRetryMaxBackoff = time.Minute
+
+// recordOutcome retries a write until it lands, the FSM rejects it for good, or ctx ends. The worker
+// keeps its slot, because a recorder error comes from RAFT and would fail any other unit too.
+func (p *ReindexProvider) recordOutcome(ctx context.Context, logger logrus.FieldLogger, what string, write func() error) (recorded bool) {
+	for backoff := 200 * time.Millisecond; ; backoff = min(2*backoff, recorderRetryMaxBackoff) {
+		err := write()
+		if err == nil {
+			return true
 		}
-		lastErr = recErr
-
-		// Permanent FSM rejection: retry won't help. Log at warning level
-		// and exit — no operator action required, the FSM is in a stable
-		// state.
-		if isPermanentRecorderRejection(logger, recErr) {
-			logger.WithField("originalFailure", errMsg).WithField("recorderError", recErr.Error()).
-				Warn("reindex provider: FSM rejected unit-failure record as permanent (task already terminal, " +
-					"version mismatch, or unit owned by another node); not retrying")
-			return
+		if p.isPermanentRecorderRejection(logger, err) {
+			p.recorderRetrySampler().WithSampling(func(logrus.FieldLogger) {
+				logger.Warnf("reindex provider: FSM rejected %s record as permanent (task already terminal, "+
+					"version mismatch, or unit owned by another node); not retrying: %v", what, err)
+			})
+			return false
 		}
-
-		if attempt < maxAttempts {
-			select {
-			case <-ctx.Done():
-				logger.WithField("attempt", attempt).WithField("recorderError", recErr.Error()).
-					Error("reindex provider: context cancelled while recording unit failure; FSM may not see the failure")
-				return
-			case <-time.After(backoff):
-			}
-			backoff *= 2
+		p.recorderRetrySampler().WithSampling(func(logrus.FieldLogger) {
+			logger.Warnf("reindex provider: failed to record %s, retrying in %s: %v", what, backoff, err)
+		})
+		select {
+		case <-ctx.Done():
+			p.recorderRetrySampler().WithSampling(func(logrus.FieldLogger) {
+				logger.Warnf("reindex provider: context cancelled while recording %s; the FSM may not see it", what)
+			})
+			return false
+		case <-time.After(backoff):
 		}
 	}
-
-	// All retries exhausted. The FSM does not know this unit failed; the
-	// scheduler will not advance the task. Operators need to inspect the
-	// task (and likely abort it manually) using the recorded reason.
-	logger.WithField("originalFailure", errMsg).
-		WithField("recorderError", lastErr.Error()).
-		Error("reindex provider: failed to record unit failure after retries; " +
-			"FSM may not advance the task and manual operator action may be required")
 }
 
 // isPermanentRecorderRejection reports whether the recorder error
@@ -988,9 +1042,8 @@ func (p *ReindexProvider) failUnit(
 // SubCommand) is technically permanent too but is deliberately NOT
 // matched: applyDistributedTaskCommand marshals the request itself, so
 // a malformed SubCommand reaching the Manager is a same-binary bug
-// rather than a recoverable FSM state — it should surface as the loud
-// alarm, not the quiet warning.
-func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
+// rather than a recoverable FSM state.
+func (p *ReindexProvider) isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 	if err == nil {
 		return false
 	}
@@ -1017,11 +1070,11 @@ func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 		"belongs to node",
 	} {
 		if strings.Contains(msg, marker) {
-			if logger != nil {
+			p.recorderRetrySampler().WithSampling(func(logrus.FieldLogger) {
 				logger.WithField("matchedMarker", marker).WithField("recorderError", msg).
 					Warn("reindex provider: permanent-rejection detected via legacy substring fallback; " +
 						"a peer is likely running a pre-sentinel build")
-			}
+			})
 			return true
 		}
 	}

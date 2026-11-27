@@ -207,11 +207,11 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 			defer release()
 
 			rec := newFakeRecorder()
-			p.processOneUnit(ctx, &distributedtask.Task{
+			require.True(t, p.processOneUnit(ctx, &distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: desc,
 				Status: distributedtask.TaskStatusStarted,
 				Units:  map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: hot.Name(), NodeID: "node1"}},
-			}, &payload, idx, "u1", rec)
+			}, &payload, idx, "u1", rec), "a sealed unit is retried")
 
 			require.Empty(t, rec.progress, "a sealed unit reports no progress: it never started")
 			require.Empty(t, rec.completed)
@@ -220,7 +220,7 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 	}
 }
 
-// The contention line must be sampled: the scheduler retries every unit it
+// The contention line must be sampled: the handle retries every unit it
 // could not start, and a unit count is a tenant count.
 func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 	ctx := testCtx()
@@ -259,7 +259,7 @@ func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 		require.True(t, sealed)
 	}
 	for _, id := range unitIDs {
-		p.processOneUnit(ctx, task, payload, idx, id, nil)
+		require.True(t, p.processOneUnit(ctx, task, payload, idx, id, nil))
 	}
 
 	held := 0

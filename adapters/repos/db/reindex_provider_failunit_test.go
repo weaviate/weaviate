@@ -93,51 +93,24 @@ func TestFailUnit_SuccessOnFirstAttempt(t *testing.T) {
 
 // Transient failure on first attempt, success on second.
 func TestFailUnit_RetriesTransientFailure(t *testing.T) {
-	p, hook := newTestProvider(t)
+	p, _ := newTestProvider(t)
 	rec := &stubRecorder{failureResults: []error{errors.New("leadership lost")}}
 
 	p.failUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "something broke")
 
 	require.Equal(t, int32(2), rec.failureCalls.Load(),
 		"first call fails, second succeeds, third is never made")
-
-	// We do NOT want the final "failed to record after retries" line on a
-	// recovered call — it would falsely alarm operators.
-	for _, e := range hook.AllEntries() {
-		require.NotContains(t, e.Message, "failed to record unit failure after retries",
-			"a recovered retry must not emit the final alarm line; got %q", e.Message)
-	}
 }
 
-// All retries fail: emit the loud "manual operator action required" log
-// with both the original failure reason and the recorder error so the
-// failure is replayable.
-func TestFailUnit_AllRetriesFail_EmitsLoudAlarm(t *testing.T) {
-	p, hook := newTestProvider(t)
+// failUnit keeps retrying a recorder that stays down until the failure lands.
+func TestFailUnit_KeepsRetryingUntilRecorded(t *testing.T) {
+	p, _ := newTestProvider(t)
 	recorderErr := errors.New("raft applyTimeout")
-	rec := &stubRecorder{failureResults: []error{recorderErr, recorderErr, recorderErr}}
+	rec := &stubRecorder{failureResults: []error{recorderErr, recorderErr, recorderErr, recorderErr}}
 
 	p.failUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "disk full")
 
-	require.Equal(t, int32(3), rec.failureCalls.Load(),
-		"three attempts before giving up")
-
-	// Find the final alarm line and check both signals are present.
-	var found bool
-	for _, e := range hook.AllEntries() {
-		if e.Level != logrus.ErrorLevel {
-			continue
-		}
-		if !contains(e.Message, "failed to record unit failure after retries") {
-			continue
-		}
-		found = true
-		require.Equal(t, "disk full", e.Data["originalFailure"],
-			"original failure reason must be on the alarm line so operators can replay")
-		require.Equal(t, recorderErr.Error(), e.Data["recorderError"],
-			"recorder error must be on the alarm line so the cause is visible")
-	}
-	require.True(t, found, "must emit the final alarm line when retries are exhausted")
+	require.Equal(t, int32(5), rec.failureCalls.Load(), "recorded on the fifth attempt")
 }
 
 // Context cancellation between retries aborts the loop cleanly without
@@ -164,20 +137,14 @@ func TestFailUnit_ContextCancelledBetweenRetries(t *testing.T) {
 	require.True(t, found, "context cancellation between retries must be logged so the missing FSM update is visible")
 }
 
-// Permanent FSM rejection: retry would return the same error on every
-// attempt and the loud "manual operator action required" alarm would
-// fire even though the FSM is internally consistent. Verify that
-// permanent rejections short-circuit after the first call and log at
-// warning level instead of the alarm.
-//
 // Each row exercises a specific permanent path and asserts both the
-// short-circuit (no retry, no alarm) and the correct log signal:
+// short-circuit (one write, no retry) and the correct log signal:
 //   - typed sentinel path: only the "FSM rejected ... as permanent"
 //     warning fires (no legacy-fallback log).
 //   - legacy substring path: BOTH the rejection warning and the
 //     legacy-fallback warning fire, so an operator can detect that a
 //     pre-sentinel peer is still in the cluster.
-func TestFailUnit_PermanentRejection_NoRetryNoAlarm(t *testing.T) {
+func TestFailUnit_PermanentRejection_NoRetry(t *testing.T) {
 	// The typed-sentinel rows mirror what callers see in production:
 	// Manager.RecordUnitCompletion (and its gRPC-rehydrated form) chain
 	// the umbrella ErrPermanentRejection so errors.Is fires the fast
@@ -252,19 +219,13 @@ func TestFailUnit_PermanentRejection_NoRetryNoAlarm(t *testing.T) {
 			require.Equal(t, int32(1), rec.failureCalls.Load(),
 				"permanent FSM rejection: exactly one Record call, no retry")
 
-			// Must NOT emit the loud alarm.
-			for _, e := range hook.AllEntries() {
-				require.NotContains(t, e.Message, "failed to record unit failure after retries",
-					"permanent rejection must not trigger the loud alarm")
-			}
-
 			// Must emit a Warn-level rejection log.
 			var foundRejectionWarn, foundFallbackWarn bool
 			for _, e := range hook.AllEntries() {
 				if e.Level != logrus.WarnLevel {
 					continue
 				}
-				if contains(e.Message, "FSM rejected unit-failure record as permanent") {
+				if contains(e.Message, "FSM rejected unit failure record as permanent") {
 					foundRejectionWarn = true
 				}
 				if contains(e.Message, "permanent-rejection detected via legacy substring fallback") {

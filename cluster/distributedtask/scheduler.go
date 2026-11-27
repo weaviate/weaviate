@@ -745,7 +745,7 @@ func (s *Scheduler) reconcileRunningTasks(
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 			continue
 		}
-		// A task whose unit waits on an operator is relaunched on every tick and wake.
+		// A handle that ends before the apply finishing its last unit lands is relaunched on every tick and wake.
 		s.relaunchLogger.WithSampling(func(logrus.FieldLogger) {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 		})
