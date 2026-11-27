@@ -112,6 +112,12 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 			wantErr:  distributedtask.ErrTaskPartlyMigrated,
 		},
 		{
+			name:     "another target over a finished scoped run with switched tenants is admitted",
+			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, titleTo(field, 2), "t1")},
+			submit:   titleTo(word, 0),
+			wantGen:  3,
+		},
+		{
 			name: "a same-named property in another collection never matches",
 			existing: []*distributedtask.Task{
 				ended("other", 1, distributedtask.TaskStatusCancelled, run("A", word, 2, "title"), "t1"),

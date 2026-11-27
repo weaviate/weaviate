@@ -100,12 +100,12 @@ var (
 
 	ErrNothingLeftToCancel = errors.New("nothing left to cancel")
 
-	ErrTaskPartlyMigrated = errors.New("an ended task of another target still has switched groups")
+	ErrTaskPartlyMigrated = errors.New("a failed or cancelled task of another target still has switched groups")
 )
 
 func NewTaskPartlyMigratedError(collection string) error {
 	return wrapPermanent(ErrTaskPartlyMigrated,
-		fmt.Sprintf("an ended run of another target on the same properties of collection %q still has switched tenants", collection))
+		fmt.Sprintf("a failed or cancelled run of another target on the same properties of collection %q still has switched tenants", collection))
 }
 
 func NewBlockedByReplicaMovementError(collection string) error {

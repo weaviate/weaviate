@@ -46,14 +46,13 @@ func (ReindexTaskRules) Admit(task *distributedtask.Task, existing []*distribute
 			continue
 		}
 		highest = max(highest, oh.Generation)
-		if !other.Status.IsTerminal() || len(other.SwapDecidedGroups) == 0 {
+		if !ReindexLeftPartial(other) {
 			continue
 		}
 		if !sameReindexTarget(oh.ReindexTaskPayload, h.ReindexTaskPayload) {
 			return nil, distributedtask.NewTaskPartlyMigratedError(h.Collection())
 		}
-		resumable := other.Status == distributedtask.TaskStatusFailed || other.Status == distributedtask.TaskStatusCancelled
-		if resumable && oh.Generation > keptGen {
+		if oh.Generation > keptGen {
 			kept, keptGen = other, oh.Generation
 		}
 	}
