@@ -52,6 +52,8 @@ type policyDeps struct {
 	metrics  *metrics
 	clock    func() uint32
 	queueCap int
+	// snapshotRead runs in refresh between reading the knobs and publishing them; tests only.
+	snapshotRead func()
 }
 
 // policy is the unloading policy over any shard type, so tests can drive it with fakes.
@@ -63,6 +65,8 @@ type policy[S shard] struct {
 	knobs Knobs
 
 	snap atomic.Pointer[snapshot]
+	// refreshMu keeps an older knob reading from publishing over a newer one.
+	refreshMu sync.Mutex
 
 	backgroundCh chan item[S]
 	wake         chan struct{}
@@ -115,7 +119,12 @@ func newPolicy[S shard](reg registry[S], knobs Knobs, deps policyDeps) *policy[S
 }
 
 func (p *policy[S]) refresh() *snapshot {
+	p.refreshMu.Lock()
+	defer p.refreshMu.Unlock()
 	s := readSnapshot(p.knobs)
+	if p.snapshotRead != nil {
+		p.snapshotRead()
+	}
 	p.snap.Store(s)
 	return s
 }

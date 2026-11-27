@@ -13,11 +13,13 @@ package idleshardcollector
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -374,6 +376,62 @@ func TestQueuedUnloadsFollowTheCurrentSettings(t *testing.T) {
 				require.False(t, queued.pending.Load(), "the handoff released its claim")
 				require.Zero(t, h.p.pending.Load())
 			})
+		})
+	}
+}
+
+func TestRefreshConfigPublishesOverAnOlderRefresh(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(t *testing.T, k *testKnobs)
+		want   func(s *snapshot) bool
+	}{
+		{name: "pause", change: func(t *testing.T, k *testKnobs) { set(t, k.paused, true) }, want: func(s *snapshot) bool { return s.paused }},
+		{name: "idle ttl off", change: func(t *testing.T, k *testKnobs) { set(t, k.idleTTL, 0) }, want: func(s *snapshot) bool { return s.idleTTL == 0 }},
+		{name: "higher idle ttl", change: func(t *testing.T, k *testKnobs) { set(t, k.idleTTL, time.Hour) }, want: func(s *snapshot) bool { return s.idleTTL == time.Hour }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k := newTestKnobs()
+			set(t, k.idleTTL, time.Minute)
+			var armed atomic.Bool
+			read, release := make(chan struct{}), make(chan struct{})
+			logger, _ := logrustest.NewNullLogger()
+			reg := newFakeRegistry()
+			p := newPolicy[*fakeShard](reg, k.knobs(), policyDeps{
+				logger: logger, clock: reg.clock, metrics: newMetrics(nil, logger),
+				snapshotRead: func() {
+					if armed.CompareAndSwap(true, false) {
+						close(read)
+						<-release
+					}
+				},
+			})
+			t.Cleanup(func() { require.NoError(t, p.close(context.Background())) })
+			p.cancel()
+			p.wg.Wait()
+
+			armed.Store(true)
+			stale := make(chan struct{})
+			go func() {
+				p.refresh()
+				close(stale)
+			}()
+			<-read
+			tt.change(t, k)
+			hooked := make(chan struct{})
+			go func() {
+				p.refreshConfig()
+				close(hooked)
+			}()
+			select {
+			case <-hooked:
+			case <-time.After(100 * time.Millisecond):
+			}
+			close(release)
+			<-stale
+			<-hooked
+			require.True(t, tt.want(p.snap.Load()), "the refresh that read the knobs last publishes last")
 		})
 	}
 }
