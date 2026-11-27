@@ -858,6 +858,77 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Los 157 GB de la noche:** reparto los totales medidos con las proporciones por insert de estos 20 000 y con los contadores de la noche (diario, filas y vectores, que la noche sí contó), y digo qué parte es medida y qué parte proporción.
 - **El ritmo de 217 a 87:** comparo el reparto de los 20 000 inserts a 3.3M con el de 100k, por insert. No es la misma dimensión (768 frente a 1 536), y lo digo.
 
+### El diario y las reorganizaciones de la noche (análisis, 2026-11-27, sin compilar)
+
+*Encargo del usuario, añadido al análisis de la noche:*
+1. *Qué guarda el registro del diario. Si lleva el vector completo, decir si se puede reconstruir desde el fichero de vectores o desde el WAL de objetos al recuperar, y cuántos bytes se ahorrarían.*
+2. *Cuántas reorganizaciones hubo durante el crecimiento, cuándo se dispararon y cuánto escribió cada una. Proponer una regla para que no reorganice durante una ingesta masiva, o lo haga con menos frecuencia.*
+
+**1. El registro del diario lleva el paso entero, vector incluido.**
+- Un registro (`growRecord.encode`) lleva la meta en JSON y todas las escrituras del paso, cada una con su clave, su desplazamiento y sus valores completos.
+- La noche escribió 8 211 B de diario por insert a 768 dimensiones. Según los contadores del índice se reparten así:
+
+| parte | B por insert | parte del registro |
+|---|---:|---:|
+| el vector exacto (3 072 B a 768 dimensiones, 6 144 a 1 536) | 3 072 | 37 % |
+| las filas de aristas reescritas al consolidar, y la tombstone de la fila vieja (un Set borra por valor) | ≈ 2 790 | 34 % |
+| los cambios de aristas que esperan (lista propia e inversas) | 661 | 8 % |
+| las distancias | 284 | 3 % |
+| splits, miembro, mapa, código de ruteo, slot, tabla de cuándo | ≈ 410 | 5 % |
+| la meta en JSON y el formato de las entradas | ≈ 1 000 | 12 % |
+
+- **¿Se puede reconstruir el vector al recuperar?**
+  - **Desde el fichero de vectores, no tal como está hoy.** `endStep` escribe el registro y después reparte sus escrituras, así que tras una caída entre las dos el vector no está en el fichero.
+  - Bastaría invertir el orden para el vector: escribirlo primero en su slot, y que el registro lleve solo el slot.
+    - Si el registro está, el vector está en el fichero: ante la muerte del proceso, el sistema conserva el orden de lo que se le entregó.
+    - El slot de un registro que no llegó lo reutiliza el siguiente insert, porque `nextSlot` sale de la meta.
+    - Ante la muerte de la máquina no da menos que hoy: el diario ya dice que en ese caso da lo que dan los logs del store, que tampoco se sincronizan.
+  - **Desde el WAL de objetos, posible pero no lo propongo.** El shard escribe el objeto antes que el índice, pero su WAL llega al sistema con `WriteWALs`, después del índice en `putOne` (#14054). Un vector cuyo objeto no llegó no se podría reconstruir. Además ataría la recuperación del índice al shard.
+- **Cuánto se ahorraría:**
+  - **Sin el vector:** 3 072 B por insert a 768 dimensiones. En la noche son 10.1 de los 27.0 GB de diario (−37 %), un 6.4 % de los 157 GB escritos.
+  - **Con el paso 3,** un registro por tanda: la meta y el formato pasan de unos 1 000 B por insert a unas decenas. Son unos 3 GB más en la noche.
+  - **Las filas reescritas y sus tombstones** (34 %) se podrían recalcular al recuperar desde lo que espera y la fila anterior. Es rediseñar el diario de la consolidación: no lo propongo ahora (*mío*).
+
+**2. Las reorganizaciones (layouts) de la noche.**
+- **La regla** (`layoutDue`): toca un layout cuando los vectores escritos desde el último son tantos como los que dejó ordenados, es decir, al doblar.
+- **Cada layout** reescribe todos los vectores en el orden de sus postings, más la tabla de slots de su generación (4 B por doc id: 50 MB a 12.5M keys). Cierra con un `fsync` y lee los vectores de la generación anterior.
+
+| generación | vectores ordenados | se disparó (tramo) | escribió | amplificación de escritura del tramo (y vecinos) |
+|---:|---:|---|---:|---|
+| 2 | 20 000 | antes de las 22:40 | 0.06 GB + 50 MB | 5.7 |
+| 3 | 40 000 | antes de las 22:40 | 0.12 GB + 50 MB | 5.7 |
+| 4 | 80 000 | 22:40–22:45 | 0.25 GB + 50 MB | 6.7 |
+| 5 | 160 000 | 22:45–22:50 | 0.49 GB + 50 MB | 9.1 |
+| 6 | 320 000 | 23:05–23:10 | 0.98 GB + 50 MB | 18.6 (7.6, 8.7) |
+| 7 | 640 000 | 23:46–23:51 | 1.97 GB + 50 MB | 30.4 (18.5, 9.4) |
+| 8 | 1 280 000 | 01:22–01:27 | 3.93 GB + 50 MB | 52.2 (18.0, 11.8) |
+| 9 | 2 560 000 | 05:00–05:05 | 7.86 GB + 50 MB | 69.5 (16.7, 58.5) |
+
+- **Ocho layouts, 15.7 GB de vectores y 0.4 GB de slots.** Es el 10 % de lo escrito en la noche.
+- Al doblar, lo que se reescribe suma unas 2 veces los vectores que acaban en el índice. Por la regla, el siguiente sería a 5.12M (15.7 GB), y llegar a 10M habría escrito 31.5 GB en layouts.
+- **Para qué sirven:** con los vectores en el orden de sus postings, el rescore de una consulta en frío lee contiguo. Durante una ingesta masiva casi nadie consulta en frío, y el layout compite por el disco con los inserts: un tramo de 5 minutos con layout escribió hasta 70 veces los bytes de sus vectores.
+
+**La regla que propongo (*mía*):**
+- **Mientras hay ingesta** (algún insert en los últimos 60 s): un layout solo cuando los vectores sin ordenar sean 3 veces los ordenados, es decir, al cuadruplicar.
+- **Cuando el índice está quieto** (60 s sin inserts, la cola vacía): la regla de hoy, al doblar.
+- **Con una ingesta seguida de 10 000 a 10M:**
+  - los layouts caen a 40k, 160k, 640k y 2.56M: 3.4M vectores, 10.4 GB, frente a 10.2M vectores y 31.4 GB al doblar;
+  - al quedarse quieto, uno más con todo (30.7 GB a 10M), fuera de la ingesta.
+- **El coste:** mientras crece, hasta 3 de cada 4 vectores pueden estar sin ordenar, y una consulta en frío lee más disperso. No está medido. Habría que medir la latencia en frío a 0.95 con el índice a medio ordenar, como en v4.0.
+- **A más largo plazo:** un layout incremental, que reescriba solo los postings que cambiaron, quitaría la reescritura entera. No lo propongo ahora.
+
+**Un fallo probable que sale de mirar la recuperación (en curso).**
+- La cola de un shard solo borra un trozo cuando el índice ha volcado (`queue.go:376`). Una caída antes, o un `Flush` que falla, hace que entregue otra vez el trozo con los mismos doc ids.
+- El índice rechaza el lote entero porque ya tiene esos ids («already added, updating a vector»). La cola lo cancela y lo reintenta, sin fin. Nada de esa cola se indexaría después.
+- Ni la cola ni el shard filtran los ids ya indexados (`vector_index_queue.go:469`).
+- Hay un test en rojo escrito (`persistent_replay_test.go`), sin ejecutar todavía, con estos casos:
+  - el lote reentregado antes de la base;
+  - después de la base, entero;
+  - mitad indexado y mitad nuevo;
+  - con borrados en medio;
+  - otro vector bajo un doc id indexado, que debe seguir rechazándose.
+- **El arreglo que propongo (*mío*):** un doc id ya indexado con el mismo vector, tal como el índice lo guarda, es una reentrega y se salta. Con otro vector sigue siendo un update, y se rechaza.
+
 ### Los arreglos de `lsmkv` en las ramas del índice (2026-11-27, a petición del usuario)
 
 | | Set (`bf72a3bec8`, #13950) | Map (`87866f1cf8`, #13983) |
