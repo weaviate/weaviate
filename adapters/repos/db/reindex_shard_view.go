@@ -61,6 +61,7 @@ type stagedBuild struct {
 	overlay  map[string]inverted.PropertyOverlay
 	add      onAddToPropertyValueIndex
 	del      onDeleteFromPropertyValueIndex
+	scanned  atomic.Bool
 }
 
 var _ inverted.IndexView = (*shardView)(nil)
@@ -521,9 +522,19 @@ func (s *Shard) ReindexBuild(ctx context.Context, taskID string, gen uint64, pro
 		}
 	}
 	for _, b := range builds {
+		if b.scanned.Load() {
+			continue
+		}
 		if err := s.scanIntoBuild(ctx, b); err != nil {
 			return fmt.Errorf("build %q: %w", b.name, err)
 		}
+		// Only after the last prepend, which refuses a bucket that has it, so a relaunch in this process never scans again.
+		if b.indexType == indexTypeRangeable && s.index.Config.keepRangeableInMemory(prop) {
+			if err := b.bucket.RebuildRangeableSegmentInMemory(ctx); err != nil {
+				return fmt.Errorf("build %q: %w", b.name, err)
+			}
+		}
+		b.scanned.Store(true)
 	}
 	return nil
 }

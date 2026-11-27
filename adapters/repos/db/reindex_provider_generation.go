@@ -89,7 +89,7 @@ func (p *ReindexProvider) buildGenerationUnit(ctx context.Context, task *distrib
 		p.failUnit(ctx, task, u.ID, p.recorder, fmt.Sprintf("build: %v", err))
 	default:
 		if err := p.recorder.RecordDistributedTaskUnitCompletion(ctx, task.Namespace, task.ID, task.Version,
-			p.localNode, u.ID); err != nil {
+			p.localNode, u.ID); err != nil && !errors.Is(err, distributedtask.ErrUnitAlreadyTerminal) {
 			p.unitDoneSampler().WithSampling(func(l logrus.FieldLogger) {
 				l.WithField("taskID", task.ID).WithField("unit", u.ID).
 					Errorf("reindex provider: cannot report the unit done: %v", err)

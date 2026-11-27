@@ -13,6 +13,9 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,9 +23,11 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -415,6 +420,130 @@ func TestReindexGenerationRuns_Build(t *testing.T) {
 			require.Equal(t, tc.want["other"], n.count("t1", n.filter(genProp, "other", schema.DataTypeText, filters.OperatorEqual)))
 		})
 	}
+}
+
+// A cancel that lands while a unit builds into its scratch leaves none behind, and a resubmit builds the tenant again.
+func TestReindexGenerationRuns_CancelDuringScan(t *testing.T) {
+	c := newGenCluster(t, genDefaultOpts(), 1)
+	c.addTenants("t1", "t2")
+	c.write("t1", 3)
+	c.write("t2", 5000)
+	start := c.holdUnit(genProgress, MigrationUnitID("t2", "node1"))
+	id, err := c.submit(ReindexTypeChangeTokenization, models.PropertyTokenizationField)
+	require.NoError(t, err)
+	c.waitSwitched(id, "t1")
+	s := c.nodes[0].shard("t2")
+	scratch := func() bool {
+		for _, it := range []string{indexTypeFilterable, indexTypeSearchable} {
+			name := reindexBucketName(genProp, it, 1) + reindexBuildSuffix
+			if _, err := os.Stat(filepath.Join(s.pathLSM(), name)); s.store.Bucket(name) != nil || err == nil {
+				return true
+			}
+		}
+		return false
+	}
+	start()
+	c.waitFor("the scan to start", scratch)
+	require.NoError(t, c.cancel(id))
+	c.waitFor("the scratch to go", func() bool { return !scratch() })
+
+	next, err := c.submit(ReindexTypeChangeTokenization, models.PropertyTokenizationField)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), c.generation(next))
+	c.waitGone(next)
+	c.waitServed("t2", genProp, 1, indexTypeFilterable, indexTypeSearchable)
+	c.requireReads("t2", genReads{0, 5000, 0, 3}, "t2 after the resubmit")
+}
+
+// A second scan layer, placed under live updates and deletes as a relaunch
+// places it, changes no answer of any index type.
+func TestReindexGenerationRuns_DuplicateScanLayer(t *testing.T) {
+	ctx := context.Background()
+	rangeable, mapSearchable := genDefaultOpts(), genDefaultOpts()
+	rangeable.rangeable, mapSearchable.mapSearchable = true, true
+	word := genReads{filterHello: 80, filterValue: 80, bm25Hello: 80, numBelow3: 1}
+	for _, tc := range []struct {
+		name    string
+		mt      ReindexMigrationType
+		tok     string
+		opts    genClassOpts
+		want    genReads
+		queries []string // BM25 queries whose scores must match the single-scan build
+	}{
+		{name: "filterable", mt: ReindexTypeRepairFilterable, opts: genDefaultOpts(), want: word},
+		{name: "rangeable", mt: ReindexTypeRepairRangeable, opts: rangeable, want: word},
+		{
+			name: "map searchable", mt: ReindexTypeChangeTokenization, tok: models.PropertyTokenizationField,
+			opts: mapSearchable, want: genReads{filterValue: 20, numBelow3: 1},
+			queries: []string{"hello world", "hello hello world", "other words"},
+		},
+		{
+			name: "blockmax searchable", mt: ReindexTypeRebuildSearchable, opts: genDefaultOpts(), want: word,
+			queries: []string{"hello", "world", "other"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newGenCluster(t, tc.opts, 1)
+			n := c.nodes[0]
+			c.addTenants("t1", "t2") // t1 gets the second layer, t2 is the single-scan build
+			objs := map[string][]*storobj.Object{}
+			for _, tenant := range []string{"t1", "t2"} {
+				for i := range 100 {
+					obj := genObject(c.class, tenant, strings.Repeat("hello ", i%4+1)+"world", int64(i))
+					c.put(tenant, obj)
+					objs[tenant] = append(objs[tenant], obj)
+				}
+			}
+			release := c.holdUnitsOf("")
+			id, err := c.submit(tc.mt, tc.tok)
+			require.NoError(t, err)
+			c.awaitHeld(genCompleted, anyEntry, 2)
+			for tenant, list := range objs {
+				for i, obj := range list[:20] {
+					if i%2 == 0 {
+						require.NoError(t, n.shard(tenant).DeleteObject(ctx, obj.ID(), time.Now()))
+						continue
+					}
+					upd := genObject(c.class, tenant, "other words", int64(i))
+					upd.Object.ID = obj.ID()
+					require.NoError(t, n.shard(tenant).PutObject(ctx, upd))
+				}
+			}
+			s1 := n.shard("t1")
+			for _, b := range s1.loadView().staged {
+				require.NoError(t, s1.scanIntoBuild(ctx, b))
+			}
+			release()
+			c.waitGone(id)
+			types, _ := ReindexIndexTypes(tc.mt)
+			for _, tenant := range []string{"t1", "t2"} {
+				c.waitServed(tenant, genPropFor(tc.mt), 1, types...)
+				require.Equal(t, tc.want, c.reads(tenant, "")[0], tenant)
+			}
+			for _, query := range tc.queries {
+				dup, single := genScores(t, n, "t1", query), genScores(t, n, "t2", query)
+				require.Len(t, dup, len(single), query)
+				for num, score := range single {
+					require.InEpsilon(t, score, dup[num], 0.01, "%q object %v", query, num)
+				}
+			}
+		})
+	}
+}
+
+// genScores is each BM25 hit's score over the top one: a term's weight counts stale entries
+// until compaction, which runs at its own time per tenant, so only relative scores compare.
+func genScores(t *testing.T, n *genNode, tenant, query string) map[float64]float32 {
+	objs, scores, err := n.shard(tenant).ObjectSearch(context.Background(), 1000, nil,
+		&searchparams.KeywordRanking{Type: "bm25", Query: query, Properties: []string{genProp}}, nil, nil,
+		additional.Properties{}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, objs, query)
+	out := map[float64]float32{}
+	for i, o := range objs {
+		out[o.Properties().(map[string]any)[genNum].(float64)] = scores[i] / scores[0]
+	}
+	return out
 }
 
 // A single-tenant run switches its one group "" on every shard before the flip.

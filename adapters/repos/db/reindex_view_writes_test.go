@@ -14,15 +14,22 @@ package db
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -144,4 +151,120 @@ func TestReindexViewWrites(t *testing.T) {
 			require.Equal(t, tc.want, tc.run(newViewFixture(t, "ViewTest")))
 		})
 	}
+}
+
+// genModel is what a tenant must hold: each object's latest value, and every value ever written.
+type genModel struct {
+	mu      sync.Mutex
+	live    map[strfmt.UUID]string
+	written []string
+}
+
+// Writers insert, update and delete across staging, the build and the switch;
+// afterwards each live value is found once and no stale value is found.
+func TestReindexViewWrites_Stress(t *testing.T) {
+	c := newGenCluster(t, genDefaultOpts(), 1)
+	n := c.nodes[0]
+	tenants := []string{"t1", "t2", "t3", "t4"}
+	c.addTenants(tenants...)
+	held := map[string]*genModel{}
+	for _, tenant := range tenants {
+		held[tenant] = &genModel{live: map[strfmt.UUID]string{}}
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	for w := range 4 {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			rng := rand.New(rand.NewSource(int64(w)))
+			own := map[string][]strfmt.UUID{}
+			for i := 0; ctx.Err() == nil; i++ {
+				tenant := tenants[i%len(tenants)]
+				if err := genWrite(n, rng, held[tenant], own, tenant, fmt.Sprintf("w%dv%d", w, i)); err != nil {
+					t.Errorf("writer %d: %v", w, err)
+					return
+				}
+			}
+		}, n.db.logger)
+	}
+	c.waitFor("every tenant to hold objects", func() bool {
+		for _, m := range held {
+			m.mu.Lock()
+			size := len(m.live)
+			m.mu.Unlock()
+			if size < 50 {
+				return false
+			}
+		}
+		return true
+	})
+	id, err := c.submit(ReindexTypeChangeTokenization, models.PropertyTokenizationField)
+	require.NoError(t, err)
+	c.waitGone(id)
+	for _, tenant := range tenants {
+		c.waitServed(tenant, genProp, 1, indexTypeFilterable, indexTypeSearchable)
+	}
+	stop()
+	wg.Wait()
+
+	for _, tenant := range tenants {
+		m := held[tenant]
+		live := map[string]bool{}
+		for _, v := range m.live {
+			live[v] = true
+		}
+		lost, stray := 0, 0
+		for _, v := range m.written {
+			got := n.count(tenant, n.filter(genProp, v, schema.DataTypeText, filters.OperatorEqual))
+			switch {
+			case live[v] && got != 1:
+				lost++
+			case !live[v] && got != 0:
+				stray++
+			}
+		}
+		require.Equal(t, [2]int{0, 0}, [2]int{lost, stray}, "%s: lost and stray of %d values", tenant, len(m.written))
+	}
+}
+
+func genWrite(n *genNode, rng *rand.Rand, m *genModel, own map[string][]strfmt.UUID, tenant, value string) error {
+	s := n.shard(tenant)
+	ids := own[tenant]
+	op := rng.Intn(3)
+	if len(ids) == 0 {
+		op = 0
+	}
+	var id strfmt.UUID
+	switch op {
+	case 0:
+		obj := genObject(n.c.class, tenant, value, 0)
+		if err := s.PutObject(context.Background(), obj); err != nil {
+			return err
+		}
+		id, own[tenant] = obj.ID(), append(ids, obj.ID())
+	case 1:
+		id = ids[rng.Intn(len(ids))]
+		obj := genObject(n.c.class, tenant, value, 0)
+		obj.Object.ID = id
+		if err := s.PutObject(context.Background(), obj); err != nil {
+			return err
+		}
+	default:
+		i := rng.Intn(len(ids))
+		id = ids[i]
+		if err := s.DeleteObject(context.Background(), id, time.Now()); err != nil {
+			return err
+		}
+		own[tenant] = append(ids[:i], ids[i+1:]...)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if op == 2 {
+		delete(m.live, id)
+		return nil
+	}
+	m.live[id] = value
+	m.written = append(m.written, value)
+	return nil
 }

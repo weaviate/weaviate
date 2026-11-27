@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
@@ -54,18 +56,20 @@ import (
 // reindex provider and DB. One in-process log stands in for RAFT: every entry
 // is applied on every node in order. Tests submit a run and then only wait.
 type genCluster struct {
-	t     testing.TB
-	ctx   context.Context
-	class string
+	t                 testing.TB
+	ctx               context.Context
+	class             string
+	rangeableInMemory bool
 
 	mu     sync.Mutex // serializes the log
-	index  uint64
+	log    []*api.ApplyRequest
 	nodes  []*genNode
 	runs   int
 	shards []string // of a single-tenant class
 
-	gateMu sync.Mutex
-	gates  []genGate
+	gateMu  sync.Mutex
+	gates   []genGate
+	waiting []*genWaiting
 }
 
 // genGate holds entries matching it until released, like a slow leader.
@@ -75,15 +79,30 @@ type genGate struct {
 	ch    chan struct{}
 }
 
+type genWaiting struct {
+	typ api.ApplyRequest_Type
+	raw []byte
+}
+
 type genNode struct {
-	c      *genCluster
-	name   string
-	sm     *clusterschema.SchemaManager
-	sr     clusterschema.SchemaReader
-	dtm    *distributedtask.Manager
-	db     *DB
-	sched  *distributedtask.Scheduler
-	cancel context.CancelFunc
+	c     *genCluster
+	name  string
+	root  string
+	sm    *clusterschema.SchemaManager
+	sr    clusterschema.SchemaReader
+	dtm   *distributedtask.Manager
+	db    *DB
+	sched *distributedtask.Scheduler
+	start func()
+	stop  func()
+	logs  *logrustest.Hook
+	// lose takes a unit's completion from the provider, which hears it failed; the test may propose it later.
+	lose func(req *api.RecordDistributedTaskUnitCompletionRequest) bool
+
+	applied uint64 // the last entry in this node's log
+	down    bool   // crashed: gets no entries and proposes nothing new
+	gone    bool   // replaced by a restart: whatever it still proposes is dropped
+	lagging bool   // restarted, and its log not caught up yet
 }
 
 const (
@@ -97,6 +116,7 @@ type genClassOpts struct {
 	tokenization                      string
 	mapSearchable                     bool // searchable index on the map strategy, not blockmax
 	singleTenantShards                int  // 0 for a multi-tenant class
+	rangeableInMemory                 bool
 }
 
 func genDefaultOpts() genClassOpts {
@@ -129,7 +149,10 @@ func genClassDef(name string, o genClassOpts) *models.Class {
 // newGenCluster starts the nodes and adds the class through the log. Every
 // shard has a replica on every node.
 func newGenCluster(t testing.TB, o genClassOpts, nodes int) *genCluster {
-	c := &genCluster{t: t, ctx: context.Background(), class: "Gen" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")}
+	c := &genCluster{
+		t: t, ctx: context.Background(), class: "Gen" + strings.ReplaceAll(uuid.NewString()[:8], "-", ""),
+		rangeableInMemory: o.rangeableInMemory,
+	}
 	for i := range nodes {
 		c.startNode(fmt.Sprintf("node%d", i+1))
 	}
@@ -213,10 +236,17 @@ func (g *genSchemaGetter) CopyShardingState(class string) *sharding.State {
 }
 
 func (c *genCluster) startNode(name string) {
+	n := c.newNode(name, c.t.TempDir())
+	n.start()
+	c.nodes = append(c.nodes, n)
+}
+
+// newNode opens a node's FSMs and DB over root; its scheduler starts with start.
+func (c *genCluster) newNode(name, root string) *genNode {
 	t := c.t
 	logger := logrus.New()
 	logger.SetLevel(logrus.WarnLevel)
-	n := &genNode{c: c, name: name}
+	n := &genNode{c: c, name: name, root: root, logs: logrustest.NewLocal(logger)}
 	n.sm = clusterschema.NewSchemaManager(name, nil, genParser{}, prometheus.NewPedanticRegistry(), logger)
 	n.sr = n.sm.NewSchemaReader()
 	n.dtm = distributedtask.NewManager(distributedtask.ManagerParameters{
@@ -245,8 +275,8 @@ func (c *genCluster) startNode(name string) {
 	sel.EXPECT().NodeHostname(mock.Anything).Return(name, true).Maybe()
 	eager := false
 	db, err := New(logger, name, Config{
-		MemtablesFlushDirtyAfter: 60, RootPath: t.TempDir(), QueryMaximumResults: 100000, MaxImportGoroutinesFactor: 1,
-		EnableLazyLoadShards: &eager,
+		MemtablesFlushDirtyAfter: 60, RootPath: root, QueryMaximumResults: 100000, MaxImportGoroutinesFactor: 1,
+		EnableLazyLoadShards: &eager, IndexRangeableInMemory: c.rangeableInMemory,
 	}, &FakeRemoteClient{}, sel, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(), sel, n.sr, fsm, nil)
 	require.NoError(t, err)
 	n.db = db
@@ -256,7 +286,7 @@ func (c *genCluster) startNode(name string) {
 	db.SetReindexTaskStateSource(n.dtm)
 	n.dtm.SetStateListener(db.ReindexTaskStateListener)
 
-	client := &genClient{c: c}
+	client := &genClient{c: c, n: n}
 	prov := NewReindexProvider(db, nil, client, logger, name, func() int { return 4 }, c.ctx)
 	prov.SetReindexFlipper(client)
 	n.sched = distributedtask.NewScheduler(distributedtask.SchedulerParams{
@@ -266,41 +296,69 @@ func (c *genCluster) startNode(name string) {
 	})
 	n.dtm.SetSchedulerNotifier(n.sched)
 	ctx, cancel := context.WithCancel(c.ctx)
-	n.cancel = cancel
-	require.NoError(t, n.sched.Start(ctx))
-	c.nodes = append(c.nodes, n)
+	var once sync.Once
+	n.stop = func() {
+		once.Do(func() {
+			n.sched.Close()
+			cancel()
+		})
+	}
 	t.Cleanup(func() {
-		n.sched.Close()
-		n.cancel()
+		n.stop()
 		require.NoError(t, n.db.Shutdown(context.Background()))
 	})
+	n.start = func() { require.NoError(t, n.sched.Start(ctx)) }
+	return n
 }
 
-// apply appends one entry and applies it on every node; the first node's error is the answer.
-func (c *genCluster) apply(typ api.ApplyRequest_Type, class string, sub any) error {
-	var raw []byte
-	var err error
+func genEncode(sub any) ([]byte, error) {
 	switch m := sub.(type) {
 	case *api.AddTenantsRequest, *api.DeleteTenantsRequest: // the schema's tenant entries are proto, the rest JSON
-		raw, err = gproto.Marshal(m.(gproto.Message))
+		return gproto.Marshal(m.(gproto.Message))
 	default:
-		raw, err = json.Marshal(sub)
+		return json.Marshal(sub)
 	}
+}
+
+// apply appends one entry and applies it on every node that is up.
+func (c *genCluster) apply(typ api.ApplyRequest_Type, class string, sub any) error {
+	return c.propose(nil, typ, class, sub)
+}
+
+// propose is apply for an entry a node proposed; a node replaced by a restart
+// never gets its entry into the log. The first up node's error is the answer.
+func (c *genCluster) propose(from *genNode, typ api.ApplyRequest_Type, class string, sub any) error {
+	raw, err := genEncode(sub)
 	if err != nil {
 		return err
+	}
+	if from != nil && c.isDown(from) {
+		return fmt.Errorf("node %s is down", from.name)
 	}
 	c.waitGates(typ, raw)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.index++
+	if from != nil && from.gone {
+		return fmt.Errorf("node %s crashed before the entry reached the log", from.name)
+	}
+	c.log = append(c.log, &api.ApplyRequest{Type: typ, Class: class, SubCommand: raw, Version: uint64(len(c.log) + 1)})
 	var first error
-	for i, n := range c.nodes {
-		err := n.applyEntry(&api.ApplyRequest{Type: typ, Class: class, SubCommand: raw, Version: c.index}, c.index)
-		if i == 0 {
-			first = err
+	answered := false
+	for _, n := range c.nodes {
+		if n.down || n.lagging {
+			continue
+		}
+		err := n.applyNext(false)
+		if !answered {
+			first, answered = err, true
 		}
 	}
 	return first
+}
+
+func (n *genNode) applyNext(schemaOnly bool) error {
+	n.applied++
+	return n.applyEntry(n.c.log[n.applied-1], n.applied, schemaOnly)
 }
 
 func (c *genCluster) waitGates(typ api.ApplyRequest_Type, raw []byte) {
@@ -308,15 +366,46 @@ func (c *genCluster) waitGates(typ api.ApplyRequest_Type, raw []byte) {
 		c.gateMu.Lock()
 		i := slices.IndexFunc(c.gates, func(g genGate) bool { return g.typ == typ && (g.match == nil || g.match(raw)) })
 		var ch chan struct{}
+		w := &genWaiting{typ: typ, raw: raw}
 		if i >= 0 {
 			ch = c.gates[i].ch
+			c.waiting = append(c.waiting, w)
 		}
 		c.gateMu.Unlock()
 		if ch == nil {
 			return
 		}
 		<-ch
+		c.gateMu.Lock()
+		c.waiting = slices.DeleteFunc(c.waiting, func(o *genWaiting) bool { return o == w })
+		c.gateMu.Unlock()
 	}
+}
+
+func (c *genCluster) awaitHeld(typ api.ApplyRequest_Type, match func(raw []byte) bool, n int) {
+	c.t.Helper()
+	c.waitFor(fmt.Sprintf("%d entries %s to wait at their gate", n, typ), func() bool {
+		c.gateMu.Lock()
+		defer c.gateMu.Unlock()
+		return n <= len(slices.DeleteFunc(slices.Clone(c.waiting), func(w *genWaiting) bool {
+			return w.typ != typ || !match(w.raw)
+		}))
+	})
+}
+
+// aboutUnit matches a unit's start or completion, never its failure.
+func aboutUnit(unit string) func(raw []byte) bool {
+	return func(raw []byte) bool {
+		var r struct {
+			UnitID string `json:"unit_id"`
+			Error  string `json:"error"`
+		}
+		return json.Unmarshal(raw, &r) == nil && r.UnitID == unit && r.Error == ""
+	}
+}
+
+func (c *genCluster) holdUnit(typ api.ApplyRequest_Type, unit string) func() {
+	return c.hold(typ, aboutUnit(unit))
 }
 
 // hold makes matching entries wait before they are applied; the returned func releases them.
@@ -355,16 +444,17 @@ func (c *genCluster) failUnitOf(id, shard string) error {
 	})
 }
 
-func (n *genNode) applyEntry(cmd *api.ApplyRequest, index uint64) error {
+// applyEntry with schemaOnly is the replay of a node's own log before its DB loads.
+func (n *genNode) applyEntry(cmd *api.ApplyRequest, index uint64, schemaOnly bool) error {
 	switch cmd.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS:
-		return n.sm.AddClass(cmd, n.name, false, false)
+		return n.sm.AddClass(cmd, n.name, schemaOnly, false)
 	case api.ApplyRequest_TYPE_ADD_TENANT:
-		return n.sm.AddTenants(cmd, false)
+		return n.sm.AddTenants(cmd, schemaOnly)
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
-		return n.sm.DeleteTenants(cmd, false)
+		return n.sm.DeleteTenants(cmd, schemaOnly)
 	case api.ApplyRequest_TYPE_REINDEX_FLIP:
-		return n.sm.ReindexFlip(cmd, false)
+		return n.sm.ReindexFlip(cmd, schemaOnly)
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		return n.dtm.AddTask(cmd, index)
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:
@@ -388,21 +478,28 @@ func (n *genNode) applyEntry(cmd *api.ApplyRequest, index uint64) error {
 	}
 }
 
-// genClient is what cluster.Raft gives the scheduler and the provider.
-type genClient struct{ c *genCluster }
+// genClient is what cluster.Raft gives one node's scheduler and provider.
+type genClient struct {
+	c *genCluster
+	n *genNode
+}
 
 func (r *genClient) dt(typ api.ApplyRequest_Type, sub any) error {
-	return distributedtask.RehydratePermanentRejection(r.c.apply(typ, "", sub))
+	return distributedtask.RehydratePermanentRejection(r.c.propose(r.n, typ, "", sub))
 }
 
 func (r *genClient) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	return r.c.nodes[0].dtm.ListDistributedTasks(ctx)
+	return r.c.leader().dtm.ListDistributedTasks(ctx)
 }
 
 func (r *genClient) RecordDistributedTaskUnitCompletion(_ context.Context, ns, id string, v uint64, node, unit string) error {
-	return r.dt(api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &api.RecordDistributedTaskUnitCompletionRequest{
+	req := &api.RecordDistributedTaskUnitCompletionRequest{
 		Namespace: ns, Id: id, Version: v, NodeId: node, UnitId: unit, FinishedAtUnixMillis: time.Now().UnixMilli(),
-	})
+	}
+	if r.n.lose != nil && r.n.lose(req) {
+		return errors.New("the reply was lost")
+	}
+	return r.dt(api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, req)
 }
 
 func (r *genClient) RecordDistributedTaskUnitFailure(_ context.Context, ns, id string, v uint64, node, unit, msg string) error {
@@ -497,9 +594,145 @@ func (c *genCluster) fail(id string) error {
 	})
 }
 
-// task is the first node's copy of a task, nil once it is gone.
+func (c *genCluster) leader() *genNode {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, n := range c.nodes {
+		if !n.down && !n.lagging {
+			return n
+		}
+	}
+	return c.nodes[0]
+}
+
+func (c *genCluster) isDown(n *genNode) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return n.down
+}
+
+// crash stops a node getting entries; what it proposed before still reaches the log.
+func (c *genCluster) crash(i int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.nodes[i].down = true
+}
+
+type genRestart struct {
+	edit   func(root string) // changes the crashed node's files before they open
+	loaded func(n *genNode)  // runs once the DB loaded, before the log catches up
+	lag    bool              // keeps the log behind until catchUp
+}
+
+// restart starts a crashed node over a copy of its files, memtables never flushed. Its own log
+// replays before the DB loads, as a RAFT node's does, then the rest of the log catches up.
+func (c *genCluster) restart(i int, o genRestart) *genNode {
+	c.t.Helper()
+	old := c.nodes[i]
+	c.mu.Lock()
+	old.gone = true
+	c.mu.Unlock()
+	root := c.t.TempDir()
+	require.NoError(c.t, copyTree(old.root, root))
+	old.stop()
+	if o.edit != nil {
+		o.edit(root)
+	}
+	n := c.newNode(old.name, root)
+	c.mu.Lock()
+	for n.applied < old.applied {
+		_ = n.applyNext(true) // the replay meets refusals the first apply met too
+	}
+	c.mu.Unlock()
+	n.sm.ReloadDBFromSchema()
+	if o.loaded != nil {
+		o.loaded(n)
+	}
+	c.mu.Lock()
+	c.nodes[i] = n
+	n.lagging = true
+	c.mu.Unlock()
+	if !o.lag {
+		c.catchUp(i)
+	}
+	n.start()
+	return n
+}
+
+func (c *genCluster) catchUp(i int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := c.nodes[i]
+	for int(n.applied) < len(c.log) {
+		_ = n.applyNext(false)
+	}
+	n.lagging = false
+}
+
+// copyTree copies files a running node may be changing; one gone meanwhile is skipped.
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dst, rel), data, 0o644)
+	})
+}
+
+// awaitStaged waits until the node's view of shard stages a build. It asks for
+// a refresh as a waiting unit does: a load's own notice comes before its index registers.
+func (n *genNode) awaitStaged(shard string) {
+	n.c.t.Helper()
+	n.shard(shard).notifyViewRefresh()
+	n.c.waitFor("a staged build on "+shard, func() bool { return len(n.shard(shard).loadView().staged) > 0 })
+}
+
+// commit releases held entries and waits until want entries of typ about unit are in the log.
+func (c *genCluster) commit(release func(), typ api.ApplyRequest_Type, unit string, want int) {
+	c.t.Helper()
+	release()
+	c.waitFor(fmt.Sprintf("%d entries %s of %s in the log", want, typ, unit), func() bool { return c.unitEntries(typ, unit) == want })
+}
+
+func (c *genCluster) unitEntries(typ api.ApplyRequest_Type, unit string) int {
+	about := aboutUnit(unit)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, e := range c.log {
+		if e.Type == typ && about(e.SubCommand) {
+			n++
+		}
+	}
+	return n
+}
+
+func (n *genNode) hasError(text string) bool {
+	return slices.ContainsFunc(n.logs.AllEntries(), func(e *logrus.Entry) bool {
+		return e.Level <= logrus.WarnLevel && strings.Contains(e.Message, text)
+	})
+}
+
+// task is the leader's copy of a task, nil once it is gone.
 func (c *genCluster) task(id string) *distributedtask.Task {
-	tasks, _ := c.nodes[0].dtm.ListDistributedTasks(c.ctx)
+	tasks, _ := c.leader().dtm.ListDistributedTasks(c.ctx)
 	for _, t := range tasks[ReindexNamespace] {
 		if t.ID == id {
 			return t
@@ -600,6 +833,9 @@ func genObject(class, tenant, text string, num int64) *storobj.Object {
 func (c *genCluster) put(shard string, obj *storobj.Object) {
 	c.t.Helper()
 	for _, n := range c.nodes {
+		if c.isDown(n) {
+			continue
+		}
 		cp := *obj
 		require.NoError(c.t, n.shard(shard).PutObject(c.ctx, &cp))
 	}
