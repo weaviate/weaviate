@@ -647,6 +647,57 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 
 **Lo que propongo (*mío*):** (a). Quita el pico de `extend` y la holgura, y sigue a los vivos con updates, por una carga más en caché. (b) solo gana con doc ids esparcidos al azar, que un shard no produce. Los costes son estimados: habría que medir el bucle de extremos con `BenchmarkSidecarScore` sobre páginas antes de decidir.
 
+### Regresiones del insert a 100 000 y dónde se va su tiempo (pre-registro, 2026-11-27 a las 07:50, antes de compilar)
+
+**El encargo (del usuario):** todo a 100 000 vectores (los primeros 100k de dbpedia 1M), y a 1M solo lo que haya que confirmar.
+1. **Comprobar regresiones:** crecer del 10 % al 100 % con 1 y con 8 llamadores en tres puntos:
+   - el integrado al cierre del hito 2 (`b6200010ab`);
+   - la cabeza de `m2` (`c6c8b2e347`);
+   - el camino de v5.2 en el arnés.
+
+   Además, el heap por componente en `b6200010ab` y en `m2`. Resumen corto: regresión sí o no, con la evidencia.
+2. **Dónde se va el tiempo del insert con 8 llamadores:** perfiles de CPU, de bloqueo y de mutex. Separar:
+   - (a) el cerrojo entre cálculo y escritura;
+   - (b) las lecturas del rescore de una en una;
+   - (c) el trabajo propio del integrado: diario, log de objetos y tope de cambios pendientes, diciendo si alguno escribe a disco de forma síncrona en cada insert.
+3. **Proponer el cambio:** tandas que calculan en paralelo contra un estado fijo y un aplicador, como v5.2, encajado con la indexación asíncrona de Weaviate. Estimar la ganancia con los perfiles, sin implementar.
+
+**Cómo lo aplico (*mío*):**
+- **Datos:** dbpedia-openai-1000k-angular (raw), las primeras 100 000 filas (`-bench.limit 100000`), 1 536 dimensiones. Hay 1 000 queries, con la verdad recalculada por fuerza bruta sobre las 100 000, como hace el arnés con límite.
+- **Orden:** barajado con PCG(1, 1) sobre las 100 000. La base son las primeras 10 000 (10 %), y después van 90 000 inserts.
+- **Los dos integrados:**
+  - El arnés es `TestIntegrationScale`, tal como está en `b6200010ab`.
+  - En `m2` se restaura, sin commit, el de `ba2686caf2^` sobre `c6c8b2e347`. Es idéntico al de `b6200010ab`: `git diff` entre los dos no da nada en `bench_integration_test.go` ni en `bench_test.go`.
+  - Opciones: `-bench.integrationbase 10000`, `-bench.integrationwriters` 1 u 8, `-bench.integrationcycles` (los ciclos de tombstones y commit log del grafo, como en un shard), `routing` y el refresco apagado (los valores por defecto), sin borrado (`-bench.integrationdelete 0`), sin reabrir (`-bench.integrationreopen=false`), y recall de control a ef 40 y 160.
+  - El tiempo es el que el arnés cuenta de los inserts tras la base: las rondas con su `Flush`, en `perSecond`.
+- **v5.2:** `TestGrowTimedInserts` de `feat/posting-edge-index` (`dda0eb9f6c`), con las opciones de sus celdas: `-bench.growstart 10`, umbral 360, ef de insert 160, 512 bits, `force` y K = 0.
+  - Las celdas son N = 1 con tanda 1 y N = 8 con tanda 32.
+  - Su base la construye el arnés en lote, y su tiempo es el de sus inserts.
+- **El integrado y v5.2 no son comparables uno a uno.** v5.2 es la referencia de lo que hacía el prototipo, no un gemelo. Difieren en:
+  - la base: la construye el índice o el arnés;
+  - el rescore del insert: automático en el integrado, 64 en v5.2;
+  - las aristas: consolidadas con K = 64 y las filas junto a los miembros en el integrado, las de v5.0 en v5.2;
+  - el diario;
+  - el store.
+- **Las corridas:** dos pasadas de las seis celdas, alternadas: `b62`-1, `m2`-1, v5.2-1, `b62`-8, `m2`-8, v5.2-8, y otra vez. Cada binario se compila una sola vez antes de empezar.
+- **La regla de regresión (*mía*):** `m2` frente a `b6200010ab`, con el mismo número de llamadores.
+  - Regresión si la media de `m2` queda un 10 % o más por debajo y la diferencia es mayor que la que hay entre las dos pasadas de cada uno.
+  - Entre un 5 y un 10 % es «posible», y se confirma a 1M.
+  - En recall a ef 40 y 160, regresión si baja más de 0.005.
+- **El heap:** tras la primera pasada de 1 llamador de `b6200010ab` y de `m2`, otro proceso abre el índice que dejó, sobre el mismo store y sin ciclos. Escribe el perfil con todas las asignaciones, y se clasifica por componente con las líneas de cada versión.
+  - Regresión de memoria: un componente que crece sin un cambio que lo explique.
+  - A 100 000 el tope de 128 MB no se alcanza.
+- **Los perfiles (punto 2):** una corrida aparte de `m2` con 8 llamadores, que no entra en el punto 1. Lleva `-test.cpuprofile`, `-test.blockprofile` (con `blockprofilerate` de 10 000 ns) y `-test.mutexprofile` (fracción 1). Para separar:
+  - (a): la espera en `p.mu` y en `writeMu`, de los perfiles de bloqueo y de mutex;
+  - (b): los `pread` y la creación de gorutinas del rescore y de la carga de postings, de la CPU, y su espera en el `Wait` de los grupos, del perfil de bloqueo;
+  - (c): el diario y el tope, de la CPU. Las escrituras síncronas por insert (`fsync`, `F_FULLFSYNC`, `Sync()`) salen del perfil y de leer el código.
+- **El log de objetos no está en `m2`,** sino en `feat/posting-edge-backup`. Leo su código y digo si escribe de forma síncrona por insert, sin medirlo.
+
+**Lo que espero (*mío*):**
+- **Inserts por segundo:** sin regresión de `m2` frente a `b6200010ab`. El camino del insert es el mismo: lo que cambió entre los dos son los centroides en RQ8, los retirados liberados, el tope y la tabla de cuándo se hicieron las aristas, más lo que trajo main con sus fusiones.
+- **Llamadores:** en los dos integrados, 8 llamadores aproximadamente como 1. v5.2 con 8 da unas 3–3.5 veces su N = 1.
+- **El heap:** el de `m2`, menor que el de `b6200010ab`, por los centroides.
+
 ### El mapa docID → posting y slot: ¿se puede bajar sin coste en la búsqueda? (análisis, 2026-11-26, sin cambiar nada)
 
 **Qué es.** Dos tablas de 4 B por doc id: el posting de cada vector (`postingOf`) y su posición en el fichero de vectores (`slotOf`). En un índice crecido tienen `keys` entradas, 1.25 veces el mayor doc id dado. A 10M son 50 + 50 MB en el crecido y 80 MB en el lote (8 B × 10M, sin holgura).
