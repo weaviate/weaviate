@@ -1057,6 +1057,53 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **La regla:** la búsqueda «se frena» si el p50 sube un 5 % o más en alguna de las cuatro celdas, por encima de la diferencia entre pasadas. Si se frena, lo digo antes de subir nada y no lo subo sin que el usuario decida.
 - **El test en rojo, antes del arreglo:** 30 000 vectores con doc ids repartidos hasta 10M; el heap de lo que el índice guarda por vector, medido con el perfil, no pasa de 64 MB. Hoy son unos 1 030.
 
+#### Enmienda 1 (12:45 del 27, del usuario, antes de compilar el cambio): el caso denso manda, a 1M y con un 3 %
+
+**El encargo (del usuario).** Sustituye a «La medida» y «La regla» de arriba.
+1. **El caso denso manda:** doc ids seguidos es el caso normal y el que se ha medido todo. Se mide a 1M, no solo a 100k, con el arnés de v4.0, antes y después: búsqueda en caliente a 0.95 y 0.99, ns por endpoint puntuado, inserts por segundo y heap. **Umbral: 3 % en el p50 en caliente y en los ns por endpoint.** Si lo pasa, propongo un camino directo para el caso denso (posición = doc id cuando los ids son seguidos) y la tabla nueva solo cuando hay huecos.
+2. **La memoria en el caso denso frente a hoy:** los 86 B por vector de la tabla nueva frente a lo que ocupan ahora los códigos más el mapa.
+3. **En un commit o una serie propia,** separada de los pasos 1 a 4, para poder quitarla sin tocar lo demás. Si no cumple los umbrales no entra en la base: la base se congela sin ella, con el problema anotado como conocido en la nota para Rodrigo, y el cambio pasa a `feat/posting-edge-next`.
+4. **Antes de medir:** todos los tests del paquete, de shard y de reentrega en verde, y un test de equivalencia: el mismo índice con ids seguidos y con ids dispersos devuelve los mismos resultados.
+
+**La memoria en el caso denso, por cuenta (punto 2; la medida la confirma o la corrige).** Por vector, con doc ids seguidos y códigos de 512 bits (9 palabras):
+
+| | hoy | con el cambio |
+|---|---:|---:|
+| código de ruteo | 72 B | 72 B |
+| posting | 4 B | 8 B, con la posición (una entrada por doc id) |
+| slot del vector exacto | 4 B | 4 B |
+| vivo y borrado | 2 B | 0.125 B (un bit; vivo es tener entrada) |
+| puntero de la página | — | 0.25 B (8 B cada 32 doc ids) |
+| **por doc id con sitio** | **82 B** | **84.4 B** |
+| holgura | las cinco tablas tienen sitio para 1.25 veces el mayor doc id: de 82 a 102.5 B por vector según lo lleno que esté | solo los punteros de página (0.06 B) y el trozo a medio llenar, 4 096 posiciones como mucho |
+| al crecer | las cinco tablas se copian enteras: durante la copia hay dos | nada se copia salvo los punteros de página |
+
+- **En `routing`:** 84.4 B frente a entre 82 y 102.5: 2.4 B más (un 2.9 %) que la tabla de hoy llena, y 18 B menos que recién ampliada. A 1M, 84 MB frente a 82–103; a 10M, 844 MB frente a 820–1 025.
+- **En `none`** (sin códigos): 12.4 B frente a entre 10 y 12.5.
+- **Los 86 B** son la cota del test de la estructura, con el trozo a medio llenar; la cuenta da 84.4.
+
+**Cómo lo mido (*mío*).**
+- **El arnés de v4.0 es su método, sobre el índice integrado.** Las celdas de v4.0 son el índice en lote, que sigue con sus tablas planas, y no se abren con código nuevo. Las tablas que cambian son las del índice que crece. Así que cronometro el índice integrado (`Persistent`), crecido por inserts a 1M, con la función que cronometra las celdas de v4.0 (`timeDisk`): tras una pasada sin cronometrar, tres pasadas en caliente de las 1 000 queries con 1 y con 8 hilos, y de ellas la de QPS mediano.
+- **Los binarios:** «antes» es `m2` en local con los pasos 1 a 4, la regla de reorganización y los vectores perdidos (`cd67cc6466` y el test en rojo), con el arnés restaurado. «Después» es lo mismo más la serie de las tablas. Si algún paso no gana y sale, la comparación sigue valiendo: el antes y el después comparten todo lo demás, y la búsqueda no depende de los pasos.
+- **Los índices:** dbpedia 1M, `routing`, base de 100 000 en lote y 900 000 inserts con 8 llamadores, con los ciclos del nodo. Cada binario crece el suyo: de ahí salen los inserts por segundo, por tramo de 100 000, y los bytes escritos.
+- **La búsqueda, sobre un solo índice:** nada cambia en disco, así que los dos binarios abren el mismo, el que creció el de antes. Los puntos de 0.95 y 0.99 son el menor ef que llega a cada recall, buscado una vez. Los resultados de cada query y las cargas deben ser idénticos entre binarios: si no lo son, paro, porque es un fallo y no una medida.
+- **Tres rondas alternadas** (antes, después, antes, después, antes, después), cada una un proceso que abre el índice y cronometra los dos puntos. De cada binario y celda me quedo con la mediana de las tres rondas.
+- **Los ns por endpoint puntuado:** en cada ronda, un pase instrumentado con 1 hilo en cada punto. Es el tiempo de puntuar los extremos de las aristas y ordenar sus postings entre los extremos puntuados. Doy también los ns por miembro escaneado, que es donde se lee la marca de borrado.
+- **El heap:** el perfil tras abrir y recoger, por componente, de cada binario sobre ese índice, en `routing` y en `none` sobre los mismos ficheros.
+- **A 100k, además:** los inserts por segundo con 1 y con 8 llamadores, dos pasadas alternadas, como los pasos. Dan la dispersión entre pasadas con la que leer la diferencia de 1M, que sale de una sola corrida por binario.
+
+**La regla.**
+- **El cambio no cumple** si la mediana del de después supera a la del de antes en un 3 % o más en el p50 en caliente de alguna de las cuatro celdas (0.95 y 0.99, con 1 y con 8 hilos), o en los ns por endpoint puntuado de alguno de los dos puntos.
+- **Una celda queda marcada** si las tres rondas de un mismo binario se separan entre sí un 3 % o más. Si el veredicto depende de una celda marcada, repito esa medida con cinco rondas antes de darlo, y lo digo.
+- **Los inserts por segundo y el heap no tienen umbral del usuario.** Los doy con su diferencia. Señalo como coste a decidir un 3 % o más de inserts por segundo de menos a 1M, o un heap por encima de la cuenta de arriba.
+- **Si no cumple:** no entra en la base, y propongo el camino directo para el caso denso. No lo implemento sin que el usuario lo vea.
+
+**Lo que espero (*mío*, antes de ningún dato).**
+- **Por endpoint:** la entrada (posting y posición) sustituye a la lectura del posting, en una tabla del doble de tamaño (8 MB a 1M frente a 4), y pedir el código por adelantado necesita ahora haber leído la entrada. Espero entre 1 y 4 ns más sobre unos 55: entre un 2 y un 7 %. **No sé de qué lado del 3 % cae.**
+- **Por miembro escaneado:** igual o algo menos; la marca pasa a una tabla ocho veces menor.
+- **En el p50:** el ruteo de endpoints es del orden del 40 % de la query en caliente a 0.95 (unos 6 900 endpoints a 55 ns sobre 0.92 ms, con las cifras de v4.0 y del pase instrumentado en memoria). Espero entre un 1 y un 3 % en el p50: puede pasar el umbral si los ns por endpoint lo pasan con holgura.
+- **Inserts por segundo:** sin diferencia apreciable; el plan de un insert es una búsqueda, y lo demás es disco.
+
 ### Los arreglos de `lsmkv` en las ramas del índice (2026-11-27, a petición del usuario)
 
 | | Set (`bf72a3bec8`, #13950) | Map (`87866f1cf8`, #13983) |
