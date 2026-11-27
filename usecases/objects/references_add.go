@@ -118,8 +118,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	// A classless beacon on a multi-target prop would reach Exists with
-	// Class=="", which scans every collection, other namespaces' included.
-	// With namespaces on, no DELETE could remove it once stored.
+	// Class=="", which scans every collection; with NAMESPACES_ENABLED,
+	// DB.anyExists refuses that lookup, so refuse the beacon as a bad request.
 	if targetRef.Class == "" {
 		if err := validation.CheckMultiTargetRefWithoutClass(m.config, m.metrics); err != nil {
 			return &Error{err.Error(), StatusBadRequest, err}

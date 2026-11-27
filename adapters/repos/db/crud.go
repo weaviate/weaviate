@@ -276,11 +276,21 @@ func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 	return index.exists(ctx, id, repl, tenant)
 }
 
-// anyExists must not name a collection: the caller may not be allowed to read it.
+// errLookupWithoutClass refuses a lookup naming no collection on a node with
+// NAMESPACES_ENABLED. Every caller refuses such a request before it reaches the
+// DB, so this error means a caller lacks that gate.
+var errLookupWithoutClass = errors.New("a lookup without a class is not supported with NAMESPACES_ENABLED")
+
+// anyExists reports whether any single-tenant collection holds id. It refuses
+// with NAMESPACES_ENABLED. It must not name a collection: the caller may not be
+// allowed to read it.
 // A hit or failure starts no further lookup; running ones are not cancelled, as a cancelled replica read logs as failed.
 func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	repl *additional.ReplicationProperties,
 ) (bool, error) {
+	if db.config.NamespacesEnabled {
+		return false, errLookupWithoutClass
+	}
 	var found, failed atomic.Bool
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
