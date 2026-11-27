@@ -285,14 +285,14 @@ func TestManifest_Create(t *testing.T) {
 	dir := t.TempDir()
 	m := loaded(t, dir, "")
 
-	entry, err := m.Create("title", cfg)
+	entry, err := m.Create(t.Context(), "title", cfg)
 	require.NoError(t, err)
 	assert.Equal(t, Entry{Name: "title", StorageID: "vectors_title", QueueID: "vectors_title", IndexType: "hnsw", Config: cfg}, entry)
 	rec, _, err := m.records.Get("title")
 	require.NoError(t, err)
 	assert.Equal(t, "creating", rec.State)
 
-	_, err = m.Create("title", cfg)
+	_, err = m.Create(t.Context(), "title", cfg)
 	require.NoError(t, err, "a retry of an interrupted creation")
 
 	buildHNSW(t, dir, "vectors_title")
@@ -301,7 +301,7 @@ func TestManifest_Create(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", QueueID: "vectors_title", Config: cfg}, rec)
 
-	_, err = m.Create("compressed", cfg)
+	_, err = m.Create(t.Context(), "compressed", cfg)
 	require.ErrorContains(t, err, `share "vectors_compressed"`)
 	_, ok, err := m.Get("compressed")
 	require.NoError(t, err)
@@ -313,7 +313,7 @@ func TestManifest_ReadyRefuses(t *testing.T) {
 	m := loaded(t, t.TempDir(), "title")
 	require.ErrorContains(t, m.Ready(schemaVectors{"ghost": cfg}), `vector "ghost" has no mapping record`)
 
-	_, err := m.Create("body", cfg)
+	_, err := m.Create(t.Context(), "body", cfg)
 	require.NoError(t, err)
 	require.Error(t, m.Ready(schemaVectors{"body": cfg}), "directories that cannot be synced")
 	rec, _, err := m.records.Get("body")
@@ -434,16 +434,33 @@ func TestManifest_FinishDropRefusesAVectorNotBeingDropped(t *testing.T) {
 
 // Only FinishDrop and a load end a drop: overwriting its record would leave
 // the files it names behind, or open them again.
+// A vector created again while its drop on this shard has not finished, after
+// the cluster freed the name, finishes the drop first.
+func TestManifest_CreateFinishesADropInProgress(t *testing.T) {
+	cfg := enthnsw.NewDefaultUserConfig()
+	dir := t.TempDir()
+	m := loaded(t, dir, "foo")
+	_, err := m.BeginDrop("foo")
+	require.NoError(t, err)
+	queueDir := filepath.Join(dir, "vectors_foo.queue.d")
+	plant(t, queueDir)
+
+	entry, err := m.Create(t.Context(), "foo", cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "vectors_foo", entry.StorageID)
+	assert.NoDirExists(t, filepath.Join(dir, "vectors_foo.hnsw.commitlog.d"), "the old index is gone")
+	assert.NoDirExists(t, queueDir, "the old queue is gone")
+	rec, _, err := m.records.Get("foo")
+	require.NoError(t, err)
+	assert.Equal(t, "creating", rec.State)
+}
+
 func TestManifest_ADropInProgressIsNotOverwritten(t *testing.T) {
 	cfg := enthnsw.NewDefaultUserConfig()
 	tests := []struct {
 		name string
 		call func(m *Manifest) error
 	}{
-		{name: "create", call: func(m *Manifest) error {
-			_, err := m.Create("foo", cfg)
-			return err
-		}},
 		{name: "ready", call: func(m *Manifest) error { return m.Ready(schemaVectors{"foo": cfg}) }},
 		{name: "reset", call: func(m *Manifest) error { return m.Reset("foo") }},
 	}
@@ -478,7 +495,7 @@ func TestManifest_CreateWaitsForAFinishingDrop(t *testing.T) {
 		if !started {
 			started = true
 			enterrors.GoWrapper(func() {
-				_, err := m.Create("foo", enthnsw.NewDefaultUserConfig())
+				_, err := m.Create(t.Context(), "foo", enthnsw.NewDefaultUserConfig())
 				created <- err
 			}, m.logger)
 			select {
