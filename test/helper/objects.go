@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/runtime"
-	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,14 +102,7 @@ func NewClient(t *testing.T, uri string) *client.Weaviate {
 	scheme, remaining := parseScheme(uri)
 	host, port := parseHostPort(remaining)
 
-	transport := httptransport.New(fmt.Sprintf("%s:%s", host, port), "/v1", []string{scheme})
-
-	if t != nil && DebugHTTP {
-		transport.SetDebug(true)
-		transport.SetLogger(&testLogger{t: t})
-	}
-
-	return client.New(transport, strfmt.Default)
+	return client.New(newRuntime(t, fmt.Sprintf("%s:%s", host, port), scheme), strfmt.Default)
 }
 
 func SetupGRPCClient(t *testing.T, uri string) {
