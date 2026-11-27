@@ -693,6 +693,31 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - (c): el diario y el tope, de la CPU. Las escrituras síncronas por insert (`fsync`, `F_FULLFSYNC`, `Sync()`) salen del perfil y de leer el código.
 - **El log de objetos no está en `m2`,** sino en `feat/posting-edge-backup`. Leo su código y digo si escribe de forma síncrona por insert, sin medirlo.
 
+**Enmienda 1 (del usuario, 2026-11-27 a las 08:15, con la primera pasada hecha y antes de compilar nada más): un punto antes de la fusión de main.**
+- **El encargo (del usuario):**
+  - Cuatro puntos a 100k, con 1 y 8 llamadores: `b6200010ab` (hito 2), `m2` justo antes de la fusión de main, la fusión y la cabeza. En cada uno, inserts por segundo, bytes escritos al disco, amplificación de escritura y heap por componente. Así, una diferencia entre el hito 2 y antes de la fusión es nuestra, y una entre antes y después de la fusión es de main.
+  - Listar los cambios de main entre el punto común y `5d678d7acf` en los paquetes de los que dependemos: `lsmkv`, `hnsw`, compresión y RQ, kernels de distancia, y la cola y el scheduler de la indexación asíncrona.
+  - Si aparece una diferencia en la fusión, aislarla con bisect sobre los commits de main en esos paquetes.
+- **Los puntos, en la historia de `m2`:**
+  - `b6200010ab`, el hito 2.
+  - `4beecb4f1e`, justo antes de la fusión. Ya tiene los centroides en RQ8 (`7a5d8a8b38`) y los retirados liberados (`4470f2cd1a`). **El tope no:** llegó después de la fusión (`67fc89114c`, y `c6c8b2e347` con 128 MB), igual que soltar la tabla de cuándo se hicieron las aristas.
+  - `02a95212cf`, la fusión de `5d678d7acf`. Dentro del índice solo adapta tres APIs (`Drop`, `SnapshotMutableFiles` y el `Drop` del build): `grow.go` es el mismo objeto que antes de la fusión.
+  - `c6c8b2e347`, la cabeza.
+  - El punto común con main es `0be45f9b64` (del 10 de noviembre).
+  - Entre el hito 2 y antes de la fusión cambian los centroides. Entre la fusión y la cabeza, el tope, la tabla y los tests encogidos.
+- **Cómo (*mío*):**
+  - **Las corridas:** el mismo arnés en los cuatro, idéntico a `b6200010ab` en los cuatro (comprobado con `git diff`). Dos pasadas de las ocho celdas, alternadas: `b62`-1, antes-1, fusión-1, cabeza-1, `b62`-8, antes-8, fusión-8, cabeza-8, y otra vez. Son binarios nuevos de los cuatro puntos, compilados una vez cuando acaben las medidas en curso.
+  - **Los bytes escritos:** lo que el sistema contó como escrito a disco por el proceso (`proc_pid_rusage`, `ri_diskio_byteswritten`). Lo lee un test que corre después del arnés en el mismo proceso (`zz_written_test.go`).
+    - Incluye la base, los inserts, el cierre y el recall de control, que no escribe.
+    - **La amplificación de escritura** es ese total entre los bytes de los 100 000 vectores (6 144 B cada uno, 614.4 MB).
+  - **El heap por componente:** tras la primera corrida de 1 llamador de cada punto, en otro proceso, como en el diseño de arriba.
+  - **La regla:**
+    - Una diferencia en inserts por segundo es la regla de arriba: un 10 % o más, y más que la diferencia entre las dos pasadas.
+    - En bytes escritos, un 10 % o más.
+    - En heap, un componente que crece un 10 % y al menos 1 MB.
+    - Si la diferencia está entre antes y después de la fusión, bisect sobre los commits de main en esos paquetes, con la celda que la muestre.
+  - **v5.2 no se repite:** vale el de la primera serie. Las corridas de la primera serie de `b62` y de la cabeza se reportan como lo que eran, la serie del diseño original.
+
 **Lo que espero (*mío*):**
 - **Inserts por segundo:** sin regresión de `m2` frente a `b6200010ab`. El camino del insert es el mismo: lo que cambió entre los dos son los centroides en RQ8, los retirados liberados, el tope y la tabla de cuándo se hicieron las aristas, más lo que trajo main con sus fusiones.
 - **Llamadores:** en los dos integrados, 8 llamadores aproximadamente como 1. v5.2 con 8 da unas 3–3.5 veces su N = 1.
