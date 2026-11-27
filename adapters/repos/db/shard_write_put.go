@@ -64,18 +64,23 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return nil
 	}
 
+	var targetsBuf [4]string
+	targets := targetsBuf[:0]
 	for targetVector, vector := range object.Vectors {
+		targets = append(targets, targetVector)
 		if err := s.updateVectorIndex(ctx, vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
 	}
 	for targetVector, multiVector := range object.MultiVectors {
+		targets = append(targets, targetVector)
 		if err := s.updateMultiVectorIndex(ctx, multiVector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
 		}
 	}
 
 	if s.hasLegacyVectorIndex() {
+		targets = append(targets, "")
 		if err := s.updateVectorIndex(ctx, object.Vector, status, ""); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
@@ -87,6 +92,10 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
+	}
+
+	if err := s.flushVectorQueues(targets); err != nil {
+		return err
 	}
 
 	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
@@ -941,13 +950,32 @@ func updateVectorInVectorIndex[T dto.Embedding](ctx context.Context, shard *Shar
 		return nil
 	}
 
+	// The caller flushes the queue once the store has written its logs
+	// (flushVectorQueues).
 	if err := queue.Insert(ctx, &common.Vector[T]{ID: status.docID, Vector: vector}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
-	if err := queue.Flush(); err != nil {
-		return errors.Wrap(err, "flush all vector index buffered WALs")
-	}
+	return nil
+}
 
+// flushVectorQueues flushes the vector indexes a write gave vectors to, or
+// their queues when indexing is asynchronous. A write calls it after the store
+// has written its logs: what an index logs of a vector must not reach the
+// system before the log of its object, or a process that dies in between
+// leaves the vector without its object, which nothing can repair. The batch
+// path keeps the same order (objectsBatcher.flushWALs).
+func (s *Shard) flushVectorQueues(targets []string) error {
+	for _, target := range targets {
+		queue, release, ok := s.AcquireVectorIndexQueue(target)
+		if !ok {
+			return fmt.Errorf("vector index not found for %s", target)
+		}
+		err := queue.Flush()
+		release()
+		if err != nil {
+			return errors.Wrapf(err, "flush all vector index buffered WALs of %q", target)
+		}
+	}
 	return nil
 }
