@@ -1008,6 +1008,55 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Un quinto punto, el paso 4 con la regla de reorganización:** a 100k los layouts de una ingesta pasan de tres (20k, 40k y 80k) a uno (40k). Doy inserts por segundo y bytes escritos, sin umbral.
 - **La línea de base cambia de significado desde el paso 2:** la cabeza no tiene el arreglo de la reentrega ni los pasos anteriores, así que cada razón es acumulada frente a la cabeza, no el efecto aislado del paso. El efecto de un paso sale de comparar su fila con la del paso anterior, entre cadenas distintas, y lo digo así.
 
+### Dejar la base en su mejor estado, medirla y congelarla (plan del usuario, 2026-11-27 a las 12:20)
+
+**El encargo (del usuario), en tres puntos, con un resumen al cerrar cada uno:**
+1. **Antes de congelar, en `m2`:**
+   - los pasos 1 a 4 y la regla de reorganización, cada uno subido en cuanto tenga su medida y sea favorable; el que no gane, fuera, con su motivo;
+   - las tablas por docID dimensionadas por los vectores presentes y no por el mayor docID, con un test en rojo de docIDs dispersos (30 000 vectores con docIDs hasta 10M), después el arreglo, y la medida de que la búsqueda no se frena;
+   - el cambio del paso 4 para los vectores con suma incorrecta.
+2. **Medidas definitivas, con el Mac libre cuando haga falta:**
+   - 1M dbpedia crecido por inserts con 1 y 8 llamadores: inserts por segundo por tramo, amplificación de escritura, heap por componente en `none` y en `routing`, y recall y cargas a 0.95 y 0.99 frente al índice en lote;
+   - HFresh en el mismo arnés a 1M;
+   - 10M wiki-dpr crecido por inserts, solo si a 1M el ritmo permite terminar en una noche; si no, cuánto tardaría;
+   - la búsqueda en frío y en caliente de v4.0 sobre el índice crecido.
+3. **Congelar:** propagar `m2` → integración → backup y `none-direct` con tests y CI en verde; etiquetar el commit de la base; actualizar la nota para Rodrigo y las tablas de RAM y de inserts con lo medido; crear `feat/posting-edge-next` y anotar en el plan lo que queda para esa rama (mapa compacto, hojas con solape, poda del halo, centroides en RQ1).
+
+**El paso 4 con los vectores de suma incorrecta: hecho** (`cd67cc6466`, en local sobre `m2`, decisión del usuario).
+- Al abrir, un vector que el fichero no tiene como se escribió queda fuera, como si su insert no hubiera llegado: marcado como borrado y además como perdido (un segundo valor de la marca, que sobrevive a las aperturas).
+- Ningún rescore lo lee y el split de su posting lo deja fuera de su 2-means.
+- Una línea de log, a nivel de error, con cuántos faltaban y cuántos se dejaron fuera (`postingedge_vectors_left_out`).
+- **Pendiente (del usuario):** reconstruir el vector desde su objeto.
+- Test con cuatro mutaciones que lo hacen fallar: no marcarlo, leerlo, leerlo en el split, y una marca que no diga que está perdido.
+
+### Las tablas por docID, por los vectores presentes (pre-registro, 2026-11-27 a las 12:25, antes de escribir el cambio)
+
+**Qué hay hoy.** Cinco tablas en memoria con `keys` entradas, 1.25 veces el mayor doc id: códigos de ruteo (72 B a 512 bits), posting (4 B), slot (4 B), vivo (1 B) y borrado (1 B). Con 30 000 vectores y doc ids hasta 10M, el índice abre con unos 1 030 MB de heap, de los que 900 son códigos de ruteo (medido en la prueba pequeña de la noche).
+
+**Por qué no páginas de las tablas tal cual (*mío*).** Con doc ids dispersos al azar, casi todas las páginas tienen algún vector: con páginas de 4 096 ids no se ahorra nada, y con páginas de 32 ids el caso del test quedaría en unos 84 MB, 30 veces lo que ocupan los datos. El caso real que más importa es un vector con nombre que solo tienen parte de los objetos: sus doc ids son un subconjunto disperso de los del shard. A una densidad del 10 %, las páginas de las tablas no ahorran nada.
+
+**El diseño que escribo (*mío*): un índice por doc id y los datos densos, por vector presente.**
+- **El índice:** por doc id, una entrada de 8 B con el posting y la posición densa del vector. Va en páginas de 32 doc ids (256 B) que solo se reservan cuando tienen algún vector y se sueltan cuando no les queda ninguno.
+- **Los datos, por posición densa:** el código de ruteo, el slot y, con el refresco, cuándo se hicieron sus aristas. Van en trozos, sin copiar al crecer. Una posición que queda libre se reutiliza.
+- **Vivos y borrados:** un bit por doc id, en páginas que se reservan al usarse.
+- **Nada cambia en disco:** las tablas se reconstruyen al abrir, como hoy.
+- **El índice en lote** (`Index`), que ya es denso por slot, sigue con sus tablas planas.
+
+**Lo que espero en memoria:**
+
+| caso | hoy | con el cambio |
+|---|---:|---:|
+| 30 000 vectores, doc ids hasta 10M, `routing` | ≈ 1 030 MB | ≈ 15 MB |
+| 10M vectores, doc ids seguidos, `routing` | 1 025 MB (820 sin la holgura) | ≈ 845 MB |
+| 10M vectores, doc ids seguidos, `none` | 125 MB | ≈ 125 MB |
+
+**El coste en la búsqueda, y cómo lo mido (*mío*).**
+- **Lo que cambia por extremo de arista:** hoy son dos lecturas (posting y código, por doc id). Con el cambio, la entrada del índice (que da el posting y la posición) y el código: las mismas dos lecturas a memoria fría, más el puntero de la página, que cabe en caché.
+- **Por miembro escaneado:** el borrado pasa de un byte por doc id a un bit, en una tabla ocho veces menor.
+- **La medida:** sobre el mismo índice crecido a 100k (dbpedia, `routing`), 1 000 queries en caliente a ef 40 y 160, con 1 y con 8 hilos, tres pasadas alternadas del binario de antes y el de después. Doy p50 y p99 y las cargas, que deben ser idénticas.
+- **La regla:** la búsqueda «se frena» si el p50 sube un 5 % o más en alguna de las cuatro celdas, por encima de la diferencia entre pasadas. Si se frena, lo digo antes de subir nada y no lo subo sin que el usuario decida.
+- **El test en rojo, antes del arreglo:** 30 000 vectores con doc ids repartidos hasta 10M; el heap de lo que el índice guarda por vector, medido con el perfil, no pasa de 64 MB. Hoy son unos 1 030.
+
 ### Los arreglos de `lsmkv` en las ramas del índice (2026-11-27, a petición del usuario)
 
 | | Set (`bf72a3bec8`, #13950) | Map (`87866f1cf8`, #13983) |
