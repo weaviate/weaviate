@@ -13,14 +13,19 @@ package grpcconn
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -257,6 +262,41 @@ func (m *ConnManager) Close() {
 func BasicAuthHeader(username, password string) string {
 	creds := fmt.Sprintf("%s:%s", username, password)
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(creds))
+}
+
+// ValidateBasicAuth checks the "authorization" metadata against the expected
+// username and password. It hashes both sides and compares the hashes in
+// constant time, so timing reveals neither the content nor the length of the
+// credentials.
+func ValidateBasicAuth(md metadata.MD, ok bool, expectedUsername, expectedPassword string) error {
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing metadata")
+	}
+
+	authHeader := md["authorization"]
+	if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
+		return status.Error(codes.Unauthenticated, "missing or invalid auth header")
+	}
+
+	payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
+	if err != nil {
+		return status.Error(codes.Unauthenticated, "invalid base64 encoding")
+	}
+
+	parts := strings.SplitN(string(payload), ":", 2)
+	if len(parts) != 2 {
+		return status.Error(codes.Unauthenticated, "invalid username or password")
+	}
+
+	givenUser, wantUser := sha256.Sum256([]byte(parts[0])), sha256.Sum256([]byte(expectedUsername))
+	givenPass, wantPass := sha256.Sum256([]byte(parts[1])), sha256.Sum256([]byte(expectedPassword))
+	userMatch := subtle.ConstantTimeCompare(givenUser[:], wantUser[:])
+	passMatch := subtle.ConstantTimeCompare(givenPass[:], wantPass[:])
+	if userMatch&passMatch != 1 {
+		return status.Error(codes.Unauthenticated, "invalid username or password")
+	}
+
+	return nil
 }
 
 func BasicAuthUnaryInterceptor(authHeader string) grpc.UnaryClientInterceptor {

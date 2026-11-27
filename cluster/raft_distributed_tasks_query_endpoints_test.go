@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/utils"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
@@ -54,7 +55,7 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 				&raft.AppendEntriesResponse{}))
 			require.Equal(t, string(leaderAddr), m.store.Leader())
 
-			cl := rpc.NewClient(resolver.NewRpc(false, utils.MustGetFreeTCPPort()), 1<<20, false, m.logger)
+			cl := rpc.NewClient(resolver.NewRpc(false, utils.MustGetFreeTCPPort()), 1<<20, false, cluster.BasicAuth{}, m.logger)
 			t.Cleanup(cl.Close)
 			srv := NewRaft(mocks.NewMockNodeSelector(), m.store, cl)
 

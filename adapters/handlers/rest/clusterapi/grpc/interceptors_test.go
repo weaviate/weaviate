@@ -21,9 +21,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 )
 
 func TestMaintenanceModeUnaryInterceptor(t *testing.T) {
@@ -69,6 +71,40 @@ func TestMaintenanceModeStreamInterceptor(t *testing.T) {
 		assert.Equal(t, codes.FailedPrecondition, st.Code())
 		assert.Equal(t, "server is in maintenance mode", st.Message())
 	})
+}
+
+type ctxServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s ctxServerStream) Context() context.Context { return s.ctx }
+
+func TestBasicAuthStreamInterceptor(t *testing.T) {
+	interceptor := basicAuthStreamInterceptor([]string{"/clusterapi.FileReplicationService"}, "username", "password")
+	info := &grpc.StreamServerInfo{FullMethod: pb.FileReplicationService_GetChangeLog_FullMethodName}
+
+	for _, tt := range []struct {
+		name     string
+		md       metadata.MD
+		wantCode codes.Code
+	}{
+		{name: "no credentials", md: metadata.MD{}, wantCode: codes.Unauthenticated},
+		{name: "wrong password", md: metadata.Pairs("authorization", grpcconn.BasicAuthHeader("username", "wrong")), wantCode: codes.Unauthenticated},
+		{name: "right credentials", md: metadata.Pairs("authorization", grpcconn.BasicAuthHeader("username", "password")), wantCode: codes.OK},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			handler := func(srv interface{}, stream grpc.ServerStream) error {
+				called = true
+				return nil
+			}
+			ss := ctxServerStream{ctx: metadata.NewIncomingContext(context.Background(), tt.md)}
+			err := interceptor(nil, ss, info, handler)
+			require.Equal(t, tt.wantCode, status.Code(err))
+			assert.Equal(t, tt.wantCode == codes.OK, called)
+		})
+	}
 }
 
 func TestNodeReadyUnaryInterceptor(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/rpc"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
@@ -43,6 +44,8 @@ func TestBootstrapper(t *testing.T) {
 		doBefore func(*MockNodeClient)
 		isReady  func() bool
 		success  bool
+		// wantCause, when set, is an error the timeout error must wrap, as well as context.DeadlineExceeded.
+		wantCause error
 	}{
 		{
 			name:     "empty server list",
@@ -110,6 +113,18 @@ func TestBootstrapper(t *testing.T) {
 			isReady:  func() bool { return true },
 			success:  true,
 		},
+		{
+			name:  "timeout keeps the cause",
+			voter: true,
+			nodes: nodes,
+			doBefore: func(m *MockNodeClient) {
+				m.On("Join", anything, anything, anything).Return((*cmd.JoinPeerResponse)(nil), types.ErrClusterAuthFailed)
+				m.On("Notify", anything, anything, anything).Return((*cmd.NotifyPeerResponse)(nil), types.ErrClusterAuthFailed)
+			},
+			isReady:   func() bool { return false },
+			success:   false,
+			wantCause: types.ErrClusterAuthFailed,
+		},
 	}
 	for _, test := range tests {
 		test := test
@@ -134,6 +149,10 @@ func TestBootstrapper(t *testing.T) {
 				t.Errorf("%s: %v", test.name, err)
 			} else if !test.success && err == nil {
 				t.Errorf("%s: test must fail", test.name)
+			}
+			if test.wantCause != nil {
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.ErrorIs(t, err, test.wantCause)
 			}
 			m.AssertExpectations(t)
 		})

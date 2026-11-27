@@ -13,6 +13,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -111,18 +112,24 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 			}).Info("attempted to follow to leader and failed")
 		}
 	}
-	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)
+	if err == nil {
+		// remoteNodes was empty, so no attempt was made.
+		return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)
+	}
+	return "", fmt.Errorf("could not join a cluster from %v: %w", remoteNodes, err)
 }
 
 // Rejoin calls Do until it succeeds or ctx ends. A failed attempt is retried
 // after retryPeriod, or sooner if this node learns of a leader in the
 // meantime, as a sole voter does milliseconds after starting.
+// When ctx ends, the returned error joins ctx.Err() with the last attempt's error.
 func (j *Joiner) Rejoin(ctx context.Context, lg *logrus.Logger, resolveNodes func() map[string]string,
 	hasLeader func() bool, retryPeriod, pollPeriod time.Duration,
 ) error {
 	poll := time.NewTicker(pollPeriod)
 	defer poll.Stop()
 	var nextAttempt time.Time
+	var lastErr error
 	leaderKnown := false
 	for {
 		if !time.Now().Before(nextAttempt) || (!leaderKnown && hasLeader()) {
@@ -131,11 +138,12 @@ func (j *Joiner) Rejoin(ctx context.Context, lg *logrus.Logger, resolveNodes fun
 			if err == nil {
 				return nil
 			}
+			lastErr = err
 			nextAttempt = time.Now().Add(retryPeriod)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return errors.Join(ctx.Err(), lastErr)
 		case <-poll.C:
 		}
 	}

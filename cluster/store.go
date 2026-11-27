@@ -177,6 +177,9 @@ type Config struct {
 	AuthzController authorization.Controller
 	AuthNConfig     config.Authentication
 	RBAC            *rbac.Manager
+	// ClusterBasicAuth is the node-to-node basic auth on the Raft RPC: nodes send it and check it. It is separate
+	// from AuthNConfig, which authenticates database clients. The zero value leaves the Raft RPC unauthenticated.
+	ClusterBasicAuth cluster.BasicAuth
 
 	DynamicUserController *apikey.DBUser
 

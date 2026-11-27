@@ -13,7 +13,6 @@ package grpc
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"math"
 	"net"
@@ -28,6 +27,7 @@ import (
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/types"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -142,7 +142,7 @@ func basicAuthUnaryInterceptor(servicePrefixes []string, expectedUsername, expec
 		}
 
 		md, ok := metadata.FromIncomingContext(ctx)
-		if err := validateBasicAuth(md, ok, expectedUsername, expectedPassword); err != nil {
+		if err := grpcconn.ValidateBasicAuth(md, ok, expectedUsername, expectedPassword); err != nil {
 			return nil, err
 		}
 
@@ -162,7 +162,7 @@ func basicAuthStreamInterceptor(servicePrefixes []string, expectedUsername, expe
 		}
 
 		md, ok := metadata.FromIncomingContext(ss.Context())
-		if err := validateBasicAuth(md, ok, expectedUsername, expectedPassword); err != nil {
+		if err := grpcconn.ValidateBasicAuth(md, ok, expectedUsername, expectedPassword); err != nil {
 			return err
 		}
 
@@ -177,29 +177,6 @@ func matchesAnyPrefix(method string, prefixes []string) bool {
 		}
 	}
 	return false
-}
-
-func validateBasicAuth(md metadata.MD, ok bool, expectedUsername, expectedPassword string) error {
-	if !ok {
-		return status.Error(codes.Unauthenticated, "missing metadata")
-	}
-
-	authHeader := md["authorization"]
-	if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
-		return status.Error(codes.Unauthenticated, "missing or invalid auth header")
-	}
-
-	payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
-	if err != nil {
-		return status.Error(codes.Unauthenticated, "invalid base64 encoding")
-	}
-
-	parts := strings.SplitN(string(payload), ":", 2)
-	if len(parts) != 2 || parts[0] != expectedUsername || parts[1] != expectedPassword {
-		return status.Error(codes.Unauthenticated, "invalid username or password")
-	}
-
-	return nil
 }
 
 func GetMaxMessageSize(state *state.State) int {

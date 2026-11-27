@@ -66,11 +66,12 @@ func minioContainerName(octet int) string {
 type EndpointName string
 
 var (
-	HTTP    EndpointName = "http"
-	GRPC    EndpointName = "grpc"
-	DEBUG   EndpointName = "debug"
-	CLUSTER EndpointName = "cluster"
-	MCP     EndpointName = "mcp"
+	HTTP     EndpointName = "http"
+	GRPC     EndpointName = "grpc"
+	DEBUG    EndpointName = "debug"
+	CLUSTER  EndpointName = "cluster"
+	RAFT_RPC EndpointName = "raft_rpc"
+	MCP      EndpointName = "mcp"
 )
 
 type endpoint struct {
@@ -107,6 +108,10 @@ func (d *DockerContainer) McpURI() string {
 
 func (d *DockerContainer) ClusterURI() string {
 	return d.GetEndpoint(CLUSTER)
+}
+
+func (d *DockerContainer) RaftRPCURI() string {
+	return d.GetEndpoint(RAFT_RPC)
 }
 
 func (d *DockerContainer) GetEndpoint(name EndpointName) string {

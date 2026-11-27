@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -22,11 +23,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/client/nodes"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -69,11 +77,24 @@ func TestClusterAPIAuthRollingEnable(t *testing.T) {
 		Properties:        []*models.Property{{Name: "name", DataType: schema.DataTypeText.PropString()}},
 	})
 
-	var ids []strfmt.UUID
+	var (
+		ids    []strfmt.UUID
+		writes int
+	)
 	round := func(t *testing.T) {
 		t.Helper()
 		for n := range 3 {
 			uri := node(n).URI()
+
+			// A schema write sent through a follower reaches the leader over
+			// the Raft RPC, so it fails if this node's credentials are rejected.
+			writes++
+			helper.SetupClient(uri)
+			helper.CreateClass(t, &models.Class{
+				Class:      fmt.Sprintf("RollingEnableAuthWrite%d", writes),
+				Vectorizer: "none",
+			})
+
 			id := strfmt.UUID(uuid.NewString())
 			require.NoError(t, common.CreateObjectCL(t, uri, &models.Object{
 				ID: id, Class: className, Properties: map[string]any{"name": fmt.Sprintf("via weaviate-%d", n)},
@@ -150,6 +171,40 @@ func TestClusterAPIAuthRollingEnable(t *testing.T) {
 		return resp.StatusCode
 	}
 
+	probeRaftRPC := func(t *testing.T, n int, auth string, call func(context.Context, cmd.ClusterServiceClient) error) codes.Code {
+		t.Helper()
+		conn, err := grpc.NewClient(node(n).RaftRPCURI(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		defer conn.Close()
+
+		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if auth != "" {
+			callCtx = metadata.AppendToOutgoingContext(callCtx, "authorization", auth)
+		}
+		return status.Code(call(callCtx, cmd.NewClusterServiceClient(conn)))
+	}
+	apply := func(ctx context.Context, c cmd.ClusterServiceClient) error {
+		_, err := c.Apply(ctx, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_CREATE_USER_WITH_KEY})
+		return err
+	}
+	query := func(ctx context.Context, c cmd.ClusterServiceClient) error {
+		_, err := c.Query(ctx, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_EXPORT_USERS})
+		return err
+	}
+	// Unlike query, this export is well-formed. A follower forwards it to the
+	// leader with the follower's own credentials. So OK on every node shows
+	// that each node accepts the test's credentials and the leader accepts
+	// each follower's.
+	exportUsers := func(ctx context.Context, c cmd.ClusterServiceClient) error {
+		sub, err := json.Marshal(cmd.QueryExportUsersRequest{})
+		if err != nil {
+			return err
+		}
+		_, err = c.Query(ctx, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_EXPORT_USERS, SubCommand: sub})
+		return err
+	}
+
 	t.Run("baseline", func(t *testing.T) {
 		round(t)
 	})
@@ -183,6 +238,13 @@ func TestClusterAPIAuthRollingEnable(t *testing.T) {
 			assert.Equalf(t, http.StatusUnauthorized, probeJoin(t, n, false, "", ""), "no creds, weaviate-%d", n)
 			assert.Equalf(t, http.StatusUnauthorized, probeJoin(t, n, true, user, "wrong"), "wrong creds, weaviate-%d", n)
 			assert.Equalf(t, http.StatusBadRequest, probeJoin(t, n, true, user, pass), "right creds, weaviate-%d", n)
+
+			wrong := grpcconn.BasicAuthHeader(user, "wrong")
+			for _, auth := range []string{"", wrong} {
+				assert.Equalf(t, codes.Unauthenticated, probeRaftRPC(t, n, auth, apply), "Raft RPC Apply, auth %q, weaviate-%d", auth, n)
+				assert.Equalf(t, codes.Unauthenticated, probeRaftRPC(t, n, auth, query), "Raft RPC Query, auth %q, weaviate-%d", auth, n)
+			}
+			assert.Equalf(t, codes.OK, probeRaftRPC(t, n, grpcconn.BasicAuthHeader(user, pass), exportUsers), "Raft RPC Query, right creds, weaviate-%d", n)
 		}
 	})
 }

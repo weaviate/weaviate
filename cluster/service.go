@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -115,7 +116,7 @@ type Service struct {
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
 func New(cfg Config, authZController authorization.Controller, svrMetrics *monitoring.GRPCServerMetrics) *Service {
-	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
+	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.ClusterBasicAuth, cfg.Logger)
 
 	fsm := NewFSM(cfg, authZController, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
@@ -151,7 +152,7 @@ func New(cfg Config, authZController authorization.Controller, svrMetrics *monit
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)
-	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.ClusterBasicAuth, cfg.Logger)
 
 	opCleaner, err := replication.NewOpCleaner(replication.OpCleanerParams{
 		Logger:     cfg.Logger,
@@ -246,7 +247,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			func() bool { return c.Raft.store.Leader() != "" },
 			time.Second, readyPollPeriod)
 		if err != nil {
-			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
+			return rejoinError(err)
 		}
 	} else {
 		bs := bootstrap.NewBootstrapper(
@@ -288,6 +289,15 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		}, c.logger)
 	}
 	return nil
+}
+
+// rejoinError builds Open's error for a failed rejoin. Waiting longer does not fix a credential rejection, so that
+// error gets no RAFT_BOOTSTRAP_TIMEOUT advice.
+func rejoinError(err error) error {
+	if errors.Is(err, types.ErrClusterAuthFailed) {
+		return fmt.Errorf("could not join raft join list: %w", err)
+	}
+	return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 }
 
 // Close closes the raft service and frees all allocated ressources. Internal RAFT store will be closed and if

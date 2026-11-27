@@ -27,7 +27,9 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -126,6 +128,9 @@ type Client struct {
 
 	// logger is the logger to log client warns etc.
 	logger *logrus.Logger
+
+	// authHeader is the cluster basic-auth "authorization" value sent on every RPC. It is empty when basic auth is unset.
+	authHeader string
 }
 
 // leaderConn is a connection to one leader address. On a leader change it is closed only after its in-flight RPCs
@@ -137,13 +142,20 @@ type leaderConn struct {
 }
 
 // NewClient returns a Client using the rpcAddressResolver to resolve raft nodes and configured with rpcMessageMaxSize
-func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, logger *logrus.Logger) *Client {
-	return &Client{
+// It sends basicAuth's credentials on every RPC when basicAuth is enabled.
+func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, basicAuth cluster.BasicAuth,
+	logger *logrus.Logger,
+) *Client {
+	cl := &Client{
 		addrResolver:      r,
 		rpcMessageMaxSize: rpcMessageMaxSize,
 		sentryEnabled:     sentryEnabled,
 		logger:            logger,
 	}
+	if basicAuth.Enabled() {
+		cl.authHeader = grpcconn.BasicAuthHeader(basicAuth.Username, basicAuth.Password)
+	}
+	return cl
 }
 
 // Join will contact the node at leaderRaftAddr and try to join this node to the cluster leaded by leaderRaftAddress using req
@@ -157,7 +169,8 @@ func (cl *Client) Join(ctx context.Context, leaderRaftAddr string, req *cmd.Join
 	}
 	defer release()
 
-	return cmd.NewClusterServiceClient(conn).JoinPeer(ctx, req)
+	resp, err := cmd.NewClusterServiceClient(conn).JoinPeer(ctx, req)
+	return resp, cl.handleErr("JoinPeer", leaderRaftAddr, err)
 }
 
 // Notify will contact the node at remoteAddr using the configured resolver and notify it of it's readiness to join a
@@ -185,6 +198,7 @@ func (cl *Client) Notify(ctx context.Context, remoteAddr string, req *cmd.Notify
 	if cl.sentryEnabled {
 		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
 	}
+	options = cl.withBasicAuth(options)
 
 	conn, err := grpc.NewClient(addr, options...)
 	if err != nil {
@@ -192,7 +206,8 @@ func (cl *Client) Notify(ctx context.Context, remoteAddr string, req *cmd.Notify
 	}
 	defer conn.Close()
 
-	return cmd.NewClusterServiceClient(conn).NotifyPeer(ctx, req)
+	resp, err := cmd.NewClusterServiceClient(conn).NotifyPeer(ctx, req)
+	return resp, cl.handleErr("NotifyPeer", remoteAddr, err)
 }
 
 // Remove will contact the node at leaderRaftAddr and remove the client node from the RAFT cluster using req
@@ -205,7 +220,8 @@ func (cl *Client) Remove(ctx context.Context, leaderRaftAddr string, req *cmd.Re
 	}
 	defer release()
 
-	return cmd.NewClusterServiceClient(conn).RemovePeer(ctx, req)
+	resp, err := cmd.NewClusterServiceClient(conn).RemovePeer(ctx, req)
+	return resp, cl.handleErr("RemovePeer", leaderRaftAddr, err)
 }
 
 // Apply will contact the node at leaderRaftAddr and send req to be applied in the RAFT store
@@ -220,7 +236,7 @@ func (cl *Client) Apply(ctx context.Context, leaderRaftAddr string, req *cmd.App
 	defer release()
 
 	resp, err := cmd.NewClusterServiceClient(conn).Apply(ctx, req)
-	return resp, fromRPCError(err)
+	return resp, cl.handleErr("Apply", leaderRaftAddr, fromRPCError(err))
 }
 
 // Query will contact the node at leaderRaftAddr and send req to read data in the RAFT store
@@ -235,7 +251,7 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 	defer release()
 
 	resp, err := cmd.NewClusterServiceClient(conn).Query(ctx, req)
-	return resp, fromRPCError(err)
+	return resp, cl.handleErr("Query", leaderRaftAddr, fromRPCError(err))
 }
 
 // Close the client and allocated resources. Unlike a leader change, it closes the current leader connection
@@ -292,12 +308,35 @@ func (cl *Client) dial(leaderRaftAddr string) (*grpc.ClientConn, error) {
 	if cl.sentryEnabled {
 		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
 	}
+	options = cl.withBasicAuth(options)
 
 	conn, err := grpc.NewClient(addr, options...)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 	return conn, nil
+}
+
+// withBasicAuth adds an interceptor to options that sends the cluster basic-auth credentials on every RPC. dial and
+// Notify each build their own connection, so both must call it. A peer that checks credentials rejects calls
+// without them.
+func (cl *Client) withBasicAuth(options []grpc.DialOption) []grpc.DialOption {
+	if cl.authHeader == "" {
+		return options
+	}
+	return append(options, grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(cl.authHeader)))
+}
+
+// handleErr turns a basic-auth rejection (gRPC Unauthenticated) into types.ErrClusterAuthFailed, and logs the original
+// error with rpc and peer. Any other error is returned unchanged. The server's message goes only to the log, because
+// the returned error can reach a database client.
+func (cl *Client) handleErr(rpc, peer string, err error) error {
+	if status.Code(err) != codes.Unauthenticated {
+		return err
+	}
+	cl.logger.WithFields(logrus.Fields{"rpc": rpc, "peer": peer}).
+		Errorf("cluster basic-auth credentials rejected by peer on raft rpc: %v", err)
+	return types.ErrClusterAuthFailed
 }
 
 func (cl *Client) closeConn(lc *leaderConn) {
