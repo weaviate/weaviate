@@ -129,7 +129,7 @@ type Client struct {
 	// logger is the logger to log client warns etc.
 	logger *logrus.Logger
 
-	// authHeader is the cluster basic-auth "authorization" value sent on every RPC, empty when basic auth is unset.
+	// authHeader is the cluster basic-auth "authorization" value sent on every RPC. It is empty when basic auth is unset.
 	authHeader string
 }
 
@@ -327,9 +327,9 @@ func (cl *Client) withBasicAuth(options []grpc.DialOption) []grpc.DialOption {
 	return append(options, grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(cl.authHeader)))
 }
 
-// handleErr handles a basic-auth rejection (gRPC Unauthenticated): it logs the error with rpc and peer, and returns
-// types.ErrClusterAuthFailed instead. Any other error is returned unchanged. The server's message goes only to the
-// log, because the returned error can reach a database client.
+// handleErr turns a basic-auth rejection (gRPC Unauthenticated) into types.ErrClusterAuthFailed, and logs the original
+// error with rpc and peer. Any other error is returned unchanged. The server's message goes only to the log, because
+// the returned error can reach a database client.
 func (cl *Client) handleErr(rpc, peer string, err error) error {
 	if status.Code(err) != codes.Unauthenticated {
 		return err

@@ -44,7 +44,7 @@ func TestBootstrapper(t *testing.T) {
 		doBefore func(*MockNodeClient)
 		isReady  func() bool
 		success  bool
-		// wantCause, when set, must be matched by the timeout error alongside context.DeadlineExceeded
+		// wantCause, when set, is an error the timeout error must wrap, as well as context.DeadlineExceeded.
 		wantCause error
 	}{
 		{

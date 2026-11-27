@@ -73,7 +73,6 @@ func TestMaintenanceModeStreamInterceptor(t *testing.T) {
 	})
 }
 
-// ctxServerStream is a grpc.ServerStream that only carries a context.
 type ctxServerStream struct {
 	grpc.ServerStream
 	ctx context.Context

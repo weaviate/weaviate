@@ -81,7 +81,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 	defer attempt.Stop()
 	readyPoll := time.NewTicker(b.readyPollPeriod)
 	defer readyPoll.Stop()
-	// lastErr is the last join or notify error. A timeout returns it joined with ctx.Err(), so the caller sees why.
+	// lastErr is the last join or notify error. When ctx ends, Do returns it joined with ctx.Err(), so the caller sees why.
 	var lastErr error
 	for {
 		select {
