@@ -755,7 +755,10 @@ func (p *Participant) snapshotAllShards(
 			continue
 		}
 
-		isMT := p.selector.IsMultiTenant(ctx, className)
+		isMT, err := p.selector.IsMultiTenant(ctx, className)
+		if err != nil {
+			return nil, nil, fmt.Errorf("class %s: %w", className, err)
+		}
 
 		results, snapshotErr := p.selector.SnapshotShards(ctx, className, shardNames, req.ID)
 		if snapshotErr != nil {

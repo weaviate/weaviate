@@ -1325,3 +1325,56 @@ func TestReplicationFactorMigration(t *testing.T) {
 		}
 	})
 }
+
+// A node that restores a snapshot has applied everything up to its index, so a
+// version wait for a restored class must not block until the next log entry.
+func TestRestoreMarksTheSnapshotIndexApplied(t *testing.T) {
+	const snapIndex = 42
+
+	source := NewMockStore(t, "applied-source", utils.MustGetFreeTCPPort())
+	setupTestSchema(t, source)
+	sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+	require.NoError(t, snapshot.Persist(sink))
+
+	tests := []struct {
+		name         string
+		metadataOnly bool
+		applied      uint64
+		wantApplied  uint64
+	}{
+		{name: "data node behind the snapshot", applied: 5, wantApplied: snapIndex},
+		{name: "metadata-only voter behind the snapshot", metadataOnly: true, applied: 5, wantApplied: snapIndex},
+		{name: "node already past the snapshot", applied: 100, wantApplied: 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := NewMockStore(t, "applied-target", utils.MustGetFreeTCPPort(), func(c *Config) {
+				c.MetadataOnlyVoters = tt.metadataOnly
+			})
+			target.store.init()
+			target.parser.On("ParseClass", mock.Anything).Return(nil)
+			target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+			target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+			target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+			target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+			// raft writes an installed snapshot to the store before it calls Restore.
+			snapshotStore, err := raft.NewFileSnapshotStore(t.TempDir(), 3, nil)
+			require.NoError(t, err)
+			installed, err := snapshotStore.Create(raft.SnapshotVersionMax, snapIndex, 1, raft.Configuration{}, 1, nil)
+			require.NoError(t, err)
+			_, err = installed.Write(sink.Buffer.Bytes())
+			require.NoError(t, err)
+			require.NoError(t, installed.Close())
+			target.store.snapshotStore = snapshotStore
+			target.store.lastAppliedIndex.Store(tt.applied)
+
+			require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+
+			require.Equal(t, tt.wantApplied, target.store.lastAppliedIndex.Load())
+			require.NoError(t, target.store.WaitForAppliedIndex(t.Context(), time.Millisecond, snapIndex))
+		})
+	}
+}

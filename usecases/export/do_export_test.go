@@ -14,6 +14,7 @@ package export
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -291,4 +292,27 @@ func TestSnapshotAllShards_Error(t *testing.T) {
 	_, _, err := p.snapshotAllShards(context.Background(), req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
+}
+
+// A class whose layout the participant cannot read fails the export rather
+// than being written as single-tenant.
+func TestSnapshotAllShards_FailsWhenTenancyIsUnknown(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	errWait := errors.New("wait for class to be applied locally: deadline exceeded")
+	selector := &fakeSelector{mtErr: errWait, snapshotsRoot: t.TempDir()}
+
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil)
+	req := &ExportRequest{
+		ID:       "test-export",
+		Backend:  "fake",
+		Classes:  []string{"Article"},
+		Shards:   map[string][]string{"Article": {"shard0"}},
+		Bucket:   "bucket",
+		Path:     "path",
+		NodeName: "node1",
+	}
+
+	snapshots, _, err := p.snapshotAllShards(context.Background(), req)
+	require.ErrorIs(t, err, errWait)
+	require.Empty(t, snapshots)
 }
