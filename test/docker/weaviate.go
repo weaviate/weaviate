@@ -131,6 +131,14 @@ func startWeaviate(ctx context.Context,
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(clusterPort))
 		hasClusterPort = true
 	}
+	// Expose the Raft RPC port (RAFT_INTERNAL_RPC_PORT) if configured, so tests
+	// can call the internal cluster service from the host. It needs no wait
+	// strategy because the RPC server opens before the node reports ready.
+	var raftRPCPort nat.Port
+	if p, ok := env["RAFT_INTERNAL_RPC_PORT"]; ok && p != "" {
+		raftRPCPort = nat.Port(fmt.Sprintf("%s/tcp", p))
+		exposedPorts = append(exposedPorts, string(raftRPCPort))
+	}
 	grpcPort := nat.Port("50051/tcp")
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, "50051/tcp")
@@ -239,6 +247,13 @@ func startWeaviate(ctx context.Context,
 			return nil, fmt.Errorf("startWeaviate(%s): get cluster endpoint: %w", containerName, err)
 		}
 		endpoints[CLUSTER] = endpoint{clusterPort, clusterURI}
+	}
+	if raftRPCPort != "" {
+		raftRPCURI, err := c.PortEndpoint(ctx, raftRPCPort, "")
+		if err != nil {
+			return nil, fmt.Errorf("startWeaviate(%s): get Raft RPC endpoint: %w", containerName, err)
+		}
+		endpoints[RAFT_RPC] = endpoint{raftRPCPort, raftRPCURI}
 	}
 	if exposeGRPCPort {
 		grpcUri, err := c.PortEndpoint(ctx, grpcPort, "")
