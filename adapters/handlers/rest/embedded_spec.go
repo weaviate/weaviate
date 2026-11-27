@@ -6382,7 +6382,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or the collection's namespace is suspended or being deleted.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6400,7 +6400,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
+            "description": "Cluster service unavailable; the collection's namespace is resuming; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6647,7 +6647,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or the collection's namespace is suspended or being deleted.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6665,7 +6665,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
+            "description": "Cluster service unavailable; the collection's namespace is resuming; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19788,7 +19788,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or the collection's namespace is suspended or being deleted.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19806,7 +19806,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
+            "description": "Cluster service unavailable; the collection's namespace is resuming; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20053,7 +20053,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value, or the collection's namespace is suspended or being deleted.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20071,7 +20071,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
+            "description": "Cluster service unavailable; the collection's namespace is resuming; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

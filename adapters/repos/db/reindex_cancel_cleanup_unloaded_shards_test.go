@@ -28,7 +28,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 type committedMigration struct {
@@ -101,13 +103,18 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 		// shard's disk, which is the only reason to pay for loading it.
 		staleOnUnloadedShard bool
 		cancelBeforeWalk     bool
+		suspended            bool
+		suspendAfterOneShard bool
 		onlyLoadedShardNamed bool
 		wantUnloadedLoaded   bool
 		wantUnloadedSidecar  bool
 		// wantHotSidecar proves the walk stopped: a reached shard's stale
 		// sidecar is removed.
 		wantHotSidecar bool
-		wantErr        bool
+		// wantOneSwept replaces the two sidecar wants when the walk order decides which shard is swept.
+		wantOneSwept bool
+		wantErr      error
+		wantLevel    logrus.Level
 	}{
 		{
 			name: "an unloaded shard with nothing to clean is not loaded",
@@ -129,7 +136,25 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			cancelBeforeWalk:     true,
 			wantUnloadedSidecar:  true,
 			wantHotSidecar:       true,
-			wantErr:              true,
+			wantErr:              context.Canceled,
+			wantLevel:            logrus.WarnLevel,
+		},
+		{
+			name:                 "a suspended namespace stops the walk before any shard",
+			staleOnUnloadedShard: true,
+			suspended:            true,
+			wantUnloadedSidecar:  true,
+			wantHotSidecar:       true,
+			wantErr:              namespaces.ErrNamespaceSuspended,
+			wantLevel:            logrus.InfoLevel,
+		},
+		{
+			name:                 "a namespace suspended after the first shard stops the walk at the second",
+			staleOnUnloadedShard: true,
+			suspendAfterOneShard: true,
+			wantOneSwept:         true,
+			wantErr:              namespaces.ErrNamespaceSuspended,
+			wantLevel:            logrus.InfoLevel,
 		},
 	}
 
@@ -165,6 +190,21 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 				cancel()
 				sweepCtx = cancelled
 			}
+			if tc.suspended {
+				idx.namespace, idx.namespacesExister = "alpha", existerWithState(t, api.NamespaceStateSuspended)
+			}
+			if tc.suspendAfterOneShard {
+				lookups := 0
+				e := namespaces.NewMockExister(t)
+				e.EXPECT().GetNamespace("alpha").RunAndReturn(func(string) (api.Namespace, bool) {
+					lookups++
+					if lookups == 1 {
+						return api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true
+					}
+					return api.Namespace{Name: "alpha", State: api.NamespaceStateSuspended}, true
+				})
+				idx.namespace, idx.namespacesExister = "alpha", e
+			}
 
 			var tenants []string
 			if tc.onlyLoadedShardNamed {
@@ -172,20 +212,27 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			}
 			err := idx.cleanStalePartialReindexState(sweepCtx, propName, indexType, tenants, nil)
 
-			assert.Equalf(t, tc.wantUnloadedLoaded, unloaded.isLoaded(),
-				"unloaded shard loaded=%v, want %v: the sweep blocks its caller for its whole "+
-					"duration, so it may only pay for a shard that has something to clean",
-				unloaded.isLoaded(), tc.wantUnloadedLoaded)
-			assert.Equal(t, tc.wantUnloadedSidecar, dirExistsAt(t, unloadedLSM, staleSidecar),
-				"unloaded shard stale sidecar")
-			assert.Equal(t, tc.wantHotSidecar, dirExistsAt(t, hot.pathLSM(), staleSidecar),
-				"loaded shard stale sidecar")
+			unloadedSidecar := dirExistsAt(t, unloadedLSM, staleSidecar)
+			hotSidecar := dirExistsAt(t, hot.pathLSM(), staleSidecar)
+			if tc.wantOneSwept {
+				assert.NotEqual(t, unloadedSidecar, hotSidecar, "exactly one shard is swept")
+			} else {
+				assert.Equalf(t, tc.wantUnloadedLoaded, unloaded.isLoaded(),
+					"unloaded shard loaded=%v, want %v: the sweep blocks its caller for its whole "+
+						"duration, so it may only pay for a shard that has something to clean",
+					unloaded.isLoaded(), tc.wantUnloadedLoaded)
+				assert.Equal(t, tc.wantUnloadedSidecar, unloadedSidecar, "unloaded shard stale sidecar")
+				assert.Equal(t, tc.wantHotSidecar, hotSidecar, "loaded shard stale sidecar")
+			}
 
-			if tc.wantErr {
-				assert.ErrorIs(t, err, context.Canceled,
-					"abandoning the walk must be reported as the cancellation it is")
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr,
+					"abandoning the walk must be reported with its cause")
 				assert.ErrorIs(t, err, ErrCleanupSweepTruncated,
-					"and tagged truncated, which is what decides the caller's severity")
+					"and tagged truncated, so a submit still proceeds")
+				outcome, _ := ClassifyCleanupSweep(err)
+				_, level := CleanupSweepSummary(sweepPhaseIndexCleanup, outcome)
+				assert.Equal(t, tc.wantLevel, level)
 			} else {
 				assert.NoError(t, err)
 			}

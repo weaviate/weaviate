@@ -21,12 +21,14 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -954,7 +956,9 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 			"index_type":     it,
 		})
 		if errors.Is(err, db.ErrCleanupSweepTruncated) {
-			entry.Warnf("submit: pre-submit cleanup did not reach every shard; proceeding with the submit, the unvisited shards are unverified rather than known stale: %v", err)
+			outcome, failure := db.ClassifyCleanupSweep(err)
+			logStaleSweepFailures(entry, sweepPhaseSubmit,
+				[]staleSweepFailure{{indexType: it, outcome: outcome, err: failure}})
 			continue
 		}
 		entry.Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
@@ -985,6 +989,12 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 	if errors.Is(err, distributedtask.ErrTaskReplicasChanged) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			fmt.Sprintf("the shards or replicas of collection %q changed while the reindex was submitted; resubmit it against the current state", collection)))
+	}
+	if cerrors.NamespaceErrRendersUnprocessable(err) {
+		return jsonResponder(http.StatusUnprocessableEntity, errPayloadFromSingleErr(principal, err))
+	}
+	if errors.Is(err, usecasesNamespaces.ErrNamespaceResuming) {
+		return jsonResponder(http.StatusServiceUnavailable, errPayloadFromSingleErr(principal, err))
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))

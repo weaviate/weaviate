@@ -1792,6 +1792,8 @@ const (
 	// CleanupSweepDropped: the collection is not on this node — though shards
 	// may have been swept first.
 	CleanupSweepDropped
+	// CleanupSweepNamespaceClosed: the namespace state refused the walk, which the first submit after a resume redoes.
+	CleanupSweepNamespaceClosed
 	// CleanupSweepUnknown: the walk left shards unvisited, or ran out of time
 	// partway through one. What is on them is unknown, which is not the same as
 	// knowing state is there.
@@ -1821,6 +1823,8 @@ func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error
 		return CleanupSweepFailed, err
 	case errors.Is(err, errCleanupShardWithheld):
 		return CleanupSweepWithheld, err
+	case errors.Is(err, errCleanupNamespaceClosed):
+		return CleanupSweepNamespaceClosed, err
 	case errors.Is(err, ErrCleanupSweepTruncated):
 		return CleanupSweepUnknown, err
 	default:
@@ -1857,6 +1861,9 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 	case CleanupSweepDropped:
 		return phase + ": the collection is not on this node, so whatever is left here is removed " +
 				"with the collection directory",
+			logrus.InfoLevel
+	case CleanupSweepNamespaceClosed:
+		return phase + ": the namespace is not active, so its shards are left unswept until it resumes",
 			logrus.InfoLevel
 	case CleanupSweepFailed:
 		return phase + ": a shard could not be swept, so it is left partly swept with nothing " +
