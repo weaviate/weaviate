@@ -43,15 +43,7 @@ func (h *Handler) PrincipalFromContext(ctx context.Context) (*models.Principal, 
 		return h.tryAnonymous()
 	}
 
-	// the grpc library will lowercase all md keys, so we need to make sure to
-	// check a lowercase key
-	// TODO(dyma): use md.Get, skip !ok check because len(authValue) covers both
-	// empty and nil-slice.
-	authValue, ok := md["authorization"]
-	if !ok {
-		return h.tryAnonymous()
-	}
-
+	authValue := md.Get("authorization")
 	if len(authValue) == 0 {
 		return h.tryAnonymous()
 	}
