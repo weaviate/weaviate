@@ -370,7 +370,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -435,7 +435,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -483,7 +483,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6683,7 +6683,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully retrieved tenants.",
+            "description": "Successfully retrieved tenants. A collection the caller cannot read yields an empty list, whether or not it exists.",
             "schema": {
               "type": "array",
               "items": {
@@ -13102,7 +13102,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13167,7 +13167,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13215,7 +13215,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19513,7 +19513,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully retrieved tenants.",
+            "description": "Successfully retrieved tenants. A collection the caller cannot read yields an empty list, whether or not it exists.",
             "schema": {
               "type": "array",
               "items": {

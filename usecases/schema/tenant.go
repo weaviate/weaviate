@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -285,12 +287,26 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 }
 
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
-	var allTenants []*models.Tenant
 	var err error
 
 	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class); err != nil {
 		return nil, err
 	}
+
+	// Requested names are authorized before anything is read so that the cost
+	// of an unauthorized name does not depend on whether the tenant exists.
+	requested := tenants
+	named := len(requested) > 0
+	if named {
+		if tenants, err = h.authorizedTenantNames(ctx, principal, class, requested); err != nil {
+			return nil, err
+		}
+		if len(tenants) == 0 {
+			return []*models.Tenant{}, nil
+		}
+	}
+
+	var allTenants []*models.Tenant
 	if consistency {
 		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
 	} else {
@@ -298,11 +314,14 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		allTenants, err = h.getTenantsByNames(class, tenants)
 	}
 	if err != nil {
-		return nil, err
+		return h.maskUnauthorizedTenantsErr(ctx, principal, class, err)
+	}
+	if named {
+		return inRequestedOrder(allTenants, requested), nil
 	}
 
 	resourceFilter := filter.New[*models.Tenant](h.Authorizer, h.config.Authorization.Rbac)
-	filteredTenants := resourceFilter.Filter(
+	return resourceFilter.Filter(
 		ctx,
 		principal,
 		allTenants,
@@ -310,9 +329,94 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		func(tenant *models.Tenant) string {
 			return authorization.ShardsMetadata(class, tenant.Name)[0]
 		},
-	)
+	), nil
+}
 
-	return filteredTenants, nil
+// authorizedTenantNames returns the distinct names the principal may read, in first-seen order.
+// "" and "*" are dropped: ShardsMetadata maps them to the all-tenants resource, and no tenant has such a name.
+// Forbidden leaves no names; any other authorization error is returned.
+func (h *Handler) authorizedTenantNames(ctx context.Context, principal *models.Principal, class string, names []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(names))
+	unique := make([]string, 0, len(names))
+	for _, name := range names {
+		if name == "" || name == "*" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		unique = append(unique, name)
+	}
+	if len(unique) == 0 {
+		return nil, nil
+	}
+
+	resources := authorization.ShardsMetadata(class, unique...)
+	nameByResource := make(map[string]string, len(unique))
+	for i, name := range unique {
+		nameByResource[resources[i]] = name
+	}
+
+	allowed, err := h.Authorizer.FilterAuthorizedResources(ctx, principal, authorization.READ, resources...)
+	if err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	out := make([]string, 0, len(allowed))
+	for _, r := range allowed {
+		out = append(out, nameByResource[r])
+	}
+	return out, nil
+}
+
+// inRequestedOrder returns one entry per occurrence of a name in requested, in
+// request order, skipping names absent from found.
+func inRequestedOrder(found []*models.Tenant, requested []string) []*models.Tenant {
+	byName := make(map[string]*models.Tenant, len(found))
+	for _, t := range found {
+		byName[t.Name] = t
+	}
+	out := make([]*models.Tenant, 0, len(found))
+	for _, name := range requested {
+		if t, ok := byName[name]; ok {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// maskUnauthorizedTenantsErr hides a missing or non-multi-tenant collection
+// from callers without READ on the collection's metadata or on all of its
+// tenants: they get the empty list an existing multi-tenant collection yields
+// when no tenant is visible. Other errors, such as an unreachable leader, are
+// returned to every caller, and so is an authorization failure other than
+// Forbidden.
+//
+// The error is classified rather than this node's schema, which can lag the
+// leader. The sentinels survive the leader hop: cluster/rpc maps class-not-found
+// to ErrNotFound and keeps ErrMTDisabled.
+func (h *Handler) maskUnauthorizedTenantsErr(ctx context.Context, principal *models.Principal,
+	class string, err error,
+) ([]*models.Tenant, error) {
+	if !errors.Is(err, ErrNotFound) && !errors.Is(err, clusterSchema.ErrClassNotFound) &&
+		!errors.Is(err, clusterSchema.ErrMTDisabled) {
+		return nil, err
+	}
+	for _, resources := range [][]string{authorization.CollectionsMetadata(class), authorization.ShardsMetadata(class)} {
+		authzErr := h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, resources...)
+		if authzErr == nil {
+			return nil, err
+		}
+		if !errors.As(authzErr, &authzerrors.Forbidden{}) {
+			return nil, authzErr
+		}
+	}
+	h.logger.WithField("action", "get_tenants").Debugf("tenants of %q unreadable, masked for unauthorized caller: %v", class, err)
+	return []*models.Tenant{}, nil
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
@@ -352,7 +456,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 		return info, fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
 	if !info.MultiTenancy.Enabled {
-		return info, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+		return info, fmt.Errorf("%w for class %q", clusterSchema.ErrMTDisabled, class)
 	}
 	return info, nil
 }
