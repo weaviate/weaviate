@@ -45,7 +45,9 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 const (
@@ -78,6 +80,7 @@ func newCompose(t *testing.T, licensed bool, nodeCount int, ttl string) *docker.
 	require.NoError(t, os.WriteFile(path, overrides(ttl), 0o644))
 	b := docker.New().
 		WithWeaviateCluster(nodeCount).
+		WithWeaviateExposeGRPCPort().
 		WithWeaviateEnv("RUNTIME_OVERRIDES_ENABLED", "true").
 		WithWeaviateEnv("RUNTIME_OVERRIDES_PATH", overridesPath).
 		WithWeaviateEnv("RUNTIME_OVERRIDES_LOAD_INTERVAL", "1s").
@@ -116,6 +119,14 @@ func (w *testLogWriter) Write(p []byte) (int, error) {
 
 func newClient(uri string) *apiclient.Weaviate {
 	return apiclient.New(httptransport.New(uri, "/v1", []string{"http"}), strfmt.Default)
+}
+
+func newGRPCClient(t *testing.T, uri string) pb.WeaviateClient {
+	t.Helper()
+	conn, err := helper.CreateGrpcConnectionClient(uri)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, conn.Close()) })
+	return helper.CreateGrpcWeaviateClient(conn)
 }
 
 // setIdleTTL rewrites the overrides file on every node; callers wait on the gauge for the reload.
@@ -368,6 +379,49 @@ func verify(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger
 				}
 				if err := readObject(gctx, cl, class, tenant, id, nil); err != nil {
 					return err
+				}
+			}
+			return nil
+		})
+	}
+	require.NoError(t, g.Wait())
+}
+
+// verifyGRPC searches every tenant over gRPC and fails unless it returns exactly its acknowledged objects.
+func verifyGRPC(ctx context.Context, t *testing.T, c pb.WeaviateClient, l *ledger, class string, tenants []string) {
+	t.Helper()
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(8)
+	for _, tenant := range tenants {
+		g.Go(func() error {
+			resp, err := c.Search(gctx, &pb.SearchRequest{
+				Collection:  class,
+				Tenant:      tenant,
+				Limit:       listLimit,
+				Metadata:    &pb.MetadataRequest{Uuid: true},
+				Properties:  &pb.PropertiesRequest{NonRefProperties: []string{"owner"}},
+				Uses_123Api: true,
+				Uses_125Api: true,
+				Uses_127Api: true,
+			})
+			if err != nil {
+				return fmt.Errorf("grpc search %s/%s: %w", class, tenant, err)
+			}
+			found := map[strfmt.UUID]bool{}
+			for _, r := range resp.GetResults() {
+				id := strfmt.UUID(r.GetMetadata().GetId())
+				if owner := r.GetProperties().GetNonRefProps().GetFields()["owner"].GetTextValue(); found[id] || owner != tenant {
+					return fmt.Errorf("grpc search %s/%s returns %s twice or owned by %q", class, tenant, id, owner)
+				}
+				found[id] = true
+			}
+			acked := l.ids(class, tenant)
+			if len(found) != len(acked) {
+				return fmt.Errorf("grpc search %s/%s returns %d objects, %d acknowledged", class, tenant, len(found), len(acked))
+			}
+			for _, id := range acked {
+				if !found[id] {
+					return fmt.Errorf("grpc search %s/%s misses acknowledged %s", class, tenant, id)
 				}
 			}
 			return nil

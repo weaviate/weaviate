@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	apiclient "github.com/weaviate/weaviate/client"
 )
 
 func TestUnlicensedKeepsEveryShardLoaded(t *testing.T) {
@@ -54,6 +56,8 @@ const (
 	manyTenants             = 300
 	manyTenantsOps          = 2000
 	singleTenantCollections = 40
+	grpcReloadTenants       = 20
+	killRounds              = 3
 )
 
 func TestManyTenantsUnloadOnceIdle(t *testing.T) {
@@ -87,6 +91,13 @@ func TestManyTenantsUnloadOnceIdle(t *testing.T) {
 	polls.Store(0)
 	eventuallyLoaded(ctx, t, compose, 1, 0, "idle shards unload although the verbose nodes API reads them continuously")
 	require.GreaterOrEqual(t, polls.Load(), int64(15), "the poll ran across the idle ttl")
+	grpcTenants := tenants[:grpcReloadTenants]
+	verifyGRPC(ctx, t, newGRPCClient(t, node.GrpcURI()), l, class, grpcTenants)
+	shards, err := loadedShards(ctx, cl, class, node.Name())
+	require.NoError(t, err)
+	for _, tenant := range grpcTenants {
+		require.True(t, shards[tenant], "the gRPC search reloaded %s", tenant)
+	}
 	requireAllHot(ctx, t, cl, class, manyTenants)
 	verify(ctx, t, cl, l, class, tenants, true)
 	for _, single := range singles {
@@ -125,49 +136,60 @@ func TestLiveKnobChanges(t *testing.T) {
 	verify(ctx, t, cl, l, class, tenants, true)
 }
 
-func TestKillDuringUnloadingKeepsAcknowledgedWrites(t *testing.T) {
+// TestKillsWhileUnloadingKeepAcknowledgedWrites SIGKILLs the node while unloads are completing; whether a
+// teardown is mid-flight is timing, so the exact crash points are pinned by the db package's
+// TestLazyLoadShard_CrashImageDuringUnloadKeepsAcknowledgedWrites.
+func TestKillsWhileUnloadingKeepAcknowledgedWrites(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	compose := start(ctx, t, newCompose(t, true, 1, idleTTL))
 	node := compose.GetWeaviate()
-	cl := newClient(node.URI())
+	var client atomic.Pointer[apiclient.Weaviate]
+	client.Store(newClient(node.URI()))
 
 	const class = "Kill"
 	tenants := tenantNames(40)
 	l := newLedger()
-	createClass(ctx, t, cl, vectorClass(class, true, 1))
-	createTenants(ctx, t, cl, class, tenants)
-	seed(ctx, t, cl, l, class, tenants, 2, nil)
-	baseline, _, err := metric(ctx, node, metricUnloads, `result="ok"`)
-	require.NoError(t, err)
+	createClass(ctx, t, client.Load(), vectorClass(class, true, 1))
+	createTenants(ctx, t, client.Load(), class, tenants)
+	seed(ctx, t, client.Load(), l, class, tenants, 2, nil)
 
 	var killing atomic.Bool
 	started := time.Now()
 	stopWriters := make([]func() error, 4)
 	for i := range stopWriters {
 		stopWriters[i] = every(ctx, t, 200*time.Millisecond, func(ctx context.Context) error {
+			cl := client.Load()
 			tenant := tenants[(int(time.Since(started)/(3*time.Second))+rand.Intn(10))%len(tenants)]
-			if err := writeObjects(ctx, cl, l, class, tenant, 1, nil); err != nil && !killing.Load() {
+			if err := writeObjects(ctx, cl, l, class, tenant, 1, nil); err != nil && !killing.Load() && cl == client.Load() {
 				return err
 			}
 			return nil
 		})
 	}
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		v, _, err := metric(ctx, node, metricUnloads, `result="ok"`)
-		require.NoError(ct, err)
-		require.GreaterOrEqual(ct, v, baseline+20)
-	}, 5*time.Minute, 500*time.Millisecond, "shards are actively unloading under the write load")
 
 	zero := time.Duration(0)
-	killing.Store(true)
-	require.NoError(t, compose.RestartAt(ctx, 0, &zero))
+	for round := range killRounds {
+		prev := -1.0
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			v, _, err := metric(ctx, node, metricUnloads, `result="ok"`)
+			require.NoError(ct, err)
+			advanced := prev >= 0 && v > prev
+			prev = v
+			require.True(ct, advanced, "no unload completed since the previous scrape")
+		}, 5*time.Minute, 250*time.Millisecond, "round %d: shards are unloading under the write load", round)
+
+		killing.Store(true)
+		require.NoError(t, compose.RestartAt(ctx, 0, &zero))
+		client.Store(newClient(compose.GetWeaviate().URI()))
+		killing.Store(false)
+	}
 	for _, stop := range stopWriters {
-		require.NoError(t, stop(), "a write failed before the kill")
+		require.NoError(t, stop(), "a write failed outside a kill")
 	}
 
-	verify(ctx, t, newClient(compose.GetWeaviate().URI()), l, class, tenants, false)
+	verify(ctx, t, client.Load(), l, class, tenants, false)
 	eventuallyLoaded(ctx, t, compose, 1, len(tenants), "the read-back loads every shard")
 	eventuallyLoaded(ctx, t, compose, 1, 0, "the restarted collector unloads startup-loaded and on-demand-loaded shards")
 }
