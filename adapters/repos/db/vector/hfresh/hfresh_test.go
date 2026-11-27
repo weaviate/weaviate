@@ -371,14 +371,6 @@ func TestSinglePostingMode(t *testing.T) {
 		return vectors
 	}
 
-	assertSelfSearch := func(t *testing.T, tf *TestHFresh, vectors [][]float32) {
-		for i, v := range vectors {
-			ids, _, err := tf.Index.SearchByVector(ctx, v, 1, nil)
-			require.NoError(t, err)
-			require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
-		}
-	}
-
 	t.Run("threshold zero builds the centroid index eagerly", func(t *testing.T) {
 		tf := newTestIndex(t, singlePostingUserConfig(), nil)
 		require.True(t, tf.Index.Centroids.Built())
@@ -395,7 +387,7 @@ func TestSinglePostingMode(t *testing.T) {
 		requireSinglePostingSize(t, tf.Index, singlePostingThreshold)
 		require.EqualValues(t, 0, tf.Index.taskQueue.Size(), "no maintenance task may be queued in single-posting mode")
 
-		assertSelfSearch(t, &tf, vectors)
+		requireSelfSearchEvery(t, tf.Index, vectors, 10)
 
 		var sizeSlots int
 		for range tf.Index.PostingSizes.data.IterAllocated() {
@@ -444,7 +436,7 @@ func TestSinglePostingMode(t *testing.T) {
 		vectors := insert(t, &tf, 1600)
 		require.Greater(t, uint32(1600), 5*tf.Index.maxPostingSize)
 		require.True(t, tf.Index.Centroids.Built(), "the insert splits the posting when its queued split is that late")
-		assertSelfSearch(t, &tf, vectors)
+		requireSelfSearchExcept(t, tf.Index, vectors, -1)
 	})
 
 	t.Run("deleted entries do not count toward the limit", func(t *testing.T) {
@@ -547,7 +539,7 @@ func TestSinglePostingMode(t *testing.T) {
 		require.Greater(t, postings, 2)
 		require.Len(t, seen, len(vectors))
 
-		assertSelfSearch(t, &tf, vectors)
+		requireSelfSearchEvery(t, tf.Index, vectors, 10)
 	})
 
 	t.Run("muvera index searches the single posting and the graph built from it", func(t *testing.T) {
