@@ -12,11 +12,14 @@
 package postingedge
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -111,7 +114,7 @@ func TestGrowJournalRecords(t *testing.T) {
 		for name, record := range map[string]growRecord{
 			"a write of no kind":     {entries: []growEntry{{kind: 0, target: growTargetMap}}},
 			"a write to no target":   {entries: []growEntry{{kind: growEntryPut, target: growTargets, values: [][]byte{{1}}}}},
-			"a write past the kinds": {entries: []growEntry{{kind: growEntryFile + 1, target: growTargetMap}}},
+			"a write past the kinds": {entries: []growEntry{{kind: growEntryFileHeld + 1, target: growTargetMap}}},
 		} {
 			require.NoError(t, os.WriteFile(path, record.encode(nil), 0o644))
 			_, err := readGrowJournal(path)
@@ -344,7 +347,9 @@ func (s *crashSweep) crashing(t *testing.T, name, before string, tries crashTrie
 	for _, c := range copies {
 		at := errors.Errorf("%s, a crash %s (%d written)", name, c.point, c.wrote).Error()
 		digest, records := s.open(t, c.dir, at)
-		if c.point == "before its record" {
+		if c.point == "before its record" || c.point == "after a vector" {
+			// A vector reaches its file before the record of its step: with
+			// no record, the bytes are in a place the index gives out again.
 			require.Equal(t, before, digest, "%s: the index is the one before the step", at)
 		} else {
 			require.Equal(t, after, digest, "%s: the index is the one after the step", at)
@@ -460,7 +465,8 @@ func TestGrowOpensWhatACrashLeft(t *testing.T) {
 					}
 					before := g.meta.Splits
 					opened := crashed(name, crashLast, insert)
-					require.Equal(t, 3, opened, "%s: a crash before its record, one after it and one after its last write", name)
+					require.Equal(t, 4, opened, "%s: a crash after its vector reached the file, one before its record, one after "+
+						"it and one after its last write", name)
 					if g.meta.Splits > before {
 						splitTried = true
 					} else {
@@ -523,4 +529,79 @@ func TestGrowOpensWhatACrashLeft(t *testing.T) {
 			})
 		}
 	}
+}
+
+// The record of an insert tells where its vector is and its checksum, not
+// its bytes: the vector reaches the file of the vectors before the record
+// does the journal. An index opened over what a process that died after the
+// record left has the vector, and one opened over a file that does not hold
+// it as it was written, which only a machine that died leaves, says how many
+// are missing.
+func TestGrowJournalTellsOfTheVectorAndDoesNotHoldIt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const total, base, dims, threshold = 160, 150, 32, 24
+	format := shardFormat(8)
+	format.open.journal = true
+	f := newGrowFixtureFormat(t, total, base, dims, false, 64, threshold, format)
+	f.rescoring(fewRescored)
+	g := f.g
+
+	docID := uint64(f.inserted)
+	f.inserted++
+	require.NoError(t, g.insert(ctx, docID, f.all[docID]))
+	records, err := readGrowJournal(filepath.Join(g.dir, growJournalFile))
+	require.NoError(t, err)
+	require.Len(t, records, 1, "the insert is one record")
+	raw := make([]byte, 4*dims)
+	for i, x := range f.all[docID] {
+		putFloat32(raw[4*i:], x)
+	}
+	held := 0
+	var at int64
+	for _, entry := range records[0].entries {
+		switch {
+		case entry.kind == growEntryFile && entry.target == growTargetVectors:
+			require.Fail(t, "the record holds the bytes of the vector")
+		case entry.kind == growEntryFileHeld:
+			held++
+			at = entry.offset
+			require.Equal(t, growTargetVectors, entry.target)
+			require.Len(t, entry.values, 1)
+			require.Len(t, entry.values[0], 8)
+			require.Equal(t, uint32(len(raw)), binary.LittleEndian.Uint32(entry.values[0]), "how many bytes")
+			require.Equal(t, crc32.ChecksumIEEE(raw), binary.LittleEndian.Uint32(entry.values[0][4:]), "their checksum")
+		}
+		for _, value := range entry.values {
+			require.False(t, bytes.Contains(value, raw), "a write of the record holds the bytes of the vector")
+		}
+	}
+	require.Equal(t, 1, held, "the record tells of the vector once")
+	inFile := make([]byte, len(raw))
+	_, err = g.vectors.ReadAt(inFile, at)
+	require.NoError(t, err)
+	require.Equal(t, raw, inFile, "the vector is in the file, where the record says")
+
+	// What a process that died now leaves: the index with the vector.
+	after, err := g.digest()
+	require.NoError(t, err)
+	dir := f.copyNow(t)
+	digest, recovered := f.openedCopy(t, dir, "after the insert")
+	require.Equal(t, after, digest)
+	require.Equal(t, 1, recovered.Records)
+	require.Zero(t, recovered.VectorsMissing)
+
+	// What a machine that died before the system wrote the vector leaves:
+	// the record, and other bytes in the place of the vector.
+	lost := f.copyNow(t)
+	file, err := os.OpenFile(filepath.Join(lost, growVectorsName(g.meta.VectorGen)), os.O_RDWR, 0o644)
+	require.NoError(t, err)
+	_, err = file.WriteAt(make([]byte, len(raw)), at)
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	c, err := openGrowIndex(ctx, testLogger(), lost, f.provider, f.uc, f.how)
+	require.NoError(t, err, "the index opens, and says what it does not hold")
+	missing := c.recovered.VectorsMissing
+	require.NoError(t, c.release(ctx))
+	require.Equal(t, 1, missing, "the vector the file does not hold as it was written")
 }

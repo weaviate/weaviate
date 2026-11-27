@@ -97,6 +97,10 @@ const (
 	growEntrySetAdd
 	growEntrySetDelete
 	growEntryFile
+	// growEntryFileHeld is a write to a file that was made before the record
+	// of its step: the record holds where the bytes are, how many, and their
+	// checksum, and not the bytes (writeVector).
+	growEntryFileHeld
 )
 
 // growEntry is one write of a step.
@@ -198,7 +202,7 @@ func decodeGrowRecord(payload []byte) (growRecord, error) {
 		for v := 0; v < values && !reader.short; v++ {
 			entry.values = append(entry.values, reader.take(reader.uint32()))
 		}
-		if entry.kind < growEntryPut || entry.kind > growEntryFile || entry.target < growTargetPostings ||
+		if entry.kind < growEntryPut || entry.kind > growEntryFileHeld || entry.target < growTargetPostings ||
 			entry.target >= growTargets {
 			return record, errors.Errorf("entry %d of a record of the journal is a write of kind %d to %d", i, entry.kind,
 				entry.target)
@@ -356,6 +360,9 @@ func (g *growIndex) write(entry growEntry) (bool, error) {
 			j.chunks[entry.target] = make(map[int64][]byte)
 		}
 		j.chunks[entry.target][entry.offset] = entry.values[0]
+	case growEntryFileHeld:
+		// Its bytes are in the file, where the step reads them back
+		// (writeVector stages it itself).
 	}
 	j.stage(entry)
 	return true, nil
@@ -467,6 +474,42 @@ func (g *growIndex) writeFile(target growTarget, raw []byte, offset int64) error
 	return err
 }
 
+// writeVector writes the exact vector of an insert to its place in the file
+// of the vectors. With a journal the bytes go to the file first, and the
+// record of the step holds where they are and their checksum, not the bytes:
+// they were a third of a record at 768 dimensions, and more at more.
+//
+// A record that is in the journal tells of bytes that were handed to the
+// system before it, so a process that dies leaves the vector of every record
+// it left. One that dies between the two leaves bytes no record tells of, in
+// a place the index gives out again: where the meta of the last record says
+// the next vector goes, or at the doc id of a vector the index does not hold.
+// Against the death of the machine it gives what the journal gives, which is
+// not synced either; an index that opens checks the vector of every record
+// against its checksum, and says so if the file does not hold it
+// (replayGrowFiles). Without a journal it is the write alone.
+func (g *growIndex) writeVector(raw []byte, offset int64) error {
+	j := g.journal
+	if j == nil {
+		_, err := g.vectors.WriteAt(raw, offset)
+		return err
+	}
+	if j.depth == 0 {
+		return g.step(func() error { return g.writeVector(raw, offset) })
+	}
+	if _, err := g.vectors.WriteAt(raw, offset); err != nil {
+		return err
+	}
+	if j.crash != nil {
+		j.crash("after a vector", 0)
+	}
+	held := make([]byte, 8)
+	binary.LittleEndian.PutUint32(held, uint32(len(raw)))
+	binary.LittleEndian.PutUint32(held[4:], crc32.ChecksumIEEE(raw))
+	j.stage(growEntry{kind: growEntryFileHeld, target: growTargetVectors, offset: offset, values: [][]byte{held}})
+	return nil
+}
+
 // readFile reads from one of the files of the index what was written at the
 // offset in one write: what the step that runs wrote there, or the file.
 func (g *growIndex) readFile(target growTarget, raw []byte, offset int64) error {
@@ -522,6 +565,10 @@ func (g *growIndex) storeOf(target growTarget) *growBucket {
 // ends and how a journal is read again: writing twice what was written
 // already leaves it as it was.
 func (g *growIndex) hand(entry *growEntry) error {
+	if entry.kind == growEntryFileHeld {
+		// Its bytes were in the file before its record was written.
+		return nil
+	}
 	if entry.kind == growEntryFile {
 		file := g.fileOf(entry.target)
 		if file == nil || len(entry.values) != 1 {
@@ -667,7 +714,12 @@ func (g *growIndex) graphSynced() error {
 // its journal wrote to them, before the index reads any of them. The files
 // of the vectors and of their slots are those of the generation the meta
 // names: the journal is emptied before a generation takes over.
-func replayGrowFiles(dir string, meta *growMeta, records []growRecord) (err error) {
+//
+// The vectors a record only tells of (growEntryFileHeld) were written before
+// it: they are checked against the checksum the record holds, and missing
+// counts those the file does not hold, which only a machine that died before
+// the system wrote them leaves.
+func replayGrowFiles(dir string, meta *growMeta, records []growRecord) (missing int, err error) {
 	names := map[growTarget]string{
 		growTargetVectors:   growVectorsName(meta.VectorGen),
 		growTargetSlots:     growSlotsName(meta.VectorGen),
@@ -685,26 +737,38 @@ func replayGrowFiles(dir string, meta *growMeta, records []growRecord) (err erro
 	for r := range records {
 		for e := range records[r].entries {
 			entry := &records[r].entries[e]
-			if entry.kind != growEntryFile {
+			if entry.kind != growEntryFile && entry.kind != growEntryFileHeld {
 				continue
 			}
 			name, known := names[entry.target]
 			if !known || len(entry.values) != 1 {
-				return errors.Errorf("record %d of the journal writes to the file %d", r, entry.target)
+				return missing, errors.Errorf("record %d of the journal writes to the file %d", r, entry.target)
 			}
 			file := files[entry.target]
 			if file == nil {
 				if file, err = os.OpenFile(filepath.Join(dir, name), os.O_RDWR|os.O_CREATE, 0o644); err != nil {
-					return errors.Wrapf(err, "open %s to write again what the journal wrote to it", name)
+					return missing, errors.Wrapf(err, "open %s to write again what the journal wrote to it", name)
 				}
 				files[entry.target] = file
 			}
+			if entry.kind == growEntryFileHeld {
+				held := entry.values[0]
+				if len(held) != 8 {
+					return missing, errors.Errorf("record %d of the journal tells of a write to %s in %d bytes", r, name, len(held))
+				}
+				raw := make([]byte, binary.LittleEndian.Uint32(held))
+				if _, err := file.ReadAt(raw, entry.offset); err != nil ||
+					crc32.ChecksumIEEE(raw) != binary.LittleEndian.Uint32(held[4:]) {
+					missing++
+				}
+				continue
+			}
 			if _, err := file.WriteAt(entry.values[0], entry.offset); err != nil {
-				return errors.Wrapf(err, "write again to %s what the journal wrote to it", name)
+				return missing, errors.Wrapf(err, "write again to %s what the journal wrote to it", name)
 			}
 		}
 	}
-	return nil
+	return missing, nil
 }
 
 // growRecovered tells what an index found when it was opened: the records
@@ -712,6 +776,9 @@ func replayGrowFiles(dir string, meta *growMeta, records []growRecord) (err erro
 type growRecovered struct {
 	Records      int  `json:"journalRecords"`
 	GraphRebuilt bool `json:"graphRebuilt"`
+	// VectorsMissing counts the vectors its records told of that the file of
+	// the vectors did not hold as they were written (replayGrowFiles).
+	VectorsMissing int `json:"vectorsMissing,omitempty"`
 }
 
 // openJournal ends the opening of an index. If its journal held records, or

@@ -1254,9 +1254,19 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 
 	// The writes of the journal to the files of the index, before any of
 	// them is read.
-	if err := replayGrowFiles(dir, meta, journaled); err != nil {
+	missing, err := replayGrowFiles(dir, meta, journaled)
+	if err != nil {
 		return nil, err
 	}
+	if missing > 0 {
+		// Only a machine that died leaves it: a process that dies leaves the
+		// vector of every record it wrote.
+		logger.WithFields(logrus.Fields{"action": "postingedge_journal_replay", "dir": dir, "vectors": missing}).
+			Errorf("the journal tells of %d vectors the file of the vectors does not hold as they were written: "+
+				"the system had not written them when the machine stopped, and what the index returns for them is not "+
+				"their distance", missing)
+	}
+	g.recovered.VectorsMissing = missing
 	mean, err := readArray(path(diskMeanFile), 4, meta.Dims, getFloat32)
 	if err != nil {
 		return nil, errors.Wrap(err, "read the mean of the quantizer")
@@ -1318,7 +1328,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	// And its writes to the buckets, before any of them is read.
 	for r := range journaled {
 		for e := range journaled[r].entries {
-			if entry := &journaled[r].entries[e]; entry.kind != growEntryFile {
+			if entry := &journaled[r].entries[e]; entry.kind != growEntryFile && entry.kind != growEntryFileHeld {
 				if err := g.hand(entry); err != nil {
 					return nil, errors.Wrapf(err, "write again record %d of the journal", r)
 				}
@@ -2264,7 +2274,7 @@ func (g *growIndex) applyWrites(ctx context.Context, plan *growPlan) error {
 	if g.meta.VectorGen > 0 {
 		at = uint64(g.nextSlot)
 	}
-	if err := g.writeFile(growTargetVectors, raw, int64(at)*int64(len(raw))); err != nil {
+	if err := g.writeVector(raw, int64(at)*int64(len(raw))); err != nil {
 		return errors.Wrapf(err, "write the vector of doc %d", docID)
 	}
 	if g.meta.VectorGen > 0 {
