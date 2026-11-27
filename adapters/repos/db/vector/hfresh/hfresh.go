@@ -149,6 +149,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 	logger := cfg.Logger.WithField("component", "HFresh")
+	postingStore.logger = logger
 
 	h := HFresh{
 		id:                   cfg.ID,
