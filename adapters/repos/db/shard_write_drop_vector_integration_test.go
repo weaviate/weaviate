@@ -900,6 +900,8 @@ func TestDropVectorIndex_SweepDropsFromAShardTheDropDidNotSee(t *testing.T) {
 	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
 
 	idx.shards.LoadAndDelete(shard.name)
+	// as a RAFT apply does: the schema, then the store
+	markDropped(class, "foo")
 	require.NoError(t, idx.dropVectorIndex(ctx, "foo"))
 	idx.shards.Store(shard.name, shard)
 	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
