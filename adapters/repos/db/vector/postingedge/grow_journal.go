@@ -19,6 +19,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/pkg/errors"
 
@@ -486,8 +487,9 @@ func (g *growIndex) writeFile(target growTarget, raw []byte, offset int64) error
 // the next vector goes, or at the doc id of a vector the index does not hold.
 // Against the death of the machine it gives what the journal gives, which is
 // not synced either; an index that opens checks the vector of every record
-// against its checksum, and says so if the file does not hold it
-// (replayGrowFiles). Without a journal it is the write alone.
+// against its checksum, and leaves out of the index those the file does not
+// hold (replayGrowFiles, loseVector). Without a journal it is the write
+// alone.
 func (g *growIndex) writeVector(raw []byte, offset int64) error {
 	j := g.journal
 	if j == nil {
@@ -717,9 +719,10 @@ func (g *growIndex) graphSynced() error {
 //
 // The vectors a record only tells of (growEntryFileHeld) were written before
 // it: they are checked against the checksum the record holds, and missing
-// counts those the file does not hold, which only a machine that died before
-// the system wrote them leaves.
-func replayGrowFiles(dir string, meta *growMeta, records []growRecord) (missing int, err error) {
+// has where in the file of the vectors those it does not hold start, which
+// only a machine that died before the system wrote them leaves. The last
+// record that tells of a place is the one that counts for it.
+func replayGrowFiles(dir string, meta *growMeta, records []growRecord) (missing []int64, err error) {
 	names := map[growTarget]string{
 		growTargetVectors:   growVectorsName(meta.VectorGen),
 		growTargetSlots:     growSlotsName(meta.VectorGen),
@@ -757,9 +760,14 @@ func replayGrowFiles(dir string, meta *growMeta, records []growRecord) (missing 
 					return missing, errors.Errorf("record %d of the journal tells of a write to %s in %d bytes", r, name, len(held))
 				}
 				raw := make([]byte, binary.LittleEndian.Uint32(held))
+				at := slices.Index(missing, entry.offset)
 				if _, err := file.ReadAt(raw, entry.offset); err != nil ||
 					crc32.ChecksumIEEE(raw) != binary.LittleEndian.Uint32(held[4:]) {
-					missing++
+					if at < 0 {
+						missing = append(missing, entry.offset)
+					}
+				} else if at >= 0 {
+					missing = slices.Delete(missing, at, at+1)
 				}
 				continue
 			}
@@ -777,8 +785,10 @@ type growRecovered struct {
 	Records      int  `json:"journalRecords"`
 	GraphRebuilt bool `json:"graphRebuilt"`
 	// VectorsMissing counts the vectors its records told of that the file of
-	// the vectors did not hold as they were written (replayGrowFiles).
+	// the vectors did not hold as they were written (replayGrowFiles), and
+	// VectorsLeftOut those of them the index held and left out (loseVector).
 	VectorsMissing int `json:"vectorsMissing,omitempty"`
+	VectorsLeftOut int `json:"vectorsLeftOut,omitempty"`
 }
 
 // openJournal ends the opening of an index. If its journal held records, or

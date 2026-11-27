@@ -667,6 +667,7 @@ func (g *growIndex) forget(p uint32, docID uint64, member []byte) error {
 	if err := g.marks.Delete(key); err != nil {
 		return errors.Wrapf(err, "take out the mark of doc %d", docID)
 	}
+	delete(g.lost, uint64(docID))
 	if g.slots != nil {
 		var none [4]byte
 		if err := g.writeFile(growTargetSlots, none[:], int64(docID)*4); err != nil {

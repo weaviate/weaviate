@@ -27,7 +27,11 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // The journal gives back the records it was given, whole and in their
@@ -542,7 +546,7 @@ func TestGrowJournalTellsOfTheVectorAndDoesNotHoldIt(t *testing.T) {
 	ctx := context.Background()
 	const total, base, dims, threshold = 160, 150, 32, 24
 	format := shardFormat(8)
-	format.open.journal = true
+	format.open.journal, format.open.deletes = true, true
 	f := newGrowFixtureFormat(t, total, base, dims, false, 64, threshold, format)
 	f.rescoring(fewRescored)
 	g := f.g
@@ -599,9 +603,57 @@ func TestGrowJournalTellsOfTheVectorAndDoesNotHoldIt(t *testing.T) {
 	_, err = file.WriteAt(make([]byte, len(raw)), at)
 	require.NoError(t, err)
 	require.NoError(t, file.Close())
-	c, err := openGrowIndex(ctx, testLogger(), lost, f.provider, f.uc, f.how)
-	require.NoError(t, err, "the index opens, and says what it does not hold")
-	missing := c.recovered.VectorsMissing
-	require.NoError(t, c.release(ctx))
-	require.Equal(t, 1, missing, "the vector the file does not hold as it was written")
+	// The index opens, and leaves the vector out as if its insert had not
+	// come: it holds it no longer, nothing reads it, no search returns it,
+	// and its posting splits without it. Opened again, with the journal
+	// emptied, it is still out.
+	for _, at := range []string{"opened over the file that lost the vector", "opened again"} {
+		logger, hook := test.NewNullLogger()
+		c, err := openGrowIndex(ctx, logger, lost, f.provider, f.uc, f.how)
+		require.NoError(t, err, at)
+		// One line of the log tells how many vectors were left out.
+		var told []*logrus.Entry
+		for _, entry := range hook.AllEntries() {
+			if entry.Data["action"] == "postingedge_vectors_left_out" {
+				told = append(told, entry)
+			}
+		}
+		if at == "opened again" {
+			require.Empty(t, told, "%s: nothing is left out a second time", at)
+		} else {
+			require.Len(t, told, 1, "%s: one line of the log", at)
+			require.Equal(t, logrus.ErrorLevel, told[0].Level)
+			require.Equal(t, 1, told[0].Data["left_out"], "%s: the vectors left out", at)
+			require.Equal(t, 1, told[0].Data["missing"], at)
+		}
+		missing, leftOut := c.recovered.VectorsMissing, c.recovered.VectorsLeftOut
+		held := c.holds(docID)
+		_, _, readErr := c.exact(docID, nil, nil)
+		var stats diskSearchStats
+		found, _, searchErr := c.search(ctx, f.all[docID], 50, &stats)
+		p := c.st.side.postingOf[docID]
+		splitErr := c.step(func() error { return c.split(ctx, p) })
+		coverage := c.checkCoverage()
+		_, _, readAfter := c.exact(docID, nil, nil)
+		foundAfter, _, searchAfter := c.search(ctx, f.all[docID], 50, &stats)
+		require.NoError(t, c.release(ctx), at)
+
+		if at == "opened again" {
+			require.Zero(t, missing, "%s: the journal was emptied", at)
+		} else {
+			require.Equal(t, 1, missing, "%s: the vector the file does not hold as it was written", at)
+			require.Equal(t, 1, leftOut, "%s: it was in the index, and is left out", at)
+		}
+		require.False(t, held, "%s: the index does not hold the vector", at)
+		var notFound storobj.ErrNotFound
+		require.ErrorAs(t, readErr, &notFound, "%s: nothing reads its bytes", at)
+		require.NoError(t, searchErr, at)
+		require.NotContains(t, found, docID, "%s: no search returns it", at)
+		require.NotEmpty(t, found, at)
+		require.NoError(t, splitErr, "%s: its posting splits without it", at)
+		require.NoError(t, coverage, at)
+		require.ErrorAs(t, readAfter, &notFound, "%s: nor after the split", at)
+		require.NoError(t, searchAfter, at)
+		require.NotContains(t, foundAfter, docID, "%s: no search returns it after the split", at)
+	}
 }

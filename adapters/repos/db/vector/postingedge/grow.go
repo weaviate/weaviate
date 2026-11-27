@@ -491,6 +491,9 @@ type growIndex struct {
 	// batchApplied, with batchVerify, has the doc ids of the last batch in
 	// the order their writes were applied.
 	batchApplied []uint64
+	// lost has the doc ids whose exact vector the file does not hold as it
+	// was written (loseVector): marked deleted, and never read.
+	lost map[uint64]struct{}
 	// vectorReads counts the exact vectors read from the file.
 	vectorReads atomic.Int64
 	// fanouts counts the rounds whose rows were read by goroutines of their
@@ -1258,15 +1261,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 	if err != nil {
 		return nil, err
 	}
-	if missing > 0 {
-		// Only a machine that died leaves it: a process that dies leaves the
-		// vector of every record it wrote.
-		logger.WithFields(logrus.Fields{"action": "postingedge_journal_replay", "dir": dir, "vectors": missing}).
-			Errorf("the journal tells of %d vectors the file of the vectors does not hold as they were written: "+
-				"the system had not written them when the machine stopped, and what the index returns for them is not "+
-				"their distance", missing)
-	}
-	g.recovered.VectorsMissing = missing
+	g.recovered.VectorsMissing = len(missing)
 	mean, err := readArray(path(diskMeanFile), 4, meta.Dims, getFloat32)
 	if err != nil {
 		return nil, errors.Wrap(err, "read the mean of the quantizer")
@@ -1424,7 +1419,7 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 		// and in the map. A search scores such a member and follows its
 		// edges, so that it goes on routing, and never returns it.
 		g.deleted = make([]bool, meta.Keys)
-		err = growScan(g.marks.Bucket, func(key, _ []byte) error {
+		err = growScan(g.marks.Bucket, func(key, value []byte) error {
 			if len(key) != 4 {
 				return errors.Errorf("a mark of a deleted vector with a key of %d bytes", len(key))
 			}
@@ -1434,12 +1429,20 @@ func openGrowIndex(ctx context.Context, logger logrus.FieldLogger, dir string, p
 			}
 			g.deleted[docID] = true
 			g.deletedCount++
+			if len(value) == 1 && value[0] == growMarkLost {
+				g.lose(uint64(docID))
+			}
 			return nil
 		})
 		if err != nil {
 			return nil, errors.Wrap(err, "read the marks of the deleted vectors")
 		}
 		g.st.deleted, g.st.deletedAsSources = g.deleted, true
+	}
+	// The vectors the journal told of and the file does not hold are left
+	// out of the index, before anything reads them.
+	if err := g.loseVectors(missing); err != nil {
+		return nil, err
 	}
 
 	// Every split adds two postings, and there is at most one per insert.
@@ -1599,6 +1602,9 @@ func (g *growIndex) closeStore(ctx context.Context) error {
 // exact reads the exact vector of a doc from the file into buf, which is
 // grown as needed, and returns it.
 func (g *growIndex) exact(docID uint64, raw []byte, into []float32) ([]byte, []float32, error) {
+	if _, lost := g.lost[docID]; lost {
+		return raw, into, storobj.NewErrNotFoundf(docID, "the file of the vectors does not hold its vector as it was written")
+	}
 	dims := g.meta.Dims
 	if cap(raw) < 4*dims {
 		raw = make([]byte, 4*dims)
@@ -2068,12 +2074,80 @@ func (g *growIndex) remove(docID uint64) (bool, error) {
 	}
 	// One write: a step of its own, unless whoever called marks several in
 	// one.
-	if err := g.marks.Put(growDocKey(docID), []byte{1}); err != nil {
+	if err := g.marks.Put(growDocKey(docID), []byte{growMarkDeleted}); err != nil {
 		return false, errors.Wrapf(err, "write the mark of doc %d", docID)
 	}
 	g.deleted[docID] = true
 	g.deletedCount++
 	return true, nil
+}
+
+// The marks of the bucket of the deleted vectors: of a vector that was
+// deleted, and of one whose exact vector the file of the vectors does not
+// hold as it was written, which is left out as a deleted one is and whose
+// vector nothing reads.
+const (
+	growMarkDeleted = 1
+	growMarkLost    = 2
+)
+
+// lose notes in memory that the exact vector of a doc id is lost.
+func (g *growIndex) lose(docID uint64) {
+	if g.lost == nil {
+		g.lost = make(map[uint64]struct{})
+	}
+	g.lost[docID] = struct{}{}
+}
+
+// loseVectors leaves out of the index the vectors that start at the given
+// places of the file of the vectors, which the journal told of and the file
+// does not hold as they were written: only a machine that died before the
+// system wrote them leaves that. Each is marked as a deleted vector is, so
+// that no search returns it, and as lost, so that nothing reads its bytes:
+// not a rescore, not the split of its posting. The pass over the deleted
+// vectors takes it out of its posting like any other. Its object is in the
+// store without a vector in the index until something gives it again:
+// building it again from the object is pending. An index opened without the
+// marks of the deleted vectors cannot leave a vector out, and does not open.
+func (g *growIndex) loseVectors(offsets []int64) error {
+	if len(offsets) == 0 {
+		return nil
+	}
+	size := int64(4 * g.meta.Dims)
+	left := 0
+	for _, offset := range offsets {
+		slot := uint64(offset / size)
+		docID, found := slot, true
+		if g.slotOf != nil {
+			at := slices.Index(g.slotOf, uint32(slot))
+			docID, found = uint64(max(at, 0)), at >= 0
+		}
+		if !found || docID >= uint64(len(g.live)) || !g.live[docID] {
+			// No vector the index holds is there: the insert it was of is
+			// not in the index.
+			continue
+		}
+		if g.marks == nil {
+			return errors.Errorf("the file of the vectors does not hold the vector of doc %d as it was written, and "+
+				"the index was opened without the marks that would leave it out", docID)
+		}
+		if err := g.marks.Put(growDocKey(docID), []byte{growMarkLost}); err != nil {
+			return errors.Wrapf(err, "write the mark of doc %d", docID)
+		}
+		if !g.deleted[docID] {
+			g.deleted[docID] = true
+			g.deletedCount++
+		}
+		g.lose(docID)
+		left++
+	}
+	g.recovered.VectorsLeftOut = left
+	g.logger.WithFields(logrus.Fields{
+		"action": "postingedge_vectors_left_out", "dir": g.dir, "missing": len(offsets), "left_out": left,
+	}).Errorf("the file of the vectors does not hold %d vectors the journal told of as they were written: the machine "+
+		"stopped before the system wrote them. %d of them were in the index and are left out of it, as if their "+
+		"inserts had not come: no search returns them and nothing reads them", len(offsets), left)
+	return nil
 }
 
 // holds tells whether the index holds a vector under a doc id that is not
@@ -2640,14 +2714,21 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 	vectors := make([][]float32, n)
 	members := make([]uint32, n)
 	var raw []byte
+	members = members[:0]
 	for i, docID := range dp.docIDs {
+		if _, lost := g.lost[docID]; lost {
+			// Its vector is not read: it takes no part in the 2-means, and
+			// goes with the first half until the pass over the deleted
+			// vectors takes it out.
+			continue
+		}
 		var err error
 		if raw, vectors[i], err = g.exact(docID, raw, nil); err != nil {
 			return err
 		}
-		members[i] = uint32(i)
+		members = append(members, uint32(i))
 	}
-	g.stats.SplitVectors.add(n, n*4*g.meta.Dims)
+	g.stats.SplitVectors.add(len(members), len(members)*4*g.meta.Dims)
 
 	failed := func() error {
 		// A 2-means that leaves one side empty is counted, not fatal: the
@@ -2665,6 +2746,10 @@ func (g *growIndex) split(ctx context.Context, p uint32) error {
 	sideOf := make([]int, n)
 	sizes := [2]int{}
 	for i, vec := range vectors {
+		if vec == nil {
+			sizes[0]++
+			continue
+		}
 		da, err := g.l2.SingleDist(vec, means[0])
 		if err != nil {
 			return err

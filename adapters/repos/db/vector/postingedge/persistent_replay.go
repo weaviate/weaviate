@@ -43,6 +43,13 @@ func (p *Persistent) leaveOutPlaced(id uint64, normalized []float32) {
 		// insert comes before the replay of its delete.
 		return
 	}
+	if g := p.g; g != nil && g.deleted != nil && id < uint64(len(g.deleted)) && g.deleted[id] {
+		// Marked deleted, and in its posting until the pass over the deleted
+		// vectors takes it out: the replay of its insert comes before the
+		// replay of its delete. So is a vector the index left out because
+		// its file did not hold it (growIndex.loseVectors).
+		return
+	}
 	stored, err := p.storedVector(id)
 	if err != nil {
 		p.logger.WithFields(logrus.Fields{"action": "postingedge_vector_conflict", "id": id}).
