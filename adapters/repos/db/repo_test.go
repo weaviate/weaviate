@@ -96,6 +96,107 @@ func TestGetIndex(t *testing.T) {
 	}
 }
 
+// TestIndexForIncoming checks a read another node sent waits once, for the
+// newer of the asker's class version and this node's own, and that an index
+// this node has still answers when that wait fails.
+func TestIndexForIncoming(t *testing.T) {
+	const class = "Article"
+	errWait := errors.New("wait timed out")
+
+	tests := []struct {
+		name string
+		// registered: this node has the index from the start; registerOnWait:
+		// the wait's apply registers it.
+		registered, registerOnWait bool
+		localVersion, askerVersion uint64
+		waitErr                    error
+		wantWaitFor                uint64 // 0: no wait
+		wantIndex                  bool
+		wantErr                    error
+	}{
+		{
+			name: "a node up to date on the class answers", registered: true,
+			localVersion: 7, askerVersion: 7, wantWaitFor: 7, wantIndex: true,
+		},
+		{
+			name: "a node without the class waits for the asker's version", registerOnWait: true,
+			askerVersion: 9, wantWaitFor: 9, wantIndex: true,
+		},
+		{
+			name: "a node behind on the class waits for the asker's version", registered: true,
+			localVersion: 5, askerVersion: 9, wantWaitFor: 9, wantIndex: true,
+		},
+		{
+			name: "a node stuck behind a slow apply still answers from its index", registered: true,
+			localVersion: 5, askerVersion: 9, waitErr: errWait, wantWaitFor: 9, wantIndex: true,
+		},
+		{
+			name:         "a node without the class reports a failed wait",
+			askerVersion: 9, waitErr: errWait, wantWaitFor: 9, wantErr: errWait,
+		},
+		{
+			// Waiting for the asker's version and then for its own was two waits.
+			name:         "a class this node is still creating waits once, for its own newer version",
+			localVersion: 9, askerVersion: 7, waitErr: errWait, wantWaitFor: 9, wantErr: errWait,
+		},
+		{
+			name: "an older asker sends no version and nothing waits",
+		},
+		{
+			name: "an older asker still waits for a class being created here", registerOnWait: true,
+			localVersion: 9, wantWaitFor: 9, wantIndex: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			index := &Index{}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			db := &DB{indices: map[string]*Index{}, schemaReader: schemaReader}
+			if tt.registered {
+				db.indices["article"] = index
+			}
+			schemaReader.EXPECT().ReadOnlyVersionedClass(class).
+				Return(versioned.Class{Version: tt.localVersion}).Once()
+			if tt.wantWaitFor > 0 {
+				schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.wantWaitFor).
+					RunAndReturn(func(context.Context, uint64) error {
+						if tt.registerOnWait {
+							db.indexLock.Lock()
+							db.indices["article"] = index
+							db.indexLock.Unlock()
+						}
+						return tt.waitErr
+					}).Once()
+			}
+
+			got, err := db.indexForIncoming(t.Context(), class, tt.askerVersion)
+
+			require.ErrorIs(t, err, tt.wantErr)
+			if tt.wantIndex {
+				require.Same(t, index, got)
+			} else {
+				require.Nil(t, got)
+			}
+		})
+	}
+}
+
+// TestIndexForIncomingReadLogsAFailedWait checks a failed wait with no index
+// is logged and reads as a missing index, as in GetIndexForIncomingSharding.
+func TestIndexForIncomingReadLogsAFailedWait(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().ReadOnlyVersionedClass("Article").Return(versioned.Class{}).Once()
+	schemaReader.EXPECT().WaitForUpdate(mock.Anything, uint64(9)).Return(errors.New("wait timed out")).Once()
+	db := &DB{logger: logger, indices: map[string]*Index{}, schemaReader: schemaReader}
+
+	require.Nil(t, db.IndexForIncomingRead(t.Context(), "Article", 9))
+	require.Len(t, hook.AllEntries(), 1)
+	require.Contains(t, hook.LastEntry().Message, "look up index for incoming request")
+	require.Contains(t, hook.LastEntry().Message, "wait timed out")
+}
+
 // TestDB_scanStartupProgress covers the subtle counting in scanStartupProgress
 // and localShardsToLoad: the schema-derived HOT-local-shard total, discounting
 // lazily-loaded shards, and counting eagerly-loaded shards.

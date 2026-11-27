@@ -102,6 +102,10 @@ func (r ttlProbeRepo) GetIndexForIncomingSharding(context.Context, schema.ClassN
 	return r.index
 }
 
+func (r ttlProbeRepo) IndexForIncomingRead(ctx context.Context, className schema.ClassName, _ uint64) sharding.RemoteIndexIncomingRepo {
+	return r.GetIndexForIncomingSharding(ctx, className)
+}
+
 type ttlProbeSchema struct{}
 
 func (ttlProbeSchema) ReadOnlyClassWithVersion(_ context.Context, class string, _ uint64) (*models.Class, error) {
@@ -204,6 +208,10 @@ func (r *sweptTTLRepo) GetIndexForIncomingSharding(_ context.Context, class sche
 		return r.indexFor(class)
 	}
 	return noopTTLIndex{}
+}
+
+func (r *sweptTTLRepo) IndexForIncomingRead(ctx context.Context, className schema.ClassName, _ uint64) sharding.RemoteIndexIncomingRepo {
+	return r.GetIndexForIncomingSharding(ctx, className)
 }
 
 func (r *sweptTTLRepo) sweptCollections() []string {

@@ -75,6 +75,10 @@ func (r *bufconnFakeRepo) GetIndexForIncomingSharding(context.Context, schema.Cl
 	return r.idx
 }
 
+func (r *bufconnFakeRepo) IndexForIncomingRead(ctx context.Context, className schema.ClassName, _ uint64) sharding.RemoteIndexIncomingRepo {
+	return r.GetIndexForIncomingSharding(ctx, className)
+}
+
 // bufconnFakeSchema satisfies the StartChangeCapture schema-version barrier;
 // these tests pass schemaVersion 0, so the barrier is always a no-op.
 type bufconnFakeSchema struct{}

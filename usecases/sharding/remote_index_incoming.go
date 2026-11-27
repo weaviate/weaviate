@@ -41,6 +41,10 @@ import (
 
 type RemoteIncomingRepo interface {
 	GetIndexForIncomingSharding(ctx context.Context, className schema.ClassName) RemoteIndexIncomingRepo
+	// IndexForIncomingRead is GetIndexForIncomingSharding for a read another
+	// node sent with its class version.
+	IndexForIncomingRead(ctx context.Context, className schema.ClassName,
+		schemaVersion uint64) RemoteIndexIncomingRepo
 }
 
 type RemoteIncomingSchema interface {
@@ -361,18 +365,14 @@ func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	return index.IncomingDigestObjects(ctx, shardName, ids)
 }
 
-// indexForIncomingRead waits for the coordinator's class version before the
-// lookup, so a node that has not applied the class yet does not report it
-// missing. Version 0, sent by older coordinators, does not wait.
+// indexForIncomingRead looks the index up for a read the coordinator sent with
+// its class version, which a node that has not applied the class yet, or is
+// behind on it, waits for. Version 0, sent by older coordinators, waits only for
+// this node's own class version.
 func (rii *RemoteIndexIncoming) indexForIncomingRead(ctx context.Context, indexName string,
 	schemaVersion uint64,
 ) (RemoteIndexIncomingRepo, error) {
-	if schemaVersion > 0 {
-		if _, err := rii.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
-			return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local index %q not found: %w", indexName, err))
-		}
-	}
-	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
+	index := rii.repo.IndexForIncomingRead(ctx, schema.ClassName(indexName), schemaVersion)
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}

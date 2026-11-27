@@ -148,6 +148,10 @@ func (r *fakeRepo) GetIndexForIncomingSharding(_ context.Context, className sche
 	return idx
 }
 
+func (r *fakeRepo) IndexForIncomingRead(ctx context.Context, className schema.ClassName, _ uint64) sharding.RemoteIndexIncomingRepo {
+	return r.GetIndexForIncomingSharding(ctx, className)
+}
+
 // fakeSchema implements sharding.RemoteIncomingSchema. ReadOnlyClassWithVersion
 // records every requested version and errors when asked for a version higher
 // than `applied`, simulating a source node that has not yet applied that schema

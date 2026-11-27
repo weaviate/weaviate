@@ -610,6 +610,45 @@ func (db *DB) GetIndexForIncomingSharding(ctx context.Context, className schema.
 	return index
 }
 
+// IndexForIncomingRead returns the index indexForIncoming finds for a read
+// another node sent, or nil. A failed wait is logged here and also returns nil,
+// as in GetIndexForIncomingSharding, so callers report it as a missing index.
+func (db *DB) IndexForIncomingRead(ctx context.Context, className schema.ClassName,
+	schemaVersion uint64,
+) sharding.RemoteIndexIncomingRepo {
+	index, err := db.indexForIncoming(ctx, className, schemaVersion)
+	if err != nil {
+		db.logger.WithField("class", className).Warnf("look up index for incoming request: %v", err)
+		return nil
+	}
+	if index == nil {
+		return nil
+	}
+	return index
+}
+
+// indexForIncoming waits once, for the newer of the asking node's class version
+// and this node's own, then looks the index up without waiting again. A node
+// that has not applied the class yet, or is behind on it, thus answers with the
+// class as the asker has it. If the wait fails, an index this node has still
+// answers; the wait error is returned only when it has none.
+func (db *DB) indexForIncoming(ctx context.Context, className schema.ClassName,
+	schemaVersion uint64,
+) (*Index, error) {
+	version := max(schemaVersion, db.schemaReader.ReadOnlyVersionedClass(className.String()).Version)
+	var waitErr error
+	if version > 0 {
+		waitErr = db.schemaReader.WaitForUpdate(ctx, version)
+	}
+	if index := db.registeredIndex(className); index != nil {
+		return index, nil
+	}
+	if waitErr != nil {
+		return nil, fmt.Errorf("wait for class %s to be applied locally: %w", className, waitErr)
+	}
+	return nil, nil
+}
+
 // droppingIndex returns an index whose drop is still in flight, or nil. Only
 // db.ReleaseBackup may use it: drop() parks on backupLock, which nothing but
 // idx.ReleaseBackup releases. Everything else wants GetIndex, which reports a

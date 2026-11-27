@@ -13,7 +13,6 @@ package sharding
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 
@@ -160,35 +159,26 @@ func (readIndex) IncomingFindUUIDs(context.Context, string, *filters.LocalFilter
 	return nil, nil
 }
 
-// applyingNode registers its index only once a wait for the class version
-// runs, as a node that is still applying the create.
-type applyingNode struct {
-	registered bool
-	waited     []uint64
-	waitErr    error
+// incomingRepo answers the version-aware lookup with index, and records the
+// class version each read asked with.
+type incomingRepo struct {
+	index RemoteIndexIncomingRepo
+	asked []uint64
 }
 
-func (n *applyingNode) ReadOnlyClassWithVersion(_ context.Context, _ string, version uint64) (*models.Class, error) {
-	n.waited = append(n.waited, version)
-	if n.waitErr != nil {
-		return nil, n.waitErr
-	}
-	n.registered = true
-	return &models.Class{}, nil
+func (r *incomingRepo) GetIndexForIncomingSharding(context.Context, schema.ClassName) RemoteIndexIncomingRepo {
+	return r.index
 }
 
-func (n *applyingNode) GetIndexForIncomingSharding(context.Context, schema.ClassName) RemoteIndexIncomingRepo {
-	if !n.registered {
-		return nil
-	}
-	return readIndex{}
+func (r *incomingRepo) IndexForIncomingRead(_ context.Context, _ schema.ClassName, version uint64) RemoteIndexIncomingRepo {
+	r.asked = append(r.asked, version)
+	return r.index
 }
 
-// TestIncomingReadsWaitForTheCoordinatorsClassVersion reads from a node that
-// has not applied the class yet. A read that carries the coordinator's class
-// version waits for it; one without a version, as older coordinators send,
-// does not.
-func TestIncomingReadsWaitForTheCoordinatorsClassVersion(t *testing.T) {
+// TestIncomingReadsAskWithTheCoordinatorsClassVersion checks every incoming read
+// looks its index up with the coordinator's class version, serves the index it
+// gets, and reports a missing index with the existing unprocessable error.
+func TestIncomingReadsAskWithTheCoordinatorsClassVersion(t *testing.T) {
 	reads := []struct {
 		name string
 		read func(ctx context.Context, rii *RemoteIndexIncoming, version uint64) error
@@ -219,37 +209,30 @@ func TestIncomingReadsWaitForTheCoordinatorsClassVersion(t *testing.T) {
 		}},
 	}
 
-	errWait := errors.New("deadline exceeded")
 	cases := []struct {
-		name       string
-		version    uint64
-		waitErr    error
-		wantWaited []uint64
-		wantErr    bool
+		name    string
+		index   RemoteIndexIncomingRepo
+		wantErr bool
 	}{
-		{name: "a read with the class version waits for it", version: 7, wantWaited: []uint64{7}},
-		{name: "a read without a version does not wait", version: 0, wantErr: true},
-		{name: "a failed wait is reported", version: 7, waitErr: errWait, wantWaited: []uint64{7}, wantErr: true},
+		{name: "an index answers", index: readIndex{}},
+		{name: "no index is reported missing", wantErr: true},
 	}
 
 	for _, r := range reads {
 		for _, c := range cases {
 			t.Run(r.name+"/"+c.name, func(t *testing.T) {
-				node := &applyingNode{waitErr: c.waitErr}
-				rii := NewRemoteIndexIncoming(node, node, nil)
+				repo := &incomingRepo{index: c.index}
+				rii := NewRemoteIndexIncoming(repo, nil, nil)
 
-				err := r.read(t.Context(), rii, c.version)
+				err := r.read(t.Context(), rii, 7)
 
-				require.Equal(t, c.wantWaited, node.waited)
+				require.Equal(t, []uint64{7}, repo.asked)
 				if !c.wantErr {
 					require.NoError(t, err)
 					return
 				}
 				require.ErrorAs(t, err, &enterrors.ErrUnprocessable{})
-				require.ErrorContains(t, err, `local index "C" not found`)
-				if c.waitErr != nil {
-					require.ErrorContains(t, err, c.waitErr.Error())
-				}
+				require.EqualError(t, err, `local index "C" not found`)
 			})
 		}
 	}

@@ -637,17 +637,34 @@ func (r *notYetAppliedSchemaReader) WaitForUpdate(ctx context.Context, version u
 	return err
 }
 
-// TestIncomingNodeStatusWaitsForTheAskersClassVersion asks a node that has not
-// applied a class yet for that class's status. With the asking node's class
-// version it waits and finds the class; without one it reports the class
-// missing, as before; a wait that times out reports the node timed out.
+// TestIncomingNodeStatusWaitsForTheAskersClassVersion asks a node for a class's
+// status with the asking node's class version. A node that has not applied the
+// class waits and finds it; without a version it reports the class missing, as
+// before; a wait that times out reports the node timed out, unless the node has
+// the class.
 func TestIncomingNodeStatusWaitsForTheAskersClassVersion(t *testing.T) {
 	tests := []struct {
 		name        string
+		registered  bool
 		version     uint64
 		finishApply func(register func()) error
 		wantStatus  *string
 	}{
+		{
+			// The reviewed scenario: the class is registered, the node is stuck
+			// behind a slow apply.
+			name:        "a wait that times out on a class this node has",
+			registered:  true,
+			version:     applyingClassVersion,
+			finishApply: func(register func()) error { register(); return types.ErrDeadlineExceeded },
+			wantStatus:  ptString(models.NodeStatusStatusHEALTHY),
+		},
+		{
+			name:        "a class registered during a wait that times out",
+			version:     applyingClassVersion,
+			finishApply: func(register func()) error { register(); return types.ErrDeadlineExceeded },
+			wantStatus:  ptString(models.NodeStatusStatusHEALTHY),
+		},
 		{
 			name:        "with the asking node's class version",
 			version:     applyingClassVersion,
@@ -669,6 +686,9 @@ func TestIncomingNodeStatusWaitsForTheAskersClassVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db := newApplyingDB(t, tt.finishApply)
 			db.SetSchemaReader(&notYetAppliedSchemaReader{SchemaReader: db.schemaReader})
+			if tt.registered {
+				_ = db.schemaReader.WaitForUpdate(t.Context(), applyingClassVersion) // registers the index
+			}
 
 			status, err := db.IncomingGetNodeStatus(t.Context(), applyingClass, "", verbosity.OutputVerbose, tt.version)
 
@@ -679,3 +699,17 @@ func TestIncomingNodeStatusWaitsForTheAskersClassVersion(t *testing.T) {
 }
 
 func ptString(s string) *string { return &s }
+
+// TestIncomingNodeStatusWaitsOnceForAClassBeingCreated asks a node that is stuck
+// creating the class. It waits once, not for the asker's version and then
+// again for its own, and reports itself timed out.
+func TestIncomingNodeStatusWaitsOnceForAClassBeingCreated(t *testing.T) {
+	waits := 0
+	db := newApplyingDB(t, func(func()) error { waits++; return types.ErrDeadlineExceeded })
+
+	status, err := db.IncomingGetNodeStatus(t.Context(), applyingClass, "", verbosity.OutputVerbose, applyingClassVersion)
+
+	require.NoError(t, err)
+	require.Equal(t, ptString(models.NodeStatusStatusTIMEOUT), status.Status)
+	require.Equal(t, 1, waits)
+}
