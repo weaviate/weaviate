@@ -13,6 +13,7 @@ package grpcconn
 
 import (
 	"context"
+	"encoding/base64"
 	"net"
 	"sync"
 	"testing"
@@ -21,9 +22,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -186,6 +189,111 @@ func TestBasicAuthHeader(t *testing.T) {
 	want := "Basic YWxpY2U6czNjcjN0" // base64("alice:s3cr3t")
 	if got != want {
 		t.Fatalf("unexpected auth header; want %q, got %q", want, got)
+	}
+}
+
+func TestValidateBasicAuth(t *testing.T) {
+	withAuth := func(header string) metadata.MD { return metadata.Pairs("authorization", header) }
+
+	cases := []struct {
+		name     string
+		md       metadata.MD
+		ok       bool
+		password string
+		wantCode codes.Code
+		wantMsg  string
+	}{
+		{
+			name:     "no metadata",
+			ok:       false,
+			password: "pwd",
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "missing metadata",
+		},
+		{
+			name:     "no authorization header",
+			md:       metadata.Pairs("other", "value"),
+			ok:       true,
+			password: "pwd",
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "missing or invalid auth header",
+		},
+		{
+			name:     "non-Basic scheme",
+			md:       withAuth("Bearer token"),
+			ok:       true,
+			password: "pwd",
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "missing or invalid auth header",
+		},
+		{
+			name:     "invalid base64",
+			md:       withAuth("Basic !!!not-base64"),
+			ok:       true,
+			password: "pwd",
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid base64 encoding",
+		},
+		{
+			name:     "no colon in payload",
+			md:       withAuth("Basic " + base64.StdEncoding.EncodeToString([]byte("bobpwd"))),
+			ok:       true,
+			password: "pwd",
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid username or password",
+		},
+		{
+			name:     "wrong username",
+			md:       withAuth(BasicAuthHeader("eve", "pwd")),
+			ok:       true,
+			password: "pwd",
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid username or password",
+		},
+		{
+			name:     "wrong password",
+			md:       withAuth(BasicAuthHeader("bob", "wrong")),
+			ok:       true,
+			password: "pwd",
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid username or password",
+		},
+		{
+			name:     "right credentials",
+			md:       withAuth(BasicAuthHeader("bob", "pwd")),
+			ok:       true,
+			password: "pwd",
+			wantCode: codes.OK,
+		},
+		{
+			name:     "password containing a colon",
+			md:       withAuth(BasicAuthHeader("bob", "p:w:d")),
+			ok:       true,
+			password: "p:w:d",
+			wantCode: codes.OK,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateBasicAuth(tc.md, tc.ok, "bob", tc.password)
+			if tc.wantCode == codes.OK {
+				if err != nil {
+					t.Fatalf("expected nil error, got %v", err)
+				}
+				return
+			}
+			st, isStatus := status.FromError(err)
+			if !isStatus {
+				t.Fatalf("expected gRPC status error, got %v", err)
+			}
+			if st.Code() != tc.wantCode {
+				t.Fatalf("expected code %v, got %v", tc.wantCode, st.Code())
+			}
+			if st.Message() != tc.wantMsg {
+				t.Fatalf("expected message %q, got %q", tc.wantMsg, st.Message())
+			}
+		})
 	}
 }
 

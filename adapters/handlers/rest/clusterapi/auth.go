@@ -12,6 +12,8 @@
 package clusterapi
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"net/http"
 
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -35,7 +37,12 @@ func (h *basicAuthHandler) handleFunc(handler http.HandlerFunc) http.HandlerFunc
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		if ok && u == h.basicAuth.Username && p == h.basicAuth.Password {
+		// Hash first so the constant-time compare does not leak the credentials' length.
+		givenUser, wantUser := sha256.Sum256([]byte(u)), sha256.Sum256([]byte(h.basicAuth.Username))
+		givenPass, wantPass := sha256.Sum256([]byte(p)), sha256.Sum256([]byte(h.basicAuth.Password))
+		userMatch := subtle.ConstantTimeCompare(givenUser[:], wantUser[:])
+		passMatch := subtle.ConstantTimeCompare(givenPass[:], wantPass[:])
+		if ok && userMatch&passMatch == 1 {
 			handler(w, r)
 			return
 		}
