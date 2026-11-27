@@ -13,6 +13,8 @@ package postingedge
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -66,7 +68,8 @@ func TestInsertBatchIsDue(t *testing.T) {
 // once. A caller returns once its vectors are in the index. Two callers that
 // give the same doc id in a batch both succeed, and the index holds it once.
 // A batch that has its plans while other callers still search is not applied
-// under them: it waits for their searches, and takes their plans.
+// under them: it waits for their searches, and takes their plans. The batch
+// is one record of the journal.
 func TestPersistentBatchesTheInsertsOfItsCallers(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -114,6 +117,10 @@ func TestPersistentBatchesTheInsertsOfItsCallers(t *testing.T) {
 				batches, seqs = append(batches, ids), append(seqs, seq)
 			}
 			b.mu.Unlock()
+
+			f.index.mu.RLock()
+			recordsBefore := f.index.g.journal.records
+			f.index.mu.RUnlock()
 
 			ctx := context.Background()
 			eg := enterrors.NewErrorGroupWrapper(testLogger())
@@ -169,8 +176,9 @@ func TestPersistentBatchesTheInsertsOfItsCallers(t *testing.T) {
 			assert.Equal(t, callers*each, largest)
 
 			f.index.mu.RLock()
-			live := f.index.g.meta.Live
+			live, records := f.index.g.meta.Live, f.index.g.journal.records-recordsBefore
 			f.index.mu.RUnlock()
+			assert.Equal(t, int64(1), records, "the batch is one record of the journal")
 			want := total
 			if tt.same {
 				// The doc id the second caller gave again went in once, and
@@ -182,6 +190,73 @@ func TestPersistentBatchesTheInsertsOfItsCallers(t *testing.T) {
 			f.covered(t, "after the batch")
 		})
 	}
+}
+
+// A batch whose writes fail on their way to the files of the index fails for
+// every caller that had a plan in it: none of them is told its vectors went
+// in, since nothing of the batch reached the journal, and the index stops.
+func TestPersistentBatchThatFailsToWriteFailsForAllItsCallers(t *testing.T) {
+	t.Parallel()
+	const callers, each = 3, insertWindow
+	const total = persistentBase + callers*each
+	f := newPersistentFixtureMode(t, total, ent.CacheModeRouting, func(cfg *PersistentConfig) {
+		cfg.noBackground = true
+	})
+	f.add(t, 0, persistentBase)
+
+	// The file of the vectors can no longer be written to: the batch finds
+	// its edges, and fails when its writes are handed to the file.
+	g := f.index.g
+	readOnly, err := os.Open(filepath.Join(g.dir, growVectorsName(g.meta.VectorGen)))
+	require.NoError(t, err)
+	require.NoError(t, g.vectors.Close())
+	g.vectors = readOnly
+
+	var joined sync.WaitGroup
+	joined.Add(callers)
+	b := &f.index.batches
+	b.mu.Lock()
+	b.size = 1000
+	b.joined = func() {
+		joined.Done()
+		joined.Wait()
+	}
+	b.mu.Unlock()
+
+	ctx := context.Background()
+	errs := make([]error, callers)
+	var wg sync.WaitGroup
+	for c := range callers {
+		from := persistentBase + c*each
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			errs[c] = f.index.AddBatch(ctx, sequentialIDs(each, uint64(from)), f.vectors[from:from+each])
+		}, testLogger())
+	}
+	returned := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		wg.Wait()
+		close(returned)
+	}, testLogger())
+	select {
+	case <-returned:
+	case <-time.After(batchTestPatience):
+		require.FailNow(t, "the callers did not return", "after %s the callers of a batch that failed still wait",
+			batchTestPatience)
+	}
+	for c, err := range errs {
+		require.Error(t, err, "caller %d had a plan in the batch that failed", c)
+	}
+	b.mu.Lock()
+	applied := b.applied
+	b.mu.Unlock()
+	assert.Equal(t, 1, applied, "one batch")
+	require.ErrorContains(t, f.index.Add(ctx, uint64(total), f.vectors[0]), "posting-edge index stopped")
+
+	require.NoError(t, f.index.Shutdown(ctx))
+	require.NoError(t, f.store.Shutdown(ctx))
+	f.index, f.store = nil, nil
 }
 
 // A caller alone is its own batch: its window, searched and applied, as

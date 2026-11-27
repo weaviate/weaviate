@@ -206,25 +206,53 @@ func (p *Persistent) applyIfDue(ctx context.Context) {
 // held for writing once for all of them. The error of a plan is its own; the
 // index stops at one that leaves it halfway, as it does for a single insert.
 //
+// The inserts of a batch are one step of the journal: one record with the
+// writes of all of them and the meta after them, so that a process that dies
+// leaves all of the batch or none of it. A write that fails halfway fails
+// the step: nothing of it reached the journal, the index stops, and none of
+// the inserts of the step is told it went in.
+//
 // An insert pays its share of the passes that are on right after its writes,
-// as one alone does: while one is on or due, the index is let go after each
-// insert of the batch for it to pay (payInLine), and held again. Nothing of
-// that runs by default but with deletes, or with vectors that came while the
-// base was built.
+// as one alone does: while one is on or due, the step ends with the insert
+// that owes, the index is let go for it to pay (payInLine), and the rest of
+// the batch is another step. Nothing of that runs by default but with
+// deletes, or with vectors that came while the base was built.
 func (p *Persistent) applyBatch(ctx context.Context, batch []*batchEntry) {
 	planCtx := concurrency.CtxWithBudget(context.WithoutCancel(ctx), 1)
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	p.mu.Lock()
 	g := p.g
-	for _, e := range batch {
-		e.err = p.write(planCtx, g, e.plan)
-		if e.err != nil || !p.owesInLine() {
-			continue
+	for at := 0; at < len(batch); {
+		from, owes := at, false
+		err := g.step(func() error {
+			for ; at < len(batch) && !owes; at++ {
+				e := batch[at]
+				e.err = p.write(planCtx, g, e.plan)
+				if p.failed != nil {
+					return p.failed
+				}
+				owes = e.err == nil && p.owesInLine()
+			}
+			return nil
+		})
+		if err != nil {
+			if p.failed == nil {
+				p.failed = err
+			}
+			for _, e := range batch[from:] {
+				if e.err == nil {
+					e.err = err
+				}
+			}
+			break
 		}
-		p.mu.Unlock()
-		e.err = p.payInLine(planCtx, e.id)
-		p.mu.Lock()
+		if owes {
+			e := batch[at-1]
+			p.mu.Unlock()
+			e.err = p.payInLine(planCtx, e.id)
+			p.mu.Lock()
+		}
 	}
 	p.mu.Unlock()
 	p.wakeIfDue()
