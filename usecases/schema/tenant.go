@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -384,7 +385,8 @@ func inRequestedOrder(found []*models.Tenant, requested []string) []*models.Tena
 // from callers without READ on the collection's metadata or on all of its
 // tenants: they get the empty list an existing multi-tenant collection yields
 // when no tenant is visible. Other errors, such as an unreachable leader, are
-// returned to every caller.
+// returned to every caller, and so is an authorization failure other than
+// Forbidden.
 //
 // The error is classified rather than this node's schema, which can lag the
 // leader. The sentinels survive the leader hop: cluster/rpc maps class-not-found
@@ -396,9 +398,14 @@ func (h *Handler) maskUnauthorizedTenantsErr(ctx context.Context, principal *mod
 		!errors.Is(err, clusterSchema.ErrMTDisabled) {
 		return nil, err
 	}
-	if h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.CollectionsMetadata(class)...) == nil ||
-		h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.ShardsMetadata(class)...) == nil {
-		return nil, err
+	for _, resources := range [][]string{authorization.CollectionsMetadata(class), authorization.ShardsMetadata(class)} {
+		authzErr := h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, resources...)
+		if authzErr == nil {
+			return nil, err
+		}
+		if !errors.As(authzErr, &authzerrors.Forbidden{}) {
+			return nil, authzErr
+		}
 	}
 	h.logger.WithField("action", "get_tenants").Debugf("tenants of %q unreadable, masked for unauthorized caller: %v", class, err)
 	return []*models.Tenant{}, nil

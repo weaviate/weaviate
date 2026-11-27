@@ -36,6 +36,7 @@ func TestGetConsistentTenants_NoExistenceOracle(t *testing.T) {
 		errLocalNotFound = fmt.Errorf("could not get tenants: %w", clusterSchema.ErrClassNotFound)
 		errNotMT         = fmt.Errorf("could not get tenants: %w", fmt.Errorf("%w for class %q", clusterSchema.ErrMTDisabled, class))
 		errLeader        = errors.New("leader not found")
+		errEnforce       = errors.New("rbac: enforce policy: boom")
 		missing          = clusterSchema.ClassInfo{}
 		singleT          = clusterSchema.ClassInfo{Exists: true}
 		collections      = authorization.CollectionsMetadata(class)[0]
@@ -47,6 +48,8 @@ func TestGetConsistentTenants_NoExistenceOracle(t *testing.T) {
 		name     string
 		queryErr error
 		deny     []string
+		authzErr error
+		errAfter int // authorization checks that run before authzErr is returned
 		wantErr  error
 	}{
 		{name: "unauthorized, missing class", queryErr: errNotFound, deny: noGrants},
@@ -55,6 +58,8 @@ func TestGetConsistentTenants_NoExistenceOracle(t *testing.T) {
 		{name: "unauthorized, leader error", queryErr: errLeader, deny: noGrants, wantErr: errLeader},
 		{name: "collection metadata grant, missing class", queryErr: errNotFound, deny: []string{allShards}, wantErr: errNotFound},
 		{name: "wildcard tenant grant, single-tenant class", queryErr: errNotMT, deny: []string{collections}, wantErr: errNotMT},
+		{name: "collection metadata check fails, missing class", queryErr: errNotFound, deny: noGrants, authzErr: errEnforce, wantErr: errEnforce},
+		{name: "all-tenants check fails, missing class", queryErr: errNotFound, deny: noGrants, authzErr: errEnforce, errAfter: 1, wantErr: errEnforce},
 	}
 
 	// ClassInfo is not mocked: the decision must not depend on this node's
@@ -63,6 +68,9 @@ func TestGetConsistentTenants_NoExistenceOracle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := mocks.NewMockAuthorizer()
 			authorizer.Deny(tt.deny...)
+			if tt.authzErr != nil {
+				authorizer.SetErrAfter(tt.errAfter, tt.authzErr)
+			}
 			handler, sm := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 			handler.config.Authorization.Rbac.Enabled = true
 			sm.On("QueryTenants", class, mock.Anything).Return([]*models.Tenant{}, uint64(0), tt.queryErr)
