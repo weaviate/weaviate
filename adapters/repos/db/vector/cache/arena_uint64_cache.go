@@ -195,6 +195,10 @@ func (s *arenaUint64Cache) GetKeys(id uint64) (uint64, uint64) {
 	panic("not implemented")
 }
 
+func (s *arenaUint64Cache) GetKeysNoLock(id uint64) (uint64, uint64) {
+	panic("not implemented")
+}
+
 func (s *arenaUint64Cache) SetKeys(id uint64, docID uint64, relativeID uint64) {
 	panic("not implemented")
 }
