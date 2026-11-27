@@ -564,41 +564,59 @@ func universalSegment(seg string) bool {
 		return true
 	}
 	re, err := syntax.Parse(keyMatch5Brace.ReplaceAllString(seg, "[^/]+"), syntax.Perl)
-	return err == nil && matchesEveryString(re.Simplify(), true)
+	return err == nil && everyString{}.matches(re.Simplify(), true)
 }
 
-// matchesEveryString reports whether re matches every string of non-newline
-// characters, or every non-empty one when nonEmpty. It recognises ".*"-like
-// shapes only, so it may say false for a pattern that does match everything.
-func matchesEveryString(re *syntax.Regexp, nonEmpty bool) bool {
+// everyString memoizes matches per node, so nested optionals such as
+// "((AB)?B)?B" are walked once per node instead of twice per level.
+type everyString map[everyStringKey]bool
+
+type everyStringKey struct {
+	re       *syntax.Regexp
+	nonEmpty bool
+}
+
+// matches reports whether re matches every string of non-newline characters,
+// or every non-empty one when nonEmpty. It recognises ".*"-like shapes only, so
+// it may say false for a pattern that does match everything.
+func (memo everyString) matches(re *syntax.Regexp, nonEmpty bool) bool {
+	key := everyStringKey{re, nonEmpty}
+	if v, ok := memo[key]; ok {
+		return v
+	}
+	var v bool
 	switch re.Op {
 	case syntax.OpCapture:
-		return matchesEveryString(re.Sub[0], nonEmpty)
+		v = memo.matches(re.Sub[0], nonEmpty)
 	case syntax.OpAlternate:
-		return slices.ContainsFunc(re.Sub, func(sub *syntax.Regexp) bool { return matchesEveryString(sub, nonEmpty) })
+		v = slices.ContainsFunc(re.Sub, func(sub *syntax.Regexp) bool { return memo.matches(sub, nonEmpty) })
 	case syntax.OpStar:
-		return matchesEveryChar(re.Sub[0]) || matchesEveryString(re.Sub[0], true)
+		v = matchesEveryChar(re.Sub[0]) || memo.matches(re.Sub[0], true)
 	case syntax.OpPlus:
-		return (nonEmpty && matchesEveryChar(re.Sub[0])) || matchesEveryString(re.Sub[0], nonEmpty)
+		v = (nonEmpty && matchesEveryChar(re.Sub[0])) || memo.matches(re.Sub[0], nonEmpty)
 	case syntax.OpQuest:
-		return matchesEveryString(re.Sub[0], true)
+		v = memo.matches(re.Sub[0], true)
 	case syntax.OpConcat:
 		// Every part must match any string, except that one part may match
 		// any single character or any non-empty string when nonEmpty.
+		v = len(re.Sub) > 0
 		spare := nonEmpty
 		for _, sub := range re.Sub {
-			switch {
-			case matchesEveryString(sub, false):
-			case spare && (matchesEveryChar(sub) || matchesEveryString(sub, true)):
-				spare = false
-			default:
-				return false
+			if memo.matches(sub, false) {
+				continue
 			}
+			if spare && (matchesEveryChar(sub) || memo.matches(sub, true)) {
+				spare = false
+				continue
+			}
+			v = false
+			break
 		}
-		return len(re.Sub) > 0
 	default:
-		return false
+		v = false
 	}
+	memo[key] = v
+	return v
 }
 
 // matchesEveryChar reports whether re matches every single non-newline character.

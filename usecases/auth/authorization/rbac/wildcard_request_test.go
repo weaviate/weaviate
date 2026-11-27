@@ -291,3 +291,13 @@ func TestUniversalSegment(t *testing.T) {
 		require.Equal(t, want, universalSegment(seg), seg)
 	}
 }
+
+// TestUniversalSegmentNestedOptionals pins that the check stays linear in the
+// nesting depth: each "(...)?B" level used to double the work.
+func TestUniversalSegmentNestedOptionals(t *testing.T) {
+	seg := "AB"
+	for range 40 {
+		seg = "(" + seg + ")?B"
+	}
+	require.False(t, universalSegment(seg+"|."))
+}
