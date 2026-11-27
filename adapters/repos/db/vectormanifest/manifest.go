@@ -391,14 +391,15 @@ func (m *Manifest) Create(ctx context.Context, name string, cfg schemaConfig.Vec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	records, _, err := m.records.Load()
+	c, err := m.load()
 	if err != nil {
 		return Entry{}, err
 	}
+	records := c.records
 	// the cluster can free the name while this shard's drop failed: the
 	// caller runs once the vector's teardown is done, so it can be finished
 	if records[name].State == stateDropping {
-		err := m.finishDrop(ctx, name, records)
+		err := m.finishDrop(ctx, name, c)
 		if err != nil {
 			return Entry{}, err
 		}
