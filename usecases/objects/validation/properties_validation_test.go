@@ -145,7 +145,7 @@ func TestValidator_extractAndValidateProperty(t *testing.T) {
 				exists: tt.fields.exists,
 				config: tt.fields.config,
 			}
-			got, err := v.extractAndValidateProperty(tt.args.ctx, tt.args.propertyName, tt.args.pv, tt.args.className, tt.args.dataType, "")
+			got, err := v.extractAndValidateProperty(tt.args.ctx, tt.args.propertyName, tt.args.pv, tt.args.className, tt.args.dataType, "", nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validator.extractAndValidateProperty() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -170,7 +170,9 @@ func TestParseAndValidateSingleRefAuthorizesTarget(t *testing.T) {
 		qualifier   namespacing.Qualifier
 		sourceClass string
 		beacon      string
+		refTargets  []string
 		deny        []string
+		missingIn   string
 		tenantRetry bool
 		wantForbid  bool
 		wantAuth    [][]string
@@ -188,12 +190,17 @@ func TestParseAndValidateSingleRefAuthorizesTarget(t *testing.T) {
 			wantBeacon:  "weaviate://localhost/Animal/" + refID,
 		},
 		{
-			name:        "classless target uses the tenantless scope",
+			// Denying every collection pins that only the property's targets are needed.
+			name:        "classless target is checked in the property's targets",
 			sourceClass: "Source",
 			beacon:      "weaviate://localhost/" + refID,
-			wantAuth:    [][]string{authorization.ShardsData("", "")},
-			wantProbed:  []probe{{"", ""}},
-			wantBeacon:  "weaviate://localhost/" + refID,
+			refTargets:  []string{"Alpha", "Beta"},
+			deny:        authorization.ShardsData("", ""),
+			missingIn:   "Alpha",
+			wantAuth: [][]string{append(authorization.ShardsData("Alpha", ""),
+				authorization.ShardsData("Beta", "")...)},
+			wantProbed: []probe{{"Alpha", "tenantA"}, {"Beta", "tenantA"}},
+			wantBeacon: "weaviate://localhost/" + refID,
 		},
 		{
 			name:        "denied target is not probed",
@@ -235,12 +242,12 @@ func TestParseAndValidateSingleRefAuthorizesTarget(t *testing.T) {
 					if tc.tenantRetry && tenant != "" {
 						return false, fmt.Errorf("class %s %w", class, enterrors.ErrTenantForNonMultiTenantClass)
 					}
-					return true, nil
+					return class != tc.missingIn, nil
 				},
 			}
 
 			ref, err := validator.parseAndValidateSingleRef(context.Background(), "hasTarget",
-				map[string]interface{}{"beacon": tc.beacon}, tc.sourceClass, "tenantA")
+				map[string]interface{}{"beacon": tc.beacon}, tc.sourceClass, "tenantA", tc.refTargets)
 			if tc.wantForbid {
 				require.ErrorAs(t, err, &authzerrors.Forbidden{})
 			} else {
@@ -406,7 +413,7 @@ func TestProperties_MultiTargetClasslessBeacon(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, []string{""}, existsClasses)
+			assert.Equal(t, []string{"Alpha"}, existsClasses)
 		})
 	}
 }

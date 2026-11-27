@@ -116,9 +116,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 						return err
 					}
 					if len(prop.DataType) > 1 {
-						// A classless beacon would reach Exists with an empty class,
-						// which scans every collection, other namespaces' included.
-						// With namespaces on, no DELETE could remove it.
+						// With namespaces on, no DELETE could remove a stored classless beacon.
 						if err := CheckMultiTargetRefWithoutClass(v.config, v.refCounter); err != nil {
 							return fmt.Errorf("'cref' %s:%s: %w", className, propertyKey, err)
 						}
@@ -137,7 +135,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 			data, err = v.extractAndValidateNestedProperty(ctx, propertyKeyLowerCase, propertyValue, className,
 				dataType, property.NestedProperties)
 		} else {
-			data, err = v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType, tenant)
+			data, err = v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType, tenant, property.DataType)
 		}
 		if err != nil {
 			return err
@@ -216,7 +214,7 @@ func objectVal(ctx context.Context, v *Validator, val interface{}, propertyPrefi
 				className, nestedDataType, nestedProperty.NestedProperties)
 		} else {
 			data, err = v.extractAndValidateProperty(ctx, propertyName, nestedValue,
-				className, nestedDataType, "")
+				className, nestedDataType, "", nil)
 			// tenant isn't relevant for nested properties since crossrefs are not allowed
 		}
 		if err != nil {
@@ -248,7 +246,7 @@ func objectArrayVal(ctx context.Context, v *Validator, val interface{}, property
 }
 
 func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName string, pv interface{},
-	className string, dataType *schema.DataType, tenant string,
+	className string, dataType *schema.DataType, tenant string, refTargets []string,
 ) (interface{}, error) {
 	var (
 		data interface{}
@@ -257,7 +255,7 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 
 	switch *dataType {
 	case schema.DataTypeCRef:
-		data, err = v.cRef(ctx, propertyName, pv, className, tenant)
+		data, err = v.cRef(ctx, propertyName, pv, className, tenant, refTargets)
 		if err != nil {
 			return nil, fmt.Errorf("invalid cref: %w", err)
 		}
@@ -362,7 +360,7 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 }
 
 func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{},
-	className, tenant string,
+	className, tenant string, refTargets []string,
 ) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
@@ -376,7 +374,7 @@ func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{
 					className, propertyName, ref)
 			}
 
-			cref, err := v.parseAndValidateSingleRef(ctx, propertyName, refTyped, className, tenant)
+			cref, err := v.parseAndValidateSingleRef(ctx, propertyName, refTyped, className, tenant, refTargets)
 			if err != nil {
 				return nil, err
 			}
@@ -578,8 +576,11 @@ func blobVal(val interface{}) (string, error) {
 	return typed, nil
 }
 
+// parseAndValidateSingleRef authorizes and probes the reference target. A
+// beacon without a class is checked against refTargets, the property's
+// target collections.
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
-	pvcr map[string]interface{}, className, tenant string,
+	pvcr map[string]interface{}, className, tenant string, refTargets []string,
 ) (*models.SingleRef, error) {
 	delete(pvcr, "href")
 
@@ -625,12 +626,12 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		refQualified.Class = qualifiedTarget
 		refForValidation = &refQualified
 	}
-	targetTenant := ReferenceTargetTenant(refForValidation.Class, tenant)
+	targetClasses, targetTenant := ReferenceTargetScope(refForValidation.Class, refTargets, tenant)
 	if err := v.authorizer.Authorize(ctx, v.principal, authorization.READ,
-		authorization.ShardsData(refForValidation.Class, targetTenant)...); err != nil {
+		ReferenceTargetResources(targetClasses, targetTenant)...); err != nil {
 		return nil, wrapReferenceAuthorizationError(err)
 	}
-	if err = v.ValidateExistence(ctx, refForValidation, errVal, targetTenant); err != nil {
+	if err = v.ValidateExistenceIn(ctx, refForValidation, targetClasses, errVal, tenant); err != nil {
 		return nil, err
 	}
 	ref.Class = shortTarget

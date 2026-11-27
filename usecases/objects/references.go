@@ -61,6 +61,15 @@ func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.
 	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
 }
 
+// refPropertyTargets returns the collections property may reference.
+func refPropertyTargets(class *models.Class, property string) ([]string, *Error) {
+	prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(property))
+	if err != nil {
+		return nil, &Error{"cannot get property", StatusBadRequest, err}
+	}
+	return prop.DataType, nil
+}
+
 func referenceAuthorizationError(err error) *Error {
 	if errors.As(err, &autherrs.Forbidden{}) {
 		return &Error{err.Error(), StatusForbidden, err}

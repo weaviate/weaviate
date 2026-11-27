@@ -378,14 +378,13 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 
 	for _, disabled := range []bool{false, true} {
 		t.Run(fmt.Sprintf("non-NS: classless beacon on multi-target ref property, DisableMultiTargetReferencesWithoutClass=%t", disabled), func(t *testing.T) {
-			// Without namespaces the flag decides. Unset, Exists runs with
-			// Class=="", which searches every collection. Either way the
-			// beacon is counted.
+			// Without namespaces the flag decides. Unset, Exists runs in each of
+			// the property's target collections. Either way the beacon is counted.
 			m, b, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false,
 				withMultiTargetRefsWithoutClassDisabled(disabled))
 			counted := countMultiTargetRefs(t, m, b)
 			if !disabled {
-				repo.On("Exists", "", refID).Return(true, nil).Once()
+				repo.On("Exists", "Alpha", refID).Return(true, nil).Once()
 				repo.On("Exists", "Source", id).Return(true, nil).Once()
 				repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Once()
 				mp.On("UsingRef2Vec", mock.Anything).Return(false)
@@ -587,7 +586,7 @@ func Test_References_NamespaceResolution_Update(t *testing.T) {
 					Schema:    map[string]interface{}{"name": "src"},
 				}, nil).Once()
 			if !disabled {
-				repo.On("Exists", "", refID).Return(true, nil).Once()
+				repo.On("Exists", "Alpha", refID).Return(true, nil).Once()
 				repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 			}
 

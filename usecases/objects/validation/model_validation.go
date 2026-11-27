@@ -53,12 +53,24 @@ func IsReferenceAuthorizationError(err error) bool {
 	return errors.As(err, &authErr)
 }
 
-// ReferenceTargetTenant uses the tenantless scope required by classless lookups.
-func ReferenceTargetTenant(class, tenant string) string {
-	if class == "" {
-		return ""
+// ReferenceTargetScope returns the collections a reference target may live in
+// and the tenant to authorize them with. A beacon without a class may point
+// into any collection the property targets, across all of their tenants.
+func ReferenceTargetScope(targetClass string, propertyTargets []string, tenant string) ([]string, string) {
+	if targetClass != "" {
+		return []string{targetClass}, tenant
 	}
-	return tenant
+	return propertyTargets, ""
+}
+
+// ReferenceTargetResources returns the shards to authorize for a reference
+// target scope.
+func ReferenceTargetResources(classes []string, tenant string) []string {
+	resources := make([]string, 0, len(classes))
+	for _, class := range classes {
+		resources = append(resources, authorization.ShardsData(class, tenant)...)
+	}
+	return resources
 }
 
 const (
@@ -208,6 +220,23 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 	}
 
 	return nil
+}
+
+// ValidateExistenceIn succeeds when ref's target exists in one of classes, so
+// that a beacon without a class never probes other collections.
+func (v *Validator) ValidateExistenceIn(ctx context.Context, ref *crossref.Ref,
+	classes []string, errorVal, tenant string,
+) error {
+	var err error
+	for _, class := range classes {
+		target := *ref
+		target.Class = class
+		err = v.ValidateExistence(ctx, &target, errorVal, tenant)
+		if err == nil || errors.Is(err, replicaerrors.ErrReplicas) || IsReferenceAuthorizationError(err) {
+			return err
+		}
+	}
+	return err
 }
 
 func (v *Validator) ValidateMultipleRef(refs models.MultipleRef) ([]*crossref.Ref, error) {

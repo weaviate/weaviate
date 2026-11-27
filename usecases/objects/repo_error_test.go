@@ -691,13 +691,14 @@ func TestDedicatedRefTargetAuthorization(t *testing.T) {
 			wantTargetCall: authorization.ShardsData("Animal", ""),
 		},
 		{
-			name:           "classless target uses the tenantless scope",
-			class:          "Source",
-			property:       "hasOther",
-			classes:        multiTargetNSSchema(false),
-			deny:           authorization.ShardsData("", ""),
-			wantCode:       StatusForbidden,
-			wantTargetCall: authorization.ShardsData("", ""),
+			name:     "classless target is checked in the property's targets",
+			class:    "Source",
+			property: "hasOther",
+			classes:  multiTargetNSSchema(false),
+			deny:     authorization.ShardsData("Beta", ""),
+			wantCode: StatusForbidden,
+			wantTargetCall: append(authorization.ShardsData("Alpha", ""),
+				authorization.ShardsData("Beta", "")...),
 		},
 	}
 

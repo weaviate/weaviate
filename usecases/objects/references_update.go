@@ -126,9 +126,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
-		// A classless beacon on a multi-target prop would reach
-		// validateExistence with Class=="", which scans every collection, other
-		// namespaces' included. With namespaces on, no DELETE could remove it.
+		// With namespaces on, no DELETE could remove a stored classless beacon.
 		if parsedTargetRefs[i].Class == "" {
 			if err := validation.CheckMultiTargetRefWithoutClass(m.config, m.metrics); err != nil {
 				return &Error{err.Error(), StatusBadRequest, err}
@@ -146,17 +144,29 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			input.Refs[i].Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, parsedTargetRefs[i].TargetID).String())
 		}
 
+		propertyTargets, typedErr := refPropertyTargets(class, input.Property)
+		if typedErr != nil {
+			return typedErr
+		}
+		targetClasses, targetTenant := validation.ReferenceTargetScope(parsedTargetRefs[i].Class, propertyTargets, tenant)
 		// only check authZ once per class/tenant combination
-		targetTenant := validation.ReferenceTargetTenant(parsedTargetRefs[i].Class, tenant)
-		checkName := parsedTargetRefs[i].Class + "#" + targetTenant
-		if _, ok := previouslyAuthorized[checkName]; !ok {
-			if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, targetTenant)...); err != nil {
+		var unauthorized []string
+		for _, targetClass := range targetClasses {
+			if _, ok := previouslyAuthorized[targetClass+"#"+targetTenant]; !ok {
+				unauthorized = append(unauthorized, targetClass)
+			}
+		}
+		if len(unauthorized) > 0 {
+			if err := m.authorizer.Authorize(ctx, principal, authorization.READ,
+				validation.ReferenceTargetResources(unauthorized, targetTenant)...); err != nil {
 				return referenceAuthorizationError(err)
 			}
-			previouslyAuthorized[checkName] = struct{}{}
+			for _, targetClass := range unauthorized {
+				previouslyAuthorized[targetClass+"#"+targetTenant] = struct{}{}
+			}
 		}
 
-		if err := input.validateExistence(ctx, validator, targetTenant, parsedTargetRefs[i]); err != nil {
+		if err := validator.ValidateExistenceIn(ctx, parsedTargetRefs[i], targetClasses, "validate reference", tenant); err != nil {
 			if errors.As(err, &autherrs.Forbidden{}) || validation.IsReferenceAuthorizationError(err) {
 				return referenceAuthorizationError(err)
 			}
@@ -201,13 +211,6 @@ func (req *PutReferenceInput) validate(v *validation.Validator, class *models.Cl
 	}
 
 	return refs, validateReferenceSchema(class, req.Property)
-}
-
-func (req *PutReferenceInput) validateExistence(
-	ctx context.Context,
-	v *validation.Validator, tenant string, ref *crossref.Ref,
-) error {
-	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
 }
 
 func validateReferenceSchema(c *models.Class, property string) error {
