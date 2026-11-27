@@ -97,6 +97,9 @@ func buildUrl(baseURL, resourceName, deploymentID, apiVersion, endpoint string, 
 			host = "https://" + resourceName + ".openai.azure.com"
 		}
 
+		if err := modulecomponents.ValidateAzureDeploymentID(deploymentID); err != nil {
+			return "", err
+		}
 		path := "openai/deployments/" + deploymentID + "/embeddings"
 		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil

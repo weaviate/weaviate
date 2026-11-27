@@ -257,6 +257,9 @@ func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVers
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
+	if err := modulecomponents.ValidateAzureDeploymentID(deploymentId); err != nil {
+		return err
+	}
 	// The vectorizer client builds the host from the resource name only when
 	// baseURL is unset or the OpenAI default.
 	if resourceName != "" && (baseURL == "" || baseURL == DefaultBaseURL) {

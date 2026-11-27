@@ -280,6 +280,9 @@ func (ic *classSettings) validateAzureConfig(resourceName, deploymentId, baseURL
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
+	if err := modulecomponents.ValidateAzureDeploymentID(deploymentId); err != nil {
+		return err
+	}
 	// The client builds the host from the resource name only when baseURL is
 	// unset or the OpenAI default.
 	if resourceName != "" && (baseURL == "" || baseURL == DefaultOpenAIBaseURL) {

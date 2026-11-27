@@ -179,3 +179,54 @@ func TestResourceNameThatIsNotAHostLabelSendsNoRequest(t *testing.T) {
 		}
 	}
 }
+
+// With an Azure gateway base URL such as https://gw.example/team-a, a
+// deployment ID of ../team-b would reach another team's path with the server's
+// Azure key.
+func TestDeploymentIDThatIsNotOnePathSegmentSendsNoRequest(t *testing.T) {
+	server := credentialtest.NewServer(t, embedding{Data: []embeddingData{{Embedding: []float32{0.1, 0.2}}}})
+	gateway := server.URL + "/team-a"
+
+	for _, deploymentID := range []string{"gpt-4.1-mini", "../../../team-b/x", "%2e%2e/%2e%2e/%2e%2e/team-b/x", "..", "..;/team-b", "d?x"} {
+		valid := deploymentID == "gpt-4.1-mini"
+		tests := []struct {
+			name     string
+			settings Settings
+			headers  map[string]string
+		}{
+			{
+				name:     "class deploymentId",
+				settings: Settings{IsAzure: true, BaseURL: gateway, DeploymentID: deploymentID},
+			},
+			{
+				name:     "deployment header",
+				settings: Settings{IsAzure: true, BaseURL: gateway, DeploymentID: "d"},
+				headers:  map[string]string{"X-Azure-Deployment-Id": deploymentID},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name+" "+deploymentID, func(t *testing.T) {
+				before := len(server.Requests())
+				c := New("server-openai-key", "", "server-azure-key", 0, nullLogger())
+				c.httpClient = server.ClientForAnyHost()
+				settings := tt.settings
+				settings.Model, settings.Type, settings.ApiVersion = "ada", "text", "v"
+
+				_, _, _, err := c.Vectorize(credentialtest.Context(tt.headers), []string{"text"}, settings)
+
+				got := server.Requests()[before:]
+				if valid {
+					require.NoError(t, err)
+					require.Len(t, got, 1)
+					assert.Equal(t, "/team-a/openai/deployments/"+deploymentID+"/embeddings", got[0].URL.Path)
+					return
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "deploymentId must be letters, digits, hyphens, underscores, periods or tildes")
+				var precondition enterrors.ErrModulePrecondition
+				assert.ErrorAs(t, err, &precondition, "REST search returns the reason with a 422 only for this type")
+				assert.Empty(t, got, "no request may leave Weaviate")
+			})
+		}
+	}
+}

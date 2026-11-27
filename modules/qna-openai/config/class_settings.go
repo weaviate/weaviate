@@ -224,6 +224,9 @@ func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId s
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
+	if err := modulecomponents.ValidateAzureDeploymentID(deploymentId); err != nil {
+		return err
+	}
 	if resourceName != "" {
 		return modulecomponents.ValidateAzureResourceName(resourceName)
 	}

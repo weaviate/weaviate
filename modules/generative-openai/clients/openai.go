@@ -45,6 +45,9 @@ func buildUrlFn(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, api
 			// Fall back to old assumption
 			host = "https://" + resourceName + ".openai.azure.com"
 		}
+		if err := modulecomponents.ValidateAzureDeploymentID(deploymentID); err != nil {
+			return "", err
+		}
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
 		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil

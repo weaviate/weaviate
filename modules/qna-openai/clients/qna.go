@@ -39,6 +39,9 @@ func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string,
 		if err := modulecomponents.ValidateAzureResourceName(resourceName); err != nil {
 			return "", err
 		}
+		if err := modulecomponents.ValidateAzureDeploymentID(deploymentID); err != nil {
+			return "", err
+		}
 		host := "https://" + resourceName + ".openai.azure.com"
 		path := "openai/deployments/" + deploymentID + "/completions"
 		queryParam := "api-version=2022-12-01"

@@ -245,3 +245,70 @@ func TestAzureDefaultBaseURLVariantsKeepTheResourceHost(t *testing.T) {
 		})
 	}
 }
+
+// With an Azure gateway base URL such as https://gw.example/team-a, a
+// deployment ID of ../team-b would reach another team's path with the server's
+// Azure key.
+func TestDeploymentIDThatIsNotOnePathSegmentSendsNoRequest(t *testing.T) {
+	props := &modulecapabilities.GenerateProperties{Text: map[string]string{"prop": "John"}}
+	server := credentialtest.NewServer(t, generateResponse{
+		Choices: []choice{{Message: &responseMessage{Role: "assistant", Content: "ok"}}},
+	})
+	gateway := server.URL + "/team-a"
+
+	for _, deploymentID := range []string{"gpt-4.1-mini", "../../../team-b/x", "%2e%2e/%2e%2e/%2e%2e/team-b/x", "..", "..;/team-b", "d?x"} {
+		valid := deploymentID == "gpt-4.1-mini"
+		tests := []struct {
+			name        string
+			classConfig map[string]any
+			options     *openaiparams.Params
+			headers     map[string]string
+		}{
+			{
+				name:        "class deploymentId",
+				classConfig: map[string]any{"baseURL": gateway, "isAzure": true, "deploymentId": deploymentID},
+			},
+			{
+				name:        "query deploymentId",
+				classConfig: map[string]any{"baseURL": gateway, "isAzure": true, "deploymentId": "d"},
+				options:     &openaiparams.Params{DeploymentID: deploymentID},
+			},
+			{
+				name:        "deployment header",
+				classConfig: map[string]any{"baseURL": gateway, "isAzure": true, "deploymentId": "d"},
+				headers:     map[string]string{"X-Azure-Deployment-Id": deploymentID},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name+" "+deploymentID, func(t *testing.T) {
+				before := len(server.Requests())
+				c := New("server-openai-key", "", "server-azure-key", 0, nullLogger())
+				c.httpClient = server.ClientForAnyHost()
+
+				classConfig := credentialtest.ClassConfig{"model": "test-model"}
+				for k, v := range tt.classConfig {
+					classConfig[k] = v
+				}
+				var options any
+				if tt.options != nil {
+					options = *tt.options
+				}
+
+				_, err := c.GenerateSingleResult(credentialtest.Context(tt.headers), props, "What is my name?", options, false, classConfig)
+
+				got := server.Requests()[before:]
+				if valid {
+					require.NoError(t, err)
+					require.Len(t, got, 1)
+					assert.Equal(t, "/team-a/openai/deployments/"+deploymentID+"/chat/completions", got[0].URL.Path)
+					return
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "deploymentId must be letters, digits, hyphens, underscores, periods or tildes")
+				var precondition enterrors.ErrModulePrecondition
+				assert.ErrorAs(t, err, &precondition, "REST search returns the reason with a 422 only for this type")
+				assert.Empty(t, got, "no request may leave Weaviate")
+			})
+		}
+	}
+}
