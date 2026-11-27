@@ -76,7 +76,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	// (pooled+reused read buffers) rather than the noop pool's per-read
 	// allocations, which overstate cost.
 	bufPool, bufPoolClose := roaringset.NewBitmapBufPoolDefault(logger, nil,
-		config.DefaultQueryBitmapBufsMaxBufSize, config.DefaultQueryBitmapBufsMaxMemory)
+		config.DefaultQueryBitmapBufsMaxBufSize, config.QueryBitmapBufsMaxMemoryFloor)
 	tb.Cleanup(bufPoolClose)
 
 	store, err := lsmkv.New(dir, dir, logger, nil, nil,

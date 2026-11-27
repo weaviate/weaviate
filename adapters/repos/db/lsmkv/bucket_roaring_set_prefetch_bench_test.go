@@ -102,7 +102,7 @@ func benchWindowFixture(tb testing.TB, diskHitPct, docsPerRow, docsStride int) (
 	// The pooled buffers the server wires in, so the disk read costs what it
 	// costs in production rather than allocating per row.
 	pool, closePool := roaringset.NewBitmapBufPoolDefault(nullLogger(), nil,
-		config.DefaultQueryBitmapBufsMaxBufSize, config.DefaultQueryBitmapBufsMaxMemory)
+		config.DefaultQueryBitmapBufsMaxBufSize, config.QueryBitmapBufsMaxMemoryFloor)
 	tb.Cleanup(closePool)
 
 	b, err := NewBucketCreator().NewBucket(ctx, tb.TempDir(), "", nullLogger(), nil,
