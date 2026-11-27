@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -37,6 +38,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
+	}
+	if err := modulecomponents.ValidateCollectionBaseURL(ic.BaseURL(), DefaultBaseURL); err != nil {
+		return err
 	}
 
 	if model := ic.Model(); model == "" {

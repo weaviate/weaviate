@@ -557,6 +557,14 @@ func (d *Compose) WithRerankerTransformers() *Compose {
 	return d
 }
 
+// allowBaseURL lists baseURL in MODULES_ALLOWED_BASE_URLS, so that collections may point a module at it.
+func (d *Compose) allowBaseURL(envSettings map[string]string, baseURL string) {
+	if current := envSettings["MODULES_ALLOWED_BASE_URLS"]; current != "" {
+		baseURL = current + "," + baseURL
+	}
+	envSettings["MODULES_ALLOWED_BASE_URLS"] = baseURL
+}
+
 func (d *Compose) WithOllamaVectorizer() *Compose {
 	d.withOllamaVectorizer = true
 	return d
@@ -915,6 +923,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		for k, v := range container.envSettings {
 			envSettings[k] = v
 		}
+		d.allowBaseURL(envSettings, container.GetEndpoint("apiEndpoint"))
 		containers = append(containers, container)
 	}
 	if d.withOllamaGenerative {
@@ -925,6 +934,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		for k, v := range container.envSettings {
 			envSettings[k] = v
 		}
+		d.allowBaseURL(envSettings, container.GetEndpoint("apiEndpoint"))
 		containers = append(containers, container)
 	}
 	if d.withQnATransformers {

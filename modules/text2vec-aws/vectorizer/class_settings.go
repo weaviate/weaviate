@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -54,6 +55,9 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
+	if err := modulecomponents.ValidateAWSRegion(ic.Region()); err != nil {
+		return err
+	}
 	var errorMessages []string
 	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		errorMessages = append(errorMessages, err.Error())

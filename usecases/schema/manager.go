@@ -91,6 +91,7 @@ type ModuleConfig interface {
 	SetSinglePropertyDefaults(class *models.Class, props ...*models.Property)
 	ValidateClass(ctx context.Context, class *models.Class) error
 	ValidateModuleConfig(ctx context.Context, class *models.Class, moduleName, targetVector string) error
+	ValidateModuleConfigKeys(class, initial *models.Class) error
 	GetByName(name string) modulecapabilities.Module
 	IsGenerative(string) bool
 	IsReranker(string) bool

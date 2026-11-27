@@ -13,12 +13,12 @@ package weaviateembed
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 // AllowedBaseURLsEnv holds comma-separated origins: scheme://host[:port].
@@ -46,7 +46,7 @@ func resolveOrigin(baseURL string, allowedOrigins []string) (string, error) {
 	if baseURL == "" {
 		return DefaultBaseURL, nil
 	}
-	origin, ok := parseOrigin(baseURL)
+	origin, ok := modulecomponents.BaseURLOrigin(baseURL)
 	if !ok || (origin != DefaultBaseURL && !slices.Contains(allowedOrigins, origin)) {
 		return "", fmt.Errorf("baseURL %q is not allowed", baseURL)
 	}
@@ -54,34 +54,5 @@ func resolveOrigin(baseURL string, allowedOrigins []string) (string, error) {
 }
 
 func parseAllowlist() (origins, invalidEntries []string) {
-	for _, rawEntry := range strings.Split(os.Getenv(AllowedBaseURLsEnv), ",") {
-		entry := strings.TrimSpace(rawEntry)
-		if entry == "" {
-			continue
-		}
-		origin, ok := parseOrigin(entry)
-		if !ok || strings.Contains(origin, "*") {
-			invalidEntries = append(invalidEntries, entry)
-			continue
-		}
-		origins = append(origins, origin)
-	}
-	return origins, invalidEntries
-}
-
-func parseOrigin(rawURL string) (string, bool) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", false
-	}
-	return (&url.URL{Scheme: parsed.Scheme, Host: lowercaseHost(parsed.Host)}).String(), true
-}
-
-// Host names are case-insensitive, but IPv6 zone identifiers are interface names.
-func lowercaseHost(host string) string {
-	zoneStart := strings.IndexByte(host, '%')
-	if zoneStart < 0 {
-		return strings.ToLower(host)
-	}
-	return strings.ToLower(host[:zoneStart]) + host[zoneStart:]
+	return modulecomponents.ParseAllowedOrigins(os.Getenv(AllowedBaseURLsEnv))
 }
