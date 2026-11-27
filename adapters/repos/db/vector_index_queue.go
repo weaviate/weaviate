@@ -48,6 +48,10 @@ type VectorIndexQueue struct {
 	dims atomic.Int32
 
 	vectorIndex VectorIndex
+
+	// switching keeps the scheduler from starting a batch while the queue is
+	// handed to another index, even if something else resumes the queue
+	switching atomic.Bool
 }
 
 // geoQueueChunkSize bounds how much work one geo queue batch hands to a
@@ -235,6 +239,9 @@ func (iq *VectorIndexQueue) Flush() error {
 }
 
 func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
+	if iq.switching.Load() {
+		return true
+	}
 	return iq.checkCompressionSettings()
 }
 
