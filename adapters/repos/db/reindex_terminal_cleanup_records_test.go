@@ -91,13 +91,15 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
 	idx.db.SetReindexUnitSeal(p.ReindexUnitSealBuilder())
 
-	p.autoCleanupAfterTerminal(testTask("T", 1, distributedtask.TaskStatusCancelled), &ReindexTaskPayload{
+	cancelled := testTask("T", 1, distributedtask.TaskStatusCancelled)
+	cancelled.Units = map[string]*distributedtask.Unit{
+		"a": {ID: "a", Shard: loadedA.Name()}, "b": {ID: "b", Shard: unloadedB}, "c": {ID: "c", Shard: loadedC},
+		"d": {ID: "d", Shard: otherTaskD}, "e": {ID: "e", Shard: decidedFlipE},
+	}
+	p.autoCleanupAfterTerminal(cancelled, &ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    className,
 		Properties:    []string{"title"},
-		UnitToShard: map[string]string{
-			"a": loadedA.Name(), "b": unloadedB, "c": loadedC, "d": otherTaskD, "e": decidedFlipE,
-		},
 	}, logger)
 	for name, lazy := range lazyLeftAlone {
 		require.False(t, lazy.isLoaded(), "%s holds no record of the task that cleanup could end", name)

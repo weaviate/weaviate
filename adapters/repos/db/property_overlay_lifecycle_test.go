@@ -69,7 +69,6 @@ func newOverlayFixture(t *testing.T, prefix, prop string,
 		MigrationType:      migration,
 		TargetTokenization: targetTokenization,
 		Properties:         []string{prop},
-		UnitToShard:        map[string]string{"u1": hot.Name()},
 	})
 	require.NoError(t, err)
 
@@ -95,6 +94,7 @@ func (f *overlayFixture) task(id string, status distributedtask.TaskStatus) *dis
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
 		Status:         status,
 		Payload:        f.payload,
+		Units:          map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: f.shard.Name()}},
 	}
 }
 

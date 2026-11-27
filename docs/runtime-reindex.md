@@ -535,9 +535,8 @@ Validation, dispatch, response shaping. Two structural details worth
 calling out:
 
 **Per-`(collection, property)` submit lock.** Held across class read,
-validation, conflict check, and the RAFT `AddDistributedTaskWithBarrier`
-(or `AddDistributedTaskWithGroupsBarrier` for a multi-tenant semantic
-migration) call.
+validation, conflict check, and the RAFT `AddDistributedTaskWithGroupsBarrier`
+call, whose unit specs name each unit's shard and node.
 Without this, a parallel `DELETE /properties/{p}/index/{name}` could
 win the lock between the PUT's `ReadOnlyClass` snapshot and its
 RAFT task-add, leaving the PUT validating against a schema that no

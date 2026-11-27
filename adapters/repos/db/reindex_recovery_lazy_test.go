@@ -409,10 +409,10 @@ func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) 
 			unitID := fx.subject.Key.UnitID
 			repair := ReindexTaskPayload{
 				MigrationType: ReindexTypeRepairFilterable, Collection: fx.className,
-				Properties: []string{"title"}, UnitToShard: map[string]string{unitID: fx.name},
+				Properties: []string{"title"},
 			}
 			outcome := &heldStepOutcome{done: make(chan string, 1)}
-			fx.provider.processOneUnit(fx.ctx, &distributedtask.Task{TaskDescriptor: fx.desc}, &repair, fx.idx, unitID, outcome)
+			fx.provider.processOneUnit(fx.ctx, fx.unitTask(), &repair, fx.idx, unitID, outcome)
 			require.Equal(t, tt.unitFails, len(outcome.done) == 1)
 
 			// Only the lift's retry clears the hold. The status gate refuses a write that skips the retry.
@@ -608,8 +608,7 @@ func TestAnUncachedStepFailsOnAHeldShardWithAnUnreadableRecord(t *testing.T) {
 	fx.provider.evictReindexTasks(fx.desc, fx.subject.Key.UnitID)
 
 	payload := fx.subject.reindexPayload()
-	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
-	err := fx.provider.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
+	err := fx.provider.runPerUnitPhase(fx.unitTask(), &payload,
 		[]string{fx.subject.Key.UnitID}, fx.idx, fx.logger, "group-completion", "starting", false,
 		func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult { return phaseResult{} })
 	require.ErrorContains(t, err, "migration record fault(s) on this shard")
@@ -1007,7 +1006,6 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 
 			unitID, node := fx.subject.Key.UnitID, fx.idx.getSchema.NodeName()
 			payload := tc.payload(fx)
-			payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
 			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: fx.logger})
@@ -1015,7 +1013,7 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 				Namespace: ReindexNamespace, TaskDescriptor: fx.desc, Payload: raw, Status: tc.status,
 				NeedsPreparationBarrier: true,
 				Units: map[string]*distributedtask.Unit{unitID: {
-					ID: unitID, GroupID: fx.name, NodeID: node, Status: tc.unit,
+					ID: unitID, GroupID: fx.name, Shard: fx.name, NodeID: node, Status: tc.unit,
 				}},
 			})
 			outcome := &heldStepOutcome{done: make(chan string, 4)}
@@ -1316,15 +1314,22 @@ func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, w
 	require.False(t, rec.FlipDecided(), "nothing flipped")
 }
 
+// unitTask is the fixture's task, holding its one unit on the fixture's shard.
+func (fx *doubleFaultFixture) unitTask() *distributedtask.Task {
+	unitID := fx.subject.Key.UnitID
+	return &distributedtask.Task{TaskDescriptor: fx.desc, Units: map[string]*distributedtask.Unit{
+		unitID: {ID: unitID, Shard: fx.name},
+	}}
+}
+
 // requireStepsWait runs prepare and swap through the unit entry: on a held shard neither runs,
 // and the scheduler retries both on a later tick.
 func (fx *doubleFaultFixture) requireStepsWait(t *testing.T) {
 	t.Helper()
 	payload := fx.subject.reindexPayload()
-	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
 	for _, callback := range []string{"group-completion", "swap-requested"} {
 		ran := make(chan struct{}, 1)
-		err := fx.provider.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
+		err := fx.provider.runPerUnitPhase(fx.unitTask(), &payload,
 			[]string{fx.subject.Key.UnitID}, fx.idx, fx.logger, callback, "starting", callback == "swap-requested",
 			func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
 				ran <- struct{}{}
@@ -1388,7 +1393,6 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 			payload := ReindexTaskPayload{
 				Collection: className, MigrationType: ReindexTypeChangeTokenization, Properties: []string{prop},
 				TargetTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
-				UnitToShard: map[string]string{unitID: group}, UnitToNode: map[string]string{unitID: node},
 			}
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
@@ -1397,7 +1401,7 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 					Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
 					Status: status, Payload: raw, NeedsPreparationBarrier: true,
 					SwapDecidedGroups: map[string]time.Time{group: time.Now()}, SwapsOwed: map[string][]string{group: {node}},
-					Units: map[string]*distributedtask.Unit{unitID: {ID: unitID, GroupID: group, NodeID: node}},
+					Units: map[string]*distributedtask.Unit{unitID: {ID: unitID, GroupID: group, Shard: group, NodeID: node}},
 				}
 				task.IndexGroups()
 				return task
@@ -1534,7 +1538,6 @@ func TestAHeldCommittedSwapWaitsAndKeepsItsDebt(t *testing.T) {
 		SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
 	})
 	payload := fx.subject.reindexPayload()
-	payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
 	restoreSwappingTask(t, mgr, fx.desc, payload, unitID, fx.name, node)
 	fx.idx.db.SetMigrationTaskSources(fx.ctx,
 		func(shard string) ([]distributedtask.TaskStatusEntry, bool) {
@@ -1588,7 +1591,7 @@ func restoreSwappingTask(t *testing.T, mgr *distributedtask.Manager, desc distri
 		SwapDecidedGroups: map[string]time.Time{group: time.Now()},
 		SwapsOwed:         map[string][]string{group: {node}},
 		Units: map[string]*distributedtask.Unit{unitID: {
-			ID: unitID, GroupID: group, NodeID: node, Status: distributedtask.UnitStatusCompleted,
+			ID: unitID, GroupID: group, Shard: group, NodeID: node, Status: distributedtask.UnitStatusCompleted,
 		}},
 	})
 }

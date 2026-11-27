@@ -82,9 +82,6 @@ type HeaderDecoder interface {
 	DecodeHeader(payload []byte) (TaskHeader, error)
 }
 
-// ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
-type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
-
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
 // for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
 type TargetVectorExtractor func(payload []byte) (collection string, targets []string, ok bool)
@@ -412,6 +409,7 @@ const (
 type Unit struct {
 	ID         string     `json:"id"`
 	GroupID    string     `json:"groupId,omitempty"`
+	Shard      string     `json:"shard,omitempty"`
 	NodeID     string     `json:"nodeId"`
 	Status     UnitStatus `json:"status"`
 	Progress   float32    `json:"progress"`
@@ -435,6 +433,8 @@ func (u *Unit) markTerminal(status UnitStatus, at time.Time) {
 type UnitSpec struct {
 	ID      string
 	GroupID string
+	Shard   string
+	Node    string
 }
 
 type TaskStatus string
@@ -813,6 +813,13 @@ func (t *Task) AnyUnitFailed() bool {
 		}
 	}
 	return false
+}
+
+func (t *Task) UnitShard(unitID string) string {
+	if u := t.Units[unitID]; u != nil {
+		return u.Shard
+	}
+	return ""
 }
 
 // Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire.

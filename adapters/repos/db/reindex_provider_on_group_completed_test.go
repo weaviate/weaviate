@@ -107,15 +107,15 @@ func TestRunPerUnitPhase_CapsTheErrorAcrossManyFailingUnits(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 			p := NewReindexProvider(nil, nil, nil, logger, "node1", nil, context.Background())
-			payload := &ReindexTaskPayload{UnitToShard: map[string]string{}}
+			task := &distributedtask.Task{Units: map[string]*distributedtask.Unit{}}
 			unitIDs := make([]string, tt.units)
 			for i := range unitIDs {
 				unitIDs[i] = fmt.Sprintf("unit-%04d", i)
-				payload.UnitToShard[unitIDs[i]] = fmt.Sprintf("tenant-%04d", i)
+				task.Units[unitIDs[i]] = &distributedtask.Unit{ID: unitIDs[i], Shard: fmt.Sprintf("tenant-%04d", i)}
 			}
 
 			// No shard exists, so every unit fails its lookup before the phase runs.
-			err := p.runPerUnitPhase(&distributedtask.Task{}, payload, unitIDs, &Index{},
+			err := p.runPerUnitPhase(task, &ReindexTaskPayload{}, unitIDs, &Index{},
 				logger, "swap-requested", "starting", false,
 				func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
 					return phaseResult{}

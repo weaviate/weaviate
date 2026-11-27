@@ -48,11 +48,21 @@ func (s *Raft) applyBoundedTaskCommand(ctx context.Context, cmdType cmd.ApplyReq
 
 // AddDistributedTask is the no-barrier variant — task uses pre-barrier
 // semantics (STARTED → SWAPPING directly on AllUnitsTerminal). Use
-// AddDistributedTaskWithBarrier when the task needs cluster-wide swap
+// AddDistributedTaskWithGroupsBarrier when the task needs cluster-wide swap
 // coordination (semantic migrations in the reindex provider; future
 // providers needing the same property).
 func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string, taskPayload any, unitIDs []string) error {
-	return s.AddDistributedTaskWithBarrier(ctx, namespace, taskID, taskPayload, unitIDs, false)
+	payloadBytes, err := json.Marshal(taskPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal task payload: %w", err)
+	}
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		Payload:               payloadBytes,
+		SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		UnitIds:               unitIDs,
+	})
 }
 
 // AddDistributedTaskWithGroups creates a task with units that have explicit group assignments.
@@ -64,38 +74,8 @@ func (s *Raft) AddDistributedTaskWithGroups(
 	return s.AddDistributedTaskWithGroupsBarrier(ctx, namespace, taskID, taskPayload, unitSpecs, false)
 }
 
-// AddDistributedTaskWithBarrier is the PREP-barrier-aware counterpart
-// to AddDistributedTask. When needsPreparationBarrier=true the task uses the
-// two-phase RAFT-coordinated swap: AllUnitsTerminal routes to
-// PREPARING (not SWAPPING directly), and each node's PREP completion
-// must ack before any node fires its atomic swap.
-//
-// AddDistributedTask is equivalent to AddDistributedTaskWithBarrier(...,
-// false) for callers that don't need cluster-wide swap coordination
-// (format-only migrations, debug-originated tasks).
-func (s *Raft) AddDistributedTaskWithBarrier(
-	ctx context.Context, namespace, taskID string,
-	taskPayload any, unitIDs []string, needsPreparationBarrier bool,
-) error {
-	payloadBytes, err := json.Marshal(taskPayload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal task payload: %w", err)
-	}
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
-		Namespace:               namespace,
-		Id:                      taskID,
-		Payload:                 payloadBytes,
-		SubmittedAtUnixMillis:   time.Now().UnixMilli(),
-		UnitIds:                 unitIDs,
-		NeedsPreparationBarrier: needsPreparationBarrier,
-	})
-}
-
-// AddDistributedTaskWithGroupsBarrier is the grouped, PREP-barrier-aware
-// counterpart to AddDistributedTaskWithGroups. See
-// AddDistributedTaskWithBarrier for the barrier semantics; this variant
-// takes UnitSpecs (with optional GroupID per unit) instead of bare
-// unit IDs.
+// AddDistributedTaskWithGroupsBarrier with needsPreparationBarrier routes AllUnitsTerminal to
+// PREPARING, and every node's PREP completion must ack before any node fires its swap.
 func (s *Raft) AddDistributedTaskWithGroupsBarrier(
 	ctx context.Context, namespace, taskID string,
 	taskPayload any, unitSpecs []distributedtask.UnitSpec, needsPreparationBarrier bool,
@@ -106,7 +86,7 @@ func (s *Raft) AddDistributedTaskWithGroupsBarrier(
 	}
 	protoSpecs := make([]*cmd.UnitSpec, len(unitSpecs))
 	for i, spec := range unitSpecs {
-		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID}
+		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID, Shard: spec.Shard, Node: spec.Node}
 	}
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
 		Namespace:               namespace,

@@ -1077,7 +1077,7 @@ func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
 		Id:                    "task1",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 		UnitSpecs: []*cmd.UnitSpec{
-			{Id: "su-1", GroupId: "g1"},
+			{Id: "su-1", GroupId: "g1", Shard: "shard-1", Node: "node-1"},
 			{Id: "su-2", GroupId: "g2"},
 		},
 	}), version))
@@ -1088,13 +1088,11 @@ func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
 	h2 := newTestHarness(t).init(t)
 	require.NoError(t, h2.manager.Restore(snap))
 
-	tasks, err := h2.manager.ListDistributedTasks(context.Background())
-	require.NoError(t, err)
-
-	task := tasks["ns"][0]
-	require.NotNil(t, task.Units)
-	assert.Equal(t, "g1", task.Units["su-1"].GroupID)
-	assert.Equal(t, "g2", task.Units["su-2"].GroupID)
+	for _, m := range []*Manager{h.manager, h2.manager} {
+		task := m.LocalDistributedTasks()["ns"][0]
+		assert.Equal(t, Unit{ID: "su-1", GroupID: "g1", Shard: "shard-1", NodeID: "node-1", Status: UnitStatusPending}, *task.Units["su-1"])
+		assert.Equal(t, Unit{ID: "su-2", GroupID: "g2", Status: UnitStatusPending}, *task.Units["su-2"])
+	}
 }
 
 // TestManager_RecordPostCompletionAck_Success pins the happy path of

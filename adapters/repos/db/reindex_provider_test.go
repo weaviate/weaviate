@@ -46,9 +46,8 @@ import (
 //      one tuple never bleeds into a sibling tuple.
 //   5. The builder closure exposes a fresh probe each time so the
 //      backup gate sees the live state, not a stale snapshot.
-//   6. uniqueShardsFromPayload dedupes shards across UnitToShard
-//      entries (multi-property migrations route multiple units to
-//      the same shard).
+//   6. uniqueTaskShards counts each shard once, whatever number of
+//      replica units name it.
 
 // newCleanupRegistryProvider builds a minimal *ReindexProvider with
 // only the cleanup registry initialized. Mirrors the literal-
@@ -226,52 +225,31 @@ func TestCleanupInProgress_ConcurrentRegisterUnregister(t *testing.T) {
 		"final state must be an empty map")
 }
 
-// TestUniqueShardsFromPayload_Dedupes pins that the helper used by
-// [autoCleanupAfterTerminal] to enumerate shards collapses duplicates
-// — multi-property semantic migrations route N units to the same
-// shard, and we must register each shard exactly once so the
-// matching unregister loop releases the slot symmetrically.
-func TestUniqueShardsFromPayload_Dedupes(t *testing.T) {
-	payload := &ReindexTaskPayload{
-		Collection: "C",
-		UnitToShard: map[string]string{
-			"u1": "shardA",
-			"u2": "shardB",
-			"u3": "shardA", // dup
-			"u4": "shardB", // dup
-			"u5": "shardC",
+// A shard registered twice would keep its cleanup slot after the one unregister per shard.
+func TestUniqueTaskShards(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		task *distributedtask.Task
+		want []string
+	}{
+		{
+			name: "every replica of a shard counts once",
+			task: shardTask("shardA", "shardB", "shardA", "shardB", "shardC"),
+			want: []string{"shardA", "shardB", "shardC"},
 		},
+		{name: "no units", task: &distributedtask.Task{}},
+		{name: "empty unit map", task: shardTask()},
+		{name: "unit without a shard", task: shardTask("shardA", ""), want: []string{"shardA"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := uniqueTaskShards(tc.task)
+			if tc.want == nil {
+				require.Empty(t, got)
+				return
+			}
+			assert.ElementsMatch(t, tc.want, got)
+		})
 	}
-	out := uniqueShardsFromPayload(payload)
-	assert.ElementsMatch(t, []string{"shardA", "shardB", "shardC"}, out,
-		"unique shards must include each distinct value exactly once")
-}
-
-// TestUniqueShardsFromPayload_EmptyPayload pins the boundary: an
-// empty UnitToShard returns a nil slice (callers iterate it with
-// range, so nil is correct).
-func TestUniqueShardsFromPayload_EmptyPayload(t *testing.T) {
-	payload := &ReindexTaskPayload{Collection: "C", UnitToShard: nil}
-	require.Nil(t, uniqueShardsFromPayload(payload))
-
-	payload = &ReindexTaskPayload{Collection: "C", UnitToShard: map[string]string{}}
-	require.Nil(t, uniqueShardsFromPayload(payload))
-}
-
-// TestUniqueShardsFromPayload_SkipsEmptyShardName pins defensive
-// handling of a UnitToShard entry whose value is an empty string —
-// a malformed payload should not produce a zero-string registration
-// that the gate would silently never match.
-func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
-	payload := &ReindexTaskPayload{
-		Collection: "C",
-		UnitToShard: map[string]string{
-			"u1": "shardA",
-			"u2": "",
-		},
-	}
-	out := uniqueShardsFromPayload(payload)
-	assert.ElementsMatch(t, []string{"shardA"}, out)
 }
 
 // A dropped collection is not a failed sweep, and a sweep that did not reach

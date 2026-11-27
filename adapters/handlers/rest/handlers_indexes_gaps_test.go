@@ -837,23 +837,33 @@ func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
 	require.Equal(t, "node-2", unitToNode["shard-b__node-2"])
 }
 
-func TestReindexPayload_LeaderReadsItsReplicas(t *testing.T) {
-	_, unitToShard, unitToNode := buildUnitMaps(map[string][]string{
-		"node-2": {"shard-b", "shard-a"},
-		"node-1": {"shard-a"},
-	})
-	payload := buildReindexPayload(nil, "C", nil, upsertPlan{}, nil)
-	payload.UnitToShard, payload.UnitToNode = unitToShard, unitToNode
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-
-	extract := distributedTaskShardReplicasExtractors()[db.ReindexNamespace]
-	require.NotNil(t, extract, "without it the leader admits a reindex built against stale replicas")
-	got, ok := extract(raw)
-	require.True(t, ok)
-	require.Len(t, got, 2)
-	require.ElementsMatch(t, []string{"node-1", "node-2"}, got["shard-a"])
-	require.ElementsMatch(t, []string{"node-2"}, got["shard-b"])
+// A group per shard puts a run on the per-tenant barrier, which only a multi-tenant semantic run may use.
+func TestBuildReindexUnitSpecs(t *testing.T) {
+	ownership := map[string][]string{"node-2": {"shard-b", "shard-a"}, "node-1": {"shard-a"}}
+	for _, tc := range []struct {
+		name    string
+		isMT    bool
+		mt      db.ReindexMigrationType
+		grouped bool
+	}{
+		{name: "multi-tenant semantic run", isMT: true, mt: db.ReindexTypeChangeTokenization, grouped: true},
+		{name: "single-tenant semantic run", mt: db.ReindexTypeChangeTokenization},
+		{name: "multi-tenant rebuild", isMT: true, mt: db.ReindexTypeRebuildSearchable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := []distributedtask.UnitSpec{
+				{ID: "shard-a__node-1", Shard: "shard-a", Node: "node-1"},
+				{ID: "shard-a__node-2", Shard: "shard-a", Node: "node-2"},
+				{ID: "shard-b__node-2", Shard: "shard-b", Node: "node-2"},
+			}
+			if tc.grouped {
+				for i := range want {
+					want[i].GroupID = want[i].Shard
+				}
+			}
+			require.Equal(t, want, buildReindexUnitSpecs(ownership, tc.isMT, tc.mt))
+		})
+	}
 }
 
 func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
@@ -870,6 +880,7 @@ func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
 	groupsForTenantA := 0
 	groupsForTenantB := 0
 	for _, s := range specs {
+		require.Empty(t, s.Shard+s.Node, "a drop-vector unit is claimed by the first node to report")
 		// Pull the shard prefix back out and compare to GroupID.
 		switch s.GroupID {
 		case "tenant-a":
@@ -1213,16 +1224,14 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
 				return map[string][]*distributedtask.Task{
 					db.ReindexNamespace: {{
-						Status: distributedtask.TaskStatusStarted,
-						Payload: mustPayload(t, db.ReindexTaskPayload{
-							Collection: "C", UnitToShard: map[string]string{"u1": "shard1"},
-						}),
+						Status:  distributedtask.TaskStatusStarted,
+						Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),
+						Units:   map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: "shard1"}},
 					}},
 					db.DropVectorIndexNamespace: {{
-						Status: distributedtask.TaskStatusStarted,
-						Payload: mustPayload(t, db.ReindexTaskPayload{
-							Collection: "C", UnitToShard: map[string]string{"u2": "shard2"},
-						}),
+						Status:  distributedtask.TaskStatusStarted,
+						Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),
+						Units:   map[string]*distributedtask.Unit{"u2": {ID: "u2", Shard: "shard2"}},
 					}},
 				}, nil
 			},

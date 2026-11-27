@@ -466,8 +466,8 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 
 	// Determine which units belong to this node.
 	var localUnits []string
-	for unitID, nodeName := range payload.UnitToNode {
-		if nodeName == p.localNode {
+	for unitID, unit := range task.Units {
+		if unit.NodeID == p.localNode {
 			localUnits = append(localUnits, unitID)
 		}
 	}
@@ -550,7 +550,7 @@ func (p *ReindexProvider) processOneUnit(
 	unitID string,
 	recorder distributedtask.TaskCompletionRecorder,
 ) {
-	shardName := payload.UnitToShard[unitID]
+	shardName := task.UnitShard(unitID)
 	logger := p.logger.WithField("taskID", task.ID).
 		WithField("unit", unitID).WithField("shard", shardName)
 
@@ -1064,7 +1064,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		return phaseUnitResolution{Skip: true}
 	}
 
-	shardName := payload.UnitToShard[unitID]
+	shardName := task.UnitShard(unitID)
 	resolvedShard, err := lookupShardByName(idx, shardName)
 	if err != nil {
 		return phaseUnitResolution{
@@ -1371,7 +1371,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 				agg.Transient = true
 			}
 			if phase.OverlayUnwrapErr != nil {
-				refused[payload.UnitToShard[unitID]] = struct{}{}
+				refused[task.UnitShard(unitID)] = struct{}{}
 				if agg.OverlayUnwrapErr == nil {
 					agg.OverlayUnwrapErr = phase.OverlayUnwrapErr
 				}
@@ -1502,8 +1502,8 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 		return out
 	}
 
+	shardName := task.UnitShard(unitID)
 	if !prepOK {
-		shardName := payload.UnitToShard[unitID]
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Warn("reindex provider: prep phase incomplete; skipping overlay set + atomic swap for this shard")
 		logger.WithField("unit", unitID).WithField("shard", shardName).
@@ -1511,7 +1511,6 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 		return out
 	}
 
-	shardName := payload.UnitToShard[unitID]
 	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
 	out.Errs = append(out.Errs, swap.Errs...)
 	if swap.Transient {
@@ -1554,13 +1553,14 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
-			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
+			return p.onSwapRequestedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
 }
 
 // Re-runs PREP on rehydrate so OnAfterLsmInit installs the double-write callbacks before SWAP.
 func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	ctx context.Context,
+	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
 	unitID string,
 	shard ShardLike,
@@ -1568,6 +1568,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	rehydrate bool,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
+	shardName := task.UnitShard(unitID)
 	if rehydrate {
 		prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
 		out.Errs = append(out.Errs, prep.Errs...)
@@ -1575,14 +1576,12 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 			out.Transient = true
 		}
 		if !prepOK {
-			shardName := payload.UnitToShard[unitID]
 			logger.WithField("unit", unitID).WithField("shard", shardName).
 				Warn("reindex provider: swap-requested: rehydrate prep check failed; skipping overlay+swap for this shard")
 			return out
 		}
 	}
 
-	shardName := payload.UnitToShard[unitID]
 	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
 	out.Errs = append(out.Errs, swap.Errs...)
 	if swap.Transient {
@@ -1627,7 +1626,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				tornLocally := len(task.PostCompletionAcks) > 0 ||
 					len(task.PreparedGroups) > 0 || len(task.SwapDecidedGroups) > 0
 				if !tornLocally {
-					tornLocally = p.probeLocalPostMergeState(payload)
+					tornLocally = p.probeLocalPostMergeState(task, payload)
 				}
 				p.autoCleanupAfterTerminal(task, payload, logger)
 				if tornLocally {
@@ -1694,7 +1693,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		return
 	}
 	defer unseal()
-	shards := uniqueShardsFromPayload(payload)
+	shards := uniqueTaskShards(task)
 	for _, shardName := range shards {
 		p.registerCleanup(payload.Collection, shardName)
 	}
@@ -1888,13 +1887,13 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 // p.serverCtx. The ctx is read once per shard and nothing below it takes one,
 // so the deadline bounds how many shards the probe visits, not how long it
 // runs: one wedged directory read still blocks past it.
-func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) bool {
+func (p *ReindexProvider) probeLocalPostMergeState(task *distributedtask.Task, payload *ReindexTaskPayload) bool {
 	ctx, cancel := context.WithTimeout(p.serverCtx, reindexTornStateProbeTimeout)
 	defer cancel()
-	return p.hasLocalPostMergeState(ctx, payload)
+	return p.hasLocalPostMergeState(ctx, task, payload)
 }
 
-func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *ReindexTaskPayload) bool {
+func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, task *distributedtask.Task, payload *ReindexTaskPayload) bool {
 	if p.db == nil || !IsSemanticMigration(payload.MigrationType) {
 		return false
 	}
@@ -1902,7 +1901,7 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	if idx == nil {
 		return false
 	}
-	shards := uniqueShardsFromPayload(payload)
+	shards := uniqueTaskShards(task)
 	if len(shards) == 0 {
 		return false
 	}
@@ -1943,17 +1942,14 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	return false
 }
 
-// uniqueShardsFromPayload returns the distinct shard names referenced
-// in payload.UnitToShard. Used by [autoCleanupAfterTerminal] to register
-// each shard exactly once in [cleanupInProgress] — multiple units can
-// map to the same shard for multi-property migrations.
-func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
-	if len(payload.UnitToShard) == 0 {
+func uniqueTaskShards(task *distributedtask.Task) []string {
+	if len(task.Units) == 0 {
 		return nil
 	}
-	seen := make(map[string]struct{}, len(payload.UnitToShard))
-	out := make([]string, 0, len(payload.UnitToShard))
-	for _, shardName := range payload.UnitToShard {
+	seen := make(map[string]struct{}, len(task.Units))
+	out := make([]string, 0, len(task.Units))
+	for _, unit := range task.Units {
+		shardName := unit.Shard
 		if shardName == "" {
 			continue
 		}

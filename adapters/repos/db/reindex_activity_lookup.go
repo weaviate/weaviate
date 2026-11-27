@@ -48,8 +48,8 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
 			continue
 		}
-		for _, shardName := range payload.UnitToShard {
-			live[shardKey{payload.Collection, shardName}] = true
+		for _, unit := range task.Units {
+			live[shardKey{payload.Collection, unit.Shard}] = true
 		}
 	}
 	return func(collection, shardName string) bool {

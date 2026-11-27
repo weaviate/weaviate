@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -32,6 +33,21 @@ type recordingLeader struct {
 func (r *recordingLeader) Apply(_ context.Context, _ string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
 	r.last = req
 	return &cmd.ApplyResponse{}, nil
+}
+
+func TestUnitPlacementReachesTheLeader(t *testing.T) {
+	m := NewMockStore(t, "node-1", 0)
+	heartbeatFromLeader(t, m.store)
+	leader := &recordingLeader{}
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, leader)
+	require.NoError(t, srv.AddDistributedTaskWithGroupsBarrier(context.Background(), "ns", "t", struct{}{},
+		[]distributedtask.UnitSpec{{ID: "s1__n1", GroupID: "s1", Shard: "s1", Node: "n1"}}, true))
+
+	var req cmd.AddDistributedTaskRequest
+	require.NoError(t, json.Unmarshal(leader.last.SubCommand, &req))
+	require.Len(t, req.UnitSpecs, 1)
+	require.Equal(t, []string{"s1__n1", "s1", "s1", "n1"},
+		[]string{req.UnitSpecs[0].Id, req.UnitSpecs[0].GroupId, req.UnitSpecs[0].Shard, req.UnitSpecs[0].Node})
 }
 
 func TestClassWriteFieldsReachTheLeader(t *testing.T) {

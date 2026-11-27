@@ -172,8 +172,6 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 		MigrationType: ReindexTypeChangeAlgorithm,
 		Collection:    className,
 		Properties:    []string{"title"},
-		UnitToShard:   map[string]string{"unit-1": shard.Name()},
-		UnitToNode:    map[string]string{"unit-1": "node1"},
 	}
 	swapRes := p.runShardSwapPhase(ctx, payload, "unit-1", shard.Name(), shard,
 		[]*ShardReindexTaskGeneric{task}, p.logger)

@@ -62,19 +62,6 @@ func reindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {
 	return h, ok
 }
 
-// ExtractReindexTaskReplicas lets the leader refuse a reindex task whose units no longer match the collection's replicas.
-func ExtractReindexTaskReplicas(payload []byte) (map[string][]string, bool) {
-	var p ReindexTaskPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return nil, false
-	}
-	nodesByShard := make(map[string][]string, len(p.UnitToShard))
-	for unit, shard := range p.UnitToShard {
-		nodesByShard[shard] = append(nodesByShard[shard], p.UnitToNode[unit])
-	}
-	return nodesByShard, true
-}
-
 // ReindexMigrationType identifies which migration strategy a reindex task uses.
 type ReindexMigrationType string
 
@@ -142,11 +129,6 @@ type ReindexTaskPayload struct {
 
 	// Tenants scopes the cancel and terminal sweeps (MT only).
 	Tenants []string `json:"tenants,omitempty"`
-
-	// UnitToNode maps unit IDs to the node name that should process them.
-	UnitToNode map[string]string `json:"unitToNode"`
-	// UnitToShard maps unit IDs to shard names.
-	UnitToShard map[string]string `json:"unitToShard"`
 }
 
 // ReindexTaskVisiblePayloadFields are the payload fields GET /v1/tasks shows a

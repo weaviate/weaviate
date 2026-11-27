@@ -192,7 +192,7 @@
 //   - Units in PENDING state (unclaimed) may be delivered to any node. The provider
 //     must tolerate being asked to process a unit that another node is also attempting
 //     to claim — only one node's first progress update will succeed. Providers that use
-//     per-replica assignment (UnitToNode metadata) avoid this race entirely, since each
+//     per-replica assignment ([UnitSpec].Node) avoid this race entirely, since each
 //     unit is deterministically assigned to exactly one node at creation time.
 //
 //   - The framework does NOT re-assign units claimed by a crashed node to other nodes.

@@ -576,6 +576,8 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			newTask.Units[spec.Id] = &Unit{
 				ID:      spec.Id,
 				GroupID: spec.GroupId,
+				Shard:   spec.Shard,
+				NodeID:  spec.Node,
 				Status:  UnitStatusPending,
 			}
 		}

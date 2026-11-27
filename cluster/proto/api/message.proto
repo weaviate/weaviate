@@ -224,6 +224,8 @@ message Tenant {
 message UnitSpec {
   string id = 1;
   string group_id = 2;
+  string shard = 3;
+  string node = 4;
 }
 
 message AddDistributedTaskRequest {

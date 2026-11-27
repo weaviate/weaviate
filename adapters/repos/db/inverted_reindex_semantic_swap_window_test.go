@@ -433,10 +433,11 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 		MigrationType: ReindexTypeEnableFilterable,
 		Collection:    className,
 		Properties:    []string{propName},
-		UnitToShard:   map[string]string{unitID: shard.Name()},
 	}
 
-	err := p.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: desc}, payload,
+	err := p.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: desc, Units: map[string]*distributedtask.Unit{
+		unitID: {ID: unitID, Shard: shard.Name()},
+	}}, payload,
 		[]string{unitID}, idx, logger, "swap-requested", "starting", true,
 		func(unitID string, _ ShardLike, unitTasks []*ShardReindexTaskGeneric, _ bool) phaseResult {
 			return p.runShardSwapPhase(ctx, payload, unitID, shard.Name(), lazy, unitTasks, logger)

@@ -195,9 +195,6 @@ type Config struct {
 	// extractors. See [distributedtask.ManagerParameters].
 	DistributedTaskConflictDetectors       map[string]distributedtask.ConflictDetector
 	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
-	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
-	// whose units no longer match the current replicas of the shards they name.
-	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.

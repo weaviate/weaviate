@@ -89,11 +89,11 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_terminal", Version: 1},
 				Status:         distributedtask.TaskStatusCancelled,
 				Payload:        []byte("{}"),
+				Units:          map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: shardName}},
 			}, &ReindexTaskPayload{
 				MigrationType: ReindexTypeChangeTokenization,
 				Collection:    className,
 				Properties:    []string{"title"},
-				UnitToShard:   map[string]string{"u1": shardName},
 			}, logger)
 
 			wantMsg, wantLevel := CleanupSweepSummary(sweepPhaseTerminalCleanup, tc.wantOutcome)

@@ -25,18 +25,20 @@ import (
 // a statement about what this package treats as a live reindex, and the
 // transport layer only snapshots it.
 
-// lookupTask builds a task carrying payload, in status.
+// lookupTask builds a task carrying payload, in status, with one unit on shard.
 func lookupTask(t *testing.T, id string, status distributedtask.TaskStatus,
-	payload ReindexTaskPayload,
+	payload ReindexTaskPayload, shard string,
 ) *distributedtask.Task {
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
+	unitID := MigrationUnitID(shard, "node-1")
 	return &distributedtask.Task{
 		Namespace:      ReindexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
 		Payload:        raw,
 		Status:         status,
+		Units:          map[string]*distributedtask.Unit{unitID: {ID: unitID, Shard: shard, NodeID: "node-1"}},
 	}
 }
 
@@ -46,7 +48,6 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 		MigrationType: ReindexTypeEnableFilterable,
 		Collection:    "C",
 		Properties:    []string{"foo"},
-		UnitToShard:   map[string]string{"u1": "shard-1"},
 	}
 
 	logger, _ := logrustest.NewNullLogger()
@@ -73,7 +74,7 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 			name = "empty"
 		}
 		t.Run(name, func(t *testing.T) {
-			task := lookupTask(t, "T1", s.status, payload)
+			task := lookupTask(t, "T1", s.status, payload, "shard-1")
 			require.Equal(t, s.inFlight,
 				NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1"),
 				"the backup gate must read %q as in-flight=%v", s.status, s.inFlight)
@@ -91,8 +92,7 @@ func TestShardReindexActivityLookup_KeyIsCollectionAndShard(t *testing.T) {
 			MigrationType: ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
-			UnitToShard:   map[string]string{"u1": "shard-1"},
-		})
+		}, "shard-1")
 
 	for _, tc := range []struct {
 		name       string

@@ -1055,19 +1055,21 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 // CheckTenantMutation allocates under 1 MiB against a payload over 2 MB, so it refuses without decoding the payload.
 func TestCheckTenantMutation_AllocatesIndependentlyOfPayloadSize(t *testing.T) {
 	const tenants = 10_000
-	payload := ReindexTaskPayload{
-		Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"},
-		UnitToNode: map[string]string{}, UnitToShard: map[string]string{},
-	}
+	// A task submitted before units carried their placement keeps these maps in its payload.
+	unitToNode, unitToShard := map[string]string{}, map[string]string{}
+	var tenantNames []string
 	for i := range tenants {
 		tenant := fmt.Sprintf("tenant-%05d", i)
-		payload.Tenants = append(payload.Tenants, tenant)
+		tenantNames = append(tenantNames, tenant)
 		for r := range 3 {
 			unit := fmt.Sprintf("%s__node-%d", tenant, r)
-			payload.UnitToNode[unit], payload.UnitToShard[unit] = fmt.Sprintf("node-%d", r), tenant
+			unitToNode[unit], unitToShard[unit] = fmt.Sprintf("node-%d", r), tenant
 		}
 	}
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(map[string]any{
+		"collection": "C", "migrationType": ReindexTypeChangeTokenization, "properties": []string{"name"},
+		"tenants": tenantNames, "unitToNode": unitToNode, "unitToShard": unitToShard,
+	})
 	require.NoError(t, err)
 	loaded := loadTasks(t, ReindexNamespace, &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1}, Status: distributedtask.TaskStatusStarted, Payload: raw,
