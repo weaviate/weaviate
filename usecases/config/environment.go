@@ -2066,7 +2066,7 @@ const (
 	DefaultQueryCrossReferenceDepthLimit = 5
 
 	DefaultQueryBitmapBufsMaxBufSize = 1 << 25 // 32MB
-	DefaultQueryBitmapBufsMaxMemory  = 1 << 27 // 128MB (2x 32MB, 2x 16MB, 2x 8MB, 2x 4MB, 4x 2MB)
+	DefaultQueryBitmapBufsMaxMemory  = 1 << 27 // 128MB of idle buffers kept across all pooled sizes above 1MB
 )
 
 const (

@@ -638,7 +638,7 @@ func TestBitmapOps_SpareBecomesTailRoom(t *testing.T) {
 			defer releaseExact()
 
 			const bufSize = 1 << 16
-			roomy, releaseRoomy := build.get(NewBitmapOps(roaringset.NewBitmapBufPoolRanged(nil, 0, nil, bufSize)))
+			roomy, releaseRoomy := build.get(NewBitmapOps(roaringset.NewBitmapBufPoolRanged(nil, 1<<30, nil, []int{bufSize})))
 			defer releaseRoomy()
 			require.Equal(t, bufSize, roomy.CapInBytes())
 			require.Equal(t, exact.LenInBytes(), roomy.LenInBytes())
