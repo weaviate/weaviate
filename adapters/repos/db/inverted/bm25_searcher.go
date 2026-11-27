@@ -45,7 +45,7 @@ import (
 
 type BM25Searcher struct {
 	config           schema.BM25Config
-	store            *lsmkv.Store
+	store            lsmkv.BucketLookup
 	getClass         func(string) *models.Class
 	classSearcher    ClassSearcher // to allow recursive searches on ref-props
 	propLenTracker   propLengthRetriever
@@ -116,7 +116,7 @@ type termListRequest struct {
 	propertyBoosts     map[string]float32
 }
 
-func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
+func NewBM25Searcher(config schema.BM25Config, store lsmkv.BucketLookup,
 	getClass func(string) *models.Class,
 	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,

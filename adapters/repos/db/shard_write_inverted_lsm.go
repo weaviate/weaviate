@@ -25,11 +25,11 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
-	docID uint64, st *propValueIndexState,
+func (s *Shard) extendInvertedIndicesLSM(buckets lsmkv.BucketLookup, props []inverted.Property,
+	nilProps []inverted.NilProperty, docID uint64, st *propValueIndexState,
 ) error {
 	for _, prop := range props {
-		if err := s.addToPropertyValueIndex(docID, prop, st); err != nil {
+		if err := s.addToPropertyValueIndex(buckets, docID, prop, st); err != nil {
 			return err
 		}
 
@@ -40,13 +40,13 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 
 		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
 		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
+			if err := s.addToPropertyLengthIndex(buckets, prop.Name, docID, prop.Length); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
 
 		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
+			if err := s.addToPropertyNullIndex(buckets, prop.Name, docID, prop.Length == 0); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
@@ -55,13 +55,13 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 	// add nil properties to the nullstate and property length inverted index
 	for _, nilProperty := range nilProps {
 		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.addToPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
+			if err := s.addToPropertyLengthIndex(buckets, nilProperty.Name, docID, 0); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
 
 		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
+			if err := s.addToPropertyNullIndex(buckets, nilProperty.Name, docID, true); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
@@ -70,9 +70,11 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 	return nil
 }
 
-func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property, st *propValueIndexState) error {
+func (s *Shard) addToPropertyValueIndex(buckets lsmkv.BucketLookup, docID uint64,
+	property inverted.Property, st *propValueIndexState,
+) error {
 	if property.HasFilterableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
+		bucketValue := buckets.Bucket(helpers.BucketFromPropNameLSM(property.Name))
 		if bucketValue == nil {
 			return errors.Errorf("no bucket for prop '%s' found", property.Name)
 		}
@@ -86,7 +88,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	}
 
 	if property.HasSearchableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
+		bucketValue := buckets.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
 		if bucketValue == nil {
 			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
 		}
@@ -111,7 +113,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	}
 
 	if property.HasRangeableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(property.Name))
+		bucketValue := buckets.Bucket(helpers.BucketRangeableFromPropNameLSM(property.Name))
 		if bucketValue == nil {
 			return errors.Errorf("no bucket rangeable for prop '%s' found", property.Name)
 		}
@@ -135,8 +137,8 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	return nil
 }
 
-func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
-	bucketLength := s.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName))
+func (s *Shard) addToPropertyLengthIndex(buckets lsmkv.BucketLookup, propName string, docID uint64, length int) error {
+	bucketLength := buckets.Bucket(helpers.BucketFromPropNameLengthLSM(propName))
 	if bucketLength == nil {
 		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}
@@ -151,8 +153,8 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 	return nil
 }
 
-func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
+func (s *Shard) addToPropertyNullIndex(buckets lsmkv.BucketLookup, propName string, docID uint64, isNull bool) error {
+	bucketNull := buckets.Bucket(helpers.BucketFromPropNameNullLSM(propName))
 	if bucketNull == nil {
 		return errors.Errorf("no bucket for prop '%s' null found", propName)
 	}

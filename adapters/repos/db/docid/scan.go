@@ -46,12 +46,12 @@ type ObjectScanFn func(ctx context.Context, prop *models.PropertySchema, docID u
 // prop is refilled for the next object the same worker reads: read the values
 // out rather than keeping the map. *prop is nil when properties is empty;
 // prop itself never is.
-func ScanObjectsLSM(ctx context.Context, store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) error {
+func ScanObjectsLSM(ctx context.Context, store lsmkv.BucketLookup, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) error {
 	return newObjectScannerLSM(store, pointers, scan, properties, logger).Do(ctx)
 }
 
 type objectScannerLSM struct {
-	store         *lsmkv.Store
+	store         lsmkv.BucketLookup
 	pointers      []uint64
 	scanFn        ObjectScanFn
 	objectsBucket *lsmkv.Bucket
@@ -59,7 +59,7 @@ type objectScannerLSM struct {
 	logger        logrus.FieldLogger
 }
 
-func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64,
+func newObjectScannerLSM(store lsmkv.BucketLookup, pointers []uint64,
 	scan ObjectScanFn, properties []string, logger logrus.FieldLogger,
 ) *objectScannerLSM {
 	return &objectScannerLSM{

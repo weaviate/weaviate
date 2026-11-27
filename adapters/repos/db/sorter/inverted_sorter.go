@@ -25,7 +25,7 @@ import (
 )
 
 type invertedSorter struct {
-	store           *lsmkv.Store
+	store           lsmkv.BucketLookup
 	dataTypesHelper *dataTypesHelper
 }
 
@@ -44,9 +44,9 @@ type invertedSorter struct {
 //     with the remaining keys, guaranteeing full lexicographic ordering without
 //     resorting to an in-memory N log N sort.
 //
-// No locks are taken; the sorter assumes the underlying lsmkv.Store provides
+// No locks are taken; the sorter assumes the underlying lsmkv.BucketLookup provides
 // its usual read-concurrency guarantees.
-func NewInvertedSorter(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *invertedSorter {
+func NewInvertedSorter(store lsmkv.BucketLookup, dataTypesHelper *dataTypesHelper) *invertedSorter {
 	return &invertedSorter{
 		store:           store,
 		dataTypesHelper: dataTypesHelper,

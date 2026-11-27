@@ -177,6 +177,7 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 
 	// Before analysis, for the reason given in updateInvertedIndexLSM.
 	st := s.loadPropValueIndexState()
+	buckets := s.store
 	previousProps, previousNilProps, previousNestedProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
@@ -193,7 +194,7 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	// For any NotEquals filter, we do an Equals filter and invert it's results.
 	s.bitmapFactory.RemoveIds(docID)
 
-	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID, st)
+	err = s.deleteFromInvertedIndicesLSM(buckets, previousProps, previousNilProps, docID, st)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
@@ -204,7 +205,7 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("migration double-write delete: %w", err)
 	}
 
-	if err = s.deleteNestedInvertedIndicesLSM(previousNestedProps, docID); err != nil {
+	if err = s.deleteNestedInvertedIndicesLSM(buckets, previousNestedProps, docID); err != nil {
 		return fmt.Errorf("delete nested inverted indices: %w", err)
 	}
 

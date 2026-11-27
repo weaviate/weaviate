@@ -48,12 +48,12 @@ const (
 )
 
 type queryPlanner struct {
-	store            *lsmkv.Store
+	store            lsmkv.BucketLookup
 	dataTypesHelper  *dataTypesHelper
 	invertedDisabled *runtime.DynamicValue[bool]
 }
 
-// NewQueryPlanner wires a lightweight cost-based planner around an lsmkv.Store.
+// NewQueryPlanner wires a lightweight cost-based planner around an lsmkv.BucketLookup.
 // The planner’s only job is to decide—per user query—whether it is cheaper to
 // satisfy an ORDER-BY clause by
 //
@@ -64,7 +64,7 @@ type queryPlanner struct {
 // Both the store and the DataTypesHelper are passed by reference and may be
 // shared across many concurrent planners; the function does not assume
 // ownership or perform any locking.
-func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper,
+func NewQueryPlanner(store lsmkv.BucketLookup, dataTypesHelper *dataTypesHelper,
 	invertedDisabled *runtime.DynamicValue[bool],
 ) *queryPlanner {
 	return &queryPlanner{

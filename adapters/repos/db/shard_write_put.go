@@ -547,6 +547,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	// publishes the overlay before it disarms, so a disarmed snapshot means
 	// the analysis below already sees the overlay.
 	st := s.loadPropValueIndexState()
+	buckets := s.store
 
 	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
 	if err != nil {
@@ -606,10 +607,10 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if prevObject != nil {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
+		if err := s.deleteFromInvertedIndicesLSM(buckets, propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
-		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
+		if err := s.deleteNestedInvertedIndicesLSM(buckets, prevNestedProps, status.oldDocID); err != nil {
 			return fmt.Errorf("delete nested inverted indices: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
@@ -626,10 +627,10 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
+	if err := s.extendInvertedIndicesLSM(buckets, propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
-	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
+	if err := s.extendNestedInvertedIndicesLSM(buckets, nestedProps, status.docID); err != nil {
 		return fmt.Errorf("put nested inverted indices: %w", err)
 	}
 	s.metrics.InvertedExtend(before, len(propsToAdd))

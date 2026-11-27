@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -167,7 +168,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		}
 	}
 
-	if err := b.writeInverted(invertedMerger.Merge()); err != nil {
+	if err := b.writeInverted(b.shard.Store(), invertedMerger.Merge()); err != nil {
 		for i := range errs {
 			errs[i] = errors.Wrap(err, "write inverted batch")
 		}
@@ -219,15 +220,15 @@ func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger
 	return nil
 }
 
-func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
+func (b *referencesBatcher) writeInverted(buckets lsmkv.BucketLookup, in inverted.DeltaMergeResult) error {
 	before := time.Now()
-	if err := b.writeInvertedAdditions(in.Additions); err != nil {
+	if err := b.writeInvertedAdditions(buckets, in.Additions); err != nil {
 		return errors.Wrap(err, "write additions")
 	}
 	b.shard.Metrics().InvertedExtend(before, len(in.Additions))
 
 	before = time.Now()
-	if err := b.writeInvertedDeletions(in.Deletions); err != nil {
+	if err := b.writeInvertedDeletions(buckets, in.Deletions); err != nil {
 		return errors.Wrap(err, "write deletions")
 	}
 	b.shard.Metrics().InvertedDeleteDelta(before)
@@ -236,13 +237,13 @@ func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 }
 
 // TODO text_rbm_inverted_index unify bucket write
-func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) error {
+func (b *referencesBatcher) writeInvertedDeletions(buckets lsmkv.BucketLookup, in []inverted.MergeProperty) error {
 	for _, prop := range in {
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := buckets.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
@@ -262,13 +263,13 @@ func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) 
 }
 
 // TODO text_rbm_inverted_index unify bucket write
-func (b *referencesBatcher) writeInvertedAdditions(in []inverted.MergeProperty) error {
+func (b *referencesBatcher) writeInvertedAdditions(buckets lsmkv.BucketLookup, in []inverted.MergeProperty) error {
 	for _, prop := range in {
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := buckets.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}

@@ -84,6 +84,13 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, loadL
 	return s, s.init()
 }
 
+// BucketLookup resolves bucket names. A caller holds one lookup for a whole
+// query or write, so all its buckets come from the same lookup.
+type BucketLookup interface {
+	Bucket(name string) *Bucket
+	AcquireBucketForRead(name string) (*Bucket, func())
+}
+
 func (s *Store) Bucket(name string) *Bucket {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()

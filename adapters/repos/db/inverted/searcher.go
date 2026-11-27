@@ -51,7 +51,7 @@ type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {
 	logger                  logrus.FieldLogger
-	store                   *lsmkv.Store
+	store                   lsmkv.BucketLookup
 	getClass                func(string) *models.Class
 	classSearcher           ClassSearcher // to allow recursive searches on ref-props
 	propIndices             propertyspecific.Indices
@@ -124,7 +124,7 @@ func missingFilterIndexError(prop *models.Property) error {
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
 	"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 
-func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
+func NewSearcher(logger logrus.FieldLogger, store lsmkv.BucketLookup,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,

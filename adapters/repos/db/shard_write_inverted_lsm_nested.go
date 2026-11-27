@@ -20,26 +20,28 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) deleteNestedInvertedIndicesLSM(nestedProps []inverted.NestedProperty, docID uint64) error {
+func (s *Shard) deleteNestedInvertedIndicesLSM(buckets lsmkv.BucketLookup,
+	nestedProps []inverted.NestedProperty, docID uint64,
+) error {
 	for _, np := range nestedProps {
-		if err := s.deleteNestedFilterableIndex(np, docID); err != nil {
+		if err := s.deleteNestedFilterableIndex(buckets, np, docID); err != nil {
 			return err
 		}
 		// TODO: delete nested searchable index (Phase 2)
 		// TODO: delete nested rangeable index (Phase 3)
-		if err := s.deleteNestedMetaIndex(np, docID); err != nil {
+		if err := s.deleteNestedMetaIndex(buckets, np, docID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Shard) deleteNestedFilterableIndex(np inverted.NestedProperty, docID uint64) error {
+func (s *Shard) deleteNestedFilterableIndex(buckets lsmkv.BucketLookup, np inverted.NestedProperty, docID uint64) error {
 	if !np.HasFilterableIndex {
 		return nil
 	}
 
-	bucket := s.store.Bucket(helpers.BucketNestedFromPropNameLSM(np.Name))
+	bucket := buckets.Bucket(helpers.BucketNestedFromPropNameLSM(np.Name))
 	if bucket == nil {
 		return fmt.Errorf("nested prop %q: no filterable value bucket found", np.Name)
 	}
@@ -50,12 +52,12 @@ func (s *Shard) deleteNestedFilterableIndex(np inverted.NestedProperty, docID ui
 	return nil
 }
 
-func (s *Shard) deleteNestedMetaIndex(np inverted.NestedProperty, docID uint64) error {
+func (s *Shard) deleteNestedMetaIndex(buckets lsmkv.BucketLookup, np inverted.NestedProperty, docID uint64) error {
 	if len(np.Idx) == 0 && len(np.Exists) == 0 {
 		return nil
 	}
 
-	bucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(np.Name))
+	bucket := buckets.Bucket(helpers.BucketNestedMetaFromPropNameLSM(np.Name))
 	if bucket == nil {
 		return fmt.Errorf("nested prop %q: no meta bucket found", np.Name)
 	}
@@ -66,26 +68,28 @@ func (s *Shard) deleteNestedMetaIndex(np inverted.NestedProperty, docID uint64) 
 	return nil
 }
 
-func (s *Shard) extendNestedInvertedIndicesLSM(nestedProps []inverted.NestedProperty, docID uint64) error {
+func (s *Shard) extendNestedInvertedIndicesLSM(buckets lsmkv.BucketLookup,
+	nestedProps []inverted.NestedProperty, docID uint64,
+) error {
 	for _, np := range nestedProps {
-		if err := s.extendNestedFilterableIndex(np, docID); err != nil {
+		if err := s.extendNestedFilterableIndex(buckets, np, docID); err != nil {
 			return err
 		}
 		// TODO: extend nested searchable index (Phase 2)
 		// TODO: extend nested rangeable index (Phase 3)
-		if err := s.extendNestedMetaIndex(np, docID); err != nil {
+		if err := s.extendNestedMetaIndex(buckets, np, docID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Shard) extendNestedFilterableIndex(np inverted.NestedProperty, docID uint64) error {
+func (s *Shard) extendNestedFilterableIndex(buckets lsmkv.BucketLookup, np inverted.NestedProperty, docID uint64) error {
 	if !np.HasFilterableIndex {
 		return nil
 	}
 
-	bucket := s.store.Bucket(helpers.BucketNestedFromPropNameLSM(np.Name))
+	bucket := buckets.Bucket(helpers.BucketNestedFromPropNameLSM(np.Name))
 	if bucket == nil {
 		return fmt.Errorf("nested prop %q: no filterable value bucket found", np.Name)
 	}
@@ -96,12 +100,12 @@ func (s *Shard) extendNestedFilterableIndex(np inverted.NestedProperty, docID ui
 	return nil
 }
 
-func (s *Shard) extendNestedMetaIndex(np inverted.NestedProperty, docID uint64) error {
+func (s *Shard) extendNestedMetaIndex(buckets lsmkv.BucketLookup, np inverted.NestedProperty, docID uint64) error {
 	if len(np.Idx) == 0 && len(np.Exists) == 0 {
 		return nil
 	}
 
-	bucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(np.Name))
+	bucket := buckets.Bucket(helpers.BucketNestedMetaFromPropNameLSM(np.Name))
 	if bucket == nil {
 		return fmt.Errorf("nested prop %q: no meta bucket found", np.Name)
 	}

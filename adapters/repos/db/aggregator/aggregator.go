@@ -48,7 +48,7 @@ type vectorIndexMulti interface {
 
 type Aggregator struct {
 	logger                  logrus.FieldLogger
-	store                   *lsmkv.Store
+	store                   lsmkv.BucketLookup
 	params                  aggregation.Params
 	getSchema               schemaUC.SchemaGetter
 	propIndices             propertyspecific.Indices // to support geo-filters
@@ -96,7 +96,7 @@ func (a *Aggregator) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *
 	return a
 }
 
-func New(store *lsmkv.Store, params aggregation.Params,
+func New(store lsmkv.BucketLookup, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, propIndices propertyspecific.Indices,
 	classSearcher inverted.ClassSearcher,
 	stopwordProvider *stopwords.Provider, shardVersion uint16,
