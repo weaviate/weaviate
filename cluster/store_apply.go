@@ -145,8 +145,10 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 }
 
 // lockHomeNodes locks the namespace whose HomeNodes PreApplyFilter reads for a class
-// create, restore or update, and WriteTenantNodes for a tenant add or update, and
-// returns the unlock. Those commands share it, and an UPDATE_NAMESPACE takes it exclusively.
+// create, restore or update, and WriteTenantNodes for a tenant add. Those commands
+// share it, and an UPDATE_NAMESPACE takes it exclusively. A tenant update skips it, so
+// no activation waits behind a home-node update. WriteTenantNodes can then give an
+// unfreeze the HomeNodes a pending UPDATE_NAMESPACE replaces.
 func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_UPDATE_NAMESPACE:
@@ -157,7 +159,7 @@ func (st *Store) lockHomeNodes(req *api.ApplyRequest) (func(), error) {
 		st.homeNodesLocks.Lock(ns)
 		return func() { st.homeNodesLocks.Unlock(ns) }, nil
 	case api.ApplyRequest_TYPE_ADD_CLASS, api.ApplyRequest_TYPE_RESTORE_CLASS, api.ApplyRequest_TYPE_UPDATE_CLASS,
-		api.ApplyRequest_TYPE_ADD_TENANT, api.ApplyRequest_TYPE_UPDATE_TENANT:
+		api.ApplyRequest_TYPE_ADD_TENANT:
 		ns := namespacing.NamespaceFromQualified(req.Class)
 		if ns == "" {
 			return func() {}, nil

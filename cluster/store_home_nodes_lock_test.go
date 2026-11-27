@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,7 +77,7 @@ func acmeHomeNodesCmd(t *testing.T, homeNodes ...string) *command.ApplyRequest {
 // TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands shrinks acme to n2
 // and sends a class command at factor 3 or a tenant add or unfreeze whose node list is n1. Blocker's AddClass
 // blocks every later apply, so the first of the two is appended but unapplied when the second
-// arrives. The second must see the first's outcome.
+// arrives. The second must see the first's outcome, except an unfreeze, which is appended at once.
 func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *testing.T) {
 	const (
 		createRefused = "replication factor 3 exceeds the 1 home node(s) of the namespace"
@@ -91,13 +92,14 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 	}
 
 	tests := []struct {
-		name       string
-		typ        command.ApplyRequest_Type
-		held       bool // acme:Books exists at factor 1 before the shrink
-		frozenT1   bool // t1 exists FROZEN on n1 before the shrink
-		classFirst bool // the class command is appended first, the shrink otherwise
-		wantErr    string
-		wantT1     []string // t1's nodes once the second command applies, when wantErr is empty
+		name          string
+		typ           command.ApplyRequest_Type
+		held          bool // acme:Books exists at factor 1 before the shrink
+		frozenT1      bool // t1 exists FROZEN on n1 before the shrink
+		classFirst    bool // the class command is appended first, the shrink otherwise
+		appendedEarly bool // the second command is appended while the first is unapplied
+		wantErr       string
+		wantT1        []string // t1's nodes once the second command applies, when wantErr is empty
 	}{
 		{name: "a create behind a shrink is refused", typ: command.ApplyRequest_TYPE_ADD_CLASS, wantErr: createRefused},
 		{name: "a shrink behind a create is refused", typ: command.ApplyRequest_TYPE_ADD_CLASS, classFirst: true, wantErr: shrinkRefused},
@@ -105,8 +107,8 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 		{name: "a restore behind a shrink is refused", typ: command.ApplyRequest_TYPE_RESTORE_CLASS, wantErr: createRefused},
 		{name: "a tenant add behind a shrink goes on the new home node", typ: command.ApplyRequest_TYPE_ADD_TENANT, held: true, wantT1: []string{"n2"}},
 		{
-			name: "an unfreeze behind a shrink goes on the new home node", typ: command.ApplyRequest_TYPE_UPDATE_TENANT,
-			held: true, frozenT1: true, wantT1: []string{"n2"},
+			name: "an unfreeze racing a shrink goes on the old home node", typ: command.ApplyRequest_TYPE_UPDATE_TENANT,
+			held: true, frozenT1: true, appendedEarly: true, wantT1: []string{"n1"},
 		},
 	}
 	for _, tt := range tests {
@@ -117,6 +119,9 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 				command.Namespace{Name: "acme", HomeNodes: []string{"n1", "n2", "n3"}}, 1))
 
 			entered, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			t.Cleanup(unblock)
 			m.indexer.ExpectedCalls = nil
 			m.indexer.On("Close", mock.Anything).Return(nil)
 			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -158,11 +163,17 @@ func TestStoreExecute_HomeNodesUpdateOrdersAgainstClassAndTenantCommands(t *test
 			firstDone := executeAsync(st, first)
 			require.Eventually(t, func() bool { return st.raft.Load().LastIndex() > appended },
 				10*time.Second, 10*time.Millisecond, "the first command was never appended")
+			firstAppended := st.raft.Load().LastIndex()
 			secondDone := executeAsync(st, second)
-			// Time for the second command to be judged and appended, unless it
-			// waits for the first to apply.
-			time.Sleep(300 * time.Millisecond)
-			close(release)
+			if tt.appendedEarly {
+				require.Eventually(t, func() bool { return st.raft.Load().LastIndex() > firstAppended },
+					10*time.Second, 10*time.Millisecond, "the second command waited for the first to apply")
+			} else {
+				// Time for the second command to be judged and appended, unless it
+				// waits for the first to apply.
+				time.Sleep(300 * time.Millisecond)
+			}
+			unblock()
 
 			for _, done := range []<-chan error{blocker, firstDone} {
 				select {
