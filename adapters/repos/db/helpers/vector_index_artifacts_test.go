@@ -36,14 +36,29 @@ func TestVectorIndexArtifactsFor_CoversEveryArtifact(t *testing.T) {
 		"hfresh_postings_vectors_vec",      // hfresh postings
 		"hfresh_shared_vectors_vec",        // hfresh shared metadata
 		"vectors_compressed_vec_centroids", // hfresh's nested centroids HNSW
+		// postingedge: its postings, its tables by doc id, the marks of its
+		// deleted vectors, the vectors it gathers before its first build, and
+		// the changes to its edges that wait for their rows
+		"postingedge_postings_vectors_vec",
+		"postingedge_map_vectors_vec",
+		"postingedge_routing_vectors_vec",
+		"postingedge_edgedists_vectors_vec",
+		"postingedge_deleted_vectors_vec",
+		"postingedge_staging_vectors_vec",
+		"postingedge_pending_vectors_vec",
+		// and the 8-bit RQ codes of its centroids, the bucket of its
+		// centroid graph
+		"vectors_compressed_postingedge_centroids_vectors_vec",
 	}, got.LSMBuckets)
 
 	assert.ElementsMatch(t, []string{
 		"vectors_vec.hnsw.commitlog.d",
 		"vectors_vec.hnsw.snapshot.d",
 		"vectors_vec.hfresh.d",
-		"vectors_vec.queue.d", // async-indexing queue
-		"meta_vec.db",         // flat quantisation metadata (a FILE)
+		"vectors_vec.postingedge.d",     // postingedge's own files, its centroid graph among them
+		"vectors_vec.postingedge.build", // what a first build of it left, if it did not end
+		"vectors_vec.queue.d",           // async-indexing queue
+		"meta_vec.db",                   // flat quantisation metadata (a FILE)
 	}, got.ShardDirs)
 
 	assert.Len(t, got.All(), len(got.LSMBuckets)+len(got.ShardDirs))

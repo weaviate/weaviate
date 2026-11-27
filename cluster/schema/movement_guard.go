@@ -22,6 +22,7 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	postingedgeent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
 )
 
 // dangerousVectorConfigChange returns a non-empty reason when the update would rewrite a
@@ -112,6 +113,8 @@ func normalizeVectorConfig(cfg any) (any, bool) {
 		return c, true
 	case hfreshent.UserConfig:
 		return normalizeHFresh(c), true
+	case postingedgeent.UserConfig:
+		return normalizePostingEdge(c), true
 	default:
 		return nil, false
 	}
@@ -169,6 +172,15 @@ func normalizeHFresh(c hfreshent.UserConfig) hfreshent.UserConfig {
 	c.SearchProbe = 0
 	c.RQ.RescoreLimit = 0
 	c.RQ.RescoreFactor = 0
+	return c
+}
+
+// normalizePostingEdge zeroes the query-time-safe leaves of a posting-edge config on a value copy.
+// Only ef and rq.rescoreLimit are applied to a live index (postingedge.ValidateUserConfigUpdate);
+// every other leaf shaped what is on disk, so a change to it still blocks the move.
+func normalizePostingEdge(c postingedgeent.UserConfig) postingedgeent.UserConfig {
+	c.EF = 0
+	c.RQ.RescoreLimit = 0
 	return c
 }
 

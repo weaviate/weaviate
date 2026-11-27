@@ -1,0 +1,1155 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package postingedge
+
+import (
+	"context"
+	"encoding/binary"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+)
+
+// growFixture is an index that grows on disk next to its twin in memory: the
+// streaming index of v2.x over the same base, with the same configuration.
+// They share one centroid graph, the one of the index on disk: the twin asks
+// it and never changes it. A graph draws its levels at random, so two graphs
+// grown apart would not be the same graph, and neither would the indexes.
+type growFixture struct {
+	g        *growIndex
+	twin     *streamIndex
+	index    *Index
+	own      *centroidIndex // the graph the twin was built with
+	all      [][]float32
+	queries  [][]float32
+	provider distancer.Provider
+	uc       UserConfig
+	dir      string
+	inserted int
+	// opened is what the twin had counted when the index on disk was last
+	// opened: the index on disk counts from there.
+	opened streamStats
+	// leveled opens the store with its leveled compaction.
+	leveled bool
+	// batchOfOne inserts every vector on disk as a batch of one (v5.2),
+	// which is the same insert.
+	batchOfOne bool
+	// how is how the index on disk is opened, but for its compaction: whether
+	// it keeps in a bucket what waits of its edges, and whether it deletes.
+	how growOpen
+	// written is what the twin wrote for its last insert.
+	written struct {
+		docID   uint64
+		posting uint32
+		edges   []uint32
+	}
+}
+
+// newGrowFixture builds the base in batch over the first vectors, writes it
+// in the format that grows and opens it, with its twin. bits is the code the
+// endpoints are ranked by, 0 for the full code.
+func newGrowFixture(t *testing.T, total, base, dims int, cosine bool, bits, threshold int) *growFixture {
+	t.Helper()
+	return newGrowFixtureWith(t, total, base, dims, cosine, bits, threshold, 0)
+}
+
+// newGrowFixtureWith is newGrowFixture with consolidated edges when
+// consolidate is positive: the changes a row of edges is written after.
+func newGrowFixtureWith(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int) *growFixture {
+	t.Helper()
+	return newGrowFixtureRows(t, total, base, dims, cosine, bits, threshold, consolidate, false)
+}
+
+// newGrowFixtureRows is newGrowFixtureWith, with the rows of edges in the
+// bucket of postings, next to the members, when withMembers is set (v5.3).
+func newGrowFixtureRows(t *testing.T, total, base, dims int, cosine bool, bits, threshold, consolidate int, withMembers bool,
+) *growFixture {
+	t.Helper()
+	return newGrowFixtureFormat(t, total, base, dims, cosine, bits, threshold,
+		growConfig{consolidate: consolidate, rowsWithMembers: withMembers})
+}
+
+// newGrowFixtureFormat is newGrowFixture with the format of the index on disk
+// taken from the given config: its edges, whether its vectors have slots, and
+// whether what waits of its edges is kept in a bucket.
+func newGrowFixtureFormat(t *testing.T, total, base, dims int, cosine bool, bits, threshold int, format growConfig,
+) *growFixture {
+	t.Helper()
+	return newGrowFixtureConfig(t, total, base, dims, cosine, bits, threshold, format, smallConfig())
+}
+
+// smallGrowConfig is smallConfig with postings of 20 vectors. A base of a few
+// hundred vectors then has more postings than the fixture has clusters, so
+// that the neighbors of a vector sit in other postings too: the base has
+// edges, and the inserts give inverse edges. The batch build probes 2
+// postings for the edges of a vector, of the 15 or so there are: its own and
+// the nearest other, which gives the base as many edges as probing 16 does.
+func smallGrowConfig() UserConfig {
+	uc := smallConfig()
+	uc.TargetPostingSize = 20
+	uc.BuildProbe = 2
+	return uc
+}
+
+// newSmallGrowFixture is newGrowFixtureFormat over smallGrowConfig, with 20
+// queries: the fixture of the tests that grow a few hundred vectors over a
+// base of a few hundred.
+func newSmallGrowFixture(t *testing.T, total, base, dims int, cosine bool, bits, threshold int, format growConfig,
+) *growFixture {
+	t.Helper()
+	f := newGrowFixtureConfig(t, total, base, dims, cosine, bits, threshold, format, smallGrowConfig())
+	f.queries = f.queries[:20]
+	return f
+}
+
+// growAll inserts the vectors of the fixture up to total, each the same on
+// disk and in memory.
+func (f *growFixture) growAll(t *testing.T, total int) {
+	t.Helper()
+	ctx := context.Background()
+	for f.inserted < total {
+		at := f.inserted
+		difference, err := f.insert(ctx)
+		require.NoError(t, err, "doc %d", at)
+		require.Empty(t, difference, "doc %d", at)
+	}
+}
+
+// newGrowFixtureConfig is newGrowFixtureFormat with the user config given:
+// its distance and its ef are set here, the rest is taken as it is.
+func newGrowFixtureConfig(t *testing.T, total, base, dims int, cosine bool, bits, threshold int, format growConfig,
+	uc UserConfig,
+) *growFixture {
+	t.Helper()
+	ctx := context.Background()
+	f := &growFixture{
+		all:      clusteredVectors(total, dims, 12, 4107),
+		queries:  clusteredVectors(40, dims, 12, 4108),
+		provider: distancer.NewL2SquaredProvider(),
+		uc:       uc,
+		inserted: base,
+		how:      format.open,
+	}
+	f.uc.Distance, f.uc.EF = "l2-squared", 48
+	if cosine {
+		f.provider = distancer.NewCosineDistanceProvider()
+		f.uc.Distance = "cosine"
+		for i, vector := range f.all {
+			f.all[i] = distancer.Normalize(vector)
+		}
+	}
+	vectorOf := func(id uint64) []float32 { return f.all[id] }
+	index, err := New(testConfig(t, f.all, 0, f.provider), f.uc)
+	require.NoError(t, err)
+	f.index = index
+	require.NoError(t, index.AddBatch(ctx, sequentialIDs(base, 0), f.all[:base]))
+	require.NoError(t, index.Build(ctx))
+	st := index.state.Load()
+	if bits > 0 {
+		routing, err := st.quantizer.withBits(bits)
+		require.NoError(t, err)
+		st, err = haloState(ctx, testLogger(), st, routing, vectorOf)
+		require.NoError(t, err)
+		index.state.Store(st)
+	}
+
+	f.dir = t.TempDir()
+	cfg := format
+	cfg.keys, cfg.neighbors, cfg.threshold, cfg.seed = total, f.uc.Edges, threshold, 7
+	require.NoError(t, writeGrowIndex(ctx, testLogger(), f.dir, st, cfg, f.provider, vectorOf))
+	f.twin, err = newStreamIndex(index, total, streamConfig{threshold: threshold, inverse: true, seed: 7, followGraph: true}, vectorOf)
+	require.NoError(t, err)
+	f.own = f.twin.st.centroids
+	f.twin.onWrite = func(docID uint64, p uint32, edges []uint32) error {
+		f.written.docID, f.written.posting, f.written.edges = docID, p, slices.Clone(edges)
+		return nil
+	}
+	f.open(t)
+	t.Cleanup(func() {
+		if f.g != nil {
+			require.NoError(t, f.g.close(context.Background()))
+		}
+		// The index shuts down the graph it was built with.
+		f.twin.st.centroids = f.own
+		require.NoError(t, index.Shutdown(context.Background()))
+	})
+	return f
+}
+
+// open opens the index on disk and gives its graph to the twin.
+func (f *growFixture) open(t *testing.T) {
+	t.Helper()
+	how := f.how
+	how.leveled = f.leveled
+	g, err := openGrowIndex(context.Background(), testLogger(), f.dir, f.provider, f.uc, how)
+	require.NoError(t, err)
+	g.work = &SearchStats{}
+	f.g = g
+	f.twin.st.centroids = g.st.centroids
+	f.opened = f.twin.stats.clone()
+}
+
+// reopen closes the index on disk and opens it again from its files.
+func (f *growFixture) reopen(t *testing.T) {
+	t.Helper()
+	require.NoError(t, f.g.close(context.Background()))
+	f.g = nil
+	f.open(t)
+}
+
+// insert adds the next vector to the twin and to the index on disk, and
+// tells how they differ on it, "" if they do not: its posting, its edges and
+// what the inserts add up to so far.
+func (f *growFixture) insert(ctx context.Context) (string, error) {
+	docID := uint64(f.inserted)
+	f.inserted++
+	// The twin goes first: it leaves the graph as it found it, and the index
+	// on disk then sees the graph the twin saw.
+	if err := f.twin.insert(ctx, docID, f.all[docID]); err != nil {
+		return "", errors.Wrap(err, "insert in memory")
+	}
+	if f.batchOfOne {
+		if err := f.g.insertBatch(ctx, []uint64{docID}, [][]float32{f.all[docID]}, 1); err != nil {
+			return "", errors.Wrap(err, "insert on disk, as a batch of one")
+		}
+	} else if err := f.g.insert(ctx, docID, f.all[docID]); err != nil {
+		return "", errors.Wrap(err, "insert on disk")
+	}
+	// What the twin counted since the index on disk was opened.
+	mem, disk := f.twin.stats.clone(), &f.g.stats
+	mem.Splits -= f.opened.Splits
+	mem.SplitsFailed -= f.opened.SplitsFailed
+	mem.InverseEdges -= f.opened.InverseEdges
+	mem.InverseChecks -= f.opened.InverseChecks
+	mem.SearchLoads -= f.opened.SearchLoads
+	mem.SearchRounds -= f.opened.SearchRounds
+	switch {
+	case f.written.docID != docID:
+		return "the twin did not write the doc", nil
+	case f.written.posting != f.g.lastPosting:
+		return errors.Errorf("doc %d went to posting %d on disk, %d in memory", docID, f.g.lastPosting, f.written.posting).Error(), nil
+	case !slices.Equal(f.written.edges, f.g.lastEdges):
+		return errors.Errorf("doc %d got the edges %v on disk, %v in memory", docID, f.g.lastEdges, f.written.edges).Error(), nil
+	case mem.Splits != disk.Splits || mem.SplitsFailed != disk.SplitsFailed:
+		return errors.Errorf("after doc %d, %d splits and %d failed on disk, %d and %d in memory",
+			docID, disk.Splits, disk.SplitsFailed, mem.Splits, mem.SplitsFailed).Error(), nil
+	case mem.InverseEdges != disk.InverseEdges || mem.InverseChecks != disk.InverseChecks:
+		return errors.Errorf("after doc %d, %d inverse edges of %d checks on disk, %d of %d in memory",
+			docID, disk.InverseEdges, disk.InverseChecks, mem.InverseEdges, mem.InverseChecks).Error(), nil
+	case mem.SearchLoads != disk.SearchLoads || mem.SearchRounds != disk.SearchRounds:
+		return errors.Errorf("after doc %d, the searches of the inserts loaded %d postings in %d rounds on disk, %d in %d in memory",
+			docID, disk.SearchLoads, disk.SearchRounds, mem.SearchLoads, mem.SearchRounds).Error(), nil
+	}
+	return "", nil
+}
+
+// growDifference searches one query in the twin and on disk and tells how
+// the two differ, "" if they do not.
+func growDifference(ctx context.Context, twin *streamIndex, g *growIndex, query []float32, k int) (string, error) {
+	var memory SearchStats
+	wantIDs, wantDists, err := twin.ix.search(ctx, query, k, nil, &memory)
+	if err != nil {
+		return "", errors.Wrap(err, "search in memory")
+	}
+	stats := &diskSearchStats{Work: &SearchStats{}}
+	ids, dists, err := g.search(ctx, query, k, stats)
+	if err != nil {
+		return "", errors.Wrap(err, "search from disk")
+	}
+	switch {
+	case !slices.Equal(wantIDs, ids):
+		return errors.Errorf("ids %v from disk, %v in memory", ids, wantIDs).Error(), nil
+	case !slices.Equal(wantDists, dists):
+		return errors.Errorf("distances %v from disk, %v in memory", dists, wantDists).Error(), nil
+	case diskWorkOf(&memory) != diskWorkOf(stats.Work):
+		return errors.Errorf("work %+v from disk, %+v in memory", diskWorkOf(stats.Work), diskWorkOf(&memory)).Error(), nil
+	}
+	return "", nil
+}
+
+// same checks everything the two indexes can be compared by: the coverage of
+// each, their state, and what they return for every query.
+func (f *growFixture) same(t *testing.T, at string) {
+	t.Helper()
+	ctx := context.Background()
+	require.NoError(t, f.g.cleanCentroidGraph(), at)
+	require.NoError(t, f.twin.checkCoverage(), at)
+	require.NoError(t, f.g.checkCoverage(), at)
+	require.NoError(t, f.g.sameAs(f.twin), at)
+	for i, query := range f.queries {
+		difference, err := growDifference(ctx, f.twin, f.g, query, 10)
+		require.NoError(t, err, "%s, query %d", at, i)
+		require.Empty(t, difference, "%s, query %d", at, i)
+	}
+}
+
+// The index that grows on disk is the streaming index of v2.x with its
+// postings in the store: grown by the same inserts, it is the same index at
+// every step. The store is flushed and compacted on the way, so that rows
+// are read across segments, lists that were replaced meet their tombstones
+// in another segment, and the rows of split postings are dropped; and the
+// index is closed and opened again in the middle, and goes on. Postings of
+// 20 and a threshold of 25 split a posting every 5 to 10 inserts into it: 100
+// inserts over a base of 300 split about ten times. The same over a base of
+// 1 000 and 1 200 inserts is TestGrowInsertsEqualMemoryAtScale, with -tags
+// postingedgebench.
+func TestGrowInsertsEqualMemory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tests := []struct {
+		name      string
+		cosine    bool
+		bits      int
+		threshold int
+		// flushEvery and compactEvery are in inserts, 0 for never.
+		flushEvery, compactEvery int
+		reopenAt                 int
+		// leveled gives the store its leveled compaction, and one round of
+		// it after every flush: what was replaced then stays in segments of
+		// several levels, with its tombstones.
+		leveled bool
+	}{
+		{name: "the full code, few splits, everything in the memtable", threshold: 200},
+		{name: "a sketch in memory, cosine", bits: 128, cosine: true, threshold: 25, flushEvery: 37, compactEvery: 74, reopenAt: 57},
+		{name: "the leveled compaction of the store", bits: 64, threshold: 25, flushEvery: 16, reopenAt: 80, leveled: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			const total, base, dims = 400, 300, 32
+			f := newSmallGrowFixture(t, total, base, dims, tt.cosine, tt.bits, tt.threshold, growConfig{})
+			if tt.leveled {
+				f.leveled = true
+				f.reopen(t)
+			}
+			f.same(t, "the base")
+			for f.inserted < total {
+				at := f.inserted
+				difference, err := f.insert(ctx)
+				require.NoError(t, err, "doc %d", at)
+				require.Empty(t, difference)
+				done := f.inserted - base
+				if tt.flushEvery > 0 && done%tt.flushEvery == 0 {
+					require.NoError(t, f.g.flushAll())
+					if tt.leveled {
+						f.g.compaction.CycleCallback(func() bool { return false })
+					}
+				}
+				if tt.compactEvery > 0 && done%tt.compactEvery == 0 {
+					_, err := f.g.compactAll()
+					require.NoError(t, err)
+				}
+				if done == tt.reopenAt {
+					f.same(t, "before closing")
+					f.reopen(t)
+					f.same(t, "opened again")
+				}
+			}
+			f.same(t, "at the end")
+			assert.Equal(t, total, f.g.meta.Live)
+			if tt.threshold < 100 {
+				assert.Greater(t, f.g.meta.Splits, 5, "a threshold of %d over postings of 20 splits", tt.threshold)
+			}
+			assert.Positive(t, f.g.stats.InverseEdges)
+			assert.Zero(t, f.g.stats.InverseListReads, "the search of an insert loads the posting of every neighbor it finds")
+			assert.Zero(t, f.g.stats.InverseVectors.N, "the rescore of an insert reads the vector of every neighbor it finds")
+
+			if tt.leveled {
+				segments, err := os.ReadDir(filepath.Join(f.dir, diskStoreDir, growBucketPostings))
+				require.NoError(t, err)
+				assert.Greater(t, len(segments), 4, "the leveled compaction leaves the bucket in several segments")
+				// The compaction for good is the forced one.
+				f.leveled = false
+				f.reopen(t)
+			}
+			// Compacted, closed and opened again, it is still the same index.
+			_, err := f.g.compactAll()
+			require.NoError(t, err)
+			f.same(t, "compacted")
+			f.reopen(t)
+			f.same(t, "compacted and opened again")
+			require.Error(t, f.g.insert(ctx, 0, f.all[0]), "a doc goes in once")
+			require.Error(t, f.g.insert(ctx, uint64(total), f.all[0]), "no room past the keys")
+		})
+	}
+}
+
+// growRowValues returns the values the store holds for a row.
+func growRowValues(t *testing.T, g *growIndex, p uint32, block byte) [][]byte {
+	t.Helper()
+	values, err := g.postings.SetList(diskKey(p, block))
+	require.NoError(t, err)
+	return values
+}
+
+// After a compaction the store holds what the index is made of and nothing
+// else: the rows of the postings that were split are gone, and so are the
+// lists that were replaced, with their tombstones.
+func TestGrowCompactionDropsWhatNothingReads(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const total, base, dims = 380, 300, 32
+	f := newSmallGrowFixture(t, total, base, dims, false, 64, 25, growConfig{})
+	for f.inserted < total {
+		difference, err := f.insert(ctx)
+		require.NoError(t, err)
+		require.Empty(t, difference)
+		if f.inserted%30 == 0 {
+			require.NoError(t, f.g.flushAll())
+		}
+	}
+	g := f.g
+	require.Positive(t, g.stats.Splits)
+	require.Positive(t, g.stats.InverseEdges)
+	before, err := sizeOnDisk(g.dir + "/" + diskStoreDir + "/" + growBucketPostings)
+	require.NoError(t, err)
+	rounds, err := g.compactAll()
+	require.NoError(t, err)
+	require.Positive(t, rounds)
+	after, err := sizeOnDisk(g.dir + "/" + diskStoreDir + "/" + growBucketPostings)
+	require.NoError(t, err)
+	assert.Less(t, after, before, "the compaction makes the bucket smaller")
+
+	retired, payload := 0, int64(0)
+	for p := range uint32(g.meta.Postings) {
+		members, lists := growRowValues(t, g, p, diskBlockMembers), growRowValues(t, g, p, diskBlockEdges)
+		if g.retired[p] {
+			retired++
+			assert.Empty(t, members, "the members of retired posting %d", p)
+			assert.Empty(t, lists, "the edges of retired posting %d", p)
+			continue
+		}
+		assert.Len(t, members, int(g.size[p]), "posting %d", p)
+		assert.Len(t, lists, int(g.size[p]), "posting %d has one list per member", p)
+		for _, value := range append(members, lists...) {
+			payload += int64(len(value))
+		}
+	}
+	assert.Equal(t, g.stats.Splits, retired)
+	// Every value is framed by 9 bytes, and a row by its key and 12 more:
+	// what is left of the bucket is that and the index of its segment.
+	values := int64(2 * total)
+	assert.Less(t, after, payload+9*values+int64(g.meta.Postings)*2*64+64*1024,
+		"the bucket takes %d bytes for %d of values", after, payload)
+	f.same(t, "compacted")
+}
+
+// A search rescores max(rescoreLimit, k) candidates, and at least
+// rescorePerK times k where that is set: the automatic rescore limit of the
+// index a shard opens asks for four times k (searchConfig). With no rescore
+// it stays without. So in the index that grows on disk and in the one in
+// memory, which share the rule.
+func TestRescorePerK(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newSmallGrowFixture(t, 350, 300, 32, false, 64, 25, growConfig{})
+	f.growAll(t, 350)
+	// Postings of 20 reach few others by their edges: a search enters by
+	// four, which hold more than the 60 candidates the largest case rescores.
+	f.uc.EntryPostings = 4
+	tests := []struct {
+		name           string
+		limit, perK, k int
+		wantRescored   int
+	}{
+		{name: "the limit, with no floor of k", limit: 30, k: 10, wantRescored: 30},
+		{name: "four times k, over the limit", limit: 30, perK: 4, k: 10, wantRescored: 40},
+		{name: "the limit, over four times k", limit: 30, perK: 4, k: 5, wantRescored: 30},
+		{name: "four times a larger k", limit: 30, perK: 4, k: 15, wantRescored: 60},
+		{name: "k, over the limit", limit: 30, k: 50, wantRescored: 50},
+		{name: "no rescore", limit: 0, perK: 4, k: 10, wantRescored: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := f.uc
+			uc.RescoreLimit, uc.RescorePerK = tt.limit, tt.perK
+			require.NoError(t, uc.Validate())
+			f.g.ix.storeSearchConfig(uc)
+			f.twin.ix.storeSearchConfig(uc)
+			for i, query := range f.queries[:5] {
+				stats := &diskSearchStats{}
+				ids, _, err := f.g.search(ctx, query, tt.k, stats)
+				require.NoError(t, err)
+				require.Len(t, ids, tt.k, "query %d", i)
+				assert.Equal(t, tt.wantRescored, stats.Rescored, "query %d, on disk", i)
+				var memory SearchStats
+				_, _, err = f.twin.ix.search(ctx, query, tt.k, nil, &memory)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantRescored, memory.Rescored, "query %d, in memory", i)
+			}
+		})
+	}
+}
+
+// checkCoverage reads the store, and tells when what is there is not an
+// index: every break below is made in the store, behind the index's back.
+func TestGrowCoverageCatches(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const total, base, dims = 360, 300, 32
+	// One index grown by inserts, with postings split, and closed: every case
+	// breaks a copy of its files, opened as an index of its own. A doc and its
+	// posting are the same in every case.
+	f := newSmallGrowFixture(t, total, base, dims, false, 64, 25, growConfig{})
+	f.growAll(t, total)
+	require.Positive(t, f.g.stats.Splits)
+	require.Positive(t, f.g.stats.InverseEdges)
+	require.NoError(t, f.g.close(ctx))
+	f.g = nil
+	tests := []struct {
+		name string
+		// harm breaks the store and returns what the check must say.
+		harm func(t *testing.T, g *growIndex, docID uint64, p uint32) string
+	}{
+		{name: "a doc the map puts elsewhere", harm: func(t *testing.T, g *growIndex, docID uint64, p uint32) string {
+			other := (p + 1) % uint32(g.meta.Postings)
+			require.NoError(t, g.posts.Put(growDocKey(docID), growUint32Value(other)))
+			return "the map on disk puts doc"
+		}},
+		{name: "a doc in two postings", harm: func(t *testing.T, g *growIndex, docID uint64, p uint32) string {
+			other := (p + 1) % uint32(g.meta.Postings)
+			for g.retired[other] {
+				other = (other + 1) % uint32(g.meta.Postings)
+			}
+			code := make([]uint64, g.meta.ScanCodeWords)
+			require.NoError(t, g.postings.SetAdd(diskKey(other, diskBlockMembers), [][]byte{growMemberValue(docID, code)}))
+			require.NoError(t, g.postings.SetAdd(diskKey(other, diskBlockEdges), [][]byte{growEdgesValue(docID, nil)}))
+			g.size[other]++
+			return "which the map puts in"
+		}},
+		{name: "a member without a list of edges", harm: func(t *testing.T, g *growIndex, docID uint64, p uint32) string {
+			for _, value := range growRowValues(t, g, p, diskBlockEdges) {
+				if uint64(binary.LittleEndian.Uint32(value)) == docID {
+					require.NoError(t, g.postings.SetDeleteSingle(diskKey(p, diskBlockEdges), slices.Clone(value)))
+				}
+			}
+			return "lists of edges"
+		}},
+		{name: "a member with two lists of edges", harm: func(t *testing.T, g *growIndex, docID uint64, p uint32) string {
+			require.NoError(t, g.postings.SetAdd(diskKey(p, diskBlockEdges), [][]byte{growEdgesValue(docID, []uint32{1, 2, 3})}))
+			return "lists of edges"
+		}},
+		{name: "an edge into its own posting", harm: func(t *testing.T, g *growIndex, docID uint64, p uint32) string {
+			var mate uint64
+			for _, value := range growRowValues(t, g, p, diskBlockMembers) {
+				if id := binary.LittleEndian.Uint64(value); id != docID {
+					mate = id
+				}
+			}
+			for _, value := range growRowValues(t, g, p, diskBlockEdges) {
+				if uint64(binary.LittleEndian.Uint32(value)) == docID {
+					require.NoError(t, g.postings.SetDeleteSingle(diskKey(p, diskBlockEdges), slices.Clone(value)))
+				}
+			}
+			require.NoError(t, g.postings.SetAdd(diskKey(p, diskBlockEdges), [][]byte{growEdgesValue(docID, []uint32{uint32(mate)})}))
+			return "an edge into its own posting"
+		}},
+		{name: "distances that do not match the edges", harm: func(t *testing.T, g *growIndex, docID uint64, _ uint32) string {
+			require.NoError(t, g.dists.Put(growDocKey(docID), growDistsValue(make([]float32, 40))))
+			return "bytes of distances"
+		}},
+		{name: "a routing code that changed", harm: func(t *testing.T, g *growIndex, docID uint64, _ uint32) string {
+			require.NoError(t, g.routing.Put(growDocKey(docID), growCodeValue(make([]uint64, g.meta.RoutingCodeWords))))
+			return "another routing code on disk"
+		}},
+		{name: "a live posting out of the graph", harm: func(t *testing.T, g *growIndex, _ uint64, p uint32) string {
+			require.NoError(t, g.st.centroids.graph.Delete(uint64(p)))
+			return "is not in the centroid graph"
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			require.NoError(t, os.CopyFS(dir, os.DirFS(f.dir)))
+			g, err := openGrowIndex(ctx, testLogger(), dir, f.provider, f.uc, f.how)
+			require.NoError(t, err)
+			// The store is left as it is: the index is only closed.
+			defer func() { require.NoError(t, g.close(ctx)) }()
+			require.NoError(t, g.cleanCentroidGraph())
+			require.NoError(t, g.checkCoverage())
+			// A doc that was inserted, in a posting with more than one member.
+			docID := uint64(total - 1)
+			p := g.st.side.postingOf[docID]
+			for g.size[p] < 2 {
+				docID--
+				p = g.st.side.postingOf[docID]
+			}
+			want := tt.harm(t, g, docID, p)
+			require.ErrorContains(t, g.checkCoverage(), want)
+		})
+	}
+}
+
+// An index is written from one built in batch, and opened only as what it
+// is.
+func TestGrowIndexErrors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const total, base, dims = 320, 300, 32
+	f := newSmallGrowFixture(t, total, base, dims, false, 64, 30, growConfig{})
+	st := f.twin.st
+	vectorOf := func(id uint64) []float32 { return f.all[id] }
+
+	err := writeGrowIndex(ctx, testLogger(), t.TempDir(), st, growConfig{keys: total, neighbors: 16, threshold: 60}, f.provider, vectorOf)
+	require.ErrorContains(t, err, "keyed by doc id already")
+	require.ErrorIs(t, writeGrowIndex(ctx, testLogger(), t.TempDir(), nil, growConfig{}, f.provider, vectorOf), ErrNotBuilt)
+
+	_, err = openGrowIndex(ctx, testLogger(), t.TempDir(), f.provider, f.uc, growOpen{})
+	require.ErrorContains(t, err, "read the meta")
+	require.NoError(t, f.g.close(ctx))
+	f.g = nil
+	_, err = openGrowIndex(ctx, testLogger(), f.dir, distancer.NewCosineDistanceProvider(), f.uc, growOpen{})
+	require.ErrorContains(t, err, "was written for distance")
+	f.open(t)
+	require.ErrorContains(t, f.g.insert(ctx, uint64(base), make([]float32, dims+1)), "dimensions")
+}
+
+// An index laid out again is the same index: every posting in one segment of
+// a bucket written anew, and with that the exact vectors in posting order.
+// With a value per list of edges, as v5.0 stores them, and with the rows of
+// edges consolidated, as v5.1 does: the combined control lays that one out.
+func TestGrowReorganized(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		consolidate int
+		withMembers bool
+	}{
+		{name: "a value per list of edges"},
+		{name: "the rows of edges consolidated", consolidate: 8},
+		{name: "the rows of edges next to the members", consolidate: 8, withMembers: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			growReorganizedCase(t, tt.consolidate, tt.withMembers)
+		})
+	}
+}
+
+func growReorganizedCase(t *testing.T, consolidate int, withMembers bool) {
+	ctx := context.Background()
+	const total, base, dims = 350, 300, 32
+	f := newSmallGrowFixture(t, total, base, dims, false, 64, 25,
+		growConfig{consolidate: consolidate, rowsWithMembers: withMembers})
+	for f.inserted < total {
+		difference, err := f.insert(ctx)
+		require.NoError(t, err)
+		require.Empty(t, difference)
+		if f.inserted%20 == 0 {
+			require.NoError(t, f.g.flushAll())
+		}
+	}
+	require.Positive(t, f.g.stats.Splits)
+	if consolidate > 0 {
+		// What waits in memory is not on disk yet: it is written first.
+		require.NotEmpty(t, f.g.pending)
+		require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, t.TempDir(), false), "waiting in memory")
+		require.NoError(t, f.g.flushPending())
+		require.Empty(t, f.g.pending)
+	}
+	f.same(t, "grown")
+	before, err := os.ReadDir(filepath.Join(f.dir, diskStoreDir, growBucketPostings))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name  string
+		order bool
+	}{
+		{name: "one segment"},
+		{name: "one segment and the vectors in posting order", order: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, reorganizeGrowIndex(ctx, testLogger(), f.g, dir, tt.order))
+			cell, err := openGrowIndex(ctx, testLogger(), dir, f.provider, f.uc, growOpen{})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, cell.close(ctx)) }()
+
+			segments := 0
+			entries, err := os.ReadDir(filepath.Join(dir, diskStoreDir, growBucketPostings))
+			require.NoError(t, err)
+			for _, entry := range entries {
+				if filepath.Ext(entry.Name()) == ".db" {
+					segments++
+				}
+			}
+			require.Equal(t, 1, segments, "the bucket of postings is one segment")
+			require.Greater(t, len(before), len(entries), "the index it comes from had more")
+			if consolidate > 0 {
+				// The rows of edges are one segment too, each the row of its
+				// posting with its lists in the order of the members: in
+				// their own bucket, or in that of the postings.
+				require.Equal(t, withMembers, cell.meta.RowsWithMembers)
+				if withMembers {
+					require.Nil(t, cell.edges)
+					require.NoDirExists(t, filepath.Join(dir, diskStoreDir, growBucketEdges))
+				} else {
+					require.NotNil(t, cell.edges)
+					rows := 0
+					entries, err := os.ReadDir(filepath.Join(dir, diskStoreDir, growBucketEdges))
+					require.NoError(t, err)
+					for _, entry := range entries {
+						if filepath.Ext(entry.Name()) == ".db" {
+							rows++
+						}
+					}
+					require.Equal(t, 1, rows, "the bucket of rows of edges is one segment")
+				}
+				var dp diskPosting
+				var row growBlock
+				for p := range uint32(cell.meta.Postings) {
+					block, err := cell.getRow(p)
+					require.NoError(t, err)
+					if cell.retired[p] {
+						require.Nil(t, block, "posting %d is retired", p)
+						continue
+					}
+					require.NoError(t, cell.fetchMembers(p, &dp))
+					require.NoError(t, row.decode(block))
+					require.Len(t, row.ids, len(dp.docIDs))
+					for i, docID := range dp.docIDs {
+						require.Equal(t, docID, uint64(row.ids[i]), "member %d of posting %d", i, p)
+					}
+				}
+			} else {
+				require.Nil(t, cell.edges)
+			}
+
+			require.NoError(t, cell.cleanCentroidGraph())
+			require.NoError(t, cell.checkCoverage())
+			require.NoError(t, cell.sameAs(f.twin))
+			for i, query := range f.queries {
+				difference, err := growDifference(ctx, f.twin, cell, query, 10)
+				require.NoError(t, err, "query %d", i)
+				require.Empty(t, difference, "query %d", i)
+			}
+			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), f.g, dir, tt.order), "is not empty")
+
+			if !tt.order {
+				require.Nil(t, cell.slotOf)
+				return
+			}
+			// The vectors of every posting are in a row, in the order of its
+			// members, and each is the vector of its doc.
+			require.Len(t, cell.slotOf, total)
+			next := uint32(0)
+			var dp diskPosting
+			for p := range uint32(cell.meta.Postings) {
+				if cell.retired[p] {
+					continue
+				}
+				require.NoError(t, cell.fetchMembers(p, &dp))
+				for _, docID := range dp.docIDs {
+					require.Equal(t, next, cell.slotOf[docID], "doc %d of posting %d", docID, p)
+					next++
+					_, vector, err := cell.exact(docID, nil, nil)
+					require.NoError(t, err)
+					require.Equal(t, f.all[docID], vector, "the vector of doc %d", docID)
+				}
+			}
+			require.Equal(t, uint32(total), next)
+			require.ErrorContains(t, cell.insert(ctx, 0, f.all[0]), "does not grow")
+			require.ErrorContains(t, reorganizeGrowIndex(ctx, testLogger(), cell, t.TempDir(), false), "laid out again already")
+		})
+	}
+}
+
+// With consolidated edges (v5.1) the index is still the streaming index of
+// v2.x at every insert, with the changes to its edges waiting in memory, and
+// with everything written it is the same index in its store: the rows of
+// edges are written whole after so many changes, when a posting splits and
+// when the index closes, and nothing else writes an edge. With the rows in a
+// bucket of their own (v5.1) and with them in the bucket of postings, next
+// to the members (v5.3), where writing a row again takes the old one out. Each
+// way of writing rows is taken with one of the two places of the rows; every
+// way with both, over a base of 1 000 and 1 200 inserts, is
+// TestGrowConsolidatedEqualsMemoryAtScale, with -tags postingedgebench.
+func TestGrowConsolidatedEqualsMemory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		// k is the changes a row of edges is written after.
+		k         int
+		cosine    bool
+		bits      int
+		threshold int
+		// withMembers has the rows in the bucket of postings, next to the
+		// members, and not in a bucket of their own.
+		withMembers bool
+		// flushEvery is in inserts, 0 for never; with leveled the store
+		// compacts by levels, one round after every flush.
+		flushEvery int
+		leveled    bool
+		// reopenAt closes the index, which writes what waits, and opens it.
+		reopenAt int
+	}{
+		{name: "a row at every change, the full code, everything in the memtable", k: 1, threshold: 25},
+		{name: "a row every three changes, cosine, next to the members", k: 3, bits: 128, cosine: true, threshold: 25, withMembers: true, flushEvery: 40, reopenAt: 67},
+		{name: "rows only at splits and at the end", k: 1 << 20, bits: 64, threshold: 25, flushEvery: 60},
+		{name: "few splits, rows by their changes, the leveled compaction of the store, next to the members", k: 8, bits: 64, threshold: 200, withMembers: true, flushEvery: 30, leveled: true, reopenAt: 80},
+	}
+	for _, tt := range tests {
+		withMembers := tt.withMembers
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			const total, base, dims = 400, 300, 32
+			f := newSmallGrowFixture(t, total, base, dims, tt.cosine, tt.bits, tt.threshold,
+				growConfig{consolidate: tt.k, rowsWithMembers: withMembers})
+			if tt.leveled {
+				f.leveled = true
+				f.reopen(t)
+			}
+			require.Equal(t, !withMembers, f.g.edges != nil, "the bucket of rows of edges")
+			require.True(t, f.g.consolidated())
+			f.same(t, "the base")
+			var rows, atClose int
+			for f.inserted < total {
+				at := f.inserted
+				difference, err := f.insert(ctx)
+				require.NoError(t, err, "doc %d", at)
+				require.Empty(t, difference)
+				done := f.inserted - base
+				if tt.flushEvery > 0 && done%tt.flushEvery == 0 {
+					require.NoError(t, f.g.flushAll())
+					if tt.leveled {
+						f.g.compaction.CycleCallback(func() bool { return false })
+					}
+				}
+				if done == tt.reopenAt {
+					f.same(t, "before closing, with changes waiting")
+					rows += f.g.stats.RowWritesFull + f.g.stats.RowWritesSplit
+					f.reopen(t)
+					require.Empty(t, f.g.pending, "an index that was closed has nothing waiting")
+					f.same(t, "opened again")
+				}
+			}
+			f.same(t, "at the end, with changes waiting")
+			assert.Positive(t, f.g.stats.InverseEdges, "inserts change the lists of their neighbors in other postings")
+			if tt.k < 100 {
+				assert.Positive(t, f.g.stats.RowWritesFull, "rows are written after %d changes", tt.k)
+				assert.Positive(t, f.g.stats.PendingPeak)
+				if withMembers {
+					assert.Positive(t, f.g.stats.RowTombstones.N, "a row written again takes the old one out")
+				} else {
+					assert.Zero(t, f.g.stats.RowTombstones.N)
+				}
+			} else {
+				assert.Zero(t, f.g.stats.RowWritesFull, "no posting gets to %d changes", tt.k)
+				assert.NotEmpty(t, f.g.pending, "the changes since the last split wait")
+			}
+			if tt.threshold < 100 {
+				assert.Positive(t, f.g.stats.RowWritesSplit)
+			}
+			assert.Zero(t, f.g.stats.InverseTombs.N, "no list is taken out of a row value by value")
+			for p, pend := range f.g.pending {
+				assert.Less(t, pend.changes, max(tt.k, 1), "posting %d waits with fewer changes than a row is written after", p)
+			}
+
+			// With everything written, the store holds the index: nothing
+			// waits, and it is the twin, as it is and opened again.
+			require.NoError(t, f.g.flushPending())
+			atClose = f.g.stats.RowWritesClose
+			require.Empty(t, f.g.pending)
+			require.Zero(t, f.g.pendingMembers)
+			require.Zero(t, f.g.pendingBytes)
+			f.same(t, "with everything written")
+			f.reopen(t)
+			f.same(t, "with everything written, opened again")
+			if tt.leveled {
+				f.leveled = false
+				f.reopen(t)
+			}
+			_, err := f.g.compactAll()
+			require.NoError(t, err)
+			f.same(t, "compacted")
+			if tt.k > 1 {
+				assert.Positive(t, atClose+rows, "rows are written")
+			}
+			// No list lives in the bucket of postings. With the rows of
+			// edges next to the members, the key of the lists of a live
+			// posting holds its row, one value. A retired one holds
+			// nothing after the compaction, which skips its keys.
+			for p := range uint32(f.g.meta.Postings) {
+				lists, err := f.g.postings.SetList(diskKey(p, diskBlockEdges))
+				require.NoError(t, err)
+				if withMembers && !f.g.retired[p] {
+					require.Len(t, lists, 1, "posting %d", p)
+					var row growBlock
+					require.NoError(t, row.decode(lists[0]), "posting %d", p)
+					require.Len(t, row.ids, int(f.g.size[p]), "posting %d", p)
+					continue
+				}
+				require.Empty(t, lists, "posting %d", p)
+			}
+		})
+	}
+}
+
+// A row of edges as one value comes back as it was written, and tells what
+// it is not.
+func TestGrowEdgesBlock(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		ids   []uint64
+		lists [][]uint32
+	}{
+		{name: "no member"},
+		{name: "one member without edges", ids: []uint64{7}, lists: [][]uint32{nil}},
+		{name: "members with and without edges", ids: []uint64{9, 3, 400000, 12}, lists: [][]uint32{{1, 2, 3}, nil, {5}, {8, 6, 7, 5, 3, 0, 9}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			block, err := growEdgesBlock(tt.ids, tt.lists)
+			require.NoError(t, err)
+			var row growBlock
+			require.NoError(t, row.decode(block))
+			require.Len(t, row.ids, len(tt.ids))
+			for i, id := range tt.ids {
+				require.Equal(t, uint32(id), row.ids[i])
+				require.ElementsMatch(t, tt.lists[i], row.edges[row.start[i]:row.start[i+1]])
+			}
+			for cut := 0; cut < len(block); cut++ {
+				require.Error(t, row.decode(block[:cut]), "a row cut at %d bytes", cut)
+			}
+		})
+	}
+	_, err := growEdgesBlock([]uint64{1}, [][]uint32{make([]uint32, 256)})
+	require.ErrorContains(t, err, "256 edges")
+}
+
+// A search over the index that grows tells what the reads of its rows took,
+// the row of members and the row of edges apart, with one value per list and
+// with the row of edges in one value.
+func TestGrowSearchTimesItsRows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		consolidate int
+	}{
+		{name: "one value per list"},
+		{name: "the row of edges in one value", consolidate: 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newSmallGrowFixture(t, 330, 300, 32, false, 64, 25, growConfig{consolidate: tt.consolidate})
+			f.growAll(t, 330)
+			for i, query := range f.queries {
+				var stats diskSearchStats
+				_, _, err := f.g.search(ctx, query, 10, &stats)
+				require.NoError(t, err)
+				require.Positive(t, stats.Postings, "query %d", i)
+				require.Positive(t, stats.MemberTime, "query %d", i)
+				require.Positive(t, stats.EdgeTime, "query %d", i)
+				require.Zero(t, stats.HaloTime, "query %d", i)
+			}
+		})
+	}
+}
+
+// Counting what a fetch reads row by row changes nothing of a search, and
+// what it counts by row adds up to what the store counted for the search:
+// the reads are those of a fetch that asks for its rows all at once, whatever
+// row goes first.
+//
+// The test is not parallel: what the store counts is counted for the whole
+// process, so no other test may read through a store that counts while it
+// searches. Its indexes are grown at once, by stores that do not count, and
+// then searched one after another.
+func TestGrowRowCount(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		consolidate int
+		withMembers bool
+	}{
+		{name: "a value per list of edges"},
+		{name: "the rows of edges consolidated", consolidate: 8},
+		{name: "the rows of edges next to the members", consolidate: 8, withMembers: true},
+	}
+	const total, base, dims, k = 340, 300, 32, 10
+	// grown is where every case leaves a copy of its index, grown and closed,
+	// and what it takes to open it again.
+	type grown struct {
+		dir      string
+		provider distancer.Provider
+		uc       UserConfig
+		queries  [][]float32
+	}
+	cases := make([]grown, len(tests))
+	for i := range cases {
+		cases[i].dir = t.TempDir()
+	}
+	t.Run("grow", func(t *testing.T) {
+		for i, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				f := newSmallGrowFixture(t, total, base, dims, false, 64, 25,
+					growConfig{consolidate: tt.consolidate, rowsWithMembers: tt.withMembers})
+				for f.inserted < total {
+					difference, err := f.insert(ctx)
+					require.NoError(t, err)
+					require.Empty(t, difference)
+					if f.inserted%15 == 0 {
+						require.NoError(t, f.g.flushAll())
+					}
+				}
+				// Everything in segments: what is read from a memtable is not
+				// counted.
+				require.NoError(t, f.g.flushPending())
+				require.NoError(t, f.g.flushAll())
+				require.NoError(t, f.g.close(ctx))
+				f.g = nil
+				require.NoError(t, os.CopyFS(cases[i].dir, os.DirFS(f.dir)))
+				cases[i].provider, cases[i].uc, cases[i].queries = f.provider, f.uc, f.queries
+			})
+		}
+	})
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := cases[i]
+			require.NotNil(t, c.queries, "the index of the case was grown")
+			metrics, err := diskStoreMetrics()
+			require.NoError(t, err)
+			g, err := openGrowIndex(ctx, testLogger(), c.dir, c.provider, c.uc, growOpen{metrics: metrics, pread: true})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, g.close(ctx)) }()
+
+			type answer struct {
+				ids   []uint64
+				dists []float32
+			}
+			// run searches every query and returns what came back, the
+			// postings loaded and what the store counted meanwhile.
+			run := func() ([]answer, int, uint64, uint64) {
+				reads, bytes, err := diskStoreReads()
+				require.NoError(t, err)
+				answers, loads := make([]answer, len(c.queries)), 0
+				for i, query := range c.queries {
+					stats := &diskSearchStats{Work: &SearchStats{}}
+					ids, dists, err := g.search(ctx, query, k, stats)
+					require.NoError(t, err)
+					answers[i] = answer{ids: ids, dists: dists}
+					loads += stats.Postings
+				}
+				readsAfter, bytesAfter, err := diskStoreReads()
+				require.NoError(t, err)
+				return answers, loads, readsAfter - reads, bytesAfter - bytes
+			}
+			plain, loads, reads, bytes := run()
+			require.Positive(t, loads)
+			require.Positive(t, reads)
+
+			for _, edgesFirst := range []bool{false, true} {
+				count := &growRowCount{edgesFirst: edgesFirst, read: func() ([growCounters]uint64, error) {
+					reads, bytes, err := diskStoreReads()
+					return [growCounters]uint64{reads, bytes}, err
+				}}
+				g.rowCount = count
+				counted, countedLoads, countedReads, countedBytes := run()
+				g.rowCount = nil
+				require.Equal(t, plain, counted, "the answers, with the rows counted")
+				require.Equal(t, loads, countedLoads)
+				require.Equal(t, loads, count.loads)
+				require.Equal(t, reads, countedReads, "the store reads the same, one row at a time")
+				require.Equal(t, bytes, countedBytes)
+				members, edges := count.rows[diskBlockMembers], count.rows[diskBlockEdges]
+				require.Equal(t, countedReads, members[0]+edges[0], "the reads of the two rows are those of the search")
+				require.Equal(t, countedBytes, members[1]+edges[1])
+				require.GreaterOrEqual(t, members[0], uint64(loads), "a load reads its row of members")
+				require.GreaterOrEqual(t, edges[0], uint64(loads), "a load reads its row of edges")
+				require.Positive(t, members[1])
+				require.Positive(t, edges[1])
+			}
+
+			// A counter that fails stops the search.
+			g.rowCount = &growRowCount{read: func() ([growCounters]uint64, error) {
+				return [growCounters]uint64{}, errors.New("no counter")
+			}}
+			_, _, err = g.search(ctx, c.queries[0], k, &diskSearchStats{Work: &SearchStats{}})
+			g.rowCount = nil
+			require.ErrorContains(t, err, "no counter")
+		})
+	}
+}
+
+// With the rows of edges next to the members (v5.3) the key of the row of a
+// posting holds one value. A store that holds two stops whatever reads the
+// row: a search that loads the posting, and the write of its row. And the
+// format is told apart when the index is written: it needs consolidated
+// edges.
+func TestGrowRowsNextToMembersStop(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const total, base, dims = 310, 300, 32
+	f := newSmallGrowFixture(t, total, base, dims, false, 64, 30, growConfig{consolidate: 4, rowsWithMembers: true})
+	g := f.g
+	require.Nil(t, g.edges)
+	require.True(t, g.meta.RowsWithMembers)
+	require.NoDirExists(t, filepath.Join(f.dir, diskStoreDir, growBucketEdges))
+
+	// A row written again leaves one row, and the count of what it took out.
+	p := uint32(0)
+	old, err := g.getRow(p)
+	require.NoError(t, err)
+	require.NotNil(t, old)
+	var row growBlock
+	require.NoError(t, row.decode(old))
+	require.NoError(t, g.putRow(p, old, old), "the same row written again writes nothing")
+	require.Zero(t, g.stats.RowTombstones.N)
+	changed := slices.Clone(old)
+	changed[len(changed)-1] ^= 1
+	require.NoError(t, g.putRow(p, old, changed))
+	require.Equal(t, int64(1), g.stats.RowTombstones.N)
+	require.Equal(t, int64(len(old)), g.stats.RowTombstones.Bytes)
+	got, err := g.getRow(p)
+	require.NoError(t, err)
+	require.Equal(t, changed, got)
+	require.NoError(t, g.putRow(p, changed, old))
+	got, err = g.getRow(p)
+	require.NoError(t, err)
+	require.Equal(t, old, got)
+	f.same(t, "with the row of a posting written three times")
+
+	// A second value under the key of the row: the store holds two.
+	require.NoError(t, g.postings.SetAdd(diskKey(p, diskBlockEdges), [][]byte{changed}))
+	_, err = g.getRow(p)
+	require.ErrorContains(t, err, "STOP: the store holds 2 rows of edges for posting 0")
+	var dp diskPosting
+	require.ErrorContains(t, g.fetchLists(p, &dp), "STOP: the store holds 2 rows")
+	require.NoError(t, g.postings.SetDeleteSingle(diskKey(p, diskBlockEdges), changed))
+	got, err = g.getRow(p)
+	require.NoError(t, err)
+	require.Equal(t, old, got)
+
+	// The rows next to the members are rows: without consolidated edges
+	// there is none.
+	st := f.index.state.Load()
+	err = writeGrowIndex(ctx, testLogger(), t.TempDir(), st, growConfig{
+		keys: total, neighbors: f.uc.Edges, threshold: 30, seed: 7, rowsWithMembers: true,
+	}, f.provider, func(id uint64) []float32 { return f.all[id] })
+	require.ErrorContains(t, err, "only with consolidated edges")
+}

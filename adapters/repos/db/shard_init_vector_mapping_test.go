@@ -42,6 +42,7 @@ import (
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	entpostingedge "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
 )
 
 // storageExistsFor reports whether rec's directories are all on disk.
@@ -87,6 +88,7 @@ func TestInitShardVectors_FirstLoadRecordsEveryType(t *testing.T) {
 		{name: "hnsw", cfg: enthnsw.NewDefaultUserConfig(), indexType: "hnsw"},
 		{name: "flat", cfg: flatCfg, indexType: "flat"},
 		{name: "hfresh", cfg: enthfresh.NewDefaultUserConfig(), indexType: "hfresh"},
+		{name: "postingedge", cfg: entpostingedge.NewDefaultUserConfig(), indexType: "postingedge"},
 		{name: "dynamic", indexType: "dynamic", async: true, cfg: entdynamic.UserConfig{
 			Threshold: 1_000_000,
 			Distance:  dist.Type(),

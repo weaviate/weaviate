@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -619,4 +620,73 @@ func BenchmarkPostingStoreMultiGet(b *testing.B) {
 			}
 		}
 	})
+}
+
+// With several reads in flight MultiGet returns what it returns reading one
+// posting after another: the same postings, in the order of their ids, the
+// ones that do not exist as empty ones.
+func TestStoreMultiGetInParallel(t *testing.T) {
+	ctx := t.Context()
+	store := testinghelpers.NewDummyStore(t)
+	s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	})
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+	s.readLogger = logger
+
+	// Postings of several sizes, with ids that are not in a row.
+	const postings = 60
+	for i := range postings {
+		var posting Posting
+		for v := range 1 + i%7 {
+			posting = posting.AddVector(NewVector(uint64(1000*i+v), 1, []byte{byte(i), byte(v), 3, 4, 5, 6, 7, 8, 9, 10}))
+		}
+		require.NoError(t, s.Put(ctx, uint64(3*i), posting))
+	}
+
+	tests := []struct {
+		name string
+		ids  []uint64
+	}{
+		{name: "none"},
+		{name: "one", ids: []uint64{9}},
+		{name: "one that does not exist", ids: []uint64{10}},
+		{name: "two", ids: []uint64{177, 0}},
+		{name: "some, out of order, with gaps and one twice", ids: []uint64{30, 3, 1, 90, 30, 2, 174, 60, 5}},
+		{name: "all of them and what lies between", ids: func() []uint64 {
+			ids := make([]uint64, 0, 3*postings)
+			for id := 3*postings - 1; id >= 0; id-- {
+				ids = append(ids, uint64(id))
+			}
+			return ids
+		}()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s.readConcurrency = 0
+			want, err := s.MultiGet(ctx, tt.ids)
+			require.NoError(t, err)
+			require.Len(t, want, len(tt.ids))
+			for _, workers := range []int{1, 2, 8, 64, 1000} {
+				s.readConcurrency = workers
+				got, err := s.MultiGet(ctx, tt.ids)
+				require.NoError(t, err)
+				require.Len(t, got, len(tt.ids))
+				for i := range want {
+					require.Equalf(t, len(want[i]), len(got[i]), "posting %d with %d reads in flight", tt.ids[i], workers)
+					for v := range want[i] {
+						require.Equalf(t, []byte(want[i][v]), []byte(got[i][v]), "posting %d with %d reads in flight", tt.ids[i], workers)
+					}
+				}
+			}
+		})
+	}
+
+	// A cancelled context stops the parallel read with its error.
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	s.readConcurrency = 8
+	_, err = s.MultiGet(cancelled, []uint64{0, 3, 6, 9})
+	require.ErrorIs(t, err, context.Canceled)
 }

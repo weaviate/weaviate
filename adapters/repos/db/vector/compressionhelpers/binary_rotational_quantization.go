@@ -389,31 +389,13 @@ func HammingDistSIMD(x, y []uint64) float32 {
 	return hammingBitwiseImpl(x, y)
 }
 
-// Notes:
-// SIMD only seems to outperform bits.OnesCount64 once the dimensionality is
-// greater than ~512, at least on an M4 (ARM neon). However adding the
-// if-statement to determine whether to use SIMD also comes at a cost.
-// For binary quantization we always use SIMD, so maybe that is the way to go.
+// Distance estimates the distance between the query and a 1-bit code. The
+// five bit planes of the query code are matched against the code in one pass
+// (weightedHamming).
 func (d *BinaryRQDistancer) Distance(x []uint64) (float32, error) {
 	cx := RQOneBitCode(x)
 	bits := cx.Bits()
-	const hammingDistSIMDThreshold = 512
-	if d.cq.Dimension < hammingDistSIMDThreshold {
-		dot := 31 * d.cq.Dimension
-		dot -= HammingDist(d.cq.bits0, bits) << 1
-		dot -= HammingDist(d.cq.bits1, bits) << 2
-		dot -= HammingDist(d.cq.bits2, bits) << 3
-		dot -= HammingDist(d.cq.bits3, bits) << 4
-		dot -= HammingDist(d.cq.bits4, bits) << 5
-		dotEstimate := d.cq.Step * cx.Step() * float32(dot)
-		return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
-	}
-	dot := float32(31 * d.cq.Dimension)
-	dot -= 2 * HammingDistSIMD(d.cq.bits0, bits)
-	dot -= 4 * HammingDistSIMD(d.cq.bits1, bits)
-	dot -= 8 * HammingDistSIMD(d.cq.bits2, bits)
-	dot -= 16 * HammingDistSIMD(d.cq.bits3, bits)
-	dot -= 32 * HammingDistSIMD(d.cq.bits4, bits)
+	dot := float32(31*d.cq.Dimension - 2*d.cq.weightedHamming(bits))
 	dotEstimate := d.cq.Step * cx.Step() * dot
 	return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
 }

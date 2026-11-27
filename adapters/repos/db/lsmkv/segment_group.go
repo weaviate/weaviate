@@ -88,11 +88,20 @@ type SegmentGroup struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	mmapContents             bool
-	keepTombstones           bool // see bucket for more details
-	useBloomFilter           bool // see bucket for more details
-	calcCountNetAdditions    bool // see bucket for more details
-	compactLeftOverSegments  bool // see bucket for more details
+	mmapContents            bool
+	keepTombstones          bool // see bucket for more details
+	useBloomFilter          bool // see bucket for more details
+	calcCountNetAdditions   bool // see bucket for more details
+	compactLeftOverSegments bool // see bucket for more details
+	// compactLeftOverOfAnySize, while set, has a group that compacts its
+	// left-over segments (compactLeftOverSegments) pick a left-over pair
+	// whatever the sizes of the two, so that it ends as one segment. Without
+	// it a left-over pair is compacted only if the two are of similar sizes:
+	// a large segment is not written again for every small one that comes
+	// after it. The group takes it back itself once its oldest segment has
+	// been compacted with what followed it. See
+	// Bucket.CompactLeftOverSegmentsOfAnySize.
+	compactLeftOverOfAnySize atomic.Bool
 	enableChecksumValidation bool
 	MinMMapSize              int64
 	keepLevelCompaction      bool // see bucket for more details

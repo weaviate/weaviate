@@ -1841,15 +1841,15 @@ func namedCompressionUnchanged(updated schemaConfig.VectorIndexConfig, name stri
 }
 
 // validateAllowedCompression rejects a class whose explicit compression
-// is outside ALLOWED_COMPRESSION_TYPES. hfresh is skipped (no compression
-// knobs); the DEFAULT_QUANTIZATION applied later in AddClass is itself
-// allow-list-validated at startup.
+// is outside ALLOWED_COMPRESSION_TYPES. hfresh and postingedge are skipped
+// (no compression knobs: their codes are fixed); the DEFAULT_QUANTIZATION
+// applied later in AddClass is itself allow-list-validated at startup.
 func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaConfig.VectorIndexConfig) error {
 	allow := h.allowedCompressionTypes()
 	if allow == nil {
 		return nil
 	}
-	if vectorIndexType == vectorindex.VectorIndexTypeHFresh {
+	if hasFixedCompression(vectorIndexType) {
 		return nil
 	}
 	// Dynamic configures HnswUC + FlatUC independently — both must match.
@@ -1866,6 +1866,14 @@ func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaC
 	return nil
 }
 
+// hasFixedCompression tells the index types whose compression is not theirs
+// to configure: the compression allow-list and the default quantization have
+// nothing to say about them.
+func hasFixedCompression(vectorIndexType string) bool {
+	return vectorIndexType == vectorindex.VectorIndexTypeHFresh ||
+		vectorIndexType == vectorindex.VectorIndexTypePostingEdge
+}
+
 // validateDefaultCompressionApplies covers the gap validateAllowedCompression
 // leaves on create. An index with no compression of its own passes it,
 // because the server default (always an allowed entry under a compression
@@ -1880,7 +1888,7 @@ func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaC
 // keep creating such indexes uncompressed.
 func (h *Handler) validateDefaultCompressionApplies(vectorIndexType string, cfg schemaConfig.VectorIndexConfig) error {
 	allow := h.allowedCompressionTypes()
-	if allow == nil || slices.Contains(allow, "none") || vectorIndexType == vectorindex.VectorIndexTypeHFresh {
+	if allow == nil || slices.Contains(allow, "none") || hasFixedCompression(vectorIndexType) {
 		return nil
 	}
 	if h.config.DefaultQuantization == nil {
@@ -2087,7 +2095,7 @@ func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 			return fmt.Errorf("the dynamic index can only be created when async indexing is enabled")
 		}
 		return nil
-	case vectorindex.VectorIndexTypeHFresh:
+	case vectorindex.VectorIndexTypeHFresh, vectorindex.VectorIndexTypePostingEdge:
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",

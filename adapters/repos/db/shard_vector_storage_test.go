@@ -48,6 +48,8 @@ func TestVectorIndexStorageDirs(t *testing.T) {
 		{name: "flat legacy", indexType: "flat", id: "main", want: []string{"lsm/vectors"}},
 		{name: "flat named", indexType: "flat", id: "vectors_title", want: []string{"lsm/vectors_title"}},
 		{name: "hfresh", indexType: "hfresh", id: "vectors_title", want: []string{"vectors_title.hfresh.d"}},
+		{name: "postingedge legacy", indexType: "postingedge", id: "main", want: []string{"main.postingedge.d"}},
+		{name: "postingedge named", indexType: "postingedge", id: "vectors_title", want: []string{"vectors_title.postingedge.d"}},
 		{name: "dynamic not upgraded", indexType: "dynamic", id: "vectors_title", verdict: []byte{0}, want: []string{"lsm/vectors_title"}},
 		{name: "dynamic upgraded", indexType: "dynamic", id: "vectors_title", verdict: []byte{1}, want: []string{"vectors_title.hnsw.commitlog.d"}},
 		{name: "dynamic legacy without a verdict is flat", indexType: "dynamic", id: "main", want: []string{"lsm/vectors"}},

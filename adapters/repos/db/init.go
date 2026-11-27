@@ -189,6 +189,7 @@ func (db *DB) init(ctx context.Context) error {
 				return db.config.HNSWWaitForCachePrefill
 			}(),
 			HNSWFlatSearchConcurrency:    db.config.HNSWFlatSearchConcurrency,
+			PostingEdgeBaseSize:          db.config.PostingEdgeBaseSize,
 			HNSWAcornFilterRatio:         db.config.HNSWAcornFilterRatio,
 			BM25FilterTombMergeGateRatio: db.config.BM25FilterTombMergeGateRatio,
 			HNSWGeoIndexEF:               db.config.HNSWGeoIndexEF,

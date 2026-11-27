@@ -2140,6 +2140,35 @@ func (b *Bucket) readOnlyErr() error {
 	return nil
 }
 
+// CompactLeftOverSegmentsOfAnySize asks the compaction of a bucket that
+// compacts its left-over segments (WithForceCompaction) to pick a left-over
+// pair whatever the sizes of the two: the cycles that follow compact the
+// newest segments into one and then that one with the oldest, which leaves
+// the bucket as one segment. It is for whoever reads the bucket much more
+// than it writes to it and can say when rewriting it whole is worth it.
+//
+// The request is for one pass. It ends by itself once the oldest segment has
+// been written again with what followed it, or when it is taken back (false):
+// left on, it would write the largest segment again for every small one that
+// is flushed, which is what the similar sizes of a left-over pair are asked
+// for. A segment that was flushed while the oldest was being written stays
+// apart until the next request. It has no effect on a bucket that does not
+// compact its left-over segments.
+func (b *Bucket) CompactLeftOverSegmentsOfAnySize(on bool) {
+	b.disk.compactLeftOverOfAnySize.Store(on)
+}
+
+// CompactingLeftOverSegmentsOfAnySize tells whether a request to compact the
+// left-over segments of the bucket whatever their sizes is still on.
+func (b *Bucket) CompactingLeftOverSegmentsOfAnySize() bool {
+	return b.disk.compactLeftOverOfAnySize.Load()
+}
+
+// SegmentCount returns how many segments the bucket has on disk.
+func (b *Bucket) SegmentCount() int {
+	return b.disk.Len()
+}
+
 // FlushAndSwitch is the main way to flush a memtable, replace it with a new
 // one, and make sure that the flushed segment gets added to the segment group.
 //

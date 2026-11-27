@@ -15,14 +15,17 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -85,6 +88,13 @@ type PostingStore struct {
 	locks    *common.ShardedRWLocks
 	metrics  *Metrics
 	versions *PostingVersionsStore
+	// readConcurrency is how many postings MultiGet reads at once. Below 2,
+	// which is what every index has, it reads them one after another. Only
+	// the disk benchmark of the posting-edge index sets it, with
+	// readLogger, to tell what the search would gain by reading the
+	// postings of a query in parallel.
+	readConcurrency int
+	readLogger      logrus.FieldLogger
 }
 
 func NewPostingStore(store *lsmkv.Store, sharedBucket bucketRef, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
@@ -235,6 +245,10 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 	}
 	defer release()
 
+	if workers := min(p.readConcurrency, len(postingIDs)); workers >= 2 {
+		return p.multiGetParallel(ctx, postingsBucket, versionsBucket, postingIDs, workers)
+	}
+
 	for _, id := range postingIDs {
 		posting, err := p.getWithBuckets(ctx, postingsBucket, versionsBucket, id)
 		if err != nil {
@@ -243,6 +257,39 @@ func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Pos
 		postings = append(postings, posting)
 	}
 
+	return postings, nil
+}
+
+// multiGetParallel reads the postings with the given number of reads in
+// flight, each worker taking the next one. It returns them in the order of
+// their ids, as MultiGet does one by one.
+func (p *PostingStore) multiGetParallel(ctx context.Context, postingsBucket, versionsBucket *lsmkv.Bucket,
+	postingIDs []uint64, workers int,
+) ([]Posting, error) {
+	postings := make([]Posting, len(postingIDs))
+	var next atomic.Int64
+	eg := enterrors.NewErrorGroupWrapper(p.readLogger)
+	for range workers {
+		eg.Go(func() error {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(postingIDs) {
+					return nil
+				}
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				posting, err := p.getWithBuckets(ctx, postingsBucket, versionsBucket, postingIDs[i])
+				if err != nil {
+					return errors.Wrapf(err, "failed to get posting %d", postingIDs[i])
+				}
+				postings[i] = posting
+			}
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
 	return postings, nil
 }
 

@@ -256,7 +256,7 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 				"it is an internal sentinel for dropped indexes", vectorIndexType)
 	}
 
-	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeHFresh {
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeHFresh && vectorIndexType != vectorindex.VectorIndexTypePostingEdge {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
 			vectorIndexType)
