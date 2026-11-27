@@ -17,7 +17,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -26,17 +25,11 @@ import (
 // vectorIndexParams, targetVectorIndexParams) runs the same search as the
 // equivalent gRPC request, id by id, and rejects malformed bodies.
 func TestVectorIndexParamsMultiTarget_REST(t *testing.T) {
-	const (
-		class = "MultiTargetREST"
-		n     = 3000
-	)
 	c := setupSingleNode(t)
 	uri := singleNode.GetWeaviate().URI()
-	ds := newDataset(53, n, numQueries)
-	createNamedVectorCollection(t, class, twoVectorIndexes(), nil, ds, n, types.ConsistencyLevelQuorum)
-	waitForStableResults(t, c, ds, func(q []float32) *pb.SearchRequest {
-		return multiTargetRequest(class, k, manual, isolate(ivfTarget, q), &pb.VectorIndexParams{SearchProbe: u32(1)})
-	})
+	class, shared := twoVectorShared.get(t)
+	// the id-by-id checks need numQueries queries, not the statistical count
+	ds := &dataset{vectors: shared.vectors, queries: shared.queries[:numQueries]}
 
 	targets := []string{graphTarget, ivfTarget}
 	graphQ := func(q []float32) []targetQuery { return isolate(graphTarget, q) }

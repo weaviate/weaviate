@@ -57,25 +57,13 @@ func TestObjectVectorSearch_PerTargetParams(t *testing.T) {
 			wantB: &searchparams.VectorIndexParams{EF: 64},
 		},
 	}
+	// one real shard for the whole table; every case swaps in fresh mocks
+	ctx := context.Background()
+	shard := mockedNamedVectorShard(t, ctx, "a", "b")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: "test"}, enthnsw.UserConfig{}, false, false, func(idx *Index) {
-				idx.vectorIndexUserConfig = nil
-				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-					"a": enthnsw.NewDefaultUserConfig(),
-					"b": enthnsw.NewDefaultUserConfig(),
-				}
-			})
-			shard := underlyingShard(t, shardLike)
-
 			mocks := map[string]*MockVectorIndex{}
 			for _, name := range []string{"a", "b"} {
-				real, release, ok := shard.AcquireVectorIndex(name)
-				require.True(t, ok)
-				release()
-				t.Cleanup(func() { real.Shutdown(ctx) })
-
 				m := NewMockVectorIndex(t)
 				m.On("Type").Return(common.IndexType(common.IndexTypeHNSW)).Maybe()
 				m.On("Multivector").Return(false).Maybe()
@@ -103,6 +91,29 @@ func TestObjectVectorSearch_PerTargetParams(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mockedNamedVectorShard builds a real shard with one HNSW index per named
+// vector and shuts those indexes down at the end of the test, so that the
+// cases can replace them with mocks (shard.vectors.Replace) without paying a
+// shard setup each.
+func mockedNamedVectorShard(t *testing.T, ctx context.Context, names ...string) *Shard {
+	t.Helper()
+	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: "test"}, enthnsw.UserConfig{}, false, false, func(idx *Index) {
+		idx.vectorIndexUserConfig = nil
+		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{}
+		for _, n := range names {
+			idx.vectorIndexUserConfigs[n] = enthnsw.NewDefaultUserConfig()
+		}
+	})
+	shard := underlyingShard(t, shardLike)
+	for _, name := range names {
+		real, release, ok := shard.AcquireVectorIndex(name)
+		require.True(t, ok)
+		release()
+		t.Cleanup(func() { real.Shutdown(ctx) })
+	}
+	return shard
 }
 
 // multiVectorMockIndex adds the multi-vector search methods to MockVectorIndex
@@ -230,26 +241,14 @@ func TestObjectVectorSearch_PerTargetParams_Methods(t *testing.T) {
 			wantSame: true,
 		},
 	}
+	// one real shard for the whole table; every case swaps in fresh mocks
+	ctx := context.Background()
+	shard := mockedNamedVectorShard(t, ctx, "a", "b", "c")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: "test"}, enthnsw.UserConfig{}, false, false, func(idx *Index) {
-				idx.vectorIndexUserConfig = nil
-				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{}
-				for _, n := range []string{"a", "b", "c"} {
-					idx.vectorIndexUserConfigs[n] = enthnsw.NewDefaultUserConfig()
-				}
-			})
-			shard := underlyingShard(t, shardLike)
-
 			mocks := map[string]*MockVectorIndex{}
 			multis := map[string]*multiVectorMockIndex{}
 			for _, name := range []string{"a", "b", "c"} {
-				real, release, ok := shard.AcquireVectorIndex(name)
-				require.True(t, ok)
-				release()
-				t.Cleanup(func() { real.Shutdown(ctx) })
-
 				m := NewMockVectorIndex(t)
 				m.On("Type").Return(common.IndexType(common.IndexTypeHNSW)).Maybe()
 				m.On("Multivector").Return(tt.multi).Maybe()

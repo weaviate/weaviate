@@ -19,32 +19,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestVectorIndexParamsFilterStrategy reproduces the "with filter" table of
-// TestVectorIndexParamsEF_HNSW with the filter strategy chosen per request on
-// ONE collection (default filterStrategy, flatSearchCutoff 0 so the filtered
-// graph walk is taken) instead of through the collection config.
+// TestVectorIndexParamsFilterStrategy checks the filter strategy chosen per
+// request on ONE collection (default filterStrategy, flatSearchCutoff 0 so the
+// filtered graph walk is taken) instead of through the collection config. The
+// filter keeps 50% of the objects: on a 10% filter sweeping explores so much
+// of the graph to find allowed candidates that ef=10 is already near-exact,
+// while at 50% all three strategies lose about 0.10 recall at ef=10.
 func TestVectorIndexParamsFilterStrategy(t *testing.T) {
-	const (
-		class   = "FilterStrategy"
-		buckets = 5 // the filter keeps 50% of the objects, see the EF_HNSW table
-	)
 	c := setupSingleNode(t)
-	ds := newDataset(42, numObjects, statQueries)
-	cfg := rqConfig()
-	cfg["flatSearchCutoff"] = 0
-	createSingleVectorCollection(t, class, "hnsw", cfg, nil, ds, numObjects, types.ConsistencyLevelQuorum)
-
-	filter := &pb.Filters{
-		Operator:  pb.Filters_OPERATOR_LESS_THAN,
-		TestValue: &pb.Filters_ValueInt{ValueInt: buckets},
-		Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "bucket"}},
-	}
-	keep := func(i int) bool { return i%numBuckets < buckets }
+	class, ds := filterShared.get(t)
+	filter, half := bucketBelow(5)
 
 	req := func(ef uint32, strategy *pb.FilterStrategy, f *pb.Filters) func(q []float32) *pb.SearchRequest {
 		return func(q []float32) *pb.SearchRequest {
@@ -56,8 +44,8 @@ func TestVectorIndexParamsFilterStrategy(t *testing.T) {
 	}
 	filteredRecall := func(build func(q []float32) *pb.SearchRequest) float64 {
 		var s float64
-		for _, q := range ds.queries {
-			s += recallOf(searchIDs(t, c, build(q)), ds.exactTopK(q, keep))
+		for qi, q := range ds.queries {
+			s += recallOf(searchIDs(t, c, build(q)), ds.exactTopK(qi, half))
 		}
 		return s / float64(len(ds.queries))
 	}
@@ -104,7 +92,7 @@ func TestVectorIndexParamsFilterStrategy(t *testing.T) {
 
 	t.Run("REST matches gRPC", func(t *testing.T) {
 		uri := singleNode.GetWeaviate().URI()
-		where := map[string]any{"path": []string{"bucket"}, "operator": "LessThan", "valueInt": buckets}
+		where := map[string]any{"path": []string{"bucket"}, "operator": "LessThan", "valueInt": 5}
 		for qi, q := range ds.queries[:numQueries] {
 			want := searchIDs(t, c, req(10, pb.FilterStrategy_FILTER_STRATEGY_PATHSEER.Enum(), filter)(q))
 			got := restOKIDs(t, uri, class, "near-vector", map[string]any{

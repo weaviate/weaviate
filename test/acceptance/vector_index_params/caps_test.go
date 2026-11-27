@@ -12,44 +12,24 @@
 package vector_index_params
 
 import (
-	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestVectorIndexParamsOperatorCaps starts a node with both caps set by the
-// operator and pins that each surface enforces the configured value: the
-// gRPC parser and the REST handler read their caps from the server config,
-// and the two caps must not be swapped (hence two different values).
+// TestVectorIndexParamsOperatorCaps pins that each surface enforces the caps
+// the operator set on the shared node (see main_test.go): the gRPC parser and
+// the REST handler read their caps from the server config, and the two caps
+// must not be swapped (hence two different values).
 func TestVectorIndexParamsOperatorCaps(t *testing.T) {
-	const (
-		className = "EfCaps"
-		maxEF     = 500
-		maxProbe  = 50
-		n         = 100
-	)
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		WithWeaviateEnv("HNSW_MAX_SEARCH_EF", "500").
-		WithWeaviateEnv("HFRESH_MAX_SEARCH_PROBE", "50").
-		Start(ctx)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
-
-	uri := compose.GetWeaviate().URI()
-	helper.SetupClient(uri)
-	c := newGRPC(t, compose.GetWeaviate().GrpcURI())
-	ds := newDataset(53, n, 1)
-	createSingleVectorCollection(t, className, "hnsw", rqConfig(), nil, ds, n, types.ConsistencyLevelOne)
+	c := setupSingleNode(t)
+	uri := singleNode.GetWeaviate().URI()
+	class, ds := hnswShared.get(t)
 	q := ds.queries[0]
 
 	t.Run("gRPC", func(t *testing.T) {
@@ -58,23 +38,23 @@ func TestVectorIndexParamsOperatorCaps(t *testing.T) {
 			params  *pb.VectorIndexParams
 			wantErr string // empty: accepted
 		}{
-			{"ef at the cap", &pb.VectorIndexParams{Ef: u32(maxEF)}, ""},
-			{"ef above the cap", &pb.VectorIndexParams{Ef: u32(maxEF + 1)}, "ef 501 exceeds HNSW_MAX_SEARCH_EF (500)"},
-			{"search_probe at the cap", &pb.VectorIndexParams{SearchProbe: u32(maxProbe)}, ""},
-			{"search_probe above the cap", &pb.VectorIndexParams{SearchProbe: u32(maxProbe + 1)}, "search_probe 51 exceeds HFRESH_MAX_SEARCH_PROBE (50)"},
+			{"ef at the cap", efP(maxSearchEF), ""},
+			{"ef above the cap", efP(maxSearchEF + 1), fmt.Sprintf("ef %d exceeds HNSW_MAX_SEARCH_EF (%d)", maxSearchEF+1, maxSearchEF)},
+			{"search_probe at the cap", probeP(maxSearchProbe), ""},
+			{"search_probe above the cap", probeP(maxSearchProbe + 1), fmt.Sprintf("search_probe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", maxSearchProbe+1, maxSearchProbe)},
 			// the built-in default (10000) must not leak through either cap
-			{"ef at the built-in default", &pb.VectorIndexParams{Ef: u32(10000)}, "exceeds HNSW_MAX_SEARCH_EF (500)"},
+			{"ef at the built-in default", efP(10000), fmt.Sprintf("exceeds HNSW_MAX_SEARCH_EF (%d)", maxSearchEF)},
 			{"per-target ef above the cap is named", nil, "vector_index_params_for_targets"},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				req := nearVectorRequest(className, q, k, nil)
+				req := nearVectorRequest(class, q, k, nil)
 				req.VectorIndexParams = tt.params
 				if tt.params == nil {
 					// a legacy single-vector class takes no per-target entries;
 					// that error fires before the cap, which is what we want
 					// to see named here
-					req.VectorIndexParamsForTargets = []*pb.VectorIndexParamsForTarget{forTarget("x", &pb.VectorIndexParams{Ef: u32(maxEF + 1)})}
+					req.VectorIndexParamsForTargets = []*pb.VectorIndexParamsForTarget{forTarget("x", efP(maxSearchEF+1))}
 				}
 				reply, err := c.Search(callCtx(t), req)
 				if tt.wantErr == "" {
@@ -94,16 +74,16 @@ func TestVectorIndexParamsOperatorCaps(t *testing.T) {
 			wantStatus int
 			wantErr    string
 		}{
-			{"ef at the cap", map[string]any{"ef": maxEF}, http.StatusOK, ""},
-			{"ef above the cap", map[string]any{"ef": maxEF + 1}, http.StatusUnprocessableEntity, "ef 501 exceeds HNSW_MAX_SEARCH_EF (500)"},
-			{"searchProbe at the cap", map[string]any{"searchProbe": maxProbe}, http.StatusOK, ""},
-			{"searchProbe above the cap", map[string]any{"searchProbe": maxProbe + 1}, http.StatusUnprocessableEntity, "searchProbe 51 exceeds HFRESH_MAX_SEARCH_PROBE (50)"},
-			{"ef at the built-in default", map[string]any{"ef": 10000}, http.StatusUnprocessableEntity, "exceeds HNSW_MAX_SEARCH_EF (500)"},
+			{"ef at the cap", map[string]any{"ef": maxSearchEF}, http.StatusOK, ""},
+			{"ef above the cap", map[string]any{"ef": maxSearchEF + 1}, http.StatusUnprocessableEntity, fmt.Sprintf("ef %d exceeds HNSW_MAX_SEARCH_EF (%d)", maxSearchEF+1, maxSearchEF)},
+			{"searchProbe at the cap", map[string]any{"searchProbe": maxSearchProbe}, http.StatusOK, ""},
+			{"searchProbe above the cap", map[string]any{"searchProbe": maxSearchProbe + 1}, http.StatusUnprocessableEntity, fmt.Sprintf("searchProbe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", maxSearchProbe+1, maxSearchProbe)},
+			{"ef at the built-in default", map[string]any{"ef": 10000}, http.StatusUnprocessableEntity, fmt.Sprintf("exceeds HNSW_MAX_SEARCH_EF (%d)", maxSearchEF)},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				body := map[string]any{"vector": q, "limit": k, "vectorIndexParams": tt.params}
-				status, out := restSearch(t, uri, className, "near-vector", body)
+				status, out := restSearch(t, uri, class, "near-vector", body)
 				require.Equal(t, tt.wantStatus, status, "%v", out)
 				if tt.wantStatus == http.StatusOK {
 					assert.Len(t, restResultIDs(t, out), k)

@@ -12,24 +12,14 @@
 package vector_index_params
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
-
-// perTargetObjects is large enough for the 8 KiB-posting HFresh index to
-// hold a few hundred postings, so a routing budget of k centroids covers
-// only a small part of the data.
-const perTargetObjects = 6000
-
-// perTargetQueries keeps the many id-by-id passes of these tests short. The
-// measured recall gaps are 0.15-0.3, far above the standard error of a mean
-// recall@10 over 40 queries (~0.02).
-const perTargetQueries = 40
 
 const (
 	manual = pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL
@@ -40,10 +30,8 @@ const (
 // only its target (HNSW graph, HFresh ivf) and overrides the request-wide
 // value field by field. The other target gets the decoy query (see isolate).
 func TestVectorIndexParamsPerTarget(t *testing.T) {
-	const class = "PerTarget"
 	c := setupSingleNode(t)
-	ds := newDataset(50, perTargetObjects, perTargetQueries)
-	createNamedVectorCollection(t, class, twoVectorIndexes(), nil, ds, perTargetObjects, types.ConsistencyLevelQuorum)
+	class, ds := twoVectorShared.get(t)
 
 	graphOnly := func(params *pb.VectorIndexParams, perTarget ...*pb.VectorIndexParamsForTarget) func(q []float32) *pb.SearchRequest {
 		return func(q []float32) *pb.SearchRequest {
@@ -55,11 +43,6 @@ func TestVectorIndexParamsPerTarget(t *testing.T) {
 			return multiTargetRequest(class, k, manual, isolate(ivfTarget, q), params, perTarget...)
 		}
 	}
-	efP := func(ef uint32) *pb.VectorIndexParams { return &pb.VectorIndexParams{Ef: u32(ef)} }
-	probeP := func(p uint32) *pb.VectorIndexParams { return &pb.VectorIndexParams{SearchProbe: u32(p)} }
-
-	waitForStableResults(t, c, ds, ivfOnly(nil, forTarget(ivfTarget, probeP(1))))
-
 	t.Run("ef reaches only the graph target", func(t *testing.T) {
 		low := meanRecallOf(t, c, ds, graphOnly(nil, forTarget(graphTarget, efP(10))))
 		high := meanRecallOf(t, c, ds, graphOnly(nil, forTarget(graphTarget, efP(1000))))
@@ -147,16 +130,12 @@ func TestVectorIndexParamsPerTarget(t *testing.T) {
 }
 
 // TestVectorIndexParamsPerTarget_Validation checks the gRPC parser's
-// rejections of malformed vector search params.
+// rejections of malformed vector search params, on the shared two-vector
+// collection and on the shared legacy single-vector one.
 func TestVectorIndexParamsPerTarget_Validation(t *testing.T) {
-	const (
-		class  = "PerTargetValidation"
-		legacy = "PerTargetValidationLegacy"
-	)
 	c := setupSingleNode(t)
-	ds := newDataset(51, 100, 1)
-	createNamedVectorCollection(t, class, twoVectorIndexes(), nil, ds, 100, types.ConsistencyLevelQuorum)
-	createSingleVectorCollection(t, legacy, "hnsw", rqConfig(), nil, ds, 100, types.ConsistencyLevelQuorum)
+	class, ds := twoVectorShared.get(t)
+	legacy, _ := hnswShared.get(t)
 	q := ds.queries[0]
 
 	nearVec := func(params *pb.VectorIndexParams, perTarget ...*pb.VectorIndexParamsForTarget) *pb.SearchRequest {
@@ -194,9 +173,9 @@ func TestVectorIndexParamsPerTarget_Validation(t *testing.T) {
 		{"nil params", nearVec(nil, forTarget(graphTarget, nil)), "vector_index_params_for_targets[graph]: params must be set"},
 		{"unknown filter strategy", nearVec(&pb.VectorIndexParams{FilterStrategy: &badEnum}), "vector_index_params.filter_strategy must be one of sweeping, acorn, pathseer, got 42"},
 		{"unknown per-target filter strategy", nearVec(nil, forTarget(graphTarget, &pb.VectorIndexParams{FilterStrategy: &badEnum})), "vector_index_params_for_targets[graph].filter_strategy must be one of sweeping, acorn, pathseer, got 42"},
-		{"search_probe over cap", nearVec(&pb.VectorIndexParams{SearchProbe: u32(10001)}), "vector_index_params.search_probe 10001 exceeds HFRESH_MAX_SEARCH_PROBE (10000)"},
-		{"per-target search_probe over cap", nearVec(nil, forTarget(ivfTarget, &pb.VectorIndexParams{SearchProbe: u32(10001)})), "vector_index_params_for_targets[ivf].search_probe 10001 exceeds HFRESH_MAX_SEARCH_PROBE"},
-		{"per-target ef over cap", nearVec(nil, forTarget(graphTarget, &pb.VectorIndexParams{Ef: u32(10001)})), "vector_index_params_for_targets[graph].ef 10001 exceeds HNSW_MAX_SEARCH_EF"},
+		{"search_probe over cap", nearVec(probeP(maxSearchProbe + 1)), fmt.Sprintf("vector_index_params.search_probe %d exceeds HFRESH_MAX_SEARCH_PROBE (%d)", maxSearchProbe+1, maxSearchProbe)},
+		{"per-target search_probe over cap", nearVec(nil, forTarget(ivfTarget, probeP(maxSearchProbe+1))), fmt.Sprintf("vector_index_params_for_targets[ivf].search_probe %d exceeds HFRESH_MAX_SEARCH_PROBE", maxSearchProbe+1)},
+		{"per-target ef over cap", nearVec(nil, forTarget(graphTarget, efP(maxSearchEF+1))), fmt.Sprintf("vector_index_params_for_targets[graph].ef %d exceeds HNSW_MAX_SEARCH_EF", maxSearchEF+1)},
 		{"per-target on bm25", bm25(nil, forTarget(graphTarget, ef)), "not applicable to bm25 search"},
 		{"request-wide on bm25", bm25(ef), "not applicable to bm25 search"},
 		{"per-target on legacy collection", func() *pb.SearchRequest {
@@ -208,8 +187,8 @@ func TestVectorIndexParamsPerTarget_Validation(t *testing.T) {
 			Collection: class, Limit: k, Metadata: &pb.MetadataRequest{Uuid: true},
 			VectorIndexParams: ef, Uses_127Api: true,
 		}, "requires a near* or hybrid search"},
-		{"ef and search_probe at cap", nearVec(&pb.VectorIndexParams{Ef: u32(10000), SearchProbe: u32(10000)},
-			forTarget(graphTarget, &pb.VectorIndexParams{Ef: u32(10000)}), forTarget(ivfTarget, &pb.VectorIndexParams{SearchProbe: u32(10000)})), ""},
+		{"ef and search_probe at cap", nearVec(&pb.VectorIndexParams{Ef: u32(maxSearchEF), SearchProbe: u32(maxSearchProbe)},
+			forTarget(graphTarget, efP(maxSearchEF)), forTarget(ivfTarget, probeP(maxSearchProbe))), ""},
 		{"every filter strategy", nearVec(nil,
 			forTarget(graphTarget, &pb.VectorIndexParams{FilterStrategy: pb.FilterStrategy_FILTER_STRATEGY_PATHSEER.Enum()}),
 			forTarget(ivfTarget, &pb.VectorIndexParams{FilterStrategy: pb.FilterStrategy_FILTER_STRATEGY_SWEEPING.Enum()})), ""},

@@ -20,13 +20,26 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// singleNode is the shared single-node Weaviate (REST + gRPC) used by all
-// tests except the cluster and dynamic ones, which start their own containers.
+// Operator caps of the shared node. They are well above every value the tests
+// send (ef <= 1000, search_probe <= 256) and differ from each other and from
+// the built-in default (10000), so the caps test can tell which cap each
+// surface read without starting a node of its own.
+const (
+	maxSearchEF    = 2000
+	maxSearchProbe = 500
+)
+
+// singleNode is the shared single-node Weaviate (REST + gRPC) used by every
+// test except the sharded one, which needs a cluster.
 var singleNode *docker.DockerCompose
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-	compose, err := docker.New().WithWeaviateWithGRPC().Start(ctx)
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("HNSW_MAX_SEARCH_EF", fmt.Sprint(maxSearchEF)).
+		WithWeaviateEnv("HFRESH_MAX_SEARCH_PROBE", fmt.Sprint(maxSearchProbe)).
+		Start(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to start weaviate: %v\n", err)
 		os.Exit(1)

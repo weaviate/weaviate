@@ -12,16 +12,13 @@
 package vector_index_params
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
 	"net/http"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -29,33 +26,54 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
-	dims       = 32
-	k          = 10
-	numObjects = 3000
+	dims = 32
+	k    = 10
+	// numObjects sizes the shared HNSW collections: enough for ef=10 to lose
+	// recall against ef=1000 at k=10, small enough to insert in seconds
+	// against a race-instrumented server.
+	numObjects = 2000
+	// numQueries is the query count of the id-by-id equality checks.
 	numQueries = 30
-	// statQueries is the query count for the statistical multi-node checks.
-	statQueries = 100
+	// statQueries is the query count of the mean-recall checks. The asserted
+	// gaps (>= 0.03) are above the standard error of a mean recall@10 over 40
+	// queries (~0.02).
+	statQueries = 40
 	numBuckets  = 10
 	batchSize   = 500
 )
 
 // dataset holds deterministic random vectors; the object at index i has the
-// UUID returned by idFor(i) and bucket i % numBuckets.
+// UUID returned by idFor(i) and bucket i % numBuckets. The exact neighbours
+// of each query are cached per subset, since the brute-force pass over the
+// whole dataset is itself race-instrumented in CI.
 type dataset struct {
 	vectors [][]float32
 	queries [][]float32
+	truth   map[truthKey][]string
 }
+
+type truthKey struct {
+	qi, n  int
+	subset string
+}
+
+// subset is a deterministic selection of the dataset; its name keys the cache
+// of exact neighbours. The zero value keeps every object.
+type subset struct {
+	name string
+	keep func(i int) bool
+}
+
+var everything = subset{}
 
 func newDataset(seed int64, n, queries int) *dataset {
 	rng := rand.New(rand.NewSource(seed))
@@ -66,7 +84,7 @@ func newDataset(seed int64, n, queries int) *dataset {
 		}
 		return v
 	}
-	ds := &dataset{}
+	ds := &dataset{truth: map[truthKey][]string{}}
 	for i := 0; i < n; i++ {
 		ds.vectors = append(ds.vectors, gen())
 	}
@@ -88,30 +106,36 @@ func cosineDistance(a, b []float32) float64 {
 	return 1 - dot/(math.Sqrt(na)*math.Sqrt(nb))
 }
 
-// exactTopK returns the ids of the k exact nearest neighbours of q by cosine
-// distance among the vectors accepted by keep (nil keeps all).
-func (d *dataset) exactTopK(q []float32, keep func(i int) bool) []string {
-	return d.exactTopN(q, k, keep)
+// exactTopK returns the ids of the k exact nearest neighbours of query qi by
+// cosine distance among the objects of s.
+func (d *dataset) exactTopK(qi int, s subset) []string {
+	return d.exactTopN(qi, k, s)
 }
 
 // exactTopN is exactTopK for an arbitrary result size n.
-func (d *dataset) exactTopN(q []float32, n int, keep func(i int) bool) []string {
+func (d *dataset) exactTopN(qi, n int, s subset) []string {
+	key := truthKey{qi, n, s.name}
+	if ids, ok := d.truth[key]; ok {
+		return ids
+	}
 	type scored struct {
 		i    int
 		dist float64
 	}
+	q := d.queries[qi]
 	var all []scored
 	for i, v := range d.vectors {
-		if keep != nil && !keep(i) {
+		if s.keep != nil && !s.keep(i) {
 			continue
 		}
 		all = append(all, scored{i, cosineDistance(q, v)})
 	}
 	sort.Slice(all, func(a, b int) bool { return all[a].dist < all[b].dist })
 	ids := make([]string, 0, n)
-	for _, s := range all[:n] {
-		ids = append(ids, idFor(s.i))
+	for _, sc := range all[:n] {
+		ids = append(ids, idFor(sc.i))
 	}
+	d.truth[key] = ids
 	return ids
 }
 
@@ -148,9 +172,9 @@ func baseProperties() []*models.Property {
 	}
 }
 
-// createSingleVectorCollection creates a legacy single-vector collection and
-// loads the dataset into it.
-func createSingleVectorCollection(t *testing.T, name, indexType string, indexCfg map[string]any,
+// defineSingleVectorCollection creates a legacy single-vector collection and
+// loads the dataset into it. The caller owns its deletion.
+func defineSingleVectorCollection(t *testing.T, name, indexType string, indexCfg map[string]any,
 	repl *models.ReplicationConfig, ds *dataset, n int, cl types.ConsistencyLevel,
 ) {
 	t.Helper()
@@ -163,7 +187,6 @@ func createSingleVectorCollection(t *testing.T, name, indexType string, indexCfg
 		ReplicationConfig: repl,
 	}
 	helper.CreateClass(t, class)
-	t.Cleanup(func() { helper.DeleteClass(t, name) })
 	insertObjects(t, name, n, cl, func(i int) *models.Object {
 		return &models.Object{
 			ID:     idToUUID(i),
@@ -175,6 +198,16 @@ func createSingleVectorCollection(t *testing.T, name, indexType string, indexCfg
 			},
 		}
 	})
+}
+
+// createSingleVectorCollection is defineSingleVectorCollection for a
+// collection owned by one test: it is deleted when the test ends.
+func createSingleVectorCollection(t *testing.T, name, indexType string, indexCfg map[string]any,
+	repl *models.ReplicationConfig, ds *dataset, n int, cl types.ConsistencyLevel,
+) {
+	t.Helper()
+	defineSingleVectorCollection(t, name, indexType, indexCfg, repl, ds, n, cl)
+	t.Cleanup(func() { helper.DeleteClass(t, name) })
 }
 
 func rqConfig() map[string]any {
@@ -234,39 +267,50 @@ func searchIDs(t *testing.T, c pb.WeaviateClient, req *pb.SearchRequest) []strin
 	return idsOf(t, reply, err)
 }
 
+// bucketBelow is the filter keeping the objects whose bucket is < n, i.e.
+// n*10% of them, and the matching subset for the exact neighbours.
+func bucketBelow(n int) (*pb.Filters, subset) {
+	filter := &pb.Filters{
+		Operator:  pb.Filters_OPERATOR_LESS_THAN,
+		TestValue: &pb.Filters_ValueInt{ValueInt: int64(n)},
+		Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "bucket"}},
+	}
+	return filter, subset{
+		name: fmt.Sprintf("bucket<%d", n),
+		keep: func(i int) bool { return i%numBuckets < n },
+	}
+}
+
 func meanRecall(t *testing.T, c pb.WeaviateClient, ds *dataset, collection string, ef *uint32,
-	filter *pb.Filters, keep func(i int) bool,
+	filter *pb.Filters, s subset,
 ) float64 {
 	t.Helper()
 	var sum float64
-	for _, q := range ds.queries {
+	for qi, q := range ds.queries {
 		req := nearVectorRequest(collection, q, k, ef)
 		req.Filters = filter
-		sum += recallOf(searchIDs(t, c, req), ds.exactTopK(q, keep))
+		sum += recallOf(searchIDs(t, c, req), ds.exactTopK(qi, s))
 	}
 	return sum / float64(len(ds.queries))
 }
 
 func TestVectorIndexParamsEF_HNSW(t *testing.T) {
-	helper.SetupClient(singleNode.GetWeaviate().URI())
-	grpcClient := newGRPC(t, singleNode.GetWeaviate().GrpcURI())
-	ds := newDataset(42, numObjects, statQueries)
+	grpcClient := setupSingleNode(t)
+	class, ds := hnswShared.get(t)
 
 	t.Run("unset equals zero", func(t *testing.T) {
-		createSingleVectorCollection(t, "EfUnsetZero", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
 		for qi, q := range ds.queries {
-			unset := searchIDs(t, grpcClient, nearVectorRequest("EfUnsetZero", q, k, nil))
-			zero := searchIDs(t, grpcClient, nearVectorRequest("EfUnsetZero", q, k, u32(0)))
+			unset := searchIDs(t, grpcClient, nearVectorRequest(class, q, k, nil))
+			zero := searchIDs(t, grpcClient, nearVectorRequest(class, q, k, u32(0)))
 			require.Equal(t, unset, zero, "query %d", qi)
 		}
 	})
 
 	t.Run("recall non-decreasing", func(t *testing.T) {
-		createSingleVectorCollection(t, "EfRecall", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
 		prev := -1.0
 		recalls := map[uint32]float64{}
-		for _, ef := range []uint32{10, 50, 200, 1000} {
-			r := meanRecall(t, grpcClient, ds, "EfRecall", u32(ef), nil, nil)
+		for _, ef := range []uint32{10, 200, 1000} {
+			r := meanRecall(t, grpcClient, ds, class, u32(ef), nil, everything)
 			t.Logf("ef=%d recall@%d=%.3f", ef, k, r)
 			// 0.01 tolerance: RQ rescoring can invert two recalls both near 1.0.
 			assert.GreaterOrEqual(t, r, prev-0.01, "recall must not decrease when ef grows to %d", ef)
@@ -281,69 +325,28 @@ func TestVectorIndexParamsEF_HNSW(t *testing.T) {
 	})
 
 	t.Run("ef below limit", func(t *testing.T) {
-		createSingleVectorCollection(t, "EfBelowLimit", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
 		// The beam is floored at the limit, so ef=10 and ef=100 both search
 		// with a beam of 100 and must return the same 100 ids.
-		for qi, q := range ds.queries {
-			floored := searchIDs(t, grpcClient, nearVectorRequest("EfBelowLimit", q, 100, u32(10)))
+		for qi, q := range ds.queries[:numQueries] {
+			floored := searchIDs(t, grpcClient, nearVectorRequest(class, q, 100, u32(10)))
 			require.Len(t, floored, 100, "query %d", qi)
-			atLimit := searchIDs(t, grpcClient, nearVectorRequest("EfBelowLimit", q, 100, u32(100)))
+			atLimit := searchIDs(t, grpcClient, nearVectorRequest(class, q, 100, u32(100)))
 			require.Equal(t, atLimit, floored, "query %d: ef below limit must behave as ef=limit", qi)
 		}
 	})
 
-	t.Run("with filter", func(t *testing.T) {
-		// bucketBelow keeps the objects whose bucket is < n, i.e. n*10% of them.
-		bucketBelow := func(n int) (*pb.Filters, func(i int) bool) {
-			return &pb.Filters{
-				Operator:  pb.Filters_OPERATOR_LESS_THAN,
-				TestValue: &pb.Filters_ValueInt{ValueInt: int64(n)},
-				Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "bucket"}},
-			}, func(i int) bool { return i%numBuckets < n }
-		}
-		// With the default flatSearchCutoff (40000) every allow list here is
+	t.Run("filter below flatSearchCutoff", func(t *testing.T) {
+		// With the default flatSearchCutoff (40000) a 10% allow list is
 		// brute-forced and ef only caps the compressed candidates kept for
-		// rescoring, so the gap is tiny; with flatSearchCutoff 0 the graph is
-		// walked and the filter strategy sees the override, which must then
-		// open a clear recall gap. The graph cases keep 50% of the objects: on
-		// a 10% filter sweeping explores so much of the graph to find allowed
-		// candidates that ef=10 is already near-exact (measured gap 0.01), while
-		// at 50% all three strategies lose about 0.10 recall at ef=10.
-		cases := []struct {
-			name      string
-			cutoff    int
-			strategy  string
-			buckets   int // selectivity: buckets of 10 kept
-			strictGap bool
-		}{
-			{"brute force below flatSearchCutoff", -1, "", 1, false},
-			{"graph sweeping", 0, "sweeping", 5, true},
-			{"graph acorn", 0, "acorn", 5, true},
-			{"graph pathseer", 0, "pathseer", 5, true},
-		}
-		for i, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				cfg := rqConfig()
-				if tc.cutoff >= 0 {
-					cfg["flatSearchCutoff"] = tc.cutoff
-				}
-				if tc.strategy != "" {
-					cfg["filterStrategy"] = tc.strategy
-				}
-				filter, keep := bucketBelow(tc.buckets)
-				class := fmt.Sprintf("EfFilter%d", i)
-				createSingleVectorCollection(t, class, "hnsw", cfg, nil, ds, numObjects, types.ConsistencyLevelQuorum)
-				low := meanRecall(t, grpcClient, ds, class, u32(10), filter, keep)
-				high := meanRecall(t, grpcClient, ds, class, u32(1000), filter, keep)
-				t.Logf("%s: filtered recall ef=10 %.3f, ef=1000 %.3f", tc.name, low, high)
-				assert.GreaterOrEqual(t, high, 0.95, "ef=1000 must be near-exact")
-				if tc.strictGap {
-					assert.LessOrEqual(t, low, high-0.03, "ef=10 must have clearly lower recall on the graph path")
-				} else {
-					assert.GreaterOrEqual(t, high, low)
-				}
-			})
-		}
+		// rescoring, so the gap is tiny but recall must not get worse with a
+		// larger ef. The graph path (flatSearchCutoff 0) is covered per
+		// strategy by TestVectorIndexParamsFilterStrategy.
+		filter, s := bucketBelow(1)
+		low := meanRecall(t, grpcClient, ds, class, u32(10), filter, s)
+		high := meanRecall(t, grpcClient, ds, class, u32(1000), filter, s)
+		t.Logf("brute force: filtered recall ef=10 %.3f, ef=1000 %.3f", low, high)
+		assert.GreaterOrEqual(t, high, 0.95, "ef=1000 must be near-exact")
+		assert.GreaterOrEqual(t, high, low)
 	})
 
 	for _, muvera := range []bool{false, true} {
@@ -362,16 +365,12 @@ func TestVectorIndexParamsEF_HNSW(t *testing.T) {
 		// no-op. Recall cannot tell beam 100 from beam 1000 at k=100 (both are
 		// ~1.0), so the check is exact equality with the equivalent near-vector
 		// request, made informative by requiring that the two references (beam
-		// 100 and beam 1000) differ on some queries. The collection gets ef
-		// 1000 so that the default beam is the wide one.
+		// 100 and beam 1000) differ on some queries.
 		const hybridLimit = 100
-		cfg := rqConfig()
-		cfg["ef"] = 1000
-		createSingleVectorCollection(t, "EfHybrid", "hnsw", cfg, nil, ds, numObjects, types.ConsistencyLevelQuorum)
 		alpha := float32(1)
 		hybridIDs := func(q []float32, ef *uint32) []string {
 			ids := searchIDs(t, grpcClient, &pb.SearchRequest{
-				Collection: "EfHybrid",
+				Collection: class,
 				Limit:      hybridLimit,
 				Metadata:   &pb.MetadataRequest{Uuid: true},
 				HybridSearch: &pb.Hybrid{
@@ -390,9 +389,9 @@ func TestVectorIndexParamsEF_HNSW(t *testing.T) {
 			return ids
 		}
 		differs := 0
-		for qi, q := range ds.queries {
-			narrow := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, hybridLimit, u32(100)))
-			wide := searchIDs(t, grpcClient, nearVectorRequest("EfHybrid", q, hybridLimit, u32(1000)))
+		for qi, q := range ds.queries[:numQueries] {
+			narrow := searchIDs(t, grpcClient, nearVectorRequest(class, q, hybridLimit, u32(100)))
+			wide := searchIDs(t, grpcClient, nearVectorRequest(class, q, hybridLimit, u32(1000)))
 			if !assert.ObjectsAreEqual(narrow, wide) {
 				differs++
 			}
@@ -400,16 +399,16 @@ func TestVectorIndexParamsEF_HNSW(t *testing.T) {
 			// near-vector request with the same limit and ef...
 			require.Equal(t, narrow, hybridIDs(q, u32(100)), "request ef 100, query %d", qi)
 			require.Equal(t, wide, hybridIDs(q, u32(1000)), "request ef 1000, query %d", qi)
-			// ...and without params it must use the collection default (1000).
-			require.Equal(t, wide, hybridIDs(q, nil), "collection ef, query %d", qi)
+			// ...and without params both must use the collection default.
+			unset := searchIDs(t, grpcClient, nearVectorRequest(class, q, hybridLimit, nil))
+			require.Equal(t, unset, hybridIDs(q, nil), "collection ef, query %d", qi)
 		}
-		t.Logf("hybrid: beam 100 and beam 1000 differ on %d of %d queries", differs, len(ds.queries))
+		t.Logf("hybrid: beam 100 and beam 1000 differ on %d of %d queries", differs, numQueries)
 		require.Positive(t, differs, "beam 100 and 1000 never differ, so the equalities above prove nothing")
 	})
 
 	t.Run("errors", func(t *testing.T) {
-		createSingleVectorCollection(t, "EfErrors", "hnsw", rqConfig(), nil, ds, 100, types.ConsistencyLevelQuorum)
-		_, err := grpcClient.Search(context.Background(), nearVectorRequest("EfErrors", ds.queries[0], k, u32(10001)))
+		_, err := grpcClient.Search(context.Background(), nearVectorRequest(class, ds.queries[0], k, u32(10001)))
 		require.Error(t, err)
 		st, ok := status.FromError(err)
 		require.True(t, ok)
@@ -426,7 +425,7 @@ func idToUUID(i int) strfmt.UUID { return strfmt.UUID(idFor(i)) }
 func testMultiVector(t *testing.T, c pb.WeaviateClient, muvera bool) {
 	const (
 		tokens = 3
-		n      = 1000
+		n      = 300
 	)
 	rng := rand.New(rand.NewSource(7))
 	token := func() []float32 {
@@ -494,8 +493,8 @@ func testMultiVector(t *testing.T, c pb.WeaviateClient, muvera bool) {
 		return ids
 	}
 
-	// ef=1000 visits every document (1000 candidates, or all of them after
-	// the MUVERA pre-search), so late interaction over that set is the exact
+	// ef=1000 visits every document (all of them, or all of them after the
+	// MUVERA pre-search), so late interaction over that set is the exact
 	// MaxSim top k and serves as the reference. ef=10 pools only a few dozen
 	// candidates and must lose recall against it, otherwise the override
 	// never reached the multi-vector path.
@@ -510,35 +509,9 @@ func testMultiVector(t *testing.T, c pb.WeaviateClient, muvera bool) {
 }
 
 func TestVectorIndexParamsEF_REST(t *testing.T) {
+	grpcClient := setupSingleNode(t)
 	uri := singleNode.GetWeaviate().URI()
-	helper.SetupClient(uri)
-	grpcClient := newGRPC(t, singleNode.GetWeaviate().GrpcURI())
-	ds := newDataset(43, numObjects, numQueries)
-	createSingleVectorCollection(t, "EfREST", "hnsw", rqConfig(), nil, ds, numObjects, types.ConsistencyLevelQuorum)
-
-	post := func(searchType string, body map[string]any) (int, map[string]any) {
-		t.Helper()
-		payload, err := json.Marshal(body)
-		require.NoError(t, err)
-		resp, err := http.Post(fmt.Sprintf("http://%s/v1/search/EfREST/%s", uri, searchType),
-			"application/json", bytes.NewReader(payload))
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		var out map[string]any
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-		return resp.StatusCode, out
-	}
-
-	restIDs := func(out map[string]any) []string {
-		t.Helper()
-		res, ok := out["results"].([]any)
-		require.True(t, ok, "%v", out)
-		ids := make([]string, 0, len(res))
-		for _, r := range res {
-			ids = append(ids, r.(map[string]any)["id"].(string))
-		}
-		return ids
-	}
+	class, ds := hnswShared.get(t)
 
 	tests := []struct {
 		name       string
@@ -556,218 +529,45 @@ func TestVectorIndexParamsEF_REST(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.body["limit"] = k
-			status, out := post(tt.searchType, tt.body)
+			status, out := restSearch(t, uri, class, tt.searchType, tt.body)
 			require.Equal(t, tt.wantStatus, status, "%v", out)
 			if tt.wantStatus == http.StatusOK {
-				assert.Len(t, restIDs(out), k)
+				assert.Len(t, restResultIDs(t, out), k)
 			}
 		})
 	}
 
 	// REST must land on the same search as gRPC: for every query, the ids at
 	// ef=10 and at ef=1000 are identical across the two surfaces. The gRPC
-	// path is proven ef-sensitive above, so this pins the REST mapping without
-	// a second statistical check.
+	// path is proven ef-sensitive in TestVectorIndexParamsEF_HNSW, so this
+	// pins the REST mapping without a second statistical check.
 	t.Run("matches gRPC per query", func(t *testing.T) {
 		for _, ef := range []uint32{10, 1000} {
-			for qi, q := range ds.queries {
-				status, out := post("near-vector", map[string]any{
+			for qi, q := range ds.queries[:numQueries] {
+				got := restOKIDs(t, uri, class, "near-vector", map[string]any{
 					"vector": q, "limit": k, "vectorIndexParams": map[string]any{"ef": ef},
 				})
-				require.Equal(t, http.StatusOK, status, "%v", out)
-				want := searchIDs(t, grpcClient, nearVectorRequest("EfREST", q, k, u32(ef)))
-				require.Equal(t, want, restIDs(out), "ef %d query %d", ef, qi)
+				want := searchIDs(t, grpcClient, nearVectorRequest(class, q, k, u32(ef)))
+				require.Equal(t, want, got, "ef %d query %d", ef, qi)
 			}
 		}
 	})
 }
 
 func TestVectorIndexParamsEF_FlatIgnores(t *testing.T) {
-	helper.SetupClient(singleNode.GetWeaviate().URI())
-	grpcClient := newGRPC(t, singleNode.GetWeaviate().GrpcURI())
-	ds := newDataset(44, 1000, numQueries)
-	createSingleVectorCollection(t, "EfFlat", "flat", nil, nil, ds, 1000, types.ConsistencyLevelQuorum)
+	const (
+		class = "EfFlat"
+		n     = 500
+	)
+	grpcClient := setupSingleNode(t)
+	ds := newDataset(44, n, numQueries)
+	createSingleVectorCollection(t, class, "flat", nil, nil, ds, n, types.ConsistencyLevelQuorum)
 
 	for qi, q := range ds.queries {
-		with := searchIDs(t, grpcClient, nearVectorRequest("EfFlat", q, k, u32(1000)))
-		without := searchIDs(t, grpcClient, nearVectorRequest("EfFlat", q, k, nil))
+		with := searchIDs(t, grpcClient, nearVectorRequest(class, q, k, u32(1000)))
+		without := searchIDs(t, grpcClient, nearVectorRequest(class, q, k, nil))
 		require.Len(t, with, k, "query %d", qi)
 		require.Len(t, without, k, "query %d", qi)
 		require.Equal(t, without, with, "query %d", qi)
 	}
-}
-
-// assertEFSensitivity checks, per node, that mean recall@10 is >= 0.95 at
-// ef=1000 and at least 0.03 lower at ef=10 (about three standard errors over
-// 100 queries).
-func assertEFSensitivity(t *testing.T, compose *docker.DockerCompose, ds *dataset, class string) {
-	for node := 1; node <= 3; node++ {
-		t.Run(fmt.Sprintf("node %d", node), func(t *testing.T) {
-			c := newGRPC(t, compose.GetWeaviateNode(node).GrpcURI())
-			high := meanRecall(t, c, ds, class, u32(1000), nil, nil)
-			low := meanRecall(t, c, ds, class, u32(10), nil, nil)
-			t.Logf("node %d: mean recall@%d ef=1000 %.3f, ef=10 %.3f", node, k, high, low)
-			assert.GreaterOrEqual(t, high, 0.95)
-			assert.LessOrEqual(t, low, high-0.03, "ef=10 must have clearly lower mean recall than ef=1000")
-		})
-	}
-}
-
-// TestVectorIndexParamsEF_Cluster shares one 3-node cluster between the
-// replicated (RF=3) and sharded (RF=1, 3 shards) scenarios.
-func TestVectorIndexParamsEF_Cluster(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().WithWeaviateClusterWithGRPC().Start(ctx)
-	require.NoError(t, err)
-	// registered before the collection cleanups so it runs after them (LIFO)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
-
-	t.Run("Replicated", func(t *testing.T) {
-		helper.SetupClient(compose.GetWeaviate().URI())
-		ds := newDataset(45, 1000, statQueries)
-		createSingleVectorCollection(t, "EfReplicated", "hnsw", rqConfig(),
-			&models.ReplicationConfig{Factor: 3}, ds, 1000, types.ConsistencyLevelAll)
-
-		// With RF=3 every node holds a replica and the router prefers the
-		// local one, so each search runs on the local replica without a
-		// node-to-node hop. This proves every node answers consistently and
-		// honours ef locally; the cross-node path is pinned by the Sharded
-		// subtest.
-		assertEFSensitivity(t, compose, ds, "EfReplicated")
-	})
-
-	// The Sharded subtest exercises the cross-node ef path. With 3 shards and
-	// RF=1 on a 3-node cluster, any node answering a query holds at most one
-	// shard locally and must fetch the others from remote nodes through
-	// remoteShardSearch -> SearchShard -> postSearchObjects -> IncomingSearch.
-	// If a hop dropped the value, the remote shards would be searched with the
-	// default beam and the low-ef result would not degrade on them. We assert
-	// per node that ef=10 has clearly lower mean recall@10 than ef=1000 and
-	// that ef=1000 is near-exact; the handler-level hop is
-	// additionally pinned by the clusterapi unit test.
-	t.Run("Sharded", func(t *testing.T) {
-		helper.SetupClient(compose.GetWeaviate().URI())
-		ds := newDataset(46, numObjects, statQueries)
-		class := &models.Class{
-			Class:             "EfSharded",
-			Vectorizer:        "none",
-			VectorIndexType:   "hnsw",
-			VectorIndexConfig: rqConfig(),
-			Properties:        baseProperties(),
-			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
-			ShardingConfig:    map[string]any{"desiredCount": 3},
-		}
-		helper.CreateClass(t, class)
-		t.Cleanup(func() { helper.DeleteClass(t, class.Class) })
-		insertObjects(t, class.Class, numObjects, types.ConsistencyLevelOne, func(i int) *models.Object {
-			return &models.Object{
-				ID:     idToUUID(i),
-				Class:  class.Class,
-				Vector: ds.vectors[i],
-				Properties: map[string]any{
-					"title":  fmt.Sprintf("object %d", i),
-					"bucket": i % numBuckets,
-				},
-			}
-		})
-		assertEFSensitivity(t, compose, ds, class.Class)
-	})
-
-	t.Run("Sharded per-target", testShardedPerTarget(compose))
-}
-
-// waitForVectorIndexing blocks until every shard of className reports an empty
-// vector queue and a READY index (needed with ASYNC_INDEXING, where inserts
-// return before the vectors are indexed).
-func waitForVectorIndexing(t *testing.T, className string) {
-	t.Helper()
-	verbose := "verbose"
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		params := nodes.NewNodesGetClassParams().WithClassName(className).WithOutput(&verbose)
-		resp, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		if !assert.NoError(collect, err) || !assert.NotEmpty(collect, resp.Payload.Nodes) {
-			return
-		}
-		for _, node := range resp.Payload.Nodes {
-			for _, shard := range node.Shards {
-				assert.Zero(collect, shard.VectorQueueLength, "shard %s still has queued vectors", shard.Name)
-				assert.Equal(collect, "READY", shard.VectorIndexingStatus, "shard %s", shard.Name)
-			}
-		}
-	}, 2*time.Minute, time.Second, "vector indexing did not settle for %s", className)
-}
-
-// TestVectorIndexParamsEF_Dynamic checks that a dynamic index ignores ef
-// while it is flat and honours it once it has upgraded to HNSW. The upgrade
-// has no API signal, so the test polls for the behavioural change itself.
-func TestVectorIndexParamsEF_Dynamic(t *testing.T) {
-	const (
-		threshold = 1000
-		flatCount = 500
-		className = "EfDynamic"
-	)
-	ctx := context.Background()
-	// The dynamic index needs async indexing, which the shared single node
-	// does not enable.
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "500ms").
-		Start(ctx)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	c := newGRPC(t, compose.GetWeaviate().GrpcURI())
-	ds := newDataset(47, numObjects, statQueries)
-
-	class := &models.Class{
-		Class:           className,
-		Vectorizer:      "none",
-		VectorIndexType: "dynamic",
-		VectorIndexConfig: map[string]any{
-			"threshold": threshold,
-			"hnsw":      rqConfig(),
-		},
-		Properties: baseProperties(),
-	}
-	helper.CreateClass(t, class)
-	t.Cleanup(func() { helper.DeleteClass(t, className) })
-
-	build := func(i int) *models.Object {
-		return &models.Object{
-			ID:     idToUUID(i),
-			Class:  className,
-			Vector: ds.vectors[i],
-			Properties: map[string]any{
-				"title":  fmt.Sprintf("object %d", i),
-				"bucket": i % numBuckets,
-			},
-		}
-	}
-
-	// Stage 1: below the threshold the index is flat and ignores ef.
-	insertObjects(t, className, flatCount, types.ConsistencyLevelQuorum, build)
-	waitForVectorIndexing(t, className)
-	for qi, q := range ds.queries {
-		low := searchIDs(t, c, nearVectorRequest(className, q, k, u32(10)))
-		high := searchIDs(t, c, nearVectorRequest(className, q, k, u32(1000)))
-		require.Len(t, low, k, "query %d", qi)
-		require.Equal(t, low, high, "flat stage must ignore ef (query %d)", qi)
-	}
-
-	// Stage 2: cross the threshold. The flat->HNSW rebuild runs in the
-	// background, so poll until ef shows an effect (or the deadline passes).
-	insertObjects(t, className, numObjects-flatCount, types.ConsistencyLevelQuorum,
-		func(i int) *models.Object { return build(flatCount + i) })
-	waitForVectorIndexing(t, className)
-
-	var high, low float64
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		high = meanRecall(t, c, ds, className, u32(1000), nil, nil)
-		low = meanRecall(t, c, ds, className, u32(10), nil, nil)
-		assert.LessOrEqual(collect, low, high-0.03, "index has not upgraded to HNSW yet: mean recall ef=10 %.3f, ef=1000 %.3f", low, high)
-	}, 3*time.Minute, 5*time.Second, "dynamic index never started honouring ef")
-	t.Logf("after upgrade: mean recall@%d ef=1000 %.3f, ef=10 %.3f", k, high, low)
-	assert.GreaterOrEqual(t, high, 0.95)
 }

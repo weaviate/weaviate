@@ -63,11 +63,11 @@ func twoVectorIndexes() map[string]namedIndex {
 	}
 }
 
-// createNamedVectorCollection creates a collection with the given named
+// defineNamedVectorCollection creates a collection with the given named
 // vectors (no vectorizer) and loads the dataset into it, every named vector
 // of object i getting ds.vectors[i]. mutate, if set, adjusts the class (e.g.
-// sharding or replication) before it is created.
-func createNamedVectorCollection(t *testing.T, name string, indexes map[string]namedIndex,
+// sharding or replication) before it is created. The caller owns its deletion.
+func defineNamedVectorCollection(t *testing.T, name string, indexes map[string]namedIndex,
 	mutate func(*models.Class), ds *dataset, n int, cl types.ConsistencyLevel,
 ) {
 	t.Helper()
@@ -84,7 +84,6 @@ func createNamedVectorCollection(t *testing.T, name string, indexes map[string]n
 		mutate(class)
 	}
 	helper.CreateClass(t, class)
-	t.Cleanup(func() { helper.DeleteClass(t, name) })
 
 	got := helper.GetClass(t, name)
 	for target, idx := range indexes {
@@ -107,6 +106,33 @@ func createNamedVectorCollection(t *testing.T, name string, indexes map[string]n
 			},
 		}
 	})
+}
+
+// createNamedVectorCollection is defineNamedVectorCollection for a collection
+// owned by one test: it is deleted when the test ends.
+func createNamedVectorCollection(t *testing.T, name string, indexes map[string]namedIndex,
+	mutate func(*models.Class), ds *dataset, n int, cl types.ConsistencyLevel,
+) {
+	t.Helper()
+	defineNamedVectorCollection(t, name, indexes, mutate, ds, n, cl)
+	t.Cleanup(func() { helper.DeleteClass(t, name) })
+}
+
+// twoVectorObjects sizes the shared two-vector collection: with 8 KiB postings
+// the HFresh index spreads over enough postings that routing k centroids
+// (search_probe <= k) misses about a tenth of the exact neighbours, well
+// beyond the 0.05 gap the tests assert (3000 objects left only 0.06).
+const twoVectorObjects = 4000
+
+func efP(ef uint32) *pb.VectorIndexParams   { return &pb.VectorIndexParams{Ef: u32(ef)} }
+func probeP(p uint32) *pb.VectorIndexParams { return &pb.VectorIndexParams{SearchProbe: u32(p)} }
+
+// namedVectorRequest is nearVectorRequest on one named vector.
+func namedVectorRequest(collection, target string, vec []float32, limit uint32, params *pb.VectorIndexParams) *pb.SearchRequest {
+	r := nearVectorRequest(collection, vec, limit, nil)
+	r.NearVector.Targets = &pb.Targets{TargetVectors: []string{target}}
+	r.VectorIndexParams = params
+	return r
 }
 
 // negate returns -v, a decoy query: a zero-weight target searched with it
@@ -197,8 +223,8 @@ func idsPerQuery(t *testing.T, c pb.WeaviateClient, ds *dataset, build func(q []
 func meanRecallOf(t *testing.T, c pb.WeaviateClient, ds *dataset, build func(q []float32) *pb.SearchRequest) float64 {
 	t.Helper()
 	var sum float64
-	for _, q := range ds.queries {
-		sum += recallOf(searchIDs(t, c, build(q)), ds.exactTopK(q, nil))
+	for qi, q := range ds.queries {
+		sum += recallOf(searchIDs(t, c, build(q)), ds.exactTopK(qi, everything))
 	}
 	return sum / float64(len(ds.queries))
 }

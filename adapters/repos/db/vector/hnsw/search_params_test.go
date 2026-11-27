@@ -77,8 +77,11 @@ func Test_searchTimeEF_Override(t *testing.T) {
 }
 
 func Test_SearchByVector_RequestEFMatchesConfiguredEF(t *testing.T) {
+	// Whether a request ef lands on the same search as the configured ef does
+	// not depend on the graph size, so the two graphs stay small: 400 inserts
+	// each is what the neighbouring tests use under -race.
 	const (
-		size    = 2000
+		size    = 400
 		queries = 20
 		dims    = 16
 		k       = 10
