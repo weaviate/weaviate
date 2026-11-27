@@ -807,6 +807,57 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **A 3M con 768 dimensiones** (la noche, 88 por segundo), las mismas 3–4 veces darían unos 260–350 por segundo. 10M crecido serían unas 10–13 h.
 - **Es una estimación.** Habría que medirla como v5.2: N = 1, 4 y 8, con cargas y recall a 0.95 y 0.99 frente a N = 1, también a 1M.
 
+### La propuesta, por pasos, y lo pendiente de la noche (pre-registro, 2026-11-27 a las 08:55, antes de compilar)
+
+**El encargo (del usuario):**
+- **La propuesta, por pasos.** Cada paso se mide a 100k con 1 y 8 llamadores (inserts por segundo, recall y bytes escritos) antes de pasar al siguiente:
+  1. Planes sin reparto en gorutinas, con concurrencia 1 dentro del plan. Medir cuánto gana un solo llamador solo con esto.
+  2. Tandas con un único aplicador, sobre los trozos de la indexación asíncrona, con los workers del nodo como buscadores.
+  3. Un registro del diario por tanda.
+
+  Con los tres, confirmar a 1M frente a v5.2.
+- **En paralelo, sin esperar a los pasos** (salvo a lo que esté cronometrando):
+  - perfilar unos 20 000 inserts sobre el índice a medias de 3.3M, con 1 llamador, y comparar el reparto del tiempo con el de 100k (búsqueda de aristas, aplicador, diario, compactación), explicando por qué el ritmo bajó de 217 a 87 por segundo;
+  - separar los 157 GB escritos entre diario, filas de postings y aristas, vectores exactos y compactación.
+- Sin eso, la propuesta acelera los inserts a 100k pero no sabemos si los hace viables a 10M.
+
+**Los pasos: cómo los hago y los mido (*mío*).**
+- **El código,** en `feat/posting-edge-integration-m2`, un commit por paso con sus tests, el lint y el paquete con `-race`. Se sube cuando el paso está medido.
+- **Paso 1:** el plan de un insert lleva en su contexto un presupuesto de concurrencia de 1 (`concurrency.CtxWithBudget`).
+  - El rescore ya lee en línea con un presupuesto de 1.
+  - La carga de las filas de una ronda (`growIndex.fetch`) gana un camino en línea con un presupuesto de 1. Hoy, con `SetLimit(1)`, seguiría creando una gorutina por fila.
+  - Las consultas no cambian.
+  - Un test cuenta las rondas y los rescores repartidos: ninguno en los inserts, y alguno en una consulta.
+- **Paso 2:** los `AddBatch` en vuelo son los buscadores. Cada uno planea su ventana contra el estado que dejó la última tanda aplicada; mientras alguien planea, no se aplica nada.
+  - Los planes terminados se juntan. Con W = 32 planes, o cuando no queda nadie planeando, quien deja el último se hace aplicador: toma `writeMu` y el exclusivo una sola vez, y aplica todos en orden con lo que ya hace `insertBatch` (`refresh` y `apply` por plan).
+  - Un llamador no vuelve hasta que sus vectores están aplicados, porque la cola da el trozo por hecho cuando vuelve `AddBatch`.
+  - El error de un plan vuelve a su dueño y no detiene a los demás, salvo un fallo del índice, que lo para como hoy.
+  - En la indexación asíncrona son los workers del nodo los que llaman: no hace falta tocar la cola ni el scheduler.
+- **Paso 3:** la tanda entera es un solo paso del diario: un registro, un `pwrite` y una meta. Ante una caída, la tanda es atómica.
+- **La medida de cada paso:**
+  - El arnés de escala, como en la enmienda 1: 100 000 de dbpedia, 1 y 8 llamadores, el recall a ef 40 y 160, y los bytes que el sistema contó como escritos por el proceso.
+  - El binario del paso se alterna con el de la cabeza (`c6c8b2e347`): cabeza-1, paso-1, cabeza-8, paso-8, dos pasadas.
+  - Doy la razón de las medias frente a la cabeza, en la misma tanda de corridas.
+  - **Sin umbral de paso:** el encargo es medir antes de seguir. Si un paso pierde recall más de 0.005 a ef 40 o 160, o escribe un 10 % más, lo digo antes de seguir.
+- **A 1M, con los tres:** dbpedia 1M, 1 y 8 llamadores, frente a v5.2 con 1 y 8 buscadores (tanda de 32), una pasada de cada uno. Más recall y cargas a 0.95 y 0.99 con el arnés de escala.
+
+**La noche: cómo (*mío*).**
+- **El índice:** un clon APFS (`cp -c`) del índice a medias de 3.3M. El original queda como está.
+- **El arnés:** `TestNightContinue`, en el arnés de la noche, compilado sobre la cabeza (el código de la noche, `c6c8b2e347`).
+  - Abre el clon como la noche: el store de un shard, con sus ciclos.
+  - Sigue el orden barajado de la noche, saltando los doc ids que el índice ya tiene (la caída dejó en él algunos inserts posteriores al último tramo). Inserta 20 000 con 1 llamador.
+  - Mide, de los inserts, las diferencias de lo que el índice cuenta (`searchNs`, `writeNs`, `inverseNs`, `splitNs`, `rowNs`, `cycleNs`, el diario, las filas), lo que el sistema cuenta al proceso (bytes leídos y escritos, page-ins) y el reloj.
+- **Los perfiles:** de CPU, y una traza (`-test.trace`) para el tiempo bloqueado en llamadas al sistema (`go tool trace -pprof=syscall`), que el perfil de CPU no ve.
+- **Los bytes escritos, por clase:** un observador del directorio, cada 500 ms, anota el tamaño máximo de cada fichero nuevo:
+  - los WAL (`.wal`);
+  - los segmentos de nivel 0 (`flush`);
+  - los de nivel 1 o más (compactación);
+  - el fichero de vectores, los del índice y el diario (`journal.log`, que crece y se vacía: cuenta lo que creció).
+
+  Junto a lo que el sistema contó al proceso. Lo que no cuadre lo doy como no atribuido.
+- **Los 157 GB de la noche:** reparto los totales medidos con las proporciones por insert de estos 20 000 y con los contadores de la noche (diario, filas y vectores, que la noche sí contó), y digo qué parte es medida y qué parte proporción.
+- **El ritmo de 217 a 87:** comparo el reparto de los 20 000 inserts a 3.3M con el de 100k, por insert. No es la misma dimensión (768 frente a 1 536), y lo digo.
+
 ### Los arreglos de `lsmkv` en las ramas del índice (2026-11-27, a petición del usuario)
 
 | | Set (`bf72a3bec8`, #13950) | Map (`87866f1cf8`, #13983) |
