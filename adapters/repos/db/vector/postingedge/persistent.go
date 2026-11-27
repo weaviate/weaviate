@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -151,6 +150,9 @@ type Persistent struct {
 	// plans has the plans of the inserts, which every caller takes for the
 	// vectors it is adding and gives back.
 	plans sync.Pool
+	// batches gathers the plans of the callers into batches
+	// (persistent_batches.go).
+	batches insertBatches
 }
 
 const (
@@ -329,6 +331,7 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 		gone:     map[uint64]struct{}{},
 	}
 	p.plans.New = func() any { return newGrowPlan() }
+	p.batches.init()
 	ctx := context.Background()
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return nil, errors.Wrap(err, "create the directory of the index")
@@ -603,12 +606,10 @@ func (p *Persistent) Add(ctx context.Context, id uint64, vector []float32) error
 //
 // Several callers add at once: the shared workers of the node each bring a
 // part of what a queue holds, and so do the goroutines of an import. Once the
-// index has its base, the searches of their inserts run next to each other,
-// in the goroutines that call, and their writes one at a time (v5.2,
-// bench-report.md, "inserts con búsquedas en paralelo"). A caller searches
-// for insertWindow of its vectors and then writes them, so that with eight
-// callers the search of an insert misses the thirty-two or so that have not
-// written yet, the batch the experiments measured.
+// index has its base, the callers are the searchers of batches of inserts,
+// and one of them the applier of each (persistent_batches.go): the searches
+// run next to each other over the index as the last batch left it, and the
+// writes of a batch one after another, with the index held for writing once.
 func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -654,20 +655,11 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
 		return nil
 	}
 	p.writeMu.Unlock()
-
-	for from := 0; from < len(ids); from += insertWindow {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		to := min(from+insertWindow, len(ids))
-		if err := p.addWindow(ctx, ids[from:to], vectors[from:to]); err != nil {
-			return err
-		}
-	}
-	return nil
+	return p.addInBatches(ctx, ids, vectors)
 }
 
-// insertWindow is how many inserts of a caller search before they write.
+// insertWindow is how many inserts of a caller search before it leaves their
+// plans in the batch that gathers.
 const insertWindow = 4
 
 // admit checks a batch before any of it goes in: its dimensions and its
@@ -713,65 +705,11 @@ func (p *Persistent) admit(ids []uint64, vectors [][]float32) (based bool, err e
 	return true, nil
 }
 
-// addWindow inserts a few vectors of a caller: their searches, which read
-// and write nothing, next to the queries and to the searches of the other
-// callers, and then their writes, in their order, with nobody else writing.
-// A search does not see the vectors of its window, nor those the other
-// callers have searched for and not written. What was written between a
-// search and its writes, the writes look at again (growIndex.begin).
-func (p *Persistent) addWindow(ctx context.Context, ids []uint64, vectors [][]float32) error {
-	plans := make([]*growPlan, len(ids))
-	for i := range plans {
-		plans[i] = p.plans.Get().(*growPlan)
-	}
-	defer func() {
-		for _, plan := range plans {
-			p.plans.Put(plan)
-		}
-	}()
-
-	// The search of an insert reads its rows and its vectors one at a time,
-	// in the goroutine that calls: the inserts run next to each other as
-	// their callers do, and goroutines of their own for every round of a
-	// search cost more than the reads they wait for (bench-report.md of
-	// feat/posting-edge-index, "Dónde se va el tiempo del insert").
-	ctx = concurrency.CtxWithBudget(ctx, 1)
-	p.mu.RLock()
-	if err := p.usable(); err != nil {
-		p.mu.RUnlock()
-		return err
-	}
-	g := p.g
-	for i, id := range ids {
-		plans[i].work = nil
-		if err := g.plan(ctx, plans[i], id, distancer.Normalize(vectors[i])); err != nil {
-			p.mu.RUnlock()
-			return errors.Wrapf(err, "add vector of id %d", id)
-		}
-	}
-	p.mu.RUnlock()
-
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	for i, plan := range plans {
-		if err := p.write(ctx, g, plan); err != nil {
-			return errors.Wrapf(err, "add vector of id %d", ids[i])
-		}
-		if err := p.payInLine(ctx, ids[i]); err != nil {
-			return err
-		}
-	}
-	p.wakeIfDue()
-	return nil
-}
-
 // write applies the writes of an insert whose search is done. They are not
 // left halfway because whoever asked stopped waiting. The caller holds
-// writeMu.
+// writeMu, and mu for writing: the applier of a batch, once for all of it.
 func (p *Persistent) write(ctx context.Context, g *growIndex, plan *growPlan) error {
 	ctx = context.WithoutCancel(ctx)
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if err := p.usable(); err != nil {
 		return err
 	}
