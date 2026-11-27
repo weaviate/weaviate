@@ -416,81 +416,9 @@ func TestServerState_admit(t *testing.T) {
 	}
 }
 
-type rpcDesc struct {
-	method string                                      // Method name.
-	fn     func(*testing.T, pbv1.WeaviateClient) error // Request function.
-}
-
-var (
-	batchObjects = rpcDesc{
-		method: "BatchObjects", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
-			_, err := c.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
-			return err
-		},
-	}
-	batchStream = rpcDesc{
-		method: "BatchStream", fn: func(t *testing.T, c pbv1.WeaviateClient) error {
-			// The stream handle is returned as long as all configuration is valid.
-			// The server might've rejected any number of requests in the meantime,
-			// but we need to read them from s.Recv().
-			s, err := c.BatchStream(t.Context())
-			require.NoError(t, err, "create batch stream")
-			require.NotNil(t, s, "nil batch stream")
-
-			require.NoError(t, s.Send(&pbv1.BatchStreamRequest{
-				Message: &pbv1.BatchStreamRequest_Start_{},
-			}), "send Start message")
-
-			// Closing the batch stream means Recv() won't block
-			// in cases where we expect the request to succeed,
-			// because then it can return at least return io.EOF.
-			require.NoError(t, s.CloseSend(), "close batch stream")
-
-			if _, err = s.Recv(); errors.Is(err, io.EOF) {
-				err = nil
-			}
-			return err
-		},
-	}
-)
-
-func TestMaintenanceModeInterceptor(t *testing.T) {
-	serverState := state.State{
-		ServerConfig: &config.WeaviateConfig{
-			Config: config.Config{
-				Authentication: config.DefaultAuthentication, // Enabled anonymous access.
-				Cluster: cluster.Config{
-					Hostname: "node-0",
-				},
-			},
-		},
-	}
-	conn := startTestServer(t, &serverState)
-	client := pbv1.NewWeaviateClient(conn)
-
-	for _, maintenance := range []bool{true, false} {
-		t.Run(fmt.Sprintf("maintenance mode %t", maintenance), func(t *testing.T) {
-			serverState.Cluster.SetMaintenanceModeForLocalhost(maintenance)
-
-			for _, tt := range []rpcDesc{
-				batchObjects,
-				batchStream,
-			} {
-				t.Run(tt.method, func(t *testing.T) {
-					err := tt.fn(t, client)
-
-					if maintenance {
-						require.ErrorContains(t, err, "maintenance mode", "interceptor error")
-					} else {
-						require.NoError(t, err, "interceptor error")
-					}
-				})
-			}
-		})
-	}
-}
-
-func TestOperationalModeInterceptor(t *testing.T) {
+// Integration test to check that serverState interceptor
+// is configured for both unary and stream RPCs.
+func TestServerStateInterceptor(t *testing.T) {
 	serverState := state.State{
 		ServerConfig: &config.WeaviateConfig{
 			Config: config.Config{
@@ -502,37 +430,57 @@ func TestOperationalModeInterceptor(t *testing.T) {
 	conn := startTestServer(t, &serverState)
 	client := pbv1.NewWeaviateClient(conn)
 
-	for _, tt := range []struct {
-		mode string // Server's operational mode.
-		err  error  // Expected RPC error.
-	}{
-		{mode: config.READ_WRITE, err: nil},
-		{mode: config.WRITE_ONLY, err: nil},
-		{mode: config.READ_ONLY, err: config.ErrReadOnlyModeEnabled},
-		{mode: config.SCALE_OUT, err: config.ErrScaleOutModeEnabled},
-	} {
-		t.Run("mode="+tt.mode, func(t *testing.T) {
-			// Put server in the expected mode.
-			mode := serverState.ServerConfig.Config.OperationalMode.Get()
-			serverState.ServerConfig.Config.OperationalMode.SetValue(tt.mode)
-			t.Cleanup(func() { serverState.ServerConfig.Config.OperationalMode.SetValue(mode) })
-
-			for _, rpc := range []rpcDesc{
-				batchObjects,
-				batchStream,
-			} {
-				t.Run(rpc.method, func(t *testing.T) {
-					err := rpc.fn(t, client)
-
-					if tt.err != nil {
-						require.ErrorContains(t, err, tt.err.Error(), "interceptor error")
-					} else {
-						require.NoError(t, err, "interceptor error")
-					}
-				})
-			}
-		})
+	batchObjects := func(t *testing.T, c pbv1.WeaviateClient) error {
+		_, err := c.BatchObjects(t.Context(), new(pbv1.BatchObjectsRequest))
+		return err
 	}
+	batchStream := func(t *testing.T, c pbv1.WeaviateClient) error {
+		// The stream handle is returned as long as all configuration is valid.
+		// The server might've rejected any number of requests in the meantime,
+		// but we need to read them from s.Recv().
+		s, err := c.BatchStream(t.Context())
+		require.NoError(t, err, "create batch stream")
+		require.NotNil(t, s, "nil batch stream")
+
+		require.NoError(t, s.Send(&pbv1.BatchStreamRequest{
+			Message: &pbv1.BatchStreamRequest_Start_{},
+		}), "send Start message")
+
+		// Closing the batch stream means Recv() won't block
+		// in cases where we expect the request to succeed,
+		// because then it can return at least return io.EOF.
+		require.NoError(t, s.CloseSend(), "close batch stream")
+
+		if _, err = s.Recv(); errors.Is(err, io.EOF) {
+			err = nil
+		}
+		return err
+	}
+
+	t.Run("server in maintenance mode", func(t *testing.T) {
+		serverState.Cluster.SetMaintenanceModeForLocalhost(true)
+		t.Cleanup(func() { serverState.Cluster.SetMaintenanceModeForLocalhost(false) })
+
+		t.Run("unary RPC", func(t *testing.T) {
+			require.ErrorContains(t, batchObjects(t, client), "maintenance mode", "must reject request")
+		})
+		t.Run("streaming RPC", func(t *testing.T) {
+			require.ErrorContains(t, batchStream(t, client), "maintenance mode", "must reject request")
+		})
+	})
+
+	t.Run("write in read-only mode", func(t *testing.T) {
+		serverState.ServerConfig.Config.OperationalMode.SetValue(config.READ_ONLY)
+		t.Cleanup(func() { serverState.ServerConfig.Config.OperationalMode.SetValue(config.READ_WRITE) })
+
+		t.Run("unary RPC", func(t *testing.T) {
+			require.ErrorContains(t, batchObjects(t, client), "read-only mode", "must reject request")
+		})
+
+		t.Run("stream RPC", func(t *testing.T) {
+			require.ErrorContains(t, batchStream(t, client), "read-only mode", "must reject request")
+		})
+	})
 }
 
 // startTestServer creates a gRPC server backed by an in-memory buffer

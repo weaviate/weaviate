@@ -462,6 +462,7 @@ func makeDocsLinkStreamInterceptor() grpc.StreamServerInterceptor {
 
 func withDocsLink(err error) error {
 	// NOTE(dyma): MessageWithDocsLink will check Documented too, maybe there isn't a need to do it twice.
+	// Moreover, ErrNotEnoughMappings is the only documented error right now.
 	if _, ok := enterrors.Documented(err); !ok {
 		return err
 	}
