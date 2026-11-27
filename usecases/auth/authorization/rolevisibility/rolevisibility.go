@@ -130,19 +130,11 @@ func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer,
 	return errs
 }
 
-// authorizeResource returns an error unless the caller holds verb on resource.
-// A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*".
-// A wildcard passes both, and so can a pattern that excludes names, such as "[^a]*".
+// authorizeResource returns an error unless one permission the caller holds
+// matches every name that resource matches. A segment with regex syntax beyond
+// '.' and '*' is checked as ".*", which matches more.
 func authorizeResource(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, verb, resource string) error {
-	wildcard := regexSegmentsToWildcard(resource)
-	// A caller pattern such as ".." matches the text ".*" without holding
-	// every name, so the stored text must pass as well.
-	if wildcard != resource {
-		if err := authorizePolicy(ctx, authorizer, principal, verb, resource); err != nil {
-			return err
-		}
-	}
-	return authorizePolicy(ctx, authorizer, principal, verb, wildcard)
+	return authorizePolicy(authorization.WithCover(ctx), authorizer, principal, verb, regexSegmentsToWildcard(resource))
 }
 
 // regexSyntax lists the regex characters a stored pattern can carry besides
@@ -150,22 +142,31 @@ func authorizeResource(ctx context.Context, authorizer authorization.Authorizer,
 const regexSyntax = `\+?()[]{}|^$`
 
 // regexSegmentsToWildcard replaces each segment using regexSyntax with ".*",
-// keeping its "<ns>:" qualifier. casbin treats the request as literal text, so
-// "(eu|admin)" would pass for a caller holding "*eu*" and reach admin.
+// keeping its "<ns>:" qualifier, so the result matches every name that
+// resource does and holds only what the coverage check reads. It relies on an
+// alternation staying inside its segment, which conv's grouping ensures for
+// every row written or read back.
 func regexSegmentsToWildcard(resource string) string {
 	if !strings.ContainsAny(resource, regexSyntax) {
 		return resource
 	}
 	segments := strings.Split(resource, "/")
+	flagged := false // an earlier segment set an inline flag such as "(?i)"
 	for i, segment := range segments {
-		if !strings.ContainsAny(segment, regexSyntax) {
+		if !flagged && !strings.ContainsAny(segment, regexSyntax) {
 			continue
 		}
 		ns := namespacing.NamespaceFromQualified(segment)
-		if strings.ContainsAny(ns, regexSyntax) {
+		if flagged || strings.ContainsAny(ns, regexSyntax) {
+			ns = ""
+		}
+		// "a:?b" also matches "ab", which "a:.*" does not, so nothing of it is kept.
+		if ns != "" && strings.HasPrefix(segment[len(ns)+1:], "?") {
 			ns = ""
 		}
 		segments[i] = namespacing.QualifiedName(ns, ".*")
+		// The flag applies to every later segment too.
+		flagged = flagged || strings.Contains(segment, "(?")
 	}
 	return strings.Join(segments, "/")
 }

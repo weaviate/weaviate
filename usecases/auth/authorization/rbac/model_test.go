@@ -1194,3 +1194,68 @@ func TestEnforce_UncompilablePolicyMatchesNothing(t *testing.T) {
 		})
 	}
 }
+
+func TestCovers(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  string
+		pattern string
+		want    bool
+	}{
+		{name: "wildcard covers a prefix", policy: "users/.*", pattern: "users/a.*", want: true},
+		{name: "prefix covers a longer prefix", policy: "users/a.*", pattern: "users/ab.*", want: true},
+		{name: "prefix covers a dotted name", policy: "users/.*@x.com", pattern: "users/john.doe@x.com", want: true},
+		{name: "bare star covers anything", policy: "*", pattern: "users/.*", want: true},
+		{name: "slash star is a wildcard", policy: "users/*", pattern: "users/a.*", want: true},
+		{name: "one-or-more does not cover a wildcard, which reaches an empty name", policy: "users/..*", pattern: "users/.*", want: false},
+		{name: "one-or-more does not cover a wildcard after a namespace", policy: "users/customer1:..*", pattern: "users/customer1:.*", want: false},
+		{name: "one-or-more does not cover a wildcard after a prefix", policy: "users/a..*", pattern: "users/a.*", want: false},
+		{name: "a held dot does not line up with the grant's wildcard", policy: "users/..*", pattern: "users/.*@x.com", want: false},
+		{name: "a plus covers no pattern", policy: "users/.+", pattern: "users/.*@x.com", want: false},
+		{name: "a two-character minimum does not cover a one-character name", policy: "users/.*..", pattern: "users/a.*", want: false},
+		{name: "fixed length does not cover a wildcard", policy: "users/a..", pattern: "users/a.*", want: false},
+		{name: "a bounded pattern does not cover a wildcard", policy: "users/a.?.?", pattern: "users/a.*", want: false},
+		{name: "a dot does not cover a wildcard", policy: "users/.*.com", pattern: "users/.*com", want: false},
+		{name: "a literal does not cover a dot", policy: "users/john_doe", pattern: "users/john.doe", want: false},
+		{name: "an escaped dot does not cover a dot", policy: `users/john\.doe`, pattern: "users/john.doe", want: false},
+		{name: "a negated class does not cover a wildcard", policy: "users/([^a].*)", pattern: "users/.*", want: false},
+		{name: "a negated class covers no dotted name, which is a pattern", policy: "users/([^a].*)", pattern: "users/bob.smith", want: false},
+		{name: "a class covers no pattern", policy: "users/[a-z].*", pattern: "users/ab.*", want: false},
+		{name: "an alternation covers what one branch covers", policy: "users/(.*@x.com|.*@y.com)", pattern: "users/john.doe@x.com", want: true},
+		{name: "a collection alternation covers a data grant on one branch", policy: "data/collections/(Movies|Books)/shards/.*/objects/.*", pattern: "data/collections/Movies/shards/t1/objects/.*", want: true},
+		{name: "two alternations cover a grant on one branch of each", policy: "data/collections/(Movies|Books)/shards/(t1|t2)/objects/.*", pattern: "data/collections/Books/shards/t2/objects/.*", want: true},
+		{name: "an alternation does not cover a branch it lacks", policy: "data/collections/(Movies|Books)/shards/.*/objects/.*", pattern: "data/collections/Songs/shards/t1/objects/.*", want: false},
+		{name: "a quantified group covers nothing", policy: "users/(a|b)*", pattern: "users/a.*", want: false},
+		{name: "a quantified group does not become its branch", policy: "users/(x.|y)*", pattern: "users/x.*", want: false},
+		{name: "an escaped pipe is no alternation", policy: `users/(a\|.*)`, pattern: "users/.*", want: false},
+		{name: "a pipe in a class is no alternation", policy: "users/([x|.*|y])", pattern: "users/.*", want: false},
+		{name: "a pipe in a quote is no alternation", policy: `users/(\Qa|.*|b\E)`, pattern: "users/.*", want: false},
+		{name: "a pipe in a placeholder is no alternation", policy: "users/(x{|.*|}y)", pattern: "users/.*", want: false},
+		{name: "a group in a class is no group", policy: "users/[^/:(a|)]+.*", pattern: "users/a.*", want: false},
+		{name: "large alternations cover a grant on one branch of each", policy: "data/collections/(A|B|C|D|E|F|G|H|I)/shards/(t1|t2|t3|t4|t5|t6|t7|t8)/objects/.*", pattern: "data/collections/A/shards/t1/objects/.*", want: true},
+		{name: "a group's unplain branch refuses the whole group", policy: "users/(Movies|[^x].*)", pattern: "users/Movies.*", want: false},
+		{name: "an unclosed group covers nothing", policy: "users/(a|.*", pattern: "users/a.*", want: false},
+		{name: "a policy that does not compile covers nothing", policy: "users/(.*|+)", pattern: "users/a.*", want: false},
+		{name: "a quantifier opening a branch covers nothing", policy: "users/.(*|a)", pattern: "users/a.*", want: false},
+		{name: "a flag group covers nothing", policy: "users/(?i)a.*", pattern: "users/a.*", want: false},
+		{name: "a nested group covers nothing", policy: "users/((a|b)|c).*", pattern: "users/a.*", want: false},
+		{name: "an alternation does not cover a grant its branches cover only together", policy: "users/(a..|a)", pattern: "users/a.*", want: false},
+		{name: "a placeholder does not cover a dot, which can stand for '/'", policy: "users/{id}", pattern: "users/a.c", want: false},
+		{name: "a word boundary covers nothing", policy: `users/a\b.*`, pattern: "users/a.*", want: false},
+		{name: "a namespace class covers a namespace", policy: "schema/collections/[^/:]+:Mov.*/shards/#", pattern: "schema/collections/customer1:Movies.*/shards/#", want: true},
+		{name: "a namespace class does not cover a wildcard", policy: "schema/collections/[^/:]+:.*/shards/#", pattern: "schema/collections/.*/shards/#", want: false},
+		{name: "a namespace class does not cover a dot", policy: "schema/collections/[^/:]+:Movies/shards/#", pattern: "schema/collections/a.:Movies/shards/#", want: false},
+		{name: "a tenant policy does not cover the collection", policy: "schema/collections/Movies/shards/.*", pattern: "schema/collections/Movies/shards/#", want: false},
+		{name: "a dot counts a multi-byte character once", policy: "users/...", pattern: "users/é.", want: false},
+		{name: "a dot covers a multi-byte character", policy: "users/..", pattern: "users/é.", want: true},
+		{name: "invalid UTF-8 covers nothing", policy: "users/\xff.", pattern: "users/\xfe.", want: false},
+		{name: "a dot does not cover a newline", policy: "users/a.", pattern: "users/a\n", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, weaviateKeyMatch(tt.pattern+coverSuffix, tt.policy))
+		})
+	}
+	// An unmarked request is a name, matched as before.
+	require.True(t, weaviateKeyMatch("data/collections/Movies/shards/eu/objects/*", "data/collections/Movies/shards/(eu|secret)/objects/.*"))
+}

@@ -91,8 +91,18 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	}
 	permResults := make([]logrus.Fields, 0, len(uniqueResources))
 
+	cover := authorization.IsCover(ctx)
 	for _, resource := range uniqueResources {
-		allowed, err := m.checkPermissions(principal, resource, verb)
+		request := resource
+		if cover {
+			request = resource + coverSuffix
+		}
+		var allowed bool
+		var err error
+		// A forged cover suffix would match as the name before it.
+		if strings.IndexByte(resource, 0) < 0 {
+			allowed, err = m.checkPermissions(principal, request, verb)
+		}
 		if err != nil {
 			logger.WithField("resource", resource).Errorf("failed to enforce policy: %v", err)
 			return enforceError(err)
@@ -190,6 +200,10 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 	permResults := make([]logrus.Fields, 0, len(uniqueResources))
 
 	for _, resource := range uniqueResources {
+		// A forged cover suffix would match as the name before it.
+		if strings.IndexByte(resource, 0) >= 0 {
+			continue
+		}
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithField("resource", resource).Errorf("failed to enforce policy: %v", err)

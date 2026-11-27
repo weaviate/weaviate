@@ -16,11 +16,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"regexp/syntax"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -404,6 +406,7 @@ func operatorOnlyResource(path string) bool {
 // nothing. KeyMatch5 panics on it, which casbin turns into an error failing
 // the whole Enforce call.
 func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
+	reqObj, cover := strings.CutSuffix(reqObj, coverSuffix)
 	if strings.HasSuffix(reqObj, collectionShardSuffix) && tenantLevelPolicy(polObj) {
 		return false
 	}
@@ -418,6 +421,10 @@ func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
 			matched = false
 		}
 	}()
+	// A granted pattern without '.' or '*' is a single name, matched as one.
+	if cover && strings.ContainsAny(reqObj, ".*") {
+		return covers(polObj, reqObj)
+	}
 	return casbinutil.KeyMatch5(reqObj, polObj)
 }
 
@@ -434,6 +441,113 @@ func tenantLevelPolicy(polObj string) bool {
 	i := strings.LastIndex(polObj, namespacing.ShardsMidSeg)
 	return i >= 0 && polObj[i+len(namespacing.ShardsMidSeg):] != "#"
 }
+
+// coverSuffix marks a request for a granted pattern (authorization.WithCover).
+// authorize and FilterAuthorizedResources refuse any resource already holding a NUL.
+const coverSuffix = "\x00cover"
+
+// covers reports whether policy matches every resource that pattern matches.
+// The pattern holds only literals, '.' and ".*", written as text with its '.'
+// and ".*" as two reserved runes. The policy becomes a regexp over that text in
+// which a literal matches itself, '.' any element but a ".*", ".*" anything,
+// the namespace class anyNamespacePattern adds only literals, and a group of
+// such branches what one branch matches. A policy with other regex syntax
+// covers no pattern, and a bare "*" matches anything.
+func covers(policy, pattern string) bool {
+	if policy == "*" {
+		return true
+	}
+	// KeyMatch5 reads "/*" in a policy as "/.*", and the pattern is one.
+	text, ok := coverText(strings.ReplaceAll(pattern, "/*", "/.*"))
+	if !ok {
+		return false
+	}
+	expr, ok := coverExpr(strings.ReplaceAll(policy, "/*", "/.*"))
+	if !ok {
+		return false
+	}
+	re, err := regexp.Compile(expr)
+	return err == nil && re.MatchString(text)
+}
+
+const (
+	coverAnyChar   = "\uE000" // a '.' in the pattern
+	coverAnyString = "\uE001" // a ".*" in the pattern
+)
+
+func coverText(pattern string) (string, bool) {
+	if !utf8.ValidString(pattern) || strings.ContainsAny(pattern, coverAnyChar+coverAnyString) {
+		return "", false
+	}
+	text := strings.ReplaceAll(pattern, ".*", coverAnyString)
+	text = strings.ReplaceAll(text, ".", coverAnyChar)
+	return text, regexp.QuoteMeta(text) == text
+}
+
+func coverExpr(policy string) (string, bool) {
+	if !utf8.ValidString(policy) || strings.ContainsAny(policy, coverAnyChar+coverAnyString) {
+		return "", false
+	}
+	var b strings.Builder
+	b.WriteString(`\A(?:`)
+	for {
+		open := strings.IndexByte(policy, '(')
+		if open < 0 {
+			if !writeCoverAtoms(&b, policy) {
+				return "", false
+			}
+			break
+		}
+		end := strings.IndexByte(policy[open:], ')') + open
+		if end < open || !writeCoverAtoms(&b, policy[:open]) {
+			return "", false
+		}
+		body := policy[open+1 : end]
+		if strings.HasPrefix(body, "?") || strings.Contains(body, "(") {
+			return "", false
+		}
+		// A group matches what one of its branches matches. Every branch must
+		// be plain, so no '|' in it was escaped or inside a class or quote.
+		b.WriteString("(?:")
+		for i, branch := range strings.Split(body, "|") {
+			if i > 0 {
+				b.WriteByte('|')
+			}
+			if !writeCoverAtoms(&b, branch) {
+				return "", false
+			}
+		}
+		b.WriteString(")")
+		policy = policy[end+1:]
+	}
+	b.WriteString(`)\z`)
+	return b.String(), true
+}
+
+// writeCoverAtoms writes s, which may hold only literals, '.', ".*" and the
+// namespace class, as a regexp over coverText's output.
+func writeCoverAtoms(b *strings.Builder, s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch {
+		case strings.HasPrefix(s[i:], namespaceClass):
+			b.WriteString(`[^/:` + coverAnyChar + coverAnyString + `]+`)
+			i += len(namespaceClass) - 1
+		case strings.HasPrefix(s[i:], ".*"):
+			b.WriteString(`[^\n]*`)
+			i++
+		case s[i] == '.':
+			b.WriteString(`[^\n` + coverAnyString + `]`)
+		case regexp.QuoteMeta(s[i:i+1]) != s[i:i+1]:
+			return false
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return true
+}
+
+// namespaceClass is anyNamespacePattern without its ':'.
+var namespaceClass = strings.TrimSuffix(anyNamespacePattern, schema.NamespaceSeparator)
 
 // namespaceAwareMatcher reports whether policy resource pattern polObj
 // authorizes a request for reqObj issued in namespace ns ("" for

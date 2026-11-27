@@ -12,6 +12,7 @@
 package authorization
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -266,6 +267,21 @@ func IsOperatorReservedRoleName(shortName string) bool {
 		}
 	}
 	return false
+}
+
+type coverKey struct{}
+
+// WithCover marks the resources Authorize and AuthorizeSilent check under ctx as
+// granted patterns rather than names. RBAC then allows each only through one
+// held permission that matches every name it matches.
+func WithCover(ctx context.Context) context.Context {
+	return context.WithValue(ctx, coverKey{}, true)
+}
+
+// IsCover reports whether ctx was marked by WithCover.
+func IsCover(ctx context.Context) bool {
+	cover, _ := ctx.Value(coverKey{}).(bool)
+	return cover
 }
 
 // BuiltInPermissionsFor returns the canonical permission shape of the four

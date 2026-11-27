@@ -1300,3 +1300,26 @@ func TestTenantGrantDoesNotReachCollection(t *testing.T) {
 		}
 	}
 }
+
+// TestAuthorizeRefusesNUL pins that a NUL from a request never reaches the
+// matcher, where it would mark the request as a granted pattern.
+func TestAuthorizeRefusesNUL(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+	policies, err := conv.RolesToPolicies(&models.Role{Name: authorization.String("bob-reader"), Permissions: []*models.Permission{{
+		Action: authorization.String(authorization.ReadUsers), Users: &models.PermissionUsers{Users: authorization.String("bob")},
+	}}})
+	require.NoError(t, err)
+	require.NoError(t, m.CreateRolesPermissions(policies))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb), []string{"bob-reader"}))
+	alice := &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}
+	ctx := context.Background()
+
+	require.NoError(t, m.Authorize(ctx, alice, authorization.READ, "users/bob"))
+	forged := "users/bob" + coverSuffix
+	require.Error(t, m.Authorize(ctx, alice, authorization.READ, forged))
+	got, err := m.FilterAuthorizedResources(ctx, alice, authorization.READ, "users/bob", forged)
+	require.NoError(t, err)
+	require.Equal(t, []string{"users/bob"}, got)
+}
