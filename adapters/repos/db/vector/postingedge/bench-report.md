@@ -1376,7 +1376,7 @@ Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seg
   - El diff de #14023 contra `m2` pasa de 143 553 a 162 548 líneas añadidas. De ellas 22 616 son arnés; casi todo lo demás son datos de las medidas de filtros.
 - **Las tablas por docID, sobre la serie:** el trabajo sin compilar está ahora encima de `44c35ee9b9`, como commits locales. La cuenta de lo que escribe un layout, que es nueva, ya lee la tabla. Sigue sin compilar.
 
-#### Vigilancia de la corrida del 10M desde fuera (pre-registro, 27 de noviembre a las 21:35, antes de lanzarla)
+#### Vigilancia de la corrida del 10M desde fuera (pre-registro, 27 de noviembre a las 21:21, antes de lanzarla)
 
 **El encargo (del usuario, 21:15).** Objetivo: saber por qué el insert se encarece con el tamaño y por qué 8 llamadores no rinden 8 veces. Solo medir, sin optimizar nada. Ahora, sobre la corrida, sin compilar y sin nada que pueda matarla:
 - por tramo, junto al ritmo: CPU del proceso (usuario y sistema), actividad de disco (operaciones y MB por segundo, lectura y escritura separadas si se puede) y estado de la caché de ficheros y la paginación;
@@ -1408,7 +1408,7 @@ Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seg
 
 **Lo que entrego con esto:** la tabla por tramo y el recuento de hilos por muestra. Sin interpretar más allá de lo medido hasta tener la pasada de diagnóstico.
 
-**Primera lectura, al probar el monitor** (6 s hacia las 21:25, no es un tramo):
+**Primera lectura, al probar el monitor** (6 s hacia las 21:20, no es un tramo):
 - 5.0 cores de usuario y 0.4 de sistema.
 - El proceso lee de disco 80 MB por segundo, en 4 800 operaciones por segundo.
 - La caché de ficheros son 22.5 GB, para un índice de 21 GB y un dataset de 31 GB que el arnés lee al azar.
