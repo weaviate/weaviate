@@ -348,7 +348,12 @@ func (ss *serverStateStream) RecvMsg(m any) error {
 	if err := ss.state.admit(ss.info.FullMethod); err != nil {
 		return err
 	}
-	return ss.ServerStream.RecvMsg(m)
+	if err := ss.ServerStream.RecvMsg(m); err != nil {
+		return err
+	}
+	// The server's state might've change while the handler was blocked on RecvMsg,
+	// in which case we must return an error to ensure the request doesn't get processed.
+	return ss.state.admit(ss.info.FullMethod)
 }
 
 // ----------------------------------------------------------------------------
