@@ -99,8 +99,6 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	// before class-aware authz runs. RBAC for restore is covered in backups_test.go.
 	ignoreEndpointMethods := map[string]map[string]bool{
 		"/backups/{backend}/{id}/restore": {http.MethodPost: true},
-		// Deleting a missing alias answers 404. Covered in aliases_test.go.
-		"/aliases/{aliasName}": {http.MethodDelete: true},
 	}
 
 	for _, endpoint := range endpoints {
