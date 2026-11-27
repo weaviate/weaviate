@@ -333,6 +333,8 @@ func TestRegexSegmentsToWildcard(t *testing.T) {
 		{resource: "users/customer1:b?", want: "users/customer1:.*"},
 		{resource: "users/customer1:?b", want: "users/.*"},
 		{resource: "users/(z|.*)", want: "users/.*"},
+		{resource: "data/collections/(?i)Movies/shards/t1/objects/.*", want: "data/collections/.*/.*/.*/.*/.*"},
+		{resource: "aliases/collections/customer1:(?i)A/aliases/customer1:b", want: "aliases/collections/customer1:.*/.*/.*"},
 		{resource: "users/customer1:+b", want: "users/customer1:.*"},
 		{resource: "users/customer1:{2}b", want: "users/customer1:.*"},
 	}
@@ -395,6 +397,11 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 			Action: authorization.String(authorization.UpdateUsers), Users: &models.PermissionUsers{Users: &users},
 		}}}
 	}
+	readData := func(name, collection, tenant string) *models.Role {
+		return &models.Role{Name: authorization.String(name), Permissions: []*models.Permission{{
+			Action: authorization.String(authorization.ReadData), Data: &models.PermissionData{Collection: &collection, Tenant: &tenant},
+		}}}
+	}
 	readMoviesData := func(name, tenant string) *models.Role {
 		return &models.Role{Name: authorization.String(name), Permissions: []*models.Permission{{
 			Action: authorization.String(authorization.ReadData), Data: &models.PermissionData{Collection: authorization.String("Movies"), Tenant: &tenant},
@@ -448,6 +455,8 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		updateUsers("a-and-two-or-a-users", "a..|a"),
 		updateUsers("a-up-to-two-more-users", "a.?.?"),
 		updateUsers("one-or-more-users", ".+"),
+		readData("t1-reader", "*", "t1"),
+		readData("case-insensitive-movies-t1-reader", "M(?i)ovies", "t1"),
 		updateUsers("one-or-more-colon-any-users", ".+:*"),
 		updateUsers("any-colon-any-users", "*:*"),
 		updateUsers("x-or-y-domain-users", "*@x.com|*@y.com"),
@@ -509,6 +518,7 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "a namespace does not cover a grant that makes its colon optional", caller: "caller", callerRoles: []string{"customer1-users"}, targetRoles: []string{"customer1-optional-colon-b"}, namespacesEnabled: true, wantDenied: deniedAllUsers},
 		{name: "a literal dot does not cover a grant's any-character dot", caller: "caller", callerRoles: []string{"john-escaped-dot-doe"}, targetRoles: []string{"john-dot-doe"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: john.doe]]"},
 		{name: "a grant that makes a colon optional needs every user", caller: "caller", callerRoles: []string{"a-users"}, targetRoles: []string{"a-optional-colon-b"}, wantDenied: deniedAllUsers},
+		{name: "an inline flag reaches past its own segment", caller: "caller", callerRoles: []string{"t1-reader"}, targetRoles: []string{"case-insensitive-movies-t1-reader"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to read_data [[Domain: data, Collection: *, Tenant: *]]"},
 		{name: "a held dot does not line up with the grant's wildcard", caller: "caller", callerRoles: []string{"non-empty-users"}, targetRoles: []string{"dot-com-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: *.com]]"},
 		{name: "a dot counts a multi-byte character once", caller: "caller", callerRoles: []string{"three-character-users"}, targetRoles: []string{"e-acute-and-one-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: é.]]"},
 		{name: "a caller pattern of one or more characters does not cover every user, which includes an empty name", caller: "caller", callerRoles: []string{"one-or-more-users"}, targetRoles: []string{"user-updater"}, wantDenied: deniedAllUsers},

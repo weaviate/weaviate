@@ -151,12 +151,13 @@ func regexSegmentsToWildcard(resource string) string {
 		return resource
 	}
 	segments := strings.Split(resource, "/")
+	flagged := false // an earlier segment set an inline flag such as "(?i)"
 	for i, segment := range segments {
-		if !strings.ContainsAny(segment, regexSyntax) {
+		if !flagged && !strings.ContainsAny(segment, regexSyntax) {
 			continue
 		}
 		ns := namespacing.NamespaceFromQualified(segment)
-		if strings.ContainsAny(ns, regexSyntax) {
+		if flagged || strings.ContainsAny(ns, regexSyntax) {
 			ns = ""
 		}
 		// "a:?b" also matches "ab", which "a:.*" does not, so nothing of it is kept.
@@ -164,6 +165,8 @@ func regexSegmentsToWildcard(resource string) string {
 			ns = ""
 		}
 		segments[i] = namespacing.QualifiedName(ns, ".*")
+		// The flag applies to every later segment too.
+		flagged = flagged || strings.Contains(segment, "(?")
 	}
 	return strings.Join(segments, "/")
 }
