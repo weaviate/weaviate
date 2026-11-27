@@ -2351,6 +2351,12 @@ func TestValidateBaseChunkKeys(t *testing.T) {
 		{name: "other class", descrs: []*backup.BaseBackupDescriptor{baseWith("Other/chunk-2")}, wantErr: "Other/chunk-2"},
 		{name: "backup id traversal", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2"), baseOf("../escape", "Class/chunk-2")}, wantErr: "../escape"},
 		{name: "empty backup id", descrs: []*backup.BaseBackupDescriptor{baseOf("", "Class/chunk-2")}, wantErr: `backup id ""`},
+		{name: "pre-incremental base without backup id or big files", descrs: []*backup.BaseBackupDescriptor{{Classes: []backup.BaseClassDescriptor{{
+			Name: "Class", Shards: []backup.BaseShardDescriptor{{Name: "s1"}},
+		}}}}},
+		{name: "traversal backup id without big files", descrs: []*backup.BaseBackupDescriptor{{Classes: []backup.BaseClassDescriptor{{
+			Name: "Class", BackupID: "../escape", Shards: []backup.BaseShardDescriptor{{Name: "s1"}},
+		}}}}},
 		{name: "uppercase backup id", descrs: []*backup.BaseBackupDescriptor{baseOf("UPPER", "Class/chunk-2")}, wantErr: "UPPER"},
 	}
 	for _, tc := range tests {

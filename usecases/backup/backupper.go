@@ -198,11 +198,15 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 }
 
 // validateBaseChunkKeys refuses bases whose backup ids or chunk keys would be copied into the new backup unrestorable.
+// A class backup id is copied only alongside a big-file chunk, so a class without any (e.g. a base written before
+// incremental backups, which has no backup id either) is not checked.
 func validateBaseChunkKeys(baseDescrs []*backup.BaseBackupDescriptor) error {
 	for _, d := range baseDescrs {
 		for _, cls := range d.Classes {
-			if err := validateID(cls.BackupID); err != nil {
-				return fmt.Errorf("base backup class=%q: backup id %q: %w", cls.Name, cls.BackupID, err)
+			if hasBigFileChunks(cls) {
+				if err := validateID(cls.BackupID); err != nil {
+					return fmt.Errorf("base backup class=%q: backup id %q: %w", cls.Name, cls.BackupID, err)
+				}
 			}
 			for _, shard := range cls.Shards {
 				for file, info := range shard.BigFilesChunk {
@@ -216,6 +220,15 @@ func validateBaseChunkKeys(baseDescrs []*backup.BaseBackupDescriptor) error {
 		}
 	}
 	return nil
+}
+
+func hasBigFileChunks(cls backup.BaseClassDescriptor) bool {
+	for _, shard := range cls.Shards {
+		if len(shard.BigFilesChunk) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 type ChainDescriptor interface {
