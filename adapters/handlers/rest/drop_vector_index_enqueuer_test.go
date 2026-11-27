@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	clustertypes "github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -317,6 +318,15 @@ func TestLiveOpIDs_SpansRoundsWhileMarkerPending(t *testing.T) {
 			"an unverifiable marker must not authorize a sweep")
 		require.Equal(t, 2, state.classReads,
 			"a failed read is memoized too: a partitioned leader costs one RPC per collection, not one per record")
+	})
+
+	// A leader still catching up refuses the list; a nil set makes recovery skip its sweep.
+	t.Run("refused task list reports liveness unknown", func(t *testing.T) {
+		refused := fmt.Errorf("query: %w", clustertypes.ErrFSMNotCaughtUp)
+		enq := &dropVectorIndexEnqueuer{clusterService: &fakeClusterDropClient{listErr: refused}, schemaState: &fakeShardingState{}}
+		live, err := enq.LiveOpIDs(context.Background())
+		require.ErrorIs(t, err, clustertypes.ErrFSMNotCaughtUp)
+		require.Nil(t, live)
 	})
 
 	t.Run("no tasks at all: empty non-nil set means sweep everything", func(t *testing.T) {

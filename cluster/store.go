@@ -254,6 +254,7 @@ type Store struct {
 	// lock-free reader can peek it.
 	fsmCatchUpMu    sync.Mutex
 	fsmCaughtUpTerm atomic.Uint64
+	catchUpRunning  atomic.Bool
 
 	// raft snapshot store
 	snapshotStore *raft.FileSnapshotStore

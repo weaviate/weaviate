@@ -26,6 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -257,6 +258,59 @@ func TestProposeBarrier_ReconfirmsAfterWaitingOnALock(t *testing.T) {
 
 			require.Equal(t, float64(1), barrierCount(t, st)-before,
 				"a stale confirmation must be re-established after the lock wait")
+		})
+	}
+}
+
+// A task query on a leader that has not applied its inherited log is refused at once and answered after one
+// background barrier. Refusing never waits: the query can run inside an FSM apply, which a barrier waits on.
+func TestQuery_RefusesTaskQueriesUntilTheLeaderCaughtUp(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		query         command.QueryRequest_Type
+		follower      bool
+		catchUpLocked bool
+	}{
+		{name: "task list", query: command.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST},
+		{name: "task headers", query: command.QueryRequest_TYPE_DISTRIBUTED_TASK_HEADERS},
+		{name: "task list while a catch-up holds its lock", query: command.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST, catchUpLocked: true},
+		{name: "task headers on a node that cannot confirm", query: command.QueryRequest_TYPE_DISTRIBUTED_TASK_HEADERS, follower: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &command.QueryRequest{Type: tc.query}
+			if tc.follower {
+				m := NewMockStore(t, "node-1", 0)
+				attachFollowerRaft(t, m.store)
+				_, err := m.store.Query(req)
+				require.ErrorIs(t, err, types.ErrFSMNotCaughtUp)
+				return
+			}
+			srv, _ := newBarrierTestStore(t)
+			st := srv.store
+			add, err := json.Marshal(&command.AddDistributedTaskRequest{Namespace: "ns", Id: "Pending", UnitIds: []string{"u"}})
+			require.NoError(t, err)
+			require.NoError(t, st.distributedTasksManager.AddTask(&command.ApplyRequest{SubCommand: add}, 1))
+			st.fsmCaughtUpTerm.Store(0)
+			before := barrierCount(t, st)
+			if tc.catchUpLocked {
+				st.fsmCatchUpMu.Lock()
+			}
+
+			start := time.Now()
+			_, err = srv.Query(context.Background(), req)
+			require.ErrorIs(t, err, types.ErrFSMNotCaughtUp)
+			require.Less(t, time.Since(start), 100*time.Millisecond)
+			if tc.catchUpLocked {
+				st.fsmCatchUpMu.Unlock()
+			}
+
+			var resp *command.QueryResponse
+			require.Eventually(t, func() bool {
+				resp, err = srv.Query(context.Background(), req)
+				return err == nil
+			}, 10*time.Second, 10*time.Millisecond)
+			require.Contains(t, string(resp.Payload), `"Pending"`)
+			require.Equal(t, float64(1), barrierCount(t, st)-before)
 		})
 	}
 }
