@@ -159,10 +159,29 @@ func (t *fileReindexTracker) getStarted() (time.Time, error) {
 	return t.getTime(t.config.filenameStarted)
 }
 
-func (t *fileReindexTracker) findLastProgressFile() (string, error) {
-	prefix := t.config.filenameProgress + "."
-	expectedLen := len(prefix) + 9 // 9 digits
+// progressCheckpointDigits is the zero-padded width markProgress writes
+// the checkpoint number with: "<filenameProgress>.%09d".
+const progressCheckpointDigits = 9
 
+// isProgressFile reports whether name is a published progress checkpoint
+// written by markProgress, i.e. exactly "<filenameProgress>.<9 digits>".
+// Every reader of the checkpoints must use this one rule, so that any other
+// file sharing the prefix (e.g. "progress.mig.000000001.<random>.tmp" from an
+// atomic writer) is ignored consistently.
+func (t *fileReindexTracker) isProgressFile(name string) bool {
+	prefix := t.config.filenameProgress + "."
+	if len(name) != len(prefix)+progressCheckpointDigits || !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	for _, c := range name[len(prefix):] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (t *fileReindexTracker) findLastProgressFile() (string, error) {
 	lastProgressFilename := ""
 	err := filepath.WalkDir(t.config.migrationPath, func(path string, d os.DirEntry, err error) error {
 		// skip parent and children dirs
@@ -170,7 +189,7 @@ func (t *fileReindexTracker) findLastProgressFile() (string, error) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
-			if name := d.Name(); len(name) == expectedLen && strings.HasPrefix(name, prefix) {
+			if name := d.Name(); t.isProgressFile(name) {
 				lastProgressFilename = name
 			}
 		}
@@ -292,9 +311,9 @@ func (t *fileReindexTracker) GetMigratedCount() (objectsMigratedCountTotal int, 
 		return objectsMigratedCountTotal, snapshots, err
 	}
 	for _, file := range files {
-		if strings.HasPrefix(file.Name(), "progress.mig.") {
+		if !file.IsDir() && t.isProgressFile(file.Name()) {
 			snapshot := map[string]string{
-				"checkpoint": strings.TrimPrefix(file.Name(), "progress.mig."),
+				"checkpoint": strings.TrimPrefix(file.Name(), t.config.filenameProgress+"."),
 			}
 			progressCount++
 			progressFilePath := t.config.migrationPath + "/" + file.Name()
@@ -346,8 +365,6 @@ func (t *fileReindexTracker) unmarkReindexed() error {
 // holds because only the torn-state guard in OnBeforeLsmInit / OnAfterLsmInit
 // calls it, and both run before the async reindex loop spawns.
 func (t *fileReindexTracker) clearProgressFiles() error {
-	prefix := t.config.filenameProgress + "."
-	expectedLen := len(prefix) + 9 // matches findLastProgressFile
 	entries, err := os.ReadDir(t.config.migrationPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -360,7 +377,7 @@ func (t *fileReindexTracker) clearProgressFiles() error {
 			continue
 		}
 		name := e.Name()
-		if len(name) != expectedLen || !strings.HasPrefix(name, prefix) {
+		if !t.isProgressFile(name) {
 			continue
 		}
 		if err := t.removeFile(name); err != nil {
