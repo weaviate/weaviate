@@ -11,7 +11,11 @@
 
 package modelsext
 
-import "github.com/weaviate/weaviate/entities/models"
+import (
+	"encoding/json"
+
+	"github.com/weaviate/weaviate/entities/models"
+)
 
 // DefaultNamedVectorName is a default vector named used to create a named vector or to allow access
 // to legacy vector through named vector API.
@@ -101,4 +105,17 @@ func IsVectorlessUpdate(prev, next *models.Class) bool {
 		}
 	}
 	return true
+}
+
+// DeepCopyClass copies c through JSON, so the copy shares no nested state and holds raw configs.
+func DeepCopyClass(c *models.Class) (*models.Class, error) {
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return nil, err
+	}
+	var cp models.Class
+	if err := json.Unmarshal(raw, &cp); err != nil {
+		return nil, err
+	}
+	return &cp, nil
 }

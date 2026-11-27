@@ -203,3 +203,23 @@ func TestClassGetVectorConfig(t *testing.T) {
 		})
 	}
 }
+
+// ReadOnlyClass returns a shallow clone that shares nested pointers with the
+// live FSM class, so a writer must work on a copy that shares none.
+func TestDeepCopyClass(t *testing.T) {
+	orig := &models.Class{
+		Class:               "C",
+		VectorConfig:        map[string]models.VectorConfig{"v1": {VectorIndexType: VectorIndexTypeNone}},
+		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2}},
+	}
+
+	cp, err := DeepCopyClass(orig)
+	require.NoError(t, err)
+
+	cp.InvertedIndexConfig.Bm25.K1 = 9.9
+	delete(cp.VectorConfig, "v1")
+
+	require.Equal(t, float32(1.2), orig.InvertedIndexConfig.Bm25.K1,
+		"mutating the copy's nested pointer must not touch the original")
+	require.Contains(t, orig.VectorConfig, "v1")
+}

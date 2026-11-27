@@ -63,11 +63,11 @@ func (endpointModules) MutableSettings(_ string, current, updated map[string]any
 	return reflect.DeepEqual(current, updated)
 }
 
-func newSchemaManagerWithModules(t *testing.T) *clusterSchema.SchemaManager {
+func newSchemaManagerWithModules(t *testing.T, db clusterSchema.Indexer) *clusterSchema.SchemaManager {
 	t.Helper()
 	parser := schema.NewParser(fakes.NewFakeClusterState(), vectorindex.ParseAndValidateConfig,
 		acceptAllIndexUpdates{}, endpointModules{}, nil, nil)
-	return clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	return clusterSchema.NewSchemaManager("node1", db, parser, prometheus.NewPedanticRegistry(), logrus.New())
 }
 
 func applyRequest(t *testing.T, cmdType command.ApplyRequest_Type, className string, version uint64, subCommand any) *command.ApplyRequest {
@@ -144,7 +144,7 @@ func TestSchemaManager_UpdateClass_MutableSettings(t *testing.T) {
 			changeModel := updateClassRequest(t, shape.build(moduleSettings("b", "other")), 3)
 
 			t.Run("apply, then replay the same entry", func(t *testing.T) {
-				sm := newSchemaManagerWithModules(t)
+				sm := newSchemaManagerWithModules(t, nil)
 				require.NoError(t, sm.AddClass(addClass, "node1", true, false))
 				require.NoError(t, sm.UpdateClass(changeEndpoint, "node1", true, false))
 				require.Equal(t, moduleSettings("b", "m"), shape.settings(sm.NewSchemaReader().ReadOnlyClass(className)))
@@ -154,7 +154,7 @@ func TestSchemaManager_UpdateClass_MutableSettings(t *testing.T) {
 			})
 
 			t.Run("change the module does not allow is rejected", func(t *testing.T) {
-				sm := newSchemaManagerWithModules(t)
+				sm := newSchemaManagerWithModules(t, nil)
 				require.NoError(t, sm.AddClass(addClass, "node1", true, false))
 				require.NoError(t, sm.UpdateClass(changeEndpoint, "node1", true, false))
 
@@ -167,7 +167,7 @@ func TestSchemaManager_UpdateClass_MutableSettings(t *testing.T) {
 }
 
 func TestSchemaManager_UpdateClass_WithoutModuleConfigKeepsStoredModuleConfig(t *testing.T) {
-	sm := newSchemaManagerWithModules(t)
+	sm := newSchemaManagerWithModules(t, nil)
 	stored := classShapes[1].build(moduleSettings("a", "m"))
 	stored.ModuleConfig = map[string]any{"generative-fake": map[string]any{"model": "g"}}
 	require.NoError(t, sm.AddClass(addClassRequest(t, stored), "node1", true, false))

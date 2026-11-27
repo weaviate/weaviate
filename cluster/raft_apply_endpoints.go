@@ -47,12 +47,22 @@ func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.Sta
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.State) (uint64, error) {
+func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.State, field string, more ...string) (uint64, error) {
+	return s.updateClass(ctx, cls, append([]string{field}, more...))
+}
+
+// ReplaceClass has one caller, the REST update. Any other writer builds its class
+// from a local read, which would revert newer fields, so it uses UpdateClass.
+func (s *Raft) ReplaceClass(ctx context.Context, cls *models.Class, _ *sharding.State) (uint64, error) {
+	return s.updateClass(ctx, cls, nil)
+}
+
+func (s *Raft) updateClass(ctx context.Context, cls *models.Class, fields []string) (uint64, error) {
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
 
-	req := cmd.UpdateClassRequest{Class: cls}
+	req := cmd.UpdateClassRequest{Class: cls, FieldsToUpdate: fields}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)

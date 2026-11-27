@@ -566,6 +566,14 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// avoid triggering diff on properties and therefore discarding a legitimate update.
 		migratePropertiesIfNecessary(&meta.Class)
 
+		if len(req.FieldsToUpdate) > 0 {
+			merged, err := mergeMaskedClass(&meta.Class, req.Class, req.FieldsToUpdate)
+			if err != nil {
+				return fmt.Errorf("%w: %w", ErrBadRequest, err)
+			}
+			req.Class = merged
+		}
+
 		u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)
 		if err != nil {
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
@@ -736,6 +744,36 @@ func introducedDroppedVectorConfigs(prev, next *models.Class) []string {
 	return introduced
 }
 
+// mergeMaskedClass copies through JSON because ParseClassUpdate accepts only raw configs.
+func mergeMaskedClass(current, payload *models.Class, fields []string) (*models.Class, error) {
+	merged, err := modelsext.DeepCopyClass(current)
+	if err != nil {
+		return nil, fmt.Errorf("copy class %q: %w", current.Class, err)
+	}
+	for _, field := range fields {
+		if field == command.ClassFieldUsingBlockMaxWAND {
+			if payload.InvertedIndexConfig == nil || merged.InvertedIndexConfig == nil {
+				return nil, fmt.Errorf("class field %q: no inverted index config", field)
+			}
+			merged.InvertedIndexConfig.UsingBlockMaxWAND = payload.InvertedIndexConfig.UsingBlockMaxWAND
+			continue
+		}
+		name, ok := command.VectorConfigOfClassField(field)
+		if !ok {
+			return nil, fmt.Errorf("unknown class field %q", field)
+		}
+		if cfg, ok := payload.VectorConfig[name]; ok {
+			if merged.VectorConfig == nil {
+				merged.VectorConfig = map[string]models.VectorConfig{}
+			}
+			merged.VectorConfig[name] = cfg
+		} else {
+			delete(merged.VectorConfig, name)
+		}
+	}
+	return merged, nil
+}
+
 // removedDroppedVectorConfigs returns the names of dropped ("none") VectorConfig
 // entries in prev that are absent from next. Only "none" entries: removing a live
 // entry is already rejected by the parser.
@@ -776,7 +814,15 @@ func (s *SchemaManager) admitDroppedVectorConfigRemoval(cmd *command.ApplyReques
 	}
 	var removed, shards []string
 	if err := s.schema.Read(cmd.Class, false, func(class *models.Class, state *sharding.State) error {
-		removed = removedDroppedVectorConfigs(class, req.Class)
+		next := req.Class
+		if len(req.FieldsToUpdate) > 0 {
+			merged, err := mergeMaskedClass(class, req.Class, req.FieldsToUpdate)
+			if err != nil {
+				return err
+			}
+			next = merged
+		}
+		removed = removedDroppedVectorConfigs(class, next)
 		if state != nil {
 			shards = sortedShardNames(state)
 		}

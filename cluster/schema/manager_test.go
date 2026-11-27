@@ -1160,6 +1160,7 @@ func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
 		name        string
 		class       string
 		updated     *models.Class
+		fields      []string
 		subCommand  []byte
 		reject      error
 		wantCalled  int
@@ -1202,6 +1203,33 @@ func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
 			subCommand: []byte("not json"),
 			reject:     fmt.Errorf("should not be reached"),
 		},
+		{
+			name:  "a stale masked write does not own the dropped entry it lacks",
+			class: "C",
+			updated: &models.Class{
+				Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw},
+				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true},
+			},
+			fields: []string{cmd.ClassFieldUsingBlockMaxWAND},
+			reject: fmt.Errorf("should not be reached"),
+		},
+		{
+			name:        "a masked removal of a dropped entry asks the gate",
+			class:       "C",
+			updated:     withVectors("keep"),
+			fields:      []string{cmd.ClassFieldVectorConfig("vec1")},
+			reject:      fmt.Errorf("not drained"),
+			wantCalled:  1,
+			wantRemoved: []string{"vec1"},
+			wantErr:     true,
+		},
+		{
+			name:    "a masked write naming an unknown field is left for the apply to reject",
+			class:   "C",
+			updated: withVectors("keep"),
+			fields:  []string{"description"},
+			reject:  fmt.Errorf("should not be reached"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1210,7 +1238,10 @@ func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
 			sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			guard := &recordingMutationGuard{rejectProposeWith: tt.reject}
 			sm.SetMutationGuard(guard)
-			initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none}}
+			initial := &models.Class{
+				Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
+				InvertedIndexConfig: &models.InvertedIndexConfig{},
+			}
 			require.NoError(t, sm.schema.addClass(initial, &sharding.State{Physical: map[string]sharding.Physical{
 				"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"},
 			}}, 1))
@@ -1218,7 +1249,7 @@ func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
 			sub := tt.subCommand
 			if sub == nil {
 				var err error
-				sub, err = json.Marshal(&cmd.UpdateClassRequest{Class: tt.updated})
+				sub, err = json.Marshal(&cmd.UpdateClassRequest{Class: tt.updated, FieldsToUpdate: tt.fields})
 				require.NoError(t, err)
 			}
 			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_CLASS, Class: tt.class, Version: 2, SubCommand: sub}
@@ -1237,7 +1268,7 @@ func TestSchemaManager_PreApplyFilter_VectorConfigRemovalGate(t *testing.T) {
 			}
 			require.Zero(t, guard.called, "the propose must not ask the apply-time gate")
 
-			if tt.class == "C" && tt.subCommand == nil && !tt.wantErr {
+			if tt.class == "C" && tt.subCommand == nil && !tt.wantErr && tt.fields == nil {
 				proposeCalls := guard.proposeCalled
 				require.NoError(t, sm.UpdateClass(req, "test-node", true, false))
 				require.Equal(t, proposeCalls, guard.proposeCalled, "the apply must not ask the propose-time gate")

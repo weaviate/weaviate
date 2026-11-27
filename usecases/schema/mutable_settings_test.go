@@ -224,7 +224,7 @@ func newSchemaWithModules(t *testing.T) *schemaWithModules {
 	vectorizers := &fakeVectorizerValidator{valid: []string{mutableModule, fixedModule}}
 	handler, schemaManager := newTestHandlerWithModules(t, mutableModules{}, recorder, vectorizers)
 	schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-	schemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+	schemaManager.On("ReplaceClass", mock.Anything, mock.Anything).Return(nil)
 
 	store := NewFakeStore()
 	store.parser = handler.parser

@@ -535,18 +535,19 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	return h.updateClass(ctx, className, updated)
+	return h.updateClass(ctx, className, updated, nil)
 }
 
 // bypass the auth check for internal class update requests
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+	field string, more ...string,
 ) error {
 	ctx, cancel := clusterUtils.BoundIfNoDeadline(ctx, h.config.Raft.ConsistencyWaitTimeout)
 	defer cancel()
-	return h.updateClass(ctx, className, updated)
+	return h.updateClass(ctx, className, updated, append([]string{field}, more...))
 }
 
-func (h *Handler) updateClass(ctx context.Context, className string, updated *models.Class) error {
+func (h *Handler) updateClass(ctx context.Context, className string, updated *models.Class, fields []string) error {
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
@@ -657,8 +658,12 @@ func (h *Handler) updateClass(ctx context.Context, className string, updated *mo
 		}
 	}
 	// A nil sharding state means that the sharding state will not be updated.
-
-	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
+	var err error
+	if len(fields) == 0 {
+		_, err = h.schemaManager.ReplaceClass(ctx, updated, nil)
+	} else {
+		_, err = h.schemaManager.UpdateClass(ctx, updated, nil, fields[0], fields[1:]...)
+	}
 	return err
 }
 

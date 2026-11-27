@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -232,7 +232,7 @@ func invalidateComputedUsage(idx *Index, shardName string) error {
 // finalizer's read-modify-write / retry / guard logic is unit-testable.
 type schemaClassUpdater interface {
 	ReadOnlyClass(collection string) *models.Class
-	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error
+	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class, field string, more ...string) error
 }
 
 // schemaVectorConfigFinalizer removes dropped named-vector entries from a class's
@@ -249,8 +249,10 @@ func (a managerClassUpdater) ReadOnlyClass(collection string) *models.Class {
 	return a.mgr.ReadOnlyClass(collection)
 }
 
-func (a managerClassUpdater) UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error {
-	return schema.UpdateClassInternal(&a.mgr.Handler, ctx, collection, updated)
+func (a managerClassUpdater) UpdateClassInternal(ctx context.Context, collection string, updated *models.Class,
+	field string, more ...string,
+) error {
+	return schema.UpdateClassInternal(&a.mgr.Handler, ctx, collection, updated, field, more...)
 }
 
 // NewSchemaVectorConfigFinalizer builds the schema finalizer used to construct
@@ -259,26 +261,11 @@ func NewSchemaVectorConfigFinalizer(mgr *schema.Manager) *schemaVectorConfigFina
 	return &schemaVectorConfigFinalizer{mgr: managerClassUpdater{mgr}}
 }
 
-// deepCopyClass returns a fully independent copy (JSON round-trip; finalize is
-// rare, cost is irrelevant).
-func deepCopyClass(c *models.Class) (*models.Class, error) {
-	raw, err := json.Marshal(c)
-	if err != nil {
-		return nil, err
-	}
-	var cp models.Class
-	if err := json.Unmarshal(raw, &cp); err != nil {
-		return nil, err
-	}
-	return &cp, nil
-}
-
 const dropVectorFinalizeMaxAttempts = 5
 
 func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error {
 	var lastErr error
 	for attempt := 0; attempt < dropVectorFinalizeMaxAttempts; attempt++ {
-		// Fresh read each attempt so a concurrent update doesn't get clobbered.
 		orig := f.mgr.ReadOnlyClass(collection)
 		if orig == nil {
 			return fmt.Errorf("drop-vector finalize: class %q not found", collection)
@@ -287,31 +274,32 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		// ReadOnlyClass returns a SHALLOW clone whose nested pointers are shared
 		// with the live FSM class; the update path (setClassDefaults etc.) writes
 		// through them. Deep-copy before mutating anything.
-		next, err := deepCopyClass(orig)
+		next, err := modelsext.DeepCopyClass(orig)
 		if err != nil {
 			return fmt.Errorf("drop-vector finalize: copy class %q: %w", collection, err)
 		}
 		// Filter ON THE COPY: rebuilding from orig's entries would carry orig's
 		// interface fields — which alias the live FSM class — back into next,
 		// defeating the deep copy (the update path mutates through them).
-		changed := false
+		var removed []string
 		for name, cfg := range next.VectorConfig {
 			// Exact-case match (target vector names are case-sensitive identifiers:
 			// a case-differing sibling is a DIFFERENT vector whose marker must stay);
 			// only remove an entry still marked dropped (keep a live re-creation).
 			if slices.Contains(targets, name) && modelsext.IsVectorIndexDropped(cfg) {
 				delete(next.VectorConfig, name)
-				changed = true
+				removed = append(removed, api.ClassFieldVectorConfig(name))
 			}
 		}
-		if !changed {
+		if len(removed) == 0 {
 			return nil // idempotent: entries already gone
 		}
+		slices.Sort(removed)
 		// Removing the LAST entry lands on the vector-less collection shape;
 		// the FSM keeps the legacy fields genuinely empty — nothing to set
 		// here.
 
-		if err := f.mgr.UpdateClassInternal(ctx, collection, next); err != nil {
+		if err := f.mgr.UpdateClassInternal(ctx, collection, next, removed[0], removed[1:]...); err != nil {
 			lastErr = err
 			select {
 			case <-ctx.Done():
