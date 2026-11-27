@@ -1186,10 +1186,10 @@ func (l *LazyLoadShard) addJobToQueue(job job) {
 	l.mustLoad(context.Background()).addJobToQueue(job)
 }
 
-func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) (bool, error) {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	return shard.batchDeleteObject(ctx, id, deletionTime)
 }

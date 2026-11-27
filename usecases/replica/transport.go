@@ -59,6 +59,8 @@ func (r *SimpleResponse) FirstError() error {
 // DeleteBatchResponse represents the response returned by DeleteObjects
 type DeleteBatchResponse struct {
 	Batch []UUID2Error `json:"batch,omitempty"`
+	// DeletedAny reports that the node running the batch removed at least one object; it never crosses the wire.
+	DeletedAny bool `json:"-"`
 }
 
 type UUID2Error struct {

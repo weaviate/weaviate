@@ -4067,21 +4067,31 @@ func (_c *MockShardLike_addToPropertySetBucket_Call) RunAndReturn(run func(*lsmk
 }
 
 // batchDeleteObject provides a mock function with given fields: ctx, id, deletionTime
-func (_m *MockShardLike) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+func (_m *MockShardLike) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) (bool, error) {
 	ret := _m.Called(ctx, id, deletionTime)
 
 	if len(ret) == 0 {
 		panic("no return value specified for batchDeleteObject")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, time.Time) error); ok {
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, time.Time) (bool, error)); ok {
+		return rf(ctx, id, deletionTime)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, time.Time) bool); ok {
 		r0 = rf(ctx, id, deletionTime)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(bool)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, strfmt.UUID, time.Time) error); ok {
+		r1 = rf(ctx, id, deletionTime)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockShardLike_batchDeleteObject_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'batchDeleteObject'
@@ -4104,12 +4114,12 @@ func (_c *MockShardLike_batchDeleteObject_Call) Run(run func(ctx context.Context
 	return _c
 }
 
-func (_c *MockShardLike_batchDeleteObject_Call) Return(_a0 error) *MockShardLike_batchDeleteObject_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_batchDeleteObject_Call) Return(_a0 bool, _a1 error) *MockShardLike_batchDeleteObject_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_batchDeleteObject_Call) RunAndReturn(run func(context.Context, strfmt.UUID, time.Time) error) *MockShardLike_batchDeleteObject_Call {
+func (_c *MockShardLike_batchDeleteObject_Call) RunAndReturn(run func(context.Context, strfmt.UUID, time.Time) (bool, error)) *MockShardLike_batchDeleteObject_Call {
 	_c.Call.Return(run)
 	return _c
 }

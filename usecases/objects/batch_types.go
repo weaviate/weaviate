@@ -76,6 +76,8 @@ type BatchReferences []BatchReference
 type BatchSimpleObject struct {
 	UUID strfmt.UUID
 	Err  error
+	// Deleted reports a tombstone this node wrote; it never crosses the wire.
+	Deleted bool
 }
 
 // MarshalJSON carries Err as text in ErrMsg, capped, and keeps writing the Err key a decoder

@@ -214,6 +214,7 @@ func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 				entry.Error = replicaerrors.Error{Code: replicaerrors.StatusConflict, Msg: err.Error()}
 			}
 			resp.Batch[i] = entry
+			resp.DeletedAny = resp.DeletedAny || (r.Deleted && r.Err == nil)
 		}
 		return resp
 	}

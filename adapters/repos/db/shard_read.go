@@ -1047,10 +1047,10 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	return list, nil
 }
 
-func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) (bool, error) {
 	// Wait outside the RLock; see shard_write_put.go.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
-		return err
+		return false, err
 	}
 
 	s.asyncReplicationRWMux.RLock()
@@ -1058,12 +1058,12 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	bucket, release, err := s.objectsBucket()
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer release()
 
@@ -1075,19 +1075,19 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 
 	existing, err := bucket.Get(idBytes)
 	if err != nil {
-		return errors.Wrap(err, "unexpected error on previous lookup")
+		return false, errors.Wrap(err, "unexpected error on previous lookup")
 	}
 
 	if existing == nil {
 		// nothing to do
-		return nil
+		return false, nil
 	}
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
 	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
-		return errors.Wrap(err, "get existing doc id from object binary")
+		return false, errors.Wrap(err, "get existing doc id from object binary")
 	}
 
 	docIDBytes := make([]byte, 8)
@@ -1099,7 +1099,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		err = bucket.DeleteWith(idBytes, deletionTime, withSecondary)
 	}
 	if err != nil {
-		return errors.Wrap(err, "delete object from bucket")
+		return false, errors.Wrap(err, "delete object from bucket")
 	}
 
 	logTime := updateTime
@@ -1109,12 +1109,12 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	s.AppendChangeLogDelete(idBytes, logTime)
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime, logTime); err != nil {
-		return errors.Wrap(err, "object deletion in hashtree")
+		return true, errors.Wrap(err, "object deletion in hashtree")
 	}
 
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
 	if err != nil {
-		return errors.Wrap(err, "delete object from bucket")
+		return true, errors.Wrap(err, "delete object from bucket")
 	}
 
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
@@ -1124,7 +1124,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return nil
 	})
 	if err != nil {
-		return err
+		return true, err
 	}
 
 	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
@@ -1134,10 +1134,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return nil
 	})
 	if err != nil {
-		return err
+		return true, err
 	}
 
-	return nil
+	return true, nil
 }
 
 func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {

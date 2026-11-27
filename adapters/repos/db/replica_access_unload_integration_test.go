@@ -95,11 +95,21 @@ func TestOnlyDataChangesAndUserReadsCountAsReplicaAccess(t *testing.T) {
 }
 
 func TestBackgroundDeletesOnAReceiverCountAsAccessOnlyWhenTheyDelete(t *testing.T) {
-	ids := []strfmt.UUID{batchDeleteObjectID(0)}
-	prepare := func(ctx context.Context, index *Index, shard string) replica.SimpleResponse {
-		return index.ReplicateDeletions(ctx, shard, "r1", ids, time.Now(), false, 0)
-	}
 	bg := withBackgroundShardAccess(context.Background())
+	ids := []strfmt.UUID{batchDeleteObjectID(0)}
+	absent := []strfmt.UUID{batchDeleteObjectID(999)}
+	prepareIDs := func(ctx context.Context, index *Index, shard string, ids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
+		return index.ReplicateDeletions(ctx, shard, "r1", ids, time.Now(), dryRun, 0)
+	}
+	prepare := func(ctx context.Context, index *Index, shard string) replica.SimpleResponse {
+		return prepareIDs(ctx, index, shard, ids, false)
+	}
+	commit := func(t *testing.T, index *Index, shard string) replica.DeleteBatchResponse {
+		resp, ok := index.CommitReplication(bg, shard, "r1").(replica.DeleteBatchResponse)
+		require.True(t, ok)
+		require.NoError(t, resp.FirstError())
+		return resp
+	}
 	tests := []struct {
 		name       string
 		readOnly   bool
@@ -116,15 +126,26 @@ func TestBackgroundDeletesOnAReceiverCountAsAccessOnlyWhenTheyDelete(t *testing.
 		}},
 		{name: "background replicated delete committed", wantAccess: true, op: func(t *testing.T, index *Index, shard string) {
 			require.Empty(t, prepare(bg, index, shard).Errors)
-			resp, ok := index.CommitReplication(bg, shard, "r1").(replica.DeleteBatchResponse)
-			require.True(t, ok)
-			require.NoError(t, resp.FirstError())
+			commit(t, index, shard)
+		}},
+		{name: "background replicated dry run committed", op: func(t *testing.T, index *Index, shard string) {
+			require.Empty(t, prepareIDs(bg, index, shard, ids, true).Errors)
+			commit(t, index, shard)
+		}},
+		{name: "background replicated delete of an absent object committed", op: func(t *testing.T, index *Index, shard string) {
+			require.Empty(t, prepareIDs(bg, index, shard, absent, false).Errors)
+			commit(t, index, shard)
 		}},
 		{name: "background replicated prepare on a readonly shard", readOnly: true, op: func(t *testing.T, index *Index, shard string) {
 			require.NotEmpty(t, prepare(bg, index, shard).Errors)
 		}},
 		{name: "background remote batch delete", wantAccess: true, op: func(t *testing.T, index *Index, shard string) {
 			res := index.IncomingDeleteObjectBatch(bg, shard, ids, time.Now(), false, 0)
+			require.Len(t, res, 1)
+			require.NoError(t, res[0].Err)
+		}},
+		{name: "background remote batch delete of an absent object", op: func(t *testing.T, index *Index, shard string) {
+			res := index.IncomingDeleteObjectBatch(bg, shard, absent, time.Now(), false, 0)
 			require.Len(t, res, 1)
 			require.NoError(t, res[0].Err)
 		}},

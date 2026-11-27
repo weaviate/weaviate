@@ -171,7 +171,8 @@ type ShardLike interface {
 
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
-	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
+	// batchDeleteObject reports whether it wrote a tombstone; an absent object writes none.
+	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) (bool, error)
 	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
