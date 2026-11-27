@@ -1232,6 +1232,8 @@ func TestCovers(t *testing.T) {
 		{name: "a pipe in a quote is no alternation", policy: `users/(\Qa|.*|b\E)`, pattern: "users/.*", want: false},
 		{name: "a pipe in a placeholder is no alternation", policy: "users/(x{|.*|}y)", pattern: "users/.*", want: false},
 		{name: "a group in a class is no group", policy: "users/[^/:(a|)]+.*", pattern: "users/a.*", want: false},
+		{name: "a policy that does not compile covers nothing", policy: "users/(.*|+)", pattern: "users/a.*", want: false},
+		{name: "a quantifier opening a branch covers nothing", policy: "users/.(*|a)", pattern: "users/a.*", want: false},
 		{name: "a flag group covers nothing", policy: "users/(?i)a.*", pattern: "users/a.*", want: false},
 		{name: "a nested group covers nothing", policy: "users/((a|b)|c).*", pattern: "users/a.*", want: false},
 		{name: "an alternation does not cover a grant its branches cover only together", policy: "users/(a..|a)", pattern: "users/a.*", want: false},

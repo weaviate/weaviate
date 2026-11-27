@@ -461,9 +461,15 @@ func covers(policy, pattern string) bool {
 	if !ok {
 		return false
 	}
+	policy = strings.ReplaceAll(policy, "/*", "/.*")
+	// KeyMatch5 panics on a policy that does not compile, which then matches
+	// nothing, though one branch of it alone might.
+	if _, err := regexp.Compile(keyMatch5Placeholder.ReplaceAllString(policy, "[^/]+")); err != nil {
+		return false
+	}
 	// A group "(a|b)" matches what one of its branches matches, so a branch
 	// that covers the pattern alone is enough.
-	for _, branch := range alternatives(strings.ReplaceAll(policy, "/*", "/.*")) {
+	for _, branch := range alternatives(policy) {
 		expr, ok := coverExpr(branch)
 		if !ok {
 			continue
@@ -474,6 +480,9 @@ func covers(policy, pattern string) bool {
 	}
 	return false
 }
+
+// keyMatch5Placeholder is what KeyMatch5 rewrites to "[^/]+" in a policy.
+var keyMatch5Placeholder = regexp.MustCompile(`\{[^/]+\}`)
 
 // maxAlternatives bounds how many policies alternatives expands one into.
 const maxAlternatives = 64
