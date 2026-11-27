@@ -127,29 +127,26 @@ func persistentAddsFromSeveralCallers(t *testing.T, cacheMode string) {
 	f.covered(t, "opened again")
 }
 
-// A doc id is given once: of two callers that add it at the same time, one
-// is told it is taken, whichever comes second, and the index holds the vector
-// of the other.
+// A doc id is given once: of callers that add it at the same time, one adds
+// it, and the others are left out as the replays they are
+// (persistent_replay.go). None fails, and the index holds the vector once.
 func TestPersistentCallersWithTheSameDocID(t *testing.T) {
 	ctx := context.Background()
 	const total = persistentBase + 200
 	f := newPersistentFixture(t, total)
 	f.add(t, 0, persistentBase)
 	for id := persistentBase; id < total; id++ {
-		var refused atomic.Int64
 		eg := enterrors.NewErrorGroupWrapper(testLogger())
 		for range 4 {
 			eg.Go(func() error {
-				err := f.index.Add(ctx, uint64(id), f.vectors[id])
-				if errors.Is(err, ErrNotSupported) {
-					refused.Add(1)
-					return nil
-				}
-				return err
+				return f.index.Add(ctx, uint64(id), f.vectors[id])
 			})
 		}
 		require.NoError(t, eg.Wait(), "doc %d", id)
-		require.Equal(t, int64(3), refused.Load(), "doc %d is given once", id)
+		f.index.mu.RLock()
+		live := f.index.g.meta.Live
+		f.index.mu.RUnlock()
+		require.Equal(t, id+1, live, "doc %d is in once", id)
 	}
 	f.covered(t, "at the end")
 	f.vectorsIntact(t, "at the end")
