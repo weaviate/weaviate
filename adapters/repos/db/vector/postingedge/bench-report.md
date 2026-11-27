@@ -693,6 +693,11 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - (c): el diario y el tope, de la CPU. Las escrituras síncronas por insert (`fsync`, `F_FULLFSYNC`, `Sync()`) salen del perfil y de leer el código.
 - **El log de objetos no está en `m2`,** sino en `feat/posting-edge-backup`. Leo su código y digo si escribe de forma síncrona por insert, sin medirlo.
 
+**Lo que espero (*mío*):**
+- **Inserts por segundo:** sin regresión de `m2` frente a `b6200010ab`. El camino del insert es el mismo: lo que cambió entre los dos son los centroides en RQ8, los retirados liberados, el tope y la tabla de cuándo se hicieron las aristas, más lo que trajo main con sus fusiones.
+- **Llamadores:** en los dos integrados, 8 llamadores aproximadamente como 1. v5.2 con 8 da unas 3–3.5 veces su N = 1.
+- **El heap:** el de `m2`, menor que el de `b6200010ab`, por los centroides.
+
 **Enmienda 1 (del usuario, 2026-11-27 a las 08:15, con la primera pasada hecha y antes de compilar nada más): un punto antes de la fusión de main.**
 - **El encargo (del usuario):**
   - Cuatro puntos a 100k, con 1 y 8 llamadores: `b6200010ab` (hito 2), `m2` justo antes de la fusión de main, la fusión y la cabeza. En cada uno, inserts por segundo, bytes escritos al disco, amplificación de escritura y heap por componente. Así, una diferencia entre el hito 2 y antes de la fusión es nuestra, y una entre antes y después de la fusión es de main.
@@ -718,10 +723,103 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
     - Si la diferencia está entre antes y después de la fusión, bisect sobre los commits de main en esos paquetes, con la celda que la muestre.
   - **v5.2 no se repite:** vale el de la primera serie. Las corridas de la primera serie de `b62` y de la cabeza se reportan como lo que eran, la serie del diseño original.
 
-**Lo que espero (*mío*):**
-- **Inserts por segundo:** sin regresión de `m2` frente a `b6200010ab`. El camino del insert es el mismo: lo que cambió entre los dos son los centroides en RQ8, los retirados liberados, el tope y la tabla de cuándo se hicieron las aristas, más lo que trajo main con sus fusiones.
-- **Llamadores:** en los dos integrados, 8 llamadores aproximadamente como 1. v5.2 con 8 da unas 3–3.5 veces su N = 1.
-- **El heap:** el de `m2`, menor que el de `b6200010ab`, por los centroides.
+**Resultado de la primera serie (diseño original, 07:30–08:23):**
+
+| celda | pasada 1 | pasada 2 | media | recall a ef 40 / 160 |
+|---|---:|---:|---:|---|
+| `b6200010ab`, 1 llamador | 325.1 | 326.5 | 325.8 | 0.9881 / 0.9973; 0.9875 / 0.9969 |
+| cabeza, 1 llamador | 331.9 | 328.5 | 330.2 | 0.9886 / 0.9972; 0.9888 / 0.9972 |
+| v5.2, 1 buscador | 288.0 | 276.8 | 282.4 | |
+| `b6200010ab`, 8 llamadores | 335.4 | 333.6 | 334.5 | 0.9883 / 0.9972; 0.9879 / 0.9972 |
+| cabeza, 8 llamadores | 331.4 | 334.8 | 333.1 | 0.9883 / 0.9979; 0.9887 / 0.9973 |
+| v5.2, 8 buscadores y tanda 32 | 1 007.9 | 1 035.8 | 1 021.9 | |
+
+*Inserts por segundo tras la base; 90 000 inserts.*
+
+- **Sin regresión de la cabeza frente al hito 2:** +1.3 % con 1 llamador y −0.4 % con 8. Ni el recall ni los postings (777 a 797) se mueven más que el ruido.
+- **En los dos integrados, 8 llamadores rinden como 1:** +2.7 % y +0.9 %. **v5.2 con 8 da 3.62 veces su N = 1,** como a 1M (3.60).
+- **El heap tras abrir:** 28.3 MB en `b6200010ab` y 24.3 en la cabeza. Bajan los centroides (4.90 MB en `float32` pasan a 1.37 en códigos RQ8) y la tabla de cuándo se hicieron las aristas (0.51 MB). Lo demás es igual: 9.0 de códigos de ruteo, 2.45 de cambios pendientes, 0.85 de bloom.
+
+### Dónde se va el tiempo del insert con 8 llamadores (2026-11-27, `m2` a 100k, perfilado)
+
+*Una corrida aparte de la cabeza con 8 llamadores (329 inserts por segundo, igual que sin perfiles), con los perfiles de CPU, de bloqueo (eventos de 10 µs o más) y de mutex. Al lado, v5.2 con 8 buscadores y su perfil de CPU (1 037 por segundo). Todo en macOS, en este Mac.*
+
+**El reloj.** 274 s de inserts para 90 000, 3.04 ms por insert. Los 8 llamadores suman 2 192 s:
+
+| en qué está un llamador | segundos | parte |
+|---|---:|---:|
+| esperando `writeMu` (`sync.Mutex`, `addWindow`) | 1 721 | 79 % |
+| con `writeMu`, esperando `p.mu.Lock()` (`write`) a que acaben los planes en vuelo | 250 | 11 % |
+| planeando (búsqueda del insert, `searchNs` sumado) | 259 | 12 % |
+| escribiendo con el candado exclusivo | 15 | 0.7 % |
+
+- **La suma de los planes, 259 s, es el 94.5 % del reloj: hay un plan en vuelo a la vez.**
+- El perfil de mutex lo confirma por el lado de quien suelta: 1 224 s de espera los provoca `writeMu.Unlock` y 250 s `p.mu.RUnlock`.
+
+**(a) El cerrojo entre cálculo y escritura: es lo que convierte 8 llamadores en uno.**
+- Cada llamador planea su ventana de 4 con `p.mu.RLock()`. Después espera `writeMu` y escribe sus 4 inserts, cada uno con `p.mu.Lock()`, que espera a los lectores en vuelo y deja fuera a los nuevos.
+- Mientras uno escribe, los otros 7 tienen su ventana planeada y esperan `writeMu`. El siguiente plan no empieza hasta que su dueño escribe. Al final, planear y escribir se alternan de uno en uno.
+- Es independiente de la plataforma.
+
+**(b) Las lecturas del rescore, una a una y repartidas en gorutinas.** Un plan dura 2.88 ms y casi todo es el reparto, no el trabajo:
+- **Crear gorutinas:** unas 106 por insert. Son 2 por posting cargado y ronda (43 cargas en 10.5 rondas) más 20 del rescore. En macOS, cada una despierta un hilo (`newproc` → `wakep` → `pthread_cond_signal`): 153 s de CPU, 1.7 ms por insert, en el hilo que planea.
+- **Esperarlas:** 0.77 ms por insert la carga de postings y 0.22 ms el rescore (los `Wait` de sus grupos, del perfil de bloqueo).
+- **Las lecturas en sí son baratas a este tamaño:** 64 `pread` de 6 KB por insert desde la caché, unos 5 µs cada uno, 44 s de CPU en total. Dentro de un trabajador del rescore van una detrás de otra. Puntuar, decodificar filas y el grafo de centroides suman unos 4 s.
+- **El coste de despertar hilos es de macOS;** en Linux es menor. Allí el reparto pesaría menos, pero no lo he medido.
+- A 3M con 768 dimensiones (la noche) el plan era de 9.4 ms y leía de disco (91 GB leídos): allí las lecturas pesan más.
+
+**(c) El trabajo propio del integrado: pequeño, y nada con `fsync` por insert.**
+- **La sección exclusiva:** 0.17–0.21 ms por insert. Es el 6 % del insert con un llamador.
+- **El diario:** su registro se escribe con un `pwrite` por insert (`endStep`, unos 9.7 KB a 1 536 dimensiones), 0.12 ms de llamada al sistema. Después se reparten las escrituras a buckets y ficheros (0.03 ms), y el vector va con otro `pwrite`.
+  - Es síncrono hacia el sistema, sin `fsync`. Los WAL de los buckets se vuelcan en el `Flush` de cada ronda, también sin `fsync`.
+  - Los únicos `Sync()` del paquete están en el layout.
+  - El `json.Marshal` de la meta en cada paso no llega a medirse (0.01 s).
+- **El tope de cambios pendientes no actúa a 100k:** 0 s.
+- **El log de objetos no está en `m2`.** En `feat/posting-edge-backup` se escribe al empezar cada vaciado del diario (en el `Flush`, o al pasar de 64 MB), no por insert.
+
+**v5.2, al lado.**
+- Las 32 búsquedas de una tanda corren a la vez sin candados que se crucen. El aplicador se lleva el 15.8 % del tiempo y los buscadores están ocupados el 88 %.
+- Dentro de una búsqueda lee en serie: despertar hilos suma 23 s, frente a 191 s en el integrado.
+- Ocupa 6.8 núcleos; el integrado, 1.7.
+
+### El cambio para que el integrado llegue a lo del prototipo (propuesta, 2026-11-27, sin implementar)
+
+**La indexación asíncrona ya hace tandas.**
+- Cada cola de un shard tiene un trozo en vuelo, de hasta 10 MB de registros: unos 1 700 vectores a 1 536 dimensiones y unos 3 300 a 768. El scheduler no saca otro de esa cola hasta que acaba (`scheduler.go:471`).
+- Lo parte por `docID % workers` entre los GOMAXPROCS − 1 workers compartidos del nodo, y cada parte es un `AddBatch` sobre el mismo índice, a la vez.
+- El trozo acaba cuando acaban todas las partes.
+
+**Lo que propongo (*mío*):**
+1. **Tandas con estado fijo y un aplicador** (el diseño de v5.2, con los workers del nodo como buscadores):
+   - Los `AddBatch` en vuelo planean sus vectores contra el estado del final de la tanda anterior. Mientras tanto no escribe nadie.
+   - Cada plan deja su resultado en la tanda. Cuando la tanda tiene W planes, o cuando ya no queda nadie planeando, el último en terminar se hace aplicador: toma el exclusivo una vez y aplica los planes en orden. Los demás esperan a que su parte esté aplicada para volver, porque la cola da el trozo por hecho cuando vuelve `AddBatch`.
+   - **W = 32,** como v5.2, para que el atraso de una búsqueda sea el que ya se midió. Un trozo entero (1 700 a 3 300 vectores sin verse entre sí) es mucho más atraso, y no está medido.
+   - Funciona igual con los llamadores de una importación síncrona.
+2. **Planes sin reparto interno.** Los planes de una tanda se lanzan con un presupuesto de concurrencia de 1 en el contexto (`concurrency.CtxWithBudget(ctx, 1)`).
+   - El rescore y la carga de postings ya lo respetan: `rescore` lee `BudgetFromCtx`, y `fetch` limita a `round.inFlight`. Así van en serie, sin crear gorutinas.
+   - El paralelismo viene de la tanda, como en v5.2. Las consultas y un insert solo siguen repartiendo.
+3. **Un registro del diario por tanda, no por insert:** un `pwrite` y una meta por tanda. La tanda es atómica ante una caída, y la cola vuelve a entregar el trozo si no se marcó hecho.
+
+**La ganancia estimada, en este Mac:**
+- **Con 8 workers, 3–3.6 veces lo de un llamador,** como v5.2: a 100k, de unos 330 a unos 1 000–1 200 inserts por segundo.
+- **La parte en serie:** el aplicador, a 0.17–0.21 ms por insert y menos con un registro por tanda. Con W = 32 y 8 buscadores no es el límite: la tanda espera a su búsqueda más lenta, como en v5.2.
+- **El paso 2 no es opcional.** Con 8 planes a la vez y su reparto actual, despertar hilos se multiplicaría por 8 y llenaría los núcleos: hoy ya son 1.7 ms de CPU por insert.
+- **A 3M con 768 dimensiones** (la noche, 88 por segundo), las mismas 3–4 veces darían unos 260–350 por segundo. 10M crecido serían unas 10–13 h.
+- **Es una estimación.** Habría que medirla como v5.2: N = 1, 4 y 8, con cargas y recall a 0.95 y 0.99 frente a N = 1, también a 1M.
+
+### Los arreglos de `lsmkv` en las ramas del índice (2026-11-27, a petición del usuario)
+
+| | Set (`bf72a3bec8`, #13950) | Map (`87866f1cf8`, #13983) |
+|---|---|---|
+| antecesor de `feat/posting-edge-integration-m2` | sí | no |
+| antecesor de `feat/posting-edge-integration` | sí | no |
+| el código en la cabeza | `compactor_set.go` y su test, idénticos a `bf72a3bec8` en las dos | `bucket.go:1494` sigue con la condición vieja en las dos |
+| sus tests en la cabeza | pasan los dos, en las dos ramas | el de 12 bytes con valor falla en las dos ramas: el fallo está |
+| sin el arreglo, o con él | con `compactor_set.go` de antes del arreglo, en `m2`, fallan los dos | con el arreglo aplicado (entra limpio), pasa; el de la clave de 8 bytes sin valor sigue en rojo, como se dejó a propósito |
+| en main al fusionar (`5d678d7acf`) | no; la PR sigue abierta | no; la PR sigue abierta |
+
+- **El índice no usa buckets Map** (4 Replace y 1 SetCollection), así que lo de Map no toca ni sus medidas ni sus datos.
+- En un shard de estas ramas, los buckets Map del shard, los del índice invertido antiguo de BM25, sí tienen el fallo.
 
 ### El mapa docID → posting y slot: ¿se puede bajar sin coste en la búsqueda? (análisis, 2026-11-26, sin cambiar nada)
 
