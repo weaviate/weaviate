@@ -54,12 +54,18 @@ func (p *BitmapBufPoolTrackingForTests) Get(minCap int) (buf []byte, put func())
 	}
 }
 
-// getWithBitmap returns a fresh struct rather than a pooled one, so a bitmap
-// used after its release keeps reading the zeroed buffer (visible as wrong
-// values) instead of silently aliasing a reused struct.
-func (p *BitmapBufPoolTrackingForTests) getWithBitmap(minCap int) (buf []byte, bm *sroar.Bitmap, put func()) {
-	buf, put = p.Get(minCap)
-	return buf, &sroar.Bitmap{}, put
+// GetBitmapStruct returns a fresh struct rather than a pooled one, so a bitmap
+// used after its release reads the zeroed buffer instead of silently aliasing a
+// reused struct. A second put panics, as releasing a buffer twice does.
+func (p *BitmapBufPoolTrackingForTests) GetBitmapStruct() (dst *sroar.Bitmap, put func()) {
+	dst = &sroar.Bitmap{}
+	var released atomic.Bool
+	return dst, func() {
+		if !released.CompareAndSwap(false, true) {
+			panic("bitmap released twice")
+		}
+		dst.ReleaseBuf()
+	}
 }
 
 func (p *BitmapBufPoolTrackingForTests) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {

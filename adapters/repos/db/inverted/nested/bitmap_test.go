@@ -213,7 +213,7 @@ func TestConstants(t *testing.T) {
 func TestBitmapOps_NewEmpty(t *testing.T) {
 	ops := newTrackingOps(t)
 
-	result, release := ops.NewEmpty(1024)
+	result, release := ops.NewEmpty()
 	defer release()
 
 	requireBitmapValid(t, result)
@@ -606,6 +606,45 @@ func TestBitmapOps_OrAll(t *testing.T) {
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{Encode(1, 2, 100), Encode(1, 3, 100)}, result.ToArray())
 	})
+}
+
+// TestBitmapOps_SpareBecomesTailRoom pins that each build lives in the pool's
+// buffer and lays out the same however much larger that buffer is.
+func TestBitmapOps_SpareBecomesTailRoom(t *testing.T) {
+	a, b := sroar.NewBitmap(), sroar.NewBitmap()
+	for doc := uint64(1); doc < 200_000; doc += 40_000 {
+		a.SetMany([]uint64{Encode(1, 1, doc), Encode(1, 2, doc), Encode(2, 1, doc)})
+		b.SetMany([]uint64{Encode(1, 1, doc), Encode(1, 3, doc), Encode(2, 2, doc)})
+	}
+
+	builds := []struct {
+		name string
+		get  func(*BitmapOps) (*sroar.Bitmap, func())
+	}{
+		{"NewEmpty", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.NewEmpty() }},
+		{"MaskLeaf", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.MaskLeaf(a) }},
+		{"MaskRootLeaf", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.MaskRootLeaf(a) }},
+		{"AndAllMaskLeaf", func(o *BitmapOps) (*sroar.Bitmap, func()) {
+			return o.AndAllMaskLeaf([]*sroar.Bitmap{a, b}, 1)
+		}},
+		{"MaskLeafAnd", func(o *BitmapOps) (*sroar.Bitmap, func()) { return o.MaskLeafAnd(a, b) }},
+		{"CrossLeafCopresenceAll", func(o *BitmapOps) (*sroar.Bitmap, func()) {
+			return o.CrossLeafCopresenceAll([]*sroar.Bitmap{a, b})
+		}},
+	}
+	for _, build := range builds {
+		t.Run(build.name, func(t *testing.T) {
+			exact, releaseExact := build.get(NewBitmapOps(roaringset.NewBitmapBufPoolNoop()))
+			defer releaseExact()
+
+			const bufSize = 1 << 16
+			roomy, releaseRoomy := build.get(NewBitmapOps(roaringset.NewBitmapBufPoolRanged(nil, 0, nil, bufSize)))
+			defer releaseRoomy()
+			require.Equal(t, bufSize, roomy.CapInBytes())
+			require.Equal(t, exact.LenInBytes(), roomy.LenInBytes())
+			require.Equal(t, exact.ToArray(), roomy.ToArray())
+		})
+	}
 }
 
 func TestBitmapOps_CrossLeafCopresenceAll(t *testing.T) {
