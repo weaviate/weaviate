@@ -217,7 +217,7 @@ func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig
 	dropped []string, c contents,
 ) (map[string]record, error) {
 	// before any deletion: finishing a drop would take the other's queue
-	err := refuseSharedFiles(c)
+	err := c.refuseSharedFiles()
 	if err != nil {
 		return nil, err
 	}
@@ -548,7 +548,7 @@ func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	}
 	// a load and Create refuse shared files already: this guards the teardown
 	// that follows against an index.db changed behind the shard
-	err = refuseSharedFiles(c)
+	err = c.refuseSharedFiles()
 	if err != nil {
 		return false, err
 	}
@@ -699,7 +699,7 @@ func removeArtifacts(shardDir string, artifacts helpers.VectorIndexArtifacts, re
 // minus the buckets another vector owns, and its queue.
 func dropArtifacts(c contents, name string) (helpers.VectorIndexArtifacts, error) {
 	// a vector sharing a queue or files with name would lose them
-	err := refuseSharedFiles(c)
+	err := c.refuseSharedFiles()
 	if err != nil {
 		return helpers.VectorIndexArtifacts{}, err
 	}

@@ -98,7 +98,7 @@ func collisionError(name string, collisions []string) error {
 
 // refuseSharedFiles fails when deleting what one vector owns would delete what
 // another one uses.
-func refuseSharedFiles(c contents) error {
+func (c contents) refuseSharedFiles() error {
 	err := refuseSharedQueues(c.records)
 	if err != nil {
 		return err
@@ -107,13 +107,13 @@ func refuseSharedFiles(c contents) error {
 	if err != nil {
 		return err
 	}
-	return refuseSharedTaskIndexes(c)
+	return c.refuseSharedTaskIndexes()
 }
 
 // refuseSharedTaskIndexes fails when a rebuild task names an index of another
 // vector, or one that shares a file with another vector's when either has a
 // generated ID. Files shared by two name-derived IDs are spared instead.
-func refuseSharedTaskIndexes(c contents) error {
+func (c contents) refuseSharedTaskIndexes() error {
 	for _, name := range slices.Sorted(maps.Keys(c.tasks)) {
 		for _, index := range []taskIndex{c.tasks[name].Source, c.tasks[name].Candidate} {
 			id := index.storageID()
