@@ -117,3 +117,43 @@ func TestShardReadsPassTheSchemaVersion(t *testing.T) {
 		}
 	}
 }
+
+// versionNodes records the schema version a node status request reaches the
+// nodes manager with.
+type versionNodes struct {
+	got *uint64
+}
+
+func (n versionNodes) GetNodeStatus(_ context.Context, _, _, _ string, v uint64) (*models.NodeStatus, error) {
+	*n.got = v
+	return &models.NodeStatus{}, nil
+}
+
+func (versionNodes) GetStatistics(context.Context) (*models.Statistics, error) { return nil, nil }
+
+// TestNodeStatusPassesTheSchemaVersion checks the node status handler hands the
+// asking node's schema version on, and treats a missing one as 0.
+func TestNodeStatusPassesTheSchemaVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		query    string
+		wantCode int
+		want     uint64
+	}{
+		{name: "with a version", query: "schema_version=7", wantCode: http.StatusOK, want: 7},
+		{name: "without a version", query: "", wantCode: http.StatusOK, want: 0},
+		{name: "a malformed version", query: "schema_version=x", wantCode: http.StatusBadRequest, want: 99},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := uint64(99)
+			rec := httptest.NewRecorder()
+
+			NewNodes(versionNodes{got: &got}, NewNoopAuthHandler()).Nodes().
+				ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nodes/status/C?"+tt.query, nil))
+
+			require.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+			require.Equal(t, tt.want, got)
+		})
+	}
+}

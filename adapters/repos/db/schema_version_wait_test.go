@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -615,3 +616,66 @@ func TestAddClassDoesNotWaitForItsOwnVersion(t *testing.T) {
 		})
 	}
 }
+
+// notYetAppliedSchemaReader holds no class until a wait for the class version
+// runs the apply that adds it: a node the create has not reached yet.
+type notYetAppliedSchemaReader struct {
+	schemaUC.SchemaReader
+	applied bool
+}
+
+func (r *notYetAppliedSchemaReader) ReadOnlyVersionedClass(name string) versioned.Class {
+	if !r.applied {
+		return versioned.Class{}
+	}
+	return r.SchemaReader.ReadOnlyVersionedClass(name)
+}
+
+func (r *notYetAppliedSchemaReader) WaitForUpdate(ctx context.Context, version uint64) error {
+	err := r.SchemaReader.WaitForUpdate(ctx, version)
+	r.applied = version == applyingClassVersion && err == nil
+	return err
+}
+
+// TestIncomingNodeStatusWaitsForTheAskersClassVersion asks a node that has not
+// applied a class yet for that class's status. With the asking node's class
+// version it waits and finds the class; without one it reports the class
+// missing, as before; a wait that times out reports the node timed out.
+func TestIncomingNodeStatusWaitsForTheAskersClassVersion(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     uint64
+		finishApply func(register func()) error
+		wantStatus  *string
+	}{
+		{
+			name:        "with the asking node's class version",
+			version:     applyingClassVersion,
+			finishApply: func(register func()) error { register(); return nil },
+			wantStatus:  ptString(models.NodeStatusStatusHEALTHY),
+		},
+		{
+			name:        "without a version",
+			finishApply: func(register func()) error { register(); return nil },
+		},
+		{
+			name:        "a wait that times out",
+			version:     applyingClassVersion,
+			finishApply: func(func()) error { return types.ErrDeadlineExceeded },
+			wantStatus:  ptString(models.NodeStatusStatusTIMEOUT),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := newApplyingDB(t, tt.finishApply)
+			db.SetSchemaReader(&notYetAppliedSchemaReader{SchemaReader: db.schemaReader})
+
+			status, err := db.IncomingGetNodeStatus(t.Context(), applyingClass, "", verbosity.OutputVerbose, tt.version)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.wantStatus, status.Status)
+		})
+	}
+}
+
+func ptString(s string) *string { return &s }

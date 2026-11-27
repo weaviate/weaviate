@@ -441,7 +441,7 @@ type FakeRemoteNodeClient struct {
 	Err    error
 }
 
-func (f *FakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
+func (f *FakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string, schemaVersion uint64) (*models.NodeStatus, error) {
 	if f.Err != nil {
 		return nil, f.Err
 	}

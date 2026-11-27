@@ -25,7 +25,7 @@ import (
 )
 
 type nodesManager interface {
-	GetNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, className, shardName, output string, schemaVersion uint64) (*models.NodeStatus, error)
 	GetStatistics(ctx context.Context) (*models.Statistics, error)
 }
 
@@ -97,7 +97,12 @@ func (s *nodes) incomingNodeStatus() http.Handler {
 		if found && len(out) > 0 {
 			output = out[0]
 		}
-		nodeStatus, err := s.nodesManager.GetNodeStatus(r.Context(), className, shardName, output)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		nodeStatus, err := s.nodesManager.GetNodeStatus(r.Context(), className, shardName, output, schemaVersion)
 		if err != nil {
 			http.Error(w, "/nodes fulfill request: "+err.Error(),
 				http.StatusBadRequest)

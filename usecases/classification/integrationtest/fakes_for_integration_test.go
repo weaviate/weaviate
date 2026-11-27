@@ -543,7 +543,7 @@ func (f *fakeRemoteClient) DigestObjects(ctx context.Context,
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string, schemaVersion uint64) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 
