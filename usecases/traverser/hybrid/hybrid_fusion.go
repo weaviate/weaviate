@@ -13,11 +13,73 @@ package hybrid
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/search"
 )
+
+const (
+	// autoTuneAlphaSteepness: sigmoid steepness around the entropy midpoint (0.5).
+	autoTuneAlphaSteepness = 2.0
+	autoTuneAlphaMin       = 0.05
+	autoTuneAlphaMax       = 0.95
+)
+
+// ComputeAdaptiveAlpha derives alpha from BM25 result confidence (falling back to fallbackAlpha).
+func ComputeAdaptiveAlpha(bm25Results []*search.Result, fallbackAlpha float64) float64 {
+	entropy := normalizedBM25Entropy(bm25Results)
+	if entropy < 0 {
+		return fallbackAlpha
+	}
+
+	z := autoTuneAlphaSteepness * (entropy - 0.5) //this equation
+	alpha := 1 / (1 + math.Exp(-z))
+	//weight that is being given to BM25 
+	return clampFloat64(alpha, autoTuneAlphaMin, autoTuneAlphaMax)
+}
+
+// normalizedBM25Entropy returns the Shannon entropy of results' scores normalized to [0, 1], or -1 if empty.
+func normalizedBM25Entropy(results []*search.Result) float64 {
+	k := len(results)
+	if k == 0 {
+		return -1
+	}
+	if k == 1 {
+		return 0
+	}
+	sum := 0.0
+	for _, r := range results {
+		if r.Score > 0 {
+			sum += float64(r.Score)
+		}
+	}
+	if sum <= 0 {
+		return 1 // no score mass to measure; treat as maximally uncertain
+	}
+
+	h := 0.0
+	for _, r := range results {
+		if r.Score <= 0 {
+			continue
+		}
+		p := float64(r.Score) / sum
+		h -= p * math.Log(p)
+	}
+
+	return h / math.Log(float64(k))
+}
+
+func clampFloat64(v, min, max float64) float64 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
 
 func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []string) []*search.Result {
 	combinedResults := map[strfmt.UUID]*search.Result{}
