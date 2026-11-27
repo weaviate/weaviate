@@ -180,6 +180,6 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 	}
 
 	if !shutsDown {
-		assert.Nil(t, repo.GetIndex(entschema.ClassName(className)))
+		assert.Nil(t, repo.registeredIndex(entschema.ClassName(className)))
 	}
 }

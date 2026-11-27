@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/weaviate/weaviate/entities/versioned"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -281,6 +282,9 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 	t.Run("index not found: not exportable", func(t *testing.T) {
 		db := newDB(nil)
+		sr := schemaUC.NewMockSchemaReader(t)
+		sr.EXPECT().ReadOnlyVersionedClass(className).Return(versioned.Class{}).Once()
+		db.schemaReader = sr
 		assert.False(t, db.IsAsyncReplicationEnabled(context.Background(), className))
 	})
 

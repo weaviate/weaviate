@@ -19,7 +19,7 @@ import (
 )
 
 type RemoteNodeClient interface {
-	GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, hostName, className, shardName, output string, schemaVersion uint64) (*models.NodeStatus, error)
 	GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error)
 }
 
@@ -35,12 +35,12 @@ func NewRemoteNode(nodeResolver nodeResolver, client RemoteNodeClient) *RemoteNo
 	}
 }
 
-func (rn *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
+func (rn *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, shardName, output string, schemaVersion uint64) (*models.NodeStatus, error) {
 	host, ok := rn.nodeResolver.NodeHostname(nodeName)
 	if !ok {
 		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
 	}
-	return rn.client.GetNodeStatus(ctx, host, className, shardName, output)
+	return rn.client.GetNodeStatus(ctx, host, className, shardName, output, schemaVersion)
 }
 
 func (rn *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {

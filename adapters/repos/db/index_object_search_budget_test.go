@@ -66,7 +66,7 @@ func TestIndexObjectSearchByShard_SplitsTheBudget(t *testing.T) {
 			nodeResolver := cluster.NewMockNodeResolver(t)
 			nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("127.0.0.2", true).Maybe()
 			client := &concurrentSearchClient{wait: tc.wantWorkers, all: make(chan struct{})}
-			idx.remote = sharding.NewRemoteIndex(className, remoteShardsOnNode2{}, nodeResolver, client)
+			idx.remote = sharding.NewRemoteIndex(className, remoteShardsOnNode2{}, nil, nodeResolver, client)
 
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
@@ -103,7 +103,7 @@ type concurrentSearchClient struct {
 func (c *concurrentSearchClient) SearchShard(ctx context.Context, _, _, _ string,
 	_ []models.Vector, _ []string, _ float32, _ int, _ *filters.LocalFilter,
 	_ *searchparams.KeywordRanking, _ []filters.Sort, _ *filters.Cursor,
-	_ *searchparams.GroupBy, _ additional.Properties, _ *dto.TargetCombination, _ []string,
+	_ *searchparams.GroupBy, _ additional.Properties, _ *dto.TargetCombination, _ []string, _ uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	c.mu.Lock()
 	c.arrived++

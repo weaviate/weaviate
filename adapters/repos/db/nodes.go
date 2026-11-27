@@ -73,7 +73,11 @@ func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardNa
 		}
 		return status, err
 	}
-	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, shardName, output)
+	var schemaVersion uint64
+	if className != "" {
+		schemaVersion = db.schemaReader.ReadOnlyVersionedClass(className).Version
+	}
+	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, shardName, output, schemaVersion)
 	if err != nil {
 		// the reported status carries no reason, so the cause is only visible here
 		db.logger.Warnf("node %q did not report its status: %v", nodeName, err)
@@ -110,11 +114,23 @@ func unavailableNodeStatus(nodeName string) *models.NodeStatus {
 	return &models.NodeStatus{Name: nodeName, Status: &unavailable}
 }
 
-// IncomingGetNodeStatus reports this node as timed out when indexForRead hits
-// RAFT_CONSISTENCY_WAIT_TIMEOUT while the asking node still waits. A shard scan
-// runs out of time only once the asker has given up, so its error is returned.
-func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, verbosity string) (*models.NodeStatus, error) {
-	status, err := db.LocalNodeStatus(ctx, className, shardName, verbosity)
+// IncomingGetNodeStatus first waits, as indexForIncoming does, so a node that
+// has not applied the class yet does not report it missing, and a class this
+// node has still answers when the wait fails. It reports this node as timed out
+// when the wait hits RAFT_CONSISTENCY_WAIT_TIMEOUT for a class it does not have.
+// A shard scan runs out of time only once the asker has given up, so its error
+// is returned.
+func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, verbosity string,
+	schemaVersion uint64,
+) (*models.NodeStatus, error) {
+	var err error
+	if className != "" {
+		_, err = db.indexForIncoming(ctx, schema.ClassName(className), schemaVersion)
+	}
+	var status *models.NodeStatus
+	if err == nil {
+		status, err = db.LocalNodeStatus(ctx, className, shardName, verbosity)
+	}
 	if errors.Is(err, types.ErrDeadlineExceeded) {
 		return timedOutNodeStatus(db.schemaGetter.NodeName()), nil
 	}

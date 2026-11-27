@@ -468,7 +468,7 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 			var status *models.NodeStatus
 			var err error
 			if tt.incoming {
-				status, err = db.IncomingGetNodeStatus(ctx, statusClass, "", verbosity.OutputVerbose)
+				status, err = db.IncomingGetNodeStatus(ctx, statusClass, "", verbosity.OutputVerbose, 0)
 			} else {
 				status, err = db.GetOneNodeStatus(ctx, db.schemaGetter.NodeName(),
 					statusClass, "", verbosity.OutputVerbose)
@@ -858,4 +858,52 @@ func TestIndexShutdownAbortsInFlightNodeStatusScan(t *testing.T) {
 	assert.Empty(t, status, "a closing index must not report shards")
 	require.ErrorIs(t, scanErr, errIndexShutdown,
 		"a scan aborted by shutdown must say so, not report an empty collection")
+}
+
+// versionNodeClient records the schema version a remote node is asked with.
+type versionNodeClient struct {
+	FakeRemoteNodeClient
+	got atomic.Uint64
+}
+
+func (c *versionNodeClient) GetNodeStatus(ctx context.Context, host, className, shardName, output string,
+	schemaVersion uint64,
+) (*models.NodeStatus, error) {
+	c.got.Store(schemaVersion)
+	return c.FakeRemoteNodeClient.GetNodeStatus(ctx, host, className, shardName, output, schemaVersion)
+}
+
+// TestGetOneNodeStatusSendsTheLocalClassVersion checks a remote node is asked
+// for a class with this node's version of it, so that node waits until it has
+// applied the class instead of reporting it missing.
+func TestGetOneNodeStatusSendsTheLocalClassVersion(t *testing.T) {
+	tests := []struct {
+		name      string
+		className string
+		want      uint64
+	}{
+		{name: "a class status sends the class version", className: "Article", want: 7},
+		{name: "a node status sends none", className: "", want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().ReadOnlyVersionedClass("Article").Return(versioned.Class{Version: 7}).Maybe()
+			client := &versionNodeClient{}
+			client.got.Store(99)
+			db := &DB{
+				logger:       logger,
+				schemaGetter: &fakeSchemaGetter{},
+				schemaReader: schemaReader,
+				remoteNode: sharding.NewRemoteNode(
+					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}}, client),
+			}
+
+			_, err := db.GetOneNodeStatus(t.Context(), "node2", tt.className, "", verbosity.OutputVerbose)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, client.got.Load())
+		})
+	}
 }

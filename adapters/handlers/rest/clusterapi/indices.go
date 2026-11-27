@@ -143,25 +143,26 @@ type shards interface {
 		refs objects.BatchReferences, schemaVersion uint64) []error
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
-		additional additional.Properties) (*storobj.Object, error)
+		additional additional.Properties, schemaVersion uint64) (*storobj.Object, error)
 	Exists(ctx context.Context, indexName, shardName string,
-		id strfmt.UUID) (bool, error)
+		id strfmt.UUID, schemaVersion uint64) (bool, error)
 	DeleteObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
 	MergeObject(ctx context.Context, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
-		id []strfmt.UUID) ([]*storobj.Object, error)
+		id []strfmt.UUID, schemaVersion uint64) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
 		vectors []models.Vector, targetVectors []string, distance float32, limit int,
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+		schemaVersion uint64,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
-		params aggregation.Params) (*aggregation.Result, error)
+		params aggregation.Params, schemaVersion uint64) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, indexName, shardName string,
-		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int, schemaVersion uint64) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
@@ -551,8 +552,13 @@ func (i *indices) getObject() http.Handler {
 			"action": "GetObject",
 		}).Debug("getting object ...")
 
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
-			selectProperties, additional)
+			selectProperties, additional, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -583,7 +589,12 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 		"shard":  shard,
 		"action": "checkExists",
 	}).Debug("checking if shard exists ...")
-	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
+	schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -718,7 +729,12 @@ func (i *indices) getObjectsMulti() http.Handler {
 			"action": "MultiGetObjects",
 		}).Debug("get multiple objects ...")
 
-		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -772,8 +788,13 @@ func (i *indices) postSearchObjects() http.Handler {
 			"action": "Search",
 		}).Debug("searching ...")
 
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
-			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -894,7 +915,12 @@ func (i *indices) postAggregateObjects() http.Handler {
 			"action": "Aggregate",
 		}).Debug("aggregate ...")
 
-		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params, schemaVersion)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
@@ -959,7 +985,12 @@ func (i *indices) postFindUUIDs() http.Handler {
 			"action": "FindUUIDs",
 		}).Debug("find UUIDs ...")
 
-		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit, schemaVersion)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)

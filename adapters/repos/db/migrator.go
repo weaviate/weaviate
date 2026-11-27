@@ -104,7 +104,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	idx := m.db.registeredIndex(schema.ClassName(class.Class))
 	if idx != nil {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
@@ -338,7 +338,7 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 // replication caller keeps a suspend or resume landing mid-movement from failing
 // the apply on the node gaining the replica.
 func (m *Migrator) LoadShardForMovement(ctx context.Context, class, shard string) error {
-	idx := m.db.GetIndex(schema.ClassName(class))
+	idx := m.db.registeredIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
@@ -348,7 +348,7 @@ func (m *Migrator) LoadShardForMovement(ctx context.Context, class, shard string
 // LoadShardForNewReplica loads a shard for the apply that adds a replica to it
 // with no replica movement under way.
 func (m *Migrator) LoadShardForNewReplica(ctx context.Context, class, shard string) error {
-	idx := m.db.GetIndex(schema.ClassName(class))
+	idx := m.db.registeredIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
@@ -356,7 +356,7 @@ func (m *Migrator) LoadShardForNewReplica(ctx context.Context, class, shard stri
 }
 
 func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
-	idx := m.db.GetIndex(schema.ClassName(class))
+	idx := m.db.registeredIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
@@ -364,7 +364,7 @@ func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
 }
 
 func (m *Migrator) ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error {
-	idx := m.db.GetIndex(schema.ClassName(class))
+	idx := m.db.registeredIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
@@ -372,7 +372,7 @@ func (m *Migrator) ReconcileAsyncReplicationForShard(ctx context.Context, class,
 }
 
 func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error {
-	idx := m.db.GetIndex(schema.ClassName(class))
+	idx := m.db.registeredIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
@@ -402,7 +402,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 	incomingSS *sharding.State,
 ) error {
-	idx := m.db.GetIndex(schema.ClassName(incomingClass.Class))
+	idx := m.db.registeredIndex(schema.ClassName(incomingClass.Class))
 
 	{ // add index if missing
 		if idx == nil {
@@ -584,7 +584,7 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*m
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
@@ -598,7 +598,7 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot update property for a non-existing index for %s", className)
 	}
@@ -633,7 +633,7 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
 		return fmt.Errorf("cannot update shard status to a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
@@ -644,7 +644,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 // NewTenants creates new partitions
 func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*schemaUC.CreateTenantPayload) error {
-	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	idx := m.db.registeredIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
@@ -682,7 +682,7 @@ func (m *Migrator) UpdateTenantsForProcess(ctx context.Context, class *models.Cl
 func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload,
 	loadShard func(ctx context.Context, idx *Index, name string) error,
 ) error {
-	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	idx := m.db.registeredIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
@@ -812,7 +812,7 @@ func tenantNames(tenants []*schemaUC.UpdateTenantPayload) []string {
 
 // DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant
 func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
-	idx := m.db.GetIndex(schema.ClassName(class))
+	idx := m.db.registeredIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil
 	}
@@ -850,7 +850,7 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot update vector index config of non-existing index for %s", className)
 	}
@@ -866,7 +866,7 @@ func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot update vector config of non-existing index for %s", className)
 	}
@@ -875,7 +875,7 @@ func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
 }
 
 func (m *Migrator) GetVectorIndexNames(className string) []string {
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		return nil
 	}
@@ -894,7 +894,7 @@ func (m *Migrator) DropVectorIndex(ctx context.Context, className string, target
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot drop vector index of non-existing index for %s", className)
 	}
@@ -952,7 +952,7 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
 	}
@@ -972,7 +972,7 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx := m.db.registeredIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
 	}

@@ -33,6 +33,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -697,6 +698,8 @@ func dbWithTenants(t *testing.T, statuses map[string]string) *db.DB {
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, state)
 		})
+	// C has no local index and no pending apply.
+	reader.EXPECT().ReadOnlyVersionedClass("C").Return(versioned.Class{}).Maybe()
 	database := &db.DB{}
 	database.SetSchemaReader(reader)
 	return database

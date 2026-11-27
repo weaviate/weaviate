@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -114,6 +115,10 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	// Version 1 makes remote reads exercise the receiving node's version wait.
+	mockSchemaReader.EXPECT().ReadOnlyVersionedClass(mock.Anything).RunAndReturn(func(className string) versioned.Class {
+		return versioned.Class{Class: n.schemaManager.ReadOnlyClass(className), Version: 1}
+	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(className string) *models.Class {
 		return n.schemaManager.ReadOnlyClass(className)
 	}).Maybe()

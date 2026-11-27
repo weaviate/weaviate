@@ -929,7 +929,7 @@ func TestIndexCleanStalePartialReindexStateReportsUnreadableRecordSets(t *testin
 
 // Pins that a collection already gone is reported as dropped, not clean.
 func TestDBCleanStalePartialReindexStateOnACollectionThatIsNotHere(t *testing.T) {
-	db := &DB{indices: map[string]*Index{}}
+	db := &DB{indices: map[string]*Index{}, schemaReader: emptySchemaReader(t)}
 
 	err := db.NewStalePartialReindexSweep(nil)(context.Background(), "Movies", "title", "filterable")
 

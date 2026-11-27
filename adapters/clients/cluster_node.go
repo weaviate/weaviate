@@ -18,9 +18,11 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type RemoteNode struct {
@@ -31,13 +33,16 @@ func NewRemoteNode(httpClient *http.Client) *RemoteNode {
 	return &RemoteNode{client: httpClient}
 }
 
-func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
+func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string, schemaVersion uint64) (*models.NodeStatus, error) {
 	p := "/nodes/status"
 	if className != "" {
 		p = path.Join(p, className)
 	}
 	method := http.MethodGet
-	params := url.Values{"output": []string{output}}
+	params := url.Values{
+		"output":                 []string{output},
+		replica.SchemaVersionKey: []string{strconv.FormatUint(schemaVersion, 10)},
+	}
 	if shardName != "" {
 		params.Add("shard", shardName)
 	}

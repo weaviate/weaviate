@@ -2000,7 +2000,7 @@ func dbForReopen(t *testing.T, className string, e namespaces.Exister) (*DB, *In
 	idx.getSchema = sg
 
 	logger, _ := logrustest.NewNullLogger()
-	return &DB{logger: logger, schemaGetter: sg, indices: map[string]*Index{idx.ID(): idx}}, idx
+	return &DB{logger: logger, schemaGetter: sg, schemaReader: emptySchemaReader(t), indices: map[string]*Index{idx.ID(): idx}}, idx
 }
 
 // ReopenShard is the entry point a resuming namespace's shards come back
