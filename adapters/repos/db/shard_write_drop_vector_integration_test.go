@@ -609,6 +609,64 @@ func TestDropVectorIndex_CompletionSweepHoldsTheLoaderDuringOfflineCleanup(t *te
 	assert.Empty(t, entriesNamed(t, shard, "foo"))
 }
 
+// The completion sweep leaves a vector in place when this node's schema does not
+// mark it dropped, whichever route the shard's state picks.
+func TestDropVectorIndex_CompletionSweepSparesVectorsNotMarkedDropped(t *testing.T) {
+	tests := []struct {
+		name    string
+		arrange func(t *testing.T, ctx context.Context, shard *Shard, class *models.Class) *Shard
+	}{
+		{
+			name: "loaded shard",
+			arrange: func(t *testing.T, ctx context.Context, shard *Shard, _ *models.Class) *Shard {
+				return shard
+			},
+		},
+		{
+			name: "loaded lazy shard",
+			arrange: func(t *testing.T, ctx context.Context, shard *Shard, class *models.Class) *Shard {
+				require.NoError(t, shard.Shutdown(ctx))
+				lazy := newColdLazyShard(ctx, shard, class)
+				require.NoError(t, lazy.Load(ctx))
+				t.Cleanup(func() { _ = lazy.shard.Shutdown(ctx) })
+				return lazy.shard
+			},
+		},
+		{
+			name: "cold lazy shard",
+			arrange: func(t *testing.T, ctx context.Context, shard *Shard, class *models.Class) *Shard {
+				require.NoError(t, shard.Shutdown(ctx))
+				newColdLazyShard(ctx, shard, class)
+				return shard
+			},
+		},
+		{
+			name: "shard not in the map",
+			arrange: func(t *testing.T, ctx context.Context, shard *Shard, _ *models.Class) *Shard {
+				require.NoError(t, shard.Shutdown(ctx))
+				shard.index.shards.LoadAndDelete(shard.name)
+				return shard
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+			idx := shard.index
+			shard = tt.arrange(t, ctx, shard, class)
+			require.NotEmpty(t, entriesNamed(t, shard, "foo"), "precondition: foo has index files")
+
+			db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+			require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo", "mv"}))
+
+			assert.NotEmpty(t, entriesNamed(t, shard, "foo"), "the sweep removed a vector the local schema does not mark dropped")
+			assert.NotEmpty(t, entriesNamed(t, shard, "mv"), "the sweep removed the live sibling")
+		})
+	}
+}
+
 // A loaded lazy tenant is swept through its shard's own drop, never offline.
 func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedLazyShard(t *testing.T) {
 	ctx := testCtx()

@@ -122,6 +122,9 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	idx.shardCreateLocks.RLock(shardName)
 	defer idx.shardCreateLocks.RUnlock(shardName)
 
+	class := idx.getClass()
+	targets = db.locallyDroppedTargets(class, collection, shardName, targets)
+
 	// A shard in the map finishes its own drops: loaded, it retries them, which
 	// never opens index.db against its own lock; a lazy one does so under its
 	// loading mutex, so no load starts against the offline removal. Only a
@@ -134,8 +137,7 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 		return s.sweepDroppedVectorIndexes(targets)
 	}
 	helper := newVectorDropIndexHelper()
-	class := idx.getClass()
-	for _, target := range db.locallyDroppedTargets(class, collection, shardName, targets) {
+	for _, target := range targets {
 		// Siblings are read per target: the collection's other vector names are
 		// what stops a drop deleting a live vector whose own bucket happens to
 		// share a name with one of this target's artifacts.
