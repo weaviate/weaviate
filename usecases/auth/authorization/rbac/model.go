@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"regexp/syntax"
 	"slices"
 	"strconv"
@@ -515,12 +516,115 @@ func makeNamespaceAwareMatcherFunc(namespacesEnabled bool) func(args ...any) (an
 		reqObj := args[0].(string)
 		polObj := args[1].(string)
 		ns := args[2].(string)
+		var matched bool
 		// NS-disabled empty-ns path: a ':' here is an OIDC username char, not a namespace prefix, so match plainly.
 		if !namespacesEnabled && ns == "" {
-			return weaviateKeyMatch(reqObj, polObj), nil
+			matched = weaviateKeyMatch(reqObj, polObj)
+		} else {
+			matched = namespaceAwareMatcher(reqObj, polObj, ns)
 		}
-		return namespaceAwareMatcher(reqObj, polObj, ns), nil
+		return matched && wildcardsCovered(reqObj, polObj), nil
 	}
+}
+
+// wildcardsCovered reports whether polObj, a stored policy, names every value
+// of each "*" segment in reqObj. Request builders write a literal "*" for
+// "every name", which KeyMatch5 matches as text, so a pattern such as "(A|.)"
+// that merely matches the character '*' would pass. Stored targets carry no
+// '/', so a policy's segments line up with the request's, unless a "\Q" quotes
+// past its own target.
+func wildcardsCovered(reqObj, polObj string) bool {
+	if polObj == "*" {
+		return true
+	}
+	aligned := strings.Count(reqObj, "/") == strings.Count(polObj, "/") && !strings.Contains(polObj, `\Q`)
+	for req, pol := reqObj, polObj; ; {
+		reqSeg, reqRest, more := strings.Cut(req, "/")
+		polSeg, polRest, _ := strings.Cut(pol, "/")
+		if reqSeg == "*" && (!aligned || !universalSegment(polSeg)) {
+			return false
+		}
+		if !more {
+			return true
+		}
+		req, pol = reqRest, polRest
+	}
+}
+
+// keyMatch5Brace is the "{...}" token KeyMatch5 rewrites to "[^/]+".
+var keyMatch5Brace = regexp.MustCompile(`\{[^/]+\}`)
+
+// universalSegment reports whether a policy segment, as KeyMatch5 compiles it,
+// matches every name.
+func universalSegment(seg string) bool {
+	if strings.HasPrefix(seg, "*") {
+		seg = "." + seg // KeyMatch5 rewrites "/*" to "/.*"
+	}
+	if seg == ".*" {
+		return true
+	}
+	re, err := syntax.Parse(keyMatch5Brace.ReplaceAllString(seg, "[^/]+"), syntax.Perl)
+	return err == nil && everyString{}.matches(re.Simplify(), true)
+}
+
+// everyString memoizes matches per node, so nested optionals such as
+// "((AB)?B)?B" are walked once per node instead of twice per level.
+type everyString map[everyStringKey]bool
+
+type everyStringKey struct {
+	re       *syntax.Regexp
+	nonEmpty bool
+}
+
+// matches reports whether re matches every string of non-newline characters,
+// or every non-empty one when nonEmpty. It recognises ".*"-like shapes only, so
+// it may say false for a pattern that does match everything.
+func (memo everyString) matches(re *syntax.Regexp, nonEmpty bool) bool {
+	key := everyStringKey{re, nonEmpty}
+	if v, ok := memo[key]; ok {
+		return v
+	}
+	var v bool
+	switch re.Op {
+	case syntax.OpCapture:
+		v = memo.matches(re.Sub[0], nonEmpty)
+	case syntax.OpAlternate:
+		v = slices.ContainsFunc(re.Sub, func(sub *syntax.Regexp) bool { return memo.matches(sub, nonEmpty) })
+	case syntax.OpStar:
+		v = matchesEveryChar(re.Sub[0]) || memo.matches(re.Sub[0], true)
+	case syntax.OpPlus:
+		v = (nonEmpty && matchesEveryChar(re.Sub[0])) || memo.matches(re.Sub[0], nonEmpty)
+	case syntax.OpQuest:
+		v = memo.matches(re.Sub[0], true)
+	case syntax.OpConcat:
+		// Every part must match any string, except that one part may match
+		// any single character or any non-empty string when nonEmpty.
+		v = len(re.Sub) > 0
+		spare := nonEmpty
+		for _, sub := range re.Sub {
+			if memo.matches(sub, false) {
+				continue
+			}
+			if spare && (matchesEveryChar(sub) || memo.matches(sub, true)) {
+				spare = false
+				continue
+			}
+			v = false
+			break
+		}
+	default:
+		v = false
+	}
+	memo[key] = v
+	return v
+}
+
+// matchesEveryChar reports whether re matches every single non-newline character.
+func matchesEveryChar(re *syntax.Regexp) bool {
+	for re.Op == syntax.OpCapture {
+		re = re.Sub[0]
+	}
+	return re.Op == syntax.OpAnyChar || re.Op == syntax.OpAnyCharNotNL
 }
 
 func getVersion(path string) (string, error) {

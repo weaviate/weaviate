@@ -180,6 +180,11 @@ func validateStorablePolicies(policies []authorization.Policy) error {
 		if _, err := regexp.Compile(pattern); err != nil {
 			return fmt.Errorf("permission %q is not a valid pattern: %w", p.Resource, err)
 		}
+		// A later target's \E can close that quote, so the resource compiles but
+		// the matcher no longer finds each target in its own segment.
+		if strings.Contains(p.Resource, `\Q`) {
+			return fmt.Errorf("permission %q must not contain \\Q", p.Resource)
+		}
 	}
 	return nil
 }
