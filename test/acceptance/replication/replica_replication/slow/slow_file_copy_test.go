@@ -132,8 +132,8 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 		var nodes []*models.NodeStatus
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			require.NoError(t, clientErr, "failed to get nodes status: %+v", clientErr)
-			require.NotNil(t, body.Payload)
+			require.NoError(ct, clientErr, "failed to get nodes status: %+v", clientErr)
+			require.NotNil(ct, body.Payload)
 			nodes = body.Payload.Nodes
 		}, 15*time.Second, 500*time.Millisecond)
 
