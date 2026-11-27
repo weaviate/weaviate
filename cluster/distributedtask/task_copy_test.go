@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"runtime"
 	"slices"
@@ -52,6 +53,7 @@ type copiedTask struct {
 	Header     TaskHeader
 	Groups     map[string][]string
 	GroupCount int
+	UnitCounts map[string]unitCount
 }
 
 func observe(t *testing.T, tasks map[string]map[TaskDescriptor]*Task) map[string]copiedTask {
@@ -61,12 +63,31 @@ func observe(t *testing.T, tasks map[string]map[TaskDescriptor]*Task) map[string
 		for desc, task := range byDesc {
 			raw, err := json.Marshal(task)
 			require.NoError(t, err)
+			counts := map[string]unitCount{}
+			maps.Copy(counts, task.unitCounts)
+			require.Equal(t, walkedUnitCounts(task), counts, "unit counts of %s", desc.ID)
 			out[fmt.Sprintf("%s/%s/%d", namespace, desc.ID, desc.Version)] = copiedTask{
-				JSON: string(raw), Header: task.header, Groups: task.groups, GroupCount: task.groupCount,
+				JSON: string(raw), Header: task.header, Groups: task.groups, GroupCount: task.groupCount, UnitCounts: counts,
 			}
 		}
 	}
 	return out
+}
+
+func walkedUnitCounts(task *Task) map[string]unitCount {
+	counts := map[string]unitCount{}
+	for _, u := range task.Units {
+		c := counts[u.NodeID]
+		c.total++
+		if u.Status == UnitStatusFailed {
+			c.failed++
+		}
+		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+			c.notTerminal++
+		}
+		counts[u.NodeID] = c
+	}
+	return counts
 }
 
 func requireCopyMatches(t *testing.T, m *Manager, c *TaskCopy) {
@@ -294,6 +315,104 @@ func TestTaskCopyDropsRestoredAndCleanedTasks(t *testing.T) {
 			}
 			slices.Sort(got)
 			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Each apply that can finish a tenant reports that tenant's group, or every group when the task's status changes.
+func TestUpdateTaskCopyReportsTheGroupsAnApplyChanged(t *testing.T) {
+	const node = "n1"
+	desc := TaskDescriptor{ID: "T", Version: 1}
+	complete := func(t *testing.T, m *Manager, group, errMsg string) {
+		require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: copyNamespace, Id: desc.ID, Version: 1, UnitId: group, NodeId: node, Error: errMsg,
+		})))
+	}
+	prepAck := func(t *testing.T, m *Manager, group string) {
+		require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+			Namespace: copyNamespace, Id: desc.ID, Version: 1, GroupId: &group, NodeId: node, Success: true,
+		})))
+	}
+	for _, tc := range []struct {
+		name    string
+		barrier bool
+		before  func(t *testing.T, m *Manager)
+		apply   func(t *testing.T, m *Manager)
+		want    changedGroups
+	}{
+		{
+			name:  "unit completion",
+			apply: func(t *testing.T, m *Manager) { complete(t, m, "g0", "") },
+			want:  changedGroups{groups: map[string]struct{}{"g0": {}}},
+		},
+		{
+			name:  "unit failure",
+			apply: func(t *testing.T, m *Manager) { complete(t, m, "g0", "boom") },
+			want:  changedGroups{all: true},
+		},
+		{
+			name:    "tenant delete",
+			barrier: true,
+			before: func(t *testing.T, m *Manager) {
+				require.NoError(t, m.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{Namespace: copyNamespace, Id: desc.ID, Version: 1})))
+			},
+			apply: func(t *testing.T, m *Manager) { m.ForgetGroupsForCollection("C", []string{"g0"}) },
+			want:  changedGroups{groups: map[string]struct{}{"g0": {}}},
+		},
+		{
+			name: "cancel",
+			apply: func(t *testing.T, m *Manager) {
+				require.NoError(t, m.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{Namespace: copyNamespace, Id: desc.ID, Version: 1})))
+			},
+			want: changedGroups{all: true},
+		},
+		{
+			name:   "MarkTaskFailed",
+			before: func(t *testing.T, m *Manager) { complete(t, m, "g0", ""); complete(t, m, "g1", "") },
+			apply: func(t *testing.T, m *Manager) {
+				require.NoError(t, m.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{Namespace: copyNamespace, Id: desc.ID, Version: 1})))
+			},
+			want: changedGroups{all: true},
+		},
+		{
+			name:    "preparation ack that decides the group",
+			barrier: true,
+			before:  func(t *testing.T, m *Manager) { complete(t, m, "g0", ""); complete(t, m, "g1", "") },
+			apply:   func(t *testing.T, m *Manager) { prepAck(t, m, "g0") },
+			want:    changedGroups{groups: map[string]struct{}{"g0": {}}},
+		},
+		{
+			name:    "post-completion ack that pays the swap",
+			barrier: true,
+			before: func(t *testing.T, m *Manager) {
+				complete(t, m, "g0", "")
+				complete(t, m, "g1", "")
+				prepAck(t, m, "g0")
+			},
+			apply: func(t *testing.T, m *Manager) {
+				require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+					Namespace: copyNamespace, Id: desc.ID, Version: 1, GroupId: "g0", NodeId: node, Success: true,
+				})))
+			},
+			want: changedGroups{groups: map[string]struct{}{"g0": {}}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newCopyTestManager()
+			require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace: copyNamespace, Id: desc.ID, Payload: []byte(`{"collection":"C"}`), NeedsPreparationBarrier: tc.barrier,
+				UnitSpecs: []*cmd.UnitSpec{{Id: "g0", GroupId: "g0", Node: node}, {Id: "g1", GroupId: "g1", Node: node}},
+			}), 1))
+			if tc.before != nil {
+				tc.before(t, m)
+			}
+			var c TaskCopy
+			require.NoError(t, m.UpdateTaskCopy(&c))
+			c.takeChanged()
+
+			tc.apply(t, m)
+			require.NoError(t, m.UpdateTaskCopy(&c))
+			require.Equal(t, map[TaskDescriptor]*changedGroups{desc: &tc.want}, c.takeChanged())
 		})
 	}
 }

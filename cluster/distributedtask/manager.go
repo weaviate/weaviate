@@ -74,10 +74,10 @@ type Manager struct {
 	copied  *TaskCopy
 }
 
-// taskChange marks what changed in one task. A task-level change needs no mark of
-// its own, since UpdateTaskCopy copies the task-level fields of every marked task.
+// taskChange marks what changed in one task, and taskLevel makes the scheduler check every group.
 type taskChange struct {
 	addedOrRemoved bool
+	taskLevel      bool
 	units          map[string]struct{}
 	groups         map[string]struct{}
 }
@@ -124,6 +124,7 @@ func (m *Manager) UpdateTaskCopy(c *TaskCopy) error {
 		for namespace, tasks := range m.tasks {
 			for id, task := range tasks {
 				c.set(namespace, id, task.Clone())
+				c.changedOf(task.TaskDescriptor).all = true
 			}
 		}
 		return nil
@@ -136,12 +137,30 @@ func (m *Manager) UpdateTaskCopy(c *TaskCopy) error {
 				delete(c.tasks[namespace], id)
 			case dst == nil || change.addedOrRemoved:
 				c.set(namespace, id, src.Clone())
+				c.changedOf(src.TaskDescriptor).all = true
 			default:
+				changedGroupsOf(c.changedOf(src.TaskDescriptor), src, change)
 				dst.copyChangesFrom(src, change)
 			}
 		}
 	}
 	return nil
+}
+
+// changedGroupsOf needs no group for a removed unit: forgetGroups, which removes units, marks their group.
+func changedGroupsOf(changed *changedGroups, src *Task, change *taskChange) {
+	if change.taskLevel {
+		changed.all = true
+		return
+	}
+	for id := range change.units {
+		if u := src.Units[id]; u != nil {
+			changed.add(u.GroupID)
+		}
+	}
+	for group := range change.groups {
+		changed.add(group)
+	}
 }
 
 // CheckPropertyUpdate returns the first conflict a detector reports for this update, before the FSM applies it.
@@ -657,35 +676,39 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
-	m.markWithLock(r.Namespace, r.Id).unit(r.UnitId)
+	change := m.markWithLock(r.Namespace, r.Id)
+	change.unit(r.UnitId)
 
 	if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 		return wrapPermanent(ErrUnitAlreadyTerminal,
 			fmt.Sprintf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version))
 	}
 
-	// Defense in depth for weaviate/0-weaviate-issues#240:
-	// LocalGroupUnitIDs orphans units with empty NodeID, suppressing
-	// every post-completion callback for that (shard, replica).
-	if u.NodeID == "" {
-		u.NodeID = r.NodeId
-	}
-
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
+	task.updateUnit(u, func() {
+		// Defense in depth for weaviate/0-weaviate-issues#240: an unbound unit gets no post-completion callback.
+		if u.NodeID == "" {
+			u.NodeID = r.NodeId
+		}
+		if r.Error != "" {
+			u.markTerminal(UnitStatusFailed, finishedAt)
+			u.Error = r.Error
+			return
+		}
+		u.markTerminal(UnitStatusCompleted, finishedAt)
+		u.Progress = 1.0
+	})
 
 	if r.Error != "" {
-		u.markTerminal(UnitStatusFailed, finishedAt)
-		u.Error = r.Error
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
 		task.markTerminal(TaskStatusFailed, finishedAt)
+		change.taskLevel = true
 		m.notifySchedulerWithLock()
 		return nil
 	}
 
-	u.markTerminal(UnitStatusCompleted, finishedAt)
-	u.Progress = 1.0
-
 	if task.AllUnitsTerminal() {
+		change.taskLevel = true
 		if task.AnyUnitFailed() {
 			// Failures are terminal immediately — there are no
 			// post-task callbacks to wait for on the failure path
@@ -772,6 +795,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		Error:   r.Error,
 		AckedAt: ackedAt,
 	}
+	change.taskLevel = true
 
 	// Any failure flips the task to FAILED immediately.
 	if !r.Success && task.Status == TaskStatusSwapping {
@@ -802,8 +826,8 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		return
 	}
-	for _, u := range task.Units {
-		if ack, ok := task.NodePreparationAcks[u.NodeID]; u.NodeID != "" && (!ok || !ack.Success) {
+	for _, node := range task.NodesWithLocalUnits() {
+		if ack, ok := task.NodePreparationAcks[node]; !ok || !ack.Success {
 			return
 		}
 	}
@@ -844,6 +868,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 
 	if r.GroupId == nil {
 		recordNodePreparationAck(task, &r)
+		change.taskLevel = true
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -866,6 +891,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		ackErr := fmt.Sprintf("prep failed on node %s for group %q: %s", r.NodeId, group, r.Error)
 		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
+		change.taskLevel = true
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -884,6 +910,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		task.decideSwap(group, ackedAt)
 		if task.Status == TaskStatusPreparing && task.AllGroupsSwapDecided() {
 			task.Status = TaskStatusSwapping
+			change.taskLevel = true
 		}
 	}
 
@@ -913,7 +940,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
-	m.markWithLock(r.Namespace, r.Id)
+	change := m.markWithLock(r.Namespace, r.Id)
 
 	switch task.Status {
 	case TaskStatusFinished:
@@ -932,6 +959,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	}
 
 	task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FinalizedAtUnixMillis))
+	change.taskLevel = true
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -958,7 +986,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
-	m.markWithLock(r.Namespace, r.Id)
+	change := m.markWithLock(r.Namespace, r.Id)
 
 	switch task.Status {
 	case TaskStatusFailed:
@@ -972,6 +1000,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 			fmt.Sprintf("task %s/%s/%d cannot be failed from status %s",
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
+	change.taskLevel = true
 
 	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.readOnlyClass) {
 		task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FailedAtUnixMillis))
@@ -1003,7 +1032,7 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, u, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
+	task, u, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
 	if err != nil {
 		return err
 	}
@@ -1018,7 +1047,7 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 			r.UnitId, r.Namespace, r.Id, r.Version, r.Progress)
 	}
 
-	u.NodeID = r.NodeId
+	task.updateUnit(u, func() { u.NodeID = r.NodeId })
 	if r.Progress > u.Progress {
 		u.Progress = r.Progress
 	} else if r.Progress < u.Progress {
@@ -1066,7 +1095,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
-	m.markWithLock(r.Namespace, r.Id)
+	change := m.markWithLock(r.Namespace, r.Id)
 
 	if task.Status == TaskStatusSwapping {
 		return wrapPermanent(ErrNothingLeftToCancel,
@@ -1079,6 +1108,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	}
 
 	task.markTerminal(TaskStatusCancelled, time.UnixMilli(r.CancelledAtUnixMillis))
+	change.taskLevel = true
 	m.notifySchedulerWithLock()
 	return nil
 }

@@ -32,7 +32,60 @@ type TaskCopySource interface {
 
 // TaskCopy holds the [Scheduler]'s own copy of every task, written only by [Manager.UpdateTaskCopy].
 type TaskCopy struct {
-	tasks map[string]map[string]*Task
+	tasks   map[string]map[string]*Task
+	changed map[TaskDescriptor]*changedGroups
+}
+
+func (c *TaskCopy) changedOf(desc TaskDescriptor) *changedGroups {
+	if c.changed == nil {
+		c.changed = map[TaskDescriptor]*changedGroups{}
+	}
+	if c.changed[desc] == nil {
+		c.changed[desc] = &changedGroups{}
+	}
+	return c.changed[desc]
+}
+
+func (c *TaskCopy) takeChanged() map[TaskDescriptor]*changedGroups {
+	changed := c.changed
+	c.changed = nil
+	return changed
+}
+
+// changedGroups names groups of one task; all stands for every group.
+type changedGroups struct {
+	all    bool
+	groups map[string]struct{}
+}
+
+func (g *changedGroups) add(group string) {
+	if g.groups == nil {
+		g.groups = map[string]struct{}{}
+	}
+	g.groups[group] = struct{}{}
+}
+
+func (g *changedGroups) merge(other *changedGroups) {
+	g.all = g.all || other.all
+	for group := range other.groups {
+		g.add(group)
+	}
+}
+
+// take returns the groups of pending it names and empties g, in time proportional to the groups it names.
+func (g *changedGroups) take(pending map[string]struct{}) []string {
+	named := g.groups
+	if g.all {
+		named = pending
+	}
+	var groups []string
+	for group := range named {
+		if _, ok := pending[group]; ok {
+			groups = append(groups, group)
+		}
+	}
+	*g = changedGroups{}
+	return groups
 }
 
 // Tasks returns the copy's tasks, which the next update may change.
@@ -607,6 +660,9 @@ type Task struct {
 
 	groupCount int
 
+	// unitCounts lets the per-tick checks answer per node without walking every unit.
+	unitCounts map[string]unitCount
+
 	header TaskHeader
 
 	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
@@ -643,22 +699,62 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-// IndexGroups rebuilds the group index.
+// unitCount counts one node's units, and unbound units count under node "".
+type unitCount struct {
+	total, notTerminal, failed int
+}
+
+// IndexGroups rebuilds the group index and the unit counts.
 func (t *Task) IndexGroups() {
 	groups := map[string][]string{}
 	for id, u := range t.Units {
 		groups[u.GroupID] = append(groups[u.GroupID], id)
 	}
 	t.groups, t.groupCount = groups, len(groups)
+	t.countUnits()
 }
 
 // shareGroups reuses held's index when it has as many units (units are only removed).
+// Counts are never shared: they follow unit status, which t holds its own copy of.
 func (t *Task) shareGroups(held *Task) {
 	if held == nil || held.Version != t.Version || len(held.Units) != len(t.Units) {
 		t.IndexGroups()
 		return
 	}
 	t.groups, t.groupCount = held.groups, held.groupCount
+	t.countUnits()
+}
+
+func (t *Task) countUnits() {
+	t.unitCounts = make(map[string]unitCount, 1)
+	for _, u := range t.Units {
+		t.countUnit(u, 1)
+	}
+}
+
+func (t *Task) countUnit(u *Unit, delta int) {
+	c := t.unitCounts[u.NodeID]
+	c.total += delta
+	if u.Status == UnitStatusFailed {
+		c.failed += delta
+	}
+	if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+		c.notTerminal += delta
+	}
+	if c.total == 0 {
+		delete(t.unitCounts, u.NodeID)
+		return
+	}
+	if t.unitCounts == nil {
+		t.unitCounts = map[string]unitCount{}
+	}
+	t.unitCounts[u.NodeID] = c
+}
+
+func (t *Task) updateUnit(u *Unit, write func()) {
+	t.countUnit(u, -1)
+	write()
+	t.countUnit(u, 1)
 }
 
 func (t *Task) forgetGroups(groups []string) {
@@ -667,6 +763,9 @@ func (t *Task) forgetGroups(groups []string) {
 			continue
 		}
 		for _, id := range t.groups[group] {
+			if u := t.Units[id]; u != nil {
+				t.countUnit(u, -1)
+			}
 			delete(t.Units, id)
 		}
 		t.groupCount--
@@ -701,6 +800,7 @@ func (t *Task) Clone() *Task {
 	clone.SwapsOwed = maps.Clone(t.SwapsOwed)
 	clone.PreparedGroups = maps.Clone(t.PreparedGroups)
 	clone.NodePreparationAcks = maps.Clone(t.NodePreparationAcks)
+	clone.unitCounts = maps.Clone(t.unitCounts)
 	return &clone
 }
 
@@ -709,6 +809,7 @@ func (t *Task) copyChangesFrom(src *Task, change *taskChange) {
 	t.NodePreparationAcks = maps.Clone(src.NodePreparationAcks)
 	t.PostCompletionAcks = maps.Clone(src.PostCompletionAcks)
 	t.groups, t.groupCount = src.groups, src.groupCount
+	t.unitCounts = maps.Clone(src.unitCounts)
 	for id := range change.units {
 		u, ok := src.Units[id]
 		if !ok {
@@ -797,8 +898,8 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 
 // AllUnitsTerminal returns true if all units are in a terminal state (COMPLETED or FAILED).
 func (t *Task) AllUnitsTerminal() bool {
-	for _, u := range t.Units {
-		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+	for _, c := range t.unitCounts {
+		if c.notTerminal > 0 {
 			return false
 		}
 	}
@@ -807,12 +908,17 @@ func (t *Task) AllUnitsTerminal() bool {
 
 // AnyUnitFailed returns true if any unit has FAILED status.
 func (t *Task) AnyUnitFailed() bool {
-	for _, u := range t.Units {
-		if u.Status == UnitStatusFailed {
+	for _, c := range t.unitCounts {
+		if c.failed > 0 {
 			return true
 		}
 	}
 	return false
+}
+
+func (t *Task) singleGroup(groupID string) bool {
+	_, ok := t.groups[groupID]
+	return ok && len(t.groups) == 1
 }
 
 func (t *Task) UnitShard(unitID string) string {
@@ -853,6 +959,9 @@ func (t *Task) Groups() []string {
 
 // AllGroupUnitsTerminal returns true if all units in the given group are terminal.
 func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
+	if t.singleGroup(groupID) {
+		return t.AllUnitsTerminal()
+	}
 	for _, id := range t.groups[groupID] {
 		if u := t.Units[id]; u != nil && u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
@@ -881,6 +990,9 @@ func (t *Task) groupSet() map[string]struct{} {
 }
 
 func (t *Task) groupHasUnitOn(groupID, nodeID string) bool {
+	if t.singleGroup(groupID) {
+		return t.unitCounts[nodeID].total > 0
+	}
 	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { u := t.Units[id]; return u != nil && u.NodeID == nodeID })
 }
 
@@ -898,15 +1010,7 @@ func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 // NodeHasNonTerminalUnits returns true if the given node has units that are not yet terminal.
 // Unassigned units (empty NodeID) are considered as belonging to any node.
 func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
-	for _, u := range t.Units {
-		if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
-			continue
-		}
-		if u.NodeID == "" || u.NodeID == nodeID {
-			return true
-		}
-	}
-	return false
+	return t.unitCounts[nodeID].notTerminal > 0 || t.unitCounts[""].notTerminal > 0
 }
 
 // NodesWithLocalUnits returns the set of node IDs that own at least one
@@ -919,16 +1023,11 @@ func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
 // Returned slice is unsorted; callers that need determinism must sort
 // it themselves.
 func (t *Task) NodesWithLocalUnits() []string {
-	seen := map[string]struct{}{}
-	for _, u := range t.Units {
-		if u.NodeID == "" {
-			continue
+	nodes := make([]string, 0, len(t.unitCounts))
+	for n := range t.unitCounts {
+		if n != "" {
+			nodes = append(nodes, n)
 		}
-		seen[u.NodeID] = struct{}{}
-	}
-	nodes := make([]string, 0, len(seen))
-	for n := range seen {
-		nodes = append(nodes, n)
 	}
 	return nodes
 }

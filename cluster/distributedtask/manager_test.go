@@ -2725,3 +2725,45 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 	})))
 	require.Empty(t, restored.tasks[ns][id].SwapsOwed)
 }
+
+// Units added without a node are bound by their first progress report; their completions must then end the task.
+func TestManager_ProgressBindsAnUnassignedUnitsCount(t *testing.T) {
+	m := NewManager(ManagerParameters{})
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitIds: []string{"u1", "u2"}}), 1))
+	for _, unit := range []string{"u1", "u2"} {
+		require.NoError(t, m.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+			Namespace: "ns", Id: "T", Version: 1, UnitId: unit, NodeId: "A", Progress: 0.5,
+		})))
+	}
+	for _, unit := range []string{"u1", "u2"} {
+		require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: "ns", Id: "T", Version: 1, UnitId: unit, NodeId: "A",
+		})))
+	}
+	task := m.tasks["ns"]["T"]
+	require.Equal(t, TaskStatusSwapping, task.Status)
+	require.False(t, task.NodeHasNonTerminalUnits("A"))
+}
+
+// A received task counts its own units, not those of the older copy the receiver holds.
+func TestManager_DecodeTaskListCountsTheReceivedUnits(t *testing.T) {
+	add := toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitSpecs: []*cmd.UnitSpec{
+		{Id: "u1", Node: "n1"}, {Id: "u2", Node: "n2"},
+	}})
+	leader, receiver := NewManager(ManagerParameters{}), NewManager(ManagerParameters{})
+	require.NoError(t, leader.AddTask(add, 1))
+	require.NoError(t, receiver.AddTask(add, 1))
+	for _, u := range []struct{ id, node string }{{"u1", "n1"}, {"u2", "n2"}} {
+		require.NoError(t, leader.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: "ns", Id: "T", Version: 1, UnitId: u.id, NodeId: u.node,
+		})))
+	}
+	raw, err := leader.ListDistributedTasksPayload(context.Background())
+	require.NoError(t, err)
+
+	received, err := receiver.DecodeTaskList(raw)
+	require.NoError(t, err)
+	got, want := received["ns"][0], leader.tasks["ns"]["T"]
+	require.Equal(t, want.AllUnitsTerminal(), got.AllUnitsTerminal())
+	require.ElementsMatch(t, want.NodesWithLocalUnits(), got.NodesWithLocalUnits())
+}

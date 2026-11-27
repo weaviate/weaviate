@@ -2187,3 +2187,160 @@ func TestStartedTaskReadsItsUnitsWhileTheCopyUpdates(t *testing.T) {
 		})
 	}
 }
+
+// groupRecordingProvider records each group callback as "completed:<group>" or "swap:<group>".
+type groupRecordingProvider struct {
+	mu     sync.Mutex
+	calls  []string
+	errFor map[string]error
+}
+
+func (p *groupRecordingProvider) SetCompletionRecorder(TaskCompletionRecorder) {}
+func (p *groupRecordingProvider) GetLocalTasks() []TaskDescriptor              { return nil }
+func (p *groupRecordingProvider) CleanupTask(TaskDescriptor) error             { return nil }
+func (p *groupRecordingProvider) StartTask(*Task) (TaskHandle, error)          { return exitedHandle{}, nil }
+func (p *groupRecordingProvider) OnTaskCompleted(*Task) error                  { return nil }
+
+func (p *groupRecordingProvider) record(call string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls = append(p.calls, call)
+	err := p.errFor[call]
+	delete(p.errFor, call)
+	return err
+}
+
+func (p *groupRecordingProvider) OnGroupCompleted(_ *Task, groupID string, _ []string) error {
+	return p.record("completed:" + groupID)
+}
+
+func (p *groupRecordingProvider) OnSwapRequested(_ *Task, groupID string, _ []string) error {
+	return p.record("swap:" + groupID)
+}
+
+func (p *groupRecordingProvider) take() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	calls := p.calls
+	p.calls = nil
+	return calls
+}
+
+func newGroupTickScheduler(t *testing.T, groups int, barrier bool, p *groupRecordingProvider) (*Scheduler, *Manager) {
+	logger, _ := logrustest.NewNullLogger()
+	m := NewManager(ManagerParameters{Logger: logger})
+	specs := make([]*cmd.UnitSpec, groups)
+	for i := range specs {
+		g := fmt.Sprintf("g%d", i)
+		specs[i] = &cmd.UnitSpec{Id: g, GroupId: g, Node: "n1"}
+	}
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace: "ns", Id: "T", NeedsPreparationBarrier: barrier, UnitSpecs: specs,
+	}), 1))
+	s := NewScheduler(SchedulerParams{
+		TaskSource: m, Providers: map[string]Provider{"ns": p}, Logger: logger, LocalNode: "n1", TickInterval: time.Hour,
+	})
+	return s, m
+}
+
+func completeGroupUnit(t *testing.T, m *Manager, group string) {
+	require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace: "ns", Id: "T", Version: 1, UnitId: group, NodeId: "n1",
+	})))
+}
+
+// A tick looks only at groups that changed: a group made ready in the scheduler's copy with no apply behind it
+// stays unseen until an apply marks it.
+func TestSchedulerTickChecksOnlyChangedGroups(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		barrier     bool
+		readyInCopy func(task *Task)
+		apply       func(t *testing.T, m *Manager)
+		want        string
+	}{
+		{
+			name:        "preparation phase",
+			barrier:     true,
+			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusCompleted },
+			apply:       func(t *testing.T, m *Manager) { completeGroupUnit(t, m, "g7") },
+			want:        "completed:g7",
+		},
+		{
+			name:    "decided-swap phase",
+			barrier: true,
+			readyInCopy: func(task *Task) {
+				task.SwapDecidedGroups = map[string]time.Time{"g7": {}}
+				task.SwapsOwed = map[string][]string{"g7": {"n1"}}
+			},
+			apply: func(t *testing.T, m *Manager) {
+				completeGroupUnit(t, m, "g7")
+				group := "g7"
+				require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+					Namespace: "ns", Id: "T", Version: 1, GroupId: &group, NodeId: "n1", Success: true,
+				})))
+			},
+			want: "swap:g7",
+		},
+		{
+			name:        "swap phase of a task without a barrier",
+			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusCompleted },
+			apply:       func(t *testing.T, m *Manager) { completeGroupUnit(t, m, "g7") },
+			want:        "completed:g7",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &groupRecordingProvider{}
+			s, m := newGroupTickScheduler(t, 10_000, tc.barrier, p)
+			s.tick()
+			require.Empty(t, p.take(), "no group is ready yet")
+
+			tc.readyInCopy(s.taskCopy.tasks["ns"]["T"])
+			s.tick()
+			require.Empty(t, p.take(), "a group no apply changed is not looked at")
+
+			tc.apply(t, m)
+			s.tick()
+			require.Contains(t, p.take(), tc.want)
+		})
+	}
+}
+
+// A group whose callback asks for a retry fires again on the next tick, with no new apply.
+func TestSchedulerTickRetriesAGroupCallback(t *testing.T) {
+	prepAck := func(t *testing.T, m *Manager) {
+		group := "g0"
+		require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+			Namespace: "ns", Id: "T", Version: 1, GroupId: &group, NodeId: "n1", Success: true,
+		})))
+	}
+	for _, tc := range []struct {
+		name    string
+		barrier bool
+		decide  bool
+		call    string
+		err     error
+	}{
+		{name: "preparation phase", barrier: true, call: "completed:g0", err: context.Canceled},
+		{name: "decided-swap phase", barrier: true, decide: true, call: "swap:g0", err: errors.New("disk full")},
+		{name: "swap phase of a task without a barrier", call: "completed:g0", err: context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &groupRecordingProvider{errFor: map[string]error{tc.call: tc.err}}
+			s, m := newGroupTickScheduler(t, 2, tc.barrier, p)
+			s.tick()
+			completeGroupUnit(t, m, "g0")
+			if tc.decide {
+				s.tick()
+				prepAck(t, m)
+				p.take()
+			}
+			s.tick()
+			require.Contains(t, p.take(), tc.call)
+			s.tick()
+			require.Equal(t, []string{tc.call}, p.take(), "the group fires again with no new apply")
+			s.tick()
+			require.Empty(t, p.take())
+		})
+	}
+}

@@ -337,17 +337,20 @@ func TestTask_NodeHasNonTerminalUnits(t *testing.T) {
 
 	// Mark u-6 terminal — n-3 should now have only terminal work.
 	task.Units["u-6-g1-unassigned"].Status = UnitStatusCompleted
+	task.countUnits()
 	assert.False(t, task.NodeHasNonTerminalUnits("n-3"))
 
 	// Unknown node with unassigned units present: still true because
 	// unassigned counts toward any node.
 	task.Units["u-6-g1-unassigned"].Status = UnitStatusPending
+	task.countUnits()
 	assert.True(t, task.NodeHasNonTerminalUnits("never-existed"))
 
 	// All terminal AND no unassigned: false.
 	for _, u := range task.Units {
 		u.Status = UnitStatusCompleted
 	}
+	task.countUnits()
 	assert.False(t, task.NodeHasNonTerminalUnits("never-existed"))
 }
 

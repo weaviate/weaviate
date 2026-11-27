@@ -59,6 +59,8 @@ type taskSchedulerState struct {
 	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
 	// retrying and fails the task (weaviate/0-weaviate-issues#297).
 	completedCallbackAttempts int
+	// swapCheck and prepCheck name the changed groups a phase looks at, since only those can have become ready.
+	swapCheck, prepCheck changedGroups
 }
 
 // maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
@@ -194,6 +196,7 @@ type SchedulerParams struct {
 	TickInterval     time.Duration
 }
 
+// minWakeSpacing folds the burst of wakes a run of applies sends, one per apply, into one tick.
 const minWakeSpacing = 2 * time.Second
 
 func NewScheduler(params SchedulerParams) *Scheduler {
@@ -775,9 +778,10 @@ func (s *Scheduler) runPreparationPhase(
 		state := s.perTaskStateLockedOrInit(desc)
 		if state.prepPending == nil {
 			state.prepPending = task.groupSet()
+			state.prepCheck.all = true
 		}
 		var list []preparationGroupWork
-		for groupID := range state.prepPending {
+		for _, groupID := range state.prepCheck.take(state.prepPending) {
 			if task.GroupSwapDecided(groupID) {
 				delete(state.prepPending, groupID)
 				continue
@@ -808,6 +812,7 @@ func (s *Scheduler) runPreparationPhase(
 		for i, w := range worklist {
 			if errors.Is(groupErrors[i], context.Canceled) {
 				state.prepPending[w.groupID] = struct{}{}
+				state.prepCheck.add(w.groupID)
 				// This line is at Debug because a step that waits on an operator re-fires every tick, and the provider logs that wait itself.
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
@@ -892,9 +897,10 @@ func (s *Scheduler) runSwapPhase(
 		state := s.perTaskStateLockedOrInit(desc)
 		if state.swapPending == nil {
 			state.swapPending = task.groupSet()
+			state.swapCheck.all = true
 		}
 		var list []swapGroupWork
-		for groupID := range state.swapPending {
+		for _, groupID := range state.swapCheck.take(state.swapPending) {
 			if !postStarted && !task.AllGroupUnitsTerminal(groupID) {
 				continue
 			}
@@ -926,6 +932,7 @@ func (s *Scheduler) runSwapPhase(
 		for i, w := range worklist {
 			if errors.Is(groupErrors[i], context.Canceled) {
 				state.swapPending[w.groupID] = struct{}{}
+				state.swapCheck.add(w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
 					Debugf("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack: %v", groupErrors[i])
@@ -999,11 +1006,13 @@ func (s *Scheduler) runDecidedSwapPhase(
 			for groupID := range task.SwapsOwed {
 				state.swapPending[groupID] = struct{}{}
 			}
+			state.swapCheck.all = true
 		} else if state.swapPending == nil {
 			state.swapPending = task.groupSet()
+			state.swapCheck.all = true
 		}
 		var list []swapGroupWork
-		for groupID := range state.swapPending {
+		for _, groupID := range state.swapCheck.take(state.swapPending) {
 			if !task.GroupSwapDecided(groupID) {
 				if task.Status.IsTerminal() {
 					delete(state.swapPending, groupID)
@@ -1035,6 +1044,7 @@ func (s *Scheduler) runDecidedSwapPhase(
 			err := groupErrors[i]
 			if err != nil {
 				state.swapPending[w.groupID] = struct{}{}
+				state.swapCheck.add(w.groupID)
 				if errors.Is(err, context.Canceled) {
 					// Checked first so a discarded debug line spends no sampler budget.
 					if logrusext.LevelEnabled(s.logger, logrus.DebugLevel) {
@@ -1257,7 +1267,26 @@ func (s *Scheduler) listTasks() (map[string]map[TaskDescriptor]*Task, error) {
 	if err := s.taskSource.UpdateTaskCopy(&s.taskCopy); err != nil {
 		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}
+	s.mergeChanged(s.taskCopy.takeChanged())
 	return s.taskCopy.Tasks(), nil
+}
+
+// mergeChanged skips a task with no scheduler state yet, whose phases start by checking every group.
+func (s *Scheduler) mergeChanged(changed map[TaskDescriptor]*changedGroups) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for desc, groups := range changed {
+		state := s.perTaskStateLocked(desc)
+		if state == nil {
+			continue
+		}
+		if len(state.prepPending) > 0 {
+			state.prepCheck.merge(groups)
+		}
+		if len(state.swapPending) > 0 {
+			state.swapCheck.merge(groups)
+		}
+	}
 }
 
 // recordRunningTaskHandleLocked stores a freshly-launched task handle in
