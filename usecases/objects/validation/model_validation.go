@@ -223,18 +223,26 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 }
 
 // ValidateExistenceIn succeeds when ref's target exists in one of classes, so
-// that a beacon without a class never probes other collections.
+// that a beacon without a class never probes other collections. A replica
+// shortage in one class does not stop the others from answering; it is
+// returned only when none of them holds the target.
 func (v *Validator) ValidateExistenceIn(ctx context.Context, ref *crossref.Ref,
 	classes []string, errorVal, tenant string,
 ) error {
-	var err error
+	var err, replicasErr error
 	for _, class := range classes {
 		target := *ref
 		target.Class = class
 		err = v.ValidateExistence(ctx, &target, errorVal, tenant)
-		if err == nil || errors.Is(err, replicaerrors.ErrReplicas) || IsReferenceAuthorizationError(err) {
+		if err == nil || IsReferenceAuthorizationError(err) {
 			return err
 		}
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			replicasErr = err
+		}
+	}
+	if replicasErr != nil {
+		return replicasErr
 	}
 	return err
 }

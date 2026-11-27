@@ -142,3 +142,59 @@ func TestValidateExistence(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateExistenceInProbesEveryTarget(t *testing.T) {
+	replicasErr := replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 replicas down"))
+
+	tests := []struct {
+		name     string
+		classes  []string
+		answers  map[string]error // a nil answer means the class holds the target
+		wantErr  error
+		notFound bool
+	}{
+		{
+			name:    "replica shortage before the holding class",
+			classes: []string{"Alpha", "Beta"},
+			answers: map[string]error{"Alpha": replicasErr, "Beta": nil},
+		},
+		{
+			name:    "replica shortage after the holding class",
+			classes: []string{"Beta", "Alpha"},
+			answers: map[string]error{"Alpha": replicasErr, "Beta": nil},
+		},
+		{
+			name:    "replica shortage and no holding class",
+			classes: []string{"Alpha", "Beta"},
+			answers: map[string]error{"Alpha": replicasErr},
+			wantErr: replicaerrors.ErrReplicas,
+		},
+		{
+			name:     "no holding class",
+			classes:  []string{"Alpha", "Beta"},
+			answers:  map[string]error{},
+			notFound: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exists := func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
+				err, ok := tt.answers[class]
+				return ok && err == nil, err
+			}
+			v := New(exists, &config.WeaviateConfig{}, nil, nil, &authorization.DummyAuthorizer{}, namespacing.Disabled, nil)
+
+			err := v.ValidateExistenceIn(context.Background(), &crossref.Ref{TargetID: strfmt.UUID(UuidLower)},
+				tt.classes, "ref", "")
+			switch {
+			case tt.wantErr != nil:
+				require.ErrorIs(t, err, tt.wantErr)
+			case tt.notFound:
+				require.Error(t, err)
+				require.NotErrorIs(t, err, replicaerrors.ErrReplicas)
+			default:
+				require.NoError(t, err)
+			}
+		})
+	}
+}
