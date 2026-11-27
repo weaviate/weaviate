@@ -1102,6 +1102,33 @@ La corrida: el clon APFS del índice a medias (3 311 508 vectores), el código d
 - **Lo que espero:** con 8 llamadores, entre 300 y 1 000 por segundo, según cuánto pese el disco frío. Con 1 llamador, entre 50 y 230: no sé si gana.
 - **Cuánto tardaría 10M** lo digo con ese ritmo y con el de 1M de las medidas definitivas, sin extrapolar más allá de lo que se haya medido.
 
+#### Enmienda 1 (13:45 del 27, antes de compilar su binario): va antes que el resto, decide el paso 1, y se mide también en caliente
+
+**El encargo (del usuario, a las 13:40).** El Mac está libre y todo va seguido, manteniendo el orden entre medidas cronometradas y compilaciones:
+1. terminar los pasos 2 y 3 a 100k;
+2. los 20 000 inserts sobre el índice de 3.3M con el código de los pasos, con 1 y 8 llamadores, antes que el resto: **es la medida que decide si el paso 1 se queda, porque su valor está a escala y no a 100k;**
+3. el paso 4, la regla de reorganización y las dos variantes del paso 1;
+4. las tablas por docID: compilar, todos los tests y su medida a 1M con los umbrales acordados;
+5. subir a `m2` cada paso que gane, y después las medidas definitivas a 1M;
+6. si el ritmo a 3.3M lo permite, el crecimiento de 10M esta noche, bajo `caffeinate`.
+
+**Pendiente para Linux (del usuario).** El coste de despertar hilos es de macOS, entre 16 y 41 µs. Hay que repetir la medida de inserts a escala en Linux antes de dar por buena la cifra para producción.
+
+**Lo que añado para que decida el paso 1 (*mío*).**
+- **Las dos variantes del paso 1, también a 3.3M.** Los pasos frente a la cabeza mezclan el paso 1 con las tandas. Para aislarlo, sobre el mismo código (`78c3a9f051`): `s` (los pasos), `sn` (los pasos sin el paso 1: los planes con el presupuesto de quien llama) y `sa` (el reparto solo para un `AddBatch` que está solo).
+- **En caliente además de en frío.** La corrida de la cabeza fue sobre un clon recién hecho: cada lectura de un vector exacto fue a disco. Un índice que crece no está así: sus ficheros los ha escrito el propio proceso. Y con el disco frío, leer en línea paga cada lectura entera. Así que:
+  - **en frío,** como estaba escrito: `s` con 1 y con 8 llamadores, contra los 68.8 por segundo de la cabeza;
+  - **en caliente,** con todos los ficheros del clon leídos una vez antes de abrir: la cabeza con 1 llamador, y `s`, `sn` y `sa` con 1 y con 8.
+- Cada corrida, sobre un clon propio del índice de la noche, que se borra al acabar; el original no se abre.
+
+**La regla del paso 1 (*mío*), a 3.3M y en caliente, que es como está un índice que crece:**
+- **el paso 1 se queda** si `s` supera a `sn` en un 5 % o más con 1 o con 8 llamadores y no pierde un 5 % o más con el otro;
+- **`sa` sustituye al presupuesto fijo** si iguala a `s` con 8 llamadores (a un 2 % o menos) y lo supera en un 2 % o más con 1, a 3.3M o a 100k, sin perder un 2 % o más en la otra escala;
+- **el paso 1 sale** si `sn` iguala o supera a `s` con 1 y con 8 llamadores;
+- en cualquier otro caso doy la tabla y decide el usuario.
+
+**Lo que espero en caliente (*mío*, antes de ningún dato):** la cabeza con 1 llamador, cerca de los 87 por segundo del final de la noche; `s` con 1 llamador, entre 150 y 250; `sn` con 8 llamadores, peor que `s`, porque ocho repartos compiten por los mismos núcleos.
+
 ### Dejar la base en su mejor estado, medirla y congelarla (plan del usuario, 2026-11-27 a las 12:20)
 
 **El encargo (del usuario), en tres puntos, con un resumen al cerrar cada uno:**
