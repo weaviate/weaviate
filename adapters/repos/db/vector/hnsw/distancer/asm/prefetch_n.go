@@ -13,6 +13,8 @@
 
 package asm
 
-// PrefetchN issues cache-line prefetch hints covering n bytes starting at
-// addr (ceil(n/64) lines). n must be > 0.
+// PrefetchN issues ceil(n/64) cache-line prefetch hints, 64 bytes apart,
+// counting from addr. That covers the n bytes starting at addr if addr is on
+// a line boundary; for any other addr, size the call with PrefetchSpan. n must
+// be > 0.
 func PrefetchN(addr uintptr, n int)
