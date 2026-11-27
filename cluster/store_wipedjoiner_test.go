@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -172,31 +173,6 @@ func TestWipedJoinerRestoreReloadCompletesWhenCovered(t *testing.T) {
 
 		require.False(t, st.wipedJoinerRestoreReload(50))
 		require.True(t, st.wipedJoinerCandidate.Load())
-	})
-}
-
-// Pins the enqueued-vs-consumed skew: the watcher must not reload while LogCommands below the barrier are still draining.
-func TestWipedJoinerFSMCaughtUp(t *testing.T) {
-	t.Run("FSM past the barrier -> caught up", func(t *testing.T) {
-		st := &Store{}
-		st.lastAppliedIndex.Store(220)
-		require.True(t, st.wipedJoinerFSMCaughtUp(220))
-	})
-
-	t.Run("stable below barrier, no pipeline -> config-only gap, caught up", func(t *testing.T) {
-		st := &Store{}
-		st.lastAppliedIndex.Store(100)
-		require.True(t, st.wipedJoinerFSMCaughtUp(220))
-	})
-
-	t.Run("still draining -> not caught up", func(t *testing.T) {
-		st := &Store{}
-		st.lastAppliedIndex.Store(100)
-		go func() {
-			time.Sleep(20 * time.Millisecond)
-			st.lastAppliedIndex.Store(150)
-		}()
-		require.False(t, st.wipedJoinerFSMCaughtUp(220))
 	})
 }
 
@@ -369,6 +345,50 @@ func TestWatchWipedJoinerZeroBarrierDeadline(t *testing.T) {
 	}
 	require.True(t, st.wipedJoinerReloaded.Load())
 	require.True(t, st.dbLoaded.Load())
+}
+
+func TestWatchWipedJoinerAtTheBarrier(t *testing.T) {
+	tests := []struct {
+		name      string
+		readFails bool
+		timeout   time.Duration
+	}{
+		{name: "the last command drains, then applies", timeout: time.Minute},
+		{name: "the log is unreadable until the timeout", readFails: true, timeout: 2 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			st := &Store{
+				log:     logger,
+				cfg:     Config{MetadataOnlyVoters: true, WipedJoinerBarrierTimeout: tt.timeout},
+				metrics: newStoreMetrics("n1", prometheus.NewPedanticRegistry()),
+			}
+			barrier := attachLeaderRaft(t, st).AppliedIndex()
+			logs := raft.NewInmemStore()
+			for i := uint64(1); i < barrier; i++ {
+				require.NoError(t, logs.StoreLog(&raft.Log{Index: i, Type: raft.LogCommand}))
+			}
+			require.NoError(t, logs.StoreLog(&raft.Log{Index: barrier, Type: raft.LogNoop}))
+			var store raft.LogStore = logs
+			if tt.readFails {
+				store = failingLogStore{logs}
+			}
+			cache, err := raft.NewLogCache(16, store)
+			require.NoError(t, err)
+			st.logCache = cache
+			st.lastAppliedIndex.Store(barrier - 2)
+			st.joinBarrier.Store(barrier)
+			st.wipedJoinerJoined.Store(true)
+			st.wipedJoinerCandidate.Store(true)
+			st.open.Store(true)
+
+			go st.watchWipedJoiner()
+			require.Never(t, st.wipedJoinerReloaded.Load, 1200*time.Millisecond, 50*time.Millisecond)
+			st.lastAppliedIndex.Store(barrier - 1)
+			require.Eventually(t, st.wipedJoinerReloaded.Load, 10*time.Second, 50*time.Millisecond)
+		})
+	}
 }
 
 func TestNonCandidateNotSuppressed(t *testing.T) {

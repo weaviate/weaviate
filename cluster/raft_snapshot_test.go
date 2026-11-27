@@ -219,6 +219,33 @@ func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 	require.NoError(t, srv.Close(ctx))
 }
 
+func TestForcedOneNodeRecoveryKeepsTheAppliedIndex(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	m.indexer.On("Open", Anything).Return(nil)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)))
+	require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.indexer.On("AddClass", Anything).Return(nil)
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", Status: "S0"}}}
+	version, err := srv.AddClass(ctx, &models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}, ss)
+	require.NoError(t, err)
+	m.indexer.On("Close", Anything).Return(nil)
+	require.NoError(t, srv.Close(ctx))
+
+	m.cfg.EnableOneNodeRecovery, m.cfg.ForceOneNodeRecovery = true, true
+	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
+	srv = NewRaft(mocks.NewMockNodeSelector(), &s, nil)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	t.Cleanup(func() { require.NoError(t, srv.Close(ctx)) })
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.NoError(t, s.WaitForAppliedIndex(canceled, time.Millisecond, version))
+}
+
 func getTenantStatus(t *testing.T, schemaReader interface{}, className, tenantName string) string {
 	type schemaReaderWithRead interface {
 		Read(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error
