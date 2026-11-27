@@ -516,6 +516,105 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **El heap del índice:** cerca de lo estimado con 128 MB de tope, unos 400 MB en `none` y unos 1 120 en `routing`, si lo que espera llena su tope. `lsmkv` es la parte de la que no sé el orden de magnitud.
 - **La amplificación de escritura:** no tengo base; entre 3 y 8 veces.
 
+### Por qué 8 llamadores insertan como uno (análisis, 2026-11-27, sin compilar ni ejecutar)
+
+*El encargo (del usuario): con el perfil de CPU que ya había y el código del camino de insert integrado (`feat/posting-edge-integration-m2`, `c6c8b2e347`), explicar qué serializa los inserts, compararlo con v5.2 y proponer el cambio con su ganancia estimada, sin implementarlo. Los datos son de la noche de 10M, a 2.97M insertados, y de las pruebas pequeñas de antes de lanzarla.*
+
+**Lo medido:**
+- **Con 30 000 vectores, 1 llamador tarda lo mismo que 8:** 76 frente a 77 s de inserts tras la base.
+- **Las búsquedas no se solapan.** Sumado sobre todos los llamadores, el tiempo de búsqueda de los inserts (`searchNs`) es el 94.5 % del reloj con 8 llamadores a 30 000 (72.8 de 77 s) y el 100.7 % en la noche a 2.97M (28 156 de 27 953 s). Si corrieran a la vez, la suma pasaría del reloj.
+- **Las escrituras pesan poco.** Lo que corre con el candado exclusivo (escribir el vector, aristas inversas, split, filas) es el 1.2 % del reloj en la noche: 0.12 ms por insert, frente a 9.4 ms de búsqueda.
+- **La CPU media de la noche es de 1.27 núcleos.**
+
+**Qué lo serializa: el `RWMutex` de `Persistent` (`p.mu`), tomado en exclusiva una vez por insert.**
+- `addWindow` (`persistent.go:718`) busca las 4 inserciones de su ventana con `p.mu.RLock()` tomado durante las 4 búsquedas.
+- Después escribe cada una por separado: `write` (`persistent.go:761`) toma `p.mu.Lock()` por insert.
+- En Go, un `Lock()` que espera bloquea los `RLock()` nuevos. Espera además a que acaben todos los lectores en curso, cada uno con hasta 4 búsquedas pendientes.
+- Con 8 llamadores casi siempre hay alguien esperando para escribir. Las búsquedas se drenan, la escritura corre (0.12 ms), entran las siguientes, y la próxima escritura vuelve a drenarlas. Sale aproximadamente un insert por duración de una búsqueda, que es lo medido.
+- **No lo he comprobado con un perfil de bloqueos** (`-test.blockprofile`): habría que ejecutar mientras corre la noche. Las dos medidas de arriba son la evidencia. Se puede comprobar con el binario que ya existe, sin compilar, cuando acabe.
+
+**¿El cálculo de aristas corre de verdad fuera del candado?**
+- **En el código, sí.** El plan corre sin el candado exclusivo: el posting en el grafo de centroides, la carga de postings, la puntuación, el rescore y los vecinos. Bajo el exclusivo solo van las escrituras, las aristas inversas (0.07 ms), el split y las filas.
+- **En el tiempo, no.** El plan necesita el `RLock`, y la escritura que espera se lo niega.
+- `refresh` y `outdated`, que corren dentro del exclusivo fuera de los cronómetros, son baratos esta noche: una consulta al grafo solo si el posting se partió, y ningún borrado.
+
+**¿Por qué las lecturas del rescore van una a una?**
+- **Cada insert lee 150 vectores exactos,** uno a uno: un `pread` de 3 072 B por vector (`growIndex.exact` → `readFile` → `ReadAt`).
+- El rescore los reparte entre min(2 × GOMAXPROCS = 20, candidatos) gorutinas (`search.go:569`), porque el contexto del insert no lleva presupuesto. Dentro de cada gorutina, uno detrás de otro y bloqueantes. Con las búsquedas en serie, en todo el índice hay como mucho unos 20 en vuelo.
+- La carga de postings hace lo mismo: 2 gorutinas por posting y ronda (`grow.go:1762`), unas 160 por insert.
+- **El coste es de CPU.** En el perfil a 30 000 (127 s de CPU), crear esas gorutinas y despertar hilos para ellas se lleva 52 s (`newproc` → `wakep` → `startm` → `pthread_cond_signal`), un 41 %. Los `pread` se llevan 24 s, unos 6 µs cada uno desde la caché de páginas.
+- A 2.97M no está perfilado: no quise perturbar la noche.
+
+**v5.2 hacía otra cosa: tandas.**
+- Los inserts iban en tandas de W = 32. Las 32 búsquedas corrían a la vez sobre el estado del final de la tanda anterior, sin nadie escribiendo. Después un único aplicador escribía los 32 planes en orden, sin nadie buscando.
+- Era una sección exclusiva por cada 32 inserts, no una por insert. Con 8 buscadores dio 3.60 veces los inserts de 1 (663 frente a 184 por segundo, dbpedia 1M). Lo limitaban la parte del aplicador y la espera de cada tanda a su búsqueda más lenta.
+- La integración cambió las tandas por ventanas de 4 por llamador y un candado por insert. Con eso se perdió la agrupación de las escrituras.
+
+**El cambio que propongo (*mío*, sin implementar):**
+1. **Escribir en grupo, con una sola toma del exclusivo por grupo.**
+   - Cada llamador deja su plan terminado en una cola, en orden.
+   - Quien toma `writeMu` toma `p.mu.Lock()` una vez, aplica todo lo que haya en la cola, suyo y de otros, y lo suelta. Después avisa a cada dueño con su error.
+   - Es el «aplicador único» de v5.2, pero sin barrera: la tanda es lo que se haya juntado mientras el anterior escribía.
+   - El atraso de una búsqueda sigue acotado por lo que hay en vuelo, como hoy.
+2. **El `RLock` por búsqueda, no por ventana,** para que un escritor espere como mucho una búsqueda por lector.
+3. **Aparte, y después:** un grupo fijo de lectores para las filas y el rescore, en lugar de crear gorutinas en cada ronda. Recupera el ~40 % de CPU que se va en despertar hilos, que pasa a importar cuando 8 búsquedas corran de verdad a la vez.
+
+**La ganancia estimada:**
+- Con la escritura en un 1.2 % del insert, el techo por Amdahl con 8 llamadores sería de unas 7.4 veces.
+- La referencia realista es lo que midió v5.2: **unas 3–4 veces.** Es decir, de 88 a unos 260–350 inserts por segundo a 3M, y los 10M en unas 10–13 h en lugar de unas 38.
+- El siguiente límite sería la CPU. Hoy un insert gasta unos 12 ms de CPU a 3M, contando el fondo y el GC. Con 8 núcleos de rendimiento y 2 de eficiencia, el techo está en unos 700–800 por segundo, más alto si se quita el coste de despertar hilos.
+- Es una estimación. Habría que medirla como v5.2: N = 1, 4 y 8, y recall y cargas a 0.95 y 0.99 frente a N = 1.
+
+### Las tablas por docID se dimensionan por el mayor doc id (análisis, 2026-11-27, sin compilar)
+
+**Qué hay.** Todo lo que `extend` (`grow.go:1940`) y la apertura (`openGrowIndex`) dimensionan por `keys` = 1.25 × (mayor doc id + 1):
+
+| estructura | bytes por doc id | lo lee | a 12.5M keys |
+|---|---:|---|---:|
+| códigos de ruteo (`side.codes`, 9 palabras a 512 bits) | 72 (solo `routing`) | cada extremo de arista que la búsqueda puntúa | 900 MB |
+| docID → posting (`side.postingOf`) | 4 | cada extremo de arista (`collectEndpoints`) y las escrituras | 50 MB |
+| docID → slot (`slotOf`, desde el primer layout) | 4 | cada vector exacto (rescore, insert, layout) | 50 MB |
+| vivo (`live`) | 1 | `holds`, cada candidato y cada vecino | 12.5 MB |
+| borrado (`deleted`) | 1 | `holds` | 12.5 MB |
+| cuándo se hicieron sus aristas (`builtAt`) | 4 | solo el refresco; no se carga con el refresco apagado | 0 |
+| **en memoria** | **82 en `routing`, 10 en `none`** | | **1 025 / 125 MB** |
+
+- **En disco, por doc id:**
+  - el fichero de vectores antes del primer layout, escrito en la posición del doc id (con huecos);
+  - `built.u32`, 4 B;
+  - `slots`, 4 B.
+- **Lo que no va por doc id:** el bitmap `present` (sroar, comprimido), los buckets (con clave por doc id, dispersos sin coste), y lo que va por posting (tamaño, retirados, secuencias de halo).
+- **Un coste que no estaba en la tabla de antes:** `extend` reserva las tablas nuevas y copia las viejas. Al crecer de 10M a 12.5M keys en `routing`, durante la copia conviven unos 820 MB viejos y 1 025 nuevos: un pico de aproximadamente 1.8 GB.
+- **En el arnés de la noche, el doc id es la fila del dataset, en orden barajado.** Las tablas tienen 12.5M keys desde el primer lote, y el `HeapInuse` de los tramos lo lleva desde el principio. En un shard los doc ids crecen con el contador, y las tablas con ellos. Al final es lo mismo: 10M doc ids dados.
+
+**Las dos opciones:**
+
+**(a) Tablas por páginas.**
+- **Cómo:** cada tabla se parte en páginas de 4 096 doc ids, con un directorio de punteros. Una página se reserva con su primer vector y se suelta cuando no le queda ninguno, con un contador de vivos por página.
+- **Memoria:** el directorio es de unos 24 KB a 12.5M keys.
+  - Sigue a los vivos cuando los doc ids muertos están juntos, que es lo que dejan los updates de un shard: el contador crece y las versiones viejas quedan en las páginas antiguas.
+  - Sin updates ahorra la holgura del 25 % (unos 205 MB a 10M en `routing`, unos 25 en `none`) y el pico de `extend`: crecer es añadir páginas, sin copiar.
+  - No ahorra nada con doc ids esparcidos al azar, como los del arnés: cada página tiene algún vector.
+- **Coste en búsqueda:** una carga dependiente más por acceso (el directorio, que vive en L1/L2), de unos 1–4 ns.
+  - Puntuar un extremo cuesta hoy 30–60 ns (`BenchmarkSidecarScore`: 48 ns para un código de 13 palabras con prefetch).
+  - El prefetch del código sigue funcionando, con la dirección sacada de la página.
+  - Estimo un 3–10 % más en el bucle de extremos en `routing`, y menos en `none` o en frío, donde manda el disco.
+
+**(b) Tablas densas por vector presente, con un rango sobre un bitmap de doc ids.**
+- **Cómo:** los datos de cada vector van en arrays densos, en orden de doc id. Un bitmap de doc ids dados (1 bit cada uno), con su directorio de rango, da la posición densa: posición = rank(doc id).
+  - Como los doc ids de un shard solo crecen, un insert siempre añade al final.
+  - Un borrado deja un hueco hasta que una compactación reconstruye arrays y bitmap. Podría ir con el layout, que ya reescribe el fichero de vectores.
+- **Memoria:** exactamente los vivos, más unos 2 MB de bitmap a 12.5M doc ids.
+  - A 10M sin updates son 820 MB en `routing` y 100 en `none`.
+  - Con dos updates por objeto (30M doc ids dados) se quedan en 820 MB, más unos 5 MB de bitmap, frente a unos 3 075 MB hoy.
+- **Coste en búsqueda:** el rank son dos cargas dependientes (directorio y palabra del bitmap) y un popcount antes de la carga del código: unos 5–10 ns por extremo.
+  - Estimo un 10–25 % más en el bucle de extremos en `routing`. Es bastante más que (a).
+  - Guardar en las aristas la posición densa en lugar del doc id lo quitaría, pero cada compactación tendría que reescribir aristas: no lo propongo.
+
+**Cómo encaja con el mapa** (`postingOf` en 3 B y el slot en disco, que se decide con esta noche): las dos opciones se componen con él. Con (a), cada página llevaría `postingOf` en 3 B y sin `slotOf`.
+
+**Lo que propongo (*mío*):** (a). Quita el pico de `extend` y la holgura, y sigue a los vivos con updates, por una carga más en caché. (b) solo gana con doc ids esparcidos al azar, que un shard no produce. Los costes son estimados: habría que medir el bucle de extremos con `BenchmarkSidecarScore` sobre páginas antes de decidir.
+
 ### El mapa docID → posting y slot: ¿se puede bajar sin coste en la búsqueda? (análisis, 2026-11-26, sin cambiar nada)
 
 **Qué es.** Dos tablas de 4 B por doc id: el posting de cada vector (`postingOf`) y su posición en el fichero de vectores (`slotOf`). En un índice crecido tienen `keys` entradas, 1.25 veces el mayor doc id dado. A 10M son 50 + 50 MB en el crecido y 80 MB en el lote (8 B × 10M, sin holgura).
