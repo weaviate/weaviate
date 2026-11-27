@@ -91,7 +91,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.qualifier, m.metrics)
+		principal, m.authorizer, m.qualifier, m.metrics)
 	targetRef, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -117,9 +117,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	// A classless beacon on a multi-target prop would reach Exists with
-	// Class=="", which scans every collection, other namespaces' included.
-	// With namespaces on, no DELETE could remove it once stored.
+	// With namespaces on, no DELETE could remove a stored classless beacon.
 	if targetRef.Class == "" {
 		if err := validation.CheckMultiTargetRefWithoutClass(m.config, m.metrics); err != nil {
 			return &Error{err.Error(), StatusBadRequest, err}
@@ -139,10 +137,18 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Ref.Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, targetRef.TargetID).String())
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+	propertyTargets, typedErr := refPropertyTargets(class, input.Property)
+	if typedErr != nil {
+		return typedErr
 	}
-	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+	targetClasses, targetTenant := validation.ReferenceTargetScope(targetRef.Class, propertyTargets, tenant)
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, validation.ReferenceTargetResources(targetClasses, targetTenant)...); err != nil {
+		return referenceAuthorizationError(err)
+	}
+	if err := validator.ValidateExistenceIn(ctx, targetRef, targetClasses, "validate reference", tenant); err != nil {
+		if errors.As(err, &autherrs.Forbidden{}) || validation.IsReferenceAuthorizationError(err) {
+			return referenceAuthorizationError(err)
+		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return &Error{"validate existence", StatusInternalServerError, err}
 		}
@@ -231,11 +237,4 @@ func (req *AddReferenceInput) validate(
 	}
 
 	return ref, validateReferenceSchema(class, req.Property)
-}
-
-func (req *AddReferenceInput) validateExistence(
-	ctx context.Context,
-	v *validation.Validator, tenant string, ref *crossref.Ref,
-) error {
-	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
 }

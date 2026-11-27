@@ -125,6 +125,12 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)
 	if err != nil {
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, err
+		}
+		if validation.IsReferenceAuthorizationError(err) {
+			return nil, NewErrInternal("validate object: %w", err)
+		}
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return nil, NewErrInternal("validate object: %w", err)
 		}
@@ -216,7 +222,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.qualifier, m.metrics).
+		principal, m.authorizer, m.qualifier, m.metrics).
 		Object(ctx, class, incoming, existing)
 }
 

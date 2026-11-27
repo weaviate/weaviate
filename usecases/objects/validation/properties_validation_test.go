@@ -24,8 +24,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authzmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -141,7 +145,7 @@ func TestValidator_extractAndValidateProperty(t *testing.T) {
 				exists: tt.fields.exists,
 				config: tt.fields.config,
 			}
-			got, err := v.extractAndValidateProperty(tt.args.ctx, tt.args.propertyName, tt.args.pv, tt.args.className, tt.args.dataType, "")
+			got, err := v.extractAndValidateProperty(tt.args.ctx, tt.args.propertyName, tt.args.pv, tt.args.className, tt.args.dataType, "", nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validator.extractAndValidateProperty() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -155,6 +159,111 @@ func TestValidator_extractAndValidateProperty(t *testing.T) {
 
 func getDataType(dataType schema.DataType) *schema.DataType {
 	return &dataType
+}
+
+func TestParseAndValidateSingleRefAuthorizesTarget(t *testing.T) {
+	const refID = "8e555f0d-8590-48c2-a9a6-70772ed14c0a"
+	type probe struct{ class, tenant string }
+	tests := []struct {
+		name        string
+		principal   *models.Principal
+		qualifier   namespacing.Qualifier
+		sourceClass string
+		beacon      string
+		refTargets  []string
+		deny        []string
+		missingIn   string
+		tenantRetry bool
+		wantForbid  bool
+		wantAuth    [][]string
+		wantProbed  []probe
+		wantBeacon  string
+	}{
+		{
+			name:        "qualified namespace target",
+			principal:   &models.Principal{Username: "writer", Namespace: "customer1"},
+			qualifier:   wlnamespaces.NewPrefixing(),
+			sourceClass: "customer1:Zoo",
+			beacon:      "weaviate://localhost/Animal/" + refID,
+			wantAuth:    [][]string{authorization.ShardsData("customer1:Animal", "tenantA")},
+			wantProbed:  []probe{{"customer1:Animal", "tenantA"}},
+			wantBeacon:  "weaviate://localhost/Animal/" + refID,
+		},
+		{
+			// Denying every collection pins that only the property's targets are needed.
+			name:        "classless target is checked in the property's targets",
+			sourceClass: "Source",
+			beacon:      "weaviate://localhost/" + refID,
+			refTargets:  []string{"Alpha", "Beta"},
+			deny:        authorization.ShardsData("", ""),
+			missingIn:   "Alpha",
+			wantAuth: [][]string{append(authorization.ShardsData("Alpha", ""),
+				authorization.ShardsData("Beta", "")...)},
+			wantProbed: []probe{{"Alpha", "tenantA"}, {"Beta", "tenantA"}},
+			wantBeacon: "weaviate://localhost/" + refID,
+		},
+		{
+			name:        "denied target is not probed",
+			sourceClass: "Zoo",
+			beacon:      "weaviate://localhost/Animal/" + refID,
+			deny:        authorization.ShardsData("Animal", "tenantA"),
+			wantForbid:  true,
+			wantAuth:    [][]string{authorization.ShardsData("Animal", "tenantA")},
+		},
+		{
+			name:        "denied tenantless retry is not probed",
+			sourceClass: "Zoo",
+			beacon:      "weaviate://localhost/Animal/" + refID,
+			deny:        authorization.ShardsData("Animal", ""),
+			tenantRetry: true,
+			wantForbid:  true,
+			wantAuth: [][]string{
+				authorization.ShardsData("Animal", "tenantA"),
+				authorization.ShardsData("Animal", ""),
+			},
+			wantProbed: []probe{{"Animal", "tenantA"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.qualifier == nil {
+				tc.qualifier = namespacing.Disabled
+			}
+			authorizer := authzmocks.NewMockAuthorizer()
+			authorizer.Deny(tc.deny...)
+			var probed []probe
+			validator := &Validator{
+				principal:  tc.principal,
+				qualifier:  tc.qualifier,
+				authorizer: authorizer,
+				exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, tenant string) (bool, error) {
+					probed = append(probed, probe{class, tenant})
+					if tc.tenantRetry && tenant != "" {
+						return false, fmt.Errorf("class %s %w", class, enterrors.ErrTenantForNonMultiTenantClass)
+					}
+					return class != tc.missingIn, nil
+				},
+			}
+
+			ref, err := validator.parseAndValidateSingleRef(context.Background(), "hasTarget",
+				map[string]interface{}{"beacon": tc.beacon}, tc.sourceClass, "tenantA", tc.refTargets)
+			if tc.wantForbid {
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, strfmt.URI(tc.wantBeacon), ref.Beacon)
+			}
+			require.Equal(t, tc.wantProbed, probed)
+
+			var gotAuth [][]string
+			for _, call := range authorizer.Calls() {
+				require.Equal(t, authorization.READ, call.Verb)
+				gotAuth = append(gotAuth, call.Resources)
+			}
+			require.Equal(t, tc.wantAuth, gotAuth)
+		})
+	}
 }
 
 func TestProperties(t *testing.T) {
@@ -213,9 +322,13 @@ func TestProperties(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			validator := &Validator{qualifier: namespacing.Disabled, exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
-				return true, nil
-			}}
+			validator := &Validator{
+				authorizer: &authorization.DummyAuthorizer{},
+				qualifier:  namespacing.Disabled,
+				exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
+					return true, nil
+				},
+			}
 			gotErr := validator.properties(context.Background(), spec.class, spec.obj, nil)
 			if spec.expErr {
 				require.Error(t, gotErr)
@@ -276,6 +389,7 @@ func TestProperties_MultiTargetClasslessBeacon(t *testing.T) {
 			counter := &countingRefCounter{}
 			v := &Validator{
 				config:     &config.WeaviateConfig{Config: tt.config},
+				authorizer: &authorization.DummyAuthorizer{},
 				qualifier:  tt.qualifier,
 				refCounter: counter,
 				exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
@@ -299,7 +413,7 @@ func TestProperties_MultiTargetClasslessBeacon(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, []string{""}, existsClasses)
+			assert.Equal(t, []string{"Alpha"}, existsClasses)
 		})
 	}
 }

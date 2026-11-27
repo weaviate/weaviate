@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -102,7 +103,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.qualifier, m.metrics)
+		principal, m.authorizer, m.qualifier, m.metrics)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -125,9 +126,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
-		// A classless beacon on a multi-target prop would reach
-		// validateExistence with Class=="", which scans every collection, other
-		// namespaces' included. With namespaces on, no DELETE could remove it.
+		// With namespaces on, no DELETE could remove a stored classless beacon.
 		if parsedTargetRefs[i].Class == "" {
 			if err := validation.CheckMultiTargetRefWithoutClass(m.config, m.metrics); err != nil {
 				return &Error{err.Error(), StatusBadRequest, err}
@@ -145,16 +144,32 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			input.Refs[i].Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, parsedTargetRefs[i].TargetID).String())
 		}
 
+		propertyTargets, typedErr := refPropertyTargets(class, input.Property)
+		if typedErr != nil {
+			return typedErr
+		}
+		targetClasses, targetTenant := validation.ReferenceTargetScope(parsedTargetRefs[i].Class, propertyTargets, tenant)
 		// only check authZ once per class/tenant combination
-		checkName := parsedTargetRefs[i].Class + "#" + tenant
-		if _, ok := previouslyAuthorized[checkName]; !ok {
-			if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, tenant)...); err != nil {
-				return &Error{err.Error(), StatusForbidden, err}
+		var unauthorized []string
+		for _, targetClass := range targetClasses {
+			if _, ok := previouslyAuthorized[targetClass+"#"+targetTenant]; !ok {
+				unauthorized = append(unauthorized, targetClass)
 			}
-			previouslyAuthorized[checkName] = struct{}{}
+		}
+		if len(unauthorized) > 0 {
+			if err := m.authorizer.Authorize(ctx, principal, authorization.READ,
+				validation.ReferenceTargetResources(unauthorized, targetTenant)...); err != nil {
+				return referenceAuthorizationError(err)
+			}
+			for _, targetClass := range unauthorized {
+				previouslyAuthorized[targetClass+"#"+targetTenant] = struct{}{}
+			}
 		}
 
-		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
+		if err := validator.ValidateExistenceIn(ctx, parsedTargetRefs[i], targetClasses, "validate reference", tenant); err != nil {
+			if errors.As(err, &autherrs.Forbidden{}) || validation.IsReferenceAuthorizationError(err) {
+				return referenceAuthorizationError(err)
+			}
 			if errors.Is(err, replicaerrors.ErrReplicas) {
 				return &Error{"validate existence", StatusInternalServerError, err}
 			}
@@ -196,13 +211,6 @@ func (req *PutReferenceInput) validate(v *validation.Validator, class *models.Cl
 	}
 
 	return refs, validateReferenceSchema(class, req.Property)
-}
-
-func (req *PutReferenceInput) validateExistence(
-	ctx context.Context,
-	v *validation.Validator, tenant string, ref *crossref.Ref,
-) error {
-	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
 }
 
 func validateReferenceSchema(c *models.Class, property string) error {
