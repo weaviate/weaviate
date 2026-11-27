@@ -574,6 +574,15 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
 
 	p.writeMu.Lock()
 	based, err := p.admit(ids, vectors)
+	if err == nil {
+		// A doc id the index holds is left out: the batch is a replay of the
+		// queue, or a conflict, logged (persistent_replay.go).
+		ids, vectors = p.leaveOutReplayed(ids, vectors)
+		if len(ids) == 0 {
+			p.writeMu.Unlock()
+			return nil
+		}
+	}
 	if err != nil || !based {
 		defer p.writeMu.Unlock()
 		if err != nil {
@@ -613,10 +622,10 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
 // insertWindow is how many inserts of a caller search before they write.
 const insertWindow = 4
 
-// admit checks a batch before any of it goes in: its dimensions, its values,
-// and that none of its doc ids is taken, in the index or twice in the batch.
-// It gives the index room for its doc ids, and tells whether the index has
-// its base. The caller holds writeMu.
+// admit checks a batch before any of it goes in: its dimensions and its
+// values. The doc ids the index holds, or that come twice, are left out of it
+// afterwards (leaveOutReplayed). It gives the index room for its doc ids, and
+// tells whether the index has its base. The caller holds writeMu.
 func (p *Persistent) admit(ids []uint64, vectors [][]float32) (based bool, err error) {
 	if err := p.usable(); err != nil {
 		return false, err
@@ -628,7 +637,6 @@ func (p *Persistent) admit(ids []uint64, vectors [][]float32) (based bool, err e
 	if dims == 0 {
 		return false, errors.New("cannot add a vector without dimensions")
 	}
-	batch := make(map[uint64]struct{}, len(ids))
 	for i, vec := range vectors {
 		id := ids[i]
 		if id >= maxVectors {
@@ -641,11 +649,6 @@ func (p *Persistent) admit(ids []uint64, vectors [][]float32) (based bool, err e
 		if err := checkValues(vec); err != nil {
 			return false, errors.Wrapf(err, "vector of id %d", id)
 		}
-		_, repeated := batch[id]
-		if repeated || p.placed(id) {
-			return false, errors.Wrapf(ErrNotSupported, "id %d was already added, updating a vector", id)
-		}
-		batch[id] = struct{}{}
 	}
 	p.dims.Store(int32(dims))
 	if p.g == nil {
@@ -719,8 +722,10 @@ func (p *Persistent) write(ctx context.Context, g *growIndex, plan *growPlan) er
 		return err
 	}
 	if p.placed(plan.docID) {
-		// Another caller gave the doc id since this one was let in.
-		return errors.Wrapf(ErrNotSupported, "id %d was already added, updating a vector", plan.docID)
+		// Another caller gave the doc id since this one was let in: the
+		// later one is left out, as a replay or a conflict.
+		p.leaveOutPlaced(plan.docID, plan.vector)
+		return nil
 	}
 	if err := g.insertable(plan.docID, plan.vector); err != nil {
 		return err

@@ -153,8 +153,11 @@ func TestPersistentBuildsItsBaseInTheBackground(t *testing.T) {
 	add(base, base+150)
 	remove(5, 17, base+3)
 	// The base that is being built may hold a vector that was deleted
-	// since: its doc id is not given again until the base is the index.
-	require.ErrorIs(t, f.index.Add(ctx, 5, f.vectors[5]), ErrNotSupported)
+	// since: its doc id is not given again until the base is the index. Given
+	// again, it is left out, as the replay of its insert it is
+	// (persistent_replay.go).
+	require.NoError(t, f.index.Add(ctx, 5, f.vectors[5]))
+	require.False(t, f.index.ContainsDoc(5), "doc 5 stays deleted")
 	exact("while the base is built", base+150)
 	crashNow("while the base is built", base+150, true)
 	steps.proceed <- struct{}{}
