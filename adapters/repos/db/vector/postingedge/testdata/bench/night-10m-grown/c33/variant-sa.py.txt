@@ -1,0 +1,24 @@
+# s3a: step 3 where the plan of a caller that adds alone keeps the budget of
+# its caller, and reads one at a time only next to other callers. Applied to
+# persistent_batches.go of a worktree at step 3.
+import sys
+path = sys.argv[1]
+text = open(path).read()
+def sub(old, new):
+    global text
+    assert text.count(old) == 1, old
+    text = text.replace(old, new)
+sub("\tsize    int\n\tjoined  func()\n",
+    "\t// callers counts the calls that are adding now: a call that adds alone\n"
+    "\t// searches with the budget of its caller.\n"
+    "\tcallers int\n\tsize    int\n\tjoined  func()\n")
+sub("\tentries := make([]*batchEntry, 0, len(ids))\n\tvar err error\n\tfor from := 0; from < len(ids) && err == nil; from += insertWindow {\n",
+    "\tentries := make([]*batchEntry, 0, len(ids))\n\tvar err error\n"
+    "\tp.batches.mu.Lock()\n\tp.batches.callers++\n\tp.batches.mu.Unlock()\n"
+    "\tdefer func() {\n\t\tp.batches.mu.Lock()\n\t\tp.batches.callers--\n\t\tp.batches.mu.Unlock()\n\t}()\n"
+    "\tfor from := 0; from < len(ids) && err == nil; from += insertWindow {\n")
+sub("\tb.planning++\n\tb.mu.Unlock()\n",
+    "\tb.planning++\n\talone := b.callers == 1\n\tb.mu.Unlock()\n")
+sub("\tplanCtx := concurrency.CtxWithBudget(ctx, 1)\n\tentries := make([]*batchEntry, 0, len(ids))\n",
+    "\tplanCtx := ctx\n\tif !alone {\n\t\tplanCtx = concurrency.CtxWithBudget(ctx, 1)\n\t}\n\tentries := make([]*batchEntry, 0, len(ids))\n")
+open(path, "w").write(text)

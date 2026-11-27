@@ -1198,6 +1198,42 @@ Una corrida de cada una. Todas hacen el mismo trabajo por insert: 93.9 postings 
 - **No cambio la regla.** Con lo que salga doy las dos tablas, en frío y en caliente, y mi recomendación, y decide el usuario.
 - **Para esto paro la cadena,** que iba por la primera corrida del paso 4, y la relanzo detrás: estas corridas son de la medida que el usuario puso primero.
 
+#### Resultados de la enmienda 2 (de 14:57 a 15:14): el paso 1, con todo
+
+**En caliente el paso 1 vale un 3 o un 4 %, medido dos veces. En frío hace daño: a un llamador solo lo deja en la mitad. Por mi regla no se queda ni sale, y decide el usuario. Mi recomendación es quitarlo.**
+
+**En caliente, con las segundas corridas** (inserts por segundo):
+
+| código | 1 llamador | 8 llamadores | CPU por insert con 8, usuario + sistema |
+|---|---|---|---:|
+| cabeza | 85.7 | | |
+| pasos, con el paso 1 (`s`) | 89.0, 89.3 | 381.4, 387.1 | 13.8 + 0.5 ms |
+| pasos, sin el paso 1 (`sn`) | 85.6, 86.4 | 372.6, 374.5 | 15.3 + 1.3 ms |
+| reparto para quien va solo (`sa`) | 83.2 | 387.4 | 13.7 + 0.5 ms |
+
+- **Dos corridas iguales se separan un 1.5 % o menos,** así que la diferencia es real y pequeña: `s` sobre `sn`, +3.7 % con un llamador y +2.9 % con 8.
+- **El reparto gasta más CPU:** 16.6 ms por insert frente a 14.3 con 8 llamadores, un 16 % más, en núcleos que aquí estaban libres.
+- **`sa` no hace lo que debía:** con un llamador es `sn` (reparte), y sale igual o algo por debajo.
+
+**En frío** (inserts por segundo, y lo que cada corrida leyó de disco):
+
+| código | 1 llamador | 8 llamadores |
+|---|---|---|
+| cabeza, que reparte y no tiene tandas | 68.8 (43.6 GB) | |
+| pasos, con el paso 1 (`s`) | 38.1 (45.1 GB) | 215.1 (36.8 GB); 278.7 (16.5 GB) |
+| pasos, sin el paso 1 (`sn`) | 80.3 (12.0 GB) | 322.8 (12.8 GB) |
+
+- **«En frío» no fue igual de frío en todas.** Las dos primeras corridas leyeron 44 o 45 GB de disco. Las de después, sobre clones nuevos, leyeron entre 12 y 17: los clones comparten bloques con el original y, tras las corridas en caliente, parte de esos bloques seguía en memoria. **Solo son comparables entre sí las que leyeron parecido.**
+- **La pareja limpia, con todo en disco:** un llamador, 68.8 con reparto (la cabeza) y 38.1 leyendo en línea. El paso 1 le quita el 45 %.
+- **Con 8 llamadores, a medio enfriar:** 322.8 sin el paso 1 frente a 278.7 con él, un 16 % más, leyendo algo menos de disco. Apunta en el mismo sentido, pero no es una pareja limpia.
+- **Falta la celda limpia con 8 llamadores.** La mido al acabar la cadena en curso, vaciando antes la caché de disco con la lectura de otros ficheros hasta que la corrida lea lo que leyeron las dos primeras: `s` y `sn` con 8, y `sn` con 1. Hasta entonces conservo el índice de la noche, que es el origen de los clones.
+
+**Mi recomendación (*mío*): quitar el paso 1, es decir, que los planes de los inserts conserven el presupuesto de quien llama.**
+- No llega al 5 % en ninguna celda en caliente, pierde un 4.4 % con un llamador a 100k y deja a un llamador en la mitad con el disco frío, que es como lee un índice que no cabe en la caché.
+- Lo que se pierde al quitarlo: un 3 o 4 % de inserts por segundo en caliente y un 16 % más de CPU por insert.
+- La alternativa es `sa` hecha bien (reparto solo para quien va solo): gana ese 3 % con varios llamadores en caliente y evita la caída del llamador solo en frío, a cambio de una regla más y de no repartir con varios llamadores en frío. La celda limpia que falta dice cuánto cuesta eso.
+- El camino de lectura en línea para un presupuesto de 1 se queda en cualquier caso: lo usa quien llama con ese presupuesto.
+
 **Cuánto tardaría 10M con 8 llamadores (lo que pidió el usuario).**
 - **Unas 8 horas, entre 7 y 9.** La noche, con el código de la cabeza, tardó 8.8 h en llegar a 3.3M, y su coste por insert crecía unos 2.3 ms cada vez que el índice se multiplicaba por e: 11.4 ms a 3.3M, unos 14 a 10M, y 12.8 de media en el tramo. Los 6.7M que faltan serían 23.8 h más: 32.6 h en total con ese código.
 - El código de los pasos con 8 llamadores va 3.6 veces más deprisa a 100k y 4.4 veces a 3.3M. Con 4 veces de media, 8.1 h; con 4.4, 7.4.

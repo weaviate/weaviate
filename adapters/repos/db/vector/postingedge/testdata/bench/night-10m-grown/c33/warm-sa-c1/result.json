@@ -1,0 +1,363 @@
+{
+  "callers": 1,
+  "diskBytesRead": 346529792,
+  "diskBytesWritten": 4386414592,
+  "filesGrownByClass": {
+    "centroid graph commit log": 28027,
+    "exact vectors of the inserts": 61440000,
+    "journal": 42870832,
+    "lsmkv WAL": 70462040,
+    "lsmkv compaction (level 1 and up)": 6275331467,
+    "lsmkv flush (level 0 segments)": 81881294,
+    "other: centroids.f32": 509952
+  },
+  "filesGrownTotal": 6532523612,
+  "from": 3301200,
+  "generationAfter": 9,
+  "generationBefore": 9,
+  "heapInuseBefore": 2065842176,
+  "inserted": 20000,
+  "journalBytes": 73515079,
+  "journalRecords": 5000,
+  "liveAfter": 3331508,
+  "liveBefore": 3311508,
+  "looks": 483,
+  "openSeconds": 4.755163209,
+  "pageins": 1272,
+  "perSecond": 83.15818462622556,
+  "postingsAfter": 26725,
+  "postingsBefore": 26559,
+  "rusageAfter": {
+    "diskBytesRead": 347537408,
+    "diskBytesWritten": 4457451520,
+    "pageins": 1272,
+    "physFootprint": 4902763136,
+    "userNs": 276561514291,
+    "systemNs": 25190641291
+  },
+  "rusageBefore": {
+    "diskBytesRead": 1007616,
+    "diskBytesWritten": 71036928,
+    "pageins": 0,
+    "physFootprint": 1907580480,
+    "userNs": 4608660083,
+    "systemNs": 482726833
+  },
+  "seconds": 240.50549070900001,
+  "skipped": 10308,
+  "statsAfter": {
+    "inserted": 20000,
+    "splits": 83,
+    "splitsFailed": 0,
+    "inverseChecks": 229061,
+    "inverseEdges": 123217,
+    "inversePostings": 92658,
+    "inverseListReads": 81,
+    "searchLoads": 1877968,
+    "searchRounds": 464493,
+    "searchRows": {
+      "n": 3755936,
+      "bytes": 79839809852
+    },
+    "searchVectors": {
+      "n": 3000000,
+      "bytes": 9216000000
+    },
+    "inverseDistReads": {
+      "n": 194822,
+      "bytes": 8771488
+    },
+    "inverseVectorReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowReads": {
+      "n": 166,
+      "bytes": 4720501
+    },
+    "splitVectorReads": {
+      "n": 29963,
+      "bytes": 92046336
+    },
+    "memberRow": {
+      "n": 20000,
+      "bytes": 2240000
+    },
+    "memberMap": {
+      "n": 20000,
+      "bytes": 80000
+    },
+    "memberRouting": {
+      "n": 20000,
+      "bytes": 1440000
+    },
+    "memberVector": {
+      "n": 20000,
+      "bytes": 61440000
+    },
+    "ownEdges": {
+      "n": 0,
+      "bytes": 0
+    },
+    "ownDists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseLists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseTombstones": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseDistWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowWrites": {
+      "n": 29963,
+      "bytes": 3355856
+    },
+    "splitMapWrites": {
+      "n": 29963,
+      "bytes": 119852
+    },
+    "splitCentroidWrites": {
+      "n": 166,
+      "bytes": 509952
+    },
+    "storeSearchReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeInverseReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeSplitReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWrites": {
+      "n": 1324,
+      "bytes": 18540878
+    },
+    "rowWritesFull": 1158,
+    "rowWritesSplit": 166,
+    "rowWritesClose": 0,
+    "rowWritesBudget": 0,
+    "rowReads": {
+      "n": 1158,
+      "bytes": 16617242
+    },
+    "rowTombstones": {
+      "n": 1158,
+      "bytes": 16617242
+    },
+    "rowDistWrites": {
+      "n": 74447,
+      "bytes": 3573316
+    },
+    "rowDeletes": 83,
+    "storeRowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "pendingPeakMembers": 429862,
+    "pendingPeakBytes": 40145056,
+    "pendingPeakPostings": 13165,
+    "pendingLogWrites": {
+      "n": 143217,
+      "bytes": 13844337
+    },
+    "haloAdded": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloRows": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "routingReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloTrims": 0,
+    "haloTrimmed": {
+      "n": 0,
+      "bytes": 0
+    },
+    "assignNs": 1343756426,
+    "searchNs": 232901770257,
+    "writeNs": 713834099,
+    "inverseNs": 1289390182,
+    "splitNs": 319336878,
+    "cycleNs": 1124,
+    "rowNs": 92144845,
+    "searchPhaseNs": 0,
+    "applyPhaseNs": 0,
+    "staleLists": 81
+  },
+  "statsBefore": {
+    "inserted": 0,
+    "splits": 0,
+    "splitsFailed": 0,
+    "inverseChecks": 0,
+    "inverseEdges": 0,
+    "inversePostings": 0,
+    "inverseListReads": 0,
+    "searchLoads": 0,
+    "searchRounds": 0,
+    "searchRows": {
+      "n": 0,
+      "bytes": 0
+    },
+    "searchVectors": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseDistReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseVectorReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitVectorReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "memberRow": {
+      "n": 0,
+      "bytes": 0
+    },
+    "memberMap": {
+      "n": 0,
+      "bytes": 0
+    },
+    "memberRouting": {
+      "n": 0,
+      "bytes": 0
+    },
+    "memberVector": {
+      "n": 0,
+      "bytes": 0
+    },
+    "ownEdges": {
+      "n": 0,
+      "bytes": 0
+    },
+    "ownDists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseLists": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseTombstones": {
+      "n": 0,
+      "bytes": 0
+    },
+    "inverseDistWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitRowWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitMapWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "splitCentroidWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeSearchReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeInverseReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "storeSplitReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowWritesFull": 0,
+    "rowWritesSplit": 0,
+    "rowWritesClose": 0,
+    "rowWritesBudget": 0,
+    "rowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowTombstones": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowDistWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "rowDeletes": 0,
+    "storeRowReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "pendingPeakMembers": 376667,
+    "pendingPeakBytes": 35106064,
+    "pendingPeakPostings": 13027,
+    "pendingLogWrites": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloAdded": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloRows": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "routingReads": {
+      "n": 0,
+      "bytes": 0
+    },
+    "haloTrims": 0,
+    "haloTrimmed": {
+      "n": 0,
+      "bytes": 0
+    },
+    "assignNs": 0,
+    "searchNs": 0,
+    "writeNs": 0,
+    "inverseNs": 0,
+    "splitNs": 0,
+    "cycleNs": 0,
+    "rowNs": 0,
+    "searchPhaseNs": 0,
+    "applyPhaseNs": 0
+  }
+}

@@ -1,0 +1,30 @@
+#!/bin/bash
+# The compile window after r100/chain.sh: the binaries of the 3.3M inserts
+# with the steps (the steps, without step 1, and with the fan-out for a
+# caller alone, all at the head of m2 local, 78c3a9f051, with the harness of
+# the night) and the two variants of step 1 over step 3 for 100k. Never run
+# while a timed session is on.
+set -eu
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+[ -e $S/timed-session.lock ] && { echo "a timed session is on"; exit 1; }
+M=$S/m2data
+PKG=adapters/repos/db/vector/postingedge
+build() { (cd $1 && go test -c -tags postingedgebench -trimpath -o $2 ./$PKG/) && echo "built $2"; }
+[ -d $S/night-s ] || git -C $M worktree add -q --detach $S/night-s 78c3a9f051
+cp $S/night/$PKG/bench_night_continue_test.go $S/night/$PKG/bench_night_grow_test.go $S/night-s/$PKG/
+build $S/night-s $S/night10m/continue-s.test
+cp $S/night-s/$PKG/persistent_batches.go $S/night10m/persistent_batches.s
+python3 -I -B $S/r100/variants/s3n.py $S/night-s/$PKG/persistent_batches.go
+build $S/night-s $S/night10m/continue-sn.test
+cp $S/night10m/persistent_batches.s $S/night-s/$PKG/persistent_batches.go
+python3 -I -B $S/r100/variants/s3a.py $S/night-s/$PKG/persistent_batches.go
+build $S/night-s $S/night10m/continue-sa.test
+cp $S/night10m/persistent_batches.s $S/night-s/$PKG/persistent_batches.go
+(cd $S/r100/s3 && { git ls-files --others --exclude-standard; git diff --name-only; }) > $S/r100/harness.files
+for v in s3n s3a; do
+  [ -d $S/r100/$v ] || git -C $M worktree add -q --detach $S/r100/$v 0918406a29
+  rsync -a --files-from=$S/r100/harness.files $S/r100/s3/ $S/r100/$v/
+  python3 -I -B $S/r100/variants/$v.py $S/r100/$v/$PKG/persistent_batches.go
+  build $S/r100/$v $S/r100/$v-w.test
+done
+date "+== %H:%M:%S built"

@@ -1,0 +1,15 @@
+# s3n: the batches with the plans of the inserts as before step 1, with the
+# budget of their caller. Applied to persistent_batches.go of a worktree at
+# step 3 or later.
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old1 = "\tplanCtx := concurrency.CtxWithBudget(ctx, 1)\n\tentries := make([]*batchEntry, 0, len(ids))\n"
+new1 = "\tplanCtx := ctx\n\tentries := make([]*batchEntry, 0, len(ids))\n"
+old2 = "\tplanCtx := concurrency.CtxWithBudget(context.WithoutCancel(ctx), 1)\n\tp.writeMu.Lock()\n"
+new2 = "\tplanCtx := context.WithoutCancel(ctx)\n\tp.writeMu.Lock()\n"
+assert text.count(old1) == 1 and text.count(old2) == 1
+text = text.replace(old1, new1).replace(old2, new2)
+if "concurrency." not in text:
+    text = text.replace('\t"github.com/weaviate/weaviate/entities/concurrency"\n', "")
+open(path, "w").write(text)

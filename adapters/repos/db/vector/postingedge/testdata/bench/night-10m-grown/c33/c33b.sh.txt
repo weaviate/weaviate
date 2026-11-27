@@ -1,0 +1,49 @@
+#!/bin/bash
+# The 20 000 inserts on the 3.3M index with the code of the steps
+# (bench-report.md of feat/posting-edge-index, 2026-11-27, "Si los pasos
+# hacen viable el insert a 10M" and its amendment): each run on an APFS clone
+# of its own of the index the night left, which is removed after the run;
+# the original index is not opened. Cold, as the run of the head was, and
+# warm, with every file of the clone read once before the index opens.
+# Binaries, built before (this never builds): continue.test (the head,
+# c6c8b2e347), continue-s.test (m2 local with the steps), continue-sn.test
+# (the same without step 1) and continue-sa.test (the fan-out for a caller
+# alone).
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+N=$S/night10m
+D=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+mkdir -p $N/c33
+run() { # name binary worktree callers warm trace
+  local name=$1 bin=$N/$2 tree=$3 callers=$4 warm=$5 trace=$6
+  local C=$N/c33/$name
+  mkdir -p $C
+  cp -c -R $N/index $C/index || exit 3
+  if [ $warm = 1 ]; then
+    find $C/index -type f -exec cat {} + > /dev/null
+  fi
+  local flags="-test.cpuprofile $C/cpu.prof"
+  [ $trace = 1 ] && flags="$flags -test.trace $C/trace.out"
+  date "+== %H:%M:%S $name: $2, $callers callers, warm $warm"
+  (cd $tree/adapters/repos/db/vector/postingedge && PE_DATASET=$D PE_DIR=$C/index PE_OUT=$C/result.json \
+    PE_N=20000 PE_FROM=3301200 PE_CALLERS=$callers \
+    $bin -test.run '^TestNightContinue$' -test.v -test.timeout 0 $flags > $C/run.log 2>&1)
+  echo "$name exit $?"
+  if [ $trace = 1 ]; then
+    go tool trace -pprof=syscall $C/trace.out > $C/syscall.pprof 2>/dev/null
+    go tool trace -pprof=sync $C/trace.out > $C/sync.pprof 2>/dev/null
+    find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/night10m/c33 -type f -name trace.out -exec rm -f {} +
+  fi
+  # The clone of a run is not kept: its results are.
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/night10m/c33 -type d -name index -prune -exec rm -rf {} +
+}
+
+# Amendment 2: the cells that were missing to decide step 1, and second runs.
+run cold-sn-c1 continue-sn.test $S/night-s 1 0 0
+run cold-sn-c8 continue-sn.test $S/night-s 8 0 0
+run cold-s-c8-r2 continue-s.test $S/night-s 8 0 0
+run warm-s-c1-r2 continue-s.test $S/night-s 1 1 0
+run warm-sn-c1-r2 continue-sn.test $S/night-s 1 1 0
+run warm-s-c8-r2 continue-s.test $S/night-s 8 1 0
+run warm-sn-c8-r2 continue-sn.test $S/night-s 8 1 0
+date "+== %H:%M:%S done"
