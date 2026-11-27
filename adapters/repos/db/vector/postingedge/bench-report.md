@@ -1573,6 +1573,14 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 
 **Dónde va en el orden** (*mío*, si el usuario no dice otra cosa): números del 10M, borrar `tenm` y `codes/`, propagación, esta pasada, tablas por docID.
 
+**Enmienda 1 (27 de noviembre a las 21:41, con el código escrito y antes de compilarlo).** Cuatro cosas del pre-registro eran inexactas, y una se añade.
+- **`m2` ya lleva el arreglo de #13944** (`c0e54c57c3` está en su historia). Lo di por ausente sin mirar. El código que se mide es `m2` con la serie más los relojes y contadores, nada más. El binario que hace crecer el 10M también lo lleva; la orden de no activarle perfiles de bloqueo ni de mutex se cumple igual.
+- **Qué va apagado y qué no.** Los relojes de los llamadores, las cuentas de trabajo de cada plan y los contadores del store no existen salvo que el arnés los pida. Lo que añado a `growStats` va siempre, como los relojes que ya tenía: unas sumas por insert, y dos lecturas de reloj por registro del diario y por sync.
+- **El control con `m2` sin tocar** usa el mismo arnés: lo que solo tiene la rama de diagnóstico está tras un fichero que en `m2` no hace nada. Además se corre el binario de diagnóstico con los relojes apagados.
+- **Los bytes de volcados y de compactación no salen de contadores del store** sino de vigilar los ficheros por clase, como en las corridas a 3.3M: diario, vectores, WAL, segmentos de nivel 0 y segmentos de nivel 1 en adelante. En el store solo cuento los segmentos que consulta cada lectura.
+- **Se añade a 100k una pasada con 20 000 filas nuevas,** que a ese tamaño sí hay, junto a la de filas repetidas. Es la comparación directa de lo que cuesta insertar una fila repetida frente a una nueva, con el mismo umbral del 5 %.
+- **Del monitor de fuera:** el tiempo «ejecutable» que el sistema cuenta al proceso incluye el tiempo corriendo (comprobado con un hilo ocupado: 2.49 s de usuario y 2.50 ejecutables). Los hilos listos sin core son esa cifra menos la CPU de usuario y de sistema: 0.29 hilos en el tramo de las 21:27.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

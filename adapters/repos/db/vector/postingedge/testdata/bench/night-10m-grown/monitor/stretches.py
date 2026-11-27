@@ -73,7 +73,10 @@ for st in grow["stretches"]:
         mean = lambda f: sum(f(m) for m in inside) / len(inside)
         page = b["vm"]["pageSize"]
         row.update({
-            "| ready": "%.2f" % (r("runnable_time_ns") / 1e9 / mdt),
+            # The runnable time the system counts includes the time running
+            # (checked on a busy thread: 2.49 s of user, 2.50 runnable): what
+            # is left is the threads ready with no core.
+            "| ready": "%.2f" % ((r("runnable_time_ns") - r("user_time_ns") - r("system_time_ns")) / 1e9 / mdt),
             "Minstr/ins": "%.0f" % (r("instructions") / 1e6 / n * dt / mdt),
             "Mcyc/ins": "%.0f" % (r("cycles") / 1e6 / n * dt / mdt),
             "IPC": "%.2f" % (r("instructions") / max(1, r("cycles"))),
