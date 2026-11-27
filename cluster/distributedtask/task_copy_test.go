@@ -229,7 +229,9 @@ func TestUpdateTaskCopyCostFollowsChanges(t *testing.T) {
 	for i := range ids {
 		ids[i] = fmt.Sprintf("u%d", i)
 	}
-	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: copyNamespace, Id: "big", UnitIds: ids}), 1))
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace: copyNamespace, Id: "big", Payload: []byte(`{"collection":"C"}`), UnitIds: ids,
+	}), 1))
 	var c TaskCopy
 	require.NoError(t, m.UpdateTaskCopy(&c))
 
@@ -249,7 +251,9 @@ func TestUpdateTaskCopyCostFollowsChanges(t *testing.T) {
 
 func TestTaskCopyDropsRestoredAndCleanedTasks(t *testing.T) {
 	add := func(t *testing.T, m *Manager, id string) {
-		require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: copyNamespace, Id: id, UnitIds: []string{"u"}}), 1))
+		require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace: copyNamespace, Id: id, Payload: []byte(`{"collection":"C"}`), UnitIds: []string{"u"},
+		}), 1))
 	}
 	for _, tt := range []struct {
 		name   string

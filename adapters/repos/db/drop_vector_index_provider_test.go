@@ -1513,9 +1513,18 @@ func activeDropTask(id, collection string, targets ...string) *distributedtask.T
 	}
 }
 
+// headerOf is the header the Manager hands CheckConflict for payload.
+func headerOf(t *testing.T, decoder distributedtask.HeaderDecoder, payload []byte) distributedtask.TaskHeader {
+	t.Helper()
+	header, err := decoder.DecodeHeader(payload)
+	require.NoError(t, err)
+	return header
+}
+
 func TestCheckConflict(t *testing.T) {
 	p := NewDropVectorIndexDetector(logrus.New())
-	newPayload, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}, OpID: "new"}).encode()
+	enc, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}, OpID: "new"}).encode()
+	newPayload := headerOf(t, p, enc)
 
 	t.Run("overlapping target same collection conflicts", func(t *testing.T) {
 		err := p.CheckConflict(newPayload, []*distributedtask.Task{activeDropTask("t1", "C", "v1", "v2")})
@@ -1738,7 +1747,7 @@ func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := p.CheckConflict(tt.payload, tt.tasks)
+			err := p.CheckConflict(headerOf(t, p, tt.payload), tt.tasks)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 			} else {
@@ -2309,17 +2318,16 @@ func TestCheckConflict_SkipsCorruptActiveTask(t *testing.T) {
 		Payload:   []byte("not json"),
 		Status:    distributedtask.TaskStatusStarted,
 	}
-	require.NoError(t, p.CheckConflict(newPayload, []*distributedtask.Task{corrupt}))
+	require.NoError(t, p.CheckConflict(headerOf(t, p, newPayload), []*distributedtask.Task{corrupt}))
 }
 
-func TestExtractDropVectorIndexTaskCollection(t *testing.T) {
+func TestDropVectorIndexHeaderCollection(t *testing.T) {
+	p := NewDropVectorIndexDetector(logrus.New())
 	enc, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v"}, OpID: "op"}).encode()
-	got, ok := ExtractDropVectorIndexTaskCollection(enc)
-	require.True(t, ok)
-	require.Equal(t, "C", got)
+	require.Equal(t, "C", headerOf(t, p, enc).Collection())
 
-	_, ok = ExtractDropVectorIndexTaskCollection([]byte("not json"))
-	require.False(t, ok)
+	_, err := p.DecodeHeader([]byte("not json"))
+	require.Error(t, err)
 }
 
 func TestExtractDropVectorIndexTaskTargets(t *testing.T) {

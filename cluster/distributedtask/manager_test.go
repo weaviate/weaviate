@@ -33,12 +33,13 @@ import (
 
 type testHeader string
 
-func (h testHeader) Collection() string { return string(h) }
+func (h testHeader) Collection() string             { return string(h) }
+func (h testHeader) VisiblePayload() map[string]any { return nil }
 
 // decodeWith is a detector that only supplies headers, refusing nothing.
 type decodeWith func([]byte) (string, bool)
 
-func (d decodeWith) CheckConflict([]byte, []*Task) error { return nil }
+func (d decodeWith) CheckConflict(TaskHeader, []*Task) error { return nil }
 
 func (d decodeWith) DecodeHeader(payload []byte) (TaskHeader, error) {
 	if collection, ok := d(payload); ok {
@@ -55,10 +56,12 @@ type fakeConflictDetector struct {
 	rejectWith error
 }
 
-func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
+func (f *fakeConflictDetector) CheckConflict(_ TaskHeader, _ []*Task) error {
 	f.called++
 	return f.rejectWith
 }
+
+func (f *fakeConflictDetector) DecodeHeader([]byte) (TaskHeader, error) { return testHeader(""), nil }
 
 // TestManager_AddTask_ConflictDetector pins the cluster-wide
 // conflict-rejection hook integrated into [Manager.AddTask]. Closes
@@ -394,6 +397,43 @@ func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	assertTasks(t, expectedTasks, tasks)
 }
 
+// The task-list REST handler filters received tasks by their header, so a received copy must carry one.
+// A receiver holding the same task reuses its header instead of decoding the payload again.
+func TestManager_DecodeTaskListDerivesTheHeader(t *testing.T) {
+	add := toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", Payload: []byte("Foo"), UnitIds: []string{"u"}})
+	for _, tc := range []struct {
+		name        string
+		holdsTask   bool
+		wantDecodes int
+	}{
+		{name: "receiver without the task decodes it", wantDecodes: 1},
+		{name: "receiver holding the task reuses its header", holdsTask: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decodes := 0
+			newManager := func() *Manager {
+				return NewManager(ManagerParameters{ConflictDetectors: map[string]ConflictDetector{
+					"ns": decodeWith(func(p []byte) (string, bool) { decodes++; return string(p), len(p) > 0 }),
+				}})
+			}
+			leader := newManager()
+			require.NoError(t, leader.AddTask(add, 1))
+			raw, err := leader.ListDistributedTasksPayload(context.Background())
+			require.NoError(t, err)
+			receiver := newManager()
+			if tc.holdsTask {
+				require.NoError(t, receiver.AddTask(add, 1))
+			}
+
+			decodes = 0
+			received, err := receiver.DecodeTaskList(raw)
+			require.NoError(t, err)
+			require.Equal(t, TaskHeader(testHeader("Foo")), received["ns"][0].Header())
+			require.Equal(t, tc.wantDecodes, decodes)
+		})
+	}
+}
+
 func TestManager_SnapshotRestore(t *testing.T) {
 	var (
 		h   = newTestHarness(t).init(t)
@@ -544,6 +584,19 @@ func assertTask(t *testing.T, expected, actual *Task) {
 			assert.Equal(t, expectedSU.Error, actualSU.Error)
 		}
 	}
+}
+
+// addWithoutHeader inserts a task whose payload has no header, which AddTask refuses and only a snapshot still holds.
+func addWithoutHeader(t *testing.T, m *Manager, task *Task) {
+	t.Helper()
+	raw, err := m.Snapshot()
+	require.NoError(t, err)
+	s := snapshot{Tasks: map[string][]*Task{}}
+	require.NoError(t, json.Unmarshal(raw, &s))
+	s.Tasks[task.Namespace] = append(s.Tasks[task.Namespace], task)
+	raw, err = json.Marshal(&s)
+	require.NoError(t, err)
+	require.NoError(t, m.Restore(raw))
 }
 
 // addTaskWithUnits is a test helper that creates a task with the given units.
@@ -1542,6 +1595,13 @@ func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
 			h.conflictDetectors = map[string]ConflictDetector{"reindex": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 })}
 			h.init(t)
 			for collection, id := range idOf {
+				if collection == "" {
+					addWithoutHeader(t, h.manager, &Task{
+						Namespace: "reindex", TaskDescriptor: TaskDescriptor{ID: id, Version: 100}, Payload: []byte{},
+						Status: TaskStatusStarted, Units: map[string]*Unit{"u": {ID: "u", Status: UnitStatusPending}},
+					})
+					continue
+				}
 				require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 					Namespace: "reindex", Id: id, Payload: []byte(collection), UnitIds: []string{"u"},
 				}), 100))
@@ -1880,7 +1940,10 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		mkTask("foo-1", map[string]string{"collection": "Foo"})
 		mkTask("foo-2", map[string]string{"collection": "Foo"})
 		mkTask("bar-1", map[string]string{"collection": "Bar"})
-		mkTask("nope", "opaque-string")
+		addWithoutHeader(t, h.manager, &Task{
+			Namespace: "scoped", TaskDescriptor: TaskDescriptor{ID: "nope", Version: 1}, Payload: []byte(`"opaque-string"`),
+			Status: TaskStatusStarted, Units: map[string]*Unit{"u-nope": {ID: "u-nope", Status: UnitStatusPending}},
+		})
 
 		decodes = 0
 		removed := h.manager.DeleteTasksForCollection("Foo")
@@ -1965,7 +2028,14 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 			decode := decodeWith(func([]byte) (string, bool) { extracts++; return tc.extracted, tc.extractOK })
 			h.conflictDetectors = map[string]ConflictDetector{"ns": decode, "ns2": decode}
 			h.init(t)
-			fixtureInStatus(t, h, tc.status)
+			if tc.extractOK {
+				fixtureInStatus(t, h, tc.status)
+			} else {
+				addWithoutHeader(t, h.manager, &Task{
+					Namespace: "ns", TaskDescriptor: TaskDescriptor{ID: "task1", Version: 10}, Payload: []byte(`{}`),
+					Status: tc.status, Units: map[string]*Unit{"u-n1": {ID: "u-n1", Status: UnitStatusPending}},
+				})
+			}
 			tasks := 1
 			if tc.runningInNS != "" {
 				addTaskWithUnits(t, h, tc.runningInNS, "task2", 11, []string{"u-n2"})

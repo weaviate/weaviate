@@ -36,12 +36,13 @@ func NewDropVectorIndexDetector(logger logrus.FieldLogger) *DropVectorIndexDetec
 // rejects (1) a new drop that overlaps an in-flight drop's targets on the same
 // collection, and (2) a payload whose inherited CleanedShards claim has no
 // surviving source records — the enqueue-to-commit TOCTOU guard.
-// FSM-deterministic: a pure function of (newPayload, existingTasks).
-func (p *DropVectorIndexDetector) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
-	newP, err := decodeDropVectorIndexPayload(newPayload)
-	if err != nil {
-		return fmt.Errorf("unmarshal new drop-vector payload: %w", err)
+// FSM-deterministic: a pure function of (newHeader, existingTasks).
+func (p *DropVectorIndexDetector) CheckConflict(newHeader distributedtask.TaskHeader, existingTasks []*distributedtask.Task) error {
+	h, ok := newHeader.(dropVectorIndexTaskHeader)
+	if !ok {
+		return fmt.Errorf("new drop-vector task has no drop-vector header")
 	}
+	newP := h.DropVectorIndexTaskPayload
 	existingTasks = slices.DeleteFunc(slices.Clone(existingTasks), func(t *distributedtask.Task) bool {
 		return t.OnKnownOtherCollection(newP.Collection)
 	})

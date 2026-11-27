@@ -254,7 +254,7 @@ func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...)))
+	require.NoError(t, detector.CheckConflict(headerOf(t, detector, newPayload), loadTasks(t, ReindexNamespace, existing...)))
 }
 
 // TestCheckConflict_RejectsParallelOnSameProp pins the
@@ -289,7 +289,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 					Payload:        existPayload,
 				},
 			}
-			err := detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...))
+			err := detector.CheckConflict(headerOf(t, detector, newPayload), loadTasks(t, ReindexNamespace, existing...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "conflicts")
 			require.Contains(t, err.Error(), "enable-filterable")
@@ -330,7 +330,7 @@ func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
 				Payload:        existPayload,
 			},
 		}
-		require.NoError(t, detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...)),
+		require.NoError(t, detector.CheckConflict(headerOf(t, detector, newPayload), loadTasks(t, ReindexNamespace, existing...)),
 			"status=%s must NOT block a new task — only STARTED tasks conflict", status)
 	}
 }
@@ -363,7 +363,7 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...)))
+	require.NoError(t, detector.CheckConflict(headerOf(t, detector, newPayload), loadTasks(t, ReindexNamespace, existing...)))
 }
 
 func TestCheckConflict_KeepsCheckingAfterAnotherCollectionsTask(t *testing.T) {
@@ -372,7 +372,7 @@ func TestCheckConflict_KeepsCheckingAfterAnotherCollectionsTask(t *testing.T) {
 	other := &distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "other", Version: 1}, Status: distributedtask.TaskStatusStarted, Payload: onOther}
 	onC := reindexTaskOnC(t, "onC", distributedtask.TaskStatusStarted, "text")
 
-	err = ReindexDetector{}.CheckConflict(onC.Payload, loadTasks(t, ReindexNamespace, other, onC))
+	err = ReindexDetector{}.CheckConflict(headerOf(t, ReindexDetector{}, onC.Payload), loadTasks(t, ReindexNamespace, other, onC))
 	require.ErrorContains(t, err, `reindex task "onC" conflicts`)
 }
 
@@ -405,15 +405,7 @@ func TestCheckConflict_CaseInsensitiveCollection(t *testing.T) {
 		},
 	}
 
-	err := detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...))
-	require.Error(t, err)
-}
-
-// TestCheckConflict_UnparseableNewPayload pins that a corrupted new
-// payload is rejected up-front rather than silently allowed through.
-func TestCheckConflict_UnparseableNewPayload(t *testing.T) {
-	detector := ReindexDetector{}
-	err := detector.CheckConflict([]byte("not json"), nil)
+	err := detector.CheckConflict(headerOf(t, detector, newPayload), loadTasks(t, ReindexNamespace, existing...))
 	require.Error(t, err)
 }
 
@@ -439,7 +431,7 @@ func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
 		},
 	}
 
-	err := detector.CheckConflict(newPayload, loadTasks(t, ReindexNamespace, existing...))
+	err := detector.CheckConflict(headerOf(t, detector, newPayload), loadTasks(t, ReindexNamespace, existing...))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T1")
 	require.Contains(t, err.Error(), "unparseable")
@@ -1029,7 +1021,7 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 			return errText(d.CheckPropertyUpdate("C", "name", ts))
 		}, "are migrated"},
 		{"submit on the property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
-			return errText(d.CheckConflict(submitOn("name"), ts))
+			return errText(d.CheckConflict(headerOf(t, d, submitOn("name")), ts))
 		}, "conflicts"},
 		{"the run's own flip", reindexTaskOnC(t, "T", distributedtask.TaskStatusSwapping, "name"), func(ts []*distributedtask.Task) string {
 			return errText(d.CheckMigrationPropertyUpdate("C", "name", ts[0]))
@@ -1078,6 +1070,29 @@ func TestCheckTenantMutation_AllocatesIndependentlyOfPayloadSize(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	require.Error(t, ReindexDetector{}.CheckTenantMutation("C", []string{"tenant-00001"}, loaded))
+	runtime.ReadMemStats(&after)
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), "payload of %d bytes", len(raw))
+}
+
+// A submit's header decode and conflict check build neither unit map a payload from an older build still carries.
+func TestCheckConflict_SkipsTheUnitMaps(t *testing.T) {
+	const units = 300_000
+	unitToNode, unitToShard := make(map[string]string, units), make(map[string]string, units)
+	for i := range units {
+		tenant, node := fmt.Sprintf("tenant-%06d", i/3), fmt.Sprintf("node-%d", i%3)
+		unitToNode[tenant+"__"+node], unitToShard[tenant+"__"+node] = node, tenant
+	}
+	raw, err := json.Marshal(map[string]any{
+		"collection": "C", "migrationType": ReindexTypeChangeTokenization, "properties": []string{"name"},
+		"unitToNode": unitToNode, "unitToShard": unitToShard,
+	})
+	require.NoError(t, err)
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	header, err := ReindexDetector{}.DecodeHeader(raw)
+	require.NoError(t, err)
+	require.NoError(t, ReindexDetector{}.CheckConflict(header, nil))
 	runtime.ReadMemStats(&after)
 	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), "payload of %d bytes", len(raw))
 }

@@ -70,14 +70,14 @@ type SchedulerNotifier interface {
 	Wake()
 }
 
-// CollectionExtractor feeds only the task-list REST handler until the task header replaces it there too.
-type CollectionExtractor func(payload []byte) (collection string, ok bool)
-
 type TaskHeader interface {
 	Collection() string
+	// VisiblePayload returns the payload fields a caller without tenant read may see.
+	VisiblePayload() map[string]any
 }
 
 // HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. DecodeHeader must be a pure function of the payload.
+// The Manager derives the header when a task copy enters memory (add, restore, receive), so readers never decode the payload.
 type HeaderDecoder interface {
 	DecodeHeader(payload []byte) (TaskHeader, error)
 }
@@ -215,7 +215,7 @@ type Provider interface {
 // the conflict error to the originating client.
 //
 // FSM-determinism contract: CheckConflict MUST be a pure function of
-// (newPayload, existingTasks). It must not read mutable process state
+// (newHeader, existingTasks). It must not read mutable process state
 // (clocks, network, schema, RNG) — different nodes applying the same
 // log entry must reach the same accept/reject decision.
 type ConflictDetector interface {
@@ -224,7 +224,7 @@ type ConflictDetector interface {
 	// namespace-scoped task list at apply time. Return a non-nil error
 	// to reject the new task; the error propagates back to the
 	// AddDistributedTask caller.
-	CheckConflict(newPayload []byte, existingTasks []*Task) error
+	CheckConflict(newHeader TaskHeader, existingTasks []*Task) error
 }
 
 // SchemaMutationDetector lets the schema FSM's UpdateProperty, DeleteClass,

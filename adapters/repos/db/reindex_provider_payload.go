@@ -14,6 +14,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
@@ -21,24 +22,37 @@ import (
 // ReindexNamespace is the DTM namespace for reindex tasks.
 const ReindexNamespace = "reindex"
 
-// ExtractReindexTaskCollection is read only by the task-list REST handler, until the task header replaces it there.
-func ExtractReindexTaskCollection(payload []byte) (string, bool) {
-	var p ReindexTaskPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return "", false
-	}
-	return p.Collection, p.Collection != ""
-}
-
 type ReindexTaskHeader struct {
-	MigrationType      ReindexMigrationType
-	Class              string
-	Properties         []string
-	TargetTokenization string
-	BucketStrategy     string
+	ReindexTaskPayload
 }
 
-func (h ReindexTaskHeader) Collection() string { return h.Class }
+func (h ReindexTaskHeader) Collection() string { return h.ReindexTaskPayload.Collection }
+
+func (h ReindexTaskHeader) VisiblePayload() map[string]any {
+	return visibleFields(ReindexTaskPayload{
+		MigrationType: h.MigrationType, Collection: h.ReindexTaskPayload.Collection,
+		TargetTokenization: h.TargetTokenization, OriginalTokenization: h.OriginalTokenization,
+		BucketStrategy: h.BucketStrategy,
+	}, ReindexTaskVisiblePayloadFields)
+}
+
+// visibleFields encodes only what the caller copied into payload, so a large hidden field costs nothing.
+func visibleFields(payload any, fields []string) map[string]any {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return map[string]any{}
+	}
+	var all map[string]any
+	if err := json.Unmarshal(raw, &all); err != nil {
+		return map[string]any{}
+	}
+	for key := range all {
+		if !slices.Contains(fields, key) {
+			delete(all, key)
+		}
+	}
+	return all
+}
 
 var _ distributedtask.HeaderDecoder = ReindexDetector{}
 
@@ -51,10 +65,7 @@ func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader,
 	if p.Collection == "" || p.MigrationType == "" {
 		return nil, fmt.Errorf("reindex payload missing collection or migrationType")
 	}
-	return ReindexTaskHeader{
-		MigrationType: p.MigrationType, Class: p.Collection, Properties: p.Properties,
-		TargetTokenization: p.TargetTokenization, BucketStrategy: p.BucketStrategy,
-	}, nil
+	return ReindexTaskHeader{p}, nil
 }
 
 func reindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {

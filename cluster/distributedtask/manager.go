@@ -546,14 +546,19 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	// closes the multi-node parallel-submit race the REST handler's
 	// per-node submit lock cannot cover (#10675 family,
 	// parallel-migration bug). The detector must be a pure function
-	// of (newPayload, existingTasks) — see the ConflictDetector
+	// of (newHeader, existingTasks) — see the ConflictDetector
 	// godoc on the FSM-determinism contract.
+	header := m.headerFor(r.Namespace, r.Payload)
 	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
+		if header == nil {
+			return wrapPermanent(ErrTaskConflict,
+				fmt.Sprintf("task %s/%s conflicts with existing task: its payload has no readable header", r.Namespace, r.Id))
+		}
 		var existing []*Task
 		for _, t := range m.tasks[r.Namespace] {
 			existing = append(existing, t)
 		}
-		if err := cd.CheckConflict(r.Payload, existing); err != nil {
+		if err := cd.CheckConflict(header, existing); err != nil {
 			// Wrap the permanent-rejection sentinel (see [ErrTaskConflict]) so
 			// the REST submit path classifies this as 409, not 500.
 			return wrapPermanent(ErrTaskConflict,
@@ -594,7 +599,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	}
 	newTask.IndexGroups()
 
-	newTask.header = m.headerFor(newTask.Namespace, newTask.Payload)
+	newTask.header = header
 	m.setTaskWithLock(newTask)
 	m.markWithLock(newTask.Namespace, newTask.ID).addedOrRemoved = true
 	m.notifySchedulerWithLock()
@@ -1204,7 +1209,13 @@ func (m *Manager) DecodeTaskList(data []byte) (map[string][]*Task, error) {
 	defer m.mu.RUnlock()
 	for namespace, list := range response.Tasks {
 		for _, task := range list {
-			task.shareGroups(m.tasks[namespace][task.ID])
+			held := m.tasks[namespace][task.ID]
+			task.shareGroups(held)
+			if held != nil && held.Version == task.Version {
+				task.header = held.header
+			} else {
+				task.header = m.headerFor(namespace, task.Payload)
+			}
 		}
 	}
 	return response.Tasks, nil

@@ -14,14 +14,19 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -129,7 +134,7 @@ func TestHandler_ListTasks(t *testing.T) {
 				Return(tt.authzErr)
 			h := NewHandler(authorizer, taskListerStub{
 				items: map[string][]*distributedtask.Task{namespace: {tt.task}},
-			}, nil, nil)
+			}, nil)
 
 			tasks, err := h.ListTasks(context.Background(), &models.Principal{})
 			if tt.authzErr != nil {
@@ -225,52 +230,27 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 		},
 	}
 
-	extractCollection := func(payload []byte) (string, bool) {
-		var p struct{ Collection string }
-		err := json.Unmarshal(payload, &p)
-		return p.Collection, err == nil && p.Collection != ""
-	}
 	principal := &models.Principal{Username: "user", UserType: models.UserTypeInputDb}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := logrustest.NewNullLogger()
-			authorizer, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
-				config.Authentication{}, false, nil, logger)
-			require.NoError(t, err)
-			policies, err := conv.RolesToPolicies(&models.Role{
-				Name:        authorization.String("role"),
-				Permissions: append([]*models.Permission{{Action: authorization.String(authorization.ReadCluster)}}, tt.permissions...),
-			})
-			require.NoError(t, err)
-			require.NoError(t, authorizer.CreateRolesPermissions(policies))
-			require.NoError(t, authorizer.AddRolesForUser(conv.UserNameWithTypeFromPrincipal(principal), []string{"role"}))
+			authorizer := rbacAuthorizer(t, principal, tt.permissions...)
 
-			bound := make([]*distributedtask.Task, 0, len(tt.collections))
+			stored := make([]*distributedtask.Task, 0, len(tt.collections)+2)
 			for _, c := range tt.collections {
-				bound = append(bound, taskOn(c))
+				stored = append(stored, taskOn(c))
 			}
-			unbound := &distributedtask.Task{
+			stored = append(stored, &distributedtask.Task{
 				Namespace:      unboundNamespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "unbound"},
 				Payload:        []byte(`{"targets":["t"]}`),
-			}
-			h := NewHandler(authorizer, taskListerStub{
-				items: map[string][]*distributedtask.Task{
-					boundNamespace:   bound,
-					unboundNamespace: {unbound},
-					noCollectionNamespace: {{
-						Namespace: noCollectionNamespace,
-						Payload:   []byte(`{"collection":"","migrationType":"repair-filterable","tenants":["tenant1"]}`),
-						Units:     map[string]*distributedtask.Unit{"tenant1__node1": {ID: "tenant1__node1"}},
-					}},
-				},
-			}, map[string]distributedtask.CollectionExtractor{
-				boundNamespace:        extractCollection,
-				noCollectionNamespace: extractCollection,
-			}, map[string][]string{
-				boundNamespace:        {"collection", "migrationType"},
-				noCollectionNamespace: {"collection", "migrationType"},
+			}, &distributedtask.Task{
+				Namespace: noCollectionNamespace,
+				Payload:   []byte(`{"collection":"","migrationType":"repair-filterable","tenants":["tenant1"]}`),
+				Units:     map[string]*distributedtask.Unit{"tenant1__node1": {ID: "tenant1__node1"}},
 			})
+			h := NewHandler(authorizer, restoredLister(t, map[string]distributedtask.ConflictDetector{
+				boundNamespace: collectionDecoder{}, noCollectionNamespace: collectionDecoder{},
+			}, stored...), []string{boundNamespace, noCollectionNamespace})
 
 			tasks, err := h.ListTasks(context.Background(), principal)
 			require.NoError(t, err)
@@ -283,11 +263,117 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			noCollection := tasks[noCollectionNamespace][0]
 			require.Equal(t, visibleTask{map[string]interface{}{}, "", "", ""},
 				visibleTask{noCollection.Payload.(map[string]interface{}), noCollection.Units[0].ID, noCollection.Error, noCollection.Units[0].Error},
-				"a payload the extractor rejects shows no fields, and a healthy task must not read as failed")
+				"a payload with no header shows no fields, and a healthy task must not read as failed")
 			require.Len(t, tasks[unboundNamespace], 1, "a task bound to no collection stays visible to cluster readers")
 			require.Equal(t, map[string]interface{}{"targets": []interface{}{"t"}}, tasks[unboundNamespace][0].Payload)
 		})
 	}
+}
+
+// A caller without tenant read gets the header's visible fields, and its listing decodes no payload.
+func TestHandler_RedactedPayloadComesFromTheHeader(t *testing.T) {
+	padding := strings.Repeat("x", 50<<20)
+	for _, tc := range []struct {
+		name      string
+		namespace string
+		detector  distributedtask.ConflictDetector
+		payload   any
+		want      map[string]any
+	}{
+		{
+			name: "reindex task with a large hidden field", namespace: db.ReindexNamespace, detector: db.ReindexDetector{},
+			payload: map[string]any{
+				"collection": "A", "migrationType": "change-tokenization", "targetTokenization": "field",
+				"tenants": []string{"tenant1"}, "padding": padding,
+			},
+			want: map[string]any{"collection": "A", "migrationType": "change-tokenization", "targetTokenization": "field"},
+		},
+		{
+			name: "drop-vector task", namespace: db.DropVectorIndexNamespace, detector: db.NewDropVectorIndexDetector(logrus.New()),
+			payload: db.DropVectorIndexTaskPayload{
+				Collection: "A", Targets: []string{"v"}, OpID: "op", DropEpochID: "epoch", VerifyOnly: true,
+				CleanedShards: []string{"tenant1"},
+			},
+			want: map[string]any{"collection": "A", "opId": "op", "dropEpochId": "epoch", "verifyOnly": true},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			principal := &models.Principal{Username: "user", UserType: models.UserTypeInputDb}
+			c := "A"
+			authorizer := rbacAuthorizer(t, principal, &models.Permission{
+				Action: authorization.String(authorization.ReadCollections), Collections: &models.PermissionCollections{Collection: &c},
+			})
+			raw, err := json.Marshal(tc.payload)
+			require.NoError(t, err)
+			h := NewHandler(authorizer, restoredLister(t, map[string]distributedtask.ConflictDetector{tc.namespace: tc.detector},
+				&distributedtask.Task{Namespace: tc.namespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1}, Payload: raw},
+			), []string{tc.namespace})
+
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			tasks, err := h.ListTasks(context.Background(), principal)
+			runtime.ReadMemStats(&after)
+			require.NoError(t, err)
+			require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20))
+			require.Equal(t, tc.want, tasks[tc.namespace][0].Payload)
+		})
+	}
+}
+
+func rbacAuthorizer(t *testing.T, principal *models.Principal, permissions ...*models.Permission) authorization.Authorizer {
+	t.Helper()
+	logger, _ := logrustest.NewNullLogger()
+	authorizer, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
+		config.Authentication{}, false, nil, logger)
+	require.NoError(t, err)
+	policies, err := conv.RolesToPolicies(&models.Role{
+		Name:        authorization.String("role"),
+		Permissions: append([]*models.Permission{{Action: authorization.String(authorization.ReadCluster)}}, permissions...),
+	})
+	require.NoError(t, err)
+	require.NoError(t, authorizer.CreateRolesPermissions(policies))
+	require.NoError(t, authorizer.AddRolesForUser(conv.UserNameWithTypeFromPrincipal(principal), []string{"role"}))
+	return authorizer
+}
+
+// restoredLister lists tasks the way a node holds them: each with the header its namespace's detector decodes.
+func restoredLister(t *testing.T, detectors map[string]distributedtask.ConflictDetector, tasks ...*distributedtask.Task) distributedtask.TaskLister {
+	t.Helper()
+	byNamespace := map[string][]*distributedtask.Task{}
+	for _, task := range tasks {
+		byNamespace[task.Namespace] = append(byNamespace[task.Namespace], task)
+	}
+	snapshot, err := json.Marshal(map[string]any{"tasks": byNamespace})
+	require.NoError(t, err)
+	m := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New(), ConflictDetectors: detectors})
+	require.NoError(t, m.Restore(snapshot))
+	return m
+}
+
+// collectionDecoder gives a payload naming a collection a header showing its collection and migration type.
+type collectionDecoder struct{}
+
+type collectionHeader struct {
+	Name          string `json:"collection"`
+	MigrationType string `json:"migrationType"`
+}
+
+func (h collectionHeader) Collection() string { return h.Name }
+
+func (h collectionHeader) VisiblePayload() map[string]any {
+	return map[string]any{"collection": h.Name, "migrationType": h.MigrationType}
+}
+
+func (collectionDecoder) CheckConflict(distributedtask.TaskHeader, []*distributedtask.Task) error {
+	return nil
+}
+
+func (collectionDecoder) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
+	var h collectionHeader
+	if err := json.Unmarshal(payload, &h); err != nil || h.Name == "" {
+		return nil, errors.New("payload names no collection")
+	}
+	return h, nil
 }
 
 type taskListerStub struct {

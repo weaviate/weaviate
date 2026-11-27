@@ -1728,12 +1728,15 @@ func namesExclusionCollection([]byte) (string, bool) { return exclusionCollectio
 
 type collectionHeader string
 
-func (h collectionHeader) Collection() string { return string(h) }
+func (h collectionHeader) Collection() string             { return string(h) }
+func (h collectionHeader) VisiblePayload() map[string]any { return nil }
 
 // decodeCollection is a detector that only supplies headers, refusing nothing.
 type decodeCollection func([]byte) (string, bool)
 
-func (d decodeCollection) CheckConflict([]byte, []*distributedtask.Task) error { return nil }
+func (d decodeCollection) CheckConflict(distributedtask.TaskHeader, []*distributedtask.Task) error {
+	return nil
+}
 
 func (d decodeCollection) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
 	if collection, ok := d(payload); ok {

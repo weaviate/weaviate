@@ -205,13 +205,6 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
-func distributedTaskCollectionExtractors() map[string]distributedtask.CollectionExtractor {
-	return map[string]distributedtask.CollectionExtractor{
-		db.ReindexNamespace:         db.ExtractReindexTaskCollection,
-		db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
-	}
-}
-
 func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	build.Version = ParseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 

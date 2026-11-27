@@ -64,13 +64,13 @@ func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(
 	if !ok {
 		return false
 	}
-	return ReindexRunLanded(readClass(h.Class), h.MigrationType, h.TargetTokenization, h.Properties)
+	return ReindexRunLanded(readClass(h.Collection()), h.MigrationType, h.TargetTokenization, h.Properties)
 }
 
 func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName string, task *distributedtask.Task) error {
 	if task != nil && task.Status == distributedtask.TaskStatusSwapping {
 		if h, ok := reindexHeaderOf(task); ok &&
-			strings.EqualFold(h.Class, className) && slices.Contains(h.Properties, propertyName) {
+			strings.EqualFold(h.Collection(), className) && slices.Contains(h.Properties, propertyName) {
 			return nil
 		}
 	}
@@ -147,15 +147,12 @@ func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 	return runs
 }
 
-// reindexHeaderRuns is ReindexRuns built from cached headers for the RAFT apply, so each run's Payload holds only the header's fields.
+// reindexHeaderRuns is ReindexRuns built from cached headers for the RAFT apply.
 func reindexHeaderRuns(tasks []*distributedtask.Task) []ReindexRun {
 	runs := make([]ReindexRun, 0, len(tasks))
 	for _, task := range tasks {
 		if h, ok := reindexHeaderOf(task); ok {
-			runs = append(runs, ReindexRun{Task: task, Payload: ReindexTaskPayload{
-				MigrationType: h.MigrationType, Collection: h.Class, Properties: h.Properties,
-				TargetTokenization: h.TargetTokenization, BucketStrategy: h.BucketStrategy,
-			}})
+			runs = append(runs, ReindexRun{Task: task, Payload: h.ReindexTaskPayload})
 		}
 	}
 	return runs

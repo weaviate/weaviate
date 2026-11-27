@@ -1168,8 +1168,10 @@ func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t 
 	logger, _ := test.NewNullLogger()
 	raw, err := json.Marshal(p)
 	require.NoError(t, err)
-	require.NoError(t, db.NewDropVectorIndexDetector(logger).
-		CheckConflict(raw, cluster.tasks[db.DropVectorIndexNamespace]),
+	detector := db.NewDropVectorIndexDetector(logger)
+	header, err := detector.DecodeHeader(raw)
+	require.NoError(t, err)
+	require.NoError(t, detector.CheckConflict(header, cluster.tasks[db.DropVectorIndexNamespace]),
 		"the add-task guard must accept the round's cleaned-shards claim")
 }
 
@@ -1412,7 +1414,9 @@ func TestEnqueuerGuardConsistency(t *testing.T) {
 			detector := db.NewDropVectorIndexDetector(logger)
 			enc, err := json.Marshal(payload)
 			require.NoError(t, err)
-			require.NoError(t, detector.CheckConflict(enc, sc.tasks),
+			header, err := detector.DecodeHeader(enc)
+			require.NoError(t, err)
+			require.NoError(t, detector.CheckConflict(header, sc.tasks),
 				"the guard must accept every claim the enqueuer composes")
 		})
 	}
