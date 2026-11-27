@@ -414,7 +414,7 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 		return s.createVectorIndex(ctx, targetVector, id, id, cfg, lazyLoadSegments)
 	}
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		entry, err := s.manifest.Create(targetVector, cfg)
+		entry, err := s.manifest.Create(ctx, targetVector, cfg)
 		if err != nil {
 			return nil, nil, err
 		}

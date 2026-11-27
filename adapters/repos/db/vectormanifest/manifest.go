@@ -243,7 +243,7 @@ func (m *Manifest) dropUnrecorded(ctx context.Context, dropped, siblings []strin
 // Create records that name's index is about to be built under the naming rule
 // and returns where. It refuses a vector whose files another one owns; a retry
 // of an interrupted creation is not refused.
-func (m *Manifest) Create(name string, cfg schemaConfig.VectorIndexConfig) (Entry, error) {
+func (m *Manifest) Create(ctx context.Context, name string, cfg schemaConfig.VectorIndexConfig) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -251,9 +251,14 @@ func (m *Manifest) Create(name string, cfg schemaConfig.VectorIndexConfig) (Entr
 	if err != nil {
 		return Entry{}, err
 	}
-	err = refuseDropping(name, records[name])
-	if err != nil {
-		return Entry{}, err
+	// the cluster can free the name while this shard's drop failed: the
+	// caller runs once the vector's teardown is done, so it can be finished
+	if records[name].State == stateDropping {
+		err := m.finishDrop(ctx, name, records)
+		if err != nil {
+			return Entry{}, err
+		}
+		delete(records, name)
 	}
 	rec := recordFor(name, cfg, stateCreating)
 	if shared := collisionsWith(ownersOf(records), name, ownerOf(rec)); len(shared) > 0 {
