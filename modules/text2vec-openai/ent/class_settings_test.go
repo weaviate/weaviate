@@ -56,14 +56,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 		},
 		{
-			name: "text-embedding-3-small, wrong dimensions",
+			name: "text-embedding-3-small, arbitrary dimensions",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-small",
 					"dimensions": 1,
 				},
 			},
-			wantErr: errors.New("wrong dimensions setting for text-embedding-3-small model, available dimensions are: [512 1536]"),
 		},
 		{
 			name: "text-embedding-3-large",
@@ -74,7 +73,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 		},
 		{
-			name: "text-embedding-3-large, 512 dimensions",
+			name: "text-embedding-3-large, 1024 dimensions",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-large",
@@ -83,14 +82,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 		},
 		{
-			name: "text-embedding-3-large, wrong dimensions",
+			name: "text-embedding-3-large, arbitrary dimensions",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-large",
 					"dimensions": 512,
 				},
 			},
-			wantErr: errors.New("wrong dimensions setting for text-embedding-3-large model, available dimensions are: [256 1024 3072]"),
 		},
 		{
 			name: "text-embedding-ada-002",
