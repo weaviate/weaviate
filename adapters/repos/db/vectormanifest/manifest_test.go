@@ -221,8 +221,6 @@ func TestManifest_OpenFinishesADropItWasToldOf(t *testing.T) {
 	}{
 		{name: "recorded ready", schema: schemaVectors{"foo_muvera_vectors": cfg}},
 		{name: "no records yet", firstLoad: true, schema: schemaVectors{"foo_muvera_vectors": cfg}},
-		{name: "still in the schema", schema: schemaVectors{"foo": cfg, "foo_muvera_vectors": cfg}, wantFiles: true},
-		{name: "still in the schema, no records yet", firstLoad: true, schema: schemaVectors{"foo": cfg, "foo_muvera_vectors": cfg}, wantFiles: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -264,6 +262,33 @@ func TestManifest_OpenFinishesADropItWasToldOf(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The caller leaves a dropped vector out of the schema; one in both is a bug.
+func TestManifest_OpenRefusesAVectorBothInTheSchemaAndDropped(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "foo")
+	_, _, err := m.Open(t.Context(), schemaVectors{"foo": enthnsw.NewDefaultUserConfig()}, []string{"foo"})
+	require.ErrorContains(t, err, `vector "foo" is both in the schema and dropped`)
+	assert.DirExists(t, filepath.Join(dir, "vectors_foo.hnsw.commitlog.d"))
+}
+
+// A drop that begins after the load opened the records is not overwritten by
+// the load's Ready.
+func TestManifest_ReadyAfterOpenRefusesADropThatBegan(t *testing.T) {
+	cfg := enthnsw.NewDefaultUserConfig()
+	m := loaded(t, t.TempDir(), "foo")
+	_, _, err := m.Open(t.Context(), schemaVectors{"foo": cfg}, nil)
+	require.NoError(t, err)
+	_, err = m.BeginDrop("foo")
+	require.NoError(t, err)
+
+	other := cfg
+	other.EF = 42
+	require.ErrorContains(t, m.Ready(schemaVectors{"foo": other}), `vector "foo" is being dropped`)
+	rec, _, err := m.records.Get("foo")
+	require.NoError(t, err)
+	assert.Equal(t, "dropping", rec.State)
 }
 
 // Records that share a queue or files refuse the load before anything goes.
