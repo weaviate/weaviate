@@ -98,10 +98,6 @@ func (s *blockingSelector) ShardOwnership(_ context.Context, _ string) (map[stri
 	return nil, nil
 }
 
-func (s *blockingSelector) IsMultiTenant(_ context.Context, _ string) (bool, error) {
-	return false, nil
-}
-
 func (s *blockingSelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bool {
 	return true
 }
@@ -131,7 +127,6 @@ type fakeSelector struct {
 	shards        map[string]map[string]*testShard
 	skipped       map[string]map[string]string
 	mt            map[string]bool
-	mtErr         error
 	asyncDisabled map[string]bool
 	snapshotsRoot string
 }
@@ -144,10 +139,6 @@ func (s *fakeSelector) ShardOwnership(context.Context, string) (map[string][]str
 	return nil, nil
 }
 
-func (s *fakeSelector) IsMultiTenant(_ context.Context, className string) (bool, error) {
-	return s.mt[className], s.mtErr
-}
-
 func (s *fakeSelector) IsAsyncReplicationEnabled(_ context.Context, className string) bool {
 	return !s.asyncDisabled[className]
 }
@@ -155,7 +146,7 @@ func (s *fakeSelector) IsAsyncReplicationEnabled(_ context.Context, className st
 func (s *fakeSelector) SnapshotShards(ctx context.Context, className string, shardNames []string, _ string) ([]ShardSnapshotResult, error) {
 	var results []ShardSnapshotResult
 	for _, shardName := range shardNames {
-		result := ShardSnapshotResult{ShardName: shardName}
+		result := ShardSnapshotResult{ShardName: shardName, MultiTenant: s.mt[className]}
 
 		if s.skipped != nil {
 			if reasons, ok := s.skipped[className]; ok {

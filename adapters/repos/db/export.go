@@ -116,16 +116,6 @@ func assignShardsToNodes(shards map[string][]string) map[string][]string {
 	return result
 }
 
-// IsMultiTenant returns true if the class has multi-tenancy enabled.
-func (db *DB) IsMultiTenant(ctx context.Context, className string) (bool, error) {
-	idx, err := db.indexForRead(ctx, schema.ClassName(className))
-	if idx == nil {
-		return false, err
-	}
-	class := idx.getClass()
-	return class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled, nil
-}
-
 // IsAsyncReplicationEnabled reports whether a class is safe to export: its
 // replicas are kept consistent by async replication, or it has no replicas.
 // It returns true for RF ≤ 1 (irrelevant), false for a missing local index,
@@ -204,6 +194,7 @@ func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string
 	results := make([]export.ShardSnapshotResult, len(shardNames))
 	for idx, name := range shardNames {
 		results[idx].ShardName = name
+		results[idx].MultiTenant = isMT
 	}
 
 	// Dispatch loop with TryRLock: shards whose lock is held by a concurrent

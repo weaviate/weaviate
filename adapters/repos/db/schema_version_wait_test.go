@@ -411,14 +411,6 @@ func TestReadsWaitForTheIndexOfAClassBeingApplied(t *testing.T) {
 			waitErrReturned: true,
 		},
 		{
-			name: "IsMultiTenant",
-			read: func(ctx context.Context, db *DB) (bool, error) {
-				_, err := db.IsMultiTenant(ctx, applyingClass)
-				return err == nil, err
-			},
-			waitErrReturned: true,
-		},
-		{
 			name: "LocalNodeStatus",
 			read: func(ctx context.Context, db *DB) (bool, error) {
 				res, err := db.LocalNodeStatus(ctx, applyingClass, "", verbosity.OutputVerbose)
