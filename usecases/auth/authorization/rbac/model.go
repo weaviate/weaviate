@@ -480,8 +480,8 @@ const maxAlternatives = 64
 
 // alternatives expands each group "(a|b)" in policy into one policy per
 // branch. A group that is quantified, nested, opens with '?' (flags,
-// non-capturing) or would expand past maxAlternatives stays whole, and
-// coverExpr refuses it.
+// non-capturing), holds an escape, class, quote or placeholder, or would
+// expand past maxAlternatives stays whole, and coverExpr refuses it.
 func alternatives(policy string) []string {
 	open := strings.IndexByte(policy, '(')
 	if open < 0 {
@@ -493,7 +493,9 @@ func alternatives(policy string) []string {
 	}
 	body := policy[open+1 : end]
 	quantified := end+1 < len(policy) && strings.IndexByte("*+?{", policy[end+1]) >= 0
-	if quantified || strings.ContainsAny(body, "(") || strings.HasPrefix(body, "?") {
+	// A '|' that is escaped or sits in a class, quote or placeholder is no
+	// alternation, and syntax left outside the group stays in every branch.
+	if quantified || strings.ContainsAny(body, `()\[]{}`) || strings.HasPrefix(body, "?") {
 		return []string{policy}
 	}
 	rest := alternatives(policy[end+1:])
