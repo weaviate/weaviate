@@ -58,7 +58,7 @@ func TestRank(t *testing.T) {
 		c := New("key", 0, nullLogger())
 
 		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
-		res, err := c.Rank(context.Background(), "Where do I work?", "text", []string{"I like pizza", "I work at Apple"}, cfg)
+		res, err := c.Rank(context.Background(), "Where do I work?", []string{"I like pizza", "I work at Apple"}, cfg)
 
 		require.NoError(t, err)
 		assert.Equal(t, ent.RankResult{
@@ -81,7 +81,7 @@ func TestRank(t *testing.T) {
 		c := New("key", 0, nullLogger())
 
 		cfg := fakeClassConfig{classConfig: map[string]interface{}{"model": "custom-model", "baseURL": server.URL}}
-		_, err := c.Rank(context.Background(), "q", "text", []string{"doc"}, cfg)
+		_, err := c.Rank(context.Background(), "q", []string{"doc"}, cfg)
 		require.NoError(t, err)
 	})
 
@@ -96,14 +96,14 @@ func TestRank(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "X-Digitalocean-Api-Key", []string{"header-key"})
 		ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{server.URL})
 		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": "https://unused.example.com"}}
-		_, err := c.Rank(ctx, "q", "text", []string{"doc"}, cfg)
+		_, err := c.Rank(ctx, "q", []string{"doc"}, cfg)
 		require.NoError(t, err)
 	})
 
 	t.Run("missing api key", func(t *testing.T) {
 		c := New("", 0, nullLogger())
 		cfg := fakeClassConfig{classConfig: map[string]interface{}{}}
-		_, err := c.Rank(context.Background(), "q", "text", []string{"doc"}, cfg)
+		_, err := c.Rank(context.Background(), "q", []string{"doc"}, cfg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "X-Digitalocean-Api-Key")
 	})
@@ -144,7 +144,7 @@ func TestRank(t *testing.T) {
 			c := New("key", 0, nullLogger())
 
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
-			_, err := c.Rank(context.Background(), "q", "text", []string{"doc"}, cfg)
+			_, err := c.Rank(context.Background(), "q", []string{"doc"}, cfg)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -168,7 +168,7 @@ func TestRank(t *testing.T) {
 			c := New("key", 0, nullLogger())
 
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
-			_, err := c.Rank(context.Background(), "q", "text", []string{"a", "b"}, cfg)
+			_, err := c.Rank(context.Background(), "q", []string{"a", "b"}, cfg)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -194,7 +194,7 @@ func TestRank(t *testing.T) {
 
 		documents := []string{"a", "bb", "ccc", "dddd", "eeeee", "ffffff", "ggggggg"}
 		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
-		resp, err := c.Rank(context.Background(), "q", "text", documents, cfg)
+		resp, err := c.Rank(context.Background(), "q", documents, cfg)
 
 		require.NoError(t, err)
 		require.Len(t, resp.DocumentScores, len(documents))
@@ -234,7 +234,7 @@ func TestRankUserAgent(t *testing.T) {
 
 			c := New("key", 0, nullLogger())
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
-			_, err := c.Rank(context.Background(), "q", "text", []string{"doc"}, cfg)
+			_, err := c.Rank(context.Background(), "q", []string{"doc"}, cfg)
 			require.NoError(t, err)
 			assert.Equal(t, strings.TrimSpace(tt.expected), gotUserAgent)
 		})
@@ -282,7 +282,7 @@ func TestRankSendsNothingForNoDocuments(t *testing.T) {
 	server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {})
 	cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
 
-	res, err := New("key", 0, nullLogger()).Rank(context.Background(), "q", "text", nil, cfg)
+	res, err := New("key", 0, nullLogger()).Rank(context.Background(), "q", nil, cfg)
 
 	require.NoError(t, err)
 	assert.Equal(t, "q", res.Query)
@@ -334,7 +334,7 @@ func TestRankRejectsMalformedResponses(t *testing.T) {
 			})
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
 
-			res, err := New("key", 0, nullLogger()).Rank(context.Background(), "q", "text", []string{"a", "b"}, cfg)
+			res, err := New("key", 0, nullLogger()).Rank(context.Background(), "q", []string{"a", "b"}, cfg)
 
 			require.ErrorContains(t, err, tt.wantErr)
 			assert.Nil(t, res)
@@ -382,7 +382,7 @@ func TestRankChunkBoundaries(t *testing.T) {
 			c.maxDocuments = maxDocuments
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
 
-			res, err := c.Rank(context.Background(), "q", "text", documents, cfg)
+			res, err := c.Rank(context.Background(), "q", documents, cfg)
 
 			require.NoError(t, err)
 			require.Len(t, res.DocumentScores, tt.documents)
@@ -427,7 +427,7 @@ func TestRankReturnsNoPartialResultWhenAChunkFails(t *testing.T) {
 			c.maxDocuments = 2
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
 
-			res, err := c.Rank(context.Background(), "q", "text", []string{"a", "b", "c", "d", "e"}, cfg)
+			res, err := c.Rank(context.Background(), "q", []string{"a", "b", "c", "d", "e"}, cfg)
 
 			require.ErrorContains(t, err, "status: 429 error: slow down")
 			assert.Nil(t, res)
@@ -443,7 +443,7 @@ func TestRankStopsOnACancelledContext(t *testing.T) {
 	cancel()
 	cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
 
-	res, err := New("key", 0, nullLogger()).Rank(ctx, "q", "text", []string{"a"}, cfg)
+	res, err := New("key", 0, nullLogger()).Rank(ctx, "q", []string{"a"}, cfg)
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, res)
@@ -473,11 +473,12 @@ func TestRankKeepsTheBaseURLPath(t *testing.T) {
 			ctx := context.Background()
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL + tt.path}}
 			if tt.fromHeader {
+				ctx = context.WithValue(ctx, "X-Digitalocean-Api-Key", []string{"request-key"})
 				ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{server.URL + tt.path})
 				cfg = fakeClassConfig{classConfig: map[string]interface{}{"baseURL": "https://unused.example.com"}}
 			}
 
-			_, err := New("key", 0, nullLogger()).Rank(ctx, "q", "text", []string{"a"}, cfg)
+			_, err := New("key", 0, nullLogger()).Rank(ctx, "q", []string{"a"}, cfg)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPath, gotPath.Load())
@@ -518,14 +519,16 @@ func TestRankValidatesTheBaseURLItUses(t *testing.T) {
 				cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": baseURL}}
 				switch source {
 				case "header":
+					ctx = context.WithValue(ctx, "X-Digitalocean-Api-Key", []string{"request-key"})
 					ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{baseURL})
 					cfg = fakeClassConfig{classConfig: map[string]interface{}{}}
 				case "header over a valid class config":
+					ctx = context.WithValue(ctx, "X-Digitalocean-Api-Key", []string{"request-key"})
 					ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{baseURL})
 					cfg = fakeClassConfig{classConfig: map[string]interface{}{"baseURL": "https://8.8.8.8"}}
 				}
 
-				res, err := New("key", 0, nullLogger()).Rank(ctx, "q", "text", []string{"a"}, cfg)
+				res, err := New("key", 0, nullLogger()).Rank(ctx, "q", []string{"a"}, cfg)
 
 				if tt.wantErr == "" {
 					require.NoError(t, err)
@@ -538,6 +541,39 @@ func TestRankValidatesTheBaseURLItUses(t *testing.T) {
 			})
 		}
 	}
+}
+
+// A header baseURL other than the class one needs the request's own key, so
+// the server's DIGITALOCEAN_APIKEY is only ever sent to the configured URL.
+func TestRankHeaderBaseURLNeedsRequestAPIKey(t *testing.T) {
+	t.Run("different header base URL without a request key", func(t *testing.T) {
+		server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(rankResponse{Results: []rankResult{{Index: 0, RelevanceScore: 1}}})
+		})
+		ctx := context.WithValue(context.Background(), "X-Digitalocean-Baseurl", []string{server.URL})
+		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": "https://inference.do-ai.run"}}
+
+		res, err := New("server-key", 0, nullLogger()).Rank(ctx, "q", []string{"a"}, cfg)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "X-Digitalocean-Api-Key")
+		assert.Nil(t, res)
+		assert.Zero(t, requests.Load())
+	})
+
+	t.Run("header base URL equal to the class one uses the server key", func(t *testing.T) {
+		server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "Bearer server-key", r.Header.Get("Authorization"))
+			json.NewEncoder(w).Encode(rankResponse{Results: []rankResult{{Index: 0, RelevanceScore: 1}}})
+		})
+		ctx := context.WithValue(context.Background(), "X-Digitalocean-Baseurl", []string{server.URL + "/"})
+		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+
+		_, err := New("server-key", 0, nullLogger()).Rank(ctx, "q", []string{"a"}, cfg)
+
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, requests.Load())
+	})
 }
 
 // countingServer starts a fake API and counts the requests it receives.

@@ -38,7 +38,7 @@ type RerankerModule struct {
 }
 
 type ReRankerClient interface {
-	Rank(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 

@@ -60,7 +60,7 @@ func TestInitPassesTheEnvAPIKey(t *testing.T) {
 	t.Cleanup(server.Close)
 	m := initModule(t, time.Second)
 
-	res, err := m.reranker.Rank(context.Background(), "q", "text", []string{"doc"}, classConfig(server.URL))
+	res, err := m.reranker.Rank(context.Background(), "q", []string{"doc"}, classConfig(server.URL))
 
 	require.NoError(t, err)
 	require.Len(t, res.DocumentScores, 1)
@@ -81,7 +81,7 @@ func TestInitPassesTheClientTimeout(t *testing.T) {
 	t.Cleanup(func() { close(release) })
 	m := initModule(t, 50*time.Millisecond)
 
-	_, err := m.reranker.Rank(context.Background(), "q", "text", []string{"doc"}, classConfig(server.URL))
+	_, err := m.reranker.Rank(context.Background(), "q", []string{"doc"}, classConfig(server.URL))
 
 	require.ErrorContains(t, err, "send POST request")
 }

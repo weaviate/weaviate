@@ -54,7 +54,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 // Rank scores documents against query. Documents are split into chunks of at
 // most maxDocuments and sent concurrently; the returned scores keep the order
 // of the input documents.
-func (c *client) Rank(ctx context.Context, query, property string, documents []string,
+func (c *client) Rank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
@@ -183,11 +183,14 @@ func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {
 }
 
 // getRerankURL builds the endpoint from the X-Digitalocean-Baseurl header or,
-// without one, from the class baseURL. Whichever is used is validated: a class
-// baseURL may predate MODULES_VALIDATE_BASE_URL.
-func (c *client) getRerankURL(ctx context.Context, baseURL string) (string, error) {
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Digitalocean-Baseurl"); headerBaseURL != "" {
-		baseURL = headerBaseURL
+// without one, from the class baseURL. A header baseURL other than the class
+// one is used only if the request carries its own X-Digitalocean-Api-Key, so
+// the server's key is only ever sent to the configured URL. Whichever URL is
+// used is validated: a class baseURL may predate MODULES_VALIDATE_BASE_URL.
+func (c *client) getRerankURL(ctx context.Context, classBaseURL string) (string, error) {
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Digitalocean-Baseurl", "", classBaseURL, "X-Digitalocean-Api-Key")
+	if err != nil {
+		return "", err
 	}
 	if err := modulecomponents.ValidateBaseURL(baseURL); err != nil {
 		return "", err
