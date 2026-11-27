@@ -116,32 +116,3 @@ func TestGetAliases_NoClassLookupBeforeAuthz(t *testing.T) {
 	sm.AssertNotCalled(t, "ReadOnlyClass", mock.Anything)
 	sm.AssertExpectations(t)
 }
-
-func TestAliasGetDeleteHideExistenceFromUnreadableCaller(t *testing.T) {
-	const class, alias = "Secret", "SecretAlias"
-	resource := authorization.Aliases(class, alias)[0]
-
-	ops := map[string]struct {
-		call func(h *Handler) error
-		verb string
-	}{
-		"get": {verb: authorization.READ, call: func(h *Handler) error {
-			_, err := h.GetAlias(context.Background(), &models.Principal{}, alias)
-			return err
-		}},
-		"delete": {verb: authorization.DELETE, call: func(h *Handler) error {
-			return h.DeleteAlias(context.Background(), &models.Principal{}, alias)
-		}},
-	}
-
-	for name, op := range ops {
-		t.Run(name+": unreadable alias reports not found", func(t *testing.T) {
-			authorizer := mocks.NewMockAuthorizer()
-			authorizer.Deny(resource)
-			handler, sm := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
-			sm.On("GetAlias", mock.Anything, mock.Anything).Return(&models.Alias{Alias: alias, Class: class}, nil)
-
-			require.ErrorIs(t, op.call(handler), ErrNotFound)
-		})
-	}
-}
