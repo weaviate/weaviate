@@ -282,7 +282,7 @@ func (c *compactorSet) cleanupValues(values []value) (vals []value, skip bool) {
 	last := 0
 	for i := 0; i < len(values); i++ {
 		if !values[i].tombstone {
-			// Swap both elements instead overwritting `last` by `i`.
+			// Swap both elements instead overwriting `last` by `i`.
 			// Overwrite would result in `values[last].value` pointing to the same slice
 			// as `values[i].value`.
 			// If `values` slice is reused by multiple nodes (as it happens for map cursors
