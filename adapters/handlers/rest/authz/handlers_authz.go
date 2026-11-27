@@ -908,6 +908,10 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("group id %w", err)))
 	}
 
+	if err := validateGroupID(params.ID); err != nil {
+		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
 			return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles you want to assign is empty")))
@@ -1429,6 +1433,10 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("revoking roles from groups is not allowed")))
 	}
 
+	if err := validateGroupID(params.ID); err != nil {
+		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
 			return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles you want to revoke is empty")))
@@ -1654,6 +1662,15 @@ func validateEnvVarRoles(name string) error {
 func validateRoleID(id string) error {
 	if strings.HasPrefix(id, conv.ROLE_NAME_PREFIX) {
 		return fmt.Errorf("'%s' is %w", id, namespacing.ErrInvalidRoleName)
+	}
+	return nil
+}
+
+// validateGroupID rejects a group ID carrying the casbin "group:" prefix, which would alias the unprefixed group.
+// The handlers call it before Authorize and validateRootGroup, so the 400 does not reveal whether the group is protected.
+func validateGroupID(id string) error {
+	if strings.HasPrefix(id, conv.OIDC_GROUP_NAME_PREFIX) {
+		return fmt.Errorf("group id '%s' must not start with '%s'", id, conv.OIDC_GROUP_NAME_PREFIX)
 	}
 	return nil
 }

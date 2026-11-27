@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
@@ -177,6 +178,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 				logger:         logger,
 				rbacconfig: rbacconf.Config{
 					RootUsers: []string{"root-user"}, RootGroups: []string{"root-group"},
+					ReadOnlyGroups: []string{"viewer-root-group"}, MetadataGroups: []string{"metadata-group"},
 				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
@@ -264,6 +266,18 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 			existedRoles:  map[string][]authorization.Policy{},
 		},
 	}
+	for _, group := range []string{"root-group", "viewer-root-group", "metadata-group"} {
+		tests = append(tests, testCase{
+			name: "prefixed " + group,
+			params: authz.RevokeRoleFromGroupParams{
+				ID:          conv.PrefixGroupName(group),
+				HTTPRequest: req,
+				Body:        authz.RevokeRoleFromGroupBody{Roles: []string{"some-role"}, GroupType: models.GroupTypeOidc},
+			},
+			principal:     &models.Principal{Username: "root-user"},
+			expectedError: "must not start with 'group:'",
+		})
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -279,10 +293,16 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers:      []string{"root-user"},
+					RootGroups:     []string{"root-group"},
+					ReadOnlyGroups: []string{"viewer-root-group"},
+					MetadataGroups: []string{"metadata-group"},
+				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.RevokeRoleFromGroupBadRequest)
-			assert.True(t, ok)
+			require.True(t, ok, "got %T", res)
 
 			if tt.expectedError != "" {
 				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
@@ -518,6 +538,26 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			expectedError: "revoking: cannot assign or revoke from root group",
 		},
 		{
+			name: "revoke role from root group",
+			params: authz.RevokeRoleFromGroupParams{
+				ID:          "root-group",
+				HTTPRequest: req,
+				Body:        authz.RevokeRoleFromGroupBody{Roles: []string{"something"}, GroupType: models.GroupTypeOidc},
+			},
+			principal:     &models.Principal{Username: "root-user"},
+			expectedError: "revoking: cannot assign or revoke from root group root-group",
+		},
+		{
+			name: "revoke role from metadata group",
+			params: authz.RevokeRoleFromGroupParams{
+				ID:          "metadata-group",
+				HTTPRequest: req,
+				Body:        authz.RevokeRoleFromGroupBody{Roles: []string{"something"}, GroupType: models.GroupTypeOidc},
+			},
+			principal:     &models.Principal{Username: "root-user"},
+			expectedError: "revoking: cannot assign or revoke from root group metadata-group",
+		},
+		{
 			name: "revoke configured root role",
 			params: authz.RevokeRoleFromGroupParams{
 				ID:          "testUser",
@@ -550,6 +590,7 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 					RootUsers:      []string{"root-user"},
 					RootGroups:     []string{"root-group"},
 					ReadOnlyGroups: []string{"viewer-root-group"},
+					MetadataGroups: []string{"metadata-group"},
 				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
