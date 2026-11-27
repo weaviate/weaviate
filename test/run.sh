@@ -79,6 +79,7 @@ function main() {
   run_acceptance_self_recovery=false
   run_acceptance_self_recovery_lazy=false
   run_acceptance_self_recovery_intact=false
+  run_acceptance_backup_crafted_archive=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -158,6 +159,7 @@ function main() {
           --acceptance-self-recovery|-asr) run_all_tests=false; run_acceptance_self_recovery=true;;
           --acceptance-self-recovery-lazy|-asrl) run_all_tests=false; run_acceptance_self_recovery_lazy=true;;
           --acceptance-self-recovery-intact|-asri) run_all_tests=false; run_acceptance_self_recovery_intact=true;;
+          --acceptance-backup-crafted-archive|-abca) run_all_tests=false; run_acceptance_backup_crafted_archive=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -222,6 +224,7 @@ function main() {
               "--acceptance-self-recovery | -asr"\
               "--acceptance-self-recovery-lazy | -asrl"\
               "--acceptance-self-recovery-intact | -asri"\
+              "--acceptance-backup-crafted-archive | -abca"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -572,6 +575,11 @@ function main() {
     echo "running self-recovery intact-node acceptance tests"
     run_acceptance_self_recovery_intact
   fi
+
+  if $run_acceptance_backup_crafted_archive; then
+    echo "running crafted backup archive acceptance tests"
+    run_acceptance_backup_crafted_archive
+  fi
   echo "Done!"
 }
 
@@ -775,6 +783,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/backups' \
     | grep -v 'test/acceptance/backup_dedupe_replicas' \
+    | grep -v 'test/acceptance/backup_crafted_archive' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
     | grep -v 'test/acceptance/selfrecovery' \
@@ -870,7 +879,7 @@ function get_aof_group() {
     2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
     3) echo "test/acceptance/grpc" ;;
     4) echo "test/acceptance/alter_schema test/acceptance/vector_index_restrictions" ;;
-    6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups" ;;
+    6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups test/acceptance/backup_crafted_archive" ;;
     *) echo "" ;;
   esac
 }
@@ -1353,6 +1362,13 @@ function run_acceptance_backup_dedupe_misc() {
   echo_green "acceptance — backup-dedupe-misc"
   AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeRestoreWithoutLicense|TestBackupDedupeIncremental)$' \
     run_aof_group "backup-dedupe-misc" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_crafted_archive() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-crafted-archive"
+  run_aof_group "backup-crafted-archive" \
+    test/acceptance/backup_crafted_archive
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

@@ -287,3 +287,26 @@ func TestOperatorCannotModifyLocalRole(t *testing.T) {
 		require.True(t, ok, "got %T", res)
 	})
 }
+
+// TestModifyPermissionsGlobalQualifiedResourceRefused pins that add and remove
+// refuse a global operator's namespace-qualified resource on a namespaces cluster.
+func TestModifyPermissionsGlobalQualifiedResourceRefused(t *testing.T) {
+	for _, op := range []string{"add", "remove"} {
+		t.Run(op, func(t *testing.T) {
+			h, _ := nsWriteHandler(t, nsWriteRoles(), "customer1")
+			h.authorizer = permissiveAuthorizer(t)
+			principal := &models.Principal{Username: "op"}
+			perms := []*models.Permission{{
+				Action:      String(authorization.ReadCollections),
+				Collections: &models.PermissionCollections{Collection: String("customer1:Movies")},
+			}}
+			var res any
+			if op == "add" {
+				res = h.addPermissions(authz.AddPermissionsParams{HTTPRequest: req, ID: "globalauditor", Body: authz.AddPermissionsBody{Permissions: perms}}, principal)
+			} else {
+				res = h.removePermissions(authz.RemovePermissionsParams{HTTPRequest: req, ID: "globalauditor", Body: authz.RemovePermissionsBody{Permissions: perms}}, principal)
+			}
+			require.Equal(t, "400", permRespKind(res), "got %T", res)
+		})
+	}
+}

@@ -22,6 +22,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBasicAuthVerifyEnabled(t *testing.T) {
+	tests := []struct {
+		name      string
+		basicAuth BasicAuth
+		expected  bool
+	}{
+		{name: "no credentials", basicAuth: BasicAuth{}, expected: false},
+		{name: "credentials", basicAuth: BasicAuth{Username: "user", Password: "pass"}, expected: true},
+		{name: "username only", basicAuth: BasicAuth{Username: "user"}, expected: true},
+		{name: "password only", basicAuth: BasicAuth{Password: "pass"}, expected: true},
+		{name: "credentials and send only", basicAuth: BasicAuth{Username: "user", Password: "pass", SendOnly: true}, expected: false},
+		{name: "send only without credentials", basicAuth: BasicAuth{SendOnly: true}, expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.basicAuth.VerifyEnabled())
+		})
+	}
+}
+
 func TestValidateClusterConfig(t *testing.T) {
 	tests := []struct {
 		name        string

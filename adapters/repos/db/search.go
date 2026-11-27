@@ -239,9 +239,14 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 	return float32(dist)
 }
 
+// CrossClassVectorSearch searches every collection. It refuses with
+// NAMESPACES_ENABLED.
 func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
+	if db.config.NamespacesEnabled {
+		return nil, errLookupWithoutClass
+	}
 	start := time.Now()
 	defer func() {
 		took := time.Since(start)
@@ -347,7 +352,9 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 	return db.getSearchResults(storobj.SearchResults(res, q.Additional, ""), q.Offset, q.Limit), nil
 }
 
-// ObjectSearch search each index.
+// ObjectSearch searches every collection that tenant reaches: without a tenant
+// each single-tenant collection, with one each collection holding that tenant.
+// It refuses with NAMESPACES_ENABLED.
 // Deprecated by Query which searches a specific index
 func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
@@ -372,6 +379,10 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
+	if db.config.NamespacesEnabled {
+		return nil, errLookupWithoutClass
+	}
+
 	var found []*storobj.Object
 
 	if err := db.validateSort(sort); err != nil {

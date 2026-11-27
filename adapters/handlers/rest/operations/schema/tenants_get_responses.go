@@ -28,7 +28,7 @@ import (
 const TenantsGetOKCode int = 200
 
 /*
-TenantsGetOK Successfully retrieved tenants.
+TenantsGetOK Successfully retrieved tenants. A collection the caller cannot read yields an empty list, whether or not it exists.
 
 swagger:response tenantsGetOK
 */

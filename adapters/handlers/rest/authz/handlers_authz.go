@@ -277,8 +277,15 @@ const (
 // that is not a global operator. Keeps a reserved role's existence from leaking
 // through the assign/revoke/update/delete responses, mirroring the read paths.
 func (h *authZHandlers) resolveRoleNameForCaller(principal *models.Principal, rawID string) (string, error) {
+	if err := validateRoleID(rawID); err != nil {
+		return "", err
+	}
 	stored, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, rawID, h.roleExists)
 	if err != nil {
+		return "", err
+	}
+	// A namespace named "role" qualifies a bare name into a global role's casbin key.
+	if err := validateRoleID(stored); err != nil {
 		return "", err
 	}
 	if rolevisibility.RoleOperatorReservedFromCaller(h.namespacesEnabled, principal, stored) {
@@ -297,6 +304,9 @@ func (h *authZHandlers) resolveRoleNameForCaller(principal *models.Principal, ra
 // callers needing them avoid a second GetRoles; it is nil otherwise.
 func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *models.Principal, rawID string) (roleID string, policies []authorization.Policy, outcome roleReadOutcome, err error) {
 	if !h.namespacesEnabled {
+		if err := validateRoleID(rawID); err != nil {
+			return "", nil, roleReadBadRequest, err
+		}
 		if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, rawID); err != nil {
 			return "", nil, roleReadForbidden, err
 		}
@@ -337,23 +347,9 @@ func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, prin
 	return nil
 }
 
-// hasAllScopedRolePermission reports whether any policy grants role management
-// at ALL scope (verb-suffix _ALL on a roles/ resource). On NS clusters such a
-// permission cannot be stored in any role — cluster-wide role management exists
-// only as root's wildcard, never as an assignable permission.
-func hasAllScopedRolePermission(policies []authorization.Policy) bool {
-	for _, p := range policies {
-		if strings.HasPrefix(p.Resource, authorization.RolesDomain+"/") &&
-			strings.HasSuffix(p.Verb, "_"+authorization.ROLE_SCOPE_ALL) {
-			return true
-		}
-	}
-	return false
-}
-
 // logUnstorableInput names who sent a value the policy file cannot store, since
 // the handlers refuse it before Authorize writes an audit line. It cuts the value
-// to maxTargetLength bytes, so a long request cannot make a long log line.
+// to conv.MaxTargetLength bytes, so a long request cannot make a long log line.
 func (h *authZHandlers) logUnstorableInput(principal *models.Principal, action, what, value string, err error) {
 	fields := logrus.Fields{
 		"action":    action,
@@ -362,9 +358,9 @@ func (h *authZHandlers) logUnstorableInput(principal *models.Principal, action, 
 	if principal != nil {
 		fields["user"] = principal.Username
 	}
-	if len(value) > maxTargetLength {
+	if len(value) > conv.MaxTargetLength {
 		fields["length"] = len(value)
-		value = value[:maxTargetLength] + "..."
+		value = value[:conv.MaxTargetLength] + "..."
 	}
 	h.logger.WithFields(fields).Warnf("refused %s %q: %v", what, value, err)
 }
@@ -380,7 +376,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("role name is invalid")))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, checkCreate, params.Body.Permissions...); err != nil {
+	if err := conv.ValidatePermissions(h.namespacesEnabled, conv.CheckCreate, params.Body.Permissions...); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role permissions are invalid: %w", err)))
 	}
 
@@ -389,7 +385,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid role: %w", err)))
 	}
 
-	if err := validateStorablePolicies(policies[*params.Body.Name]); err != nil {
+	if err := conv.ValidateStorablePolicies(policies[*params.Body.Name]); err != nil {
 		h.logUnstorableInput(principal, "create_role", "permissions of role", *params.Body.Name, err)
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role permissions are invalid: %w", err)))
 	}
@@ -409,11 +405,14 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	if err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
+	if err := validateRoleID(roleName); err != nil {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	// Reject namespace-qualified resource paths up front (callers submit bare
 	// names; a namespaced caller's are auto-prefixed below).
 	rolePolicies := policies[*params.Body.Name]
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies, false); err != nil {
+	if err := conv.ValidateNoQualifiedNamespaceInPolicies(h.namespacesEnabled, principal, rolePolicies, false); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -424,7 +423,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	// On NS clusters no role may carry ALL-scoped role management; cluster-wide
 	// role management exists only as root's wildcard.
-	if h.namespacesEnabled && hasAllScopedRolePermission(rolePolicies) {
+	if h.namespacesEnabled && conv.HasAllScopedRolePermission(rolePolicies) {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot create a role granting cluster-wide role management")))
 	}
 
@@ -461,11 +460,11 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+	if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(params.ID)) {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not update built-in role %s", params.ID)))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, checkAdd, params.Body.Permissions...); err != nil {
+	if err := conv.ValidatePermissions(h.namespacesEnabled, conv.CheckAdd, params.Body.Permissions...); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -478,11 +477,11 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	}
 
 	rolePolicies := policies[params.ID]
-	if err := validateStorablePolicies(rolePolicies); err != nil {
+	if err := conv.ValidateStorablePolicies(rolePolicies); err != nil {
 		h.logUnstorableInput(principal, "add_permissions", "permissions of role", params.ID, err)
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions: %w", err)))
 	}
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies, false); err != nil {
+	if err := conv.ValidateNoQualifiedNamespaceInPolicies(h.namespacesEnabled, principal, rolePolicies, false); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -493,7 +492,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 
 	// On NS clusters no role may carry ALL-scoped role management; cluster-wide
 	// role management exists only as root's wildcard.
-	if h.namespacesEnabled && hasAllScopedRolePermission(rolePolicies) {
+	if h.namespacesEnabled && conv.HasAllScopedRolePermission(rolePolicies) {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot add a permission granting cluster-wide role management")))
 	}
 
@@ -546,7 +545,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
-	if err := validatePermissions(h.namespacesEnabled, checkLookup, params.Body.Permissions...); err != nil {
+	if err := conv.ValidatePermissions(h.namespacesEnabled, conv.CheckLookup, params.Body.Permissions...); err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -560,7 +559,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		policies[i] = *p
 	}
 
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, policies, false); err != nil {
+	if err := conv.ValidateNoQualifiedNamespaceInPolicies(h.namespacesEnabled, principal, policies, false); err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -573,7 +572,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		permissions[i] = &policies[i]
 	}
 
-	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+	if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(params.ID)) {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot update built-in role %s", params.ID)))
 	}
 
@@ -627,7 +626,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("permission is required")))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, checkLookup, params.Body); err != nil {
+	if err := conv.ValidatePermissions(h.namespacesEnabled, conv.CheckLookup, params.Body); err != nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -642,7 +641,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 	// A confined caller submits a bare resource, qualified into its namespace
 	// below; a global operator must name the role's namespace explicitly to check
 	// a namespace-local role's qualified rows.
-	if err := h.validateNoQualifiedNamespaceInPolicies(principal, []authorization.Policy{*policy[0]}, true); err != nil {
+	if err := conv.ValidateNoQualifiedNamespaceInPolicies(h.namespacesEnabled, principal, []authorization.Policy{*policy[0]}, true); err != nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -806,7 +805,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+	if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(params.ID)) {
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not delete built-in role %s", params.ID)))
 	}
 
@@ -963,6 +962,10 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 
 		if err := validateEnvVarRoles(role); err != nil {
 			return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("assigning: %w", err)))
+		}
+
+		if err := validateRoleID(role); err != nil {
+			return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -1340,6 +1343,10 @@ func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDe
 			errors.New("endpoint is not supported in the current cluster configuration")))
 	}
 
+	if err := validateRoleID(params.ID); err != nil {
+		return authz.NewGetUsersForRoleDeprecatedBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	if err := validateEnvVarRoles(params.ID); err != nil && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -1486,6 +1493,10 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 
 		if err := validateEnvVarRoles(role); err != nil {
 			return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("revoking: %w", err)))
+		}
+
+		if err := validateRoleID(role); err != nil {
+			return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -1690,7 +1701,7 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 
 // validateEnvVarRoles validates that enduser do not touch the internal root role
 func validateEnvVarRoles(name string) error {
-	if slices.Contains(authorization.EnvVarRoles, name) {
+	if slices.Contains(authorization.EnvVarRoles, conv.TrimRoleNamePrefix(name)) {
 		return fmt.Errorf("modifying '%s' role or changing its assignments is not allowed", name)
 	}
 	return nil
@@ -1727,6 +1738,14 @@ func (h *authZHandlers) validateNotConfiguredGrant(internalID string, userType a
 				return fmt.Errorf("revoking: role '%s' of user '%s' is set by %s; remove the user from that setting instead", g.Role, internalID, configuredGrantSettings[g.Role])
 			}
 		}
+	}
+	return nil
+}
+
+// validateRoleID rejects a role ID carrying the casbin "role:" prefix, which would alias the unprefixed role.
+func validateRoleID(id string) error {
+	if strings.HasPrefix(id, conv.ROLE_NAME_PREFIX) {
+		return fmt.Errorf("'%s' is %w", id, namespacing.ErrInvalidRoleName)
 	}
 	return nil
 }
@@ -1778,41 +1797,6 @@ func (h *authZHandlers) resolveAssignableRoles(principal *models.Principal, role
 		names = append(names, stored)
 	}
 	return names, false, nil
-}
-
-// validateNoQualifiedNamespaceInPolicies rejects role-definition policies that
-// carry an explicit namespace qualification. On namespace-enabled clusters role
-// definitions must stay namespace-relative templates; the matcher specializes
-// them at enforce time. No-op when namespaces are disabled.
-//
-// A ':' in a users/<id> or groups/<...> id is part of the opaque id (e.g. an
-// OIDC username), not a qualifier, so a global caller may use it. Namespaced
-// callers must still submit short, unqualified forms — symmetric with the
-// class-name rule that forbids them typing any "<namespace>:" prefix. So a
-// namespaced caller cannot express a colon-bearing group id; acceptable while
-// group grants are global-only. Revisit if namespaced callers gain them.
-//
-// allowGlobalQualified lifts the restriction for a global caller, used by the
-// hasPermission read path so an operator can name a namespace-local role's
-// qualified rows. Confined callers stay restricted.
-func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(principal *models.Principal, policies []authorization.Policy, allowGlobalQualified bool) error {
-	if !h.namespacesEnabled {
-		return nil
-	}
-	global := namespacing.ConfinedNamespace(principal) == ""
-	if global && allowGlobalQualified {
-		return nil
-	}
-	for _, p := range policies {
-		if !conv.ContainsNamespaceSeparator(p.Resource) {
-			continue
-		}
-		if global && conv.IsOpaqueIDResource(p.Resource) {
-			continue
-		}
-		return fmt.Errorf("role permissions must not contain namespace-qualified resource paths; got %q", p.Resource)
-	}
-	return nil
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)
