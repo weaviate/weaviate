@@ -11,8 +11,10 @@
 
 // Package vectormanifest owns the state a shard persists about its vector
 // indexes: which index on disk each vector uses, in <shard>/index.db. Only
-// this package reads or writes that state, and only it decides which files
-// belong to a vector, except for package db's compressedVectorsMigrator.
+// this package reads or writes that state. Which files belong to a vector it
+// decides from the records; package db's compressedVectorsMigrator still picks
+// the owner of the old shared compressed bucket, and a shard without records
+// is dropped from by the names its caller passes.
 package vectormanifest
 
 import (
@@ -242,7 +244,8 @@ func (m *Manifest) dropUnrecorded(ctx context.Context, dropped, siblings []strin
 
 // Create records that name's index is about to be built under the naming rule
 // and returns where. It refuses a vector whose files another one owns; a retry
-// of an interrupted creation is not refused.
+// of an interrupted creation is not refused, and a drop of name this shard did
+// not finish is finished first.
 func (m *Manifest) Create(ctx context.Context, name string, cfg schemaConfig.VectorIndexConfig) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
