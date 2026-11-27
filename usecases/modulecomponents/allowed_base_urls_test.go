@@ -77,7 +77,7 @@ func TestValidateCollectionBaseURL(t *testing.T) {
 			if defaults == nil {
 				defaults = []string{"https://api.openai.com"}
 			}
-			err := ValidateCollectionBaseURL(tt.baseURL, defaults...)
+			err := ValidateCollectionBaseURL("baseURL", tt.baseURL, defaults...)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -92,7 +92,7 @@ func TestValidateCollectionBaseURL_IndependentOfSSRFFlag(t *testing.T) {
 		t.Run("MODULES_VALIDATE_BASE_URL="+flag, func(t *testing.T) {
 			t.Setenv("MODULES_VALIDATE_BASE_URL", flag)
 			t.Setenv(AllowedBaseURLsEnv, "")
-			require.ErrorContains(t, ValidateCollectionBaseURL("https://attacker.example"), "is not allowed")
+			require.ErrorContains(t, ValidateCollectionBaseURL("baseURL", "https://attacker.example"), "is not allowed")
 		})
 	}
 }

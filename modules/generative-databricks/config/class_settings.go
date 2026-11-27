@@ -59,7 +59,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.Endpoint()); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("endpoint", ic.Endpoint()); err != nil {
 		return err
 	}
 

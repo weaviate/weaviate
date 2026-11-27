@@ -38,7 +38,7 @@ func (ic *classSettings) InferenceURL() string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.InferenceURL()); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("inferenceUrl", ic.InferenceURL()); err != nil {
 		return err
 	}
 	if err := ic.BaseClassSettings.Validate(class); err != nil {

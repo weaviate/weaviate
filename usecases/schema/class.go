@@ -403,6 +403,9 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	if err != nil {
 		return err
 	}
+	if err := h.moduleConfig.ValidateModuleConfigKeys(class, nil); err != nil {
+		return err
+	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(class)
 

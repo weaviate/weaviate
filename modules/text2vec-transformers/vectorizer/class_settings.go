@@ -61,13 +61,13 @@ func (ic *classSettings) getSetting(property string) string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.InferenceURL()); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("inferenceUrl", ic.InferenceURL()); err != nil {
 		return err
 	}
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.PassageInferenceURL()); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("passageInferenceUrl", ic.PassageInferenceURL()); err != nil {
 		return err
 	}
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.QueryInferenceURL()); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("queryInferenceUrl", ic.QueryInferenceURL()); err != nil {
 		return err
 	}
 	if err := ic.BaseClassSettings.Validate(class); err != nil {

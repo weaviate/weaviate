@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -153,6 +154,16 @@ var baseURLShapes = []struct {
 	{"named vector", "body", namedVectorSettings},
 }
 
+// attackerSetting returns the name of the setting that holds attackerURL, which the error must name.
+func attackerSetting(settings map[string]any) string {
+	for name, value := range settings {
+		if value == attackerURL {
+			return name
+		}
+	}
+	return ""
+}
+
 // requireNoHostError allows the errors a module's validation returns for settings the table leaves out, such as a
 // required model, but not one about the host.
 func requireNoHostError(t *testing.T, err error) {
@@ -169,7 +180,8 @@ func TestValidateModuleConfig_BaseURLs_EveryModule(t *testing.T) {
 		for _, shape := range baseURLShapes {
 			name := tt.module.Name() + "/" + shape.name
 			t.Run(name+"/custom host is rejected", func(t *testing.T) {
-				t.Setenv(modulecomponents.AllowedBaseURLsEnv, "")
+				// listed so that only attackerURL is refused where a row sets a second host
+				t.Setenv(modulecomponents.AllowedBaseURLsEnv, "http://localhost:8080")
 				p := baseURLProvider(tt.module)
 				err := p.ValidateModuleConfig(context.Background(), shape.build(tt.module.Name(), tt.settings), tt.module.Name(), shape.targetVector)
 				if _, ok := tt.settings["resourceName"]; ok {
@@ -177,7 +189,8 @@ func TestValidateModuleConfig_BaseURLs_EveryModule(t *testing.T) {
 				} else if _, ok := tt.settings["region"]; ok {
 					require.ErrorContains(t, err, "is not a valid AWS region name")
 				} else {
-					require.ErrorContains(t, err, "is not allowed")
+					require.Error(t, err)
+					require.Contains(t, strings.ToLower(err.Error()), strings.ToLower(attackerSetting(tt.settings))+` "`+attackerURL+`" is not allowed`)
 				}
 				require.ErrorContains(t, err, tt.module.Name())
 			})
@@ -232,11 +245,18 @@ func TestValidateModuleConfig_BaseURLs_ProviderHosts(t *testing.T) {
 	}
 }
 
-// A class without a vectorizer still reads the settings of its generative and reranker modules.
-func TestValidateClass_NoVectorizerValidatesClassLevelModules(t *testing.T) {
+// A class without a vectorizer still reads the settings of its generative and reranker modules. A class with named
+// vectors and a legacy vector reads its vectorizer's class-level settings.
+func TestValidateClass_ValidatesClassLevelModules(t *testing.T) {
 	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "")
 	withoutVectorizer := func(moduleConfig map[string]any) *models.Class {
 		return &models.Class{Class: "Article", Vectorizer: "none", ModuleConfig: moduleConfig}
+	}
+	legacyAndNamed := func(vectorizer string, moduleConfig map[string]any) *models.Class {
+		class := namedVectorSettings("text2vec-openai", map[string]any{})
+		class.Vectorizer = vectorizer
+		class.ModuleConfig = moduleConfig
+		return class
 	}
 	tests := []struct {
 		name    string
@@ -248,6 +268,13 @@ func TestValidateClass_NoVectorizerValidatesClassLevelModules(t *testing.T) {
 		{name: "generative module with its default host", class: withoutVectorizer(map[string]any{"generative-openai": map[string]any{}})},
 		{name: "vectorizer settings the class never reads", class: withoutVectorizer(map[string]any{"text2vec-openai": map[string]any{"baseURL": attackerURL}})},
 		{name: "module that is not enabled", class: withoutVectorizer(map[string]any{"generative-anthropic": map[string]any{"model": "m"}})},
+		{name: "legacy vectorizer next to named vectors, foreign host", class: legacyAndNamed("text2vec-openai", map[string]any{"text2vec-openai": map[string]any{"baseURL": attackerURL}}), wantErr: "module 'text2vec-openai': baseURL"},
+		{name: "legacy vectorizer next to named vectors, default host", class: legacyAndNamed("text2vec-openai", map[string]any{"text2vec-openai": map[string]any{}})},
+		{name: "legacy vectorizer with an empty vector config", class: &models.Class{
+			Class: "Article", Vectorizer: "text2vec-openai", VectorConfig: map[string]models.VectorConfig{},
+			ModuleConfig: map[string]any{"text2vec-openai": map[string]any{}},
+		}},
+		{name: "named vectors without a legacy vectorizer", class: legacyAndNamed("none", map[string]any{"text2vec-openai": map[string]any{"baseURL": attackerURL}})},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

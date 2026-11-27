@@ -70,17 +70,17 @@ var dnsLabelPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z
 // settings unless its origin is the origin of one of the module's defaults or
 // is listed in AllowedBaseURLsEnv. A module attaches the server's provider key
 // to its requests, so every module validation calls it, before anything that
-// sends a request, for each setting that chooses the request host. An empty
-// baseURL means "use the module default" and is accepted. A URL that does not
-// parse to an origin, or whose host is not ASCII, is rejected; list such hosts
-// in their punycode form.
-func ValidateCollectionBaseURL(baseURL string, defaults ...string) error {
+// sends a request, for each setting that chooses the request host, and passes
+// that setting's name for the error. An empty baseURL means "use the module
+// default" and is accepted. A URL that does not parse to an origin, or whose
+// host is not ASCII, is rejected. List such hosts in their punycode form.
+func ValidateCollectionBaseURL(setting, baseURL string, defaults ...string) error {
 	if baseURL == "" {
 		return nil
 	}
 	origin, ok := BaseURLOrigin(baseURL)
 	if !ok || !hasASCIIHost(baseURL) {
-		return fmt.Errorf("baseURL %q is not a valid scheme://host[:port] URL", baseURL)
+		return fmt.Errorf("%s %q is not a valid scheme://host[:port] URL", setting, baseURL)
 	}
 	allowed, _ := ParseAllowedOrigins(os.Getenv(AllowedBaseURLsEnv))
 	want := withoutDefaultPort(origin)
@@ -94,8 +94,8 @@ func ValidateCollectionBaseURL(baseURL string, defaults ...string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("baseURL %q is not allowed: add %q to %s to let collections use it",
-		baseURL, want, AllowedBaseURLsEnv)
+	return fmt.Errorf("%s %q is not allowed: add %q to %s to let collections use it",
+		setting, baseURL, want, AllowedBaseURLsEnv)
 }
 
 // withoutDefaultPort drops :443 from an https origin and :80 from an http one,

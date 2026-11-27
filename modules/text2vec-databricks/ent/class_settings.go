@@ -45,7 +45,7 @@ func (cs *classSettings) Instruction() string {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	if err := modulecomponents.ValidateCollectionBaseURL(cs.Endpoint()); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("endpoint", cs.Endpoint()); err != nil {
 		return err
 	}
 	if err := cs.BaseClassSettings.Validate(class); err != nil {

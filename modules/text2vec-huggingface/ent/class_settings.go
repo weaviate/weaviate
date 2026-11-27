@@ -66,7 +66,7 @@ func (cs *classSettings) OptionUseCache() bool {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	if err := modulecomponents.ValidateCollectionBaseURL(cs.EndpointURL()); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("endpointURL", cs.EndpointURL()); err != nil {
 		return err
 	}
 	if err := cs.BaseClassSettings.Validate(class); err != nil {

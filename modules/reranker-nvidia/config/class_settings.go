@@ -41,7 +41,7 @@ func (cs *classSettings) Model() string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.BaseURL(), DefaultBaseURL); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("baseURL", ic.BaseURL(), DefaultBaseURL); err != nil {
 		return err
 	}
 	if err := ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL()); err != nil {

@@ -44,7 +44,7 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.ApiEndpoint(), DefaultApiEndpoint); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("apiEndpoint", ic.ApiEndpoint(), DefaultApiEndpoint); err != nil {
 		return err
 	}
 	if err := ic.BaseClassSettings.Validate(class); err != nil {

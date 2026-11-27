@@ -87,6 +87,16 @@ func openaiVectors(vectors map[string]map[string]any) *models.Class {
 	return namedVectorsClass(vectorizers)
 }
 
+// legacyVectorizerWithNamedVector is a class with a named vector and a legacy text2vec-openai vector. An update that
+// adds a named vector to a class with a legacy vector leaves this shape.
+func legacyVectorizerWithNamedVector(baseURL string) *models.Class {
+	class := openaiVectors(map[string]map[string]any{"body": {}})
+	class.Vectorizer = "text2vec-openai"
+	class.VectorIndexType = hnswT
+	class.ModuleConfig = map[string]any{"text2vec-openai": map[string]any{"baseURL": baseURL}}
+	return class
+}
+
 func TestAddClass_BaseURLs(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -323,6 +333,14 @@ func TestRestoreClass_BaseURLs(t *testing.T) {
 		{name: "named vector, host not listed", class: openaiVectors(map[string]map[string]any{"body": {"baseURL": gatewayBaseURL}}), wantErr: "is not allowed"},
 		{name: "generative module, host listed", allowlist: gatewayBaseURL, class: articleClass(generativeSettings(map[string]any{"baseURL": gatewayBaseURL}))},
 		{name: "named vector, host listed", allowlist: gatewayBaseURL, class: openaiVectors(map[string]map[string]any{"body": {"baseURL": gatewayBaseURL}})},
+		{name: "settings under an empty module name", class: articleClass(map[string]any{
+			"": map[string]any{"baseURL": attackerBaseURL}, "generative-openai": map[string]any{},
+		}), wantErr: "empty module name"},
+		{name: "host of a module that is not enabled", class: articleClass(map[string]any{
+			"generative-anthropic": map[string]any{"baseURL": attackerBaseURL},
+		}), wantErr: `module "generative-anthropic" is not enabled`},
+		{name: "legacy vectorizer next to a named vector, host not listed", class: legacyVectorizerWithNamedVector(attackerBaseURL), wantErr: "is not allowed"},
+		{name: "legacy vectorizer next to a named vector, host listed", allowlist: gatewayBaseURL, class: legacyVectorizerWithNamedVector(gatewayBaseURL)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

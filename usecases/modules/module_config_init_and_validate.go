@@ -202,6 +202,12 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 				}
 			}
 		}
+		// a class with named vectors can also keep a legacy vector, vectorized with these class-level settings
+		if class.Vectorizer != "" && class.Vectorizer != "none" {
+			if err := p.validateClassModuleConfig(ctx, class, class.Vectorizer, ""); err != nil {
+				return err
+			}
+		}
 		// check module config configuration in case that there are other none vectorizer modules defined
 		if err := p.validateClassesModuleConfigNoneVectorizers(ctx, class, "", class.ModuleConfig); err != nil {
 			return err
@@ -390,13 +396,15 @@ func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, 
 	}
 
 	// named vector props need to be a string array
-	props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
+	vectorizer, _ := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})
+	settings, _ := vectorizer[moduleName].(map[string]interface{})
+	props, ok := settings["properties"]
 	if ok {
 		propsTyped := make([]string, len(props.([]interface{})))
 		for i, v := range props.([]interface{}) {
 			propsTyped[i] = v.(string) // was validated by the module
 		}
-		class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
+		settings["properties"] = propsTyped
 	}
 }
 

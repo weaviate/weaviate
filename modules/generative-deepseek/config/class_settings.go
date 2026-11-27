@@ -75,7 +75,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.cfg == nil {
 		return errors.New("empty config")
 	}
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.BaseURL(), DefaultDeepSeekBaseURL); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("baseURL", ic.BaseURL(), DefaultDeepSeekBaseURL); err != nil {
 		return err
 	}
 

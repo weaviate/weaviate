@@ -43,7 +43,7 @@ func (cs *classSettings) Model() string {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	if err := modulecomponents.ValidateCollectionBaseURL(cs.BaseURL(), DefaultBaseURL); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("baseURL", cs.BaseURL(), DefaultBaseURL); err != nil {
 		return err
 	}
 	if err := cs.BaseClassSettings.Validate(class); err != nil {

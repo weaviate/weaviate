@@ -57,7 +57,7 @@ func (ic *classSettings) Properties() ([]string, error) {
 }
 
 func (ic *classSettings) Validate() error {
-	if err := modulecomponents.ValidateCollectionBaseURL(ic.InferenceURL()); err != nil {
+	if err := modulecomponents.ValidateCollectionBaseURL("inferenceUrl", ic.InferenceURL()); err != nil {
 		return err
 	}
 	return ic.base.ValidateMultiModal(fields)
