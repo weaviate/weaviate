@@ -516,6 +516,38 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **El heap del índice:** cerca de lo estimado con 128 MB de tope, unos 400 MB en `none` y unos 1 120 en `routing`, si lo que espera llena su tope. `lsmkv` es la parte de la que no sé el orden de magnitud.
 - **La amplificación de escritura:** no tengo base; entre 3 y 8 veces.
 
+**Resultado: corrida interrumpida (2026-11-27 a las 07:24, por decisión del usuario).**
+- **Motivo, del usuario:** a este ritmo de inserts no es viable; la memoria a 10M crecido se medirá cuando el insert vaya más rápido.
+- **Hasta dónde llegó:** 3 301 200 vectores de 10M (33 %) en 8 h 47 min. A ese ritmo quedaban unas 30 h.
+- **Sin perfil del heap:** no hay fila de 10M crecido, ni real ni a 3.3M.
+- **El proceso se mató,** que para el índice es una caída. Su directorio (12 GB) sigue en el directorio temporal de la sesión, sin abrir. No lo borro sin que el usuario lo diga.
+- **La energía, comprobada:** `pmset -g log` no tiene ningún `Sleep` ni `Wake` entre las 22:35 y las 07:25, con el Mac enchufado toda la corrida. Ningún hueco de más de 10 minutos entre tramos. Lo medido cuenta.
+
+| hora | insertados | inserts/s (la hora) | postings vivos | postings dados | amplificación de escritura (la hora) | escrito, acumulado | en disco | heap en uso |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 22:40 | 75 600 | | 300 | 557 | | 1.2 GB | 0.4 GB | 2 401 MB |
+| 23:41 | 572 400 | 136 | 2 305 | 4 567 | 10.0 | 16.4 GB | 2.4 GB | 2 786 MB |
+| 00:41 | 994 800 | 116 | 3 975 | 7 907 | 13.5 | 33.8 GB | 4.0 GB | 1 738 MB |
+| 01:42 | 1 388 400 | 108 | 5 587 | 11 131 | 16.8 | 54.2 GB | 5.5 GB | 2 774 MB |
+| 02:43 | 1 762 800 | 103 | 7 072 | 14 101 | 14.3 | 70.6 GB | 7.0 GB | 2 808 MB |
+| 03:44 | 2 119 600 | 98 | 8 488 | 16 933 | 16.6 | 88.8 GB | 8.1 GB | 1 909 MB |
+| 04:45 | 2 462 000 | 94 | 9 942 | 19 841 | 16.2 | 105.9 GB | 9.6 GB | 3 092 MB |
+| 05:45 | 2 790 800 | 90 | 11 273 | 22 503 | 24.6 | 130.8 GB | 10.8 GB | 1 961 MB |
+| 06:46 | 3 116 400 | 89 | 12 511 | 24 979 | 17.1 | 147.9 GB | 12.2 GB | 3 037 MB |
+| 07:22 | 3 301 200 | 87 | 13 264 | 26 485 | 16.3 | 157.2 GB | 13.2 GB | 2 017 MB |
+
+- **Inserts por segundo:** de 217 en el primer tramo a 87 al final, cayendo despacio con el tamaño. 8 llamadores rinden como uno: el análisis de abajo da el porqué.
+- **Postings:** 13 264 vivos a 3.3M, unos 249 vectores por posting, como el lote (236).
+- **Amplificación de escritura: 15.5 veces en total,** 47.8 KB escritos a disco por insert de 3 072 B. Se reparten así:
+  - 7.2 KB son lo que el índice escribe por insert: el vector, el miembro, los mapas, las filas, las distancias y el log de lo que espera;
+  - 8.2 KB, el diario (un registro por insert);
+  - 5.3 KB, los layouts (8 pasadas, 5.1M vectores reescritos, 15.8 GB);
+  - el resto, unos 27 KB, son WAL, flush y compactaciones de `lsmkv`, que no he desglosado.
+- **Leído de disco:** 91 GB.
+- **CPU media:** 1.27 núcleos.
+- **El heap en uso del proceso** oscila entre 1.7 y 3.1 GB. Lleva desde el principio las tablas por docID a 12.5M keys, unos 1 025 MB, porque el doc id es la fila del dataset. Sin perfil no se puede repartir.
+- **Datos:** `testdata/bench/night-10m-grown/grow-interrupted.json` y `.log`.
+
 ### Por qué 8 llamadores insertan como uno (análisis, 2026-11-27, sin compilar ni ejecutar)
 
 *El encargo (del usuario): con el perfil de CPU que ya había y el código del camino de insert integrado (`feat/posting-edge-integration-m2`, `c6c8b2e347`), explicar qué serializa los inserts, compararlo con v5.2 y proponer el cambio con su ganancia estimada, sin implementarlo. Los datos son de la noche de 10M, a 2.97M insertados, y de las pruebas pequeñas de antes de lanzarla.*
