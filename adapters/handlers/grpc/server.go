@@ -133,47 +133,16 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 	return s, drainBatch
 }
 
-func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		if info.FullMethod != pbv1.Weaviate_BatchObjects_FullMethodName {
-			return handler(ctx, req)
-		}
+// ----------------------------------------------------------------------------
+// Authentication
+// ----------------------------------------------------------------------------
 
-		// For now only Batch has specific metrics (in line with http API)
-		startTime := time.Now()
-		reqSizeBytes := float64(proto.Size(req.(proto.Message)))
-		reqSizeMB := float64(reqSizeBytes) / (1024 * 1024)
-		ctx, batchNamespace := restCtx.WithBatchNamespaceSlot(ctx)
-		// Invoke the handler to process the request
-		resp, err := handler(ctx, req)
-
-		// Measure duration
-		duration := time.Since(startTime)
-
-		if logger != nil {
-			logger.WithFields(logrus.Fields{
-				"action":             "grpc_batch_objects",
-				"method":             info.FullMethod,
-				"request_size_bytes": reqSizeBytes,
-				"duration":           duration,
-			}).Debugf("grpc BatchObjects request (%fMB) took %s", reqSizeMB, duration)
-		}
-
-		if metrics != nil {
-			// Metric uses non-standard base unit ms, use ms for backwards compatibility
-			metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
-				Observe(float64(duration.Milliseconds()))
-			metrics.BatchSizeBytes.WithLabelValues("grpc", batchNamespace.Namespace).Observe(reqSizeBytes)
-		}
-
-		return resp, err
-	}
-}
-
-// translateTypedError maps Weaviate's typed errors (auth, usage limits)
-// to gRPC statuses. Returns nil when no mapping applies so callers can
-// fall through. Shared by the unary and stream interceptors.
-func translateTypedError(err error) error {
+// withStatusCode assigns a gRPC status code to a known Weaviate error,
+// e.g. auth, usage limits, or [codes.Unknown] otherwise.
+//
+// TODO(dyma): if we implement GRPCStatus() *grpc.Status for all the known
+// errors (or wrap them in types that do) then grpc-go will map them automatically.
+func withStatusCode(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -184,19 +153,19 @@ func translateTypedError(err error) error {
 		return status.Error(codes.PermissionDenied, err.Error())
 	}
 	if le, ok := usagelimits.AsLimitExceeded(err); ok {
-		return limitExceededToGrpcError(le)
+		return limitExceededToGRPCError(le)
 	}
 	if v, ok := restrictions.AsViolation(err); ok {
-		return restrictionViolationToGrpcError(v)
+		return restrictionViolationToGRPCError(v)
 	}
-	return nil
+	return status.Error(codes.Unknown, err.Error())
 }
 
-// restrictionViolationToGrpcError maps a ViolationError to
+// restrictionViolationToGRPCError maps a ViolationError to
 // FailedPrecondition + ErrorInfo metadata mirroring the REST 422 body.
-func restrictionViolationToGrpcError(v *restrictions.ViolationError) error {
+func restrictionViolationToGRPCError(v *restrictions.ViolationError) error {
 	st := status.New(codes.FailedPrecondition, v.Error())
-	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
+	details := &errdetails.ErrorInfo{
 		Reason: restrictions.ErrorCode,
 		Domain: "weaviate.restrictions",
 		Metadata: map[string]string{
@@ -205,34 +174,20 @@ func restrictionViolationToGrpcError(v *restrictions.ViolationError) error {
 			"allowed":     strings.Join(v.Allowed, ","),
 			"message":     v.RenderedMessage,
 		},
-	})
-	if derr != nil {
-		return st.Err()
 	}
-	return withDetails.Err()
+	if detailed, err := st.WithDetails(details); err == nil {
+		st = detailed
+	}
+	return st.Err()
 }
 
-// FIXME(dyma): this shouldn't be called "auth interceptor", because it maps error types,
-// and not just those related to auth.
-func makeAuthInterceptor() grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
-	) (any, error) {
-		resp, err := handler(ctx, req)
-		if translated := translateTypedError(err); translated != nil {
-			return nil, translated
-		}
-		return resp, err
-	}
-}
-
-// limitExceededToGrpcError converts a *usagelimits.LimitExceededError into
+// limitExceededToGRPCError converts a *usagelimits.LimitExceededError into
 // a gRPC status with codes.ResourceExhausted and an attached
 // errdetails.ErrorInfo proto carrying the structured fields that mirror the
 // REST 429 body. SDKs may match on the gRPC code alone, or read the details
 // payload for the same `errorCode`/`limit`/`value`/`message` fields they'd
 // see over REST.
-func limitExceededToGrpcError(le *usagelimits.LimitExceededError) error {
+func limitExceededToGRPCError(le *usagelimits.LimitExceededError) error {
 	st := status.New(codes.ResourceExhausted, le.Error())
 	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
 		Reason: usagelimits.ErrorCode,
@@ -252,20 +207,23 @@ func limitExceededToGrpcError(le *usagelimits.LimitExceededError) error {
 	return withDetails.Err()
 }
 
+// FIXME(dyma): pull authentication for unary RPCs from handlers to this interceptor.
+func makeAuthInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		resp, err := handler(ctx, req)
+		return resp, withStatusCode(err)
+	}
+}
+
 func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if _, err := auth.PrincipalFromContext(ss.Context()); err != nil {
 			return status.Error(codes.Unauthenticated, err.Error())
 		}
-		// Mirror makeAuthInterceptor so streams get the same wire contract.
 		err := handler(srv, ss)
-		// FIXME(dyma): this doesn't need to return nil "so callers can fallthrough".
-		// That's nonsense, it should just return the original error if it cannot be
-		// mapped.
-		if translated := translateTypedError(err); translated != nil {
-			return translated
-		}
-		return err
+		return withStatusCode(err)
 	}
 }
 
@@ -490,4 +448,42 @@ func StartAndListen(s *grpc.Server, state *state.State) error {
 	}
 
 	return nil
+}
+
+// TODO(dyma): [monitoring.GrpcStatsHandler] is better positioned to collect this data, migrate to StatsHandler API.
+func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		if info.FullMethod != pbv1.Weaviate_BatchObjects_FullMethodName {
+			return handler(ctx, req)
+		}
+
+		// For now only Batch has specific metrics (in line with http API)
+		startTime := time.Now()
+		reqSizeBytes := float64(proto.Size(req.(proto.Message)))
+		reqSizeMB := float64(reqSizeBytes) / (1024 * 1024)
+		ctx, batchNamespace := restCtx.WithBatchNamespaceSlot(ctx)
+		// Invoke the handler to process the request
+		resp, err := handler(ctx, req)
+
+		// Measure duration
+		duration := time.Since(startTime)
+
+		if logger != nil {
+			logger.WithFields(logrus.Fields{
+				"action":             "grpc_batch_objects",
+				"method":             info.FullMethod,
+				"request_size_bytes": reqSizeBytes,
+				"duration":           duration,
+			}).Debugf("grpc BatchObjects request (%fMB) took %s", reqSizeMB, duration)
+		}
+
+		if metrics != nil {
+			// Metric uses non-standard base unit ms, use ms for backwards compatibility
+			metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
+				Observe(float64(duration.Milliseconds()))
+			metrics.BatchSizeBytes.WithLabelValues("grpc", batchNamespace.Namespace).Observe(reqSizeBytes)
+		}
+
+		return resp, err
+	}
 }
