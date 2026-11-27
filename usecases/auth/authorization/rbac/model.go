@@ -449,9 +449,10 @@ const coverSuffix = "\x00cover"
 // covers reports whether policy matches every resource that pattern matches.
 // The pattern holds only literals, '.' and ".*", written as text with its '.'
 // and ".*" as two reserved runes. The policy becomes a regexp over that text in
-// which a literal matches itself, '.' any element but a ".*", ".*" anything and
-// the namespace class anyNamespacePattern adds only literals. A policy with
-// other regex syntax covers no pattern, and a bare "*" matches anything.
+// which a literal matches itself, '.' any element but a ".*", ".*" anything,
+// the namespace class anyNamespacePattern adds only literals, and a group of
+// such branches what one branch matches. A policy with other regex syntax
+// covers no pattern, and a bare "*" matches anything.
 func covers(policy, pattern string) bool {
 	if policy == "*" {
 		return true
@@ -461,64 +462,12 @@ func covers(policy, pattern string) bool {
 	if !ok {
 		return false
 	}
-	policy = strings.ReplaceAll(policy, "/*", "/.*")
-	// KeyMatch5 panics on a policy that does not compile, which then matches
-	// nothing, though one branch of it alone might.
-	if _, err := regexp.Compile(keyMatch5Placeholder.ReplaceAllString(policy, "[^/]+")); err != nil {
+	expr, ok := coverExpr(strings.ReplaceAll(policy, "/*", "/.*"))
+	if !ok {
 		return false
 	}
-	// A group "(a|b)" matches what one of its branches matches, so a branch
-	// that covers the pattern alone is enough.
-	for _, branch := range alternatives(policy) {
-		expr, ok := coverExpr(branch)
-		if !ok {
-			continue
-		}
-		if re, err := regexp.Compile(expr); err == nil && re.MatchString(text) {
-			return true
-		}
-	}
-	return false
-}
-
-// keyMatch5Placeholder is what KeyMatch5 rewrites to "[^/]+" in a policy.
-var keyMatch5Placeholder = regexp.MustCompile(`\{[^/]+\}`)
-
-// maxAlternatives bounds how many policies alternatives expands one into.
-const maxAlternatives = 64
-
-// alternatives expands each group "(a|b)" in policy into one policy per
-// branch. A group that sits in a class, is quantified, nested, opens with '?'
-// (flags, non-capturing), holds an escape, class, quote or placeholder, or
-// would expand past maxAlternatives stays whole, and coverExpr refuses it.
-func alternatives(policy string) []string {
-	open := strings.IndexByte(policy, '(')
-	if open < 0 {
-		return []string{policy}
-	}
-	end := strings.IndexByte(policy[open:], ')') + open
-	if end < open {
-		return []string{policy}
-	}
-	body := policy[open+1 : end]
-	inClass := strings.LastIndexByte(policy[:open], '[') > strings.LastIndexByte(policy[:open], ']')
-	quantified := end+1 < len(policy) && strings.IndexByte("*+?{", policy[end+1]) >= 0
-	// A '|' that is escaped or sits in a class, quote or placeholder is no
-	// alternation, and syntax left outside the group stays in every branch.
-	if inClass || quantified || strings.ContainsAny(body, `()\[]{}`) || strings.HasPrefix(body, "?") {
-		return []string{policy}
-	}
-	rest := alternatives(policy[end+1:])
-	var out []string
-	for _, branch := range strings.Split(body, "|") {
-		for _, tail := range rest {
-			if len(out) == maxAlternatives {
-				return []string{policy}
-			}
-			out = append(out, policy[:open]+branch+tail)
-		}
-	}
-	return out
+	re, err := regexp.Compile(expr)
+	return err == nil && re.MatchString(text)
 }
 
 const (
@@ -541,24 +490,60 @@ func coverExpr(policy string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`\A(?:`)
-	for i := 0; i < len(policy); i++ {
-		switch {
-		case strings.HasPrefix(policy[i:], namespaceClass):
-			b.WriteString(`[^/:` + coverAnyChar + coverAnyString + `]+`)
-			i += len(namespaceClass) - 1
-		case strings.HasPrefix(policy[i:], ".*"):
-			b.WriteString(`[^\n]*`)
-			i++
-		case policy[i] == '.':
-			b.WriteString(`[^\n` + coverAnyString + `]`)
-		case regexp.QuoteMeta(policy[i:i+1]) != policy[i:i+1]:
-			return "", false
-		default:
-			b.WriteByte(policy[i])
+	for {
+		open := strings.IndexByte(policy, '(')
+		if open < 0 {
+			if !writeCoverAtoms(&b, policy) {
+				return "", false
+			}
+			break
 		}
+		end := strings.IndexByte(policy[open:], ')') + open
+		if end < open || !writeCoverAtoms(&b, policy[:open]) {
+			return "", false
+		}
+		body := policy[open+1 : end]
+		if strings.HasPrefix(body, "?") || strings.Contains(body, "(") {
+			return "", false
+		}
+		// A group matches what one of its branches matches. Every branch must
+		// be plain, so no '|' in it was escaped or inside a class or quote.
+		b.WriteString("(?:")
+		for i, branch := range strings.Split(body, "|") {
+			if i > 0 {
+				b.WriteByte('|')
+			}
+			if !writeCoverAtoms(&b, branch) {
+				return "", false
+			}
+		}
+		b.WriteString(")")
+		policy = policy[end+1:]
 	}
 	b.WriteString(`)\z`)
 	return b.String(), true
+}
+
+// writeCoverAtoms writes s, which may hold only literals, '.', ".*" and the
+// namespace class, as a regexp over coverText's output.
+func writeCoverAtoms(b *strings.Builder, s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch {
+		case strings.HasPrefix(s[i:], namespaceClass):
+			b.WriteString(`[^/:` + coverAnyChar + coverAnyString + `]+`)
+			i += len(namespaceClass) - 1
+		case strings.HasPrefix(s[i:], ".*"):
+			b.WriteString(`[^\n]*`)
+			i++
+		case s[i] == '.':
+			b.WriteString(`[^\n` + coverAnyString + `]`)
+		case regexp.QuoteMeta(s[i:i+1]) != s[i:i+1]:
+			return false
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return true
 }
 
 // namespaceClass is anyNamespacePattern without its ':'.
