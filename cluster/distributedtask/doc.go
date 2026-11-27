@@ -35,11 +35,9 @@
 //
 // # Unit assignment
 //
-// Units start unassigned (empty NodeID). The [Scheduler] treats unassigned units as
-// belonging to any node, so all nodes will start the task. The first node to report progress
-// for a unit claims it — subsequent updates from other nodes are rejected. This means
-// assignment is implicit and driven by the Provider implementation, not prescribed by the
-// framework.
+// A unit starts on the node its [UnitSpec].Node names. A unit submitted without one starts
+// unassigned: the [Scheduler] treats it as belonging to any node, and the first node to report
+// progress claims it, after which updates from other nodes are rejected.
 //
 // # Failure semantics
 //

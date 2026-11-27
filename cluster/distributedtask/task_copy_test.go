@@ -333,6 +333,11 @@ func TestUpdateTaskCopyReportsTheGroupsAnApplyChanged(t *testing.T) {
 			Namespace: copyNamespace, Id: desc.ID, Version: 1, GroupId: &group, NodeId: node, Success: true,
 		})))
 	}
+	postAck := func(t *testing.T, m *Manager, success bool) {
+		require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace: copyNamespace, Id: desc.ID, Version: 1, NodeId: node, Success: success,
+		})))
+	}
 	for _, tc := range []struct {
 		name    string
 		barrier bool
@@ -395,6 +400,26 @@ func TestUpdateTaskCopyReportsTheGroupsAnApplyChanged(t *testing.T) {
 				})))
 			},
 			want: changedGroups{groups: map[string]struct{}{"g0": {}}},
+		},
+		{
+			name:   "successful post-completion ack",
+			before: func(t *testing.T, m *Manager) { complete(t, m, "g0", ""); complete(t, m, "g1", "") },
+			apply:  func(t *testing.T, m *Manager) { postAck(t, m, true) },
+		},
+		{
+			name:   "failed post-completion ack",
+			before: func(t *testing.T, m *Manager) { complete(t, m, "g0", ""); complete(t, m, "g1", "") },
+			apply:  func(t *testing.T, m *Manager) { postAck(t, m, false) },
+			want:   changedGroups{all: true},
+		},
+		{
+			name:    "node preparation ack that leaves the status",
+			barrier: true,
+			apply: func(t *testing.T, m *Manager) {
+				require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+					Namespace: copyNamespace, Id: desc.ID, Version: 1, NodeId: node, Success: true,
+				})))
+			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

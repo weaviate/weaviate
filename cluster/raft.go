@@ -81,8 +81,8 @@ func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sche
 // LocalDistributedTasks reads this node's own FSM, not the leader. The schema
 // lives in that same FSM at the same applied index, so a caller that reads
 // tasks and then a schema flag gets a flag at least as new as the tasks. It
-// can trail the leader: use [Raft.ListDistributedTasks] when a decision needs
-// the cluster's latest state.
+// can trail the leader. A decision that needs the leader's state uses
+// [Raft.ListDistributedTaskHeaders], or [Raft.ListDistributedTasks] where it reads units.
 func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }

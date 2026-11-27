@@ -1636,8 +1636,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{Namespace: task.Namespace, ID: task.ID, Version: task.Version}, payload, logger); err != nil {
-		// A node whose flip arrives after another node's has finalized the run is refused,
-		// though the schema did flip; an error with the schema at target is not half-applied.
+		// The FSM refuses this flip once another node's flip has finalized the run.
+		// The schema then already shows the target, so the refusal counts as done.
 		if ReindexRunLanded(p.schemaManager.ReadOnlyClass(payload.Collection), payload.MigrationType,
 			payload.TargetTokenization, payload.Properties) {
 			logger.Debugf("reindex provider: task-completion: schema flip refused, schema already at target: %v", err)

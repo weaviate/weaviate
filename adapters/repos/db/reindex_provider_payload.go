@@ -56,6 +56,20 @@ func visibleFields(payload any, fields []string) map[string]any {
 
 var _ distributedtask.HeaderDecoder = ReindexDetector{}
 
+func (ReindexDetector) DecodeCollection(payload []byte) (string, error) {
+	return decodePayloadCollection(payload)
+}
+
+func decodePayloadCollection(payload []byte) (string, error) {
+	var p struct {
+		Collection string `json:"collection"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return "", err
+	}
+	return p.Collection, nil
+}
+
 // DecodeHeader unmarshals the whole payload, so a malformed field anywhere yields no header and the checks refuse.
 func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
 	var p ReindexTaskPayload

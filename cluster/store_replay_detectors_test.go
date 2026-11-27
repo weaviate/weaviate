@@ -42,6 +42,8 @@ func (refuseWhileTaskExists) DecodeHeader([]byte) (distributedtask.TaskHeader, e
 	return replayHeader{}, nil
 }
 
+func (refuseWhileTaskExists) DecodeCollection([]byte) (string, error) { return "", nil }
+
 func (refuseWhileTaskExists) CheckConflict(_ distributedtask.TaskHeader, existing []*distributedtask.Task) error {
 	if len(existing) > 0 {
 		return fmt.Errorf("conflicts with task %s", existing[0].ID)

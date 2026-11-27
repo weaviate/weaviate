@@ -390,13 +390,12 @@ func TestStructuralInvariant_OnlyUnitReadersListTheFullTaskList(t *testing.T) {
 	readers, declared := fullTaskListReaders(t, root)
 
 	allowedFiles := map[string]bool{
-		"usecases/distributedtask/handler.go":                        true, // GET /v1/tasks renders every unit
-		"adapters/handlers/rest/handlers_debug_distributed_tasks.go": true, // the debug endpoint prints units
-		"adapters/handlers/rest/drop_vector_index_enqueuer.go":       true, // drop-vector keeps the full list
-		"adapters/repos/db/drop_vector_index_provider.go":            true,
-		"cluster/raft_distributed_tasks_query_endpoints.go":          true, // the query itself
-		"cluster/store_query.go":                                     true,
-		"cluster/distributedtask/manager.go":                         true, // reads this node's copy, not the leader
+		"usecases/distributedtask/handler.go":                  true, // GET /v1/tasks renders every unit
+		"adapters/handlers/rest/drop_vector_index_enqueuer.go": true, // drop-vector keeps the full list
+		"adapters/repos/db/drop_vector_index_provider.go":      true,
+		"cluster/raft_distributed_tasks_query_endpoints.go":    true, // the query itself
+		"cluster/store_query.go":                               true,
+		"cluster/distributedtask/manager.go":                   true, // reads this node's copy, not the leader
 	}
 	for reader := range readers {
 		require.True(t, allowedFiles[reader[:strings.Index(reader, ":")]], "%s reads the full task list; list headers instead", reader)

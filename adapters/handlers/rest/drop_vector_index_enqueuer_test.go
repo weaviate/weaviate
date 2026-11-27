@@ -320,7 +320,6 @@ func TestLiveOpIDs_SpansRoundsWhileMarkerPending(t *testing.T) {
 			"a failed read is memoized too: a partitioned leader costs one RPC per collection, not one per record")
 	})
 
-	// A leader still catching up refuses the list; a nil set makes recovery skip its sweep.
 	t.Run("refused task list reports liveness unknown", func(t *testing.T) {
 		refused := fmt.Errorf("query: %w", clustertypes.ErrFSMNotCaughtUp)
 		enq := &dropVectorIndexEnqueuer{clusterService: &fakeClusterDropClient{listErr: refused}, schemaState: &fakeShardingState{}}

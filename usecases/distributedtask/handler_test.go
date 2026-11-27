@@ -284,9 +284,13 @@ func TestHandler_RedactedPayloadComesFromTheHeader(t *testing.T) {
 			name: "reindex task with a large hidden field", namespace: db.ReindexNamespace, detector: db.ReindexDetector{},
 			payload: map[string]any{
 				"collection": "A", "migrationType": "change-tokenization", "targetTokenization": "field",
+				"originalTokenization": "word", "bucketStrategy": "mapcollection",
 				"tenants": []string{"tenant1"}, "padding": padding,
 			},
-			want: map[string]any{"collection": "A", "migrationType": "change-tokenization", "targetTokenization": "field"},
+			want: map[string]any{
+				"collection": "A", "migrationType": "change-tokenization", "targetTokenization": "field",
+				"originalTokenization": "word", "bucketStrategy": "mapcollection",
+			},
 		},
 		{
 			name: "drop-vector task", namespace: db.DropVectorIndexNamespace, detector: db.NewDropVectorIndexDetector(logrus.New()),
@@ -374,6 +378,14 @@ func (collectionDecoder) DecodeHeader(payload []byte) (distributedtask.TaskHeade
 		return nil, errors.New("payload names no collection")
 	}
 	return h, nil
+}
+
+func (d collectionDecoder) DecodeCollection(payload []byte) (string, error) {
+	h, err := d.DecodeHeader(payload)
+	if err != nil {
+		return "", err
+	}
+	return h.Collection(), nil
 }
 
 type taskListerStub struct {

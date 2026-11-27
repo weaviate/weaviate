@@ -334,9 +334,7 @@ type ManagerParameters struct {
 func NewManager(params ManagerParameters) *Manager {
 	headerDecoders := map[string]HeaderDecoder{}
 	for namespace, detector := range params.ConflictDetectors {
-		if decoder, ok := detector.(HeaderDecoder); ok {
-			headerDecoders[namespace] = decoder
-		}
+		headerDecoders[namespace] = detector
 	}
 	for namespace, detector := range params.SchemaMutationDetectors {
 		if decoder, ok := detector.(HeaderDecoder); ok {
@@ -516,10 +514,15 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 }
 
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {
-	if header := m.headerFor(namespace, payload); header != nil {
-		return header.Collection()
+	decoder := m.headerDecoders[namespace]
+	if decoder == nil {
+		return ""
 	}
-	return ""
+	collection, err := decoder.DecodeCollection(payload)
+	if err != nil {
+		return ""
+	}
+	return collection
 }
 
 func (m *Manager) HasActiveTaskForCollection(collection string) bool {
@@ -795,13 +798,13 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		Error:   r.Error,
 		AckedAt: ackedAt,
 	}
-	change.taskLevel = true
 
 	// Any failure flips the task to FAILED immediately.
 	if !r.Success && task.Status == TaskStatusSwapping {
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
+		change.taskLevel = true
 	}
 
 	m.notifySchedulerWithLock()
@@ -867,8 +870,9 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	}
 
 	if r.GroupId == nil {
+		before := task.Status
 		recordNodePreparationAck(task, &r)
-		change.taskLevel = true
+		change.taskLevel = task.Status != before
 		m.notifySchedulerWithLock()
 		return nil
 	}

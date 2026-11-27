@@ -1745,6 +1745,13 @@ func (d decodeCollection) DecodeHeader(payload []byte) (distributedtask.TaskHead
 	return nil, errors.New("unreadable payload")
 }
 
+func (d decodeCollection) DecodeCollection(payload []byte) (string, error) {
+	if collection, ok := d(payload); ok {
+		return collection, nil
+	}
+	return "", errors.New("unreadable payload")
+}
+
 func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
 	t.Helper()
 	sub, err := json.Marshal(exclusionMovement)

@@ -105,11 +105,6 @@ func (ReindexDetector) CheckConflict(newHeader distributedtask.TaskHeader, exist
 				"in-flight reindex task %q has unparseable payload; cannot verify conflict",
 				task.ID)
 		}
-		if existP.Collection() == "" || existP.MigrationType == "" {
-			return fmt.Errorf(
-				"in-flight reindex task %q has empty Collection or MigrationType",
-				task.ID)
-		}
 		if reason := typesConflictReason(newP.MigrationType, newP.Properties,
 			existP.MigrationType, existP.Properties); reason != "" {
 			return fmt.Errorf("reindex task %q conflicts: %s", task.ID, reason)
@@ -242,14 +237,6 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 					"conflict",
 				task.ID, className, propertyName)
 		}
-		if existP.Collection() == "" || existP.MigrationType == "" {
-			return fmt.Errorf(
-				"in-flight reindex task %q has empty Collection or "+
-					"MigrationType (payload may have been written by an "+
-					"older binary); cannot verify whether property update "+
-					"on %s.%s would conflict",
-				task.ID, className, propertyName)
-		}
 		if !strings.EqualFold(existP.Collection(), className) {
 			continue
 		}
@@ -301,14 +288,6 @@ func (ReindexDetector) CheckClassMutation(className string, existingTasks []*dis
 					"conflict",
 				task.ID, className)
 		}
-		if existP.Collection() == "" || existP.MigrationType == "" {
-			return fmt.Errorf(
-				"in-flight reindex task %q has empty Collection or "+
-					"MigrationType (payload may have been written by an "+
-					"older binary); cannot verify whether DeleteClass on "+
-					"%s would conflict",
-				task.ID, className)
-		}
 		if !strings.EqualFold(existP.Collection(), className) {
 			continue
 		}
@@ -354,14 +333,6 @@ func (ReindexDetector) CheckTenantMutation(className string, tenants []string, e
 				"in-flight reindex task %q has an unparseable payload; "+
 					"cannot verify whether tenant mutation on %s/%v "+
 					"would conflict",
-				task.ID, className, tenants)
-		}
-		if existP.Collection() == "" || existP.MigrationType == "" {
-			return fmt.Errorf(
-				"in-flight reindex task %q has empty Collection or "+
-					"MigrationType (payload may have been written by an "+
-					"older binary); cannot verify whether tenant "+
-					"mutation on %s/%v would conflict",
 				task.ID, className, tenants)
 		}
 		if !strings.EqualFold(existP.Collection(), className) {

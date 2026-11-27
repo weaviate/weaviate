@@ -556,6 +556,10 @@ func (h dropVectorIndexTaskHeader) VisiblePayload() map[string]any {
 	}, DropVectorIndexTaskVisiblePayloadFields)
 }
 
+func (*DropVectorIndexDetector) DecodeCollection(payload []byte) (string, error) {
+	return decodePayloadCollection(payload)
+}
+
 func (*DropVectorIndexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
 	p, err := decodeDropVectorIndexPayload(payload)
 	if err != nil {

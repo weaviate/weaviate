@@ -61,6 +61,7 @@ type taskSchedulerState struct {
 	completedCallbackAttempts int
 	// swapCheck and prepCheck name the changed groups a phase looks at, since only those can have become ready.
 	swapCheck, prepCheck changedGroups
+	localGroupsOut       map[string]struct{}
 }
 
 // maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
@@ -172,9 +173,8 @@ type Scheduler struct {
 
 	// wakeCh signals the run loop to fire a scheduling cycle, paced by minWakeSpacing,
 	// instead of waiting for the next periodic tick. Sized 1 so concurrent
-	// callers coalesce — a pending wake-up is equivalent to any number of
-	// queued wake-ups, because the next loop iteration reads cluster-wide
-	// task state from scratch.
+	// callers coalesce. One pending wake-up covers any number, because
+	// UpdateTaskCopy hands the next tick every change logged since the last one.
 	wakeCh chan struct{}
 }
 
@@ -249,7 +249,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
-// Safe to call from any goroutine, including RAFT-apply paths.
+// Wake requests a scheduling cycle, paced by minWakeSpacing. Safe to call from any goroutine, including RAFT-apply paths.
 //
 // Wake is a no-op after [Scheduler.Close] returns — the run loop has
 // already exited and won't observe the signal.
@@ -943,13 +943,14 @@ func (s *Scheduler) runSwapPhase(
 				state.postCompletionGroupErrors = map[string]error{}
 			}
 			state.postCompletionGroupErrors[w.groupID] = groupErrors[i]
+			delete(state.localGroupsOut, w.groupID)
 		}
 		if s.ackRecorder == nil || state.postCompletionAckEmitted || task.Status != TaskStatusSwapping {
 			return swapAckSnapshot{}
 		}
 		// A failure is acked at once; only a success waits for every group.
 		success, joined := s.joinGroupErrors(state.postCompletionGroupErrors)
-		if success && !s.allLocalGroupsReturnedLocked(task, desc) {
+		if success && !s.allLocalGroupsReturnedLocked(task, state) {
 			return swapAckSnapshot{}
 		}
 		return swapAckSnapshot{eligible: true, success: success, joined: joined}
@@ -1333,20 +1334,17 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 	})
 }
 
-func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, desc TaskDescriptor) bool {
-	state := s.perTaskStateLocked(desc)
-	for _, groupID := range task.Groups() {
-		if !task.groupHasUnitOn(groupID, s.localNode) {
-			continue
-		}
-		if state == nil {
-			return false
-		}
-		if _, returned := state.postCompletionGroupErrors[groupID]; !returned {
-			return false
+// allLocalGroupsReturnedLocked builds localGroupsOut once per task version; a non-barrier task loses no group, so it only shrinks.
+func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, state *taskSchedulerState) bool {
+	if state.localGroupsOut == nil {
+		state.localGroupsOut = map[string]struct{}{}
+		for _, groupID := range task.Groups() {
+			if _, returned := state.postCompletionGroupErrors[groupID]; !returned && task.groupHasUnitOn(groupID, s.localNode) {
+				state.localGroupsOut[groupID] = struct{}{}
+			}
 		}
 	}
-	return true
+	return len(state.localGroupsOut) == 0
 }
 
 // maxReportedGroupErrors bounds the ack error (stored in the RAFT log and

@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"runtime"
 	"strings"
 	"testing"
@@ -83,4 +85,26 @@ func TestReindexHeaderReaders(t *testing.T) {
 			require.True(t, tc.reads(task), "a reader that decodes the payload bytes loses the task")
 		})
 	}
+}
+
+// The leader reads a submitted task's collection before the append, and decodes only that key.
+func TestCollectionOfTaskDecodesOnlyTheCollection(t *testing.T) {
+	tenants := make([]string, 300_000)
+	for i := range tenants {
+		tenants[i] = fmt.Sprintf("tenant-%06d", i)
+	}
+	reindex, err := json.Marshal(ReindexTaskPayload{
+		Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}, Tenants: tenants,
+	})
+	require.NoError(t, err)
+	m := distributedtask.NewManager(distributedtask.ManagerParameters{ConflictDetectors: map[string]distributedtask.ConflictDetector{
+		ReindexNamespace: ReindexDetector{},
+	}})
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	got := m.CollectionOfTask(ReindexNamespace, reindex)
+	runtime.ReadMemStats(&after)
+	require.Equal(t, "C", got)
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(64<<10), "payload of %d bytes", len(reindex))
 }

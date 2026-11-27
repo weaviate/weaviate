@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"runtime"
 	"slices"
 	"strings"
@@ -2228,17 +2229,20 @@ func (p *groupRecordingProvider) take() []string {
 
 func newGroupTickScheduler(t *testing.T, groups int, barrier bool, p *groupRecordingProvider) (*Scheduler, *Manager) {
 	logger, _ := logrustest.NewNullLogger()
-	m := NewManager(ManagerParameters{Logger: logger})
+	m := NewManager(ManagerParameters{Logger: logger, ConflictDetectors: map[string]ConflictDetector{
+		"ns": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 }),
+	}})
 	specs := make([]*cmd.UnitSpec, groups)
 	for i := range specs {
 		g := fmt.Sprintf("g%d", i)
 		specs[i] = &cmd.UnitSpec{Id: g, GroupId: g, Node: "n1"}
 	}
 	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace: "ns", Id: "T", NeedsPreparationBarrier: barrier, UnitSpecs: specs,
+		Namespace: "ns", Id: "T", Payload: []byte("C"), NeedsPreparationBarrier: barrier, UnitSpecs: specs,
 	}), 1))
 	s := NewScheduler(SchedulerParams{
 		TaskSource: m, Providers: map[string]Provider{"ns": p}, Logger: logger, LocalNode: "n1", TickInterval: time.Hour,
+		CompletedTaskTTL: time.Hour,
 	})
 	return s, m
 }
@@ -2246,6 +2250,24 @@ func newGroupTickScheduler(t *testing.T, groups int, barrier bool, p *groupRecor
 func completeGroupUnit(t *testing.T, m *Manager, group string) {
 	require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
 		Namespace: "ns", Id: "T", Version: 1, UnitId: group, NodeId: "n1",
+	})))
+}
+
+func failGroupUnit(t *testing.T, m *Manager, group string) {
+	require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace: "ns", Id: "T", Version: 1, UnitId: group, NodeId: "n1", Error: "boom", FinishedAtUnixMillis: time.Now().UnixMilli(),
+	})))
+}
+
+func prepAckGroup(t *testing.T, m *Manager, group string) {
+	require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace: "ns", Id: "T", Version: 1, GroupId: &group, NodeId: "n1", Success: true,
+	})))
+}
+
+func cancelGroupTask(t *testing.T, m *Manager) {
+	require.NoError(t, m.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: "ns", Id: "T", Version: 1, CancelledAtUnixMillis: time.Now().UnixMilli(),
 	})))
 }
 
@@ -2275,10 +2297,7 @@ func TestSchedulerTickChecksOnlyChangedGroups(t *testing.T) {
 			},
 			apply: func(t *testing.T, m *Manager) {
 				completeGroupUnit(t, m, "g7")
-				group := "g7"
-				require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-					Namespace: "ns", Id: "T", Version: 1, GroupId: &group, NodeId: "n1", Success: true,
-				})))
+				prepAckGroup(t, m, "g7")
 			},
 			want: "swap:g7",
 		},
@@ -2287,6 +2306,22 @@ func TestSchedulerTickChecksOnlyChangedGroups(t *testing.T) {
 			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusCompleted },
 			apply:       func(t *testing.T, m *Manager) { completeGroupUnit(t, m, "g7") },
 			want:        "completed:g7",
+		},
+		{
+			name:        "unit failure",
+			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusFailed },
+			apply:       func(t *testing.T, m *Manager) { failGroupUnit(t, m, "g7") },
+			want:        "completed:g7",
+		},
+		{
+			name:    "cancel",
+			barrier: true,
+			readyInCopy: func(task *Task) {
+				task.SwapDecidedGroups = map[string]time.Time{"g7": {}}
+				task.SwapsOwed = map[string][]string{"g7": {"n1"}}
+			},
+			apply: cancelGroupTask,
+			want:  "swap:g7",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2306,14 +2341,58 @@ func TestSchedulerTickChecksOnlyChangedGroups(t *testing.T) {
 	}
 }
 
+// countingAckRecorder fails every post-completion ack, so the ack gate runs again on each tick.
+type countingAckRecorder struct {
+	alwaysFailingAckRecorder
+	postAcks int
+}
+
+func (r *countingAckRecorder) RecordDistributedTaskPostCompletionAck(
+	context.Context, string, string, uint64, string, string, bool, string,
+) error {
+	r.postAcks++
+	return errors.New("raft unavailable")
+}
+
+// The ack gate waits only for the local groups still out when it first ran: a group the copy gains later is not walked.
+func TestSchedulerAckGateWaitsOnlyForGroupsStillOut(t *testing.T) {
+	p := &groupRecordingProvider{errFor: map[string]error{"completed:g2": context.Canceled}}
+	s, m := newGroupTickScheduler(t, 3, false, p)
+	acks := &countingAckRecorder{}
+	s.ackRecorder = acks
+	for _, g := range []string{"g0", "g1", "g2"} {
+		completeGroupUnit(t, m, g)
+	}
+	s.tick()
+	require.Zero(t, acks.postAcks, "g2 has not returned")
+
+	task := s.taskCopy.tasks["ns"]["T"]
+	task.groups = maps.Clone(task.groups)
+	task.groups["g9"] = []string{"g9"}
+	task.Units["g9"] = &Unit{ID: "g9", GroupID: "g9", NodeID: "n1", Status: UnitStatusCompleted}
+	s.tick()
+	require.Equal(t, 1, acks.postAcks)
+}
+
+// A deleted tenant's group drops out of the retry a failed swap left behind.
+func TestSchedulerTickDropsADeletedTenantsSwap(t *testing.T) {
+	p := &groupRecordingProvider{errFor: map[string]error{"swap:g0": errors.New("disk full")}}
+	s, m := newGroupTickScheduler(t, 2, true, p)
+	s.tick()
+	completeGroupUnit(t, m, "g0")
+	s.tick()
+	prepAckGroup(t, m, "g0")
+	cancelGroupTask(t, m)
+	s.tick()
+	require.Contains(t, p.take(), "swap:g0")
+
+	m.ForgetGroupsForCollection("C", []string{"g0"})
+	s.tick()
+	require.NotContains(t, p.take(), "swap:g0")
+}
+
 // A group whose callback asks for a retry fires again on the next tick, with no new apply.
 func TestSchedulerTickRetriesAGroupCallback(t *testing.T) {
-	prepAck := func(t *testing.T, m *Manager) {
-		group := "g0"
-		require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-			Namespace: "ns", Id: "T", Version: 1, GroupId: &group, NodeId: "n1", Success: true,
-		})))
-	}
 	for _, tc := range []struct {
 		name    string
 		barrier bool
@@ -2332,7 +2411,7 @@ func TestSchedulerTickRetriesAGroupCallback(t *testing.T) {
 			completeGroupUnit(t, m, "g0")
 			if tc.decide {
 				s.tick()
-				prepAck(t, m)
+				prepAckGroup(t, m, "g0")
 				p.take()
 			}
 			s.tick()

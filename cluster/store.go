@@ -487,8 +487,8 @@ func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sc
 
 // LocalDistributedTasks reads the task map this node has applied, with no
 // leader round-trip. [Raft.LocalDistributedTasks] exposes it to the
-// index-status read; callers that decide a mutation want the leader-routed
-// [Raft.ListDistributedTasks] instead.
+// index-status read. Callers that decide a mutation want the leader's
+// [Raft.ListDistributedTaskHeaders] instead.
 func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return st.distributedTasksManager.LocalDistributedTasks()
 }

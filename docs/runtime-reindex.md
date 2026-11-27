@@ -750,10 +750,8 @@ semantics for callers that don't care.
 migration's own schema flip, because its run is still in flight. The
 flag routes the flip to `CheckMigrationPropertyUpdate` instead, which
 admits it only while a run on that property is `SWAPPING`, so a flip
-arriving after its run ended is refused. One exception: once its own run
-is `FINISHED`, a flip that would leave the property unchanged (a lagging
-node repeating the write that finished the run) applies nothing and
-returns success.
+arriving after its run ended is refused. The provider treats that refusal
+as done when the schema already shows the target (`ReindexRunLanded`).
 
 **`MutationGuard` (cross-FSM).** The schema FSM consults
 `distributedtask.SchemaMutationDetector` on every `UpdateProperty`,

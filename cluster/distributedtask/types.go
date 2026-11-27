@@ -35,7 +35,7 @@ type TaskCopySource interface {
 	UpdateTaskCopy(c *TaskCopy) error
 }
 
-// TaskCopy holds the [Scheduler]'s own copy of every task, written only by [Manager.UpdateTaskCopy].
+// TaskCopy holds the [Scheduler]'s own copy of every task, updated by [Manager.UpdateTaskCopy]. The scheduler also mirrors this node's post-completion ack into it until that ack's apply brings the FSM's value.
 type TaskCopy struct {
 	tasks   map[string]map[string]*Task
 	changed map[TaskDescriptor]*changedGroups
@@ -135,9 +135,11 @@ type TaskHeader interface {
 }
 
 // HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. DecodeHeader must be a pure function of the payload.
-// The Manager derives the header when a task copy enters memory (add, restore, receive), so readers never decode the payload.
+// The Manager derives the header when a task copy enters memory (add, restore, receive). Its checks and the reindex readers read the header; drop-vector readers still decode the payload.
 type HeaderDecoder interface {
 	DecodeHeader(payload []byte) (TaskHeader, error)
+	// DecodeCollection reads only the header's collection, for a propose that needs nothing else.
+	DecodeCollection(payload []byte) (string, error)
 }
 
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
@@ -283,6 +285,7 @@ type ConflictDetector interface {
 	// to reject the new task; the error propagates back to the
 	// AddDistributedTask caller.
 	CheckConflict(newHeader TaskHeader, existingTasks []*Task) error
+	HeaderDecoder
 }
 
 // SchemaMutationDetector lets the schema FSM's UpdateProperty, DeleteClass,
@@ -458,9 +461,8 @@ const (
 // Unit represents a trackable work unit within a distributed task (e.g. a single shard
 // in a reindex operation). Units follow the lifecycle PENDING → IN_PROGRESS → COMPLETED/FAILED.
 //
-// NodeID starts empty (unassigned) and is set on the first progress update. The [Scheduler]
-// treats unassigned units as belonging to any node, which is how initial assignment happens:
-// the first node to report progress claims the unit.
+// NodeID is the node the unit's spec names, or empty until the first progress update claims it.
+// The [Scheduler] treats an unassigned unit as belonging to any node.
 //
 // Unit values are owned by the [Manager] and mutated under its lock. Callers outside the
 // Manager should only access units via cloned [Task] snapshots from ListDistributedTasks.

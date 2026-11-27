@@ -49,6 +49,14 @@ func (d decodeWith) DecodeHeader(payload []byte) (TaskHeader, error) {
 	return nil, errors.New("unreadable payload")
 }
 
+func (d decodeWith) DecodeCollection(payload []byte) (string, error) {
+	header, err := d.DecodeHeader(payload)
+	if err != nil {
+		return "", err
+	}
+	return header.Collection(), nil
+}
+
 // fakeConflictDetector lets the manager-side conflict-hook test pin
 // every branch of [Manager.AddTask]'s ConflictDetector invocation
 // with a scripted verdict.
@@ -63,6 +71,8 @@ func (f *fakeConflictDetector) CheckConflict(_ TaskHeader, _ []*Task) error {
 }
 
 func (f *fakeConflictDetector) DecodeHeader([]byte) (TaskHeader, error) { return testHeader(""), nil }
+
+func (f *fakeConflictDetector) DecodeCollection([]byte) (string, error) { return "", nil }
 
 // TestManager_AddTask_ConflictDetector pins the cluster-wide
 // conflict-rejection hook integrated into [Manager.AddTask]. Closes
