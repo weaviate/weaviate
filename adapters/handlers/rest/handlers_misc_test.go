@@ -88,3 +88,42 @@ func TestMetaGetLicense(t *testing.T) {
 		})
 	}
 }
+
+func TestMetaGetRedactInternals(t *testing.T) {
+	cases := []struct {
+		name          string
+		redact        bool
+		wantHostname  string
+		wantLicenseID string
+	}{
+		{name: "off", wantHostname: "http://[::]:8080", wantLicenseID: "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+		{name: "on", redact: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api := operations.NewWeaviateAPI(nil)
+			logger := logrus.New()
+			logger.SetOutput(io.Discard)
+			serverConfig := &config.WeaviateConfig{
+				Config:   config.Config{RedactInternals: tc.redact},
+				Hostname: "[::]:8080",
+				Scheme:   "http",
+			}
+			licenseState := &license.State{Status: license.StatusValid, LicenseID: "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV"}
+			setupMiscHandlers(api, serverConfig, nil, licenseState, nil, logger)
+
+			rec := httptest.NewRecorder()
+			api.MetaMetaGetHandler.Handle(meta.MetaGetParams{}, nil).WriteResponse(rec, runtime.JSONProducer())
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var body models.Meta
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.Equal(t, tc.wantHostname, body.Hostname)
+			require.Equal(t, tc.wantLicenseID, body.License.LicenseID)
+			require.Equal(t, "enterprise", body.License.Edition)
+			require.Equal(t, "valid", body.License.Status)
+			require.Equal(t, config.ServerVersion, body.Version)
+		})
+	}
+}

@@ -1338,6 +1338,8 @@ func FromEnv(config *Config) error {
 		config.DisableTelemetry = true
 	}
 
+	config.RedactInternals = entcfg.Enabled(os.Getenv("REDACT_INTERNALS"))
+
 	// Telemetry URL override (useful for local development with telemetry dashboard)
 	if v := os.Getenv("TELEMETRY_URL"); v != "" {
 		config.TelemetryURL = v

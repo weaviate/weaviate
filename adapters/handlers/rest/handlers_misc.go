@@ -45,11 +45,14 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			}
 		}
 
+		redact := serverConfig.Config.RedactInternals
 		res := &models.Meta{
-			Hostname:           serverConfig.GetHostAddress(),
 			Version:            config.ServerVersion,
 			Modules:            metaInfos,
 			GrpcMaxMessageSize: int64(serverConfig.Config.GRPC.MaxMsgSize),
+		}
+		if !redact {
+			res.Hostname = serverConfig.GetHostAddress()
 		}
 		if licenseState != nil {
 			// A Community Edition node has no license, so it has no license
@@ -60,7 +63,9 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			}
 			if licenseState.Edition() == license.EditionEnterprise {
 				res.License.Status = string(licenseState.Status)
-				res.License.LicenseID = licenseState.LicenseID
+				if !redact {
+					res.License.LicenseID = licenseState.LicenseID
+				}
 			}
 		}
 		metricRequestsTotal.logOk("")

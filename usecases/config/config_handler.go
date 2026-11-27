@@ -270,6 +270,8 @@ type Config struct {
 	// the backup path performs no reindex check.
 	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
 
+	RedactInternals bool `json:"redact_internals" yaml:"redact_internals"`
+
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
 	// interaction with a tenant leads to a log line. However, this may
 	// temporarily be desired, e.g. for analysis or debugging purposes. In this
