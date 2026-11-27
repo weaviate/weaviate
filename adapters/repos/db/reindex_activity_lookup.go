@@ -29,12 +29,15 @@ type ShardReindexActivityLookupBuilder func() (ShardReindexActivityLookup, error
 // NewShardReindexActivityLookup snapshots which shards a reindex is
 // working on. A shard whose migration this build cannot prove is finished
 // would otherwise be captured half-migrated.
-func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.FieldLogger) ShardReindexActivityLookup {
-	type shardKey struct {
+// A task this node has not applied yet (hasUnit's known is false) covers every shard of its collection.
+func NewShardReindexActivityLookup(tasks []*distributedtask.Task,
+	hasUnit func(desc distributedtask.TaskDescriptor, shard string) (has, known bool), logger logrus.FieldLogger,
+) ShardReindexActivityLookup {
+	type liveTask struct {
+		desc       distributedtask.TaskDescriptor
 		collection string
-		shardName  string
 	}
-	live := make(map[shardKey]bool)
+	var live []liveTask
 	for _, task := range tasks {
 		if !IsLiveReindexTaskStatus(task.Status) {
 			continue
@@ -46,12 +49,18 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 				Warn("backup-reindex gate: task payload has no header; skipping task")
 			continue
 		}
-		for _, unit := range task.Units {
-			live[shardKey{header.Collection(), unit.Shard}] = true
-		}
+		live = append(live, liveTask{desc: task.TaskDescriptor, collection: header.Collection()})
 	}
 	return func(collection, shardName string) bool {
-		return live[shardKey{collection, shardName}]
+		for _, task := range live {
+			if task.collection != collection {
+				continue
+			}
+			if has, known := hasUnit(task.desc, shardName); has || !known {
+				return true
+			}
+		}
+		return false
 	}
 }
 

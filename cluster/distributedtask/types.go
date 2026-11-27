@@ -26,6 +26,11 @@ type TaskLister interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*Task, error)
 }
 
+// TaskHeaderLister lists tasks without their units, for callers that read only headers, statuses and groups.
+type TaskHeaderLister interface {
+	ListDistributedTaskHeaders(ctx context.Context) (map[string][]*Task, error)
+}
+
 type TaskCopySource interface {
 	UpdateTaskCopy(c *TaskCopy) error
 }
@@ -776,11 +781,15 @@ func (t *Task) forgetGroups(groups []string) {
 }
 
 func (t *Task) hasGroup(group string) bool {
+	if t.Units == nil {
+		_, ok := t.groups[group]
+		return ok
+	}
 	return slices.ContainsFunc(t.groups[group], func(id string) bool { return t.Units[id] != nil })
 }
 
 func (t *Task) Clone() *Task {
-	clone := *t
+	clone := t.cloneWithoutUnits()
 	if t.Units != nil {
 		copies := make([]Unit, 0, len(t.Units))
 		clone.Units = make(map[string]*Unit, len(t.Units))
@@ -789,6 +798,12 @@ func (t *Task) Clone() *Task {
 			clone.Units[k] = &copies[len(copies)-1]
 		}
 	}
+	return clone
+}
+
+func (t *Task) cloneWithoutUnits() *Task {
+	clone := *t
+	clone.Units = nil
 	if t.PostCompletionAcks != nil {
 		clone.PostCompletionAcks = make(map[string]PostCompletionAck, len(t.PostCompletionAcks))
 		for k, v := range t.PostCompletionAcks {

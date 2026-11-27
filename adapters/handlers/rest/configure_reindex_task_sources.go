@@ -22,7 +22,7 @@ import (
 type migrationTaskRaft interface {
 	LocalTaskStatuses(namespace, shard string) []distributedtask.TaskStatusEntry
 	FSMHasCaughtUp() bool
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
 
 func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSource {
@@ -40,7 +40,7 @@ func newMigrationClusterTaskSource(raft migrationTaskRaft) db.MigrationClusterTa
 			return nil, fmt.Errorf("this node is still applying its RAFT log, so it cannot tell a task " +
 				"it has not added yet from one the cluster removed")
 		}
-		tasksByNamespace, err := raft.ListDistributedTasks(ctx)
+		tasksByNamespace, err := raft.ListDistributedTaskHeaders(ctx)
 		if err != nil {
 			return nil, err
 		}

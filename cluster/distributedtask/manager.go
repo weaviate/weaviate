@@ -1239,16 +1239,90 @@ func (m *Manager) DecodeTaskList(data []byte) (map[string][]*Task, error) {
 	defer m.mu.RUnlock()
 	for namespace, list := range response.Tasks {
 		for _, task := range list {
-			held := m.tasks[namespace][task.ID]
-			task.shareGroups(held)
-			if held != nil && held.Version == task.Version {
-				task.header = held.header
-			} else {
-				task.header = m.headerFor(namespace, task.Payload)
-			}
+			task.shareGroups(m.tasks[namespace][task.ID])
+			m.setReceivedHeaderWithLock(namespace, task)
 		}
 	}
 	return response.Tasks, nil
+}
+
+func (m *Manager) setReceivedHeaderWithLock(namespace string, task *Task) {
+	if held := m.tasks[namespace][task.ID]; held != nil && held.Version == task.Version {
+		task.header = held.header
+		return
+	}
+	task.header = m.headerFor(namespace, task.Payload)
+}
+
+// taskHeaderEntry carries a task without its units, plus the group IDs a header copy cannot derive from units.
+type taskHeaderEntry struct {
+	Task   *Task    `json:"task"`
+	Groups []string `json:"groups"`
+}
+
+type listTaskHeadersResponse struct {
+	Tasks map[string][]taskHeaderEntry `json:"tasks"`
+}
+
+// ListTaskHeadersPayload answers the header query, whose size follows the tasks and groups, not the units.
+func (m *Manager) ListTaskHeadersPayload() ([]byte, error) {
+	response := listTaskHeadersResponse{Tasks: map[string][]taskHeaderEntry{}}
+	func() {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		for namespace, byID := range m.tasks {
+			tasks := make([]*Task, 0, len(byID))
+			for _, task := range byID {
+				tasks = append(tasks, task)
+			}
+			sortTasksForDisplay(tasks)
+			for _, task := range tasks {
+				response.Tasks[namespace] = append(response.Tasks[namespace],
+					taskHeaderEntry{Task: task.cloneWithoutUnits(), Groups: task.Groups()})
+			}
+		}
+	}()
+	return json.Marshal(&response)
+}
+
+// DecodeTaskHeaders gives each task the group IDs it was sent, since it has no units to derive them from.
+func (m *Manager) DecodeTaskHeaders(data []byte) (map[string][]*Task, error) {
+	var response listTaskHeadersResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	tasks := make(map[string][]*Task, len(response.Tasks))
+	for namespace, entries := range response.Tasks {
+		for _, entry := range entries {
+			task := entry.Task
+			task.groups = make(map[string][]string, len(entry.Groups))
+			for _, group := range entry.Groups {
+				task.groups[group] = nil
+			}
+			task.groupCount = len(task.groups)
+			m.setReceivedHeaderWithLock(namespace, task)
+			tasks[namespace] = append(tasks[namespace], task)
+		}
+	}
+	return tasks, nil
+}
+
+// TaskHasUnit checks one unit ID per node of the task, and known is false when this node holds no such version.
+func (m *Manager) TaskHasUnit(namespace string, desc TaskDescriptor, unitID func(node string) string) (has, known bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	task := m.tasks[namespace][desc.ID]
+	if task == nil || task.Version != desc.Version {
+		return false, false
+	}
+	for node := range task.unitCounts {
+		if node != "" && task.Units[unitID(node)] != nil {
+			return true, true
+		}
+	}
+	return false, true
 }
 
 func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {

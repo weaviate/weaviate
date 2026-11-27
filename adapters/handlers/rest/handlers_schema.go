@@ -51,7 +51,7 @@ import (
 // [MutationGuard] — that is the load-bearing check; this one is a
 // pre-flight optimization.
 type reindexInFlightChecker interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
 
 // reindexSubmitLockProvider returns the per-(collection, property)
@@ -327,7 +327,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 	if s.reindexTaskLister == nil {
 		return ""
 	}
-	tasksByNamespace, err := s.reindexTaskLister.ListDistributedTasks(ctx)
+	tasksByNamespace, err := s.reindexTaskLister.ListDistributedTaskHeaders(ctx)
 	if err != nil {
 		return ""
 	}

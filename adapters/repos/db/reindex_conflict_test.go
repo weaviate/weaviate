@@ -956,6 +956,20 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 // loadTasks hands back tasks the way the RAFT apply sees them: restored into a Manager, which caches their headers.
 func loadTasks(t *testing.T, namespace string, tasks ...*distributedtask.Task) []*distributedtask.Task {
 	t.Helper()
+	mgr := managerHolding(t, namespace, tasks...)
+	byID := map[string]*distributedtask.Task{}
+	for _, task := range mgr.LocalDistributedTasks()[namespace] {
+		byID[task.ID] = task
+	}
+	loaded := make([]*distributedtask.Task, len(tasks))
+	for i, task := range tasks {
+		loaded[i] = byID[task.ID]
+	}
+	return loaded
+}
+
+func managerHolding(t *testing.T, namespace string, tasks ...*distributedtask.Task) *distributedtask.Manager {
+	t.Helper()
 	for _, task := range tasks {
 		task.Namespace = namespace
 	}
@@ -969,15 +983,7 @@ func loadTasks(t *testing.T, namespace string, tasks ...*distributedtask.Task) [
 		},
 	})
 	require.NoError(t, mgr.Restore(snapshot))
-	byID := map[string]*distributedtask.Task{}
-	for _, task := range mgr.LocalDistributedTasks()[namespace] {
-		byID[task.ID] = task
-	}
-	loaded := make([]*distributedtask.Task, len(tasks))
-	for i, task := range tasks {
-		loaded[i] = byID[task.ID]
-	}
-	return loaded
+	return mgr
 }
 
 func reindexTaskOnC(t *testing.T, id string, status distributedtask.TaskStatus, prop string) *distributedtask.Task {

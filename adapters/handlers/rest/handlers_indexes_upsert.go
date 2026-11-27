@@ -194,8 +194,8 @@ func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *model
 // reindexTasksOrFailClosed lists reindex-namespace tasks from lister, failing
 // closed (503) rather than deriving decisions from a partial view. Split from
 // [listReindexTasks] so this path is unit-testable with a fake lister.
-func reindexTasksOrFailClosed(ctx context.Context, principal *models.Principal, lister distributedtask.TaskLister, logger logrus.FieldLogger) ([]*distributedtask.Task, middleware.Responder) {
-	tasks, err := lister.ListDistributedTasks(ctx)
+func reindexTasksOrFailClosed(ctx context.Context, principal *models.Principal, lister distributedtask.TaskHeaderLister, logger logrus.FieldLogger) ([]*distributedtask.Task, middleware.Responder) {
+	tasks, err := lister.ListDistributedTaskHeaders(ctx)
 	if err != nil {
 		logger.Errorf("submit: failing closed — cannot list in-flight distributed tasks to verify reindex preconditions: %v", err)
 		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,

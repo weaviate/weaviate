@@ -1052,8 +1052,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx,
-			appState.ClusterService.ListDistributedTasks, appState.Logger))
+		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx, raft, appState.Logger))
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
@@ -1066,15 +1065,24 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	return appState
 }
 
-func shardReindexActivityBuilder(ctx context.Context,
-	listTasks func(context.Context) (map[string][]*distributedtask.Task, error), logger logrus.FieldLogger,
+type reindexGateSource interface {
+	distributedtask.TaskHeaderLister
+	LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(node string) string) (has, known bool)
+}
+
+func shardReindexActivityBuilder(ctx context.Context, source reindexGateSource, logger logrus.FieldLogger,
 ) db.ShardReindexActivityLookupBuilder {
 	return func() (db.ShardReindexActivityLookup, error) {
-		tasksByNamespace, err := listTasks(ctx)
+		tasksByNamespace, err := source.ListDistributedTaskHeaders(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
 		}
-		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], logger), nil
+		hasUnit := func(desc distributedtask.TaskDescriptor, shard string) (bool, bool) {
+			return source.LocalTaskHasUnit(db.ReindexNamespace, desc, func(node string) string {
+				return db.MigrationUnitID(shard, node)
+			})
+		}
+		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], hasUnit, logger), nil
 	}
 }
 

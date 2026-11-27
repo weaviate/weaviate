@@ -168,6 +168,8 @@ message QueryRequest {
     TYPE_GET_REPLICATION_SCALE_PLAN = 208;
 
     TYPE_DISTRIBUTED_TASK_LIST = 300;
+    // 301 is TYPE_DISTRIBUTED_TASK_GET on later release branches.
+    TYPE_DISTRIBUTED_TASK_HEADERS = 302;
   }
 
   Type type = 1;

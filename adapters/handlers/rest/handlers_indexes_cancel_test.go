@@ -80,8 +80,12 @@ func TestFindCancelTargetTask_IsActive(t *testing.T) {
 // genuine FSM rejections (ErrTaskNotRunning) without a RAFT stack.
 type realFSMCanceller struct{ mgr *distributedtask.Manager }
 
-func (c realFSMCanceller) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	return c.mgr.ListDistributedTasks(ctx)
+func (c realFSMCanceller) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
+	raw, err := c.mgr.ListTaskHeadersPayload()
+	if err != nil {
+		return nil, err
+	}
+	return c.mgr.DecodeTaskHeaders(raw)
 }
 
 func (c realFSMCanceller) CancelDistributedTask(_ context.Context, namespace, taskID string, version uint64) error {

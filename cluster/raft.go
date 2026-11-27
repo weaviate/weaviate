@@ -93,6 +93,11 @@ func (s *Raft) LocalTaskStatuses(namespace, shard string) []distributedtask.Task
 	return s.store.LocalTaskStatuses(namespace, shard)
 }
 
+// LocalTaskHasUnit reads this node's FSM; known is false while it has not applied desc.
+func (s *Raft) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(node string) string) (has, known bool) {
+	return s.store.distributedTasksManager.TaskHasUnit(namespace, desc, unitID)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }

@@ -25,7 +25,7 @@ import (
 
 type staticTaskLister map[string][]*distributedtask.Task
 
-func (l staticTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+func (l staticTaskLister) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
 	return l, nil
 }
 
@@ -62,7 +62,8 @@ func TestReindexHeaderReaders(t *testing.T) {
 			return len(p.reindexRunsWith(self, &ReindexTaskPayload{})) == 2
 		}},
 		{"NewShardReindexActivityLookup", distributedtask.TaskStatusStarted, func(task *distributedtask.Task) bool {
-			return NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "s1")
+			hasUnit := func(distributedtask.TaskDescriptor, string) (bool, bool) { return true, true }
+			return NewShardReindexActivityLookup([]*distributedtask.Task{task}, hasUnit, logger)("C", "s1")
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

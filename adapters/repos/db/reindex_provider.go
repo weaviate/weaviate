@@ -67,7 +67,7 @@ type ReindexProvider struct {
 	localNode     string
 	concurrency   func() int
 
-	taskLister distributedtask.TaskLister
+	taskLister distributedtask.TaskHeaderLister
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
 	// fires after StartTask's per-task goroutine has already returned (its ctx
@@ -184,7 +184,7 @@ func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
-	taskLister distributedtask.TaskLister,
+	taskLister distributedtask.TaskHeaderLister,
 	logger logrus.FieldLogger,
 	localNode string,
 	concurrency func() int,
@@ -2063,7 +2063,7 @@ func (p *ReindexProvider) reindexRunsWith(task *distributedtask.Task, payload *R
 	if p.taskLister == nil {
 		return runs
 	}
-	tasksByNS, err := p.taskLister.ListDistributedTasks(p.serverCtx)
+	tasksByNS, err := p.taskLister.ListDistributedTaskHeaders(p.serverCtx)
 	if err != nil {
 		p.logger.WithField("taskID", task.ID).Warnf("reindex provider: cannot list earlier runs for the repair guidance: %v", err)
 		return runs

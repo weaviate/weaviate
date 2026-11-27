@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"sync/atomic"
@@ -53,6 +54,10 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 		wantCode        codes.Code
 	}{
 		{name: "caller without deadline", call: list, consistencyWait: bounded, wantCode: codes.DeadlineExceeded},
+		{name: "header list, caller without deadline", consistencyWait: bounded, wantCode: codes.DeadlineExceeded, call: func(ctx context.Context, srv *Raft) error {
+			_, err := srv.ListDistributedTaskHeaders(ctx)
+			return err
+		}},
 		{name: "caller without deadline cancels first", call: list, consistencyWait: time.Hour, callerCancel: 100 * time.Millisecond, wantCode: codes.Canceled},
 		{name: "task write, caller cancels first", call: write, consistencyWait: time.Hour, callerCancel: 100 * time.Millisecond, wantCode: codes.Canceled},
 		{name: "unit completion", consistencyWait: bounded, wantCode: codes.DeadlineExceeded, call: func(ctx context.Context, srv *Raft) error {
@@ -206,4 +211,75 @@ func TestSchedulerTaskSource(t *testing.T) {
 			require.Equal(t, []distributedtask.TaskDescriptor{{ID: "t", Version: 1}}, slices.Collect(maps.Keys(c.Tasks()["ns"])))
 		})
 	}
+}
+
+// The header query answers as the full list does about headers, statuses and groups, at a tenth of the bytes.
+func TestDistributedTaskHeadersQuery(t *testing.T) {
+	newManager := func() *distributedtask.Manager {
+		return distributedtask.NewManager(distributedtask.ManagerParameters{
+			ConflictDetectors: map[string]distributedtask.ConflictDetector{
+				"ns": decodeCollection(func(p []byte) (string, bool) { return string(p), len(p) > 0 }),
+			},
+		})
+	}
+	m := NewMockStore(t, "node-1", 0)
+	m.store.distributedTasksManager = newManager()
+	specs := make([]*cmd.UnitSpec, 0, 10_000)
+	for i := range 10_000 {
+		group, node := fmt.Sprintf("tenant-%03d", i%1000), fmt.Sprintf("node-%d", i/1000)
+		specs = append(specs, &cmd.UnitSpec{Id: group + "__" + node, GroupId: group, Node: node})
+	}
+	apply := func(sub any, call func(*cmd.ApplyRequest) error) {
+		raw, err := json.Marshal(sub)
+		require.NoError(t, err)
+		require.NoError(t, call(&cmd.ApplyRequest{SubCommand: raw}))
+	}
+	tasks := m.store.distributedTasksManager
+	apply(&cmd.AddDistributedTaskRequest{
+		Namespace: "ns", Id: "t", Payload: []byte("C"), UnitSpecs: specs, NeedsPreparationBarrier: true,
+	}, func(r *cmd.ApplyRequest) error { return tasks.AddTask(r, 1) })
+	decided := "tenant-000"
+	for n := range 10 {
+		node := fmt.Sprintf("node-%d", n)
+		apply(&cmd.RecordDistributedTaskUnitCompletionRequest{Namespace: "ns", Id: "t", Version: 1, UnitId: decided + "__" + node, NodeId: node},
+			tasks.RecordUnitCompletion)
+	}
+	for n := range 10 {
+		apply(&cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+			Namespace: "ns", Id: "t", Version: 1, GroupId: &decided, NodeId: fmt.Sprintf("node-%d", n), Success: true,
+		}, tasks.RecordPreparationCompleteAck)
+	}
+	// An ungrouped task, whose status entry reads the "" group.
+	ungrouped := ""
+	apply(&cmd.AddDistributedTaskRequest{
+		Namespace: "ns", Id: "u", Payload: []byte("C"), UnitSpecs: []*cmd.UnitSpec{{Id: "u", Node: "node-0"}}, NeedsPreparationBarrier: true,
+	}, func(r *cmd.ApplyRequest) error { return tasks.AddTask(r, 2) })
+	apply(&cmd.RecordDistributedTaskUnitCompletionRequest{Namespace: "ns", Id: "u", Version: 2, UnitId: "u", NodeId: "node-0"},
+		tasks.RecordUnitCompletion)
+	apply(&cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace: "ns", Id: "u", Version: 2, GroupId: &ungrouped, NodeId: "node-0", Success: true,
+	}, tasks.RecordPreparationCompleteAck)
+
+	full, err := m.store.Query(&cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST})
+	require.NoError(t, err)
+	headers, err := m.store.Query(&cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_HEADERS})
+	require.NoError(t, err)
+	receiver := newManager()
+	fullTasks, err := receiver.DecodeTaskList(full.Payload)
+	require.NoError(t, err)
+	headerTasks, err := receiver.DecodeTaskHeaders(headers.Payload)
+	require.NoError(t, err)
+
+	require.Len(t, headerTasks["ns"], len(fullTasks["ns"]))
+	for i, want := range fullTasks["ns"] {
+		got := headerTasks["ns"][i]
+		require.Equal(t, want.TaskDescriptor, got.TaskDescriptor)
+		require.Nil(t, got.Units)
+		require.ElementsMatch(t, want.Groups(), got.Groups())
+		require.Equal(t, want.Header(), got.Header())
+		require.Equal(t, want.Status, got.Status)
+		require.Equal(t, want.SwapDecidedGroups, got.SwapDecidedGroups)
+		require.Equal(t, want.StatusEntryFor(decided), got.StatusEntryFor(decided))
+	}
+	require.Less(t, len(headers.Payload)*10, len(full.Payload))
 }

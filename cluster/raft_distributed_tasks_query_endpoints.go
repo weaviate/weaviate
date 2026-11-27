@@ -21,18 +21,26 @@ import (
 )
 
 func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return s.queryDistributedTasks(ctx, cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST, s.store.distributedTasksManager.DecodeTaskList)
+}
+
+// ListDistributedTaskHeaders lists the leader's tasks without their units.
+func (s *Raft) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return s.queryDistributedTasks(ctx, cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_HEADERS, s.store.distributedTasksManager.DecodeTaskHeaders)
+}
+
+func (s *Raft) queryDistributedTasks(ctx context.Context, queryType cmd.QueryRequest_Type,
+	decode func([]byte) (map[string][]*distributedtask.Task, error),
+) (map[string][]*distributedtask.Task, error) {
 	// The leader RPC waits for a connection that may never come up. Most callers pass no deadline.
 	ctx, cancel := utils.BoundIfNoDeadline(ctx, s.store.cfg.ConsistencyWaitTimeout)
 	defer cancel()
-	command := &cmd.QueryRequest{
-		Type: cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST,
-	}
-	queryResp, err := s.Query(ctx, command)
+	queryResp, err := s.Query(ctx, &cmd.QueryRequest{Type: queryType})
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	tasks, err := s.store.distributedTasksManager.DecodeTaskList(queryResp.Payload)
+	tasks, err := decode(queryResp.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}

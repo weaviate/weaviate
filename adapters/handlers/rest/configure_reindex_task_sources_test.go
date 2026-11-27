@@ -41,7 +41,7 @@ func (s *stubMigrationTaskRaft) LocalTaskStatuses(namespace, _ string) []distrib
 	return s.local[namespace]
 }
 
-func (s *stubMigrationTaskRaft) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+func (s *stubMigrationTaskRaft) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
 	s.clusterReads++
 	if s.clusterErr != nil {
 		return nil, s.clusterErr

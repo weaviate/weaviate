@@ -103,7 +103,7 @@ type indexesHandlers struct {
 	// once at wiring. Reaching for appState.ClusterService inside getIndexes
 	// would put the leader-routed methods back within reach.
 	taskSource localTaskLister
-	taskLister distributedtask.TaskLister
+	taskLister distributedtask.TaskHeaderLister
 }
 
 // resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
@@ -287,7 +287,7 @@ func principalUsername(principal *models.Principal) string {
 // needs. *cluster.Service satisfies it (both methods hang off the embedded
 // *Raft).
 type reindexTaskCanceller interface {
-	distributedtask.TaskLister
+	distributedtask.TaskHeaderLister
 	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
@@ -481,7 +481,7 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 // svc is appState.ClusterService in production; the interface lets the
 // idempotent-cancel error mapping be tested against a real Manager.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTaskCanceller, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	tasks, err := svc.ListDistributedTasks(ctx)
+	tasks, err := svc.ListDistributedTaskHeaders(ctx)
 	if err != nil {
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			fmt.Sprintf("listing tasks: %v", err)))

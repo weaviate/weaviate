@@ -1206,39 +1206,58 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 	}
 }
 
+// gateSourceOver answers the gate's two reads from one Manager, as the leader and this node would.
+type gateSourceOver struct {
+	mgr *distributedtask.Manager
+	err error
+}
+
+func (s gateSourceOver) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return realFSMCanceller{s.mgr}.ListDistributedTaskHeaders(context.Background())
+}
+
+func (s gateSourceOver) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(string) string) (bool, bool) {
+	return s.mgr.TaskHasUnit(namespace, desc, unitID)
+}
+
 func TestShardReindexActivityBuilder(t *testing.T) {
 	errNoLeader := errors.New("no leader")
 	logger, _ := test.NewNullLogger()
+	unitOn := func(shard string) map[string]*distributedtask.Unit {
+		id := db.MigrationUnitID(shard, "node-1")
+		return map[string]*distributedtask.Unit{id: {ID: id, Shard: shard, NodeID: "node-1"}}
+	}
+	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {
+		db.ReindexNamespace: {{
+			Namespace: db.ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+			Status:  distributedtask.TaskStatusStarted,
+			Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C", MigrationType: db.ReindexTypeRepairFilterable}),
+			Units:   unitOn("shard1"),
+		}},
+		db.DropVectorIndexNamespace: {{
+			Namespace: db.DropVectorIndexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "D", Version: 1},
+			Status:  distributedtask.TaskStatusStarted,
+			Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),
+			Units:   unitOn("shard2"),
+		}},
+	}})
+	require.NoError(t, err)
+	mgr := newReindexManager()
+	require.NoError(t, mgr.Restore(snapshot))
+
 	for _, tc := range []struct {
 		name    string
-		list    func(context.Context) (map[string][]*distributedtask.Task, error)
+		source  gateSourceOver
 		wantErr error
 	}{
-		{
-			name:    "the task list is unavailable",
-			list:    func(context.Context) (map[string][]*distributedtask.Task, error) { return nil, errNoLeader },
-			wantErr: errNoLeader,
-		},
-		{
-			name: "a reindex task is running",
-			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
-				return map[string][]*distributedtask.Task{
-					db.ReindexNamespace: withHeaders(&distributedtask.Task{
-						Status:  distributedtask.TaskStatusStarted,
-						Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C", MigrationType: db.ReindexTypeRepairFilterable}),
-						Units:   map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: "shard1"}},
-					}),
-					db.DropVectorIndexNamespace: {{
-						Status:  distributedtask.TaskStatusStarted,
-						Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),
-						Units:   map[string]*distributedtask.Unit{"u2": {ID: "u2", Shard: "shard2"}},
-					}},
-				}, nil
-			},
-		},
+		{name: "the task list is unavailable", source: gateSourceOver{err: errNoLeader}, wantErr: errNoLeader},
+		{name: "a reindex task is running", source: gateSourceOver{mgr: mgr}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			lookup, err := shardReindexActivityBuilder(context.Background(), tc.list, logger)()
+			lookup, err := shardReindexActivityBuilder(context.Background(), tc.source, logger)()
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return

@@ -155,6 +155,10 @@ func (f fakeTaskLister) ListDistributedTasks(context.Context) (map[string][]*dis
 	return f.tasks, f.err
 }
 
+func (f fakeTaskLister) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return f.ListDistributedTasks(ctx)
+}
+
 // Pins the live fail-closed 503 path: a list failure must reject rather than
 // derive preconditions from a partial view.
 func TestReindexTasksOrFailClosed_ListErrorReturns503(t *testing.T) {
