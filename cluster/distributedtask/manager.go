@@ -564,6 +564,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task := m.findTaskWithLock(r.Namespace, r.Id)
 	if task != nil {
@@ -653,6 +654,14 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			delete(m.tasks[kept.Namespace], kept.ID)
 			m.markWithLock(kept.Namespace, kept.ID).addedOrRemoved = true
 			m.notifyStateWithLock(kept, nil)
+		}
+		if kept != nil && len(newTask.Units) == 0 {
+			// Nothing is left to build: a full run (born-switched tenants) still owes its flip, a scoped one is done.
+			if rules.BornSwitched(newTask) {
+				newTask.Status = TaskStatusSwapping
+			} else {
+				newTask.markTerminal(TaskStatusFinished, newTask.StartedAt)
+			}
 		}
 	}
 	m.setTaskWithLock(newTask)

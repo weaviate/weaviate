@@ -198,6 +198,78 @@ func TestReindexGenerationRuns_PartialRun(t *testing.T) {
 	}
 }
 
+// A resubmit that takes over a run whose tenants all switched has nothing to build, and still finishes.
+func TestReindexGenerationRuns_EmptyTakeover(t *testing.T) {
+	field := models.PropertyTokenizationField
+	singleTenant := genDefaultOpts()
+	singleTenant.singleTenantShards = 1
+	for _, tc := range []struct {
+		name            string
+		opts            genClassOpts
+		mt              ReindexMigrationType
+		tok             string
+		first, resubmit []string // tenants of each run
+		end             func(t *testing.T, c *genCluster, id string)
+		want            distributedtask.TaskStatus
+		then            func(t *testing.T, c *genCluster, next string)
+	}{
+		{
+			name: "full run failed before its flip, the takeover flips", opts: singleTenant,
+			mt: ReindexTypeChangeTokenization, tok: field, want: distributedtask.TaskStatusSwapping,
+			end: func(t *testing.T, c *genCluster, id string) {
+				c.waitStatus(id, distributedtask.TaskStatusSwapping)
+				require.NoError(t, c.fail(id))
+				c.waitStatus(id, distributedtask.TaskStatusFailed)
+			},
+			then: func(t *testing.T, c *genCluster, next string) {
+				c.waitGone(next)
+				require.Equal(t, map[string]map[string]uint64{genProp: {indexTypeFilterable: 1, indexTypeSearchable: 1}},
+					c.nodes[0].sr.ClassLive(c.class))
+				require.Equal(t, field, c.classProp(genProp).Tokenization)
+			},
+		},
+		{
+			name: "scoped run cancelled with its tenant switched, the takeover is done", opts: genDefaultOpts(),
+			mt: ReindexTypeRebuildSearchable, first: []string{"t1", "t2"}, resubmit: []string{"t1"},
+			want: distributedtask.TaskStatusFinished,
+			end: func(t *testing.T, c *genCluster, id string) {
+				c.waitSwitched(id, "t1")
+				require.NoError(t, c.cancel(id))
+			},
+			then: func(t *testing.T, c *genCluster, next string) {
+				task := c.task(next)
+				require.Nil(t, task.Units)
+				require.True(t, task.GroupSwapDecided("t1"))
+				c.waitServed("t1", genProp, 1, indexTypeSearchable)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newGenCluster(t, tc.opts, 1)
+			shard := "t1"
+			if len(c.shards) > 0 {
+				shard = c.shards[0]
+			} else {
+				c.addTenants("t1", "t2")
+				c.write("t2", 3)
+			}
+			c.write(shard, 3)
+			holdFlip := c.hold(api.ApplyRequest_TYPE_REINDEX_FLIP, nil)
+			holdT2 := c.holdUnitsOf("t2__")
+			id, err := c.submit(tc.mt, tc.tok, tc.first...)
+			require.NoError(t, err)
+			tc.end(t, c, id)
+			holdT2()
+			next, err := c.submit(tc.mt, tc.tok, tc.resubmit...)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), c.generation(next))
+			require.Equal(t, tc.want, c.task(next).Status)
+			holdFlip()
+			tc.then(t, c, next)
+		})
+	}
+}
+
 // A tenant created during a full run starts switched; one created just before the submit gets units.
 func TestReindexGenerationRuns_NewTenant(t *testing.T) {
 	for _, tc := range []struct {
