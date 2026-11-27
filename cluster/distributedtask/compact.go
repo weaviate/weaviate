@@ -11,6 +11,14 @@
 
 package distributedtask
 
+import (
+	"cmp"
+	"slices"
+	"strings"
+)
+
+const maxSummaryErrors = 20
+
 type UnitSummary struct {
 	Groups int                `json:"groups"`
 	Counts map[UnitStatus]int `json:"counts"`
@@ -20,4 +28,25 @@ type UnitSummary struct {
 // LocalEndedTasks returns no task: no Task records the index generation a restore needs.
 func (m *Manager) LocalEndedTasks(namespace, collection string) ([]*Task, error) {
 	return nil, nil
+}
+
+func (t *Task) summarizeUnits() *UnitSummary {
+	if t.Summary != nil {
+		return t.Summary
+	}
+	s := &UnitSummary{Groups: t.groupCount, Counts: map[UnitStatus]int{}}
+	var failed []*Unit
+	for _, u := range t.Units {
+		s.Counts[u.Status]++
+		if u.Status == UnitStatusFailed {
+			failed = append(failed, u)
+		}
+	}
+	slices.SortFunc(failed, func(a, b *Unit) int {
+		return cmp.Or(a.FinishedAt.Compare(b.FinishedAt), strings.Compare(a.ID, b.ID))
+	})
+	for _, u := range failed[:min(len(failed), maxSummaryErrors)] {
+		s.Errors = append(s.Errors, u.ID+": "+u.Error)
+	}
+	return s
 }

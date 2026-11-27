@@ -98,7 +98,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	for _, run := range onProperty {
 		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
 		if run.Task.Status == distributedtask.TaskStatusFinished && IsSemanticMigration(run.Payload.MigrationType) &&
-			!slices.ContainsFunc(targetTypes, func(t string) bool { return !slices.Contains(types, t) }) {
+			containsAll(types, targetTypes) {
 			break
 		}
 		overlaps := slices.ContainsFunc(types, func(t string) bool { return slices.Contains(targetTypes, t) })

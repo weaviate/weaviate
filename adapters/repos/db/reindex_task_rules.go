@@ -69,12 +69,79 @@ func (ReindexTaskRules) Admit(task *distributedtask.Task, existing []*distribute
 	return kept, nil
 }
 
+// Ended takes the run's switched tenants from older ended runs on its properties
+// whose index types it covers. A finished full run deletes itself and all such
+// runs, generation or not, because its flip already made the class serve it.
+func (ReindexTaskRules) Ended(task *distributedtask.Task, existing []*distributedtask.Task) distributedtask.EndRuling {
+	h, ok := ReindexHeaderOf(task)
+	if !ok || h.Generation == 0 {
+		return distributedtask.EndRuling{}
+	}
+	flipped := task.Status == distributedtask.TaskStatusFinished && len(h.Tenants) == 0
+	ruling := distributedtask.EndRuling{Compact: !flipped}
+	if flipped {
+		ruling.Remove = append(ruling.Remove, task)
+	}
+	types, _ := ReindexIndexTypes(h.MigrationType)
+	for _, other := range existing {
+		oh, ok := ReindexHeaderOf(other)
+		if !ok || other == task || !other.Status.IsTerminal() || !sameReindexProperties(oh, h) ||
+			!coversIndexTypes(types, oh.MigrationType) {
+			continue
+		}
+		if flipped {
+			ruling.Remove = append(ruling.Remove, other)
+			continue
+		}
+		if oh.Generation == 0 || oh.Generation >= h.Generation {
+			continue
+		}
+		lost := switchedInBoth(task, other)
+		switch {
+		case len(lost) == 0:
+		case len(lost) == len(other.SwapDecidedGroups):
+			ruling.Remove = append(ruling.Remove, other)
+		default:
+			if ruling.Forget == nil {
+				ruling.Forget = map[*distributedtask.Task][]string{}
+			}
+			ruling.Forget[other] = lost
+		}
+	}
+	return ruling
+}
+
+// BornSwitched holds for full runs, because a tenant created during one has nothing to build.
+func (ReindexTaskRules) BornSwitched(task *distributedtask.Task) bool {
+	h, ok := ReindexHeaderOf(task)
+	return ok && h.Generation > 0 && len(h.Tenants) == 0
+}
+
+func coversIndexTypes(types []string, older ReindexMigrationType) bool {
+	olderTypes, known := ReindexIndexTypes(older)
+	return known && containsAll(types, olderTypes)
+}
+
+func containsAll(have, want []string) bool {
+	return !slices.ContainsFunc(want, func(s string) bool { return !slices.Contains(have, s) })
+}
+
+func switchedInBoth(a, b *distributedtask.Task) []string {
+	var both []string
+	for group := range a.SwapDecidedGroups {
+		if _, ok := b.SwapDecidedGroups[group]; ok {
+			both = append(both, group)
+		}
+	}
+	return both
+}
+
 // sameReindexProperties refuses overlaps, or the other properties' switched tenants lose their task.
 func sameReindexProperties(a, b ReindexTaskHeader) bool {
 	if !strings.EqualFold(a.Collection(), b.Collection()) || len(a.Properties) != len(b.Properties) {
 		return false
 	}
-	return !slices.ContainsFunc(a.Properties, func(p string) bool { return !slices.Contains(b.Properties, p) })
+	return containsAll(b.Properties, a.Properties)
 }
 
 func sameReindexTarget(a, b ReindexTaskPayload) bool {

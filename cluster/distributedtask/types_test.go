@@ -162,7 +162,7 @@ func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
 	require.Empty(t, task.LocalGroupUnitIDs("g2", "n1"))
 	require.Empty(t, task.groupNodes("g2"))
 	require.False(t, task.AllGroupsSwapDecided(), "g1 is still undecided")
-	task.SwapDecidedGroups["g1"] = time.Time{}
+	task.decideSwap("g1", time.Time{})
 	require.True(t, task.AllGroupsSwapDecided())
 
 	require.ElementsMatch(t, []string{"g1", "g2", "g3"}, clone.Groups(), "a copy taken before keeps the tenant")

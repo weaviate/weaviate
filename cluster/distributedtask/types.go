@@ -668,6 +668,9 @@ type Task struct {
 
 	header TaskHeader
 
+	ended            bool
+	decidedWithUnits int
+
 	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
 
 	// SwapDecidedGroups outlives FAILED/CANCELLED: a decided group must swap on every replica or they diverge.
@@ -716,6 +719,7 @@ func (t *Task) IndexGroups() {
 	}
 	t.groups, t.groupCount = groups, len(groups)
 	t.countUnits()
+	t.countDecided()
 }
 
 // adoptGroups shares held's index when it has as many units (units are only removed), never its counts, which follow t's own units.
@@ -726,6 +730,7 @@ func (t *Task) adoptGroups(held heldCopy) {
 	}
 	t.groups, t.groupCount = held.groups, held.groupCount
 	t.countUnits()
+	t.countDecided()
 }
 
 func (t *Task) countUnits() {
@@ -762,8 +767,14 @@ func (t *Task) updateUnit(u *Unit, write func()) {
 
 func (t *Task) forgetGroups(groups []string) {
 	for _, group := range groups {
+		_, decided := t.SwapDecidedGroups[group]
+		// Compaction, born tenants and takeovers leave switched groups without units.
+		delete(t.SwapDecidedGroups, group)
 		if !t.hasGroup(group) {
 			continue
+		}
+		if decided {
+			t.decidedWithUnits--
 		}
 		for _, id := range t.groups[group] {
 			if u := t.Units[id]; u != nil {
@@ -773,7 +784,6 @@ func (t *Task) forgetGroups(groups []string) {
 		}
 		t.groupCount--
 		delete(t.SwapsOwed, group)
-		delete(t.SwapDecidedGroups, group)
 		delete(t.PreparedGroups, group)
 	}
 }
@@ -821,7 +831,7 @@ func (t *Task) copyChangesFrom(src *Task, change *taskChange) {
 	t.Status, t.StartedAt, t.FinishedAt, t.Error = src.Status, src.StartedAt, src.FinishedAt, src.Error
 	t.NodePreparationAcks = maps.Clone(src.NodePreparationAcks)
 	t.PostCompletionAcks = maps.Clone(src.PostCompletionAcks)
-	t.groups, t.groupCount = src.groups, src.groupCount
+	t.groups, t.groupCount, t.decidedWithUnits = src.groups, src.groupCount, src.decidedWithUnits
 	t.unitCounts = maps.Clone(src.unitCounts)
 	for id := range change.units {
 		u, ok := src.Units[id]
@@ -854,6 +864,9 @@ func copyEntry[V any](dst *map[string]V, src map[string]V, key string) {
 func (t *Task) decideSwap(group string, at time.Time) {
 	if t.SwapDecidedGroups == nil {
 		t.SwapDecidedGroups = map[string]time.Time{}
+	}
+	if _, again := t.SwapDecidedGroups[group]; !again && t.hasGroup(group) {
+		t.decidedWithUnits++
 	}
 	t.SwapDecidedGroups[group] = at
 	delete(t.PreparedGroups, group)
@@ -889,8 +902,18 @@ func (t *Task) GroupSwapDecided(groupID string) bool {
 	return ok
 }
 
+// AllGroupsSwapDecided ignores switched groups without units, such as born tenants.
 func (t *Task) AllGroupsSwapDecided() bool {
-	return len(t.SwapDecidedGroups) == t.groupCount
+	return t.decidedWithUnits == t.groupCount
+}
+
+func (t *Task) countDecided() {
+	t.decidedWithUnits = 0
+	for group := range t.SwapDecidedGroups {
+		if t.hasGroup(group) {
+			t.decidedWithUnits++
+		}
+	}
 }
 
 func (t *Task) appendError(msg string) {

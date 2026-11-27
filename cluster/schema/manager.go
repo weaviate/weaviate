@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -94,6 +95,7 @@ type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
 	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
 	ForgetGroupsForCollection(collection string, groups []string)
+	MarkTenantsBornSwitched(collection string, tenants []string)
 }
 
 type SchemaManager struct {
@@ -1096,8 +1098,21 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req) },
-			updateStore:  func() error { return s.db.AddTenants(cmd.Class, req) },
+			updateSchema: func() error {
+				if s.distributedTaskManager == nil {
+					return s.schema.addTenants(cmd.Class, cmd.Version, req)
+				}
+				// addTenants narrows req to this node's tenants, so the cluster-wide set is read around it.
+				absent := s.schema.absentTenants(cmd.Class, tenantNames(req.Tenants))
+				if err := s.schema.addTenants(cmd.Class, cmd.Version, req); err != nil {
+					return err
+				}
+				notPlaced := s.schema.absentTenants(cmd.Class, absent)
+				born := slices.DeleteFunc(absent, func(name string) bool { return slices.Contains(notPlaced, name) })
+				s.distributedTaskManager.MarkTenantsBornSwitched(cmd.Class, born)
+				return nil
+			},
+			updateStore: func() error { return s.db.AddTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},
 	)

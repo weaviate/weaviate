@@ -948,6 +948,7 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 type fakeCascadeDeleter struct {
 	collectionCalls []string
 	forgotten       []string
+	born            []string
 	activeMatch     bool
 	purgeErr        error // non-sentinel purge failure
 	targetCalls     []struct {
@@ -963,6 +964,10 @@ func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distr
 
 func (f *fakeCascadeDeleter) ForgetGroupsForCollection(collection string, groups []string) {
 	f.forgotten = append(f.forgotten, collection+":"+strings.Join(groups, ","))
+}
+
+func (f *fakeCascadeDeleter) MarkTenantsBornSwitched(collection string, tenants []string) {
+	f.born = append(f.born, collection+":"+strings.Join(tenants, ","))
 }
 
 func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
@@ -1418,6 +1423,22 @@ func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
 			&sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"t1": {Name: "t1"}}}, 1))
 		require.NoError(t, sm.DeleteTenants(mkRequest("C", []string{"t1"}), true))
 		require.Equal(t, []string{"C:t1"}, deleter.forgotten)
+	})
+
+	// The hook must get the same tenants on every node, so another node's tenant counts too.
+	t.Run("tenants new to the class reach the born-switched hook", func(t *testing.T) {
+		sm := newSM(nil)
+		deleter := &fakeCascadeDeleter{}
+		sm.SetDistributedTaskManager(deleter)
+		require.NoError(t, sm.schema.addClass(&models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+			&sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"t1": {Name: "t1"}}}, 1))
+		sub, err := gproto.Marshal(&cmd.AddTenantsRequest{
+			ClusterNodes: []string{"other-node"},
+			Tenants:      []*cmd.Tenant{{Name: "t1"}, {Name: "t2"}, {Name: "t3"}},
+		})
+		require.NoError(t, err)
+		require.NoError(t, sm.AddTenants(&cmd.ApplyRequest{Class: "C", Version: 2, SubCommand: sub}, true))
+		require.Equal(t, []string{"C:t2,t3"}, deleter.born)
 	})
 
 	t.Run("empty tenants list does not consult the guard", func(t *testing.T) {

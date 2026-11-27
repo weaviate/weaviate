@@ -13,6 +13,8 @@ package db
 
 import (
 	"encoding/json"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -45,6 +47,12 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 		}
 	}
 	titleTo := func(target string, gen uint64) ReindexTaskPayload { return run("C", target, gen, "title") }
+	// A finished full run deletes itself, so only a scoped one stays to be read.
+	scopedTo := func(target string, gen uint64) ReindexTaskPayload {
+		p := titleTo(target, gen)
+		p.Tenants = []string{"t1"}
+		return p
+	}
 
 	for _, tc := range []struct {
 		name     string
@@ -61,14 +69,14 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 		{
 			name:     "an ended task's generation beats a lower live one",
 			live:     map[string]map[string]uint64{"title": {"filterable": 2}},
-			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, titleTo(field, 3))},
+			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, scopedTo(field, 3))},
 			submit:   titleTo(word, 0),
 			wantGen:  4,
 		},
 		{
 			name:     "a live generation beats a lower task one",
 			live:     map[string]map[string]uint64{"title": {"filterable": 1, "searchable": 5}},
-			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, titleTo(field, 3))},
+			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, scopedTo(field, 3))},
 			submit:   titleTo(word, 0),
 			wantGen:  6,
 		},
@@ -82,7 +90,7 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 		},
 		{
 			name:     "a finished scoped same-target run is not taken over",
-			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, titleTo(word, 2), "t1")},
+			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, scopedTo(word, 2), "t1")},
 			submit:   titleTo(word, 0),
 			wantGen:  3,
 		},
@@ -113,7 +121,7 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 		},
 		{
 			name:     "another target over a finished scoped run with switched tenants is admitted",
-			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, titleTo(field, 2), "t1")},
+			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusFinished, scopedTo(field, 2), "t1")},
 			submit:   titleTo(word, 0),
 			wantGen:  3,
 		},
@@ -194,6 +202,222 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 				want = removeString(want, gone)
 			}
 			require.ElementsMatch(t, want, taskIDs(m))
+		})
+	}
+}
+
+func reindexRulesManager(t *testing.T, seed ...*distributedtask.Task) *distributedtask.Manager {
+	t.Helper()
+	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: seed}})
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+	m := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Logger:            logger,
+		ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: ReindexDetector{}},
+		TaskRules:         map[string]distributedtask.TaskRules{ReindexNamespace: ReindexTaskRules{}},
+		ClassLive:         func(string) map[string]map[string]uint64 { return nil },
+	})
+	require.NoError(t, m.Restore(snapshot))
+	return m
+}
+
+// reindexSeed builds a task with one unit per switched tenant plus one on t9.
+func reindexSeed(t *testing.T, id string, version uint64, status distributedtask.TaskStatus, p ReindexTaskPayload, switched ...string) *distributedtask.Task {
+	t.Helper()
+	p.ViewServed = p.Generation > 0
+	raw, err := json.Marshal(p)
+	require.NoError(t, err)
+	task := &distributedtask.Task{
+		Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: version},
+		Status: status, Payload: raw, NeedsPreparationBarrier: true,
+		Units:             map[string]*distributedtask.Unit{"u-t9": {ID: "u-t9", GroupID: "t9", Shard: "t9", NodeID: "n1"}},
+		SwapDecidedGroups: map[string]time.Time{},
+	}
+	for _, g := range switched {
+		task.Units["u-"+g] = &distributedtask.Unit{ID: "u-" + g, GroupID: g, Shard: g, NodeID: "n1"}
+		task.SwapDecidedGroups[g] = time.UnixMilli(1)
+	}
+	return task
+}
+
+func TestReindexTaskRulesEnded(t *testing.T) {
+	const word = "word"
+	tok := func(collection string, gen uint64, tenants ...string) ReindexTaskPayload {
+		return ReindexTaskPayload{
+			Collection: collection, MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
+			TargetTokenization: word, Generation: gen, Tenants: tenants,
+		}
+	}
+	rebuild := ReindexTaskPayload{
+		Collection: "C", MigrationType: ReindexTypeRebuildSearchable, Properties: []string{"title"}, Generation: 3,
+	}
+	const (
+		failed    = distributedtask.TaskStatusFailed
+		cancelled = distributedtask.TaskStatusCancelled
+		finished  = distributedtask.TaskStatusFinished
+		started   = distributedtask.TaskStatusStarted
+		swapping  = distributedtask.TaskStatusSwapping
+	)
+	cancel := func(t *testing.T, m *distributedtask.Manager) {
+		raw, err := json.Marshal(&api.CancelDistributedTaskRequest{
+			Namespace: ReindexNamespace, Id: "new", Version: 9, CancelledAtUnixMillis: 1,
+		})
+		require.NoError(t, err)
+		require.NoError(t, m.CancelTask(&api.ApplyRequest{SubCommand: raw}))
+	}
+	finalize := func(t *testing.T, m *distributedtask.Manager) {
+		raw, err := json.Marshal(&api.MarkTaskFinalizedRequest{
+			Namespace: ReindexNamespace, Id: "new", Version: 9, FinalizedAtUnixMillis: 1,
+		})
+		require.NoError(t, err)
+		require.NoError(t, m.MarkTaskFinalized(&api.ApplyRequest{SubCommand: raw}))
+	}
+
+	for _, tc := range []struct {
+		name string
+		seed func(t *testing.T) []*distributedtask.Task
+		end  func(t *testing.T, m *distributedtask.Manager)
+
+		want        map[string][]string // each remaining task's switched tenants
+		wantCompact []string
+	}{
+		{
+			name: "an ended run takes its switched tenants from an older covered run",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexSeed(t, "older", 1, cancelled, tok("C", 2), "t1", "t3"),
+					reindexSeed(t, "new", 9, started, tok("C", 3), "t1", "t2"),
+				}
+			},
+			end:         cancel,
+			want:        map[string][]string{"older": {"t3"}, "new": {"t1", "t2"}},
+			wantCompact: []string{"older", "new"},
+		},
+		{
+			name: "a run that does not cover the older run's index types leaves it alone",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexSeed(t, "older", 1, failed, tok("C", 2), "t1"),
+					reindexSeed(t, "new", 9, started, rebuild, "t1"),
+				}
+			},
+			end:         cancel,
+			want:        map[string][]string{"older": {"t1"}, "new": {"t1"}},
+			wantCompact: []string{"older", "new"},
+		},
+		{
+			name: "overlapping scoped runs then a finished full run leave no task",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexSeed(t, "a", 1, finished, tok("C", 2, "t1"), "t1"),
+					reindexSeed(t, "b", 2, failed, tok("C", 3, "t1", "t2"), "t2"),
+					reindexSeed(t, "new", 9, swapping, tok("C", 4), "t1", "t2", "t3"),
+				}
+			},
+			end:  finalize,
+			want: map[string][]string{},
+		},
+		{
+			name: "a finished full run removes older runs with nothing switched or no generation",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexSeed(t, "empty", 1, failed, tok("C", 2)),
+					reindexSeed(t, "legacy", 2, failed, tok("C", 0), "t1"),
+					reindexSeed(t, "new", 9, swapping, tok("C", 3), "t1"),
+				}
+			},
+			end:  finalize,
+			want: map[string][]string{},
+		},
+		{
+			name: "a finished scoped run is kept and compacted",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{reindexSeed(t, "new", 9, swapping, tok("C", 2, "t1"), "t1")}
+			},
+			end:         finalize,
+			want:        map[string][]string{"new": {"t1"}},
+			wantCompact: []string{"new"},
+		},
+		{
+			name: "a same-named property in another collection is left alone",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexSeed(t, "other", 1, failed, tok("A", 2), "t1"),
+					reindexSeed(t, "new", 9, started, tok("B", 3), "t1"),
+				}
+			},
+			end:         cancel,
+			want:        map[string][]string{"other": {"t1"}, "new": {"t1"}},
+			wantCompact: []string{"other", "new"},
+		},
+		{
+			name: "a run without a generation is neither cleaned up after nor compacted",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexSeed(t, "older", 1, failed, tok("C", 2), "t1"),
+					reindexSeed(t, "new", 9, started, tok("C", 0), "t1"),
+				}
+			},
+			end:         cancel,
+			want:        map[string][]string{"older": {"t1"}, "new": {"t1"}},
+			wantCompact: []string{"older"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seed := tc.seed(t)
+			units := map[string]int{}
+			for _, task := range seed {
+				units[task.ID] = len(task.Units)
+			}
+			m := reindexRulesManager(t, seed...)
+
+			tc.end(t, m)
+
+			got := map[string][]string{}
+			for _, task := range m.LocalDistributedTasks()[ReindexNamespace] {
+				got[task.ID] = slices.Sorted(maps.Keys(task.SwapDecidedGroups))
+				compacted := slices.Contains(tc.wantCompact, task.ID)
+				require.Equal(t, compacted, task.Units == nil, "task %s compacted", task.ID)
+				if compacted {
+					require.Equal(t, units[task.ID], sumCounts(task.Summary), "task %s summary", task.ID)
+				}
+			}
+			for id, groups := range tc.want {
+				slices.Sort(groups)
+				tc.want[id] = groups
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func sumCounts(s *distributedtask.UnitSummary) int {
+	total := 0
+	for _, n := range s.Counts {
+		total += n
+	}
+	return total
+}
+
+func TestReindexTaskRulesBornSwitched(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		p    ReindexTaskPayload
+		want bool
+	}{
+		{name: "a full run", p: ReindexTaskPayload{Generation: 2}, want: true},
+		{name: "a scoped run", p: ReindexTaskPayload{Generation: 2, Tenants: []string{"t1"}}},
+		{name: "a run without a generation", p: ReindexTaskPayload{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := tc.p
+			p.Collection, p.MigrationType, p.Properties = "C", ReindexTypeChangeTokenization, []string{"title"}
+			m := reindexRulesManager(t, reindexSeed(t, "run", 1, distributedtask.TaskStatusStarted, p, "t1"))
+
+			m.MarkTenantsBornSwitched("c", []string{"t3"})
+
+			run := findTask(m.LocalDistributedTasks()[ReindexNamespace], "run")
+			require.Equal(t, tc.want, run.GroupSwapDecided("t3"))
 		})
 	}
 }

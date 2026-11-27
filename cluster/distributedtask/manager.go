@@ -12,7 +12,6 @@
 package distributedtask
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,6 +56,8 @@ type Manager struct {
 	readOnlyClass func(collection string) *models.Class
 	taskRules     map[string]TaskRules
 	classLive     func(collection string) map[string]map[string]uint64
+	stateListener StateListener
+	pendingStates []stateNote
 
 	headerDecoders         map[string]HeaderDecoder
 	targetVectorExtractors map[string]TargetVectorExtractor
@@ -555,6 +556,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		return fmt.Errorf("unmarshal add task request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -634,10 +636,12 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		if kept != nil {
 			delete(m.tasks[kept.Namespace], kept.ID)
 			m.markWithLock(kept.Namespace, kept.ID).addedOrRemoved = true
+			m.notifyStateWithLock(kept, nil)
 		}
 	}
 	m.setTaskWithLock(newTask)
 	m.markWithLock(newTask.Namespace, newTask.ID).addedOrRemoved = true
+	m.notifyStateWithLock(newTask, nil)
 	m.notifySchedulerWithLock()
 
 	return nil
@@ -686,8 +690,10 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal record unit completion request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, u, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
 	if err != nil {
@@ -770,8 +776,10 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		return fmt.Errorf("post-completion ack for task %s/%s missing node_id", r.Namespace, r.Id)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -861,8 +869,10 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		return fmt.Errorf("prep-complete ack for task %s/%s missing node_id", r.Namespace, r.Id)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -926,6 +936,11 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	task.PreparedGroups[group] = acks
 	if len(acks) == len(expected) {
 		task.decideSwap(group, ackedAt)
+		var decided []string
+		if group != "" {
+			decided = []string{group}
+		}
+		m.notifyStateWithLock(task, decided)
 		if task.Status == TaskStatusPreparing && task.AllGroupsSwapDecided() {
 			task.Status = TaskStatusSwapping
 			change.taskLevel = true
@@ -951,8 +966,10 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal mark task finalized request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -997,8 +1014,10 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal mark task failed request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -1111,8 +1130,10 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal cancel task request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -1144,6 +1165,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal clean up task request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1158,6 +1180,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 
 	delete(m.tasks[task.Namespace], task.ID)
 	m.markWithLock(task.Namespace, task.ID).addedOrRemoved = true
+	m.notifyStateWithLock(task, nil)
 	return nil
 }
 
@@ -1408,7 +1431,7 @@ func (m *Manager) findTaskWithLock(namespace, taskID string) *Task {
 // namespaceTasksWithLock orders by Version so every replica's rules see one order.
 func (m *Manager) namespaceTasksWithLock(namespace string) []*Task {
 	tasks := slices.Collect(maps.Values(m.tasks[namespace]))
-	slices.SortFunc(tasks, func(a, b *Task) int { return cmp.Compare(a.Version, b.Version) })
+	slices.SortFunc(tasks, byVersion)
 	return tasks
 }
 
@@ -1451,6 +1474,7 @@ func (m *Manager) Restore(bytes []byte) error {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1478,6 +1502,7 @@ func (m *Manager) Restore(bytes []byte) error {
 			m.tasks[namespace][task.ID] = task
 		}
 	}
+	m.applyEndRulesWithLock()
 
 	return nil
 }

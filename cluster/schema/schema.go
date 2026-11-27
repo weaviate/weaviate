@@ -658,13 +658,27 @@ func (s *schema) tenantCapUsage(class string, incoming []string) (current, addit
 	}
 	meta.RLock()
 	defer meta.RUnlock()
-	current = len(meta.Sharding.Physical)
-	for _, name := range incoming {
-		if _, exists := meta.Sharding.Physical[name]; !exists {
-			additions++
+	return len(meta.Sharding.Physical), len(absentIn(meta.Sharding.Physical, incoming)), true
+}
+
+func (s *schema) absentTenants(class string, names []string) []string {
+	meta := s.metaClass(class)
+	if meta == nil {
+		return nil
+	}
+	meta.RLock()
+	defer meta.RUnlock()
+	return absentIn(meta.Sharding.Physical, names)
+}
+
+func absentIn(physical map[string]sharding.Physical, names []string) []string {
+	var absent []string
+	for _, name := range names {
+		if _, exists := physical[name]; !exists {
+			absent = append(absent, name)
 		}
 	}
-	return current, additions, true
+	return absent
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
