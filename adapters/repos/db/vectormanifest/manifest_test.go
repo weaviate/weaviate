@@ -480,6 +480,26 @@ func TestManifest_CreateFinishesADropInProgress(t *testing.T) {
 	assert.Equal(t, "creating", rec.State)
 }
 
+// The drop a creation finishes takes both indexes of a rebuild and its task.
+func TestManifest_CreateFinishesADropInProgressDuringARebuild(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "title", "body")
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+	plant(t, files(dir, "vectors_a-b")...)
+	_, err := m.BeginDrop("title")
+	require.NoError(t, err)
+
+	_, err = m.Create(t.Context(), "title", enthnsw.NewDefaultUserConfig())
+	require.NoError(t, err)
+	for _, path := range files(dir, "vectors_a-b") {
+		assert.NoDirExists(t, path)
+	}
+	assert.NoDirExists(t, filepath.Join(dir, "vectors_title.hnsw.commitlog.d"))
+	_, ok, err := m.tasks.Get("title")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 func TestManifest_ADropInProgressIsNotOverwritten(t *testing.T) {
 	cfg := enthnsw.NewDefaultUserConfig()
 	tests := []struct {
