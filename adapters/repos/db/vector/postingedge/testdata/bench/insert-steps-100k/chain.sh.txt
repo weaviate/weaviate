@@ -1,0 +1,22 @@
+#!/bin/bash
+# The timed chain of 2026-11-27 (bench-report.md of feat/posting-edge-index,
+# pre-registered in 4c978227a1): step 1 against the head at 100k, the 20 000
+# inserts on the clone of the 3.3M index, then steps 2 and 3 against the
+# head. It waits for the untimed tests of the branches to end, puts the
+# marker of the timed session up and takes it down. Every binary is built
+# before; nothing here builds.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+R=$S/r100
+while pgrep -f 'prop/branches.sh' > /dev/null; do sleep 10; done
+printf 'insert steps at 100k and the 3.3M continuation (r100/chain.sh), timed, since %s until about 14:30; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+date "+== %H:%M:%S step 1"
+bash $R/steps.sh s1 > $R/steps-s1.out 2>&1
+date "+== %H:%M:%S the 3.3M continuation"
+bash $S/night10m/continue.sh > $S/night10m/continue.out 2>&1
+date "+== %H:%M:%S step 2"
+bash $R/steps.sh s2 > $R/steps-s2.out 2>&1
+date "+== %H:%M:%S step 3"
+bash $R/steps.sh s3 > $R/steps-s3.out 2>&1
+rm -f $S/timed-session.lock
+date "+== %H:%M:%S done"

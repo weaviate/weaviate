@@ -1,0 +1,22 @@
+#!/bin/bash
+# What the night left (bench-report.md of feat/posting-edge-index,
+# pre-registered in 4c978227a1): 20 000 more inserts on an APFS clone of the
+# 3.3M index, 1 caller, profiled (CPU and trace), with the bytes written by
+# class. The binary ($N/continue.test) is built before; this never builds.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+N=$S/night10m
+C=$N/continue
+B=$N/continue.test
+D=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+cd $S/night/adapters/repos/db/vector/postingedge || exit 2
+date "+== %H:%M:%S continue"
+PE_DATASET=$D PE_DIR=$C/index PE_OUT=$C/result.json PE_N=20000 PE_FROM=3301200 PE_CALLERS=1 \
+  $B -test.run '^TestNightContinue$' -test.v -test.timeout 0 -test.cpuprofile $C/cpu.prof -test.trace $C/trace.out \
+  > $C/run.log 2>&1
+echo "continue exit $?"
+go tool trace -pprof=syscall $C/trace.out > $C/syscall.pprof 2>/dev/null
+echo "syscall pprof exit $?"
+go tool trace -pprof=sync $C/trace.out > $C/sync.pprof 2>/dev/null
+echo "sync pprof exit $?"
+date "+== %H:%M:%S done"

@@ -1,0 +1,43 @@
+# The runs of one step of the insert proposal against the head, at 100k:
+# summary3.py <runs dir> <step name> [baseline name, m2 by default].
+import glob, json, os, statistics, sys
+d, step = sys.argv[1], sys.argv[2]
+base = sys.argv[3] if len(sys.argv) > 3 else "m2"
+rows = {}
+for path in sorted(glob.glob(d + "/*-c*-p*/result.json")):
+    name = os.path.basename(os.path.dirname(path))
+    v, c, p = name.rsplit("-", 2)
+    r = json.load(open(path))
+    ru_path = os.path.dirname(path) + "/rusage.json"
+    ru = json.load(open(ru_path)) if os.path.exists(ru_path) else {}
+    rec = {pt["ef"]: pt["recall"] for s in r.get("stages", []) for pt in s.get("points", [])}
+    loads = {pt["ef"]: pt.get("loads", 0) for s in r.get("stages", []) for pt in s.get("points", [])}
+    inserted = r["insertsAfterTheBase"]
+    rows.setdefault((v, c), []).append(dict(
+        p=p, rate=r["insertsPerSecond"], written=ru.get("diskBytesWritten", 0), rec=rec, loads=loads,
+        postings=r["meta"]["postings"], journal=r.get("journalBytes", 0) / max(inserted, 1),
+        records=r.get("journalRecords", 0), layouts=r["stats"].get("layouts", 0),
+        layoutVectors=r["stats"].get("layoutVectors", 0), vectors=r["vectors"], dims=r["meta"]["dims"]))
+print("| binario | llamadores | inserts/s (p1, p2) | media | escrito, MB (p1, p2) | amplificación | diario, B por insert | registros | layouts (vectores) | recall ef 40 | recall ef 160 | postings |")
+print("|---|---:|---|---:|---|---:|---:|---:|---|---|---|---|")
+mean = {}
+for c in ["c1", "c8"]:
+    for v in [base, step]:
+        runs = sorted(rows.get((v, c), []), key=lambda x: x["p"])
+        if not runs:
+            continue
+        rates = [x["rate"] for x in runs]
+        written = [x["written"] for x in runs]
+        raw = runs[0]["vectors"] * runs[0]["dims"] * 4
+        mean[(v, c)] = (statistics.mean(rates), statistics.mean(written))
+        print("| %s | %s | %s | %.1f | %s | %.2f | %s | %s | %s | %s | %s | %s |" % (
+            v, c[1:], ", ".join("%.1f" % x for x in rates), statistics.mean(rates),
+            ", ".join("%.0f" % (x / 1e6) for x in written), statistics.mean(written) / raw,
+            ", ".join("%.0f" % x["journal"] for x in runs), ", ".join(str(x["records"]) for x in runs),
+            ", ".join("%d (%d)" % (x["layouts"], x["layoutVectors"]) for x in runs),
+            "; ".join("%.4f" % x["rec"].get(40, 0) for x in runs), "; ".join("%.4f" % x["rec"].get(160, 0) for x in runs),
+            ", ".join(str(x["postings"]) for x in runs)))
+for c in ["c1", "c8"]:
+    if (base, c) in mean and (step, c) in mean:
+        b, s = mean[(base, c)], mean[(step, c)]
+        print("%s llamadores: inserts/s %s/%s = %.3f | escrito %s/%s = %.3f" % (c[1:], step, base, s[0] / b[0], step, base, s[1] / max(b[1], 1)))

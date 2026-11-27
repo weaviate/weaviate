@@ -1,0 +1,296 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package postingedge
+
+import (
+	"context"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+)
+
+// dirWatch notes, every half second, the size of every file under a
+// directory, and adds up by class what the files grew by: the bytes written
+// to them, but for what a file gets and loses between two looks. A file that
+// shrinks (the journal, emptied) starts again from its new size.
+type dirWatch struct {
+	dir     string
+	mu      sync.Mutex
+	last    map[string]int64
+	grown   map[string]int64
+	looks   int
+	stopped chan struct{}
+	done    chan struct{}
+}
+
+func newDirWatch(t *testing.T, dir string, logger logrus.FieldLogger) *dirWatch {
+	w := &dirWatch{
+		dir: dir, last: map[string]int64{}, grown: map[string]int64{},
+		stopped: make(chan struct{}), done: make(chan struct{}),
+	}
+	// What is there before counts as the start, not as written.
+	require.NoError(t, w.look(false))
+	enterrors.GoWrapper(func() {
+		defer close(w.done)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-w.stopped:
+				_ = w.look(true)
+				return
+			case <-ticker.C:
+				_ = w.look(true)
+			}
+		}
+	}, logger)
+	return w
+}
+
+func (w *dirWatch) look(count bool) error {
+	sizes := map[string]int64{}
+	err := filepath.WalkDir(w.dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		sizes[path] = info.Size()
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.looks++
+	for path, size := range sizes {
+		before, seen := w.last[path]
+		if !seen && !strings.HasSuffix(path, ".tmp") {
+			// The store writes a segment to a .tmp file and renames it: what
+			// the .tmp was seen to grow by is counted already, and the rest,
+			// written between two looks, is counted here.
+			before = w.grown[path+".tmp"]
+		}
+		if count && size > before {
+			w.grown[path] += size - before
+		}
+		w.last[path] = size
+	}
+	for path := range w.last {
+		if _, ok := sizes[path]; !ok {
+			delete(w.last, path)
+		}
+	}
+	return nil
+}
+
+func (w *dirWatch) stop() map[string]int64 {
+	close(w.stopped)
+	<-w.done
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.grown
+}
+
+var (
+	segmentLevel = regexp.MustCompile(`segment-[0-9_]+\.l([0-9]+)\.`)
+	vectorsGen   = regexp.MustCompile(`^(vectors|slots)-([0-9]+)\.`)
+)
+
+// classOf names what a file of the index is: a log of a bucket, a segment a
+// flush wrote (level 0) or a compaction wrote (level 1 and up), the journal,
+// the vectors and their slots of the generation the inserts write, those of
+// a later one (a layout), and the rest.
+func classOf(path string, gen int) string {
+	base := strings.TrimSuffix(filepath.Base(path), ".tmp")
+	switch {
+	case strings.HasSuffix(base, ".wal"):
+		return "lsmkv WAL"
+	case strings.HasPrefix(base, "segment-"):
+		if m := segmentLevel.FindStringSubmatch(base); m != nil {
+			if m[1] == "0" {
+				return "lsmkv flush (level 0 segments)"
+			}
+			return "lsmkv compaction (level 1 and up)"
+		}
+		return "lsmkv segments, unnamed level"
+	case base == growJournalFile:
+		return "journal"
+	case strings.Contains(path, "commitlog"):
+		return "centroid graph commit log"
+	}
+	if m := vectorsGen.FindStringSubmatch(base); m != nil {
+		at, _ := strconv.Atoi(m[2])
+		if at > gen {
+			return "layout: " + m[1] + " of a new generation"
+		}
+		return "exact " + m[1] + " of the inserts"
+	}
+	return "other: " + base
+}
+
+// TestNightContinue opens a clone of the index TestNightGrow left (PE_DIR),
+// over the store as a shard opens it with its cycles, and inserts PE_N more
+// vectors of the night's order, from position PE_FROM, skipping the doc ids
+// the index holds already (the process was killed with some of the round
+// after its last stretch in), with PE_CALLERS callers. It writes to PE_OUT
+// what the index counted of those inserts, what the system accounted to the
+// process, and the bytes written to the files of the index by class. Run it
+// with -test.cpuprofile and -test.trace for where the time went.
+func TestNightContinue(t *testing.T) {
+	datasetDir, dir, out := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_OUT")
+	if datasetDir == "" || dir == "" || out == "" {
+		t.Skip("no PE_DATASET, PE_DIR and PE_OUT given")
+	}
+	ctx := context.Background()
+	train, err := openNightTrain(datasetDir)
+	require.NoError(t, err)
+	defer train.file.Close()
+	n := int(nightEnvInt(t, "PE_N", 20000))
+	from := int(nightEnvInt(t, "PE_FROM", 3301200))
+	callers := int(nightEnvInt(t, "PE_CALLERS", 1))
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	openedAt := time.Now()
+	st := openNightStore(t, dir, logger, true)
+	p, err := Open(st.config(dir, logger, 0), uc, st.store)
+	require.NoError(t, err)
+	opened := time.Since(openedAt)
+	shut := func() {
+		if p == nil {
+			return
+		}
+		require.NoError(t, p.Flush())
+		require.NoError(t, p.Shutdown(ctx))
+		st.stopCycles(ctx)
+		require.NoError(t, st.store.Shutdown(ctx))
+		p = nil
+	}
+	defer shut()
+
+	order := make([]uint64, train.rows)
+	for i := range order {
+		order[i] = uint64(i)
+	}
+	rand.New(rand.NewPCG(1, 1)).Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
+	p.mu.RLock()
+	g := p.g
+	var picked []uint64
+	skipped := 0
+	for i := from; i < len(order) && len(picked) < n; i++ {
+		if g.holds(order[i]) {
+			skipped++
+			continue
+		}
+		picked = append(picked, order[i])
+	}
+	before, journalRecords, journalBytes := g.stats, g.journal.records, g.journal.bytes
+	gen, live, postings := int(g.meta.VectorGen), g.meta.Live, g.meta.Postings
+	p.mu.RUnlock()
+	require.Len(t, picked, n)
+	t.Logf("opened in %s: %d vectors, %d postings given out, generation %d of the vectors; %d doc ids after "+
+		"position %d were in already", opened.Round(time.Millisecond), live, postings, gen, skipped, from)
+
+	watch := newDirWatch(t, dir, logger)
+	usageBefore, err := readNightRusage()
+	require.NoError(t, err)
+	var memBefore runtime.MemStats
+	runtime.ReadMemStats(&memBefore)
+
+	const batch = 100
+	bufs := make([][]byte, callers)
+	begin := time.Now()
+	for at := 0; at < n; {
+		to := min(at+batch*callers, n)
+		adding := enterrors.NewErrorGroupWrapper(logger)
+		for start, c := at, 0; start < to; start, c = start+batch, c+1 {
+			end := min(start+batch, to)
+			adding.Go(func() error {
+				vectors, buf, err := train.read(picked[start:end], bufs[c])
+				bufs[c] = buf
+				if err != nil {
+					return err
+				}
+				return p.AddBatch(ctx, picked[start:end], vectors)
+			})
+		}
+		require.NoError(t, adding.Wait())
+		require.NoError(t, p.Flush())
+		at = to
+	}
+	took := time.Since(begin)
+	usage, err := readNightRusage()
+	require.NoError(t, err)
+	grown := watch.stop()
+
+	byClass := map[string]int64{}
+	var filesTotal int64
+	for path, bytes := range grown {
+		byClass[classOf(path, gen)] += bytes
+		filesTotal += bytes
+	}
+	p.mu.RLock()
+	g = p.g
+	after := g.stats
+	result := map[string]any{
+		"inserted": n, "skipped": skipped, "from": from, "callers": callers, "openSeconds": opened.Seconds(),
+		"seconds": took.Seconds(), "perSecond": float64(n) / took.Seconds(),
+		"liveBefore": live, "postingsBefore": postings, "liveAfter": g.meta.Live, "postingsAfter": g.meta.Postings,
+		"generationBefore": gen, "generationAfter": g.meta.VectorGen,
+		"journalRecords": g.journal.records - journalRecords, "journalBytes": g.journal.bytes - journalBytes,
+		"statsBefore": before, "statsAfter": after,
+		"rusageBefore": usageBefore, "rusageAfter": usage,
+		"diskBytesWritten":  usage.BytesWritten - usageBefore.BytesWritten,
+		"diskBytesRead":     usage.BytesRead - usageBefore.BytesRead,
+		"pageins":           usage.Pageins - usageBefore.Pageins,
+		"filesGrownByClass": byClass, "filesGrownTotal": filesTotal, "looks": watch.looks,
+		"heapInuseBefore": memBefore.HeapInuse,
+	}
+	p.mu.RUnlock()
+	writeNightJSON(t, out, result)
+	t.Logf("%d inserts in %s, %.1f a second; written %.2f GB (files grew %.2f GB), read %.2f GB", n,
+		took.Round(time.Second), float64(n)/took.Seconds(), float64(usage.BytesWritten-usageBefore.BytesWritten)/1e9,
+		float64(filesTotal)/1e9, float64(usage.BytesRead-usageBefore.BytesRead)/1e9)
+	for class, bytes := range byClass {
+		t.Logf("  %-44s %8.1f MB, %7.0f B an insert", class, float64(bytes)/1e6, float64(bytes)/float64(n))
+	}
+}

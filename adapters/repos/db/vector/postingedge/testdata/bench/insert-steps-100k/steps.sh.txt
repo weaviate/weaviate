@@ -1,0 +1,29 @@
+#!/bin/bash
+# One step of the insert proposal against the head, at 100k (bench-report.md
+# of feat/posting-edge-index, pre-registered in 4c978227a1): head-1, step-1,
+# head-8, step-8, two passes, with the bytes the process wrote. Usage:
+# steps.sh <step name> (its binary is $R/<step>-w.test, built before).
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+R=$S/r100
+STEP=$1
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+COMMON="-bench.dataset $D -bench.limit 100000 -bench.queries 1000 -test.v -test.timeout 0"
+integ() { # binary-name worktree callers pass
+  local b=$1 w=$2 c=$3 p=$4 dir=$R/runs-$STEP/$1-c$3-p$4
+  mkdir -p $dir/index
+  date "+== %H:%M:%S $b callers $c pass $p"
+  (cd $R/$w/adapters/repos/db/vector/postingedge && PE_RUSAGE=$dir/rusage.json $R/$b-w.test \
+    -test.run '^(TestIntegrationScale|TestZZWritten)$' $COMMON \
+    -bench.integrationdir $dir/index -bench.integrationout $dir/result.json -bench.integrationbase 10000 \
+    -bench.integrationwriters $c -bench.integrationcycles -bench.integrationdelete 0 -bench.integrationreopen=false \
+    -bench.integrationefs 40,160 > $dir/run.log 2>&1)
+  echo "$b c$c p$p exit $?"
+}
+for p in 1 2; do
+  integ m2 m2 1 $p
+  integ $STEP $STEP 1 $p
+  integ m2 m2 8 $p
+  integ $STEP $STEP 8 $p
+done
+date "+== %H:%M:%S done"

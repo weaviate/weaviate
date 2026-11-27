@@ -1034,6 +1034,30 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - si `s3n` iguala o supera a `s3` con 8 llamadores (a un 2 % o menos), el paso 1 no aporta nada y sale;
   - en otro caso el paso 1 se queda como está, y la pérdida con un llamador queda dicha.
 
+### Los pasos 2 y 3 a 100k, medidos (2026-11-27, de 13:13 a 14:16)
+
+**Con las tandas, 8 llamadores insertan 3.6 veces lo que la cabeza: de unos 330 a unos 1 180 por segundo. Con un llamador quedan un 4 o un 5 % por debajo, que es lo que ya perdía el paso 1 solo. El paso 3 no cambia el ritmo: deja el diario en un registro por tanda.**
+
+Cada paso lleva dentro los anteriores y se alterna con la cabeza (`c6c8b2e347`), dos pasadas, como estaba escrito. La cabeza de estas dos tandas va un 6 % más deprisa que en la del paso 1 (338 frente a 317 con un llamador), con la máquina ya libre: las razones se leen dentro de cada tanda.
+
+| binario | llamadores | inserts/s (p1, p2) | media | frente a la cabeza | escrito, MB (media) | diario, B por insert | registros del diario | recall ef 40 | recall ef 160 |
+|---|---:|---|---:|---:|---:|---:|---:|---|---|
+| cabeza | 1 | 338.1, 339.7 | 338.9 | | 2 366 | 9 720 | 90 000 | 0.9885; 0.9890 | 0.9977; 0.9975 |
+| pasos 1 y 2 | 1 | 324.5, 318.5 | 321.5 | 0.949 | 2 358 | 9 725 | 90 000 | 0.9886; 0.9887 | 0.9975; 0.9974 |
+| cabeza | 8 | 331.6, 316.0 | 323.8 | | 2 325 | 9 730 | 90 000 | 0.9887; 0.9892 | 0.9976; 0.9978 |
+| pasos 1 y 2 | 8 | 1 188.2, 1 163.0 | 1 175.6 | **3.63** | 2 403 | 9 727 | 90 000 | 0.9875; 0.9885 | 0.9976; 0.9980 |
+| cabeza | 1 | 336.9, 338.2 | 337.5 | | 2 364 | 9 727 | 90 000 | 0.9882; 0.9893 | 0.9977; 0.9974 |
+| pasos 1 a 3 | 1 | 324.9, 321.5 | 323.2 | 0.957 | 2 336 | 9 473 | 22 500 | 0.9891; 0.9891 | 0.9974; 0.9974 |
+| cabeza | 8 | 329.9, 333.5 | 331.7 | | 2 360 | 9 737 | 90 000 | 0.9883; 0.9881 | 0.9976; 0.9976 |
+| pasos 1 a 3 | 8 | 1 192.4, 1 174.0 | 1 183.2 | **3.57** | 2 412 | 9 417 | 1 642 | 0.9876; 0.9889 | 0.9976; 0.9974 |
+
+- **El paso 2 es el que gana:** 3.63 veces con 8 llamadores, en las dos pasadas. El prototipo de v5.2 daba 3.62 veces (de 282 a 1 022), y el integrado queda por encima en cifra absoluta: 1 176 por segundo.
+- **Con un llamador no gana:** 0.949 y 0.957, lo mismo que el paso 1 solo (0.956). Un llamador solo planea sus vectores uno detrás de otro, leyendo en línea. Lo deciden las variantes del paso 1.
+- **El paso 3 no mueve el ritmo** (3.57 frente a 3.63 con 8, 0.957 frente a 0.949 con 1: dentro de la diferencia entre pasadas). Lo que cambia es el diario: de un registro por insert a uno por tanda, 22 500 con un llamador (tandas de 4) y unos 1 640 con 8 (55 inserts por tanda), y un 3 % menos de bytes de diario.
+- **Lo escrito:** con 8 llamadores, un 3 % y un 2 % más que la cabeza; con uno, igual. No pasa del 10 % que obligaba a parar.
+- **El recall no cambia:** las diferencias son de 0.001 o menos, del orden de lo que se separan las dos pasadas de un mismo binario.
+- **Los pasos 2 y 3 son favorables y se suben.** El paso 1, que va antes en la serie, espera a su medida a 3.3M.
+
 ### Lo pendiente de la noche: 20 000 inserts sobre el índice de 3.3M, perfilados (2026-11-27, de 13:07 a 13:13)
 
 **El ritmo cayó de 217 a 87 inserts por segundo porque la búsqueda de cada insert lee más cuanto mayor es el índice, y cada lectura es una gorutina que hay que despertar. A 3.3M, despertar hilos es el 63 % de la CPU: unos 10 ms de los 14.5 de un insert. No es la compactación (2.6 % de la CPU), ni el diario, ni el aplicador.**
