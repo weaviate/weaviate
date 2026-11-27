@@ -461,12 +461,52 @@ func covers(policy, pattern string) bool {
 	if !ok {
 		return false
 	}
-	expr, ok := coverExpr(strings.ReplaceAll(policy, "/*", "/.*"))
-	if !ok {
-		return false
+	// A group "(a|b)" matches what one of its branches matches, so a branch
+	// that covers the pattern alone is enough.
+	for _, branch := range alternatives(strings.ReplaceAll(policy, "/*", "/.*")) {
+		expr, ok := coverExpr(branch)
+		if !ok {
+			continue
+		}
+		if re, err := regexp.Compile(expr); err == nil && re.MatchString(text) {
+			return true
+		}
 	}
-	re, err := regexp.Compile(expr)
-	return err == nil && re.MatchString(text)
+	return false
+}
+
+// maxAlternatives bounds how many policies alternatives expands one into.
+const maxAlternatives = 64
+
+// alternatives expands each group "(a|b)" in policy into one policy per
+// branch. A group that is quantified, nested, opens with '?' (flags,
+// non-capturing) or would expand past maxAlternatives stays whole, and
+// coverExpr refuses it.
+func alternatives(policy string) []string {
+	open := strings.IndexByte(policy, '(')
+	if open < 0 {
+		return []string{policy}
+	}
+	end := strings.IndexByte(policy[open:], ')') + open
+	if end < open {
+		return []string{policy}
+	}
+	body := policy[open+1 : end]
+	quantified := end+1 < len(policy) && strings.IndexByte("*+?{", policy[end+1]) >= 0
+	if quantified || strings.ContainsAny(body, "(") || strings.HasPrefix(body, "?") {
+		return []string{policy}
+	}
+	rest := alternatives(policy[end+1:])
+	var out []string
+	for _, branch := range strings.Split(body, "|") {
+		for _, tail := range rest {
+			if len(out) == maxAlternatives {
+				return []string{policy}
+			}
+			out = append(out, policy[:open]+branch+tail)
+		}
+	}
+	return out
 }
 
 const (
