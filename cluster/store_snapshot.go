@@ -199,14 +199,22 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			st.setClusterID(snap.ClusterID)
 		}
 
-		if st.cfg.MetadataOnlyVoters {
-			return nil
-		}
-
 		snapIndex := lastSnapshotIndex(st.snapshotStore)
-		if st.lastAppliedIndexToDB.Load() <= snapIndex {
+		if !st.cfg.MetadataOnlyVoters && st.lastAppliedIndexToDB.Load() <= snapIndex {
 			// db shall reload after snapshot applied to schema
 			st.reloadDBFromSchema()
+		}
+
+		// Raising the index releases WaitForAppliedIndex callers, so it must follow reloadDBFromSchema.
+		// The raft check leaves the index to Open when the restore runs inside Open's first raft.NewRaft.
+		if st.raft.Load() != nil && snapIndex > st.lastAppliedIndex.Load() {
+			st.lastAppliedIndex.Store(snapIndex)
+			st.metrics.fsmLastAppliedIndex.Set(float64(snapIndex))
+			st.metrics.raftLastAppliedIndex.Set(float64(snapIndex))
+		}
+
+		if st.cfg.MetadataOnlyVoters {
+			return nil
 		}
 
 		st.log.WithFields(logrus.Fields{
