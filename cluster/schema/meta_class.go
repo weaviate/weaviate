@@ -36,7 +36,7 @@ type (
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
-		// Live maps property, then index type, to the generation served when no task decides. Nothing writes it yet.
+		// Live maps property, then index type, to the generation served when no task decides. Nothing writes it until a full reindex run flips to its generation.
 		Live map[string]map[string]uint64 `json:"live,omitempty"`
 	}
 )
