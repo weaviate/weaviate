@@ -14,6 +14,7 @@ package hfresh
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -715,4 +716,45 @@ func TestPostingMapAddressesFullIDRange(t *testing.T) {
 	meta, err := pm.Get(t.Context(), maxAddressablePostingID)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, meta.Count())
+}
+
+func TestPackedPostingIteratorMatchesBytewiseDecoder(t *testing.T) {
+	for _, maxID := range []uint64{65535, 1<<24 - 1, 1<<32 - 1, 1<<40 - 1, ^uint64(0)} {
+		t.Run(fmt.Sprint(schemeFor(maxID).BytesPerValue()), func(t *testing.T) {
+			ids := []uint64{0, maxID / 2, maxID}
+			p := NewPackedPostingMetadata(ids)
+			var old []uint64
+			width := Scheme(p[0]).BytesPerValue()
+			for i := range binary.LittleEndian.Uint32(p[1:5]) {
+				var id uint64
+				for j := range width {
+					id |= uint64(p[5+int(i)*width+j]) << (j * 8)
+				}
+				old = append(old, id)
+			}
+			require.Equal(t, ids, old)
+			require.Equal(t, old, decodePacked(p))
+			for i, id := range old {
+				require.Equal(t, id, p.GetAt(i))
+			}
+			n := 0
+			for id := range p.Iter() {
+				require.Equal(t, old[n], id)
+				n++
+				break
+			}
+			require.Equal(t, 1, n)
+			seq := p.Iter()
+			binary.LittleEndian.PutUint32(p[1:5], 0)
+			var captured []uint64
+			for id := range seq {
+				captured = append(captured, id)
+			}
+			require.Equal(t, old, captured, "iterator retains its original extent")
+			require.Empty(t, decodePacked(p))
+		})
+	}
+	for n := 0; n < 5; n++ {
+		require.Empty(t, decodePacked(make(PackedPostingMetadata, n)))
+	}
 }

@@ -13,7 +13,9 @@ package hfresh
 
 import (
 	"context"
+	"encoding/binary"
 	"iter"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -33,10 +35,9 @@ import (
 // across selected postings are instead absorbed by the posting scan's
 // visited set, which measures within noise of claim-based dedup on the 10M
 // benchmark while keeping this check stateless and order-independent.
-func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helpers.AllowList {
+func (h *HFresh) wrapAllowList(_ context.Context, al helpers.AllowList) helpers.AllowList {
 	return &allowList{
 		AllowList:       al,
-		ctx:             ctx,
 		h:               h,
 		allowedPostings: h.visitedPool.Borrow(),
 	}
@@ -90,23 +91,39 @@ func (i *AllowListIterator) contains(id uint64, metadata *PostingMetadata, al *a
 	return i.allowList.Contains(id)
 }
 
+// Avoid caching small postings, where map maintenance can cost more than rescanning.
+const minCachedPostingMembers = 256
+
+const maxPooledRejectedPostings = 4096
+
+var rejectedPostingsPool = sync.Pool{
+	New: func() any { return make(map[*PostingMetadata][5]byte) },
+}
+
 type allowList struct {
 	helpers.AllowList
-	ctx context.Context
-	h   *HFresh
+	h *HFresh
 	// allowedPostings memoizes postings known to contain at least one
 	// allowed vector (the answer is stable within a query, so re-probes
 	// skip the member scan)
 	allowedPostings *visited.SparseSet
+
+	// A miss is valid only for this metadata and its packed header: appends
+	// change the count or encoding, while rewrites replace the metadata pointer.
+	rejectedPostings map[*PostingMetadata][5]byte
+	// Flat centroid search makes one iterator pass, with no random probes.
+	// Only start memoizing misses when Contains is used.
+	cacheRejected bool
 }
 
 // Contains reports whether the posting holds at least one allowed vector.
 func (a *allowList) Contains(id uint64) bool {
+	a.cacheRejected = true
 	if a.allowedPostings.Visited(id) {
 		return true
 	}
 
-	p, err := a.h.PostingMap.Get(a.ctx, id)
+	p, err := a.h.PostingMap.Get(context.Background(), id)
 	if err != nil {
 		return false
 	}
@@ -122,11 +139,33 @@ func (a *allowList) containsAllowedMember(id uint64, p *PostingMetadata) bool {
 	a.h.PostingMap.RLock(id)
 	defer a.h.PostingMap.RUnlock(id)
 
-	for vectorID := range p.Iter() {
+	data := p.PackedPostingMetadata
+	if len(data) < 5 {
+		return false
+	}
+	count := binary.LittleEndian.Uint32(data[1:5])
+	cacheRejected := a.cacheRejected && count >= minCachedPostingMembers
+	var header [5]byte
+	if cacheRejected {
+		header = [5]byte(data)
+		if cached, ok := a.rejectedPostings[p]; ok && cached == header {
+			return false
+		}
+	}
+	width := Scheme(data[0]).BytesPerValue()
+	data = data[5:]
+	for i := uint32(0); i < count; i++ {
+		vectorID := decodePostingID(data[i*uint32(width):], width)
 		if a.AllowList.Contains(vectorID) {
 			a.allowedPostings.Visit(id)
 			return true
 		}
+	}
+	if cacheRejected {
+		if a.rejectedPostings == nil {
+			a.rejectedPostings = rejectedPostingsPool.Get().(map[*PostingMetadata][5]byte)
+		}
+		a.rejectedPostings[p] = header
 	}
 	return false
 }
@@ -143,4 +182,12 @@ func (a *allowList) Len() int {
 
 func (a *allowList) Close() {
 	a.h.visitedPool.Return(a.allowedPostings)
+	if a.rejectedPostings != nil {
+		size := len(a.rejectedPostings)
+		if size <= maxPooledRejectedPostings {
+			clear(a.rejectedPostings)
+			rejectedPostingsPool.Put(a.rejectedPostings)
+		}
+		a.rejectedPostings = nil
+	}
 }
