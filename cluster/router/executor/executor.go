@@ -34,14 +34,8 @@ func ExecuteForEachShard(plan types.ReadRoutingPlan, localOperation Operation, r
 		return err
 	}
 
-	shardSet := make(map[string]struct{})
-	for _, replica := range plan.ReplicaSet.Replicas {
-		if _, ok := shardSet[replica.ShardName]; ok {
-			continue
-		}
-		shardSet[replica.ShardName] = struct{}{}
-
-		if plan.LocalHostname == replica.NodeName {
+	return forEachShard(plan, func(replica types.Replica, local bool) error {
+		if local {
 			if err := localOperation(replica); err != nil {
 				return fmt.Errorf("failed to locally execute read plan on replica %s: %w", replica.NodeName, err)
 			}
@@ -49,6 +43,36 @@ func ExecuteForEachShard(plan types.ReadRoutingPlan, localOperation Operation, r
 			if err := remoteOperation(replica); err != nil {
 				return fmt.Errorf("failed to remotely execute read plan on replica %s at addr %s: %w", replica.NodeName, replica.HostAddr, err)
 			}
+		}
+		return nil
+	})
+}
+
+// CountLocalShards returns how many local operations ExecuteForEachShard runs
+// for plan.
+func CountLocalShards(plan types.ReadRoutingPlan) int {
+	n := 0
+	_ = forEachShard(plan, func(_ types.Replica, local bool) error {
+		if local {
+			n++
+		}
+		return nil
+	})
+	return n
+}
+
+// forEachShard calls fn with the first replica of each shard in plan, and
+// whether that replica is on this node, stopping at the first error.
+func forEachShard(plan types.ReadRoutingPlan, fn func(replica types.Replica, local bool) error) error {
+	shardSet := make(map[string]struct{})
+	for _, replica := range plan.ReplicaSet.Replicas {
+		if _, ok := shardSet[replica.ShardName]; ok {
+			continue
+		}
+		shardSet[replica.ShardName] = struct{}{}
+
+		if err := fn(replica, plan.LocalHostname == replica.NodeName); err != nil {
+			return err
 		}
 	}
 	return nil

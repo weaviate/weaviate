@@ -31,6 +31,14 @@ func mockExecutor(expectedCalls map[string]int, expectedErrors map[string]bool) 
 	}
 }
 
+func sumCalls(calls map[string]int) int {
+	n := 0
+	for _, c := range calls {
+		n += c
+	}
+	return n
+}
+
 // createTestPlan creates a test routing plan with the specified replicas
 func createTestPlan(replicas []types.Replica) types.ReadRoutingPlan {
 	return types.ReadRoutingPlan{
@@ -136,6 +144,18 @@ func TestExecuteForEachShard(t *testing.T) {
 			expectedRemote: map[string]int{"node3": 1},
 		},
 		{
+			name: "shard listed remote first is not local",
+			plan: createTestPlan([]types.Replica{
+				createTestReplica("node2", "shard1", "node2:8080"),
+				createTestReplica("node1", "shard1", "node1:8080"),
+				createTestReplica("node1", "shard2", "node1:8080"),
+				createTestReplica("node1", "shard3", "node1:8080"),
+				createTestReplica("node3", "shard3", "node3:8080"),
+			}),
+			expectedLocal:  map[string]int{"node1": 2},
+			expectedRemote: map[string]int{"node2": 1},
+		},
+		{
 			name: "empty local hostname",
 			plan: types.ReadRoutingPlan{
 				LocalHostname: "",
@@ -168,6 +188,7 @@ func TestExecuteForEachShard(t *testing.T) {
 				require.Contains(t, err.Error(), tt.expectedError)
 			} else {
 				require.NoError(t, err)
+				require.Equal(t, sumCalls(localCalls), executor.CountLocalShards(tt.plan))
 			}
 
 			// Verify local call counts
