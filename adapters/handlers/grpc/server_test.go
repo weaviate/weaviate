@@ -437,14 +437,17 @@ func TestServerStateInterceptor(t *testing.T) {
 	batchStream := func(t *testing.T, c pbv1.WeaviateClient) error {
 		// The stream handle is returned as long as all configuration is valid.
 		// The server might've rejected any number of requests in the meantime,
-		// but we need to read them from s.Recv().
+		// we will read the errors from s.Recv().
 		s, err := c.BatchStream(t.Context())
 		require.NoError(t, err, "create batch stream")
 		require.NotNil(t, s, "nil batch stream")
 
-		require.NoError(t, s.Send(&pbv1.BatchStreamRequest{
+		// The stream might've gotten closed in meantime.
+		if err := s.Send(&pbv1.BatchStreamRequest{
 			Message: &pbv1.BatchStreamRequest_Start_{},
-		}), "send Start message")
+		}); err != nil {
+			require.ErrorIs(t, err, io.EOF, "send 'Start' message")
+		}
 
 		// Closing the batch stream means Recv() won't block
 		// in cases where we expect the request to succeed,
