@@ -70,7 +70,7 @@ func firstErrorEntry(hook *test.Hook) *logrus.Entry {
 // afterwards is a data race.
 func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string, indexOpts ...func(*Index)) (context.Context, *Shard, *Index, string) {
 	t.Helper()
-	opts := append([]func(*Index){func(idx *Index) { idx.Config.IndexRangeableInMemory = true }}, indexOpts...)
+	opts := append([]func(*Index){func(idx *Index) { idx.Config.IndexRangeableInMemoryProps = []string{config.AllProperties} }}, indexOpts...)
 	return newRangeableTestShard(t, classNamePrefix, opts...)
 }
 
