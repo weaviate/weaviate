@@ -504,9 +504,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	return h.computeLateInteraction(ctx, vectors, k, candidateIDs)
 }
 
-// searchProbeFor returns the routing budget: max(k, the request's probe if
-// set, else the configured one). A request probe may be lower than the
-// configured one.
+// searchProbeFor returns max(k, requested probe, else configured probe).
 func (h *HFresh) searchProbeFor(k int, params *searchparams.VectorIndexParams) int {
 	if params.SearchProbeOrZero() > 0 {
 		return max(k, params.SearchProbe)

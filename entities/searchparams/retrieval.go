@@ -31,21 +31,15 @@ type Selection struct {
 	MMR *SelectionMMR `json:"mmr,omitempty"`
 }
 
-// Per-request HNSW filter strategies: the vectorIndexConfig.filterStrategy
-// values, aliased so a request can never name a strategy the index does not
-// know (an unknown string would silently run as sweeping).
+// Filter strategy names accepted per request, aliased from the hnsw config.
 const (
 	FilterStrategySweeping = hnsw.FilterStrategySweeping
 	FilterStrategyAcorn    = hnsw.FilterStrategyAcorn
 	FilterStrategyPathseer = hnsw.FilterStrategyPathseer
 )
 
-// VectorIndexParams overrides the collection's vector index config for one
-// request: EF and FilterStrategy for HNSW, SearchProbe for HFresh; other
-// indexes ignore them. A zero field or a nil pointer means the collection
-// default. PerTarget holds per-target-vector overrides; the shard resolves it
-// with ForTarget, so indexes never see it. The struct crosses nodes as JSON:
-// a new field's zero value must mean "default".
+// VectorIndexParams overrides vector index search settings for one request; zero fields mean the collection default.
+// It travels between nodes as JSON, so a new field's zero value must mean "default".
 type VectorIndexParams struct {
 	EF             int                          `json:"ef,omitempty"`
 	SearchProbe    int                          `json:"searchProbe,omitempty"`
@@ -53,7 +47,7 @@ type VectorIndexParams struct {
 	PerTarget      map[string]VectorIndexParams `json:"perTarget,omitempty"`
 }
 
-// EFOrZero returns the per-request ef, or 0 when unset or when p is nil.
+// EFOrZero is nil-safe.
 func (p *VectorIndexParams) EFOrZero() int {
 	if p == nil {
 		return 0
@@ -61,8 +55,7 @@ func (p *VectorIndexParams) EFOrZero() int {
 	return p.EF
 }
 
-// SearchProbeOrZero returns the per-request HFresh search probe, or 0 when
-// unset or when p is nil.
+// SearchProbeOrZero is nil-safe.
 func (p *VectorIndexParams) SearchProbeOrZero() int {
 	if p == nil {
 		return 0
@@ -70,8 +63,7 @@ func (p *VectorIndexParams) SearchProbeOrZero() int {
 	return p.SearchProbe
 }
 
-// FilterStrategyOrEmpty returns the per-request HNSW filter strategy, or ""
-// when unset or when p is nil.
+// FilterStrategyOrEmpty is nil-safe.
 func (p *VectorIndexParams) FilterStrategyOrEmpty() string {
 	if p == nil {
 		return ""
@@ -79,35 +71,22 @@ func (p *VectorIndexParams) FilterStrategyOrEmpty() string {
 	return p.FilterStrategy
 }
 
-// IsZero reports whether p carries no override at all, request-wide or
-// per-target. A nil p is zero.
+// IsZero reports whether p sets nothing, per-target entries included.
 func (p *VectorIndexParams) IsZero() bool {
 	return p == nil || (p.EF == 0 && p.SearchProbe == 0 && p.FilterStrategy == "" && len(p.PerTarget) == 0)
 }
 
-// FieldNames spells the fields of VectorIndexParams the way a caller's wire
-// format does, for validation messages.
+// FieldNames spells VectorIndexParams' fields the way a wire format does.
 type FieldNames struct {
 	EF, SearchProbe, FilterStrategy string
 }
 
 var (
-	// JSONFieldNames is the REST and node-to-node spelling.
-	JSONFieldNames = FieldNames{EF: "ef", SearchProbe: "searchProbe", FilterStrategy: "filterStrategy"}
-	// ProtoFieldNames is the gRPC spelling.
+	JSONFieldNames  = FieldNames{EF: "ef", SearchProbe: "searchProbe", FilterStrategy: "filterStrategy"}
 	ProtoFieldNames = FieldNames{EF: "ef", SearchProbe: "search_probe", FilterStrategy: "filter_strategy"}
 )
 
-// Validate checks one entry (the request-wide values, or one per-target
-// entry; PerTarget is not walked, each caller validates its entries under its
-// own prefix) against the HNSW_MAX_SEARCH_EF and HFRESH_MAX_SEARCH_PROBE caps
-// and the known filter strategies. It is the only copy of these rules: the
-// gRPC and REST parsers call it with their field names and map the error to
-// their status code. The caps are the server config's resolved values
-// (config.SearchCapOrDefault supplies the built-in default to a handler
-// built without a config, so in the server a cap is always > 0); Validate
-// itself treats a cap <= 0 as "no cap" rather than rejecting every value.
-// A nil p is valid.
+// Validate checks one entry (not PerTarget) against the caps and known strategies. A cap <= 0 means no cap; a nil p is valid.
 func (p *VectorIndexParams) Validate(maxEF, maxProbe int, names FieldNames) error {
 	if p == nil {
 		return nil
@@ -130,10 +109,8 @@ func (p *VectorIndexParams) Validate(maxEF, maxProbe int, names FieldNames) erro
 	}
 }
 
-// ForTarget returns the parameters for target vector name: its per-target
-// entry merged over the request-wide values, field by field. It returns p
-// itself when p has no per-target entries, a copy without PerTarget otherwise,
-// and nil for a nil p. An entry cannot unset a request-wide value.
+// ForTarget merges the entry for name over the request-wide values; a per-target zero never unsets a request-wide value.
+// The result has no PerTarget.
 func (p *VectorIndexParams) ForTarget(name string) *VectorIndexParams {
 	if p == nil {
 		return nil

@@ -26,11 +26,8 @@ const (
 	TargetCombinationMethodRelativeScore = "relativeScore"
 )
 
-// NewTargetCombination builds a multi-target combination from a method name
-// and weights keyed by target name, converted to the engine's positional
-// weights. An empty method gives nil for at most one target and the default
-// otherwise. Only manualWeights and relativeScore take weights, one per
-// target. Errors are client errors.
+// NewTargetCombination converts a REST method and name-keyed weights into the engine's positional form.
+// Errors are client errors.
 func NewTargetCombination(method string, targets []string, weightsByName map[string]float64) (*TargetCombination, error) {
 	var combinationType TargetCombinationType
 	switch method {
@@ -89,8 +86,7 @@ func NewTargetCombination(method string, targets []string, weightsByName map[str
 }
 
 // ImplicitWeights returns the weights a combination method implies for n
-// targets: 1 per target for sum, 1/n for average, nil otherwise. The REST and
-// gRPC parsers both build them from here.
+// targets: 1 per target for sum, 1/n for average, nil otherwise.
 func ImplicitWeights(t TargetCombinationType, n int) []float32 {
 	switch t {
 	case Sum:

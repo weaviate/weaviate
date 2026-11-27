@@ -45,7 +45,7 @@ type SearchNearVectorRequest struct {
 	// The named vectors to search, for a multi-target search. Mutually exclusive with `targetVector`. The per-target results are merged as `targetCombination` specifies.
 	TargetVectors []string `json:"targetVectors"`
 
-	// The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. `[0.12, -0.3, 0.98]`. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. With several target vectors the same vector is searched against each of them. Exactly one of `vector` and `vectorPerTarget` must be set.
+	// The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. `[0.12, -0.3, 0.98]`. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Exactly one of `vector` and `vectorPerTarget` must be set.
 	Vector interface{} `json:"vector,omitempty"`
 
 	// One query vector per target vector, keyed by target vector name, e.g. `{"title": [0.1, 0.2], "body": [0.3, 0.4, 0.5]}`. The keys must be exactly the request's target vectors. Each value has the form of `vector`. Exactly one of `vector` and `vectorPerTarget` must be set.

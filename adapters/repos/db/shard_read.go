@@ -710,10 +710,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-// annotateVectorIndexParams records the request's params at shard level, so
-// a request carrying overrides that the target index ignores (flat, dynamic
-// in its flat stage, noop) still leaves a trace. No-op without slow-query
-// details.
+// annotateVectorIndexParams logs the request's params at shard level, so indexes that ignore them still leave a trace.
 func annotateVectorIndexParams(ctx context.Context, params *searchparams.VectorIndexParams) {
 	if params == nil || !helpers.HasSlowQueryDetails(ctx) {
 		return

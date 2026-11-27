@@ -62,12 +62,8 @@ func (s FilterStrategy) String() string {
 	}
 }
 
-// effectiveFilterStrategy returns the strategy to try: the request's, else
-// the configured one. Callers still apply the ACORN and entrypoint fallbacks.
-// A requested name this node does not know (a newer coordinator during a
-// rolling upgrade; the API edge validates against its own list) is not
-// downgraded to sweeping: the configured strategy runs, and the slow-query
-// log's hnsw_filter_strategy_requested / _effective pair shows the mismatch.
+// effectiveFilterStrategy returns the requested strategy, else the configured one (also for names this node does not know).
+// Callers apply the ACORN fallback.
 func (h *hnsw) effectiveFilterStrategy(params *searchparams.VectorIndexParams) FilterStrategy {
 	switch params.FilterStrategyOrEmpty() {
 	case searchparams.FilterStrategySweeping:
@@ -316,10 +312,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
 ) (*priorityqueue.Queue[any], error,
 ) {
-	// keep strategy selection consistent with knnSearchByVector: callers of
-	// this helper (KnnSearchByVectorMaxDist) previously fell back to
-	// sweeping silently when filterStrategy was pathseer. These callers
-	// (inserts, geo, upper layers) always use the configured strategy.
+	// inserts, geo and upper layers keep the configured strategy
 	configured := FilterStrategy(h.configuredFilterStrategy.Load())
 	if h.pathseerEnabled(allowList, configured) {
 		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, PATHSEER)
@@ -1100,8 +1093,7 @@ func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 	}
 }
 
-// knnSearchByVector walks the graph with the resolved ef; only the filter
-// strategy is read from params, which may be nil.
+// params is only read for the filter strategy; ef is already resolved.
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList, params *searchparams.VectorIndexParams,
 ) ([]uint64, []float32, error) {

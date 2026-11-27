@@ -486,10 +486,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	return out, nil
 }
 
-// extractVectorIndexParams converts the request-wide params and the
-// per-target overrides (merged later by ForTarget), or returns nil when
-// nothing is set. targetVectors is empty for a legacy single-vector
-// collection, which takes no per-target entries.
+// extractVectorIndexParams returns nil when nothing is set.
 func extractVectorIndexParams(in *pb.VectorIndexParams, perTarget []*pb.VectorIndexParamsForTarget,
 	targetVectors []string, className string, maxEF, maxProbe int64,
 ) (*searchparams.VectorIndexParams, error) {
@@ -529,8 +526,7 @@ func extractVectorIndexParams(in *pb.VectorIndexParams, perTarget []*pb.VectorIn
 				return nil, err
 			}
 			if p.IsZero() {
-				// an empty entry is a valid no-op; dropping it keeps the
-				// default search path
+				// empty entry: valid no-op
 				seen[target] = struct{}{}
 				continue
 			}
@@ -548,9 +544,6 @@ func extractVectorIndexParams(in *pb.VectorIndexParams, perTarget []*pb.VectorIn
 	return &out, nil
 }
 
-// validateVectorIndexParams converts one VectorIndexParams message and runs
-// the shared searchparams validation in proto spelling; prefix names the
-// message in errors. A nil message is the zero value.
 func validateVectorIndexParams(in *pb.VectorIndexParams, maxEF, maxProbe int64, prefix string) (searchparams.VectorIndexParams, error) {
 	var out searchparams.VectorIndexParams
 	if in == nil {

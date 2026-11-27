@@ -12083,7 +12083,7 @@ func init() {
           "x-nullable": true
         },
         "targetVectorIndexParams": {
-          "description": "Per-target overrides of ` + "`" + `vectorIndexParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorIndexParams` + "`" + `, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in ` + "`" + `vectorIndexParams` + "`" + `. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
+          "description": "Per-target overrides of vectorIndexParams keyed by target vector name, e.g. {\"title\": {\"ef\": 256}}. Unset fields fall back to vectorIndexParams, then to the collection config.",
           "type": "object",
           "additionalProperties": {
             "x-nullable": true,
@@ -12304,7 +12304,7 @@ func init() {
               }
             },
             "vector": {
-              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. With several target vectors the same vector is searched against each of them. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set."
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set."
             },
             "vectorPerTarget": {
               "description": "One query vector per target vector, keyed by target vector name, e.g. ` + "`" + `{\"title\": [0.1, 0.2], \"body\": [0.3, 0.4, 0.5]}` + "`" + `. The keys must be exactly the request's target vectors. Each value has the form of ` + "`" + `vector` + "`" + `. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set.",
@@ -12568,13 +12568,13 @@ func init() {
       "type": "object",
       "properties": {
         "ef": {
-          "description": "HNSW layer-0 beam width for this request only, floored at the request's limit (in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates, 100 by default, so a lower ef has no effect there). Omitted or 0 uses the collection's vectorIndexConfig. On a compressed index it also caps the candidates that are rescored, including in the flat search used when a filter matches fewer objects than flatSearchCutoff, so a low ef can lower recall there. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
+          "description": "HNSW ef for this request, at least the request's limit. Omitted or 0 uses the collection's vectorIndexConfig; in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates. Ignored by other index types. At most HNSW_MAX_SEARCH_EF.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
         "filterStrategy": {
-          "description": "HNSW filtered-walk strategy for this request only: ` + "`" + `sweeping` + "`" + `, ` + "`" + `acorn` + "`" + ` or ` + "`" + `pathseer` + "`" + `. Omitted uses the collection's vectorIndexConfig. Has no effect without a filter, or when the filter matches fewer objects than flatSearchCutoff (a flat search is used). Ignored by non-HNSW indexes.",
+          "description": "HNSW filter strategy for this request: sweeping, acorn or pathseer. Omitted uses the collection's vectorIndexConfig. Only affects filtered searches.",
           "type": "string",
           "enum": [
             "sweeping",
@@ -12583,7 +12583,7 @@ func init() {
           ]
         },
         "searchProbe": {
-          "description": "HFresh number of centroid postings visited for this request only, floored at the request's limit (in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates, 100 by default, so a lower searchProbe has no effect there). Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HFresh indexes. Must be between 0 and HFRESH_MAX_SEARCH_PROBE.",
+          "description": "HFresh searchProbe for this request, at least the request's limit. Omitted or 0 uses the collection's vectorIndexConfig; in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates. Ignored by other index types. At most HFRESH_MAX_SEARCH_PROBE.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
@@ -25948,7 +25948,7 @@ func init() {
           "x-nullable": true
         },
         "targetVectorIndexParams": {
-          "description": "Per-target overrides of ` + "`" + `vectorIndexParams` + "`" + `, keyed by target vector name, e.g. ` + "`" + `{\"title\": {\"ef\": 256}}` + "`" + `. Each entry overrides only the fields it sets; the others fall back to ` + "`" + `vectorIndexParams` + "`" + `, then to the collection's configuration. An entry cannot unset a request-wide value: to keep the collection's value for one target, set the field per target for the others instead of in ` + "`" + `vectorIndexParams` + "`" + `. Every key must be a target vector of the request. Applies to vector-based searches; rejected on bm25 search.",
+          "description": "Per-target overrides of vectorIndexParams keyed by target vector name, e.g. {\"title\": {\"ef\": 256}}. Unset fields fall back to vectorIndexParams, then to the collection config.",
           "type": "object",
           "additionalProperties": {
             "x-nullable": true,
@@ -26169,7 +26169,7 @@ func init() {
               }
             },
             "vector": {
-              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. With several target vectors the same vector is searched against each of them. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set."
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set."
             },
             "vectorPerTarget": {
               "description": "One query vector per target vector, keyed by target vector name, e.g. ` + "`" + `{\"title\": [0.1, 0.2], \"body\": [0.3, 0.4, 0.5]}` + "`" + `. The keys must be exactly the request's target vectors. Each value has the form of ` + "`" + `vector` + "`" + `. Exactly one of ` + "`" + `vector` + "`" + ` and ` + "`" + `vectorPerTarget` + "`" + ` must be set.",
@@ -26433,13 +26433,13 @@ func init() {
       "type": "object",
       "properties": {
         "ef": {
-          "description": "HNSW layer-0 beam width for this request only, floored at the request's limit (in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates, 100 by default, so a lower ef has no effect there). Omitted or 0 uses the collection's vectorIndexConfig. On a compressed index it also caps the candidates that are rescored, including in the flat search used when a filter matches fewer objects than flatSearchCutoff, so a low ef can lower recall there. Ignored by non-HNSW indexes. Must be between 0 and HNSW_MAX_SEARCH_EF.",
+          "description": "HNSW ef for this request, at least the request's limit. Omitted or 0 uses the collection's vectorIndexConfig; in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates. Ignored by other index types. At most HNSW_MAX_SEARCH_EF.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
         "filterStrategy": {
-          "description": "HNSW filtered-walk strategy for this request only: ` + "`" + `sweeping` + "`" + `, ` + "`" + `acorn` + "`" + ` or ` + "`" + `pathseer` + "`" + `. Omitted uses the collection's vectorIndexConfig. Has no effect without a filter, or when the filter matches fewer objects than flatSearchCutoff (a flat search is used). Ignored by non-HNSW indexes.",
+          "description": "HNSW filter strategy for this request: sweeping, acorn or pathseer. Omitted uses the collection's vectorIndexConfig. Only affects filtered searches.",
           "type": "string",
           "enum": [
             "sweeping",
@@ -26448,7 +26448,7 @@ func init() {
           ]
         },
         "searchProbe": {
-          "description": "HFresh number of centroid postings visited for this request only, floored at the request's limit (in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates, 100 by default, so a lower searchProbe has no effect there). Omitted or 0 uses the collection's vectorIndexConfig. Ignored by non-HFresh indexes. Must be between 0 and HFRESH_MAX_SEARCH_PROBE.",
+          "description": "HFresh searchProbe for this request, at least the request's limit. Omitted or 0 uses the collection's vectorIndexConfig; in a hybrid search the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates. Ignored by other index types. At most HFRESH_MAX_SEARCH_PROBE.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true

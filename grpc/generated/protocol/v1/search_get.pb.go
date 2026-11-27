@@ -18,8 +18,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// HNSW filtered-walk strategy for one request. UNSPECIFIED keeps the
-// collection's filterStrategy.
+// UNSPECIFIED uses the collection's filterStrategy
 type FilterStrategy int32
 
 const (
@@ -207,15 +206,9 @@ type SearchRequest struct {
 	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
 	Boost        *Boost             `protobuf:"bytes,62,opt,name=boost,proto3,oneof" json:"boost,omitempty"`
-	// Per-request vector search tuning for every vector search of the request
-	// (all target vectors, the dense leg of hybrid). Requires a near* or hybrid
-	// search, otherwise InvalidArgument.
+	// per-request vector index params, requires a near* or hybrid search
 	VectorIndexParams *VectorIndexParams `protobuf:"bytes,63,opt,name=vector_index_params,json=vectorIndexParams,proto3,oneof" json:"vector_index_params,omitempty"`
-	// Per-target overrides: each entry sets only its fields for the named
-	// target, the rest fall back to vector_index_params, then to the collection
-	// config. An entry cannot unset a request-wide value. Unknown or duplicated
-	// targets, and entries on a legacy single-vector collection, are
-	// InvalidArgument.
+	// per-target overrides of vector_index_params
 	VectorIndexParamsForTargets []*VectorIndexParamsForTarget `protobuf:"bytes,64,rep,name=vector_index_params_for_targets,json=vectorIndexParamsForTargets,proto3" json:"vector_index_params_for_targets,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
@@ -475,24 +468,14 @@ func (x *SearchRequest) GetUses_127Api() bool {
 	return false
 }
 
-// One set of knobs for every index type: each index reads the fields it knows
-// and ignores the rest. Nodes that predate a field ignore it and use the
-// collection default.
+// each index type reads only the fields it supports
 type VectorIndexParams struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// HNSW layer-0 beam width, floored at the limit; 0/unset = collection
-	// default, at most HNSW_MAX_SEARCH_EF. On a compressed index it also caps
-	// the rescored candidates, including in the flat search below
-	// flatSearchCutoff, so a low ef can lower recall there. In a hybrid search
-	// the vector leg fetches at least QUERY_HYBRID_MAXIMUM_RESULTS candidates
-	// (100 by default), so a lower ef has no effect there.
+	// HNSW only, 0/unset uses the collection config
 	Ef *uint32 `protobuf:"varint,1,opt,name=ef,proto3,oneof" json:"ef,omitempty"`
-	// HFresh centroid postings visited, floored at the limit (and at
-	// QUERY_HYBRID_MAXIMUM_RESULTS in a hybrid search, as ef); 0/unset =
-	// collection default, at most HFRESH_MAX_SEARCH_PROBE.
+	// HFresh only, 0/unset uses the collection config
 	SearchProbe *uint32 `protobuf:"varint,2,opt,name=search_probe,json=searchProbe,proto3,oneof" json:"search_probe,omitempty"`
-	// HNSW strategy for the filtered layer-0 walk. No effect without a filter
-	// or below flatSearchCutoff; ACORN still falls back on a dense allow-list.
+	// HNSW only, applies to filtered searches
 	FilterStrategy *FilterStrategy `protobuf:"varint,3,opt,name=filter_strategy,json=filterStrategy,proto3,enum=weaviate.v1.FilterStrategy,oneof" json:"filter_strategy,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -551,9 +534,7 @@ func (x *VectorIndexParams) GetFilterStrategy() FilterStrategy {
 
 type VectorIndexParamsForTarget struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One of the request's target vectors.
 	Target string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
-	// Only the fields set here take effect.
 	Params        *VectorIndexParams `protobuf:"bytes,2,opt,name=params,proto3" json:"params,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

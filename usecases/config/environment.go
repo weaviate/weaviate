@@ -2070,10 +2070,7 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 
 const (
 	DefaultQueryMaximumResults = int64(10000)
-	// DefaultHNSWMaxSearchEF and DefaultHFreshMaxSearchProbe cap the per-request
-	// ef and searchProbe. They are deliberately not derived from
-	// QUERY_MAXIMUM_RESULTS, which limits result counts: a deployment that lowers
-	// it must not end up rejecting an ef its collections already run at.
+	// caps for per-request ef / searchProbe, independent of QUERY_MAXIMUM_RESULTS
 	DefaultHNSWMaxSearchEF           = int64(10000)
 	DefaultHFreshMaxSearchProbe      = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
@@ -2660,9 +2657,7 @@ func validateBackupDedupeConvergenceTimeout(val time.Duration) error {
 	return nil
 }
 
-// SearchCapOrDefault returns a resolved HNSW_MAX_SEARCH_EF /
-// HFRESH_MAX_SEARCH_PROBE, or def when the config was never resolved (tests
-// building a handler by hand).
+// SearchCapOrDefault returns v, or def when v was never resolved.
 func SearchCapOrDefault(v, def int64) int64 {
 	if v <= 0 {
 		return def
@@ -2670,9 +2665,7 @@ func SearchCapOrDefault(v, def int64) int64 {
 	return v
 }
 
-// resolveSearchCap resolves the cap for one per-request vector search knob:
-// the envName env var, then the config-file value, then def. 0 falls through;
-// a negative value is an error.
+// resolveSearchCap resolves env var, then config file, then def; 0 falls through.
 func resolveSearchCap(envName string, fileValue, def int64) (int64, error) {
 	if fileValue < 0 {
 		return 0, fmt.Errorf("%s must not be negative in the config file", strings.ToLower(envName))
