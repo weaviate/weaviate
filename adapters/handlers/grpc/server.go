@@ -138,7 +138,7 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 // ----------------------------------------------------------------------------
 
 // withStatusCode assigns a gRPC status code to a known Weaviate error,
-// e.g. auth, usage limits, or [codes.Unknown] otherwise.
+// e.g. auth, usage limits, or returns original err otherwise.
 //
 // TODO(dyma): if we implement GRPCStatus() *grpc.Status for all the known
 // errors (or wrap them in types that do) then grpc-go will map them automatically.
@@ -158,7 +158,7 @@ func withStatusCode(err error) error {
 	if v, ok := restrictions.AsViolation(err); ok {
 		return restrictionViolationToGRPCError(v)
 	}
-	return status.Error(codes.Unknown, err.Error())
+	return err
 }
 
 // restrictionViolationToGRPCError maps a ViolationError to
