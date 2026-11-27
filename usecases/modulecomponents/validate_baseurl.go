@@ -21,6 +21,7 @@ import (
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Hostnames and suffixes that are always rejected, independent of DNS.
@@ -36,19 +37,57 @@ func BaseURLValidationEnabled() bool {
 	return entcfg.Enabled(os.Getenv("MODULES_VALIDATE_BASE_URL"))
 }
 
-// ValidatedBaseURLFromHeader returns the baseURL carried in the given request
-// header if present and valid, otherwise fallback. Validation is a no-op unless
-// MODULES_VALIDATE_BASE_URL is enabled. It folds the recurring
-// fetch-check-validate-assign block in module URL builders into one call.
-func ValidatedBaseURLFromHeader(ctx context.Context, headerKey, fallback string) (string, error) {
-	headerBaseURL := GetValueFromContext(ctx, headerKey)
-	if headerBaseURL == "" {
-		return fallback, nil
+// RequestBaseURL returns the base URL a module request goes to: the value of
+// baseURLHeader if the request sets it, else requested (the query option
+// baseURL, or endpoint for Databricks), else configured (the class setting or
+// module default). A base URL other than configured is used only if the
+// request carries its own key in apiKeyHeader, so the server's key is only
+// ever sent to the configured base URL. The path counts too: a path on the
+// configured host can reach another endpoint, or another tenant of a gateway.
+// A value that differs from configured only in the case of the scheme or
+// host, or in a trailing slash, returns configured.
+func RequestBaseURL(ctx context.Context, baseURLHeader, requested, configured, apiKeyHeader string) (string, error) {
+	source, baseURL := "a baseURL or endpoint set in the query", requested
+	if headerBaseURL := GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
+		source, baseURL = baseURLHeader, headerBaseURL
 	}
-	if err := ValidateBaseURL(headerBaseURL); err != nil {
+	if baseURL == "" || baseURL == configured || sameBaseURL(baseURL, configured) {
+		return configured, nil
+	}
+	if err := RequireRequestAPIKey(ctx, source, apiKeyHeader); err != nil {
 		return "", err
 	}
-	return headerBaseURL, nil
+	if err := ValidateBaseURL(baseURL); err != nil {
+		return "", err
+	}
+	return baseURL, nil
+}
+
+// RequireRequestAPIKey returns an ErrModulePrecondition unless the request
+// carries a key in apiKeyHeader. source names the request value that changed
+// the URL.
+func RequireRequestAPIKey(ctx context.Context, source, apiKeyHeader string) error {
+	if GetValueFromContext(ctx, apiKeyHeader) != "" {
+		return nil
+	}
+	return enterrors.NewErrModulePrecondition(fmt.Errorf(
+		"%s needs %s: the server's key is sent only to the configured URL", source, apiKeyHeader))
+}
+
+// sameBaseURL reports whether a and b differ only in the case of the scheme
+// and host, or in a trailing slash. A value that does not parse never matches.
+func sameBaseURL(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil || ua.Host == "" {
+		return false
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) &&
+		strings.EqualFold(ua.Host, ub.Host) &&
+		ua.User.String() == ub.User.String() &&
+		strings.TrimSuffix(ua.EscapedPath(), "/") == strings.TrimSuffix(ub.EscapedPath(), "/") &&
+		ua.RawQuery == ub.RawQuery &&
+		ua.EscapedFragment() == ub.EscapedFragment()
 }
 
 // isDisallowedIP reports whether an IP points at the local host or an internal
@@ -62,8 +101,9 @@ func isDisallowedIP(ip net.IP) bool {
 		ip.IsUnspecified()
 }
 
-// ValidateBaseURL validates a module baseURL (class config or X-*-Baseurl
-// header) against SSRF abuse: https-only, non-empty host, and not pointing at
+// ValidateBaseURL validates a URL a module sends requests to (class config, or
+// a request URL that RequestBaseURL accepted) against SSRF abuse: https-only,
+// non-empty host, and not pointing at
 // an internal address (by IP literal, by blocked hostname/suffix, or by DNS
 // resolution). It is a no-op unless MODULES_VALIDATE_BASE_URL is enabled; an
 // empty baseURL means "use the module default" and is allowed.

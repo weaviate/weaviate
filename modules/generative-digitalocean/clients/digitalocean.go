@@ -73,7 +73,8 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	params := c.parseOptions(cfg, options)
 	debugData := c.debugData(debug, prompt)
 
-	endpoint, err := c.url(ctx, params.BaseURL)
+	settings := config.NewClassSettings(cfg)
+	endpoint, err := c.url(ctx, params.BaseURL, settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve endpoint")
 	}
@@ -101,7 +102,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
 	req.Header.Set("Content-Type", "application/json")
-	if weaviateUUID := config.NewClassSettings(cfg).WeaviateUUID(); weaviateUUID != "" {
+	if weaviateUUID := settings.WeaviateUUID(); weaviateUUID != "" {
 		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/%s %s", weaviateUUID, build.Version))
 	} else {
 		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/unknown %s", build.Version))
@@ -214,8 +215,8 @@ func GetResponseParams(result map[string]any) *responseParams {
 	return nil
 }
 
-func (c *client) url(ctx context.Context, base string) (string, error) {
-	base, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Digitalocean-Baseurl", base)
+func (c *client) url(ctx context.Context, base, classBase string) (string, error) {
+	base, err := modulecomponents.RequestBaseURL(ctx, "X-Digitalocean-Baseurl", base, classBase, "X-Digitalocean-Api-Key")
 	if err != nil {
 		return "", err
 	}

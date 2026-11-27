@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Cases use IP literals and blocked hostnames/suffixes (which short-circuit
@@ -68,12 +70,13 @@ func TestValidateBaseURL(t *testing.T) {
 
 // Guards the SSRF-via-header vector from hackerone #3768976.
 func TestValidateBaseURLHeader(t *testing.T) {
-	const key = "X-Openai-Baseurl"
+	const key, apiKey = "X-Openai-Baseurl", "X-Openai-Api-Key"
 	ctxWith := func(v string) context.Context {
 		return context.WithValue(context.Background(), key, []string{v})
 	}
 	validate := func(ctx context.Context) error {
-		_, err := ValidatedBaseURLFromHeader(ctx, key, "")
+		ctx = context.WithValue(ctx, apiKey, []string{"caller"})
+		_, err := RequestBaseURL(ctx, key, "", "", apiKey)
 		return err
 	}
 
@@ -92,6 +95,168 @@ func TestValidateBaseURLHeader(t *testing.T) {
 	t.Run("validation disabled is a no-op even for internal headers", func(t *testing.T) {
 		assert.NoError(t, validate(ctxWith("http://169.254.169.254/")))
 	})
+}
+
+func TestRequestBaseURL(t *testing.T) {
+	const (
+		baseURLHeader = "X-Openai-Baseurl"
+		keyHeader     = "X-Openai-Api-Key"
+		configured    = "https://api.openai.com"
+		attacker      = "https://attacker.example.com"
+	)
+	tests := []struct {
+		name       string
+		headers    map[string]string
+		requested  string
+		configured string
+		validate   bool
+		wantURL    string
+		wantErr    string
+	}{
+		{name: "nothing requested", wantURL: configured},
+		{name: "requested equals configured", requested: configured, wantURL: configured},
+		{name: "requested adds a trailing slash", requested: configured + "/", wantURL: configured},
+		{name: "requested host differs only in case", requested: "https://API.openai.com", wantURL: configured},
+		{name: "requested scheme differs only in case", requested: "HTTPS://api.openai.com", wantURL: configured},
+		{name: "requested ends with an empty query", requested: configured + "?", wantURL: configured},
+		{name: "requested ends with an empty fragment", requested: configured + "#", wantURL: configured},
+		{name: "requested equals a configured value without a host", requested: "baseurl", configured: "baseurl", wantURL: "baseurl"},
+		{
+			name:       "requested drops the trailing slash of a configured path",
+			requested:  "https://gw.example.com/v1/openai",
+			configured: "https://gw.example.com/v1/openai/",
+			wantURL:    "https://gw.example.com/v1/openai/",
+		},
+		{
+			name:      "requested path on the configured host without a request key",
+			requested: configured + "/proxy",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
+		},
+		{
+			name:      "requested path on the configured host with a request key",
+			requested: configured + "/proxy",
+			headers:   map[string]string{keyHeader: "caller"},
+			wantURL:   configured + "/proxy",
+		},
+		{
+			name:       "requested gateway path of another tenant",
+			requested:  "https://gw.example.com/v1/other-account/openai",
+			configured: "https://gw.example.com/v1/openai",
+			wantErr:    "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
+		},
+		{
+			name:       "requested path differs only in case",
+			requested:  "https://api.openai.com/V1",
+			configured: "https://api.openai.com/v1",
+			wantErr:    "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
+		},
+		{name: "requested adds a query", requested: configured + "?x=1", wantErr: "a baseURL or endpoint set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds a fragment", requested: configured + "#x", wantErr: "a baseURL or endpoint set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds userinfo", requested: "https://user@api.openai.com", wantErr: "a baseURL or endpoint set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds the default port", requested: "https://api.openai.com:443", wantErr: "a baseURL or endpoint set in the query needs X-Openai-Api-Key"},
+		{
+			name:      "requested host without a request key",
+			requested: attacker,
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
+		},
+		{
+			name:      "requested host with a request key",
+			requested: attacker,
+			headers:   map[string]string{keyHeader: "caller"},
+			wantURL:   attacker,
+		},
+		{
+			name:      "requested scheme differs",
+			requested: "http://api.openai.com",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
+		},
+		{
+			name:      "requested port differs",
+			requested: "https://api.openai.com:8443",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
+		},
+		{
+			name:      "requested host hidden behind userinfo",
+			requested: "https://api.openai.com@attacker.example.com",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
+		},
+		{
+			name:      "requested URL does not parse",
+			requested: "https://api.openai.com%zz",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
+		},
+		{
+			name:    "header host without a request key",
+			headers: map[string]string{baseURLHeader: attacker},
+			wantErr: "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
+		},
+		{
+			name:    "header host with a request key",
+			headers: map[string]string{baseURLHeader: attacker, keyHeader: "caller"},
+			wantURL: attacker,
+		},
+		{
+			name:      "header wins over requested",
+			headers:   map[string]string{baseURLHeader: configured},
+			requested: attacker,
+			wantURL:   configured,
+		},
+		{
+			name:    "header with a trailing slash returns configured",
+			headers: map[string]string{baseURLHeader: configured + "/"},
+			wantURL: configured,
+		},
+		{
+			name:      "another provider's key does not count",
+			requested: attacker,
+			headers:   map[string]string{"X-Azure-Api-Key": "caller"},
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
+		},
+		{
+			name:      "requested host validated when validation is on",
+			requested: "https://127.0.0.1",
+			headers:   map[string]string{keyHeader: "caller"},
+			validate:  true,
+			wantErr:   "baseURL cannot target internal addresses",
+		},
+		{
+			name:     "header host validated when validation is on",
+			headers:  map[string]string{baseURLHeader: "https://10.0.0.5", keyHeader: "caller"},
+			validate: true,
+			wantErr:  "baseURL cannot target internal addresses",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.validate {
+				t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			}
+			ctx := context.Background()
+			for k, v := range tt.headers {
+				ctx = context.WithValue(ctx, k, []string{v})
+			}
+			configuredURL := tt.configured
+			if configuredURL == "" {
+				configuredURL = configured
+			}
+			got, err := RequestBaseURL(ctx, baseURLHeader, tt.requested, configuredURL, keyHeader)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, got)
+		})
+	}
+}
+
+// REST search returns an ErrModulePrecondition as a 422 with its message. Any
+// other vectorizer error becomes a 500 without it.
+func TestMissingRequestKeyIsAPrecondition(t *testing.T) {
+	_, err := RequestBaseURL(context.Background(), "X-Openai-Baseurl", "https://attacker.example.com", "https://api.openai.com", "X-Openai-Api-Key")
+	var precondition enterrors.ErrModulePrecondition
+	assert.ErrorAs(t, err, &precondition)
 }
 
 func TestSSRFDialGuard(t *testing.T) {

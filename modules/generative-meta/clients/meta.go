@@ -77,7 +77,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 		return nil, err
 	}
 
-	endpoint, err := c.url(ctx, params.BaseURL)
+	endpoint, err := c.url(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve endpoint")
 	}
@@ -240,8 +240,8 @@ func GetResponseParams(result map[string]any) *responseParams {
 	return nil
 }
 
-func (c *client) url(ctx context.Context, base string) (string, error) {
-	base, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Meta-Baseurl", base)
+func (c *client) url(ctx context.Context, base, classBase string) (string, error) {
+	base, err := modulecomponents.RequestBaseURL(ctx, "X-Meta-Baseurl", base, classBase, "X-Meta-Api-Key")
 	if err != nil {
 		return "", err
 	}

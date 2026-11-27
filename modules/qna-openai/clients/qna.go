@@ -161,12 +161,10 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	}, nil
 }
 
+// buildOpenAIUrl takes the class settings and applies the request headers.
+// An Azure URL does not use the base URL, so X-Openai-Baseurl is checked only
+// for OpenAI.
 func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Openai-Baseurl", baseURL)
-	if err != nil {
-		return "", err
-	}
-
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
 		deploymentID = headerDeploymentID
 	}
@@ -175,7 +173,14 @@ func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploym
 		resourceName = headerResourceName
 	}
 
-	return v.buildUrlFn(passedBaseURL, resourceName, deploymentID, isAzure)
+	if !isAzure {
+		var err error
+		if baseURL, err = modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", baseURL, v.apiKeyHeader(false)); err != nil {
+			return "", err
+		}
+	}
+
+	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)
 }
 
 func (v *qna) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
@@ -211,20 +216,19 @@ Q: %v
 A:`, strings.ReplaceAll(text, "\n", " "), question)
 }
 
-func (v *qna) getApiKey(ctx context.Context, isAzure bool) (string, error) {
-	var apiKey, envVarValue, envVar string
-
+func (v *qna) apiKeyHeader(isAzure bool) string {
 	if isAzure {
-		apiKey = "X-Azure-Api-Key"
-		envVar = "AZURE_APIKEY"
-		envVarValue = v.azureApiKey
-	} else {
-		apiKey = "X-Openai-Api-Key"
-		envVar = "OPENAI_APIKEY"
-		envVarValue = v.openAIApiKey
+		return "X-Azure-Api-Key"
 	}
+	return "X-Openai-Api-Key"
+}
 
-	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
+func (v *qna) getApiKey(ctx context.Context, isAzure bool) (string, error) {
+	envVar, envVarValue := "OPENAI_APIKEY", v.openAIApiKey
+	if isAzure {
+		envVar, envVarValue = "AZURE_APIKEY", v.azureApiKey
+	}
+	return v.getApiKeyFromContext(ctx, v.apiKeyHeader(isAzure), envVarValue, envVar)
 }
 
 func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {

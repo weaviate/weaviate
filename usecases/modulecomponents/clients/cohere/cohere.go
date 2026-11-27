@@ -193,7 +193,7 @@ func (c *Client) getEmbeddingRequest(inputs []string, settings Settings) embeddi
 }
 
 func (c *Client) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Cohere-Baseurl", baseURL)
+	passedBaseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Cohere-Baseurl", "", baseURL, "X-Cohere-Api-Key")
 	if err != nil {
 		return "", err
 	}

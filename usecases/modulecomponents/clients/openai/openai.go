@@ -258,22 +258,22 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 }
 
 func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) {
-	baseURL, resourceName, deploymentID, apiVersion, endpoint, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.Endpoint, config.IsAzure
-
-	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Openai-Baseurl", baseURL)
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Openai-Baseurl", "", config.BaseURL, v.apiKeyHeader(config.IsAzure))
 	if err != nil {
 		return "", err
 	}
 
+	deploymentID := config.DeploymentID
 	if headerDeploymentID := modulecomponents.GetValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
 		deploymentID = headerDeploymentID
 	}
 
+	resourceName := config.ResourceName
 	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
 		resourceName = headerResourceName
 	}
 
-	return v.buildUrlFn(baseURL, resourceName, deploymentID, apiVersion, endpoint, isAzure)
+	return v.buildUrlFn(baseURL, resourceName, deploymentID, config.ApiVersion, config.Endpoint, config.IsAzure)
 }
 
 func (v *Client) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
@@ -343,20 +343,19 @@ func (v *Client) GetVectorizerRateLimit(ctx context.Context, settings Settings) 
 	}
 }
 
-func (v *Client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
-	var apiKey, envVarValue, envVar string
-
+func (v *Client) apiKeyHeader(isAzure bool) string {
 	if isAzure {
-		apiKey = "X-Azure-Api-Key"
-		envVar = "AZURE_APIKEY"
-		envVarValue = v.azureApiKey
-	} else {
-		apiKey = "X-Openai-Api-Key"
-		envVar = "OPENAI_APIKEY"
-		envVarValue = v.openAIApiKey
+		return "X-Azure-Api-Key"
 	}
+	return "X-Openai-Api-Key"
+}
 
-	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
+func (v *Client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
+	envVar, envVarValue := "OPENAI_APIKEY", v.openAIApiKey
+	if isAzure {
+		envVar, envVarValue = "AZURE_APIKEY", v.azureApiKey
+	}
+	return v.getApiKeyFromContext(ctx, v.apiKeyHeader(isAzure), envVarValue, envVar)
 }
 
 func (v *Client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {

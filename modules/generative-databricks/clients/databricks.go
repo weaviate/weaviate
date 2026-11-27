@@ -76,9 +76,9 @@ func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	oaiUrl, err := v.buildDatabricksEndpoint(ctx, params.Endpoint)
+	oaiUrl, err := v.buildDatabricksEndpoint(ctx, params.Endpoint, config.NewClassSettings(cfg).Endpoint())
 	if err != nil {
-		return nil, errors.Wrap(err, "url join path")
+		return nil, err
 	}
 
 	input, err := v.generateInput(prompt, params)
@@ -162,9 +162,6 @@ func (v *databricks) getParameters(cfg moduletools.ClassConfig, options interfac
 		params = p
 	}
 
-	if params.Endpoint == "" {
-		params.Endpoint = settings.Endpoint()
-	}
 	if params.Temperature == nil {
 		temperature := settings.Temperature()
 		params.Temperature = &temperature
@@ -206,13 +203,10 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *databricks) buildDatabricksEndpoint(ctx context.Context, endpoint string) (string, error) {
-	headerEndpoint, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Databricks-Endpoint", "")
+func (v *databricks) buildDatabricksEndpoint(ctx context.Context, queryEndpoint, classEndpoint string) (string, error) {
+	endpoint, err := modulecomponents.RequestBaseURL(ctx, "X-Databricks-Endpoint", queryEndpoint, classEndpoint, "X-Databricks-Token")
 	if err != nil {
 		return "", err
-	}
-	if headerEndpoint != "" {
-		return headerEndpoint, nil
 	}
 	return v.buildEndpoint(endpoint)
 }

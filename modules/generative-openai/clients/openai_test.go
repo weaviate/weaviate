@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	openaiparams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -149,16 +150,18 @@ func TestGetAnswer(t *testing.T) {
 		params := openaiparams.Params{
 			BaseURL: "http://default-url.com",
 		}
+		settings := config.NewClassSettings(credentialtest.ClassConfig{"baseURL": params.BaseURL})
 		c := New("openAIApiKey", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Openai-Api-Key", []string{"callerKey"})
 
-		buildURL, err := c.buildOpenAIUrl(ctxWithValue, params)
+		buildURL, _, err := c.buildOpenAIUrl(ctxWithValue, params, settings)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat/completions", buildURL)
 
-		buildURL, err = c.buildOpenAIUrl(context.TODO(), params)
+		buildURL, _, err = c.buildOpenAIUrl(context.TODO(), params, settings)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/chat/completions", buildURL)
 	})
@@ -170,6 +173,9 @@ func TestGetAnswer(t *testing.T) {
 			DeploymentID: "classDeploymentId",
 			ApiVersion:   "2024-02-01",
 		}
+		settings := config.NewClassSettings(credentialtest.ClassConfig{
+			"resourceName": params.ResourceName, "deploymentId": params.DeploymentID,
+		})
 		c := New("", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
@@ -177,7 +183,7 @@ func TestGetAnswer(t *testing.T) {
 		ctxWithValue = context.WithValue(ctxWithValue,
 			"X-Azure-Resource-Name", []string{"headerResourceName"})
 
-		buildURL, err := c.buildOpenAIUrl(ctxWithValue, params)
+		buildURL, _, err := c.buildOpenAIUrl(ctxWithValue, params, settings)
 		require.NoError(t, err)
 		assert.Equal(t, "https://headerResourceName.openai.azure.com/openai/deployments/headerDeploymentId/chat/completions?api-version=2024-02-01", buildURL)
 	})

@@ -210,8 +210,8 @@ func (c *Client) vectorize(ctx context.Context, input []string, cfg moduletools.
 	}, rateLimit, modulecomponents.GetTotalTokens(parsed.Usage), nil
 }
 
-func buildURL(ctx context.Context, baseURL string) (string, error) {
-	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Digitalocean-Baseurl", baseURL)
+func buildURL(ctx context.Context, classBaseURL string) (string, error) {
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Digitalocean-Baseurl", "", classBaseURL, "X-Digitalocean-Api-Key")
 	if err != nil {
 		return "", err
 	}

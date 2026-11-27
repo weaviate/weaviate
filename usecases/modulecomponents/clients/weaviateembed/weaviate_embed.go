@@ -170,12 +170,12 @@ func getToken(ctx context.Context) (string, error) {
 }
 
 func getClusterURL(ctx context.Context) (string, error) {
-	clusterURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Weaviate-Cluster-Url", "")
-	if err != nil {
-		return "", err
-	}
+	clusterURL := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Cluster-Url")
 	if clusterURL == "" {
 		return "", enterrors.NewErrModulePrecondition(errors.New("no cluster URL found in request header: X-Weaviate-Cluster-Url"))
+	}
+	if err := modulecomponents.ValidateBaseURL(clusterURL); err != nil {
+		return "", err
 	}
 	return clusterURL, nil
 }

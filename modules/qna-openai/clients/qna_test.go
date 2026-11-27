@@ -117,6 +117,7 @@ func TestGetAnswer(t *testing.T) {
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Openai-Api-Key", []string{"callerKey"})
 
 		buildURL, err := c.buildOpenAIUrl(ctxWithValue, "http://default-url.com", "", "", false)
 		require.NoError(t, err)

@@ -152,11 +152,13 @@ func (v *ollama) getDebugInformation(debug bool, prompt string) *modulecapabilit
 }
 
 func (v *ollama) getOllamaUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Ollama-BaseURL", baseURL)
-	if err != nil {
-		return "", err
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Ollama-Baseurl"); headerBaseURL != "" {
+		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+			return "", err
+		}
+		baseURL = headerBaseURL
 	}
-	return fmt.Sprintf("%s/api/generate", passedBaseURL), nil
+	return fmt.Sprintf("%s/api/generate", baseURL), nil
 }
 
 type generateInput struct {

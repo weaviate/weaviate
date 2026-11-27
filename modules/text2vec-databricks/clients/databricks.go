@@ -89,7 +89,10 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 		return nil, nil, errors.Wrap(err, "marshal body")
 	}
 
-	endpoint, _ := v.buildURL(ctx, config)
+	endpoint, err := v.buildURL(ctx, config)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "build endpoint")
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
 		bytes.NewReader(body))
@@ -145,7 +148,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 }
 
 func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
-	return modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Databricks-Endpoint", config.Endpoint)
+	return modulecomponents.RequestBaseURL(ctx, "X-Databricks-Endpoint", "", config.Endpoint, "X-Databricks-Token")
 }
 
 func (v *client) getError(statusCode int, resBody embedding) error {

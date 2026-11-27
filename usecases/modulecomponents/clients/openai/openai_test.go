@@ -354,6 +354,7 @@ func TestClient(t *testing.T) {
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Openai-Api-Key", []string{"callerKey"})
 
 		buildURL, err := c.buildURL(ctxWithValue, config)
 		require.NoError(t, err)
@@ -379,8 +380,10 @@ func TestClient(t *testing.T) {
 		} {
 			ctxWithValue := context.WithValue(context.Background(),
 				"X-Openai-Baseurl", []string{internal})
+			ctxWithValue = context.WithValue(ctxWithValue, "X-Openai-Api-Key", []string{"callerKey"})
 			_, err := c.buildURL(ctxWithValue, config)
-			assert.Error(t, err, internal)
+			require.Error(t, err, internal)
+			assert.NotContains(t, err.Error(), "needs X-Openai-Api-Key", internal)
 		}
 	})
 
