@@ -275,24 +275,9 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 		"progress recorded before cancellation is preserved")
 }
 
-// Edge case 6: Two overlapping STARTED tasks targeting the same property.
-// One is enable-filterable (progress 0.2), the other is change-tokenization
-// (progress 0.9). For indexType="filterable", both match. The current
-// implementation iterates `tasks` in map-list order and `return`s on the
-// When two STARTED tasks for the same (collection, prop, indexType)
-// coexist, the most recently started one wins regardless of slice
-// order. The runtime delivers tasks in map iteration order which is
-// non-deterministic per call, so first-in-list ordering would mean
-// polling could see the answer change request-to-request. The
-// StartedAt tiebreak keeps the response stable.
-//
-// In practice checkReindexConflict rejects overlapping STARTED tasks
-// on the same bucket, but a runtime fault (e.g. cluster forwarding
-// edge cases) could in theory produce this state and the response must
-// still be stable.
+// Two overlapping STARTED tasks for the same property: the higher Version wins
+// regardless of slice order.
 func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
-	now := time.Now()
-
 	enableTask := buildTask(t, "C:enable-filterable:foo:0001",
 		distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -304,7 +289,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.2},
 		},
 	)
-	enableTask.StartedAt = now.Add(-1 * time.Hour) // older
+	enableTask.Version = 1
 
 	changeTokTask := buildTask(t, "C:change-tokenization:foo:0002",
 		distributedtask.TaskStatusStarted,
@@ -318,7 +303,8 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.9},
 		},
 	)
-	changeTokTask.StartedAt = now // newer
+	// Skewed clocks can give the newer Version the earlier StartedAt.
+	changeTokTask.Version, changeTokTask.StartedAt = 2, enableTask.StartedAt.Add(-time.Hour)
 
 	for _, order := range []struct {
 		name  string
@@ -348,24 +334,11 @@ type taskAttempt struct {
 	progress float32
 }
 
-// Two matching tasks, and which one the entry reports. The merge loop ranks
-// on two rules and the rows hold them apart:
-//
-//   - an in-flight task beats a terminal one, whichever started first;
-//   - between two of equal standing, the later StartedAt wins.
-//
-// Every row runs the list both ways round, because the merge loop must not
-// rank on slice position.
-//
-// FINISHED and CANCELLED are in here as winners because that is why terminal
-// tasks stay in the merge loop at all: drop them and an older FAILED attempt
-// reports "failed" after the retry has already rebuilt the index. What a
-// FINISHED winner surfaces is nothing — the schema flag alone decides whether
-// an entry is emitted, so its row is the one that wants an empty task ID.
-//
-// Terminal attempts carry the FinishedAt the FSM stamps on them. Without it
-// the FINISHED rows pass against a build that still reports a
-// FINISHED-but-flag-off entry as indexing@100% inside a freshness window.
+// The later Version (RAFT index) wins, even when skewed clocks give it the
+// earlier StartedAt; each row runs both slice orders. Terminal winners must
+// stay in the merge loop so an older FAILED attempt doesn't outlive its retry.
+// FinishedAt is set on terminal attempts as the FSM does, so FINISHED rows
+// don't surface as indexing@100%.
 func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 	now := time.Now()
 	live := func(p float32) taskAttempt {
@@ -400,21 +373,13 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 	}{
 		{"a live retry beats the attempt it retries", failed(0.4), live(0.1), "indexing", 0.1, newerID},
 		{"a retry this build cannot name beats it too", failed(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
-		{"a live retry beats a completed migration", done(0.4), live(0.1), "indexing", 0.1, newerID},
-		{"so does one this build cannot name", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
-		// Standing decides, not recency: on recency alone the newer terminal
-		// task would win and report an outcome a running task has superseded.
-		{"a live task started earlier beats a newer failure", live(0.4), failed(0.7), "indexing", 0.4, olderID},
-		{"one this build cannot name beats a newer completed migration", unrecognized(0.4), done(0.7), "indexing", 0.4, olderID},
-		// CANCELLED shares its rank with FAILED and FINISHED, so recency is
-		// the only thing separating it from either.
+		{"a retry this build cannot name beats a completed migration", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
 		{"the newer of two failures is the one reported", failed(0.4), failed(0.7), "failed", 0.7, newerID},
-		{"a completed migration outranks the failure before it", failed(0.4), done(0.7), "ready", 0, ""},
-		{"a completed migration outranks the cancel before it", cancelled(0.4), done(0.7), "ready", 0, ""},
+		{"a completed migration beats the failure before it", failed(0.4), done(0.7), "ready", 0, ""},
 		{"the newer cancel is the one reported", done(0.4), cancelled(0.7), "cancelled", 0.7, newerID},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			build := func(id string, a taskAttempt, startedAt time.Time) *distributedtask.Task {
+			build := func(id string, a taskAttempt, version uint64, startedAt time.Time) *distributedtask.Task {
 				task := buildTask(t, id, a.status,
 					db.ReindexTaskPayload{
 						MigrationType: db.ReindexTypeEnableFilterable,
@@ -423,14 +388,14 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 					},
 					map[string]*distributedtask.Unit{"u": {ID: "u", Status: a.unit, Progress: a.progress}},
 				)
-				task.StartedAt = startedAt
+				task.Version, task.StartedAt = version, startedAt
 				if a.status.IsTerminal() {
 					task.FinishedAt = now
 				}
 				return task
 			}
-			older := build(olderID, tt.older, now.Add(-2*time.Hour))
-			newer := build(newerID, tt.newer, now)
+			older := build(olderID, tt.older, 1, now)
+			newer := build(newerID, tt.newer, 2, now.Add(-2*time.Hour))
 
 			for _, order := range [][]*distributedtask.Task{{older, newer}, {newer, older}} {
 				idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
@@ -665,13 +630,9 @@ func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testin
 // STARTED does so the UI keeps rendering the in-flight pill with the
 // target tokenization preview.
 //
-// This guards two regressions:
-//   - Forgetting PREPARING in [mergeReindexStatus]'s status switch
-//     (would leave PREPARING tasks with the base "ready" status and no
-//     synthetic targetTokenization, blanking the UI mid-barrier).
-//   - Forgetting PREPARING in [taskStatusPriority] (would let an older
-//     terminal task outrank a fresh PREPARING task, surfacing the wrong
-//     attempt's signal).
+// This guards against forgetting PREPARING in [mergeReindexStatus]'s status
+// switch, which would leave PREPARING tasks with the base "ready" status and
+// no synthetic targetTokenization, blanking the UI mid-barrier.
 func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
@@ -707,35 +668,6 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 				"%s implies units all done; progress must read 100%%", tt.name)
 			require.Equal(t, "lowercase", idx.TargetTokenization,
 				"%s must paint the targetTokenization synthetic side-effect — UI needs it to render the in-flight tokenization preview", tt.name)
-		})
-	}
-}
-
-// Pins: every non-terminal status, including an unrecognized one, ranks
-// above every terminal status.
-func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
-	mkTask := func(status distributedtask.TaskStatus) *distributedtask.Task {
-		return &distributedtask.Task{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t", Version: 1},
-			Status:         status,
-		}
-	}
-	for _, tt := range []struct {
-		name   string
-		status distributedtask.TaskStatus
-		want   int
-	}{
-		{"STARTED", distributedtask.TaskStatusStarted, 2},
-		{"PREPARING", distributedtask.TaskStatusPreparing, 2},
-		{"SWAPPING", distributedtask.TaskStatusSwapping, 2},
-		{"unrecognized", unknownFutureStatus, 2},
-		{"FAILED", distributedtask.TaskStatusFailed, 1},
-		{"CANCELLED", distributedtask.TaskStatusCancelled, 1},
-		{"FINISHED", distributedtask.TaskStatusFinished, 1},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, taskStatusPriority(mkTask(tt.status)),
-				"status %s must rank at priority %d", tt.status, tt.want)
 		})
 	}
 }
