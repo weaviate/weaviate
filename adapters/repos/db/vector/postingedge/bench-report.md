@@ -1324,6 +1324,16 @@ Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seg
 - **Lo escrito:** la noche acabó en 49 KB por insert, 16 veces el vector. Espero algo menos, y no mucho menos: la mitad era compactación, que ningún paso toca.
 - **Si para por disco,** doy los tramos hasta ahí y lo digo.
 
+#### Estado a las 17:15 del 27
+
+- **La serie está en `m2`:** `d0fbd05006..44c35ee9b9`, con el paquete con `-race`, los tests por un shard, el lint con sus tres etiquetas y el de gorutinas en verde.
+- **El 10M corre desde las 17:12:00.** La prueba pequeña de antes, 40 000 vectores con el mismo binario, dio 817 y 635 inserts por segundo en sus dos tramos.
+- **El disco va justo:** 40 GiB libres al lanzar, para un índice de 36 o 37. Con el margen de 4 puede parar poco antes del final. La caché de compilación de Go ocupa 22 GB, y no la toco sin que el usuario lo diga.
+- **La propagación a integración no está hecha.**
+  - `m2` va 12 commits por delante de lo que integración tiene de ella: los tests encogidos, el arnés fuera del núcleo y el tope de 128 MB. La serie no se puede llevar commit a commit, porque choca en los tests.
+  - Por fusión son 9 conflictos: 5 ficheros del arnés que `m2` quitó e integración cambió, los dos de la reentrega y dos de tests.
+  - Va por fusión, con sus tests enteros, en la primera ventana de compilación tras el 10M. Después, integración a backup y a `none-direct`.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
