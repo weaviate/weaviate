@@ -171,22 +171,22 @@ func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexNam
 
 func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, selectProperties search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, schemaVersion uint64,
 ) (*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	index, err := rii.indexForIncomingRead(ctx, indexName, schemaVersion)
+	if err != nil {
+		return nil, err
 	}
 
 	return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
 }
 
 func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
-	shardName string, id strfmt.UUID,
+	shardName string, id strfmt.UUID, schemaVersion uint64,
 ) (bool, error) {
-	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
-	if index == nil {
-		return false, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	index, err := rii.indexForIncomingRead(ctx, indexName, schemaVersion)
+	if err != nil {
+		return false, err
 	}
 
 	return index.IncomingExists(ctx, shardName, id)
@@ -215,11 +215,11 @@ func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
-	shardName string, ids []strfmt.UUID,
+	shardName string, ids []strfmt.UUID, schemaVersion uint64,
 ) ([]*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	index, err := rii.indexForIncomingRead(ctx, indexName, schemaVersion)
+	if err != nil {
+		return nil, err
 	}
 
 	return index.IncomingMultiGetObjects(ctx, shardName, ids)
@@ -229,11 +229,11 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	vectors []models.Vector, targetVectors []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string,
+	properties []string, schemaVersion uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
-	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
-	if index == nil {
-		return nil, nil, nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	index, err := rii.indexForIncomingRead(ctx, indexName, schemaVersion)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	return index.IncomingSearch(
@@ -241,22 +241,22 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
-	params aggregation.Params,
+	params aggregation.Params, schemaVersion uint64,
 ) (*aggregation.Result, error) {
-	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	index, err := rii.indexForIncomingRead(ctx, indexName, schemaVersion)
+	if err != nil {
+		return nil, err
 	}
 
 	return index.IncomingAggregate(ctx, shardName, params, rii.modules)
 }
 
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
-	filters *filters.LocalFilter, limit int,
+	filters *filters.LocalFilter, limit int, schemaVersion uint64,
 ) ([]strfmt.UUID, error) {
-	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	index, err := rii.indexForIncomingRead(ctx, indexName, schemaVersion)
+	if err != nil {
+		return nil, err
 	}
 
 	return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
@@ -359,6 +359,24 @@ func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	}
 
 	return index.IncomingDigestObjects(ctx, shardName, ids)
+}
+
+// indexForIncomingRead waits for the coordinator's class version before the
+// lookup, so a node that has not applied the class yet does not report it
+// missing. Version 0, sent by older coordinators, does not wait.
+func (rii *RemoteIndexIncoming) indexForIncomingRead(ctx context.Context, indexName string,
+	schemaVersion uint64,
+) (RemoteIndexIncomingRepo, error) {
+	if schemaVersion > 0 {
+		if _, err := rii.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
+			return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local index %q not found: %w", indexName, err))
+		}
+	}
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
+	if index == nil {
+		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	}
+	return index, nil
 }
 
 func (rii *RemoteIndexIncoming) IndexForIncomingWrite(ctx context.Context, indexName string,

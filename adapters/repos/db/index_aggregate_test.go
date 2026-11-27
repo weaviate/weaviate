@@ -55,7 +55,7 @@ func TestIndexAggregate_RunsShardsConcurrently(t *testing.T) {
 	nodeResolver := cluster.NewMockNodeResolver(t)
 	nodeResolver.EXPECT().NodeHostname("node2").Return("127.0.0.2", true).Maybe()
 	client := newBarrierAggregateClient(len(shards))
-	idx.remote = sharding.NewRemoteIndex(className, remoteShardsOnNode2{}, nodeResolver, client)
+	idx.remote = sharding.NewRemoteIndex(className, remoteShardsOnNode2{}, nil, nodeResolver, client)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -88,7 +88,7 @@ func TestIndexAggregate_SpreadsShardsOverReplicas(t *testing.T) {
 	nodeResolver.EXPECT().NodeHostname("node2").Return("127.0.0.2", true).Maybe()
 	nodeResolver.EXPECT().NodeHostname("node3").Return("127.0.0.3", true).Maybe()
 	client := newRecordingAggregateClient()
-	idx.remote = sharding.NewRemoteIndex(className, remoteShardsOnNode2{}, nodeResolver, client)
+	idx.remote = sharding.NewRemoteIndex(className, remoteShardsOnNode2{}, nil, nodeResolver, client)
 
 	res, err := idx.aggregate(t.Context(), nil, aggregation.Params{ClassName: className}, nil)
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func newRecordingAggregateClient(failing ...string) *recordingAggregateClient {
 }
 
 func (c *recordingAggregateClient) Aggregate(_ context.Context, host, _, shard string,
-	_ aggregation.Params,
+	_ aggregation.Params, _ uint64,
 ) (*aggregation.Result, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -152,7 +152,7 @@ func aggregateTestIndex(t *testing.T, client *recordingAggregateClient, replicas
 		nodeResolver.EXPECT().NodeHostname(node).Return(node+"-host", true).Maybe()
 	}
 	// the cluster state lists node4, which the read plan leaves out
-	idx.remote = sharding.NewRemoteIndex(className, shardReplicasOn{"node4"}, nodeResolver, client)
+	idx.remote = sharding.NewRemoteIndex(className, shardReplicasOn{"node4"}, nil, nodeResolver, client)
 	return idx
 }
 
@@ -284,7 +284,7 @@ func newBarrierAggregateClient(want int) *barrierAggregateClient {
 }
 
 func (c *barrierAggregateClient) Aggregate(ctx context.Context, _, _, _ string,
-	_ aggregation.Params,
+	_ aggregation.Params, _ uint64,
 ) (*aggregation.Result, error) {
 	if c.arrived.Add(1) == c.want {
 		close(c.all)

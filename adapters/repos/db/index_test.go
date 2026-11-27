@@ -469,7 +469,7 @@ func TestIndex_objectSearch_UnreachableReplicas(t *testing.T) {
 
 			index := Index{
 				router: f.router,
-				remote: sharding.NewRemoteIndex(className, fakeShardReplicas(replicas), nodeSelector,
+				remote: sharding.NewRemoteIndex(className, fakeShardReplicas(replicas), nil, nodeSelector,
 					&searchRemoteClient{objects: []*storobj.Object{
 						storobj.FromObject(&models.Object{Class: className, ID: objectID}, nil, nil, nil),
 					}}),
@@ -609,7 +609,7 @@ func (c *searchRemoteClient) SearchShard(ctx context.Context, hostName, indexNam
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string,
+	properties []string, _ uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return c.objects, make([]float32, len(c.objects)), nil, nil
 }

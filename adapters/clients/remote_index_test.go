@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,6 +42,7 @@ import (
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestRemoteIndexReInitShardIn(t *testing.T) {
@@ -258,7 +260,7 @@ func TestRemoteIndexExistsFailedCheck(t *testing.T) {
 	client := newRemoteIndex(ts.Client())
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			exists, err := client.Exists(context.Background(), tt.host, "C1", "S1", id)
+			exists, err := client.Exists(context.Background(), tt.host, "C1", "S1", id, 0)
 			require.Error(t, err)
 			assert.False(t, exists)
 		})
@@ -434,7 +436,7 @@ func TestRemoteIndexSearchShardShedRehydratesOverloaded(t *testing.T) {
 	}
 
 	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
-		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, 0)
 	require.Error(t, err)
 	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
 		"a cross-node admission shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
@@ -460,7 +462,7 @@ func TestRemoteIndexSearchShardNon429NotOverloaded(t *testing.T) {
 	}
 
 	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
-		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, 0)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }
@@ -483,7 +485,7 @@ func TestRemoteIndexAggregateShedRehydratesOverloaded(t *testing.T) {
 		_, _ = w.Write([]byte("node overloaded, request shed"))
 	}
 
-	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
+	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{}, 0)
 	require.Error(t, err)
 	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
 		"a cross-node aggregation shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
@@ -505,7 +507,7 @@ func TestRemoteIndexAggregateNon429NotOverloaded(t *testing.T) {
 		_, _ = w.Write([]byte("boom"))
 	}
 
-	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
+	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{}, 0)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }
@@ -532,7 +534,7 @@ func TestRemoteIndexAggregateRetriesOnce(t *testing.T) {
 				w.WriteHeader(code)
 			}
 
-			_, err := client.Aggregate(t.Context(), fs.host, "C1", "S1", aggregation.Params{})
+			_, err := client.Aggregate(t.Context(), fs.host, "C1", "S1", aggregation.Params{}, 0)
 			require.Error(t, err)
 			require.Equal(t, int64(2), attempts.Load())
 		})
@@ -584,7 +586,7 @@ func TestRemoteIndexAggregateBoundedByCallerDeadline(t *testing.T) {
 				defer cancel()
 			}
 
-			res, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
+			res, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{}, 0)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 				return
@@ -594,4 +596,41 @@ func TestRemoteIndexAggregateBoundedByCallerDeadline(t *testing.T) {
 			require.Equal(t, 7, res.Groups[0].Count)
 		})
 	}
+}
+
+// TestRemoteIndexReadsCarryTheSchemaVersion checks each shard read puts the
+// coordinator's class version on the wire, as writes do.
+func TestRemoteIndexReadsCarryTheSchemaVersion(t *testing.T) {
+	var mu sync.Mutex
+	got := map[string]string{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		read := r.URL.Path
+		if r.URL.Query().Get("check_exists") == "true" {
+			read += "?exists"
+		}
+		got[read] = r.URL.Query().Get(replica.SchemaVersionKey)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	host, client, ctx := ts.URL[7:], newRemoteIndex(ts.Client()), t.Context()
+	const id = strfmt.UUID("c5e2ea4f-7d4c-4b6e-8a1e-2a9b1f0d3c11")
+
+	_, _ = client.GetObject(ctx, host, "C1", "S1", id, nil, additional.Properties{}, 7)
+	_, _ = client.Exists(ctx, host, "C1", "S1", id, 7)
+	_, _ = client.MultiGetObjects(ctx, host, "C1", "S1", []strfmt.UUID{id}, 7)
+	_, _, _, _ = client.SearchShard(ctx, host, "C1", "S1", nil, nil, 0, 1, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, 7)
+	_, _ = client.Aggregate(ctx, host, "C1", "S1", aggregation.Params{}, 7)
+	_, _ = client.FindUUIDs(ctx, host, "C1", "S1", nil, 1, 7)
+
+	objects := "/indices/C1/shards/S1/objects"
+	require.Equal(t, map[string]string{
+		objects + "/" + id.String():             "7",
+		objects + "/" + id.String() + "?exists": "7",
+		objects:                                 "7",
+		objects + "/_search":                    "7",
+		objects + "/_aggregations":              "7",
+		objects + "/_find":                      "7",
+	}, got)
 }

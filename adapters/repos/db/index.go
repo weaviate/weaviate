@@ -472,6 +472,9 @@ func NewIndex(
 		return nil, fmt.Errorf("create metrics for index %q: %w", cfg.ClassName.String(), err)
 	}
 
+	classVersion := func() uint64 {
+		return schemaReader.ReadOnlyVersionedClass(cfg.ClassName.String()).Version
+	}
 	index := &Index{
 		db:                      db,
 		Config:                  cfg,
@@ -486,7 +489,7 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, classVersion, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),

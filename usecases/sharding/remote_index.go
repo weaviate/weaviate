@@ -40,6 +40,7 @@ import (
 type RemoteIndex struct {
 	class        string
 	stateGetter  shardingStateGetter
+	classVersion func() uint64
 	client       RemoteIndexClient
 	nodeResolver nodeResolver
 }
@@ -51,15 +52,25 @@ type shardingStateGetter interface {
 }
 
 func NewRemoteIndex(className string,
-	stateGetter shardingStateGetter, nodeResolver nodeResolver,
+	stateGetter shardingStateGetter, classVersion func() uint64, nodeResolver nodeResolver,
 	client RemoteIndexClient,
 ) *RemoteIndex {
 	return &RemoteIndex{
 		class:        className,
 		stateGetter:  stateGetter,
+		classVersion: classVersion,
 		client:       client,
 		nodeResolver: nodeResolver,
 	}
+}
+
+// schemaVersion is the local class version a read sends, so the receiving node
+// waits until it has applied the class. 0 when unknown.
+func (ri *RemoteIndex) schemaVersion() uint64 {
+	if ri.classVersion == nil {
+		return 0
+	}
+	return ri.classVersion()
 }
 
 type nodeResolver interface {
@@ -75,26 +86,27 @@ type RemoteIndexClient interface {
 		refs objects.BatchReferences, schemaVersion uint64) []error
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (*storobj.Object, error)
+		additional additional.Properties, schemaVersion uint64) (*storobj.Object, error)
 	Exists(ctx context.Context, hostname, indexName, shardName string,
-		id strfmt.UUID) (bool, error)
+		id strfmt.UUID, schemaVersion uint64) (bool, error)
 	DeleteObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
 	MergeObject(ctx context.Context, hostname, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
-		ids []strfmt.UUID) ([]*storobj.Object, error)
+		ids []strfmt.UUID, schemaVersion uint64) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
 		searchVector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+		schemaVersion uint64,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
-		params aggregation.Params) (*aggregation.Result, error)
+		params aggregation.Params, schemaVersion uint64) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int, schemaVersion uint64) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
@@ -185,7 +197,7 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 		return false, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.Exists(ctx, host, ri.class, shardName, id)
+	return ri.client.Exists(ctx, host, ri.class, shardName, id, ri.schemaVersion())
 }
 
 func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
@@ -234,7 +246,7 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.GetObject(ctx, host, ri.class, shardName, id, props, additional)
+	return ri.client.GetObject(ctx, host, ri.class, shardName, id, props, additional, ri.schemaVersion())
 }
 
 func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
@@ -250,7 +262,7 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids)
+	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids, ri.schemaVersion())
 }
 
 type ReplicasSearchResult struct {
@@ -279,9 +291,10 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]ReplicasSearchResult, error) {
+	schemaVersion := ri.schemaVersion()
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
 		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, schemaVersion)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
@@ -309,9 +322,10 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		scores        []float32
 		queryProfiles []helpers.ShardQueryProfile
 	}
+	schemaVersion := ri.schemaVersion()
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, schemaVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -335,7 +349,7 @@ func (ri *RemoteIndex) Aggregate(
 	if !ok || host == "" {
 		return nil, fmt.Errorf("resolve node name %q to host", node)
 	}
-	return ri.client.Aggregate(ctx, host, ri.class, shard, params)
+	return ri.client.Aggregate(ctx, host, ri.class, shard, params, ri.schemaVersion())
 }
 
 func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
@@ -351,7 +365,7 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters, limit)
+	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters, limit, ri.schemaVersion())
 }
 
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,

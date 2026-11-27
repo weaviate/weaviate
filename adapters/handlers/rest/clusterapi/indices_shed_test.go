@@ -44,7 +44,7 @@ type overloadedShards struct {
 func (o overloadedShards) Search(context.Context, string, string,
 	[]models.Vector, []string, float32, int, *filters.LocalFilter, *searchparams.KeywordRanking,
 	[]filters.Sort, *filters.Cursor, *searchparams.GroupBy, additional.Properties,
-	*dto.TargetCombination, []string,
+	*dto.TargetCombination, []string, uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, o.err
 }
@@ -93,7 +93,7 @@ func serveShardSearch(t *testing.T, searchErr error) *httptest.ResponseRecorder 
 }
 
 func (o overloadedShards) Aggregate(context.Context, string, string,
-	aggregation.Params,
+	aggregation.Params, uint64,
 ) (*aggregation.Result, error) {
 	return nil, o.err
 }
