@@ -1186,7 +1186,8 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, deletionTimeUnix, dryRun, schemaVersion)
+		ctx := backgroundaccess.FromHeader(r.Context(), r.Header)
+		results := i.shards.DeleteObjectBatch(ctx, index, shard, uuids, deletionTimeUnix, dryRun, schemaVersion)
 
 		resBytes, err := shared.IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {

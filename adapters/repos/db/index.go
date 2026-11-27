@@ -4109,7 +4109,7 @@ func (i *Index) recordShardAccess(ctx context.Context, shard ShardLike) {
 }
 
 // recordDeletions stamps a still pinned shard once a batch deleted something, background work included; a stamp after the release could miss an unload.
-func (i *Index) recordDeletions(shard ShardLike, objs objects.BatchSimpleObjects) {
+func (i *Index) recordDeletions(shard shardWriter, objs objects.BatchSimpleObjects) {
 	if i.Config.ShardUnloader == nil {
 		return
 	}
@@ -4119,6 +4119,27 @@ func (i *Index) recordDeletions(shard ShardLike, objs objects.BatchSimpleObjects
 	}
 	for idx := range objs {
 		if objs[idx].Err == nil {
+			lazy.recordAccess()
+			return
+		}
+	}
+}
+
+// recordReplicatedDeletions is recordDeletions for a committed replicated delete batch, whose background prepare stamped nothing.
+func (i *Index) recordReplicatedDeletions(shard ShardLike, resp any) {
+	if i.Config.ShardUnloader == nil {
+		return
+	}
+	deletions, ok := resp.(replica.DeleteBatchResponse)
+	if !ok {
+		return
+	}
+	lazy, ok := shard.(*LazyLoadShard)
+	if !ok {
+		return
+	}
+	for idx := range deletions.Batch {
+		if deletions.Batch[idx].Error.Empty() {
 			lazy.recordAccess()
 			return
 		}
@@ -5235,6 +5256,9 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	var res objects.BatchSimpleObjects
 	if err := i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
 		res = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+		if !dryRun {
+			i.recordDeletions(shard, res)
+		}
 		return nil
 	}); err != nil {
 		return objects.BatchSimpleObjects{

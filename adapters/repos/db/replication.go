@@ -446,7 +446,9 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 	i.backupLock.RLock(shard)
 	defer i.backupLock.RUnlock(shard)
 
-	return localShard.commitReplication(ctx, requestID)
+	resp := localShard.commitReplication(ctx, requestID)
+	i.recordReplicatedDeletions(localShard, resp)
+	return resp
 }
 
 // AbortReplication drops the task a prepare left on the shard, reading the

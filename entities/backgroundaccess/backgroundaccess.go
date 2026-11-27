@@ -33,6 +33,14 @@ func With(ctx context.Context) context.Context {
 	return context.WithValue(ctx, key{}, struct{}{})
 }
 
+// Detached is context.Background carrying ctx's mark, for work that must outlive ctx.
+func Detached(ctx context.Context) context.Context {
+	if Is(ctx) {
+		return With(context.Background())
+	}
+	return context.Background()
+}
+
 // Is reports whether ctx was marked by With.
 func Is(ctx context.Context) bool {
 	return ctx.Value(key{}) != nil

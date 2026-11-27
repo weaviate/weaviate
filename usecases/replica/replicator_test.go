@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -607,6 +608,35 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
 			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
 			wg.Wait()
+		})
+	}
+}
+
+func TestReplicatorDeleteObjectsCarriesTheBackgroundMark(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want bool
+	}{
+		{name: "user request", ctx: context.Background()},
+		{name: "background work", ctx: backgroundaccess.With(context.Background()), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nodes := []string{"A", "B"}
+			factory := newFakeFactory(t, "C1", "SH1", nodes, false)
+			docIDs := []strfmt.UUID{"1"}
+			marks := make(chan bool, len(nodes))
+			for _, n := range nodes {
+				factory.WClient.On("DeleteObjects", mock.Anything, n, "C1", "SH1", anyVal, docIDs, anyVal, false, uint64(1)).
+					Run(func(args mock.Arguments) { marks <- backgroundaccess.Is(args.Get(0).(context.Context)) }).
+					Return(replica.SimpleResponse{}, nil)
+				factory.WClient.On("Commit", mock.Anything, n, "C1", "SH1", anyVal, anyVal).Return(nil)
+			}
+			factory.newReplicator().DeleteObjects(tt.ctx, "SH1", docIDs, time.Now(), false, types.ConsistencyLevelAll, 1)
+			for range nodes {
+				require.Equal(t, tt.want, <-marks)
+			}
 		})
 	}
 }

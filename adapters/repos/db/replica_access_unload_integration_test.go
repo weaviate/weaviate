@@ -16,12 +16,14 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestOnlyDataChangesAndUserReadsCountAsReplicaAccess(t *testing.T) {
@@ -85,6 +87,67 @@ func TestOnlyDataChangesAndUserReadsCountAsReplicaAccess(t *testing.T) {
 				lazy.lastAccess.Store(0)
 				tt.op(t, index, lazy.Name())
 			}
+
+			require.True(t, lazy.isLoaded())
+			require.Equal(t, tt.wantAccess, lazy.LastAccess() != 0)
+		})
+	}
+}
+
+func TestBackgroundDeletesOnAReceiverCountAsAccessOnlyWhenTheyDelete(t *testing.T) {
+	ids := []strfmt.UUID{batchDeleteObjectID(0)}
+	prepare := func(ctx context.Context, index *Index, shard string) replica.SimpleResponse {
+		return index.ReplicateDeletions(ctx, shard, "r1", ids, time.Now(), false, 0)
+	}
+	bg := withBackgroundShardAccess(context.Background())
+	tests := []struct {
+		name       string
+		readOnly   bool
+		op         func(t *testing.T, index *Index, shard string)
+		wantAccess bool
+	}{
+		{name: "user replicated prepare", wantAccess: true, op: func(t *testing.T, index *Index, shard string) {
+			require.Empty(t, prepare(context.Background(), index, shard).Errors)
+			index.AbortReplication(context.Background(), shard, "r1")
+		}},
+		{name: "background replicated prepare", op: func(t *testing.T, index *Index, shard string) {
+			require.Empty(t, prepare(bg, index, shard).Errors)
+			index.AbortReplication(bg, shard, "r1")
+		}},
+		{name: "background replicated delete committed", wantAccess: true, op: func(t *testing.T, index *Index, shard string) {
+			require.Empty(t, prepare(bg, index, shard).Errors)
+			resp, ok := index.CommitReplication(bg, shard, "r1").(replica.DeleteBatchResponse)
+			require.True(t, ok)
+			require.NoError(t, resp.FirstError())
+		}},
+		{name: "background replicated prepare on a readonly shard", readOnly: true, op: func(t *testing.T, index *Index, shard string) {
+			require.NotEmpty(t, prepare(bg, index, shard).Errors)
+		}},
+		{name: "background remote batch delete", wantAccess: true, op: func(t *testing.T, index *Index, shard string) {
+			res := index.IncomingDeleteObjectBatch(bg, shard, ids, time.Now(), false, 0)
+			require.Len(t, res, 1)
+			require.NoError(t, res[0].Err)
+		}},
+		{name: "background remote batch delete dry run", op: func(t *testing.T, index *Index, shard string) {
+			res := index.IncomingDeleteObjectBatch(bg, shard, ids, time.Now(), true, 0)
+			require.Len(t, res, 1)
+			require.NoError(t, res[0].Err)
+		}},
+		{name: "background remote batch delete on a readonly shard", readOnly: true, op: func(t *testing.T, index *Index, shard string) {
+			res := index.IncomingDeleteObjectBatch(bg, shard, ids, time.Now(), false, 0)
+			require.Len(t, res, 1)
+			require.Error(t, res[0].Err)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			index, lazy := setupTTLUnloaderRepo(t, singleShardState(), batchDeleteTTLClass(), "", 2)
+			if tt.readOnly {
+				require.NoError(t, lazy.SetStatusReadonly("test"))
+			}
+			lazy.lastAccess.Store(0)
+
+			tt.op(t, index, lazy.Name())
 
 			require.True(t, lazy.isLoaded())
 			require.Equal(t, tt.wantAccess, lazy.LastAccess() != 0)

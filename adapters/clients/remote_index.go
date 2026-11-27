@@ -547,6 +547,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 	}
 
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
+	backgroundaccess.SetHeader(req)
 
 	res, err := c.client.Do(req)
 	if err != nil {

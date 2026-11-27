@@ -780,6 +780,7 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 	}
 
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
+	backgroundaccess.SetHeader(req)
 	err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
 	return resp, err
 }

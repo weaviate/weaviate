@@ -186,7 +186,7 @@ func (c *grpcReplicationClient) DeleteObjects(ctx context.Context, host, index, 
 		return replica.SimpleResponse{}, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, COMMIT_TIMEOUT_VALUE*time.Second)
+	ctx, cancel := context.WithTimeout(withBackgroundAccessMetadata(ctx), COMMIT_TIMEOUT_VALUE*time.Second)
 	defer cancel()
 
 	resp, err := client.DeleteObjects(ctx, &protocol.DeleteObjectsRequest{
@@ -632,9 +632,7 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		}
 	}
 
-	if v := backgroundaccess.Value(ctx); v != "" {
-		ctx = metadata.AppendToOutgoingContext(ctx, backgroundaccess.MetadataKey, v)
-	}
+	ctx = withBackgroundAccessMetadata(ctx)
 
 	// No explicit timeout — relies on caller's context deadline, matching REST behavior.
 	// Disable retries to match REST behavior, which had no retries for FindUUIDs.
@@ -896,4 +894,12 @@ func protoToRepairDigests(results []*protocol.RepairResponse) ([]types.RepairDig
 		}
 	}
 	return out, nil
+}
+
+// withBackgroundAccessMetadata copies ctx's background-access mark onto the outgoing gRPC metadata.
+func withBackgroundAccessMetadata(ctx context.Context) context.Context {
+	if v := backgroundaccess.Value(ctx); v != "" {
+		return metadata.AppendToOutgoingContext(ctx, backgroundaccess.MetadataKey, v)
+	}
+	return ctx
 }
