@@ -48,7 +48,7 @@ func createDataForLockTests(t *testing.T, shd ShardLike, className string, amoun
 func deleteDataForLockTests(t *testing.T, shd ShardLike, ids []strfmt.UUID) {
 	ctx := testCtx()
 	for i := 0; i < len(ids); i++ {
-		err := shd.batchDeleteObject(ctx, ids[i], time.Now())
+		_, err := shd.batchDeleteObject(ctx, ids[i], time.Now())
 		require.Nil(t, err)
 	}
 
@@ -139,7 +139,8 @@ func TestShardLock_ObjectsMaintenanceLock(t *testing.T) {
 
 		const flushEvery = 100
 		for i, id := range ids {
-			require.NoError(t, shd.batchDeleteObject(ctx, id, time.Now()))
+			_, err := shd.batchDeleteObject(ctx, id, time.Now())
+			require.NoError(t, err)
 			if i%flushEvery == flushEvery-1 {
 				require.NoError(t, objectsBucket.FlushAndSwitch())
 			}

@@ -340,6 +340,22 @@ func TestKeyRWLockerTryRLock(t *testing.T) {
 	})
 }
 
+func TestKeyRWLockerTryLock(t *testing.T) {
+	s := NewKeyRWLocker()
+	require.True(t, s.TryLock("k1"))
+	require.False(t, s.TryLock("k1"))
+	require.False(t, s.TryRLock("k1"))
+	require.True(t, s.TryLock("k2"))
+	s.Unlock("k2")
+	s.Unlock("k1")
+
+	s.RLock("k1")
+	require.False(t, s.TryLock("k1"))
+	s.RUnlock("k1")
+	require.True(t, s.TryLock("k1"))
+	s.Unlock("k1")
+}
+
 // lockPair is one locker's acquire/release pair, so one concurrent test body
 // can drive every locker type.
 type lockPair struct {
@@ -518,6 +534,16 @@ func TestKeyLockersNoAllocationOnWarmKey(t *testing.T) {
 					return errors.New("TryRLock failed on an uncontended key")
 				}
 				rwLocker.RUnlock(id)
+				return nil
+			},
+		},
+		{
+			name: "KeyRWLocker.TryLock",
+			lockUnlock: func() error {
+				if !rwLocker.TryLock(id) {
+					return errors.New("TryLock failed on an uncontended key")
+				}
+				rwLocker.Unlock(id)
 				return nil
 			},
 		},

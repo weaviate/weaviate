@@ -135,3 +135,12 @@ func TestMarshalCapsAFailedSlot(t *testing.T) {
 	require.Error(t, out.Err, "capping the text must not turn a failed slot into a success")
 	assert.NotErrorIs(t, out.Err, ErrRemoteDeleteUnreadable, "a capped message still reaches the coordinator")
 }
+
+func TestBatchSimpleObjectDeletedStaysOffTheWire(t *testing.T) {
+	raw, err := json.Marshal(BatchSimpleObject{UUID: strfmt.UUID("7c4b2aa1-2b7c-4478-8bd0-2e527e000001"), Deleted: true})
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "Deleted")
+	var got BatchSimpleObject
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.False(t, got.Deleted)
+}

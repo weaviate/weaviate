@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -303,7 +304,7 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	level := writeRoutingPlan.IntConsistencyLevel
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	ctxWithTimeout, _ := context.WithTimeout(backgroundaccess.Detached(ctx), 20*time.Second)
 	c.log.WithFields(writeRoutingPlan.LogFields()).WithFields(logrus.Fields{
 		"action":     "coordinator_push",
 		"duration":   20 * time.Second,

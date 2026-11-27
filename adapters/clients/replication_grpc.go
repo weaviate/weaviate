@@ -22,12 +22,14 @@ import (
 	"github.com/google/uuid"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -184,7 +186,7 @@ func (c *grpcReplicationClient) DeleteObjects(ctx context.Context, host, index, 
 		return replica.SimpleResponse{}, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, COMMIT_TIMEOUT_VALUE*time.Second)
+	ctx, cancel := context.WithTimeout(withBackgroundAccessMetadata(ctx), COMMIT_TIMEOUT_VALUE*time.Second)
 	defer cancel()
 
 	resp, err := client.DeleteObjects(ctx, &protocol.DeleteObjectsRequest{
@@ -630,6 +632,8 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		}
 	}
 
+	ctx = withBackgroundAccessMetadata(ctx)
+
 	// No explicit timeout — relies on caller's context deadline, matching REST behavior.
 	// Disable retries to match REST behavior, which had no retries for FindUUIDs.
 	resp, err := client.FindUUIDs(ctx, &protocol.FindUUIDsRequest{
@@ -890,4 +894,12 @@ func protoToRepairDigests(results []*protocol.RepairResponse) ([]types.RepairDig
 		}
 	}
 	return out, nil
+}
+
+// withBackgroundAccessMetadata copies ctx's background-access mark onto the outgoing gRPC metadata.
+func withBackgroundAccessMetadata(ctx context.Context) context.Context {
+	if v := backgroundaccess.Value(ctx); v != "" {
+		return metadata.AppendToOutgoingContext(ctx, backgroundaccess.MetadataKey, v)
+	}
+	return ctx
 }

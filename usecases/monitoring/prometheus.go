@@ -145,6 +145,8 @@ type PrometheusMetrics struct {
 	Shards *prometheus.GaugeVec
 
 	LazyShardWarmupDecisions *prometheus.CounterVec
+	// LazyShardReloadAfterUnload only gets samples on a node whose idle shard collector unloads shards.
+	LazyShardReloadAfterUnload prometheus.Histogram
 
 	// RAFT-based schema metrics.
 	SchemaWrites              *prometheus.HistogramVec
@@ -881,6 +883,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_lazy_shard_warmup_decisions_total",
 			Help: "Number of shards the startup warmup sweep considered, by what it did with each",
 		}, []string{"outcome"}),
+		LazyShardReloadAfterUnload: promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "weaviate_lazy_shard_reload_after_unload_seconds",
+			Help:    "Time between unloading a lazy shard and its next load; low values mean thrashing",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 16),
+		}),
 
 		// Namespaced for consistency with the rest of the weaviate_* family.
 		SchemaWrites: promauto.NewHistogramVec(prometheus.HistogramOpts{

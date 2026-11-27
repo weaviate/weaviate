@@ -21,11 +21,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -105,7 +107,7 @@ func (s *ReplicationService) DeleteObjects(ctx context.Context, req *pb.DeleteOb
 	uuids := shared.StringsToUUIDs(req.GetUuids())
 	deletionTime := time.UnixMilli(req.GetDeletionTimeUnixMilli())
 
-	resp := s.server.ReplicateDeletions(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
+	resp := s.server.ReplicateDeletions(backgroundAccessFromMetadata(ctx), req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		uuids, deletionTime, req.GetDryRun(), req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
 		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
@@ -281,7 +283,7 @@ func (s *ReplicationService) FindUUIDs(ctx context.Context, req *pb.FindUUIDsReq
 		}
 	}
 
-	uuids, err := s.server.FindUUIDs(ctx, req.GetIndex(), req.GetShard(), filter, int(req.GetLimit()))
+	uuids, err := s.server.FindUUIDs(backgroundAccessFromMetadata(ctx), req.GetIndex(), req.GetShard(), filter, int(req.GetLimit()))
 	if err != nil {
 		return nil, replicationErrorToGRPC(err)
 	}
@@ -528,4 +530,14 @@ func replicationErrorToGRPC(err error) error {
 		return status.Errorf(codes.FailedPrecondition, "%v", err)
 	}
 	return status.Errorf(codes.Internal, "%v", err)
+}
+
+// backgroundAccessFromMetadata restores a sender's background-access mark from the incoming gRPC metadata.
+func backgroundAccessFromMetadata(ctx context.Context) context.Context {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if v := md.Get(backgroundaccess.MetadataKey); len(v) > 0 {
+			return backgroundaccess.FromValue(ctx, v[0])
+		}
+	}
+	return ctx
 }

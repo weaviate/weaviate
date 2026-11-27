@@ -106,3 +106,12 @@ func TestReplicationErrorStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteBatchResponseDeletedAnyStaysOffTheWire(t *testing.T) {
+	raw, err := json.Marshal(replica.DeleteBatchResponse{Batch: []replica.UUID2Error{{UUID: "u"}}, DeletedAny: true})
+	assert.NoError(t, err)
+	assert.NotContains(t, string(raw), "DeletedAny")
+	var got replica.DeleteBatchResponse
+	assert.NoError(t, json.Unmarshal(raw, &got))
+	assert.False(t, got.DeletedAny)
+}

@@ -136,8 +136,8 @@ func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_individual_total")
 	if !dryRun {
-		err := b.shard.batchDeleteObject(ctx, uuid, deletionTime)
-		return objects.BatchSimpleObject{UUID: uuid, Err: err}
+		deleted, err := b.shard.batchDeleteObject(ctx, uuid, deletionTime)
+		return objects.BatchSimpleObject{UUID: uuid, Err: err, Deleted: deleted}
 	}
 
 	return objects.BatchSimpleObject{UUID: uuid, Err: nil}

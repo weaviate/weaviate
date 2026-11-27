@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -161,12 +162,28 @@ func Test_ServerReplicationService(t *testing.T) {
 				c := "C"
 				s := "S"
 				limit := 10
-				mockReplicator.EXPECT().FindUUIDs(mock.Anything, c, s, (*filters.LocalFilter)(nil), limit).Return([]strfmt.UUID{"uuid1", "uuid2"}, nil)
+				mockReplicator.EXPECT().FindUUIDs(mock.Anything, c, s, (*filters.LocalFilter)(nil), limit).Return([]strfmt.UUID{"uuid1", "uuid2"}, nil).Once()
 				resp, err := client.FindUUIDs(context.Background(), host, c, s, nil, limit)
 				require.NoError(t, err)
 				require.Len(t, resp, 2)
 				require.Equal(t, strfmt.UUID("uuid1"), resp[0])
 				require.Equal(t, strfmt.UUID("uuid2"), resp[1])
+			})
+
+			t.Run("FindUUIDs carries the background mark", func(t *testing.T) {
+				for _, background := range []bool{false, true} {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					if background {
+						ctx = backgroundaccess.With(ctx)
+					}
+					mockReplicator.EXPECT().FindUUIDs(mock.MatchedBy(func(ctx context.Context) bool {
+						return backgroundaccess.Is(ctx) == background
+					}), "C", "S", (*filters.LocalFilter)(nil), 10).Return([]strfmt.UUID{"uuid1"}, nil).Once()
+					resp, err := client.FindUUIDs(ctx, host, "C", "S", nil, 10)
+					cancel()
+					require.NoError(t, err)
+					require.Equal(t, []strfmt.UUID{"uuid1"}, resp)
+				}
 			})
 
 			t.Run("DeleteObject", func(t *testing.T) {
@@ -190,10 +207,28 @@ func Test_ServerReplicationService(t *testing.T) {
 				deletionTime := time.UnixMilli(1234567890000)
 				dryRun := true
 				var schemaVersion uint64 = 1
-				mockReplicator.EXPECT().ReplicateDeletions(mock.Anything, c, s, requestID, uuids, deletionTime, dryRun, schemaVersion).Return(replica.SimpleResponse{})
+				mockReplicator.EXPECT().ReplicateDeletions(mock.Anything, c, s, requestID, uuids, deletionTime, dryRun, schemaVersion).Return(replica.SimpleResponse{}).Once()
 				resp, err := client.DeleteObjects(context.Background(), host, c, s, requestID, uuids, deletionTime, dryRun, schemaVersion)
 				require.NoError(t, err)
 				require.Empty(t, resp.Errors)
+			})
+
+			t.Run("DeleteObjects carries the background mark", func(t *testing.T) {
+				uuids := []strfmt.UUID{"del1"}
+				deletionTime := time.UnixMilli(1234567890000)
+				for _, background := range []bool{false, true} {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					if background {
+						ctx = backgroundaccess.With(ctx)
+					}
+					mockReplicator.EXPECT().ReplicateDeletions(mock.MatchedBy(func(ctx context.Context) bool {
+						return backgroundaccess.Is(ctx) == background
+					}), "C", "S", "req-ttl", uuids, deletionTime, false, uint64(1)).Return(replica.SimpleResponse{}).Once()
+					resp, err := client.DeleteObjects(ctx, host, "C", "S", "req-ttl", uuids, deletionTime, false, 1)
+					cancel()
+					require.NoError(t, err)
+					require.Empty(t, resp.Errors)
+				}
 			})
 
 			t.Run("MergeObject", func(t *testing.T) {

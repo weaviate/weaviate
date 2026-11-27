@@ -176,6 +176,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		ec.AddGroups(err, class.Class)
 		return
 	}
+	ctx = withBackgroundShardAccess(ctx)
 
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLessThanEqual,

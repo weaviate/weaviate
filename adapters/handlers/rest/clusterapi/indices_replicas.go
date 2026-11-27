@@ -31,6 +31,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/backgroundaccess"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -984,7 +985,8 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 			return
 		}
 
-		resp := i.replicator.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
+		ctx := backgroundaccess.FromHeader(r.Context(), r.Header)
+		resp := i.replicator.ReplicateDeletions(ctx, index, shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
 		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

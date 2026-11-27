@@ -560,6 +560,19 @@ func (p *ReindexProvider) processOneUnit(
 		p.failUnit(ctx, task, unitID, recorder, err.Error())
 		return
 	}
+	unpin, err := idx.pinForBackgroundScan(shard)
+	if errors.Is(err, errShutdownInProgress) || errors.Is(err, errDropInProgress) {
+		p.teardownHeldSampler().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("taskID", task.ID).WithField("unit", unitID).WithField("shard", shardName).
+				Warnf("reindex provider: shard is shutting down, so the unit is not started; the next tick retries it: %v", err)
+		})
+		return
+	}
+	if err != nil {
+		p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("pin shard: %v", err))
+		return
+	}
+	defer unpin()
 
 	// Load up front, so a shard that cannot load fails the unit before it is claimed.
 	concreteShard, unwrapErr := unwrapShard(ctx, shard)
@@ -1325,6 +1338,17 @@ func (p *ReindexProvider) runPerUnitPhase(
 			}()
 			return
 		}
+		unpin, err := idx.pinForBackgroundScan(res.Shard)
+		if err != nil {
+			func() {
+				aggMu.Lock()
+				defer aggMu.Unlock()
+				agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: pin shard %q: %v", unitID, res.Shard.Name(), err))
+				agg.Transient = true
+			}()
+			return
+		}
+		defer unpin()
 
 		if p.unitWaitsOnHold(res.Shard, task.ID, unitID) {
 			func() {

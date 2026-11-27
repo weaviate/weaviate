@@ -446,7 +446,9 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 	i.backupLock.RLock(shard)
 	defer i.backupLock.RUnlock(shard)
 
-	return localShard.commitReplication(ctx, requestID)
+	resp := localShard.commitReplication(ctx, requestID)
+	i.recordReplicatedDeletions(localShard, resp)
+	return resp
 }
 
 // AbortReplication drops the task a prepare left on the shard, reading the
@@ -471,6 +473,7 @@ func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) a
 func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	filePath string,
 ) (io.WriteCloser, error) {
+	ctx = withBackgroundShardAccess(ctx)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("incoming file putter get shard %s err: %w", shardName, err)
@@ -684,6 +687,7 @@ func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
+	ctx = withBackgroundShardAccess(ctx)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("incoming add async replication get shard %s err: %w", shardName, err)
@@ -705,6 +709,7 @@ func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
 	shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
+	ctx = withBackgroundShardAccess(ctx)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("incoming remove async replication get shard %s err: %w", shardName, err)
@@ -722,6 +727,7 @@ func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
 func (i *Index) IncomingRemoveAllAsyncReplicationTargetNodes(ctx context.Context,
 	shardName string,
 ) error {
+	ctx = withBackgroundShardAccess(ctx)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("incoming remove all async replication get shard %s err: %w", shardName, err)
@@ -778,6 +784,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	}
 
 	var result []types.RepairResponse
+	applied := 0
 
 	updateBatch := make([]*storobj.Object, 0, len(updates))
 
@@ -898,6 +905,8 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 					Err: fmt.Sprintf("overwrite deleted object: %v", err),
 				}
 				result = append(result, r)
+			} else {
+				applied++
 			}
 			continue
 		}
@@ -916,11 +925,13 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 	if len(updateBatch) > 0 {
 		errs := s.PutObjectBatch(ctx, updateBatch)
+		applied += len(updateBatch)
 		if len(errs) != 0 {
 			for i := range errs {
 				id := updateBatch[i].ID()
 				err := errs[i]
 				if err != nil {
+					applied--
 					r := types.RepairResponse{
 						ID:  id.String(),
 						Err: fmt.Sprintf("overwrite stale object: %v", err),
@@ -929,6 +940,11 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 				}
 			}
 		}
+	}
+
+	// Only a repair that changed data counts as access; comparing alone does not.
+	if applied > 0 {
+		idx.recordShardAccess(ctx, s)
 	}
 
 	return result, nil

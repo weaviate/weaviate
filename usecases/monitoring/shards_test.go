@@ -13,7 +13,9 @@ package monitoring
 
 import (
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -282,4 +284,14 @@ func TestRecordWarmupOutcomeToleratesNilMetrics(t *testing.T) {
 	assert.NotPanics(t, func() {
 		nilMetrics.RecordWarmupOutcome(WarmupLoaded)
 	})
+}
+
+func TestObserveLazyShardReloadAfterUnload(t *testing.T) {
+	var nilMetrics *PrometheusMetrics
+	assert.NotPanics(t, func() { nilMetrics.ObserveLazyShardReloadAfterUnload(time.Second) })
+
+	m := *GetMetrics()
+	m.LazyShardReloadAfterUnload = prometheus.NewHistogram(prometheus.HistogramOpts{Name: "reload_after_unload_test"})
+	require.Zero(t, testing.AllocsPerRun(100, func() { m.ObserveLazyShardReloadAfterUnload(90 * time.Second) }))
+	require.Equal(t, 1, testutil.CollectAndCount(m.LazyShardReloadAfterUnload))
 }

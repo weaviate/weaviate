@@ -170,6 +170,7 @@ weaviate_shards{state="loaded",registration="lazy"}
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
 | `weaviate_lazy_shard_warmup_decisions_total` | Number of shards the startup warmup sweep considered, by what it did with each: `loaded`, `failed`, `skipped_shard_gone`, `skipped_already_loaded`, `skipped_empty`, `skipped_below_threshold`, `skipped_namespace_unknown` | `Counter` | `outcome` | - Low 
+| `weaviate_lazy_shard_reload_after_unload_seconds` | Time between unloading a lazy shard and its next load; only a node whose idle shard collector unloads shards records samples; buckets 1s to ~9h | `Histogram` | `-` | - Low 
 
 #### Shard Load Limiter Metrics
 | Name | Description | Type | Labels | High Cardinality |
@@ -214,6 +215,16 @@ Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed We
 | `weaviate_self_recovery_unreachable_peer_total` | Probes that failed to reach a peer (transport or timeout), by peer | `Counter` | `peer` | - Low (bounded by cluster size) 
 | `weaviate_self_recovery_giveup_total` | Self-recovery attempts that exhausted retries without reaching READY; alert on this | `Counter` | `-` | - Low 
 | `weaviate_self_recovery_accept_empty_total` | Operator invocations of the accept-empty escape hatch | `Counter` | `-` | - Low 
+
+#### Idle Shard Collector Metrics
+Registered only on a licensed node with lazy loading enabled; any other node exposes none of them. No metric carries a per-shard or per-namespace label, so the series count stays bounded however many namespaces exist. An unload attempt's `result` is `ok` when the shard was unloaded and `failed` when it stayed loaded; no reason is recorded. Watch low values of `weaviate_lazy_shard_reload_after_unload_seconds` for thrashing.
+
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_idle_shard_collector_loaded_shards` | Loaded lazy shards on this node | `Gauge` | `-` | - Low 
+| `weaviate_idle_shard_collector_unloading_shards` | Lazy shard unloads in flight on this node | `Gauge` | `-` | - Low 
+| `weaviate_idle_shard_collector_unloads_total` | Idle shard unload attempts by `result` (`ok` or `failed`) | `Counter` | `result` | - Low 
+| `weaviate_idle_shard_collector_unload_duration_seconds` | Duration of successful lazy shard unloads (flush and close); buckets 1ms to ~33s | `Histogram` | `-` | - Low 
 
 #### Async Checkpoint Metrics
 Checkpoints of unloaded shards, answered from their persisted hashtree, are counted like those of loaded shards. Every checkpoint leaves exactly once: as expired if it outlived its max lifetime, otherwise as a delete, replacement or clear.
