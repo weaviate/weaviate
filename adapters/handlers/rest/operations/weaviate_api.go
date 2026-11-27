@@ -1281,13 +1281,11 @@ func (o *WeaviateAPI) Validate() error {
 }
 
 // ServeErrorFor gets a error handler for a given operation id
-// TODO(dyma): delete this method, it's not used anywhere
 func (o *WeaviateAPI) ServeErrorFor(operationID string) func(http.ResponseWriter, *http.Request, error) {
 	return o.ServeError
 }
 
 // AuthenticatorsFor gets the authenticators for the specified security schemes
-// TODO(dyma): delete this method, it's not used anywhere
 func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) map[string]runtime.Authenticator {
 	result := make(map[string]runtime.Authenticator)
 	for name := range schemes {
@@ -1296,6 +1294,7 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
+
 		}
 	}
 	return result
