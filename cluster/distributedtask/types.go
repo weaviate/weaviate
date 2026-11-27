@@ -26,6 +26,37 @@ type TaskLister interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*Task, error)
 }
 
+type TaskCopySource interface {
+	UpdateTaskCopy(c *TaskCopy) error
+}
+
+// TaskCopy holds the [Scheduler]'s own copy of every task, written only by [Manager.UpdateTaskCopy].
+type TaskCopy struct {
+	tasks map[string]map[string]*Task
+}
+
+// Tasks returns the copy's tasks, which the next update may change.
+func (c *TaskCopy) Tasks() map[string]map[TaskDescriptor]*Task {
+	result := make(map[string]map[TaskDescriptor]*Task, len(c.tasks))
+	for namespace, tasks := range c.tasks {
+		if len(tasks) == 0 {
+			continue
+		}
+		result[namespace] = make(map[TaskDescriptor]*Task, len(tasks))
+		for _, task := range tasks {
+			result[namespace][task.TaskDescriptor] = task
+		}
+	}
+	return result
+}
+
+func (c *TaskCopy) set(namespace, taskID string, task *Task) {
+	if c.tasks[namespace] == nil {
+		c.tasks[namespace] = map[string]*Task{}
+	}
+	c.tasks[namespace][taskID] = task
+}
+
 // SchedulerNotifier is implemented by the [Scheduler] and consumed by the
 // [Manager] to request an early scheduling cycle after a task-state
 // change applies via Raft. Without this hook the scheduler only reacts on
@@ -671,6 +702,39 @@ func (t *Task) Clone() *Task {
 	clone.PreparedGroups = maps.Clone(t.PreparedGroups)
 	clone.NodePreparationAcks = maps.Clone(t.NodePreparationAcks)
 	return &clone
+}
+
+func (t *Task) copyChangesFrom(src *Task, change *taskChange) {
+	t.Status, t.StartedAt, t.FinishedAt, t.Error = src.Status, src.StartedAt, src.FinishedAt, src.Error
+	t.NodePreparationAcks = maps.Clone(src.NodePreparationAcks)
+	t.PostCompletionAcks = maps.Clone(src.PostCompletionAcks)
+	t.groups, t.groupCount = src.groups, src.groupCount
+	for id := range change.units {
+		u, ok := src.Units[id]
+		if !ok {
+			delete(t.Units, id)
+			continue
+		}
+		cp := *u
+		t.Units[id] = &cp
+	}
+	for group := range change.groups {
+		copyEntry(&t.PreparedGroups, src.PreparedGroups, group)
+		copyEntry(&t.SwapDecidedGroups, src.SwapDecidedGroups, group)
+		copyEntry(&t.SwapsOwed, src.SwapsOwed, group)
+	}
+}
+
+func copyEntry[V any](dst *map[string]V, src map[string]V, key string) {
+	v, ok := src[key]
+	if !ok {
+		delete(*dst, key)
+		return
+	}
+	if *dst == nil {
+		*dst = map[string]V{}
+	}
+	(*dst)[key] = v
 }
 
 func (t *Task) decideSwap(group string, at time.Time) {

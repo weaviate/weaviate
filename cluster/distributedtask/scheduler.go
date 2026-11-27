@@ -107,7 +107,8 @@ type Scheduler struct {
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
-	taskLister         TaskLister
+	taskSource         TaskCopySource
+	taskCopy           TaskCopy
 	taskCleaner        TaskCleaner
 	taskFinalizer      TaskFinalizer
 	ackRecorder        PostCompletionAckRecorder
@@ -177,7 +178,7 @@ type Scheduler struct {
 
 type SchedulerParams struct {
 	CompletionRecorder TaskCompletionRecorder
-	TaskLister         TaskLister
+	TaskSource         TaskCopySource
 	TaskCleaner        TaskCleaner
 	TaskFinalizer      TaskFinalizer
 	// AckRecorder publishes per-node phase results via RAFT. nil in unit
@@ -211,7 +212,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		providers:          params.Providers,
 		completionRecorder: params.CompletionRecorder,
 		perTaskState:       map[TaskDescriptor]*taskSchedulerState{},
-		taskLister:         params.TaskLister,
+		taskSource:         params.TaskSource,
 		taskCleaner:        params.TaskCleaner,
 		taskFinalizer:      params.TaskFinalizer,
 		ackRecorder:        params.AckRecorder,
@@ -276,7 +277,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	// once the cluster is ready, and will run the deferred bootstrap on the
 	// first successful tick so post-restart callback replay is still
 	// suppressed.
-	tasksByNamespace, err := s.listTasks(ctx)
+	tasksByNamespace, err := s.listTasks()
 	if err != nil {
 		s.logger.Warnf("initial distributed task listing failed; bootstrap deferred to first successful tick: %v", err)
 	} else {
@@ -394,7 +395,8 @@ func (s *Scheduler) cleanupStaleTasks(namespace string, provider Provider, tasks
 // startActiveTasks launches tasks that are currently active and have pending work on this node.
 func (s *Scheduler) startActiveTasks(namespace string, provider Provider, startedTasks map[TaskDescriptor]*Task) {
 	for desc, task := range startedTasks {
-		handle, err := provider.StartTask(task)
+		// StartTask gets a clone, because its handle reads the task after later updates write the copy.
+		handle, err := provider.StartTask(task.Clone())
 		if err != nil {
 			s.loggerWithTask(namespace, desc).
 				Errorf("failed to start distributed task during bootstrap: %v", err)
@@ -511,7 +513,7 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[T
 }
 
 func (s *Scheduler) tick() {
-	tasksByNamespace, err := s.listTasks(context.Background())
+	tasksByNamespace, err := s.listTasks()
 	if err != nil {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 			l.Errorf("failed to list distributed tasks: %v", err)
@@ -717,7 +719,7 @@ func (s *Scheduler) reconcileRunningTasks(
 	// Phase 2: launch and terminate without the lock — both can block on
 	// I/O. Each per-handle commit is its own deferred-Unlock closure.
 	for _, activeTask := range toStart {
-		handle, err := provider.StartTask(activeTask)
+		handle, err := provider.StartTask(activeTask.Clone())
 		if err != nil {
 			s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 				s.loggerWithTask(namespace, activeTask.TaskDescriptor).
@@ -968,7 +970,7 @@ func (s *Scheduler) runSwapPhase(
 	if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
 		afterAckState.postCompletionAckEmitted = true
 	}
-	// Mirrors the FSM's ack record onto the per-tick clone so later phases see it without re-listing.
+	// Mirrors the FSM's ack record onto the copy so later phases see it before the next update brings the FSM's value.
 	if task.PostCompletionAcks == nil {
 		task.PostCompletionAcks = map[string]PostCompletionAck{}
 	}
@@ -1251,20 +1253,11 @@ func (s *Scheduler) runFinalizePhase(
 	}
 }
 
-func (s *Scheduler) listTasks(ctx context.Context) (map[string]map[TaskDescriptor]*Task, error) {
-	tasksByNamespace, err := s.taskLister.ListDistributedTasks(ctx)
-	if err != nil {
+func (s *Scheduler) listTasks() (map[string]map[TaskDescriptor]*Task, error) {
+	if err := s.taskSource.UpdateTaskCopy(&s.taskCopy); err != nil {
 		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}
-
-	result := make(map[string]map[TaskDescriptor]*Task, len(tasksByNamespace))
-	for namespace, tasks := range tasksByNamespace {
-		result[namespace] = make(map[TaskDescriptor]*Task, len(tasks))
-		for _, task := range tasks {
-			result[namespace][task.TaskDescriptor] = task
-		}
-	}
-	return result, nil
+	return s.taskCopy.Tasks(), nil
 }
 
 // recordRunningTaskHandleLocked stores a freshly-launched task handle in

@@ -320,7 +320,7 @@ func newMultiSchedulerHarnessWithOptions(t *testing.T, nodeIDs []string, withAck
 		prov := newRecordingUnitAwareProvider(t)
 		params := SchedulerParams{
 			CompletionRecorder: h.completionRec,
-			TaskLister:         mgr,
+			TaskSource:         mgr,
 			TaskCleaner:        h.cleaner,
 			TaskFinalizer:      h.finalizer,
 			Providers:          map[string]Provider{h.namespace: prov},

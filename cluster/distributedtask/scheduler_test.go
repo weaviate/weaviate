@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -697,7 +699,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
-		TaskLister:         h.manager,
+		TaskSource:         h.manager,
 		TaskCleaner:        h.cleaner,
 		TaskFinalizer:      newDirectFinalizer(t, h.manager, h.clock),
 		AckRecorder:        h.ackRecorder,
@@ -1116,18 +1118,18 @@ type flappyTasksLister struct {
 	mu        sync.Mutex
 	failsLeft int
 	err       error
-	inner     TaskLister
+	inner     TaskCopySource
 }
 
-func (f *flappyTasksLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
+func (f *flappyTasksLister) UpdateTaskCopy(c *TaskCopy) error {
 	f.mu.Lock()
 	if f.failsLeft > 0 {
 		f.failsLeft--
 		f.mu.Unlock()
-		return nil, f.err
+		return f.err
 	}
 	f.mu.Unlock()
-	return f.inner.ListDistributedTasks(ctx)
+	return f.inner.UpdateTaskCopy(c)
 }
 
 // unitAwareTestProvider records OnGroupCompleted / OnTaskCompleted calls so
@@ -1222,7 +1224,7 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	require.Len(t, tasks, 1)
 	require.Equal(t, TaskStatusFinished, tasks[0].Status)
 
-	// Replace the scheduler's TaskLister with a flappy one that fails the
+	// Replace the scheduler's task source with a flappy one that fails the
 	// first call (Start() time) and succeeds afterwards.
 	flappy := &flappyTasksLister{
 		failsLeft: 1,
@@ -1231,7 +1233,7 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	}
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
-		TaskLister:         flappy,
+		TaskSource:         flappy,
 		TaskCleaner:        h.cleaner,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
@@ -1371,7 +1373,7 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TaskLister:         nil,
+		TaskSource:         nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1471,7 +1473,7 @@ func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) 
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TaskLister:         nil,
+		TaskSource:         nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1524,7 +1526,7 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TaskLister:         nil,
+		TaskSource:         nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1588,7 +1590,7 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TaskLister:         nil,
+		TaskSource:         nil,
 		TaskCleaner:        nil,
 	})
 
@@ -2097,4 +2099,91 @@ func TestScheduler_AckErrorIsCappedAcrossManyFailingGroups(t *testing.T) {
 	require.Contains(t, msg, "1000 group(s) failed")
 	require.Contains(t, msg, `group="tenant-0000": {swap failed}`)
 	require.Contains(t, msg, "(and 990 more)")
+}
+
+// unitReadingProvider's handle reads its task's units until terminated, as a reindex handle does.
+type unitReadingProvider struct {
+	mu      sync.Mutex
+	started []TaskDescriptor
+	handles []*unitReadingHandle
+}
+
+type unitReadingHandle struct {
+	stop, done chan struct{}
+	once       sync.Once
+}
+
+func (h *unitReadingHandle) Terminate()            { h.once.Do(func() { close(h.stop) }) }
+func (h *unitReadingHandle) Done() <-chan struct{} { return h.done }
+
+func (p *unitReadingProvider) SetCompletionRecorder(TaskCompletionRecorder) {}
+func (p *unitReadingProvider) CleanupTask(TaskDescriptor) error             { return nil }
+
+func (p *unitReadingProvider) GetLocalTasks() []TaskDescriptor {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.started)
+}
+
+func (p *unitReadingProvider) StartTask(task *Task) (TaskHandle, error) {
+	h := &unitReadingHandle{stop: make(chan struct{}), done: make(chan struct{})}
+	go func() {
+		defer close(h.done)
+		for {
+			select {
+			case <-h.stop:
+				return
+			default:
+			}
+			for _, u := range task.Units {
+				_ = u.Progress
+			}
+			runtime.Gosched()
+		}
+	}()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.started = append(p.started, task.TaskDescriptor)
+	p.handles = append(p.handles, h)
+	return h, nil
+}
+
+func (p *unitReadingProvider) stopAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, h := range p.handles {
+		h.Terminate()
+		<-h.done
+	}
+}
+
+// A started task's handle keeps reading its units after the tick, while later updates write the scheduler's copy.
+func TestStartedTaskReadsItsUnitsWhileTheCopyUpdates(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		start func(t *testing.T, s *Scheduler)
+	}{
+		{name: "started at bootstrap", start: func(t *testing.T, s *Scheduler) {
+			tasks, err := s.listTasks()
+			require.NoError(t, err)
+			s.bootstrapProviders(tasks)
+		}},
+		{name: "started by a tick", start: func(_ *testing.T, s *Scheduler) { s.tick() }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &unitReadingProvider{}
+			h := newTestHarness(t)
+			h.registeredProviders = map[string]Provider{h.tasksNamespace: p}
+			h = h.init(t)
+			addTaskWithUnits(t, h, h.tasksNamespace, "t", 1, []string{"u-1", "u-2"})
+
+			tt.start(t, h.scheduler)
+			require.Len(t, p.GetLocalTasks(), 1)
+			for i := 1; i <= 50; i++ {
+				updateProgress(t, h, h.tasksNamespace, "t", 1, h.localNodeID, "u-1", float32(i)/100)
+				h.scheduler.tick()
+			}
+			p.stopAll()
+		})
+	}
 }

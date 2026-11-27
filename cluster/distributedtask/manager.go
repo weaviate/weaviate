@@ -69,6 +69,79 @@ type Manager struct {
 	// Manager's write lock to ensure every successful apply produces a
 	// wake-up that observers cannot miss.
 	notifier SchedulerNotifier
+
+	changes map[string]map[string]*taskChange
+	copied  *TaskCopy
+}
+
+// taskChange marks what changed in one task. A task-level change needs no mark of
+// its own, since UpdateTaskCopy copies the task-level fields of every marked task.
+type taskChange struct {
+	addedOrRemoved bool
+	units          map[string]struct{}
+	groups         map[string]struct{}
+}
+
+func (c *taskChange) unit(id string) {
+	if c.units == nil {
+		c.units = map[string]struct{}{}
+	}
+	c.units[id] = struct{}{}
+}
+
+func (c *taskChange) group(group string) {
+	if c.groups == nil {
+		c.groups = map[string]struct{}{}
+	}
+	c.groups[group] = struct{}{}
+}
+
+func (m *Manager) markWithLock(namespace, taskID string) *taskChange {
+	byID := m.changes[namespace]
+	if byID == nil {
+		byID = map[string]*taskChange{}
+		m.changes[namespace] = byID
+	}
+	change := byID[taskID]
+	if change == nil {
+		change = &taskChange{}
+		byID[taskID] = change
+	}
+	return change
+}
+
+// UpdateTaskCopy brings c up to date in time proportional to the entries changed
+// since the last call. A copy other than the last one gets a full copy, so the
+// change log serves one consumer, the scheduler.
+func (m *Manager) UpdateTaskCopy(c *TaskCopy) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	defer clear(m.changes)
+
+	if c != m.copied {
+		m.copied = c
+		c.tasks = make(map[string]map[string]*Task, len(m.tasks))
+		for namespace, tasks := range m.tasks {
+			for id, task := range tasks {
+				c.set(namespace, id, task.Clone())
+			}
+		}
+		return nil
+	}
+	for namespace, byID := range m.changes {
+		for id, change := range byID {
+			src, dst := m.tasks[namespace][id], c.tasks[namespace][id]
+			switch {
+			case src == nil:
+				delete(c.tasks[namespace], id)
+			case dst == nil || change.addedOrRemoved:
+				c.set(namespace, id, src.Clone())
+			default:
+				dst.copyChangesFrom(src, change)
+			}
+		}
+	}
+	return nil
 }
 
 // CheckPropertyUpdate returns the first conflict a detector reports for this update, before the FSM applies it.
@@ -253,6 +326,7 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 	return &Manager{
 		tasks:                  make(map[string]map[string]*Task),
+		changes:                make(map[string]map[string]*taskChange),
 		headerDecoders:         headerDecoders,
 		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
@@ -367,6 +441,7 @@ func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, target
 	var removed []TaskDescriptor
 	for _, hit := range matches {
 		delete(m.tasks[hit.namespace], hit.taskID)
+		m.markWithLock(hit.namespace, hit.taskID).addedOrRemoved = true
 		removed = append(removed, hit.desc)
 	}
 	return removed, nil
@@ -382,7 +457,7 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	defer m.mu.Unlock()
 
 	var removed []TaskDescriptor
-	for _, tasksByID := range m.tasks {
+	for namespace, tasksByID := range m.tasks {
 		for taskID, task := range tasksByID {
 			// EqualFold, matching PurgeTasksForCollectionTargetVectors and every
 			// payload consumer: collection names are case-insensitive
@@ -392,6 +467,7 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 				continue
 			}
 			delete(tasksByID, taskID)
+			m.markWithLock(namespace, taskID).addedOrRemoved = true
 			removed = append(removed, task.TaskDescriptor)
 		}
 	}
@@ -407,6 +483,13 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 			if task.Status.IsActive() || !task.NeedsPreparationBarrier ||
 				!strings.EqualFold(task.collection(), collection) {
 				continue
+			}
+			change := m.markWithLock(namespace, task.ID)
+			for _, group := range groups {
+				change.group(group)
+				for _, id := range task.groups[group] {
+					change.unit(id)
+				}
 			}
 			task.forgetGroups(groups)
 		}
@@ -511,6 +594,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 
 	newTask.header = m.headerFor(newTask.Namespace, newTask.Payload)
 	m.setTaskWithLock(newTask)
+	m.markWithLock(newTask.Namespace, newTask.ID).addedOrRemoved = true
 	m.notifySchedulerWithLock()
 
 	return nil
@@ -566,6 +650,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	m.markWithLock(r.Namespace, r.Id).unit(r.UnitId)
 
 	if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 		return wrapPermanent(ErrUnitAlreadyTerminal,
@@ -645,8 +730,10 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
 	if task.NeedsPreparationBarrier {
 		if r.Success {
+			change.group(r.GroupId)
 			task.paySwap(r.GroupId, r.NodeId)
 		}
 		m.notifySchedulerWithLock()
@@ -733,6 +820,10 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
+	if r.GroupId != nil {
+		change.group(*r.GroupId)
+	}
 
 	switch task.Status {
 	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled, TaskStatusSwapping:
@@ -815,6 +906,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	m.markWithLock(r.Namespace, r.Id)
 
 	switch task.Status {
 	case TaskStatusFinished:
@@ -859,6 +951,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	m.markWithLock(r.Namespace, r.Id)
 
 	switch task.Status {
 	case TaskStatusFailed:
@@ -907,6 +1000,7 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	m.markWithLock(r.Namespace, r.Id).unit(r.UnitId)
 
 	if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 		return nil // silently ignore progress updates for terminal units
@@ -965,6 +1059,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	m.markWithLock(r.Namespace, r.Id)
 
 	if task.Status == TaskStatusSwapping {
 		return wrapPermanent(ErrNothingLeftToCancel,
@@ -1002,6 +1097,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	}
 
 	delete(m.tasks[task.Namespace], task.ID)
+	m.markWithLock(task.Namespace, task.ID).addedOrRemoved = true
 	return nil
 }
 
@@ -1183,6 +1279,7 @@ func (m *Manager) Restore(bytes []byte) error {
 	// (e.g. records purged on a drop-vector marker introduction), and this
 	// node alone would then refuse applies its peers accept.
 	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
+	m.copied = nil
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {

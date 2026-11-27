@@ -97,16 +97,16 @@ func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
 
-// SchedulerTaskLister fails while no leader is known, so a quorum loss skips the tick.
-func (s *Raft) SchedulerTaskLister() distributedtask.TaskLister { return schedulerTaskLister{s} }
+// SchedulerTaskSource fails while no leader is known, so a quorum loss skips the tick.
+func (s *Raft) SchedulerTaskSource() distributedtask.TaskCopySource { return schedulerTaskSource{s} }
 
-type schedulerTaskLister struct{ s *Raft }
+type schedulerTaskSource struct{ s *Raft }
 
-func (l schedulerTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+func (l schedulerTaskSource) UpdateTaskCopy(c *distributedtask.TaskCopy) error {
 	if l.s.store.Leader() == "" {
-		return nil, l.s.leaderErr()
+		return l.s.leaderErr()
 	}
-	return l.s.LocalDistributedTasks(), nil
+	return l.s.store.distributedTasksManager.UpdateTaskCopy(c)
 }
 
 // FSMHasCaughtUp reports only that the log held at store open was replayed.

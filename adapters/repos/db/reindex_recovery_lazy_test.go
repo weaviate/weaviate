@@ -1010,20 +1010,20 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
-			task := &distributedtask.Task{
+			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: fx.logger})
+			restoreTask(t, mgr, &distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: fx.desc, Payload: raw, Status: tc.status,
 				NeedsPreparationBarrier: true,
 				Units: map[string]*distributedtask.Unit{unitID: {
 					ID: unitID, GroupID: fx.name, NodeID: node, Status: tc.unit,
 				}},
-			}
-			task.IndexGroups()
-			outcome := &heldStepOutcome{task: task, done: make(chan string, 4)}
+			})
+			outcome := &heldStepOutcome{done: make(chan string, 4)}
 			fx.logger.(*logrus.Logger).SetLevel(logrus.DebugLevel)
 			logs := test.NewLocal(fx.logger.(*logrus.Logger))
 			sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
 				CompletionRecorder: outcome, AckRecorder: outcome,
-				TaskLister: outcome,
+				TaskSource: mgr,
 				Providers:  map[string]distributedtask.Provider{ReindexNamespace: fx.provider},
 				Logger:     fx.logger, LocalNode: node, TickInterval: 200 * time.Millisecond,
 			})
@@ -1062,7 +1062,6 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 
 // heldStepOutcome sends to done each verdict the scheduler records for the step: a prepare ack, a swap ack or a unit result.
 type heldStepOutcome struct {
-	task *distributedtask.Task
 	done chan string
 }
 
@@ -1071,10 +1070,6 @@ func (o *heldStepOutcome) verdict(ok bool, msg string) {
 		msg = "succeeded"
 	}
 	o.done <- msg
-}
-
-func (o *heldStepOutcome) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
-	return map[string][]*distributedtask.Task{ReindexNamespace: {o.task}}, nil
 }
 
 func (o *heldStepOutcome) RecordDistributedTaskPreparationCompleteAck(_ context.Context, _, _ string, _ uint64, _, _ string, ok bool, msg string) error {
@@ -1557,7 +1552,7 @@ func TestAHeldCommittedSwapWaitsAndKeepsItsDebt(t *testing.T) {
 	sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: &heldStepOutcome{done: make(chan string, 16)},
 		AckRecorder:        managerAckRecorder{mgr},
-		TaskLister:         mgr,
+		TaskSource:         mgr,
 		Providers:          map[string]distributedtask.Provider{ReindexNamespace: fx.provider},
 		Logger:             fx.logger, LocalNode: node, TickInterval: 50 * time.Millisecond,
 	})
@@ -1587,21 +1582,21 @@ func restoreSwappingTask(t *testing.T, mgr *distributedtask.Manager, desc distri
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	type taskWithUnits struct {
-		*distributedtask.Task
-		Units map[string]*distributedtask.Unit `json:"units"`
-	}
-	snapshot, err := json.Marshal(map[string]map[string][]taskWithUnits{"tasks": {ReindexNamespace: {{
-		Task: &distributedtask.Task{
-			Namespace: ReindexNamespace, TaskDescriptor: desc, Payload: raw,
-			Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true,
-			SwapDecidedGroups: map[string]time.Time{group: time.Now()},
-			SwapsOwed:         map[string][]string{group: {node}},
-		},
+	restoreTask(t, mgr, &distributedtask.Task{
+		Namespace: ReindexNamespace, TaskDescriptor: desc, Payload: raw,
+		Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true,
+		SwapDecidedGroups: map[string]time.Time{group: time.Now()},
+		SwapsOwed:         map[string][]string{group: {node}},
 		Units: map[string]*distributedtask.Unit{unitID: {
 			ID: unitID, GroupID: group, NodeID: node, Status: distributedtask.UnitStatusCompleted,
 		}},
-	}}}})
+	})
+}
+
+// restoreTask makes task the only task mgr holds.
+func restoreTask(t *testing.T, mgr *distributedtask.Manager, task *distributedtask.Task) {
+	t.Helper()
+	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {task.Namespace: {task}}})
 	require.NoError(t, err)
 	require.NoError(t, mgr.Restore(snapshot))
 }

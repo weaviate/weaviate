@@ -84,7 +84,7 @@ func TestReindexStaleTaskCopyCannotRevertANewerFlip(t *testing.T) {
 
 	provider := &staleCopyFlipProvider{leader: leader, schema: schema}
 	sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
-		TaskLister:    node,
+		TaskSource:    node,
 		TaskFinalizer: leaderFinalizer{leader: leader},
 		Providers:     map[string]distributedtask.Provider{ReindexNamespace: provider},
 		Logger:        logger,

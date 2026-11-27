@@ -15,6 +15,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -123,7 +125,7 @@ func TestSchedulerTickSurvivesUnreachableLeader(t *testing.T) {
 	clock := clockwork.NewFakeClock()
 	provider := &tickCountingProvider{}
 	sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
-		TaskLister:       srv.SchedulerTaskLister(),
+		TaskSource:       srv.SchedulerTaskSource(),
 		TaskFinalizer:    srv,
 		TaskCleaner:      srv,
 		Providers:        map[string]distributedtask.Provider{"ns": provider},
@@ -174,7 +176,7 @@ func heartbeatFromLeader(t *testing.T, store *Store) {
 	require.Equal(t, string(leaderAddr), store.Leader())
 }
 
-func TestSchedulerTaskLister(t *testing.T) {
+func TestSchedulerTaskSource(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		leader bool
@@ -194,15 +196,14 @@ func TestSchedulerTaskLister(t *testing.T) {
 				require.Empty(t, m.store.Leader())
 			}
 
-			tasks, err := NewRaft(mocks.NewMockNodeSelector(), m.store, nil).SchedulerTaskLister().
-				ListDistributedTasks(context.Background())
+			var c distributedtask.TaskCopy
+			err = NewRaft(mocks.NewMockNodeSelector(), m.store, nil).SchedulerTaskSource().UpdateTaskCopy(&c)
 			if !tt.leader {
 				require.ErrorIs(t, err, types.ErrLeaderNotFound)
 				return
 			}
 			require.NoError(t, err)
-			require.Len(t, tasks["ns"], 1)
-			require.Equal(t, "t", tasks["ns"][0].ID)
+			require.Equal(t, []distributedtask.TaskDescriptor{{ID: "t", Version: 1}}, slices.Collect(maps.Keys(c.Tasks()["ns"])))
 		})
 	}
 }

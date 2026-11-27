@@ -210,7 +210,7 @@ func newBarrierHarness(t *testing.T, nodeIDs []string) *barrierHarness {
 		prov := newBarrierRecordingProvider(t)
 		params := SchedulerParams{
 			CompletionRecorder: h.completionRec,
-			TaskLister:         mgr,
+			TaskSource:         mgr,
 			TaskCleaner:        h.cleaner,
 			TaskFinalizer:      h.finalizer,
 			Providers:          map[string]Provider{h.namespace: prov},
@@ -246,7 +246,7 @@ func (h *barrierHarness) restartWith(nodeIdx int, provider Provider) *Scheduler 
 	node.scheduler.Close()
 	node.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRec,
-		TaskLister:         h.manager,
+		TaskSource:         h.manager,
 		TaskCleaner:        h.cleaner,
 		TaskFinalizer:      h.finalizer,
 		Providers:          map[string]Provider{h.namespace: provider},
