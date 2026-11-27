@@ -507,7 +507,8 @@ func FromEnv(config *Config) error {
 		config.Authentication = DefaultAuthentication
 	}
 
-	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
+	// pread is the default, mmap is opt-in
+	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") != "mmap" {
 		config.AvoidMmap = true
 	}
 
