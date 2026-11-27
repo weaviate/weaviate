@@ -12,6 +12,12 @@
 package ent
 
 import (
+	"fmt"
+	"net/url"
+	"regexp"
+	"slices"
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -30,6 +36,12 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	LowerCaseInput               = false
+)
+
+var (
+	huggingFaceAPIHosts = []string{"huggingface.co", "router.huggingface.co", "api-inference.huggingface.co"}
+	// A dedicated Inference Endpoint, such as abc123.us-east-1.aws.endpoints.huggingface.cloud.
+	inferenceEndpointHostPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+endpoints\.huggingface\.cloud$`)
 )
 
 type classSettings struct {
@@ -66,7 +78,7 @@ func (cs *classSettings) OptionUseCache() bool {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	if err := modulecomponents.ValidateCollectionBaseURL(cs.EndpointURL()); err != nil {
+	if err := cs.validateEndpointURL(); err != nil {
 		return err
 	}
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
@@ -135,4 +147,20 @@ func (cs *classSettings) getOptionOrDefault(option string, defaultValue bool) bo
 
 func (cs *classSettings) getProperty(name string) string {
 	return cs.BaseClassSettings.GetPropertyAsString(name, "")
+}
+
+// validateEndpointURL accepts an endpointURL on a Hugging Face host over https on the default port, which needs no
+// listing, and checks any other host against the operator's allow-list. The module has no default endpointURL.
+func (cs *classSettings) validateEndpointURL() error {
+	endpointURL := cs.EndpointURL()
+	if parsed, err := url.Parse(endpointURL); err == nil && parsed.Scheme == "https" && parsed.Port() == "" {
+		host := strings.ToLower(parsed.Hostname())
+		if slices.Contains(huggingFaceAPIHosts, host) || inferenceEndpointHostPattern.MatchString(host) {
+			return nil
+		}
+	}
+	if err := modulecomponents.ValidateCollectionBaseURL(endpointURL); err != nil {
+		return fmt.Errorf("endpointURL: %w", err)
+	}
+	return nil
 }

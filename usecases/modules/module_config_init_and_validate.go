@@ -171,35 +171,9 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 		return nil
 	default:
 		// named vectors configuration
-		for targetVector, vectorConfig := range class.VectorConfig {
-			if len(targetVector) > schema.TargetVectorNameMaxLength {
-				return errors.Errorf("class.VectorConfig target vector name %q is not valid. "+
-					"Target vector name should not be longer than %d characters.",
-					targetVector, schema.TargetVectorNameMaxLength)
-			}
-			if !p.targetVectorNameValidator.MatchString(targetVector) {
-				return errors.Errorf("class.VectorConfig target vector name %q is not valid, "+
-					"in Weaviate target vector names are restricted to valid GraphQL names, "+
-					"which must be “/%s/”.", targetVector, schema.TargetVectorNameRegex)
-			}
-			vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{})
-			if !ok {
-				return errors.Errorf("class.VectorConfig.Vectorizer must be an object, got %T", vectorConfig.Vectorizer)
-			}
-			if len(vectorizer) != 1 {
-				return errors.Errorf("class.VectorConfig.Vectorizer must consist only 1 configuration, got: %v", len(vectorizer))
-			}
-			for modName := range vectorizer {
-				if modName == "none" {
-					// the class does not use a vectorizer, nothing to do for us
-					continue
-				}
-				if mod := p.GetByName(modName); mod == nil {
-					return errors.Errorf("class.VectorConfig.Vectorizer module with name %s doesn't exist", modName)
-				}
-				if err := p.validateClassModuleConfig(ctx, class, modName, targetVector); err != nil {
-					return err
-				}
+		for targetVector := range class.VectorConfig {
+			if err := p.ValidateNamedVector(ctx, class, targetVector); err != nil {
+				return err
 			}
 		}
 		// check module config configuration in case that there are other none vectorizer modules defined
@@ -208,6 +182,42 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 		}
 		return nil
 	}
+}
+
+// ValidateNamedVector validates the name and the vectorizer settings of the named vector targetVector of class, as
+// create does for every named vector.
+func (p *Provider) ValidateNamedVector(ctx context.Context, class *models.Class, targetVector string) error {
+	vectorConfig := class.VectorConfig[targetVector]
+	if len(targetVector) > schema.TargetVectorNameMaxLength {
+		return errors.Errorf("class.VectorConfig target vector name %q is not valid. "+
+			"Target vector name should not be longer than %d characters.",
+			targetVector, schema.TargetVectorNameMaxLength)
+	}
+	if !p.targetVectorNameValidator.MatchString(targetVector) {
+		return errors.Errorf("class.VectorConfig target vector name %q is not valid, "+
+			"in Weaviate target vector names are restricted to valid GraphQL names, "+
+			"which must be “/%s/”.", targetVector, schema.TargetVectorNameRegex)
+	}
+	vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{})
+	if !ok {
+		return errors.Errorf("class.VectorConfig.Vectorizer must be an object, got %T", vectorConfig.Vectorizer)
+	}
+	if len(vectorizer) != 1 {
+		return errors.Errorf("class.VectorConfig.Vectorizer must consist only 1 configuration, got: %v", len(vectorizer))
+	}
+	for modName := range vectorizer {
+		if modName == "none" {
+			// the class does not use a vectorizer, nothing to do for us
+			continue
+		}
+		if mod := p.GetByName(modName); mod == nil {
+			return errors.Errorf("class.VectorConfig.Vectorizer module with name %s doesn't exist", modName)
+		}
+		if err := p.validateClassModuleConfig(ctx, class, modName, targetVector); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateEnabledNonVectorizers validates the class-level settings of the enabled generative, reranker and other

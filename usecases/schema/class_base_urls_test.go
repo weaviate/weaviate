@@ -17,6 +17,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -30,9 +31,11 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
 	modgenerativedigitalocean "github.com/weaviate/weaviate/modules/generative-digitalocean"
+	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	text2vecdigitalocean "github.com/weaviate/weaviate/modules/text2vec-digitalocean"
+	text2vechuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	text2vecopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -515,4 +518,195 @@ func TestUpdateClass_StoredInvalidResourceNameDoesNotCoverTheBaseURL(t *testing.
 	err := s.update(articleClass(generativeSettings(map[string]any{"resourceName": "a.b", "deploymentId": "d", "baseURL": attackerBaseURL})))
 	require.ErrorContains(t, err, `baseURL "https://attacker.example" is not allowed`)
 	s.schemaManager.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+}
+
+func huggingFaceVector(endpointURL string) models.VectorConfig {
+	return models.VectorConfig{
+		VectorIndexType: hnswT,
+		Vectorizer:      map[string]any{"text2vec-huggingface": map[string]any{"endpointURL": endpointURL}},
+	}
+}
+
+func huggingFaceVectors(vectors map[string]string) *models.Class {
+	class := articleClass(nil)
+	class.Vectorizer, class.VectorIndexType = "", ""
+	class.VectorConfig = map[string]models.VectorConfig{}
+	for name, endpointURL := range vectors {
+		class.VectorConfig[name] = huggingFaceVector(endpointURL)
+	}
+	return class
+}
+
+func googleGenerativeSettings(apiEndpoint string) map[string]any {
+	return map[string]any{"generative-google": map[string]any{"apiEndpoint": apiEndpoint}}
+}
+
+// Module settings an update adds or changes are validated by the module as on create: text2vec-huggingface sends the
+// server's HUGGINGFACE_APIKEY and every inserted object's text to endpointURL, and generative-google keeps its
+// apiEndpoint under googleapis.com.
+func TestUpdateClass_HuggingFaceAndGoogleModuleSettings(t *testing.T) {
+	const (
+		inferenceEndpoint = "https://abc.us-east-1.aws.endpoints.huggingface.cloud"
+		foreignEndpoint   = "https://attacker.example/e"
+		googleEndpoint    = "generativelanguage.googleapis.com"
+	)
+	withModules := func(class *models.Class, moduleConfig map[string]any) *models.Class {
+		class.ModuleConfig = moduleConfig
+		return class
+	}
+	legacyHuggingFace := func(endpointURL string) *models.Class {
+		class := articleClass(map[string]any{"text2vec-huggingface": map[string]any{"endpointURL": endpointURL}})
+		class.Vectorizer = "text2vec-huggingface"
+		return class
+	}
+	tests := []struct {
+		name            string
+		stored, updated *models.Class
+		wantErr         string
+	}{
+		{
+			name:    "reported trigger: named vector with a foreign endpointURL added",
+			stored:  huggingFaceVectors(map[string]string{"main": inferenceEndpoint}),
+			updated: huggingFaceVectors(map[string]string{"main": inferenceEndpoint, "x": foreignEndpoint}),
+			wantErr: `endpointURL: baseURL "https://attacker.example/e" is not allowed`,
+		},
+		{
+			name:    "named vector with a Hugging Face Inference Endpoint added",
+			stored:  huggingFaceVectors(map[string]string{"main": inferenceEndpoint}),
+			updated: huggingFaceVectors(map[string]string{"main": inferenceEndpoint, "x": inferenceEndpoint}),
+		},
+		{
+			name:    "existing named vector moved to a foreign endpointURL",
+			stored:  huggingFaceVectors(map[string]string{"main": inferenceEndpoint}),
+			updated: huggingFaceVectors(map[string]string{"main": foreignEndpoint}),
+			wantErr: "immutable",
+		},
+		{
+			name:    "class-level vectorizer moved to a foreign endpointURL",
+			stored:  legacyHuggingFace(inferenceEndpoint),
+			updated: legacyHuggingFace(foreignEndpoint),
+			wantErr: "endpointURL",
+		},
+		{
+			name:    "generative module with a foreign endpoint added",
+			stored:  huggingFaceVectors(map[string]string{"main": inferenceEndpoint}),
+			updated: withModules(huggingFaceVectors(map[string]string{"main": inferenceEndpoint}), googleGenerativeSettings("attacker.example")),
+			wantErr: "apiEndpoint must be a Google API host",
+		},
+		{
+			name:    "generative module moved to a foreign endpoint",
+			stored:  withModules(huggingFaceVectors(map[string]string{"main": inferenceEndpoint}), googleGenerativeSettings(googleEndpoint)),
+			updated: withModules(huggingFaceVectors(map[string]string{"main": inferenceEndpoint}), googleGenerativeSettings("attacker.example")),
+			wantErr: "apiEndpoint must be a Google API host",
+		},
+		{
+			name:    "generative module with a foreign endpoint added to a class without a vectorizer",
+			stored:  articleClass(nil),
+			updated: articleClass(googleGenerativeSettings("attacker.example")),
+			wantErr: "apiEndpoint must be a Google API host",
+		},
+		{
+			name:    "generative module with a Google endpoint added",
+			stored:  huggingFaceVectors(map[string]string{"main": inferenceEndpoint}),
+			updated: withModules(huggingFaceVectors(map[string]string{"main": inferenceEndpoint}), googleGenerativeSettings(googleEndpoint)),
+		},
+		{
+			name:   "unrelated update of a class whose stored endpointURL is no longer allowed",
+			stored: huggingFaceVectors(map[string]string{"main": foreignEndpoint}),
+			updated: func() *models.Class {
+				class := huggingFaceVectors(map[string]string{"main": foreignEndpoint})
+				class.Description = "changed"
+				return class
+			}(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(modulecomponents.AllowedBaseURLsEnv, "")
+			s := newSchemaWithBaseURLModules(t, text2vechuggingface.New(), modgenerativegoogle.New())
+			s.storeWithoutValidation(t, tt.stored)
+			err := s.update(tt.updated)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+			s.schemaManager.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestAddClass_ForeignHuggingFaceEndpoint(t *testing.T) {
+	legacy := articleClass(map[string]any{"text2vec-huggingface": map[string]any{"endpointURL": "https://attacker.example/e"}})
+	legacy.Vectorizer = "text2vec-huggingface"
+	tests := []struct {
+		name  string
+		class *models.Class
+	}{
+		{"named vector", huggingFaceVectors(map[string]string{"x": "https://attacker.example/e"})},
+		{"class-level vectorizer", legacy},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(modulecomponents.AllowedBaseURLsEnv, "")
+			s := newSchemaWithBaseURLModules(t, text2vechuggingface.New())
+			_, _, err := s.handler.AddClass(context.Background(), nil, tt.class)
+			require.ErrorContains(t, err, "is not allowed")
+			s.schemaManager.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
+		})
+	}
+}
+
+// A named vector the update adds is validated as create validates it, so the checks that are not about module
+// settings, such as the vector name, apply too.
+func TestUpdateClass_AddedNamedVectorIsValidatedAsOnCreate(t *testing.T) {
+	tests := []struct {
+		name         string
+		targetVector string
+		vectorConfig models.VectorConfig
+		wantErr      string
+	}{
+		{
+			name:         "name that is not a GraphQL name",
+			targetVector: "bad-name!",
+			vectorConfig: models.VectorConfig{VectorIndexType: hnswT, Vectorizer: map[string]any{"text2vec-openai": map[string]any{}}},
+			wantErr:      `target vector name "bad-name!" is not valid`,
+		},
+		{
+			name:         "name that is too long",
+			targetVector: strings.Repeat("v", 300),
+			vectorConfig: models.VectorConfig{VectorIndexType: hnswT, Vectorizer: map[string]any{"text2vec-openai": map[string]any{}}},
+			wantErr:      "should not be longer than",
+		},
+		{
+			name:         "two vectorizers",
+			targetVector: "body",
+			vectorConfig: models.VectorConfig{VectorIndexType: hnswT, Vectorizer: map[string]any{
+				"text2vec-openai":      map[string]any{},
+				"text2vec-huggingface": map[string]any{},
+			}},
+			wantErr: "must consist only 1 configuration",
+		},
+		{
+			name:         "valid vector",
+			targetVector: "body",
+			vectorConfig: models.VectorConfig{VectorIndexType: hnswT, Vectorizer: map[string]any{"text2vec-openai": map[string]any{}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(modulecomponents.AllowedBaseURLsEnv, "")
+			s := newSchemaWithBaseURLModules(t, text2vechuggingface.New())
+			s.storeWithoutValidation(t, openaiVectors(map[string]map[string]any{"title": {}}))
+			update := openaiVectors(map[string]map[string]any{"title": {}})
+			update.VectorConfig[tt.targetVector] = tt.vectorConfig
+			err := s.update(update)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+			s.schemaManager.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		})
+	}
 }
