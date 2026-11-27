@@ -13,7 +13,6 @@ package reindex_multinode
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -164,42 +163,8 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// directly 30 times (90 total) to verify post-convergence stability.
 	// Every poll on every replica must return expectedPathCount; any other
 	// value is a per-replica divergence (flap after convergence).
-	const pollsPerReplica = 30
-	histogram := make(map[string]map[int]int) // nodeID -> count -> N
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		nodeKey := fmt.Sprintf("node-%d", nodeIdx)
-		histogram[nodeKey] = map[int]int{}
-		for i := 0; i < pollsPerReplica; i++ {
-			postURI := restURIOf(compose, nodeIdx)
-			got, err := equalCount(postURI, className, "path", paths[0])
-			if err != nil {
-				histogram[nodeKey][-1]++
-				continue
-			}
-			histogram[nodeKey][got]++
-		}
-	}
-
-	// Render histogram on failure so the per-replica flap shape is
-	// visible in CI logs.
-	allCorrect := true
-	for _, perNode := range histogram {
-		for value, n := range perNode {
-			if value != expectedPathCount || n != pollsPerReplica {
-				allCorrect = false
-			}
-		}
-	}
-	if !allCorrect {
-		msg := fmt.Sprintf("per-replica divergence on %q after rolling restart "+
-			"during FINALIZING (expected %d, %d polls/replica):",
-			"path", expectedPathCount, pollsPerReplica)
-		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-			nodeKey := fmt.Sprintf("node-%d", nodeIdx)
-			msg += fmt.Sprintf("\n  %s: %v", nodeKey, histogram[nodeKey])
-		}
-		t.Fatal(msg)
-	}
+	assertNoPerReplicaPathDivergence(t, compose, className, paths[0], expectedPathCount,
+		"after rolling restart during FINALIZING")
 }
 
 // TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency
@@ -310,38 +275,6 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 		"per-replica path count never converged to %d on all 3 replicas after SIGKILL during FINALIZING",
 		expectedPathCount)
 
-	const pollsPerReplica = 30
-	histogram := make(map[string]map[int]int)
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		nodeKey := fmt.Sprintf("node-%d", nodeIdx)
-		histogram[nodeKey] = map[int]int{}
-		for i := 0; i < pollsPerReplica; i++ {
-			postURI := restURIOf(compose, nodeIdx)
-			got, err := equalCount(postURI, className, "path", paths[0])
-			if err != nil {
-				histogram[nodeKey][-1]++
-				continue
-			}
-			histogram[nodeKey][got]++
-		}
-	}
-
-	allCorrect := true
-	for _, perNode := range histogram {
-		for value, n := range perNode {
-			if value != expectedPathCount || n != pollsPerReplica {
-				allCorrect = false
-			}
-		}
-	}
-	if !allCorrect {
-		msg := fmt.Sprintf("per-replica divergence on %q after SIGKILL "+
-			"during FINALIZING (expected %d, %d polls/replica):",
-			"path", expectedPathCount, pollsPerReplica)
-		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-			nodeKey := fmt.Sprintf("node-%d", nodeIdx)
-			msg += fmt.Sprintf("\n  %s: %v", nodeKey, histogram[nodeKey])
-		}
-		t.Fatal(msg)
-	}
+	assertNoPerReplicaPathDivergence(t, compose, className, paths[0], expectedPathCount,
+		"after SIGKILL during FINALIZING")
 }
