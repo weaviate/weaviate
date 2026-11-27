@@ -1791,8 +1791,7 @@ func (g *growIndex) fetch(round *diskRound, picks []scored) error {
 		// A budget of one read at a time reads the rows of the round in line,
 		// one after another, in the goroutine of the search: a goroutine for
 		// each, started one at a time, costs more than the read it waits for.
-		// So reads the search of an insert, whose parallelism is that of its
-		// callers.
+		// So reads the search of a caller that gives a budget of one.
 		for i, pick := range picks {
 			p, dp := uint32(pick.id), &round.postings[i]
 			dp.bytes, dp.took = [3]int{}, [3]time.Duration{}

@@ -18,7 +18,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 // The inserts of the callers that add at once go in batches, as v5.2 had them
@@ -131,12 +130,11 @@ func (p *Persistent) searchWindow(ctx context.Context, ids []uint64, vectors [][
 		b.joined()
 	}
 
-	// The search of an insert reads its rows and its vectors one at a time,
-	// in the goroutine that calls: the inserts run next to each other as
-	// their callers do, and goroutines of their own for every round of a
-	// search cost more than the reads they wait for (bench-report.md of
-	// feat/posting-edge-index, "Dónde se va el tiempo del insert").
-	planCtx := concurrency.CtxWithBudget(ctx, 1)
+	// The search of an insert reads as the budget of its caller allows, as
+	// that of a query does. A budget of one for every insert was worth 3 to
+	// 4 % with the files in the page cache, and halved the inserts of a
+	// caller alone with them out of it (bench-report.md of
+	// feat/posting-edge-index, "El paso 1, con todo").
 	entries := make([]*batchEntry, 0, len(ids))
 	var err error
 	p.mu.RLock()
@@ -145,7 +143,7 @@ func (p *Persistent) searchWindow(ctx context.Context, ids []uint64, vectors [][
 		for i, id := range ids {
 			plan := p.plans.Get().(*growPlan)
 			plan.work = nil
-			if err = g.plan(planCtx, plan, id, distancer.Normalize(vectors[i])); err != nil {
+			if err = g.plan(ctx, plan, id, distancer.Normalize(vectors[i])); err != nil {
 				p.plans.Put(plan)
 				err = errors.Wrapf(err, "add vector of id %d", id)
 				break
@@ -218,7 +216,7 @@ func (p *Persistent) applyIfDue(ctx context.Context) {
 // the batch is another step. Nothing of that runs by default but with
 // deletes, or with vectors that came while the base was built.
 func (p *Persistent) applyBatch(ctx context.Context, batch []*batchEntry) {
-	planCtx := concurrency.CtxWithBudget(context.WithoutCancel(ctx), 1)
+	applyCtx := context.WithoutCancel(ctx)
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	p.mu.Lock()
@@ -228,7 +226,7 @@ func (p *Persistent) applyBatch(ctx context.Context, batch []*batchEntry) {
 		err := g.step(func() error {
 			for ; at < len(batch) && !owes; at++ {
 				e := batch[at]
-				e.err = p.write(planCtx, g, e.plan)
+				e.err = p.write(applyCtx, g, e.plan)
 				if p.failed != nil {
 					return p.failed
 				}
@@ -250,7 +248,7 @@ func (p *Persistent) applyBatch(ctx context.Context, batch []*batchEntry) {
 		if owes {
 			e := batch[at-1]
 			p.mu.Unlock()
-			e.err = p.payInLine(planCtx, e.id)
+			e.err = p.payInLine(applyCtx, e.id)
 			p.mu.Lock()
 		}
 	}
