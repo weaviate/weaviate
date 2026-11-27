@@ -1235,19 +1235,50 @@ func (m *Manager) DecodeTaskList(data []byte) (map[string][]*Task, error) {
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, err
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	held := m.heldCopies(response.Tasks)
 	for namespace, list := range response.Tasks {
-		for _, task := range list {
-			task.shareGroups(m.tasks[namespace][task.ID])
-			m.setReceivedHeaderWithLock(namespace, task)
+		for i, task := range list {
+			task.adoptGroups(held[namespace][i])
+			m.adoptHeader(namespace, task, held[namespace][i])
 		}
 	}
 	return response.Tasks, nil
 }
 
-func (m *Manager) setReceivedHeaderWithLock(namespace string, task *Task) {
-	if held := m.tasks[namespace][task.ID]; held != nil && held.Version == task.Version {
+type heldCopy struct {
+	sameVersion, sameUnits bool
+	header                 TaskHeader
+	groups                 map[string][]string
+	groupCount             int
+}
+
+func (m *Manager) heldCopies(tasks map[string][]*Task) map[string][]heldCopy {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string][]heldCopy, len(tasks))
+	for namespace, list := range tasks {
+		out[namespace] = make([]heldCopy, len(list))
+		for i, task := range list {
+			out[namespace][i] = m.heldFor(namespace, task.ID, task.Version, len(task.Units))
+		}
+	}
+	return out
+}
+
+// heldFor runs under m.mu and is given no *Task, so a walk of the received units cannot join the lock hold.
+func (m *Manager) heldFor(namespace, id string, version uint64, units int) heldCopy {
+	held := m.tasks[namespace][id]
+	if held == nil || held.Version != version {
+		return heldCopy{}
+	}
+	return heldCopy{
+		sameVersion: true, sameUnits: len(held.Units) == units,
+		header: held.header, groups: held.groups, groupCount: held.groupCount,
+	}
+}
+
+func (m *Manager) adoptHeader(namespace string, task *Task, held heldCopy) {
+	if held.sameVersion {
 		task.header = held.header
 		return
 	}
@@ -1291,19 +1322,22 @@ func (m *Manager) DecodeTaskHeaders(data []byte) (map[string][]*Task, error) {
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, err
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	tasks := make(map[string][]*Task, len(response.Tasks))
 	for namespace, entries := range response.Tasks {
 		for _, entry := range entries {
+			tasks[namespace] = append(tasks[namespace], entry.Task)
+		}
+	}
+	held := m.heldCopies(tasks)
+	for namespace, entries := range response.Tasks {
+		for i, entry := range entries {
 			task := entry.Task
 			task.groups = make(map[string][]string, len(entry.Groups))
 			for _, group := range entry.Groups {
 				task.groups[group] = nil
 			}
 			task.groupCount = len(task.groups)
-			m.setReceivedHeaderWithLock(namespace, task)
-			tasks[namespace] = append(tasks[namespace], task)
+			m.adoptHeader(namespace, task, held[namespace][i])
 		}
 	}
 	return tasks, nil

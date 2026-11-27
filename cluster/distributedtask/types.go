@@ -719,10 +719,9 @@ func (t *Task) IndexGroups() {
 	t.countUnits()
 }
 
-// shareGroups reuses held's index when it has as many units (units are only removed).
-// Counts are never shared: they follow unit status, which t holds its own copy of.
-func (t *Task) shareGroups(held *Task) {
-	if held == nil || held.Version != t.Version || len(held.Units) != len(t.Units) {
+// adoptGroups shares held's index when it has as many units (units are only removed), never its counts, which follow t's own units.
+func (t *Task) adoptGroups(held heldCopy) {
+	if !held.sameUnits {
 		t.IndexGroups()
 		return
 	}

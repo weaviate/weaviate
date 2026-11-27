@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -397,41 +398,112 @@ func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	assertTasks(t, expectedTasks, tasks)
 }
 
-// The task-list REST handler filters received tasks by their header, so a received copy must carry one.
-// A receiver holding the same task reuses its header instead of decoding the payload again.
+// Readers filter received tasks by their header, so a received copy must carry one.
+// A receiver holding the same task reuses its header; any other decodes it with the lock free.
 func TestManager_DecodeTaskListDerivesTheHeader(t *testing.T) {
 	add := toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", Payload: []byte("Foo"), UnitIds: []string{"u"}})
+	type codec struct {
+		encode func(*Manager) ([]byte, error)
+		decode func(*Manager, []byte) (map[string][]*Task, error)
+	}
+	list := codec{
+		encode: func(m *Manager) ([]byte, error) { return m.ListDistributedTasksPayload(context.Background()) },
+		decode: (*Manager).DecodeTaskList,
+	}
+	headers := codec{encode: (*Manager).ListTaskHeadersPayload, decode: (*Manager).DecodeTaskHeaders}
 	for _, tc := range []struct {
 		name        string
+		codec       codec
 		holdsTask   bool
 		wantDecodes int
 	}{
-		{name: "receiver without the task decodes it", wantDecodes: 1},
-		{name: "receiver holding the task reuses its header", holdsTask: true},
+		{name: "task list, receiver without the task decodes it", codec: list, wantDecodes: 1},
+		{name: "task list, receiver holding the task reuses its header", codec: list, holdsTask: true},
+		{name: "headers, receiver without the task decodes it", codec: headers, wantDecodes: 1},
+		{name: "headers, receiver holding the task reuses its header", codec: headers, holdsTask: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			decodes := 0
+			var receiver *Manager
+			decodes, lockedDecodes := 0, 0
 			newManager := func() *Manager {
 				return NewManager(ManagerParameters{ConflictDetectors: map[string]ConflictDetector{
-					"ns": decodeWith(func(p []byte) (string, bool) { decodes++; return string(p), len(p) > 0 }),
+					"ns": decodeWith(func(p []byte) (string, bool) {
+						decodes++
+						if receiver != nil && !receiver.mu.TryLock() {
+							lockedDecodes++
+						} else if receiver != nil {
+							receiver.mu.Unlock()
+						}
+						return string(p), len(p) > 0
+					}),
 				}})
 			}
 			leader := newManager()
 			require.NoError(t, leader.AddTask(add, 1))
-			raw, err := leader.ListDistributedTasksPayload(context.Background())
+			raw, err := tc.codec.encode(leader)
 			require.NoError(t, err)
-			receiver := newManager()
+			receiver = newManager()
 			if tc.holdsTask {
 				require.NoError(t, receiver.AddTask(add, 1))
 			}
 
-			decodes = 0
-			received, err := receiver.DecodeTaskList(raw)
+			decodes, lockedDecodes = 0, 0
+			received, err := tc.codec.decode(receiver, raw)
 			require.NoError(t, err)
 			require.Equal(t, TaskHeader(testHeader("Foo")), received["ns"][0].Header())
 			require.Equal(t, tc.wantDecodes, decodes)
+			require.Zero(t, lockedDecodes)
 		})
 	}
+}
+
+// A writer must not wait while a decoder counts a received copy's units: only the lookup of the held copy runs under the lock.
+func TestManager_DecodeTaskListLetsWritersInDuringTheUnitWalk(t *testing.T) {
+	const units = 300_000
+	specs := make([]*cmd.UnitSpec, units)
+	for i := range specs {
+		specs[i] = &cmd.UnitSpec{Id: fmt.Sprintf("u%d", i), GroupId: fmt.Sprintf("g%d", i%1000), Node: "n1"}
+	}
+	add := toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitSpecs: specs})
+	receiver := NewManager(ManagerParameters{})
+	require.NoError(t, receiver.AddTask(add, 1))
+	raw, err := receiver.ListDistributedTasksPayload(context.Background())
+	require.NoError(t, err)
+
+	yardstick := receiver.tasks["ns"]["T"].Clone()
+	start := time.Now()
+	yardstick.countUnits()
+	walk := time.Since(start)
+
+	logger, _ := logrustest.NewNullLogger()
+	longestWait := func() time.Duration {
+		var longest time.Duration
+		stop, done := make(chan struct{}), make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(done)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				began := time.Now()
+				receiver.mu.Lock()
+				longest = max(longest, time.Since(began))
+				receiver.mu.Unlock()
+			}
+		}, logger)
+		_, err := receiver.DecodeTaskList(raw)
+		close(stop)
+		<-done
+		require.NoError(t, err)
+		return longest
+	}
+	shortest := longestWait()
+	for range 4 {
+		shortest = min(shortest, longestWait())
+	}
+	require.Less(t, shortest, walk/4, "a writer waited %s; one unit walk takes %s", shortest, walk)
 }
 
 func TestManager_SnapshotRestore(t *testing.T) {
