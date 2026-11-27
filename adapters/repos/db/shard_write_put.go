@@ -74,6 +74,11 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
 		}
 	}
+	if status.docIDChanged {
+		if err := s.deleteOldDocIDFromMissingVectors(object, status.oldDocID); err != nil {
+			return err
+		}
+	}
 
 	if s.hasLegacyVectorIndex() {
 		if err := s.updateVectorIndex(ctx, object.Vector, status, ""); err != nil {
@@ -94,6 +99,34 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 	}
 
 	return nil
+}
+
+// deleteOldDocIDFromMissingVectors removes oldDocID from the named vector
+// indexes the new object carries no vector for; the indexes of vectors it does
+// carry are updated by updateVectorInVectorIndex.
+func (s *Shard) deleteOldDocIDFromMissingVectors(object *storobj.Object, oldDocID uint64) error {
+	var class *models.Class
+	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if targetVector == "" {
+			return nil
+		}
+		if _, ok := object.Vectors[targetVector]; ok {
+			return nil
+		}
+		if _, ok := object.MultiVectors[targetVector]; ok {
+			return nil
+		}
+		if class == nil {
+			class = s.index.getClass()
+		}
+		if isDroppedVectorIndex(class, targetVector) {
+			return nil
+		}
+		if err := queue.Delete(oldDocID); err != nil {
+			return errors.Wrapf(err, "delete doc id %d from vector index for target vector %s", oldDocID, targetVector)
+		}
+		return nil
+	})
 }
 
 // as the name implies this method only performs the insertions, but completely

@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -36,7 +37,7 @@ func (m *Manager) updateRefVector(ctx context.Context,
 
 		obj := parent.Object()
 
-		if err := m.modulesProvider.UpdateVector(
+		if err := m.modulesProvider.UpdateRefVector(
 			ctx, obj, class, m.findObject, m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
@@ -44,6 +45,13 @@ func (m *Manager) updateRefVector(ctx context.Context,
 
 		if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 			return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+		}
+
+		// A mid-drop named vector is still stored, but PutObject rejects it.
+		for name, cfg := range class.VectorConfig {
+			if modelsext.IsVectorIndexDropped(cfg) {
+				delete(obj.Vectors, name)
+			}
 		}
 
 		vectors, multiVectors, err := dto.GetVectors(obj.Vectors)

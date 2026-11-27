@@ -62,7 +62,6 @@ func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) ([]float32,
 	}
 
 	if len(refVecs) == 0 {
-		obj.Vector = nil
 		return nil, nil
 	}
 
@@ -91,7 +90,7 @@ func (v *Vectorizer) referenceVectorSearch(ctx context.Context,
 		// if the ref'd object has a vector, we grab it.
 		// these will be used to compute the parent's
 		// vector eventually
-		if res.Vector != nil {
+		if res != nil && res.Vector != nil {
 			refVecs = append(refVecs, res.Vector)
 		}
 	}
@@ -105,15 +104,13 @@ func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon strfmt.URI,
 		return nil, fmt.Errorf("parse beacon %q: %w", beacon, err)
 	}
 
+	// A missing target (deleted after the reference was set) contributes no vector.
 	res, err = v.findObjectFn(ctx, ref.Class, ref.TargetID,
 		search.SelectProperties{}, additional.Properties{}, tenant)
-	if err != nil || res == nil {
-		if err == nil {
-			err = fmt.Errorf("not found")
-		}
-		err = fmt.Errorf("find object with beacon %q': %w", beacon, err)
+	if err != nil {
+		return nil, fmt.Errorf("find object with beacon %q': %w", beacon, err)
 	}
-	return res, err
+	return res, nil
 }
 
 func beaconsForVectorization(allProps map[string]interface{},

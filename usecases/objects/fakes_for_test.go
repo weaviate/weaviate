@@ -484,6 +484,12 @@ func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.O
 	}
 }
 
+func (p *fakeModulesProvider) UpdateRefVector(ctx context.Context, object *models.Object, class *models.Class,
+	findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
+) error {
+	return p.UpdateVector(ctx, object, class, findObjFn, logger)
+}
+
 func (p *fakeModulesProvider) BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,

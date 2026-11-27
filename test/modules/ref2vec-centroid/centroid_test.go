@@ -207,6 +207,59 @@ func TestCentroid(t *testing.T) {
 	//})
 }
 
+func TestCentroidNamedVector(t *testing.T) {
+	helper.SetupClient(os.Getenv(weaviateEndpoint))
+
+	paragraphClass := articles.ParagraphsClass()
+	articleClass := articles.ArticlesClass()
+	articleClass.VectorConfig = map[string]models.VectorConfig{
+		"centroid": {
+			Vectorizer: map[string]interface{}{
+				"ref2vec-centroid": map[string]interface{}{
+					"referenceProperties": []string{"hasParagraphs"},
+				},
+			},
+			VectorIndexType: "hnsw",
+		},
+	}
+
+	helper.CreateClass(t, paragraphClass)
+	helper.CreateClass(t, articleClass)
+	defer func() {
+		helper.DeleteClass(t, articleClass.Class)
+		helper.DeleteClass(t, paragraphClass.Class)
+	}()
+
+	para1 := articles.NewParagraph().WithVector([]float32{2, 4, 6})
+	helper.CreateObject(t, para1.Object())
+	para2 := articles.NewParagraph().WithVector([]float32{4, 6, 8})
+	helper.CreateObject(t, para2.Object())
+
+	ref1 := &models.SingleRef{Beacon: newBeacon(para1.Class, para1.ID)}
+	ref2 := &models.SingleRef{Beacon: newBeacon(para2.Class, para2.ID)}
+
+	article := articles.NewArticle().WithTitle("Popularity of the Nissan RB26DETT")
+	helper.CreateObject(t, article.Object())
+	defer helper.DeleteObject(t, article.Object())
+
+	centroid := func() models.Vector {
+		return helper.AssertGetObject(t, article.Class, article.ID, "vector").Vectors["centroid"]
+	}
+	assert.Nil(t, centroid())
+
+	helper.AddReference(t, article.Object(), ref1, "hasParagraphs")
+	assert.EqualValues(t, []float32{2, 4, 6}, centroid())
+
+	helper.AddReference(t, article.Object(), ref2, "hasParagraphs")
+	assert.EqualValues(t, []float32{3, 5, 7}, centroid())
+
+	helper.DeleteReference(t, article.Object(), ref1, "hasParagraphs")
+	assert.EqualValues(t, []float32{4, 6, 8}, centroid())
+
+	helper.DeleteReference(t, article.Object(), ref2, "hasParagraphs")
+	assert.Nil(t, centroid())
+}
+
 func newBeacon(className string, id strfmt.UUID) strfmt.URI {
 	return crossref.New("localhost", className, id).SingleRef().Beacon
 }

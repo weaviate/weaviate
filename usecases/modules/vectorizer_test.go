@@ -27,8 +27,10 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -155,6 +157,107 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 		assert.False(t, p.UsingRef2Vec(className))
 	})
+
+	t.Run("with named vectors", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			vectorConfig map[string]models.VectorConfig
+			expected     bool
+		}{
+			{
+				name:         "ref2vec named vector",
+				vectorConfig: map[string]models.VectorConfig{"centroid": moduleVectorEntry("ref2vec", false)},
+				expected:     true,
+			},
+			{
+				name: "ref2vec next to text2vec named vector",
+				vectorConfig: map[string]models.VectorConfig{
+					"text":     moduleVectorEntry("text2vec", false),
+					"centroid": moduleVectorEntry("ref2vec", false),
+				},
+				expected: true,
+			},
+			{
+				name:         "text2vec named vector only",
+				vectorConfig: map[string]models.VectorConfig{"text": moduleVectorEntry("text2vec", false)},
+				expected:     false,
+			},
+			{
+				name:         "dropped ref2vec named vector",
+				vectorConfig: map[string]models.VectorConfig{"centroid": moduleVectorEntry("ref2vec", true)},
+				expected:     false,
+			},
+			{
+				name:         "unregistered named vector module",
+				vectorConfig: map[string]models.VectorConfig{"centroid": moduleVectorEntry("unknown", false)},
+				expected:     false,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				className := "SomeClass"
+				sch := schema.Schema{Objects: &models.Schema{
+					Classes: []*models.Class{{Class: className, VectorConfig: tt.vectorConfig}},
+				}}
+				p := NewProvider(logger, config.Config{})
+				p.SetSchemaGetter(&fakeSchemaGetter{sch})
+				p.Register(newDummyModule("ref2vec", modulecapabilities.Ref2Vec))
+				p.Register(newDummyModule("text2vec", modulecapabilities.Text2Vec))
+				assert.Equal(t, tt.expected, p.UsingRef2Vec(className))
+			})
+		}
+	})
+}
+
+func TestProvider_UpdateRefVector(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	findObject := func(ctx context.Context, class string, id strfmt.UUID,
+		props search.SelectProperties, addl additional.Properties, tenant string,
+	) (*search.Result, error) {
+		return &search.Result{Vector: []float32{2, 4, 6}}, nil
+	}
+	ref := crossref.New("localhost", "Paragraph", strfmt.UUID(uuid.NewString())).SingleRef()
+
+	tests := []struct {
+		name             string
+		refs             models.MultipleRef
+		expectedCentroid models.Vector
+	}{
+		{name: "references left", refs: models.MultipleRef{ref}, expectedCentroid: []float32{2, 4, 6}},
+		{name: "no references left", refs: models.MultipleRef{}, expectedCentroid: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:             "Article",
+				Vectorizer:        config.VectorizerModuleNone,
+				VectorIndexConfig: hnsw.UserConfig{},
+				VectorConfig: map[string]models.VectorConfig{
+					"centroid": {
+						Vectorizer: map[string]interface{}{modcentroid.Name: map[string]interface{}{
+							"referenceProperties": []interface{}{"hasParagraphs"},
+							"method":              "mean",
+						}},
+						VectorIndexType:   "hnsw",
+						VectorIndexConfig: hnsw.UserConfig{},
+					},
+				},
+			}
+			p := NewProvider(logger, config.Config{})
+			p.Register(modcentroid.New())
+			p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}})
+
+			obj := &models.Object{
+				Class:      class.Class,
+				Properties: map[string]interface{}{"hasParagraphs": tt.refs},
+				Vector:     []float32{7, 7, 7},
+				Vectors:    models.Vectors{"centroid": []float32{9, 9, 9}},
+			}
+			require.NoError(t, p.UpdateRefVector(context.Background(), obj, class, findObject, logger))
+			assert.Equal(t, tt.expectedCentroid, obj.Vectors["centroid"])
+			assert.Equal(t, models.C11yVector{7, 7, 7}, obj.Vector)
+		})
+	}
 }
 
 // moduleVectorEntry builds a named-vector config backed by the modName
