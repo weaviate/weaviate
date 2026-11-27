@@ -1334,6 +1334,48 @@ Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seg
   - Por fusión son 9 conflictos: 5 ficheros del arnés que `m2` quitó e integración cambió, los dos de la reentrega y dos de tests.
   - Va por fusión, con sus tests enteros, en la primera ventana de compilación tras el 10M. Después, integración a backup y a `none-direct`.
 
+#### Enmienda de las 21:20 del 27 al 10M crecido: la caché de Go borrada en marcha, el recall y las cargas al acabar, y el orden que sigue
+
+**El encargo (del usuario, hacia las 20:55):**
+- Borrar ya la caché de compilación de Go.
+- Al acabar el 10M, todos sus números: inserts por segundo por tramo, amplificación de escritura, heap por componente en `routing`, número de postings, y recall y cargas a 0.95 y 0.99. Anotar que queda sin reorganización final, y no usarlo para medir búsqueda en frío hasta reorganizarlo.
+- Después, por este orden:
+  - propagar la serie a integración, backup y `none-direct`, con los tests enteros, y avisar cuando la rama de Rodrigo (`feat/posting-edge-integration`) la tenga;
+  - las tablas por docID: compilar, tests, la medida a 1M y los 20 000 inserts sobre un clon del 10M, con el 3 %;
+  - borrar `tenm`, medir HFresh a 10M en el mismo arnés con 8 escritores hasta que su cola de fondo quede vacía, y con el espacio que sobre reorganizar nuestro índice de 10M.
+- Con todo eso, las medidas definitivas a 1M, con la de punta a punta por un shard, y la congelación. `filter1m` no se toca.
+
+**Lo que cambia en la corrida en marcha.**
+- **La caché de Go se borró con la corrida en marcha, de 20:55:59 a 20:56:13:** 22 GB en 14 segundos, de 27 a 49 GiB libres. Es E/S ajena dentro del tramo que cierra a las 20:57:49, y lo marco al dar los tramos.
+  - Los dos tramos de alrededor dan 282 y 284 inserts por segundo: no se ve en el ritmo.
+- **Estado a las 20:57:** 5 164 400 vectores dentro (51.6 %), 19.8 GB en disco. El primer tramo dio 619 inserts por segundo y el último 284.
+  - A este ritmo acaba hacia las 2:00, unas 9 horas, donde esperaba 8.
+  - Lo escrito por tramo va de 5 a 20 veces los vectores del tramo.
+- **El layout final sigue sin caber, por poco.** Pide libres 38.4 GB, los 30.7 que escribe más un cuarto. Si el índice acaba en los 38 GB que extrapolo, quedarán unos 35.
+  - Si el índice acaba más pequeño y cabe, el `Settle` del final lo hará: la regla es del código y no la toco. Lo que haga queda en el log, y lo diré.
+  - No libero más sitio para inclinarlo (*mío*): cambiaría una condición pre-registrada a mitad de la corrida.
+
+**El recall y las cargas a 0.95 y 0.99 (pre-registro, antes de compilar).** La cadena en marcha no los mide: da los tramos y el heap. Van en una pasada aparte, `TestNightPoints`, sin cronómetro.
+- **El código:** el mismo que hizo crecer el índice, `44c35ee9b9` con el arnés de la noche, más este test. Se compila al acabar la cadena.
+- **Cómo abre el índice:** como `TestNightHeap`, sobre el store de un shard sin ciclos, en `routing`, y sin mantenimiento: nada reorganiza ni limpia mientras busca.
+- **Las queries y la verdad:** las 1 000 queries del dataset, con k = 10, contra los vecinos exactos que trae el dataset, que son sobre las 10M filas.
+  - Exige que el índice tenga las 10M filas y ningún borrado. Si la corrida para antes, esta verdad no vale: habría que calcularla por fuerza bruta sobre lo que haya dentro, y lo diré.
+- **Los puntos:** para cada objetivo, el menor ef que lo alcanza, doblando desde 10 y después por bisección, como `TestTablesPoints`. Con 8 hilos y el presupuesto por defecto, que no cambian lo que se cuenta.
+- **Lo que reporta por punto:** ef, recall, cargas por query (postings cargados, sin los de entrada, como en las demás medidas), rondas, miembros recorridos, vectores exactos leídos y bytes de bloques leídos.
+- **Con qué lo pongo (*mío*):** con las celdas de 10M en lote de v4.0 y con su HFresh, diciendo en cada una qué índice es. El índice crecido no está reorganizado, lo que no cambia el recall ni las cargas, y sí lo que cuesta cada carga en frío.
+- **No doy cifra esperada:** no hay medida del índice integrado crecido en wiki-dpr.
+- **Nada de búsqueda en frío sobre este índice** hasta reorganizarlo (del usuario).
+
+**Lo preparado mientras corre, sin compilar nada (20:50 a 21:20).**
+- **La fusión de `m2` (`44c35ee9b9`) en integración, en un árbol local y sin commit.** Los 9 conflictos están resueltos por texto. No se ha compilado ni probado.
+  - **El arnés de integración se queda.** `m2` lo sacó del núcleo; en integración sigue, como quedó anotado entonces. Vuelven los 17 ficheros que la fusión borraba, y los 4 que chocaban conservan la versión de integración.
+  - **Entran en él 15 ficheros desde el archivo de esta rama:** los 14 de tests a escala que `m2` sacó al encoger sus tests, y el arnés del tope de lo pendiente. Compilaban contra `m2` antes de la serie; qué les falta ahora lo dirá el compilador.
+  - **El informe sale también de integración** (*mío*): era una copia vieja, y los documentos enlazan al de esta rama. La nota para quien prueba se queda.
+  - **Reentrega y test de la base:** la versión de `m2`, que trae el caso del vector perdido.
+  - **El fixture de los tests:** el `add` de `m2` sobre el `addBatches` de integración, que usa el test de filtros.
+  - El diff de #14023 contra `m2` pasa de 143 553 a 162 548 líneas añadidas. De ellas 22 616 son arnés; casi todo lo demás son datos de las medidas de filtros.
+- **Las tablas por docID, sobre la serie:** el trabajo sin compilar está ahora encima de `44c35ee9b9`, como commits locales. La cuenta de lo que escribe un layout, que es nueva, ya lee la tabla. Sigue sin compilar.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
