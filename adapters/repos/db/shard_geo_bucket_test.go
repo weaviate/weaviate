@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 const geoBucketClass = "GeoBucketClass"
@@ -683,5 +684,83 @@ func TestGeoIndexTypeSelectsIndex(t *testing.T) {
 				assert.Equal(t, []uint64{batched.DocID}, within(propName, berlinCoords), propName)
 			}
 		})
+	}
+}
+
+// TestGeoMergeWithMapValuedCoordinates pins that a merge whose coordinates
+// arrive as a map, the form a remote or replicated merge has after its JSON
+// transport, reaches the geo index of either type: adding an object's first
+// coordinates, moving them, and repeating them unchanged.
+func TestGeoMergeWithMapValuedCoordinates(t *testing.T) {
+	asMap := func(coords *models.GeoCoordinates) map[string]interface{} {
+		return map[string]interface{}{
+			"latitude": float64(*coords.Latitude), "longitude": float64(*coords.Longitude),
+		}
+	}
+	merges := []struct {
+		name   string
+		before map[string]interface{}
+		merge  map[string]interface{}
+		// where the object is expected after the merge, and where it must be gone from
+		wantAt, goneFrom *models.GeoCoordinates
+	}{
+		{
+			name:   "first coordinates",
+			before: map[string]interface{}{"name": "a"},
+			merge:  map[string]interface{}{"location": asMap(berlinCoords)},
+			wantAt: berlinCoords, goneFrom: munichCoords,
+		},
+		{
+			name:   "moved coordinates",
+			before: map[string]interface{}{"name": "a", "location": munichCoords},
+			merge:  map[string]interface{}{"location": asMap(berlinCoords)},
+			wantAt: berlinCoords, goneFrom: munichCoords,
+		},
+		{
+			name:   "moved coordinates, stored from a map",
+			before: map[string]interface{}{"name": "a", "location": asMap(munichCoords)},
+			merge:  map[string]interface{}{"location": asMap(berlinCoords)},
+			wantAt: berlinCoords, goneFrom: munichCoords,
+		},
+		{
+			name:   "unchanged coordinates beside another change",
+			before: map[string]interface{}{"name": "a", "location": berlinCoords},
+			merge:  map[string]interface{}{"name": "b", "location": asMap(berlinCoords)},
+			wantAt: berlinCoords, goneFrom: munichCoords,
+		},
+		{
+			name:   "another property only",
+			before: map[string]interface{}{"name": "a", "location": berlinCoords},
+			merge:  map[string]interface{}{"name": "b"},
+			wantAt: berlinCoords, goneFrom: munichCoords,
+		},
+	}
+	for _, geoIndexType := range []string{models.PropertyGeoIndexTypeHnsw, models.PropertyGeoIndexTypeBkd} {
+		for _, test := range merges {
+			t.Run(geoIndexType+"/"+test.name, func(t *testing.T) {
+				ctx := context.Background()
+				class := geoBucketTestClass()
+				class.Properties[1].GeoIndexType = geoIndexType
+				shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
+				defer removeGeoTestRoot(t, idx)
+				s := shard.(*Shard)
+
+				obj := geoTestObject(test.before)
+				require.NoError(t, s.PutObject(ctx, obj))
+				other := geoTestObject(map[string]interface{}{"location": hamburgCoords})
+				require.NoError(t, s.PutObject(ctx, other))
+
+				require.NoError(t, s.MergeObject(ctx, objects.MergeDocument{
+					Class:           geoBucketClass,
+					ID:              obj.ID(),
+					PrimitiveSchema: test.merge,
+					UpdateTime:      time.Now().UnixMilli(),
+				}))
+
+				assert.Len(t, geoFilterDocIDs(t, s, "location", test.wantAt, 1000), 1, "the merged object is not where the merge put it")
+				assert.Empty(t, geoFilterDocIDs(t, s, "location", test.goneFrom, 1000), "the merged object is still at its old coordinates")
+				assert.Equal(t, []uint64{other.DocID}, geoFilterDocIDs(t, s, "location", hamburgCoords, 1000))
+			})
+		}
 	}
 }

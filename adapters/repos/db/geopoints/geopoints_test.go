@@ -809,6 +809,50 @@ func TestBodyWriteToMatchesBuild(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+// cancelAtWriter cancels once at least cancelAt bytes went through it.
+type cancelAtWriter struct {
+	written, cancelAt int
+	cancel            context.CancelFunc
+}
+
+func (w *cancelAtWriter) Write(p []byte) (int, error) {
+	w.written += len(p)
+	if w.written >= w.cancelAt {
+		w.cancel()
+	}
+	return len(p), nil
+}
+
+// TestBodyWriteToCancelledDuringSerialization pins that a cancellation arriving
+// while any section is being written, the last chunk included, fails the write:
+// a compaction that reported success would install the segment past a backup
+// or shutdown deadline.
+func TestBodyWriteToCancelledDuringSerialization(t *testing.T) {
+	const n = 70_000
+	size := BodySize(n, 0)
+	tests := []struct {
+		name string
+		// bytes left to write when the cancellation arrives
+		remaining int
+	}{
+		{name: "tree nodes", remaining: n*16 + 1},
+		{name: "doc ids", remaining: n*8 + n*4},
+		{name: "latitudes", remaining: n*4 + n*2},
+		{name: "longitudes", remaining: n * 2},
+		{name: "last chunk", remaining: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			w := &cancelAtWriter{cancelAt: size - test.remaining, cancel: cancel}
+			body := &Body{Points: genPoints(rand.New(rand.NewSource(1)), n)}
+			_, err := body.WriteTo(ctx, w)
+			require.ErrorIs(t, err, context.Canceled)
+		})
+	}
+}
+
 // TestLeavesSortedByDocID pins the layout collectLeaf relies on for its sorted
 // runs.
 func TestLeavesSortedByDocID(t *testing.T) {

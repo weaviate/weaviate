@@ -478,7 +478,11 @@ func (pv *propValuePair) readFromBucket(ctx context.Context, s *Searcher, limit 
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
-	b := s.store.Bucket(bucketName)
+	// pinned until the read returns: disabling the index shuts the bucket
+	// down, and without the pin that can happen between this lookup and the
+	// read taking its view of the segments
+	b, release := s.store.AcquireBucketForRead(bucketName)
+	defer release()
 
 	// TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.
 	if b == nil && (pv.operator != filters.OperatorWithinGeoRange || pv.hasGeoBucketIndex) {

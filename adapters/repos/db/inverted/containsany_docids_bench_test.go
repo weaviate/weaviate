@@ -1180,3 +1180,78 @@ func TestGeoRangeBucketResolution(t *testing.T) {
 		require.ErrorContains(t, err, "bucket for prop p not found")
 	})
 }
+
+// blockingCtx parks the first Err call until released, which stops a geo range
+// search between two segments.
+type blockingCtx struct {
+	context.Context
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingCtx) Err() error {
+	c.once.Do(func() {
+		close(c.entered)
+		<-c.release
+	})
+	return c.Context.Err()
+}
+
+// TestGeoBucketPinnedForRangeSearch pins that removing a geo bucket, as
+// disabling the property's filterable index does, waits for a range search
+// that is already reading it instead of closing its segments underneath it.
+func TestGeoBucketPinnedForRangeSearch(t *testing.T) {
+	f := newContainsFixture(t, 10)
+	bucketName := helpers.BucketGeoFromPropNameLSM("location")
+	require.NoError(t, f.store.CreateOrLoadBucket(context.Background(), bucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyGeoPoints)))
+	bucket := f.store.Bucket(bucketName)
+	require.NoError(t, bucket.GeoPointsAdd(7, 52.5, 13.4))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	lat, lon := float32(52.5), float32(13.4)
+	pv := &propValuePair{
+		prop: "location", operator: filters.OperatorWithinGeoRange,
+		hasFilterableIndex: true, hasGeoBucketIndex: true,
+		valueGeoRange: &filters.GeoRange{
+			GeoCoordinates: &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
+			Distance:       1000,
+		},
+		Class: &models.Class{InvertedIndexConfig: &models.InvertedIndexConfig{}},
+	}
+
+	ctx := &blockingCtx{Context: context.Background(), entered: make(chan struct{}), release: make(chan struct{})}
+	type result struct {
+		ids []uint64
+		err error
+	}
+	searched := make(chan result, 1)
+	go func() {
+		dbm, err := pv.readFromBucket(ctx, f.searcher, 0)
+		if err != nil {
+			searched <- result{err: err}
+			return
+		}
+		searched <- result{ids: dbm.IDs()}
+	}()
+	<-ctx.entered
+
+	removed := make(chan error, 1)
+	go func() { removed <- f.store.ShutdownBucket(context.Background(), bucketName) }()
+
+	select {
+	case err := <-removed:
+		t.Fatalf("the bucket was shut down under a running range search (err: %v)", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(ctx.release)
+	res := <-searched
+	require.NoError(t, res.err)
+	require.Equal(t, []uint64{7}, res.ids)
+	require.NoError(t, <-removed)
+
+	_, err := pv.readFromBucket(context.Background(), f.searcher, 0)
+	require.ErrorContains(t, err, "bucket for prop location not found")
+}

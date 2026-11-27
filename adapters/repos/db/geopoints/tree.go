@@ -203,6 +203,9 @@ func (b *Body) write(ctx context.Context, w io.Writer) error {
 		}
 	}
 	for lo := 0; lo < len(points); lo += scratchSize / 4 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		hi := min(lo+scratchSize/4, len(points))
 		for i := lo; i < hi; i++ {
 			binary.LittleEndian.PutUint32(scratch[(i-lo)*4:], math.Float32bits(points[i].Lat))
@@ -212,6 +215,9 @@ func (b *Body) write(ctx context.Context, w io.Writer) error {
 		}
 	}
 	for lo := 0; lo < len(points); lo += scratchSize / 4 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		hi := min(lo+scratchSize/4, len(points))
 		for i := lo; i < hi; i++ {
 			binary.LittleEndian.PutUint32(scratch[(i-lo)*4:], math.Float32bits(points[i].Lon))
@@ -220,7 +226,8 @@ func (b *Body) write(ctx context.Context, w io.Writer) error {
 			return err
 		}
 	}
-	return nil
+	// a body completed after cancellation must not be installed as a segment
+	return ctx.Err()
 }
 
 type builder struct {
