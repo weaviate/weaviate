@@ -857,11 +857,11 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		"bool":         true,
 		"time":         "2011-11-23T01:52:23.000004234Z",
 		"boolArray":    []interface{}{true, false, true},
-		"beacon":       []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
-		// as json.Unmarshal decodes them: class and href are kept
-		"ref": []interface{}{
-			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", "class": "OtherClass", "href": "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"},
-			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248", "class": "OtherClass", "href": "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a81"},
+		"beacon":       models.MultipleRef{{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		// unmarshalRef drops class and href, as parseCrossRef does
+		"ref": models.MultipleRef{
+			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"},
+			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248"},
 		},
 		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": float64(3), "innerStr": "avc"}},
 		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
@@ -1640,7 +1640,7 @@ func TestMemoryReuse(t *testing.T) {
 			"textArrayUTF": []interface{}{"語", "b"},
 			"boolArray":    []interface{}{true, false},
 			"textArray":    []interface{}{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
-			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+			"ref":          models.MultipleRef{{Beacon: "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
 			"foo":          float64(17),
 		},
 		{
@@ -1649,7 +1649,7 @@ func TestMemoryReuse(t *testing.T) {
 			"textArrayUTF": []interface{}{"a", "c"},
 			"boolArray":    []interface{}{true, true},
 			"textArray":    []interface{}{"I", "contain", "other", "text"},
-			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168248"}},
+			"ref":          models.MultipleRef{{Beacon: "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168248"}},
 			"foo":          float64(5),
 		},
 		{
@@ -1658,7 +1658,7 @@ func TestMemoryReuse(t *testing.T) {
 			"textArrayUTF": []interface{}{"a", "c", "d"},
 			"boolArray":    []interface{}{true, true, false},
 			"textArray":    []interface{}{"I", "contain", "other", "text", "too"},
-			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168249"}},
+			"ref":          models.MultipleRef{{Beacon: "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168249"}},
 			"foo":          float64(9),
 		},
 	}
@@ -1708,36 +1708,10 @@ func TestMemoryReuse(t *testing.T) {
 	}
 }
 
-// TestUnmarshalArrayObject_EquivalentToJSONUnmarshal: the plain-reference
-// shortcut must return what json.Unmarshal returns for any element.
-func TestUnmarshalArrayObject_EquivalentToJSONUnmarshal(t *testing.T) {
-	tests := []struct {
-		name string
-		elem string
-	}{
-		{name: "plain_ref", elem: `{"beacon":"weaviate://localhost/A/73f2eb5f-5abf-447a-81ca-74b1dd168247"}`},
-		{name: "escaped_beacon", elem: `{"beacon":"weaviate:\/\/localhost\/A\/\u00e4"}`},
-		{name: "beacon_not_string", elem: `{"beacon":17}`},
-		{name: "ref_with_href", elem: `{"beacon":"weaviate://localhost/A/x","href":"/v1/x"}`},
-		{name: "ref_with_classification", elem: `{"beacon":"weaviate://localhost/A/x","classification":{"overallCount":5}}`},
-		{name: "other_key_first", elem: `{"a":1,"beacon":"x"}`},
-		{name: "single_other_key", elem: `{"rssi":-41}`},
-		{name: "empty", elem: `{}`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			want := map[string]interface{}{}
-			require.NoError(t, json.Unmarshal([]byte(tt.elem), &want))
-			got, err := unmarshalArrayObject([]byte(tt.elem))
-			require.NoError(t, err)
-			assert.Equal(t, want, got)
-		})
-	}
-}
-
-// TestUnmarshalPropertyArray_ExactCapacity: commas inside strings, objects and
-// nested arrays must not reserve slots the array never fills.
-func TestUnmarshalPropertyArray_ExactCapacity(t *testing.T) {
+// TestUnmarshalPropertyArray pins that an array decodes as json.Unmarshal decodes
+// it, and that a non-empty one parseCrossRef accepts comes back as its MultipleRef.
+// Commas inside strings, objects and nested arrays must reserve no slot.
+func TestUnmarshalPropertyArray(t *testing.T) {
 	tests := []struct {
 		name  string
 		array string
@@ -1753,22 +1727,50 @@ func TestUnmarshalPropertyArray_ExactCapacity(t *testing.T) {
 		{name: "long_text_with_escaped_quote", array: `["` + strings.Repeat("a,", 100) + `\",,","x"]`},
 		{name: "object_with_nested_arrays", array: `[{"a":[1,2,3],"b":"x,y"},{"a":[],"c":{"d":[4,5],"e":"]"}}]`},
 		{name: "refs", array: `[{"beacon":"weaviate://localhost/A/73f2eb5f-5abf-447a-81ca-74b1dd168247"},{"beacon":"weaviate://localhost/A/x"}]`},
-		{name: "ref_with_classification", array: `[{"beacon":"weaviate://localhost/A/x","classification":{"overallCount":5,"winningCount":3}}]`},
+		{name: "ref_with_escaped_beacon", array: `[{"beacon":"weaviate:\/\/localhost\/A\/\u00e4"}]`},
+		{name: "ref_with_href_and_class", array: `[{"beacon":"weaviate://localhost/A/x","class":"A","href":"/v1/x"}]`},
+		{name: "ref_with_other_key_first", array: `[{"a":1,"beacon":"x"}]`},
+		{name: "refs_with_classification", array: `[{"beacon":"weaviate://localhost/A/x","classification":{"overallCount":5,"winningCount":3}},{"beacon":"weaviate://localhost/A/y"}]`},
+		{name: "ref_with_null_classification", array: `[{"beacon":"x","classification":null}]`},
+		{name: "ref_with_text_classification", array: `[{"beacon":"x","classification":"spam"}]`},
+		{name: "ref_with_mistyped_classification", array: `[{"beacon":"x","classification":{"overallCount":"many"}}]`},
+		{name: "beacon_not_string", array: `[{"beacon":17}]`},
+		{name: "beacon_null", array: `[{"beacon":null}]`},
+		{name: "beacon_in_first_element_only", array: `[{"beacon":"x"},{"rssi":-40}]`},
+		{name: "beacon_in_later_element_only", array: `[{"rssi":-40},{"beacon":"x","rssi":-41}]`},
+		{name: "object_without_beacon", array: `[{"rssi":-41}]`},
+		{name: "empty_object", array: `[{}]`},
+		{name: "beacon_key_with_escaped_letter", array: `[{"be\u0061con":"x"}]`},
+		{name: "beacon_key_fully_escaped", array: `[{"\u0062\u0065\u0061\u0063\u006f\u006e":"x"}]`},
+		{name: "beacon_as_value", array: `[{"sku":"beacon"}]`},
+		{name: "beacon_as_text", array: `["beacon","x"]`},
+		{name: "beacon_in_nested_object", array: `[{"nested":{"beacon":"x"}}]`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var want []interface{}
-			require.NoError(t, json.Unmarshal([]byte(tt.array), &want))
+			var asJSON []interface{}
+			require.NoError(t, json.Unmarshal([]byte(tt.array), &asJSON))
+			var want interface{} = asJSON
+			if refs, err := parseCrossRef(asJSON); err == nil && len(asJSON) > 0 {
+				want = refs
+			}
+
 			got, err := unmarshalPropertyArray([]byte(tt.array))
 			require.NoError(t, err)
 			assert.Equal(t, want, got)
-			assert.Equal(t, len(got), cap(got))
+			switch got := got.(type) {
+			case []interface{}:
+				assert.Equal(t, len(got), cap(got))
+			case models.MultipleRef:
+				assert.Equal(t, len(got), cap(got))
+			}
 		})
 	}
 }
 
 // BenchmarkUnmarshalPropertyArray: refs and long text are almost all string
-// body, which countArrayEntries must not walk byte by byte.
+// body, which countArrayEntries must not walk byte by byte. An object array
+// without a beacon must skip the reference decode.
 func BenchmarkUnmarshalPropertyArray(b *testing.B) {
 	refs := make([]string, 3)
 	for i := range refs {
@@ -1778,12 +1780,16 @@ func BenchmarkUnmarshalPropertyArray(b *testing.B) {
 	for i := range texts {
 		texts[i] = `"` + strings.Repeat("lorem ipsum, dolor sit amet ", 40) + `"`
 	}
+	object := `{"sku":"A-1001","color":"red","price":19.99,"sizes":["S","M","L"],"dims":{"w":10,"h":20}}`
+	longTextObject := `{"title":"t","body":"` + strings.Repeat("lorem ipsum dolor sit amet ", 400) + `"}`
 	tests := []struct {
 		name  string
 		array []byte
 	}{
 		{name: "refs3", array: []byte("[" + strings.Join(refs, ",") + "]")},
 		{name: "long_text10", array: []byte("[" + strings.Join(texts, ",") + "]")},
+		{name: "object1", array: []byte("[" + object + "]")},
+		{name: "long_text_object1", array: []byte("[" + longTextObject + "]")},
 	}
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
@@ -1797,26 +1803,41 @@ func BenchmarkUnmarshalPropertyArray(b *testing.B) {
 	}
 }
 
+var extractionBenchmarkProps = map[string]interface{}{
+	"name":   "some long string",
+	"second": "other very long string",
+	"number": float64(17),
+	"bool":   false,
+	"array":  []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"},
+}
+
 func BenchmarkUnmarshalPropertiesFullObject(b *testing.B) {
-	benchmarkExtraction(b, nil)
+	benchmarkExtraction(b, extractionBenchmarkProps, nil)
 }
 
 func BenchmarkUnmarshalPropertiesExplicitOnlySome(b *testing.B) {
-	benchmarkExtraction(b, []string{"name", "second"})
+	benchmarkExtraction(b, extractionBenchmarkProps, []string{"name", "second"})
 }
 
 func BenchmarkUnmarshalPropertiesExplicitAll(b *testing.B) {
-	benchmarkExtraction(b, []string{"name", "second", "number", "bool", "array"})
+	benchmarkExtraction(b, extractionBenchmarkProps, []string{"name", "second", "number", "bool", "array"})
 }
 
-func benchmarkExtraction(b *testing.B, propStrings []string) {
-	beforeProps := map[string]interface{}{
-		"name":   "some long string",
-		"second": "other very long string",
-		"number": float64(17),
-		"bool":   false,
-		"array":  []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"},
+// BenchmarkUnmarshalPropertiesReferences decodes references as MultiObjectByID
+// does, through UnmarshalProperties and enrichSchemaTypes.
+func BenchmarkUnmarshalPropertiesReferences(b *testing.B) {
+	for _, n := range []int{1, 10, 100} {
+		refs := make(models.MultipleRef, n)
+		for i := range refs {
+			refs[i] = &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/Target/73f2eb5f-5abf-447a-81ca-74b1dd%06d", i))}
+		}
+		b.Run(fmt.Sprintf("refs=%d", n), func(b *testing.B) {
+			benchmarkExtraction(b, map[string]interface{}{"title": "some title", "hasRef": refs}, []string{"title", "hasRef"})
+		})
 	}
+}
+
+func benchmarkExtraction(b *testing.B, beforeProps map[string]interface{}, propStrings []string) {
 	before := FromObject(
 		&models.Object{
 			Class:            "MyFavoriteClass",
@@ -1845,6 +1866,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(b, err)
 
+	b.ReportAllocs()
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {

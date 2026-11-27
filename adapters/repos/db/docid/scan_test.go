@@ -234,7 +234,7 @@ func TestScanObjectsLSMPropertyValues(t *testing.T) {
 		objectsPerWorker = 8
 	)
 	objectCount := max(200, concurrency.CurrentGOMAXPROCSx2()*objectsPerWorker)
-	propertyNames := []string{"name", "count", "flag", "tags", "scores", "meta"}
+	propertyNames := []string{"name", "count", "flag", "tags", "scores", "meta", "refs"}
 
 	tests := []struct {
 		name string
@@ -349,6 +349,7 @@ func objectProperties(i, padding int) map[string]interface{} {
 		"tags":   tags,
 		"scores": []interface{}{float64(i) + 0.5, float64(i) + 1.5},
 		"meta":   map[string]interface{}{"owner": fmt.Sprintf("owner-%d", i), "rank": float64(i)},
+		"refs":   models.MultipleRef{{Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/Target/%d", i))}},
 	}
 }
 
