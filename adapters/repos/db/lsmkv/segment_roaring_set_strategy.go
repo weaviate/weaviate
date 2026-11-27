@@ -16,6 +16,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -25,7 +26,7 @@ import (
 // method only runs for the oldest segment holding the key, whose tombstones
 // cannot mask anything older; newer segments' deletions are applied by
 // roaringSetMergeWith.
-func (s *segment) roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roaringset.BitmapBufPool,
+func (s *segment) roaringSetGet(key []byte, h inverted.BloomHash, bitmapBufPool roaringset.BitmapBufPool,
 ) (bm *sroar.Bitmap, release func(), err error) {
 	if err := segmentindex.CheckStrategyRoaringSet(s.strategy); err != nil {
 		return nil, noopRelease, err
@@ -75,7 +76,7 @@ func (s *segment) roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roar
 // roaringSetMergeWith applies this segment's node for key onto additions in
 // place: the node's deletions first (masking older segments' additions),
 // then its own additions.
-func (s *segment) roaringSetMergeWith(key []byte, h bloomhash.Hash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
+func (s *segment) roaringSetMergeWith(key []byte, h inverted.BloomHash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	if err := segmentindex.CheckStrategyRoaringSet(s.strategy); err != nil {
 		return err

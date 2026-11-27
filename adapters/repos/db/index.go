@@ -3084,6 +3084,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return remoteSearch(shardName)
 			})
 	}
+	if filters != nil && readPlan.LocalShardCount() > 1 {
+		filters.ShareContainsHashes()
+	}
 	err := executor.ExecuteForEachShard(readPlan,
 		// Local Shard Search
 		func(replica routerTypes.Replica) error {
@@ -3372,6 +3375,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil
 	}
 
+	if localFilters != nil && readPlan.LocalShardCount() > 1 {
+		localFilters.ShareContainsHashes()
+	}
 	err = executor.ExecuteForEachShard(readPlan,
 		// Local Shard Search
 		func(replica routerTypes.Replica) error {
