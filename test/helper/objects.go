@@ -286,6 +286,88 @@ func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Obje
 	return resp.Payload, nil
 }
 
+// ErrorDetail renders the server-side messages carried by a swagger client
+// error. The generated error types format their payload with %+v, and the
+// payload's message list is a slice of pointers, so it renders as
+// "&{Error:[0xc000acd5a0]}" -- the address, not the reason the server rejected
+// the request. Use it in assertion messages so a failure is diagnosable from
+// the test log alone.
+//
+// It returns the messages on their own, because testify already prints
+// err.Error() on a line of its own. With no messages to show it falls back to
+// err.Error(), and for a nil error it returns the literal "<nil>". An item that
+// carries no message renders as "<empty>" rather than disappearing, since an
+// empty message is itself an anomaly worth seeing.
+//
+// Two payload shapes carry a message list: models.ErrorResponse and the schema
+// routes' models.RestrictionViolationResponse. Others, such as the 429
+// models.UsageLimitExceededResponse, take the err.Error() fallback -- which
+// stays readable there because every field they carry is a scalar that %+v
+// prints in full.
+func ErrorDetail(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	msgs := serverMessages(err)
+	if len(msgs) == 0 {
+		return err.Error()
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// serverMessages returns the message list carried by err's payload, or nil if
+// err carries neither payload shape.
+//
+// errors.As stops at the first match in err's tree, so only one payload is ever
+// read even when err carries several. An error joining both shapes reports the
+// ErrorResponse one, since that case comes first; one joining two of the same
+// shape reports the earlier one. No error here carries more than one payload,
+// and reading them all would mean walking the tree by hand.
+func serverMessages(err error) []string {
+	var plain interface {
+		GetPayload() *models.ErrorResponse
+	}
+	var restricted interface {
+		GetPayload() *models.RestrictionViolationResponse
+	}
+	switch {
+	case errors.As(err, &plain):
+		if payload := plain.GetPayload(); payload != nil {
+			return itemMessages(payload.Error, func(item *models.ErrorResponseErrorItems0) string {
+				return item.Message
+			})
+		}
+	case errors.As(err, &restricted):
+		if payload := restricted.GetPayload(); payload != nil {
+			return itemMessages(payload.Error, func(item *models.RestrictionViolationResponseErrorItems0) string {
+				return item.Message
+			})
+		}
+	}
+	return nil
+}
+
+// itemMessages reads a message off every non-nil item, substituting "<empty>"
+// for an item that carries none so it stays visible in the joined output.
+//
+// T is unconstrained because nothing here reads a field off it. Which payload
+// shapes get unpacked is decided in serverMessages, and no caller reaches this
+// without writing an extractor for its own item type.
+func itemMessages[T any](items []*T, message func(*T) string) []string {
+	msgs := make([]string, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		msg := message(item)
+		if msg == "" {
+			msg = "<empty>"
+		}
+		msgs = append(msgs, msg)
+	}
+	return msgs
+}
+
 func CreateObjectWithResponseAuth(t *testing.T, object *models.Object, key string) (*models.Object, error) {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
