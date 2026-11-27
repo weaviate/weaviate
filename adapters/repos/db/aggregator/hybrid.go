@@ -16,33 +16,55 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, error) {
-	kw := &searchparams.KeywordRanking{
-		Type:                 "bm25",
-		Query:                a.params.Hybrid.Query,
-		MinimumOrTokensMatch: a.params.Hybrid.MinimumOrTokensMatch,
-		SearchOperator:       a.params.Hybrid.SearchOperator,
-	}
-
 	cl := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
 	if cl == nil {
 		return nil, fmt.Errorf("could not find class %s in schema", a.params.ClassName)
 	}
 
-	for _, v := range cl.Properties {
+	return HybridKeywordRanking(a.params.Hybrid, cl), nil
+}
+
+// HybridKeywordRanking builds the BM25 leg of a hybrid aggregation over the
+// text properties of class. It is shared with the index, which runs the same
+// search across all shards when it resolves a hybrid aggregation's objects
+// globally, so both must rank identically.
+func HybridKeywordRanking(h *searchparams.HybridSearch, class *models.Class) *searchparams.KeywordRanking {
+	kw := &searchparams.KeywordRanking{
+		Type:                 "bm25",
+		Query:                h.Query,
+		MinimumOrTokensMatch: h.MinimumOrTokensMatch,
+		SearchOperator:       h.SearchOperator,
+	}
+
+	for _, v := range class.Properties {
 		if v.DataType[0] == "text" || v.DataType[0] == "string" { // TODO: Also the array types?
 			kw.Properties = append(kw.Properties, v.Name)
 		}
 	}
 
-	return kw, nil
+	return kw
+}
+
+// CapFusedResults keeps the limit best results of a hybrid search. Fusion
+// returns the union of the BM25 and vector results, sorted best first, so a
+// mixed search (0 < alpha < 1) can return up to twice the limit; a hybrid
+// aggregation must cover at most limit objects, the top limit of the fused
+// ranking, like a hybrid Get with that limit.
+func CapFusedResults(res []search.Result, limit int) []search.Result {
+	if limit >= 0 && len(res) > limit {
+		return res[:limit]
+	}
+	return res
 }
 
 // setDefaultObjectLimit fills in the limit a hybrid request may omit. Both legs

@@ -87,6 +87,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 	if err != nil {
 		return nil, err
 	}
+	res = CapFusedResults(res, *fa.params.ObjectLimit)
 
 	ids := make([]uint64, len(res))
 	for i, r := range res {
