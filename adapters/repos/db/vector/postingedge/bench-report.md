@@ -1334,7 +1334,7 @@ Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seg
   - Por fusión son 9 conflictos: 5 ficheros del arnés que `m2` quitó e integración cambió, los dos de la reentrega y dos de tests.
   - Va por fusión, con sus tests enteros, en la primera ventana de compilación tras el 10M. Después, integración a backup y a `none-direct`.
 
-#### Enmienda de las 21:20 del 27 al 10M crecido: la caché de Go borrada en marcha, el recall y las cargas al acabar, y el orden que sigue
+#### Enmienda de las 21:00 del 27 al 10M crecido: la caché de Go borrada en marcha, el recall y las cargas al acabar, y el orden que sigue
 
 **El encargo (del usuario, hacia las 20:55):**
 - Borrar ya la caché de compilación de Go.
@@ -1366,7 +1366,7 @@ Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seg
 - **No doy cifra esperada:** no hay medida del índice integrado crecido en wiki-dpr.
 - **Nada de búsqueda en frío sobre este índice** hasta reorganizarlo (del usuario).
 
-**Lo preparado mientras corre, sin compilar nada (20:50 a 21:20).**
+**Lo preparado mientras corre, sin compilar nada (20:50 a 21:00).**
 - **La fusión de `m2` (`44c35ee9b9`) en integración, en un árbol local y sin commit.** Los 9 conflictos están resueltos por texto. No se ha compilado ni probado.
   - **El arnés de integración se queda.** `m2` lo sacó del núcleo; en integración sigue, como quedó anotado entonces. Vuelven los 17 ficheros que la fusión borraba, y los 4 que chocaban conservan la versión de integración.
   - **Entran en él 15 ficheros desde el archivo de esta rama:** los 14 de tests a escala que `m2` sacó al encoger sus tests, y el arnés del tope de lo pendiente. Compilaban contra `m2` antes de la serie; qué les falta ahora lo dirá el compilador.
