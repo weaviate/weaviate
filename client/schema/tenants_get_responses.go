@@ -77,7 +77,7 @@ func NewTenantsGetOK() *TenantsGetOK {
 /*
 TenantsGetOK describes a response with status code 200, with default header values.
 
-Successfully retrieved tenants.
+Successfully retrieved tenants. A collection the caller cannot read yields an empty list, whether or not it exists.
 */
 type TenantsGetOK struct {
 	Payload []*models.Tenant

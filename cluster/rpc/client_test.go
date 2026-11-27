@@ -175,6 +175,18 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrUserIdentifierExists", send: apikey.ErrUserIdentifierExists},
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
 		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
+		// The tenants list hides these two from callers who cannot read the
+		// collection, and recognizes them only by these sentinels.
+		{
+			name: "QueryTenantsClassNotFound",
+			send: fmt.Errorf("could not get tenants: %w", schema.ErrClassNotFound),
+			want: schemaUC.ErrNotFound,
+		},
+		{
+			name: "QueryTenantsMTDisabled",
+			send: fmt.Errorf("could not get tenants: %w", fmt.Errorf("%w for class %q", schema.ErrMTDisabled, "Movies")),
+			want: schema.ErrMTDisabled,
+		},
 		// The leader wraps this error's text, so fromRPCError must find the sentinel inside it or the follower answers 500.
 		{
 			name: "ErrMovementBlockedByTask",
