@@ -26,10 +26,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -436,6 +438,14 @@ func (s lockProbeShard) ObjectByID(ctx context.Context, id strfmt.UUID,
 ) (*storobj.Object, error) {
 	s.probe.check()
 	return s.ShardLike.ObjectByID(ctx, id, props, addl)
+}
+
+func (s lockProbeShard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
+	addl additional.Properties, properties []string,
+) ([]*storobj.Object, []float32, error) {
+	s.probe.check()
+	return s.ShardLike.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addl, properties)
 }
 
 func (s lockProbeShard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {

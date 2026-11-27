@@ -252,7 +252,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsListForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrEndpointGone{}):
