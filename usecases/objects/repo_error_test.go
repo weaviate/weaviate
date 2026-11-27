@@ -580,9 +580,7 @@ func TestAutoSchemaClasslessRefLookupSkipsUnreadableCollections(t *testing.T) {
 	}{
 		{
 			name: "add object",
-			call: func(t *testing.T, m *Manager, _ *BatchManager, repo *fakeObjectFinder, mods *fakeModulesProvider) error {
-				mods.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil).Once()
-				repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+			call: func(t *testing.T, m *Manager, _ *BatchManager, _ *fakeObjectFinder, _ *fakeModulesProvider) error {
 				_, err := m.AddObject(context.Background(), principal, classlessAutoSchemaObject(class, refID), nil)
 				return err
 			},
@@ -619,7 +617,8 @@ func TestAutoSchemaClasslessRefLookupSkipsUnreadableCollections(t *testing.T) {
 				Return(search.Results{{ClassName: target}}, nil).Once()
 			repo.On("Exists", target, refID).Return(false, nil).Maybe()
 
-			require.NoError(t, operation.call(t, m, b, repo, mods))
+			// An unreadable target is rejected like an unknown one.
+			require.ErrorContains(t, operation.call(t, m, b, repo, mods), "name it in the beacon")
 			repo.AssertNotCalled(t, "Exists", target, refID)
 
 			var lookupCalls int

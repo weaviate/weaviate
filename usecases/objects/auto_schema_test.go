@@ -1748,11 +1748,11 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 			expectedDataType: []string{"Movies"},
 		},
 		{
-			name:             "unknown uuid does not resolve",
-			principal:        confinedPrincipal,
-			sourceClass:      "customer1:Library",
-			lookupIn:         "customer1",
-			expectedDataType: []string{"object[]"},
+			name:        "unknown uuid does not resolve",
+			principal:   confinedPrincipal,
+			sourceClass: "customer1:Library",
+			lookupIn:    "customer1",
+			expectedErr: "name it in the beacon",
 		},
 		{
 			// A recorded target outside the source namespace is no reference this
@@ -1789,11 +1789,11 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 		{
 			// A reference may not cross namespaces, and an operator writing
 			// into a namespaced collection is bound by that too.
-			name:             "global operator looks the id up in the source namespace",
-			principal:        globalOperator,
-			sourceClass:      "customer1:Library",
-			lookupIn:         "customer1",
-			expectedDataType: []string{"object[]"},
+			name:        "global operator looks the id up in the source namespace",
+			principal:   globalOperator,
+			sourceClass: "customer1:Library",
+			lookupIn:    "customer1",
+			expectedErr: "name it in the beacon",
 		},
 		{
 			name:             "global operator resolves an unqualified class",
@@ -1879,12 +1879,12 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray(t *testin
 		{
 			name:    "own namespace first",
 			beacons: []strfmt.UUID{ownID, otherID},
-			errMsg:  "element [1]: mismatched data type - reference expected, got 'object'",
+			errMsg:  "element [1]: cannot resolve the collection of beacon",
 		},
 		{
 			name:    "other namespace first",
 			beacons: []strfmt.UUID{otherID, ownID},
-			errMsg:  "element [1]: mismatched data type - 'object' expected, got reference",
+			errMsg:  "element [0]: cannot resolve the collection of beacon",
 		},
 	}
 	for _, tc := range cases {

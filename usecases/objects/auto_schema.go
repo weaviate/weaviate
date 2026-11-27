@@ -569,7 +569,10 @@ func (m *AutoSchemaManager) asRef(ctx context.Context, target refTarget,
 		return "", false, fmt.Errorf("cannot resolve the collection of beacon %q; name it in the beacon", beacon)
 	}
 	if len(results) == 0 {
-		return "", false, nil
+		// Typing the property as object[] would store every later beacon on it
+		// as text. The same error for an unknown id and an unreadable one keeps
+		// the response from revealing which it was.
+		return "", false, fmt.Errorf("cannot resolve the collection of beacon %q; name it in the beacon", beacon)
 	}
 	// Which of several collections holding the id comes first is unordered.
 	return schema.DataType(results[0].ClassName), true, nil
