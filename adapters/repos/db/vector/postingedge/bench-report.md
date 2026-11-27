@@ -1022,7 +1022,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Con 1 llamador: 0.956 veces la cabeza.** Las dos pasadas coinciden (302.6 y 303.9 frente a 315.3 y 319.4), así que no es ruido.
 - **Con 8 llamadores: 0.980,** dentro de lo que se separan las dos pasadas de la propia cabeza (un 4.7 %). Sin tandas, los 8 siguen entrando de uno en uno.
 - **Ni la escritura ni el recall cambian:** 0.99 veces los bytes, y el recall a 0.0008 o menos.
-- **Por qué pierde.** Esperaba que ganara: el reparto en gorutinas costaba 1.7 ms de CPU de los 2.88 ms de un plan. Pero ese reparto también solapaba las lecturas de una ronda, y leídas una detrás de otra tardan más de lo que se ahorra: el plan pasa de unos 3.15 a unos 3.30 ms. **Mi estimación de la ganancia para un llamador solo estaba equivocada.**
+- **Por qué pierde.** Esperaba que ganara: el reparto en gorutinas costaba 1.7 ms de CPU de los 2.88 ms de un plan. Pero ese reparto también solapaba las lecturas de una ronda, y leídas una detrás de otra tardan más de lo que se ahorra: el insert entero pasa de 3.15 a 3.30 ms. **Mi estimación de la ganancia para un llamador solo estaba equivocada.**
 - **Lo que el paso 1 vale se decide dentro de las tandas,** donde 8 llamadores planean a la vez y el reparto de cada uno compite por los mismos núcleos. Eso lo miden los pasos 2 y 3, que lo llevan dentro, y las dos variantes de abajo.
 
 **Dos variantes sobre el paso 3, para decidir el paso 1 (*mío*, antes de compilarlas):**
@@ -1033,6 +1033,74 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - si `s3a` iguala a `s3` con 8 llamadores (a un 2 % o menos) y con 1 llamador supera a `s3` en un 2 % o más, la regla de `s3a` sustituye al presupuesto fijo del paso 1, en un commit propio;
   - si `s3n` iguala o supera a `s3` con 8 llamadores (a un 2 % o menos), el paso 1 no aporta nada y sale;
   - en otro caso el paso 1 se queda como está, y la pérdida con un llamador queda dicha.
+
+### Lo pendiente de la noche: 20 000 inserts sobre el índice de 3.3M, perfilados (2026-11-27, de 13:07 a 13:13)
+
+**El ritmo cayó de 217 a 87 inserts por segundo porque la búsqueda de cada insert lee más cuanto mayor es el índice, y cada lectura es una gorutina que hay que despertar. A 3.3M, despertar hilos es el 63 % de la CPU: unos 10 ms de los 14.5 de un insert. No es la compactación (2.6 % de la CPU), ni el diario, ni el aplicador.**
+
+La corrida: el clon APFS del índice a medias (3 311 508 vectores), el código de la noche (`c6c8b2e347`), 1 llamador, 20 000 inserts en 290.8 s: **68.8 por segundo**. Los datos, en `night10m/continue/` del scratch (resultado, perfil de CPU y traza), que archivo con el resto.
+
+**El tiempo de un insert, a 100k y a 3.3M.** No es el mismo dataset ni la misma dimensión (dbpedia de 1 536 frente a wiki-dpr de 768), y el clon arranca con la caché de disco fría: la comparación es de reparto, no de cifras.
+
+| por insert | 100k, dbpedia (cabeza, 1 llamador) | la noche entera, de 10k a 3.3M | 20 000 inserts a 3.3M |
+|---|---:|---:|---:|
+| reloj | 3.17 ms | 9.60 ms (4.63 al empezar, 11.44 al acabar) | 14.54 ms |
+| la búsqueda del plan | 2.94 ms | 9.67 ms | 13.80 ms |
+| aristas inversas | 0.035 ms | 0.071 ms | 0.368 ms |
+| elegir posting, escribir, splits, filas | 0.10 ms | 0.11 ms | 0.15 ms |
+| postings cargados | 43.2 | 81.1 | 93.9 |
+| rondas | 10.6 | 20.0 | 23.2 |
+| vectores exactos leídos (rescore) | 64 | 150 | 150 |
+| gorutinas (una por posting y una por vector) | 107 | 231 | 244 |
+
+- **La búsqueda es el 95 % del insert a 3.3M,** como a 100k (93 %). Lo demás no ha crecido: el aplicador entero son 0.5 ms.
+- **La noche corrió con 8 llamadores,** que con ese código entran de uno en uno. Sus búsquedas se solapan algo, y por eso suman un poco más que el reloj.
+- **El perfil de CPU a 3.3M** (317 s de muestras en 298 s):
+  - despertar hilos (`pthread_cond_signal`, desde `newproc` y `wakep`): 200.8 s, el 63 %. Son 10.0 ms por insert y 41 µs por gorutina; a 100k eran 1.7 ms por insert y 16 µs por gorutina;
+  - esperar a que los despierten (`pthread_cond_wait`): 30.4 s, el 10 %;
+  - leer los vectores exactos (`pread`): 42.9 s de CPU, el 13.5 %;
+  - el scan y el ruteo de la búsqueda: 12.9 s, el 4 %;
+  - la compactación de lsmkv: 8.1 s, el 2.6 %.
+- **De los 182 s que quien inserta pasa creando gorutinas salen 9.1 ms por insert de su propio reloj.** El llamador no espera al disco: espera a su propio `go`.
+- **Las lecturas de vectores exactos fueron a disco,** por el clon: 408 s bloqueados en `pread` sumando las gorutinas, 136 µs por vector, y 43.6 GB leídos físicamente. En la noche la caché estaba caliente (el proceso había escrito esos ficheros) y leyó 27.6 KB por insert. **Por eso estos 20 000 van a 68.8 por segundo y no a los 87 del final de la noche.**
+- **La magnitud es de esta máquina.** Despertar un hilo cuesta en macOS entre 16 y 41 µs; en Linux es varias veces menos. El sentido no cambia, el tamaño sí, y no lo he medido allí.
+
+**Lo que esto dice del paso 1.** A 100k, leer en línea pierde un 4.4 % con un llamador: las lecturas son rápidas y el reparto las solapa. A 3.3M el reparto cuesta 10 ms por insert. Si las lecturas están en caché, leer en línea debería dejar el insert en unos 4 o 5 ms; con el fichero frío, 150 lecturas de 136 µs una detrás de otra son 20 ms. **No sé de qué lado cae, y lo mido** (abajo).
+
+**La noche, tramo a tramo** (marginal, de `grow.json`):
+
+| hasta | inserts/s | reloj, ms por insert | CPU de usuario, ms por insert | escrito, KB por insert | leído, KB por insert |
+|---:|---:|---:|---:|---:|---:|
+| 75 600 | 216.2 | 4.63 | 5.96 | 17.6 | 12.5 |
+| 385 200 | 134.9 | 7.42 | 8.75 | 31.8 | 15.9 |
+| 1 095 600 | 112.3 | 8.90 | 10.40 | 41.0 | 16.6 |
+| 2 119 600 | 97.9 | 10.22 | 11.91 | 49.6 | 20.8 |
+| 3 301 200 | 87.4 | 11.44 | 13.29 | 49.4 | 37.7 |
+
+- **La CPU por insert sube con el reloj,** y es mayor que el reloj: quien inserta despierta hilos mientras los despertados leen.
+- **El diario y las filas no crecen:** 8.4 y 2.5 KB por insert al final, frente a 7.4 y 1.9 al principio. Lo que crece de lo escrito es lsmkv.
+
+**Los 157.2 GB escritos, por clase.** Medido es lo que la noche contó; el reparto del resto sale de las proporciones por insert de estos 20 000, y lo marco.
+
+| clase | GB | parte | cómo se sabe |
+|---|---:|---:|---|
+| compactación de lsmkv (nivel 1 y más) | ≈ 78.0 | 50 % | por diferencia |
+| diario | 27.0 | 17 % | medido en la noche |
+| reorganizaciones (8 layouts de los vectores) | 15.8 | 10 % | medido en la noche |
+| segmentos de nivel 0 de lsmkv (flush) | ≈ 14.7 | 9 % | proporción: 4 481 B por insert |
+| WAL de lsmkv | ≈ 11.6 | 7 % | proporción: 3 527 B por insert |
+| vectores exactos de los inserts | 10.1 | 6 % | medido en la noche |
+
+- **El diario va por lo que el índice le escribió.** Se reescribe encima de sí mismo, y si el sistema no llegó a pasar a disco todo, la compactación, que va por diferencia, sería mayor de lo que pone la tabla.
+- **Por contenido, como lo pediste:** diario 27.0 GB; filas de postings y aristas, su primera escritura (WAL y flush), unos 26.3; vectores exactos 10.1, más 15.8 de reescribirlos en las reorganizaciones; compactación, unos 78.0.
+- **La compactación de estos 20 000 no vale para el reparto.** Escribieron 224 KB por insert, de ellos 320 KB de ficheros de compactación (más que lo escrito, porque parte no llegó a disco antes de borrarse). La noche escribía 49 KB por insert al final. Es el store poniéndose al día tras abrir un índice que murió a medias, y por eso la compactación de la tabla va por diferencia y no por proporción.
+- **Lo que los pasos tocan de esto:** el paso 4 quita el vector del diario (3 072 de los 8 420 B de un registro: unos 9.8 GB de los 27.0), y la regla de reorganización deja los layouts en 4 de 8 (unos 10.4 GB de los 15.8). **La mitad de lo escrito, la compactación, no la toca ningún paso.**
+
+**Si los pasos hacen viable el insert a 10M: la medida (*mío*, pre-registro de las 13:20, antes de compilar su binario).**
+- Los mismos 20 000 inserts, sobre clones nuevos del índice de 3.3M, con el código de `m2` en local (`78c3a9f051`: los pasos 1 a 4, la regla y los vectores perdidos), con 1 llamador y con 8. El clon del índice se abre con el código nuevo; el original no se toca.
+- Se comparan con los 68.8 por segundo de arriba, en las mismas condiciones: clon nuevo, caché fría.
+- **Lo que espero:** con 8 llamadores, entre 300 y 1 000 por segundo, según cuánto pese el disco frío. Con 1 llamador, entre 50 y 230: no sé si gana.
+- **Cuánto tardaría 10M** lo digo con ese ritmo y con el de 1M de las medidas definitivas, sin extrapolar más allá de lo que se haya medido.
 
 ### Dejar la base en su mejor estado, medirla y congelarla (plan del usuario, 2026-11-27 a las 12:20)
 
