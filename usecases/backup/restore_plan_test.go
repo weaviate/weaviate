@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -493,8 +494,9 @@ func TestBuildFanoutPlan(t *testing.T) {
 
 func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
 	e := newIncrementalTestEnv(t, config.Backup{})
-	e.writeFile("s1/segment-1.db", []byte("shard-one-data"))
-	e.writeFile("s2/segment-1.db", []byte("shard-two-data"))
+	idx := strings.ToLower(e.className)
+	e.writeFile(idx+"/s1/segment-1.db", []byte("shard-one-data"))
+	e.writeFile(idx+"/s2/segment-1.db", []byte("shard-two-data"))
 	const backupID = "fanout-stage"
 
 	upload := func(prefix string, sd *backup.ShardDescriptor) map[int32][]string {
@@ -518,10 +520,10 @@ func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
 		return chunks
 	}
 
-	sdA := e.makeShardDesc("s1", []string{"s1/segment-1.db"})
+	sdA := e.makeIndexShardDesc("s1", []string{idx + "/s1/segment-1.db"})
 	sdA.Node = "nodeA"
 	chunksA := upload(backupID+"/nodeA", sdA)
-	sdB := e.makeShardDesc("s2", []string{"s2/segment-1.db"})
+	sdB := e.makeIndexShardDesc("s2", []string{idx + "/s2/segment-1.db"})
 	sdB.Node = "nodeB"
 	chunksB := upload(backupID+"/nodeB", sdB)
 	require.Contains(t, chunksA, int32(1))
@@ -551,13 +553,15 @@ func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
 	require.NoError(t, r.restoreOneFanout(context.Background(), cp, ownStore, backup.CompressionNone, &Request{Compression: Compression{CPUPercentage: 1}}, &stagedDirs{}))
 
 	classTempDir := filepath.Join(restoreDir, TempDirectory, e.className)
-	e.verify(classTempDir, []string{"s1/segment-1.db", "s2/segment-1.db"})
+	e.verify(classTempDir, []string{idx + "/s1/segment-1.db", idx + "/s2/segment-1.db"})
 }
 
 func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
 	e := newIncrementalTestEnv(t, config.Backup{ChunkTargetSize: 512, MinChunkSize: 500, SplitFileSize: 256})
-	e.writeFile("s1/big-segment.db", bytes.Repeat([]byte{'B'}, 600))
-	e.writeFile("s1/changed.db", []byte("v1"))
+	idx := strings.ToLower(e.className)
+	big, changed := idx+"/s1/big-segment.db", idx+"/s1/changed.db"
+	e.writeFile(big, bytes.Repeat([]byte{'B'}, 600))
+	e.writeFile(changed, []byte("v1"))
 	const baseID = "fanout-incr-base"
 	const incrID = "fanout-incr"
 
@@ -582,17 +586,17 @@ func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
 		return chunks
 	}
 
-	baseSd := e.makeShardDesc("s1", []string{"s1/big-segment.db", "s1/changed.db"})
+	baseSd := e.makeIndexShardDesc("s1", []string{big, changed})
 	baseSd.Node = "nodeA"
 	upload(baseID+"/nodeA", baseSd)
-	require.Contains(t, baseSd.BigFilesChunk, "s1/big-segment.db")
+	require.Contains(t, baseSd.BigFilesChunk, big)
 
-	e.writeFile("s1/changed.db", []byte("v2-longer-content"))
-	incrSd := e.makeShardDesc("s1", nil)
+	e.writeFile(changed, []byte("v2-longer-content"))
+	incrSd := e.makeIndexShardDesc("s1", nil)
 	incrSd.Node = "nodeA"
-	require.NoError(t, incrSd.FillFileInfo([]string{"s1/big-segment.db", "s1/changed.db"},
+	require.NoError(t, incrSd.FillFileInfo([]string{big, changed},
 		[]backup.ShardAndID{{ShardDesc: &backup.BaseShardDescriptor{Name: baseSd.Name, BigFilesChunk: baseSd.BigFilesChunk}, BackupID: baseID}}, e.sourceDir))
-	require.Equal(t, []string{"s1/changed.db"}, incrSd.Files)
+	require.Equal(t, []string{changed}, incrSd.Files)
 	require.NotEmpty(t, incrSd.IncrementalBackupInfo.FilesPerBackup[baseID])
 	incrChunks := upload(incrID+"/nodeA", incrSd)
 
@@ -614,7 +618,7 @@ func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
 	require.NoError(t, r.restoreOneFanout(context.Background(), cp, ownStore, backup.CompressionNone, &Request{Compression: Compression{CPUPercentage: 1}}, &stagedDirs{}))
 
 	classTempDir := filepath.Join(restoreDir, TempDirectory, e.className)
-	e.verify(classTempDir, []string{"s1/big-segment.db", "s1/changed.db"})
+	e.verify(classTempDir, []string{big, changed})
 }
 
 func TestRestoreOneFanoutZeroShardsResetsStaging(t *testing.T) {

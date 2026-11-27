@@ -186,10 +186,21 @@ type AuthConfig struct {
 type BasicAuth struct {
 	Username string `json:"username" yaml:"username"`
 	Password string `json:"password" yaml:"password"`
+	// With SendOnly set, a node sends its credentials on outgoing cluster
+	// requests but does not check them on incoming ones. This lets basic auth
+	// be turned on with a rolling restart.
+	SendOnly bool `json:"sendOnly" yaml:"sendOnly"`
 }
 
+// Enabled reports whether credentials are configured, and so whether they are
+// sent on outgoing cluster requests.
 func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
+}
+
+// VerifyEnabled reports whether incoming cluster requests must carry valid credentials.
+func (ba BasicAuth) VerifyEnabled() bool {
+	return ba.Enabled() && !ba.SendOnly
 }
 
 func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {

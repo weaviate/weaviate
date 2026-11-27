@@ -30,7 +30,7 @@ func NewBasicAuthHandler(authConfig cluster.AuthConfig) auth {
 }
 
 func (h *basicAuthHandler) handleFunc(handler http.HandlerFunc) http.HandlerFunc {
-	if !h.basicAuth.Enabled() {
+	if !h.basicAuth.VerifyEnabled() {
 		return handler
 	}
 	return func(w http.ResponseWriter, r *http.Request) {

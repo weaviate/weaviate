@@ -13,7 +13,6 @@ package grpc
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -79,16 +78,6 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	var interceptors []grpc.UnaryServerInterceptor
 
 	interceptors = append(interceptors, makeAuthInterceptor())
-
-	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
-	if basicAuth.Enabled() {
-		interceptors = append(interceptors,
-			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password))
-
-		o = append(o, grpc.StreamInterceptor(
-			basicAuthStreamInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
-		))
-	}
 
 	// If sentry is enabled add automatic spans on gRPC requests
 	if state.ServerConfig.Config.Sentry.Enabled {
@@ -325,39 +314,6 @@ func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerIntercep
 	}
 }
 
-func basicAuthUnaryInterceptor(servicePrefix, expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
-	) (any, error) {
-		if !strings.HasPrefix(info.FullMethod, servicePrefix) {
-			return handler(ctx, req)
-		}
-
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Error(codes.Unauthenticated, "missing metadata")
-		}
-
-		authHeader := md["authorization"]
-		if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
-			return nil, status.Error(codes.Unauthenticated, "missing or invalid auth header")
-		}
-
-		// Decode and validate Basic Auth credentials
-		payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
-		if err != nil {
-			return nil, status.Error(codes.Unauthenticated, "invalid base64 encoding")
-		}
-
-		parts := strings.SplitN(string(payload), ":", 2)
-		if len(parts) != 2 || parts[0] != expectedUsername || parts[1] != expectedPassword {
-			return nil, status.Error(codes.Unauthenticated, "invalid username or password")
-		}
-
-		return handler(ctx, req)
-	}
-}
-
 func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if maintenanceModeEnabledForLocalhost() {
@@ -440,41 +396,6 @@ func convertIP6ToIP4Loopback(ip string) string {
 		return "127.0.0.1" // Convert IPv6 loopback to IPv4
 	}
 	return ip
-}
-
-func basicAuthStreamInterceptor(servicePrefix, expectedUsername, expectedPassword string) grpc.StreamServerInterceptor {
-	return func(
-		srv interface{},
-		ss grpc.ServerStream,
-		info *grpc.StreamServerInfo,
-		handler grpc.StreamHandler,
-	) error {
-		if !strings.HasPrefix(info.FullMethod, servicePrefix) {
-			return handler(srv, ss) // no auth needed
-		}
-
-		md, ok := metadata.FromIncomingContext(ss.Context())
-		if !ok {
-			return status.Error(codes.Unauthenticated, "missing metadata")
-		}
-
-		authHeader := md["authorization"]
-		if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
-			return status.Error(codes.Unauthenticated, "missing or invalid auth header")
-		}
-
-		decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
-		if err != nil {
-			return status.Error(codes.Unauthenticated, "invalid base64 encoding")
-		}
-
-		parts := strings.SplitN(string(decoded), ":", 2)
-		if len(parts) != 2 || parts[0] != expectedUsername || parts[1] != expectedPassword {
-			return status.Error(codes.Unauthenticated, "invalid username or password")
-		}
-
-		return handler(srv, ss)
-	}
 }
 
 func StartAndListen(s *grpc.Server, state *state.State) error {

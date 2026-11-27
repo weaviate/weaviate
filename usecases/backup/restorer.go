@@ -326,5 +326,8 @@ func validateNodeMeta(meta *backup.BackupDescriptor, destPath, reqID string) err
 	if err := meta.Validate(); err != nil {
 		return fmt.Errorf("corrupted backup file: %w", err)
 	}
+	if err := validateIncrementalRefs(meta); err != nil {
+		return fmt.Errorf("corrupted backup file: %w", err)
+	}
 	return nil
 }

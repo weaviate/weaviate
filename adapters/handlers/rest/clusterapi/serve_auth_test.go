@@ -56,6 +56,9 @@ func Test_addClusterHandlerMiddleware_BasicAuth(t *testing.T) {
 		BasicAuth: cluster.BasicAuth{Username: user, Password: pass},
 	})
 	authDisabled := NewBasicAuthHandler(cluster.AuthConfig{})
+	authSendOnly := NewBasicAuthHandler(cluster.AuthConfig{
+		BasicAuth: cluster.BasicAuth{Username: user, Password: pass, SendOnly: true},
+	})
 
 	cases := []struct {
 		name           string
@@ -131,6 +134,23 @@ func Test_addClusterHandlerMiddleware_BasicAuth(t *testing.T) {
 			setBasicAuth:   true,
 			user:           user,
 			pass:           pass,
+			wantStatus:     http.StatusBadRequest,
+			wantNextCalled: false,
+		},
+		{
+			name:           "send only, /v1/cluster/join no creds reaches raft handler",
+			auth:           authSendOnly,
+			path:           "/v1/cluster/join",
+			wantStatus:     http.StatusBadRequest,
+			wantNextCalled: false,
+		},
+		{
+			name:           "send only, /v1/cluster/join wrong creds reaches raft handler",
+			auth:           authSendOnly,
+			path:           "/v1/cluster/join",
+			setBasicAuth:   true,
+			user:           "bob",
+			pass:           "wrong",
 			wantStatus:     http.StatusBadRequest,
 			wantNextCalled: false,
 		},
