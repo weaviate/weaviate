@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
 
 func TestOllamaURLHeader(t *testing.T) {
@@ -43,7 +44,7 @@ func TestOllamaURLHeader(t *testing.T) {
 			}
 			ctx := context.Background()
 			if tt.header != "" {
-				ctx = context.WithValue(ctx, "X-Ollama-BaseURL", []string{tt.header})
+				ctx = credentialtest.Context(map[string]string{"X-Ollama-BaseURL": tt.header})
 			}
 
 			got, err := New(0, nullLogger()).getOllamaUrl(ctx, "http://localhost:11434")

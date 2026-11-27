@@ -78,7 +78,7 @@ func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 
 	oaiUrl, err := v.buildDatabricksEndpoint(ctx, params.Endpoint, config.NewClassSettings(cfg).Endpoint())
 	if err != nil {
-		return nil, errors.Wrap(err, "url join path")
+		return nil, err
 	}
 
 	input, err := v.generateInput(prompt, params)

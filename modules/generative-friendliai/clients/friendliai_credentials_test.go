@@ -40,12 +40,12 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "query baseURL without a request key",
 			options: &friendliparams.Params{BaseURL: server.URL},
-			wantErr: "a URL set in the query needs X-Friendli-Token: the server's key is sent only to the configured URL",
+			wantErr: "a baseURL or endpoint set in the query needs X-Friendli-Token",
 		},
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Friendli-Baseurl": server.URL},
-			wantErr: "X-Friendli-Baseurl needs X-Friendli-Token: the server's key is sent only to the configured URL",
+			wantErr: "X-Friendli-Baseurl needs X-Friendli-Token",
 		},
 		{
 			name:    "query baseURL with a request key",

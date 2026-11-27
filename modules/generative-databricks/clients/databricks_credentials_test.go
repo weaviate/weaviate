@@ -12,6 +12,7 @@
 package clients
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,13 +44,13 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			name:        "query endpoint without a request token",
 			classConfig: credentialtest.ClassConfig{"endpoint": classEndpoint},
 			options:     &databricksparams.Params{Endpoint: serverEndpoint},
-			wantErr:     "a URL set in the query needs X-Databricks-Token: the server's key is sent only to the configured URL",
+			wantErr:     "a baseURL or endpoint set in the query needs X-Databricks-Token",
 		},
 		{
 			name:        "endpoint header without a request token",
 			classConfig: credentialtest.ClassConfig{"endpoint": classEndpoint},
 			headers:     map[string]string{"X-Databricks-Endpoint": serverEndpoint},
-			wantErr:     "X-Databricks-Endpoint needs X-Databricks-Token: the server's key is sent only to the configured URL",
+			wantErr:     "X-Databricks-Endpoint needs X-Databricks-Token",
 		},
 		{
 			name:        "query endpoint with a request token",
@@ -79,7 +80,7 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			got := server.Requests()[before:]
 			if tt.wantErr != "" {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr)
+				assert.True(t, strings.HasPrefix(err.Error(), tt.wantErr), "the error must start with the reason, got: %s", err.Error())
 				assert.Empty(t, got, "no request may leave Weaviate")
 				return
 			}

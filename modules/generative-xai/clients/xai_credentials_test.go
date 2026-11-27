@@ -40,12 +40,12 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "query baseURL without a request key",
 			options: &xaiparams.Params{BaseURL: server.URL},
-			wantErr: "a URL set in the query needs X-Xai-Api-Key: the server's key is sent only to the configured URL",
+			wantErr: "a baseURL or endpoint set in the query needs X-Xai-Api-Key",
 		},
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Xai-Baseurl": server.URL},
-			wantErr: "X-Xai-Baseurl needs X-Xai-Api-Key: the server's key is sent only to the configured URL",
+			wantErr: "X-Xai-Baseurl needs X-Xai-Api-Key",
 		},
 		{
 			name:    "query baseURL with a request key",

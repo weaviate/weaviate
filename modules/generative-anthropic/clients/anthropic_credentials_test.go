@@ -40,12 +40,12 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "query baseURL without a request key",
 			options: &anthropicparams.Params{BaseURL: server.URL},
-			wantErr: "a URL set in the query needs X-Anthropic-Api-Key: the server's key is sent only to the configured URL",
+			wantErr: "a baseURL or endpoint set in the query needs X-Anthropic-Api-Key",
 		},
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Anthropic-Baseurl": server.URL},
-			wantErr: "X-Anthropic-Baseurl needs X-Anthropic-Api-Key: the server's key is sent only to the configured URL",
+			wantErr: "X-Anthropic-Baseurl needs X-Anthropic-Api-Key",
 		},
 		{
 			name:    "query baseURL with a request key",

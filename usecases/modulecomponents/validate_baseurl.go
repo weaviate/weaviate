@@ -38,15 +38,16 @@ func BaseURLValidationEnabled() bool {
 }
 
 // RequestBaseURL returns the base URL a module request goes to: the value of
-// baseURLHeader if the request sets it, else requested (a query-time baseURL),
-// else configured (the class setting or module default). A base URL other than
-// configured is used only if the request carries its own key in apiKeyHeader,
-// so the server's key is only ever sent to the configured URL. The path counts
-// too: a path on the configured host can reach another endpoint, or another
-// tenant of a gateway. A value that differs from configured only in the case
-// of the scheme or host, or in a trailing slash, returns configured.
+// baseURLHeader if the request sets it, else requested (the query option
+// baseURL, or endpoint for Databricks), else configured (the class setting or
+// module default). A base URL other than configured is used only if the
+// request carries its own key in apiKeyHeader, so the server's key is only
+// ever sent to the configured base URL. The path counts too: a path on the
+// configured host can reach another endpoint, or another tenant of a gateway.
+// A value that differs from configured only in the case of the scheme or
+// host, or in a trailing slash, returns configured.
 func RequestBaseURL(ctx context.Context, baseURLHeader, requested, configured, apiKeyHeader string) (string, error) {
-	source, baseURL := "a URL set in the query", requested
+	source, baseURL := "a baseURL or endpoint set in the query", requested
 	if headerBaseURL := GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
 		source, baseURL = baseURLHeader, headerBaseURL
 	}

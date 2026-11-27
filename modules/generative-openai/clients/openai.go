@@ -105,10 +105,10 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	oaiUrl, isAzure, err := v.buildOpenAIUrl(ctx, params, config.NewClassSettings(cfg))
 	if err != nil {
-		return nil, errors.Wrap(err, "url join path")
+		return nil, err
 	}
 
-	input, err := v.generateInput(prompt, params)
+	input, err := v.generateInput(prompt, params, isAzure)
 	if err != nil {
 		return nil, errors.Wrap(err, "generate input")
 	}
@@ -170,7 +170,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, requestID, resBody.Error, params.IsAzure)
+		return nil, v.getError(res.StatusCode, requestID, resBody.Error, isAzure)
 	}
 
 	responseParams := v.getResponseParams(resBody.Usage)
@@ -326,7 +326,7 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params,
 	return endpoint, isAzure, err
 }
 
-func (v *openai) generateInput(prompt string, params openaiparams.Params) (generateInput, error) {
+func (v *openai) generateInput(prompt string, params openaiparams.Params, isAzure bool) (generateInput, error) {
 	if config.IsLegacy(params.Model) {
 		return generateInput{
 			Prompt:              prompt,
@@ -391,7 +391,7 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 			ReasoningEffort:     params.ReasoningEffort,
 			Verbosity:           params.Verbosity,
 		}
-		if !config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID) {
+		if !isAzure {
 			// model is mandatory for OpenAI calls, but obsolete for Azure calls
 			input.Model = params.Model
 			if strings.HasPrefix(input.Model, "gpt-4o") {
