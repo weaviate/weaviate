@@ -447,248 +447,70 @@ func tenantLevelPolicy(polObj string) bool {
 const coverSuffix = "\x00cover"
 
 // covers reports whether policy matches every resource that pattern matches.
-// The pattern holds only literals, '.' and ".*"; coverText writes it with its
-// '.' and ".*" as two reserved runes. The policy, read as KeyMatch5 reads it,
-// becomes a regexp over that text in which a character class matches only the
-// literals it matches, a '.' also the pattern's '.', and only an unbounded
-// repeat of '.' the pattern's ".*". A match then holds for every name the
-// pattern stands for. A bare "*" policy matches anything.
+// The pattern holds only literals, '.' and ".*", written as text with its '.'
+// and ".*" as two reserved runes. The policy becomes a regexp over that text in
+// which a literal matches itself, '.' any element but a ".*", ".*" anything and
+// the namespace class anyNamespacePattern adds only literals. A policy with
+// other regex syntax covers no pattern, and a bare "*" matches anything.
 func covers(policy, pattern string) bool {
 	if policy == "*" {
 		return true
 	}
+	// KeyMatch5 reads "/*" in a policy as "/.*", and the pattern is one.
 	text, ok := coverText(strings.ReplaceAll(pattern, "/*", "/.*"))
-	if !ok || strings.ContainsAny(policy, coverRunes) {
+	if !ok {
 		return false
 	}
-	re, err := syntax.Parse(keyMatch5Placeholder.ReplaceAllString(strings.ReplaceAll(policy, "/*", "/.*"), "[^/]+"), syntax.Perl)
-	if err != nil || !coverRegexp(re) {
+	expr, ok := coverExpr(strings.ReplaceAll(policy, "/*", "/.*"))
+	if !ok {
 		return false
 	}
-	var expr strings.Builder
-	expr.WriteString(`\A(?:`)
-	writeRegexp(&expr, re)
-	expr.WriteString(`)\z`)
-	matcher, err := regexp.Compile(expr.String())
-	return err == nil && matcher.MatchString(text)
-}
-
-// writeRegexp prints re, which coverRegexp rewrote, as regexp syntax. Unlike
-// re.String it never scans a class for case folding, which takes milliseconds
-// for the large classes coverRegexp builds.
-func writeRegexp(b *strings.Builder, re *syntax.Regexp) {
-	group := func(sub *syntax.Regexp) {
-		b.WriteString("(?:")
-		writeRegexp(b, sub)
-		b.WriteString(")")
-	}
-	switch re.Op {
-	case syntax.OpLiteral:
-		if re.Flags&syntax.FoldCase != 0 {
-			b.WriteString("(?i:")
-		}
-		for _, r := range re.Rune {
-			fmt.Fprintf(b, `\x{%x}`, r)
-		}
-		if re.Flags&syntax.FoldCase != 0 {
-			b.WriteString(")")
-		}
-	case syntax.OpCharClass:
-		if len(re.Rune) == 0 {
-			b.WriteString(`[^\x{0}-\x{10ffff}]`)
-			return
-		}
-		b.WriteString("[")
-		for i := 0; i+1 < len(re.Rune); i += 2 {
-			fmt.Fprintf(b, `\x{%x}-\x{%x}`, re.Rune[i], re.Rune[i+1])
-		}
-		b.WriteString("]")
-	case syntax.OpBeginLine:
-		b.WriteString(`(?m:^)`)
-	case syntax.OpEndLine:
-		b.WriteString(`(?m:$)`)
-	case syntax.OpBeginText:
-		b.WriteString(`\A`)
-	case syntax.OpEndText:
-		b.WriteString(`\z`)
-	case syntax.OpCapture:
-		group(re.Sub[0])
-	case syntax.OpStar, syntax.OpPlus, syntax.OpQuest:
-		group(re.Sub[0])
-		b.WriteString(map[syntax.Op]string{syntax.OpStar: "*", syntax.OpPlus: "+", syntax.OpQuest: "?"}[re.Op])
-	case syntax.OpRepeat:
-		group(re.Sub[0])
-		switch re.Max {
-		case -1:
-			fmt.Fprintf(b, "{%d,}", re.Min)
-		case re.Min:
-			fmt.Fprintf(b, "{%d}", re.Min)
-		default:
-			fmt.Fprintf(b, "{%d,%d}", re.Min, re.Max)
-		}
-	case syntax.OpConcat:
-		for _, sub := range re.Sub {
-			group(sub)
-		}
-	case syntax.OpAlternate:
-		for i, sub := range re.Sub {
-			if i > 0 {
-				b.WriteString("|")
-			}
-			group(sub)
-		}
-	case syntax.OpEmptyMatch:
-	default:
-		// OpNoMatch, and any op coverRegexp should have rewritten: match nothing.
-		b.WriteString(`[^\x{0}-\x{10ffff}]`)
-	}
+	re, err := regexp.Compile(expr)
+	return err == nil && re.MatchString(text)
 }
 
 const (
-	coverAnyChar   = '\uE000' // a '.' in the pattern
-	coverAnyString = '\uE001' // a ".*" in the pattern
-	coverRunes     = string(coverAnyChar) + string(coverAnyString)
+	coverAnyChar   = "\uE000" // a '.' in the pattern
+	coverAnyString = "\uE001" // a ".*" in the pattern
 )
 
-// keyMatch5Placeholder is what KeyMatch5 rewrites to "[^/]+" in a policy.
-var keyMatch5Placeholder = regexp.MustCompile(`\{[^/]+\}`)
-
 func coverText(pattern string) (string, bool) {
-	if !utf8.ValidString(pattern) || strings.ContainsAny(pattern, coverRunes) {
+	if !utf8.ValidString(pattern) || strings.ContainsAny(pattern, coverAnyChar+coverAnyString) {
 		return "", false
 	}
-	text := strings.ReplaceAll(pattern, ".*", string(coverAnyString))
-	text = strings.ReplaceAll(text, ".", string(coverAnyChar))
+	text := strings.ReplaceAll(pattern, ".*", coverAnyString)
+	text = strings.ReplaceAll(text, ".", coverAnyChar)
 	return text, regexp.QuoteMeta(text) == text
 }
 
-// coverRegexp rewrites re in place for covers. It refuses word boundaries,
-// which would read the reserved runes as non-word characters.
-func coverRegexp(re *syntax.Regexp) bool {
-	switch re.Op {
-	case syntax.OpWordBoundary, syntax.OpNoWordBoundary:
-		return false
-	case syntax.OpAnyCharNotNL, syntax.OpAnyChar:
-		*re = *anyRune(re.Op == syntax.OpAnyCharNotNL, false)
-		return true
-	case syntax.OpCharClass:
-		re.Rune = withoutRange(re.Rune, coverAnyChar, coverAnyString)
-		return true
-	case syntax.OpLiteral:
-		return !strings.ContainsAny(string(re.Rune), coverRunes)
-	case syntax.OpConcat:
-		return coverConcat(re)
-	default:
-		if minimum, notNL, ok := unboundedAny(re); ok {
-			*re = *atLeast(minimum, notNL)
-			return true
-		}
-		for _, sub := range re.Sub {
-			if !coverRegexp(sub) {
-				return false
-			}
-		}
-		return true
+func coverExpr(policy string) (string, bool) {
+	if !utf8.ValidString(policy) || strings.ContainsAny(policy, coverAnyChar+coverAnyString) {
+		return "", false
 	}
+	var b strings.Builder
+	b.WriteString(`\A(?:`)
+	for i := 0; i < len(policy); i++ {
+		switch {
+		case strings.HasPrefix(policy[i:], namespaceClass):
+			b.WriteString(`[^/:` + coverAnyChar + coverAnyString + `]+`)
+			i += len(namespaceClass) - 1
+		case strings.HasPrefix(policy[i:], ".*"):
+			b.WriteString(`[^\n]*`)
+			i++
+		case policy[i] == '.':
+			b.WriteString(`[^\n` + coverAnyString + `]`)
+		case regexp.QuoteMeta(policy[i:i+1]) != policy[i:i+1]:
+			return "", false
+		default:
+			b.WriteByte(policy[i])
+		}
+	}
+	b.WriteString(`)\z`)
+	return b.String(), true
 }
 
-// coverConcat reads each run of '.' nodes holding an unbounded repeat, such as
-// "..*", as one run of at least as many characters.
-func coverConcat(re *syntax.Regexp) bool {
-	var subs []*syntax.Regexp
-	for i := 0; i < len(re.Sub); {
-		minimum, notNL, unbounded, j := 0, false, false, i
-		for ; j < len(re.Sub); j++ {
-			sub := re.Sub[j]
-			if m, nl, ok := unboundedAny(sub); ok {
-				minimum, notNL, unbounded = minimum+m, notNL || nl, true
-			} else if sub.Op == syntax.OpAnyCharNotNL || sub.Op == syntax.OpAnyChar {
-				minimum, notNL = minimum+1, notNL || sub.Op == syntax.OpAnyCharNotNL
-			} else {
-				break
-			}
-		}
-		if unbounded {
-			subs = append(subs, atLeast(minimum, notNL))
-			i = j
-			continue
-		}
-		if j == i {
-			j++
-		}
-		for ; i < j; i++ {
-			if !coverRegexp(re.Sub[i]) {
-				return false
-			}
-			subs = append(subs, re.Sub[i])
-		}
-	}
-	re.Sub = subs
-	return true
-}
-
-// unboundedAny reports whether re is ".*" or ".+", and its minimum count.
-// KeyMatch5 has rewritten every "{...}" already.
-func unboundedAny(re *syntax.Regexp) (minimum int, notNL, ok bool) {
-	if len(re.Sub) != 1 || (re.Sub[0].Op != syntax.OpAnyCharNotNL && re.Sub[0].Op != syntax.OpAnyChar) {
-		return 0, false, false
-	}
-	notNL = re.Sub[0].Op == syntax.OpAnyCharNotNL
-	switch re.Op {
-	case syntax.OpStar:
-		return 0, notNL, true
-	case syntax.OpPlus:
-		return 1, notNL, true
-	default:
-		return 0, false, false
-	}
-}
-
-// atLeast matches a run of at least minimum characters: minimum literals or
-// pattern '.'s, with the pattern's ".*" anywhere among them.
-func atLeast(minimum int, notNL bool) *syntax.Regexp {
-	anything := &syntax.Regexp{Op: syntax.OpStar, Sub: []*syntax.Regexp{anyRune(notNL, true)}}
-	if minimum == 0 {
-		return anything
-	}
-	one := &syntax.Regexp{Op: syntax.OpConcat, Sub: []*syntax.Regexp{anything, anyRune(notNL, false)}}
-	return &syntax.Regexp{Op: syntax.OpConcat, Sub: []*syntax.Regexp{
-		{Op: syntax.OpRepeat, Min: minimum, Max: minimum, Sub: []*syntax.Regexp{one}},
-		anything,
-	}}
-}
-
-// anyRune is a class of every rune but '\n' when notNL, and but the pattern's
-// ".*" unless withAnyString.
-func anyRune(notNL, withAnyString bool) *syntax.Regexp {
-	class := []rune{0, utf8.MaxRune}
-	if notNL {
-		class = withoutRange(class, '\n', '\n')
-	}
-	if !withAnyString {
-		class = withoutRange(class, coverAnyString, coverAnyString)
-	}
-	return &syntax.Regexp{Op: syntax.OpCharClass, Rune: class}
-}
-
-// withoutRange returns the class ranges with lo..hi taken out.
-func withoutRange(class []rune, lo, hi rune) []rune {
-	out := make([]rune, 0, len(class)+2)
-	for i := 0; i+1 < len(class); i += 2 {
-		a, b := class[i], class[i+1]
-		if b < lo || a > hi {
-			out = append(out, a, b)
-			continue
-		}
-		if a < lo {
-			out = append(out, a, lo-1)
-		}
-		if b > hi {
-			out = append(out, hi+1, b)
-		}
-	}
-	return out
-}
+// namespaceClass is anyNamespacePattern without its ':'.
+var namespaceClass = strings.TrimSuffix(anyNamespacePattern, schema.NamespaceSeparator)
 
 // namespaceAwareMatcher reports whether policy resource pattern polObj
 // authorizes a request for reqObj issued in namespace ns ("" for
