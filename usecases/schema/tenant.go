@@ -298,7 +298,9 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	requested := tenants
 	named := len(requested) > 0
 	if named {
-		tenants = h.authorizedTenantNames(ctx, principal, class, requested)
+		if tenants, err = h.authorizedTenantNames(ctx, principal, class, requested); err != nil {
+			return nil, err
+		}
 		if len(tenants) == 0 {
 			return []*models.Tenant{}, nil
 		}
@@ -332,7 +334,8 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 
 // authorizedTenantNames returns the distinct names the principal may read, in first-seen order.
 // "" and "*" are dropped: ShardsMetadata maps them to the all-tenants resource, and no tenant has such a name.
-func (h *Handler) authorizedTenantNames(ctx context.Context, principal *models.Principal, class string, names []string) []string {
+// Forbidden leaves no names; any other authorization error is returned.
+func (h *Handler) authorizedTenantNames(ctx context.Context, principal *models.Principal, class string, names []string) ([]string, error) {
 	seen := make(map[string]struct{}, len(names))
 	unique := make([]string, 0, len(names))
 	for _, name := range names {
@@ -346,7 +349,7 @@ func (h *Handler) authorizedTenantNames(ctx context.Context, principal *models.P
 		unique = append(unique, name)
 	}
 	if len(unique) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	resources := authorization.ShardsMetadata(class, unique...)
@@ -355,14 +358,19 @@ func (h *Handler) authorizedTenantNames(ctx context.Context, principal *models.P
 		nameByResource[resources[i]] = name
 	}
 
-	resourceFilter := filter.New[string](h.Authorizer, h.config.Authorization.Rbac)
-	allowed := resourceFilter.Filter(ctx, principal, resources, authorization.READ, func(r string) string { return r })
+	allowed, err := h.Authorizer.FilterAuthorizedResources(ctx, principal, authorization.READ, resources...)
+	if err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return nil, nil
+		}
+		return nil, err
+	}
 
 	out := make([]string, 0, len(allowed))
 	for _, r := range allowed {
 		out = append(out, nameByResource[r])
 	}
-	return out
+	return out, nil
 }
 
 // inRequestedOrder returns one entry per occurrence of a name in requested, in

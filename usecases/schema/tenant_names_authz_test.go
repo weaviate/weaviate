@@ -13,6 +13,8 @@ package schema
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"sync"
@@ -25,6 +27,8 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -154,6 +158,35 @@ func TestGetConsistentTenants_NamesAuthorizedBeforeRead(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestGetConsistentTenants_NamesAuthorizerError(t *testing.T) {
+	const class = "Secret"
+	errEnforce := errors.New("rbac: enforce policy: boom")
+	tests := []struct {
+		name     string
+		authzErr error
+		wantErr  error
+	}{
+		{name: "forbidden reads nothing", authzErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(&models.Principal{}, authorization.READ, class))},
+		{name: "enforcement failure is returned", authzErr: errEnforce, wantErr: errEnforce},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.SetErr(tt.authzErr)
+			// QueryTenants is not mocked: the read must not happen.
+			handler, _ := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+
+			got, err := handler.GetConsistentTenants(context.Background(), &models.Principal{}, class, true, []string{"t1"})
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
 	}
 }
 
