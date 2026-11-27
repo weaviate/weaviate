@@ -932,43 +932,64 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 	}
 }
 
-// TestAddClass_NamespacedCollectionLimit checks that the
-// MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
-// namespaces are enabled, using principal.Namespace as the selector.
-//
-// The mock matcher on CollectionsCount(<principalNS>) is what proves
-// the selector: a row only passes if AddClass requested the count for the
-// caller's namespace.
+// fixedNamespaceQualifier creates every class in ns whoever the caller is, so a
+// test can create a class outside the caller's namespace.
+type fixedNamespaceQualifier struct {
+	*wlnamespaces.Prefixing
+	ns string
+}
+
+func (q fixedNamespaceQualifier) QualifyForCreate(_ *models.Principal, raw string) (string, error) {
+	return namespacing.QualifiedName(q.ns, raw), nil
+}
+
+// TestAddClass_NamespacedCollectionLimit checks that on namespace-enabled
+// clusters the MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap counts the new class's
+// namespace. A row passes only if AddClass asked CollectionsCount for classNS.
 func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name          string
-		principalNS   string
+		principal     *models.Principal
+		qualifier     namespacing.Qualifier // nil keeps the handler's Prefixing
+		classNS       string
 		limit         int
 		existingCount int
 		wantErr       bool
 	}{
 		{
 			name:          "same namespace at cap rejects",
-			principalNS:   "customer1",
+			principal:     namespacedPrincipal("customer1"),
+			classNS:       "customer1",
 			limit:         1,
 			existingCount: 1,
 			wantErr:       true,
 		},
 		{
 			name:          "under cap succeeds",
-			principalNS:   "customer1",
+			principal:     namespacedPrincipal("customer1"),
+			classNS:       "customer1",
 			limit:         1,
 			existingCount: 0,
 			wantErr:       false,
 		},
 		{
 			name:          "different namespace under cap succeeds",
-			principalNS:   "customer2",
+			principal:     namespacedPrincipal("customer2"),
+			classNS:       "customer2",
 			limit:         10,
 			existingCount: 0,
 			wantErr:       false,
+		},
+		{
+			name:          "operator creating into a namespace at cap rejects",
+			principal:     globalPrincipal(),
+			qualifier:     fixedNamespaceQualifier{ns: "customer1"},
+			classNS:       "customer1",
+			limit:         1,
+			existingCount: 1,
+			wantErr:       true,
 		},
 	}
 	for _, tt := range tests {
@@ -976,11 +997,14 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, true)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.limit)
+			if tt.qualifier != nil {
+				handler.qualifier = tt.qualifier
+			}
 
-			sm.On("CollectionsCount", tt.principalNS).Return(tt.existingCount)
+			sm.On("CollectionsCount", tt.classNS).Return(tt.existingCount)
 			if !tt.wantErr {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
-					return c.Class == tt.principalNS+":Movies"
+					return c.Class == tt.classNS+":Movies"
 				}), mock.Anything).Return(nil)
 			}
 
@@ -990,7 +1014,7 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 				VectorIndexConfig: map[string]interface{}{},
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 			}
-			_, _, err := handler.AddClass(context.Background(), namespacedPrincipal(tt.principalNS), class)
+			_, _, err := handler.AddClass(context.Background(), tt.principal, class)
 
 			if tt.wantErr {
 				require.Error(t, err)
