@@ -13,6 +13,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -80,12 +81,14 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 	defer attempt.Stop()
 	readyPoll := time.NewTicker(b.readyPollPeriod)
 	defer readyPoll.Stop()
+	// lastErr is the last join or notify error. A timeout returns it joined with ctx.Err(), so the caller sees why.
+	var lastErr error
 	for {
 		select {
 		case <-stop:
 			return nil
 		case <-ctx.Done():
-			return ctx.Err()
+			return errors.Join(ctx.Err(), lastErr)
 		case <-readyPoll.C:
 			if b.ready(lg) {
 				return nil
@@ -106,6 +109,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			// Always try to join an existing cluster first
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
 			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
+				lastErr = err
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
 					"servers": remoteNodes,
@@ -126,6 +130,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			if b.voter {
 				// notify other servers about readiness of this node to be joined
 				if err := b.notify(ctx, remoteNodes); err != nil {
+					lastErr = err
 					lg.WithFields(logrus.Fields{
 						"action":  "bootstrap",
 						"servers": remoteNodes,

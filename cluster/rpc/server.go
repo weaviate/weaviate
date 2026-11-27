@@ -25,6 +25,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -33,7 +34,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -67,6 +70,7 @@ type Server struct {
 	grpcMessageMaxSize int
 	log                *logrus.Logger
 	sentryEnabled      bool
+	basicAuth          cluster.BasicAuth
 
 	grpcServer *grpc.Server
 	metrics    *monitoring.GRPCServerMetrics
@@ -82,6 +86,7 @@ func NewServer(
 	grpcMessageMaxSize int,
 	sentryEnabled bool,
 	metrics *monitoring.GRPCServerMetrics,
+	basicAuth cluster.BasicAuth,
 	log *logrus.Logger,
 ) *Server {
 	return &Server{
@@ -92,7 +97,20 @@ func NewServer(
 		grpcMessageMaxSize: grpcMessageMaxSize,
 		sentryEnabled:      sentryEnabled,
 		metrics:            metrics,
+		basicAuth:          basicAuth,
 	}
+}
+
+// basicAuthUnaryInterceptor rejects any RPC whose metadata does not carry the configured cluster basic-auth
+// credentials. It runs before the handler, so a rejected call never reaches raftPeers or raftFSM.
+func (s *Server) basicAuthUnaryInterceptor(ctx context.Context, req any, _ *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler,
+) (any, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if err := grpcconn.ValidateBasicAuth(md, ok, s.basicAuth.Username, s.basicAuth.Password); err != nil {
+		return nil, err
+	}
+	return handler(ctx, req)
 }
 
 // JoinPeer will notify the RAFT cluster that a new peer is joining the cluster.
@@ -176,6 +194,12 @@ func (s *Server) Open() error {
 
 	if s.metrics != nil {
 		options = append(options, monitoring.InstrumentGrpc(s.metrics)...)
+	}
+
+	// Use ChainUnaryInterceptor here. The Sentry branch and the tracing options both set grpc.UnaryInterceptor,
+	// and gRPC panics if that option is set twice.
+	if s.basicAuth.VerifyEnabled() {
+		options = append(options, grpc.ChainUnaryInterceptor(s.basicAuthUnaryInterceptor))
 	}
 
 	// Add OpenTelemetry tracing interceptors

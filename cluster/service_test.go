@@ -12,6 +12,9 @@
 package cluster
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +23,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -84,4 +88,34 @@ func requireLoggedError(t *testing.T, hook *logrustest.Hook, knob string) {
 		}
 	}
 	require.Failf(t, "missing log line", "an unwired %s must be reported at Error level, not silently defaulted", knob)
+}
+
+func TestRejoinError(t *testing.T) {
+	tests := []struct {
+		name       string
+		cause      error
+		wantAdvice bool
+	}{
+		{
+			name:  "credential failure omits the timeout advice",
+			cause: errors.Join(context.DeadlineExceeded, fmt.Errorf("could not join a cluster: %w", types.ErrClusterAuthFailed)),
+		},
+		{
+			name:       "other failure keeps the timeout advice",
+			cause:      context.DeadlineExceeded,
+			wantAdvice: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := rejoinError(tt.cause)
+			require.ErrorIs(t, err, tt.cause)
+			if tt.wantAdvice {
+				require.Contains(t, err.Error(), "RAFT_BOOTSTRAP_TIMEOUT")
+			} else {
+				require.ErrorIs(t, err, types.ErrClusterAuthFailed)
+				require.NotContains(t, err.Error(), "RAFT_BOOTSTRAP_TIMEOUT")
+			}
+		})
+	}
 }

@@ -699,6 +699,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		NamespacesEnabled:           appState.ServerConfig.Config.Namespaces.Enabled,
 		ReplicaCopier:               replicaCopier,
 		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
+		ClusterBasicAuth:            appState.ServerConfig.Config.Cluster.AuthConfig.BasicAuth,
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,

@@ -24,6 +24,7 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/rpc"
+	"github.com/weaviate/weaviate/cluster/types"
 )
 
 func TestJoiner_DoesNotAttemptSelfJoin(t *testing.T) {
@@ -259,8 +260,12 @@ func TestJoinerRejoin(t *testing.T) {
 		// leaderAfterFirstAttempt makes the node learn of a leader once the first attempt failed
 		leaderAfterFirstAttempt bool
 		leaderFromStart         bool
-		wantErr                 error
-		wantJoins               int
+		// joinErr, when set, is what a failed attempt returns instead of notLeader. The response is then nil,
+		// as from the real RPC client.
+		joinErr   error
+		wantErr   error
+		wantCause error
+		wantJoins int
 	}{
 		{
 			name:                    "retries at once when a leader appears",
@@ -283,6 +288,15 @@ func TestJoinerRejoin(t *testing.T) {
 			failures:    2,
 			wantJoins:   3,
 		},
+		{
+			name:        "credentials rejected",
+			retryPeriod: time.Hour,
+			failures:    -1,
+			joinErr:     types.ErrClusterAuthFailed,
+			wantErr:     context.DeadlineExceeded,
+			wantCause:   types.ErrClusterAuthFailed,
+			wantJoins:   1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -295,6 +309,9 @@ func TestJoinerRejoin(t *testing.T) {
 					leader.Store(true)
 				}
 				if tt.failures < 0 || n <= tt.failures {
+					if tt.joinErr != nil {
+						return nil, tt.joinErr
+					}
 					return &cmd.JoinPeerResponse{}, notLeader
 				}
 				return &cmd.JoinPeerResponse{}, nil
@@ -306,6 +323,9 @@ func TestJoinerRejoin(t *testing.T) {
 			err := j.Rejoin(ctx, logrus.New(), nodes, leader.Load, tt.retryPeriod, time.Millisecond)
 
 			require.ErrorIs(t, err, tt.wantErr)
+			if tt.wantCause != nil {
+				require.ErrorIs(t, err, tt.wantCause)
+			}
 			require.Equal(t, tt.wantJoins, int(joins.Load()))
 		})
 	}

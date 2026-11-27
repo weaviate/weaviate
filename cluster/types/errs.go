@@ -30,6 +30,10 @@ var (
 	// ErrFSMNotCaughtUp means this node is leader but its FSM has not applied
 	// what it inherited. Always transient: it catches up, or loses leadership.
 	ErrFSMNotCaughtUp = errors.New("leader FSM has not caught up with its log")
+	// ErrClusterAuthFailed means a peer rejected this node's cluster basic-auth
+	// credentials on an internal RPC. It can reach database clients, so it names
+	// no peer, config or secret.
+	ErrClusterAuthFailed = errors.New("cluster-internal authentication between nodes failed; this is a server configuration error, not a problem with the request")
 )
 
 // IsNoLeader reports whether err means the operation could not reach a
