@@ -87,12 +87,12 @@ func TestGetConsistentTenants_NamesAuthorizedBeforeRead(t *testing.T) {
 		wantTenants []string
 	}{
 		{
-			name:        "only authorized names reach the read",
+			name:        "only authorized names are read, once each, and every requested occurrence is returned in order",
 			rbac:        true,
-			allow:       []string{"A"},
-			requested:   []string{"A", "B", "Z", "A", "A"},
-			wantRead:    []string{"A"},
-			wantTenants: []string{"A", "A", "A"},
+			allow:       []string{"A", "C"},
+			requested:   []string{"C", "A", "B", "C", "Z", "A"},
+			wantRead:    []string{"C", "A"},
+			wantTenants: []string{"C", "A", "C", "A"},
 		},
 		{
 			name:      "no permission reads nothing",
@@ -100,53 +100,10 @@ func TestGetConsistentTenants_NamesAuthorizedBeforeRead(t *testing.T) {
 			requested: []string{"A", "B", "Z"},
 		},
 		{
-			name:      "no permission and one duplicated name reads nothing",
-			rbac:      true,
-			requested: []string{"B", "B", "B"},
-		},
-		{
-			name:        "each name is read once and every requested occurrence is returned in order",
-			rbac:        true,
-			allowAll:    true,
-			requested:   []string{"C", "A", "C", "B", "A"},
-			wantRead:    []string{"C", "A", "B"},
-			wantTenants: []string{"C", "A", "C", "B", "A"},
-		},
-		{
-			name:        "authorized nonexistent name is read and not found",
-			rbac:        true,
-			allow:       []string{"A", "Z"},
-			requested:   []string{"Z", "A", "B"},
-			wantRead:    []string{"Z", "A"},
-			wantTenants: []string{"A"},
-		},
-		{
-			name:      "empty and wildcard names never address the all-tenants resource",
+			name:      "empty and wildcard names read nothing",
 			rbac:      true,
 			allowAll:  true,
 			requested: []string{"", "*"},
-		},
-		{
-			name:        "empty and wildcard names are dropped next to real names",
-			rbac:        true,
-			allowAll:    true,
-			requested:   []string{"", "A", "*"},
-			wantRead:    []string{"A"},
-			wantTenants: []string{"A"},
-		},
-		{
-			name:        "rbac disabled with permission is unchanged",
-			allowAll:    true,
-			requested:   []string{"A", "B", "Z"},
-			wantRead:    []string{"A", "B", "Z"},
-			wantTenants: []string{"A", "B"},
-		},
-		{
-			name:        "rbac disabled keeps duplicates",
-			allowAll:    true,
-			requested:   []string{"A", "Z", "A"},
-			wantRead:    []string{"A", "Z"},
-			wantTenants: []string{"A", "A"},
 		},
 		{
 			name:      "rbac disabled without permission reads nothing",

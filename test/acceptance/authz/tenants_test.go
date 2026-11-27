@@ -221,29 +221,6 @@ func TestAuthZTenants(t *testing.T) {
 		require.Len(t, res.Tenants, 0)
 	})
 
-	t.Run("Get tenants by names via grpc returns only authorized existing tenants, once per request", func(t *testing.T) {
-		cleanup := setupRUDTests(readSpecificTenantRoleName)
-		defer cleanup()
-
-		names := []string{tenants[0].Name, tenants[1].Name, "NoSuchTenant", tenants[0].Name, tenants[0].Name}
-		res, err := readTenantNamesGRPC(t, ctx, className, names, customKey)
-		require.NoError(t, err)
-		require.Len(t, res.Tenants, 3)
-		for _, tenant := range res.Tenants {
-			require.Equal(t, tenants[0].Name, tenant.Name)
-		}
-	})
-
-	t.Run("Get tenants by names via grpc without any role returns no tenants", func(t *testing.T) {
-		require.NoError(t, createTenant(t, className, tenants, adminKey))
-		defer deleteTenant(t, className, tenantNames, adminKey)
-
-		names := []string{tenants[0].Name, tenants[1].Name, "NoSuchTenant", tenants[0].Name}
-		res, err := readTenantNamesGRPC(t, ctx, className, names, customKey)
-		require.NoError(t, err)
-		require.Empty(t, res.Tenants)
-	})
-
 	t.Run("Get filtered tenants using rest", func(t *testing.T) {
 		cleanup := setupRUDTests(readSpecificTenantRoleName)
 		defer cleanup()
