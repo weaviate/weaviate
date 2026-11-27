@@ -23,6 +23,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/backup"
 )
 
 func TestBackend_StoreBackup(t *testing.T) {
@@ -213,4 +215,76 @@ func TestWriteStoresOnlyCompleteFiles(t *testing.T) {
 			require.ErrorIs(t, err, os.ErrNotExist, "temp file must not survive the write")
 		})
 	}
+}
+
+type bufWriteCloser struct{ bytes.Buffer }
+
+func (*bufWriteCloser) Close() error { return nil }
+
+func TestObjectPathStaysInsideRoot(t *testing.T) {
+	setup := func(t *testing.T) (string, *Module) {
+		root := t.TempDir()
+		backups := filepath.Join(root, "backups")
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "escape", "node1"), os.ModePerm))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "secret.tar"), []byte("secret"), os.ModePerm))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "escape", "node1", "chunk"), []byte("secret"), os.ModePerm))
+		return root, &Module{backupsPath: backups, logger: logrus.New()}
+	}
+	reads := []struct{ name, backupID, key string }{
+		{name: "key", backupID: "base/node1", key: "../../../secret.tar"},
+		{name: "backup id", backupID: "../escape/node1", key: "chunk"},
+		{name: "absolute key", backupID: "base/node1", key: "/secret.tar"},
+		{name: "empty key", backupID: "base/node1", key: ""},
+	}
+	for _, tc := range reads {
+		t.Run("read "+tc.name, func(t *testing.T) {
+			_, m := setup(t)
+			w := &bufWriteCloser{}
+			_, err := m.Read(context.Background(), tc.backupID, tc.key, "", "", w)
+			require.Error(t, err)
+			assert.False(t, errors.As(err, &backup.ErrNotFound{}))
+			assert.Zero(t, w.Len())
+
+			got, err := m.GetObject(context.Background(), tc.backupID, tc.key, "", "")
+			require.Error(t, err)
+			assert.False(t, errors.As(err, &backup.ErrNotFound{}))
+			assert.Empty(t, got)
+		})
+	}
+
+	writes := []struct{ name, backupID, key string }{
+		{name: "backup id", backupID: "../x", key: "k"},
+		{name: "key", backupID: "id", key: "../../x"},
+		{name: "nested key", backupID: "id", key: "Class/../../../x"},
+	}
+	for _, tc := range writes {
+		t.Run("write "+tc.name, func(t *testing.T) {
+			root, m := setup(t)
+			_, err := m.Write(context.Background(), tc.backupID, tc.key, "", "",
+				&stubReader{payload: bytes.NewReader([]byte("evil"))})
+			require.Error(t, err)
+			require.Error(t, m.PutObject(context.Background(), tc.backupID, tc.key, "", "", []byte("evil")))
+			_, err = os.Stat(filepath.Join(root, "x"))
+			require.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
+
+	t.Run("canonical paths round-trip", func(t *testing.T) {
+		_, m := setup(t)
+		ctx := context.Background()
+		_, err := m.Write(ctx, "id/node1", "Class/chunk-1", "", "", &stubReader{payload: bytes.NewReader([]byte("data"))})
+		require.NoError(t, err)
+		w := &bufWriteCloser{}
+		_, err = m.Read(ctx, "id/node1", "Class/chunk-1", "", "", w)
+		require.NoError(t, err)
+		assert.Equal(t, "data", w.String())
+
+		require.NoError(t, m.PutObject(ctx, "id/node1", "backup.json", "", "", []byte("{}")))
+		got, err := m.GetObject(ctx, "id/node1", "backup.json", "", "")
+		require.NoError(t, err)
+		assert.Equal(t, "{}", string(got))
+
+		_, err = m.GetObject(ctx, "id/node1", "missing.json", "", "")
+		assert.True(t, errors.As(err, &backup.ErrNotFound{}))
+	})
 }

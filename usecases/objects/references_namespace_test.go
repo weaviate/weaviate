@@ -355,9 +355,8 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 		// batch + inline-properties write-path gates. autodetectToClass
 		// returns replace=false on a multi-target prop, leaving targetRef
 		// classless. Without the gate, validateExistence would hit
-		// DB.Exists with Class=="" → anyExists, scanning every index across
-		// every namespace (cross-namespace oracle), and persist a beacon
-		// that's wildcard-deletable by removeReference's short-class match.
+		// DB.Exists with Class=="" → anyExists, which refuses it with
+		// NAMESPACES_ENABLED.
 		m, _, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
 		// No repo.On("Exists") expectations — the existence check must
 		// never run for a classless multi-target ref.
@@ -549,8 +548,8 @@ func Test_References_NamespaceResolution_Update(t *testing.T) {
 	t.Run("NS: classless beacon on multi-target ref property is rejected before existence check", func(t *testing.T) {
 		// PUT-side mirror of the gate in references_add.go / batch /
 		// inline-properties / delete. Without it, a classless ref reaches
-		// validateExistence → DB.anyExists (cross-namespace oracle) and
-		// then gets persisted as wildcard-deletable.
+		// validateExistence → DB.anyExists, which refuses it with
+		// NAMESPACES_ENABLED.
 		m, _, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
 		// Source-object lookup is needed before the loop; mock it as
 		// not-found so we exercise the gate during the per-ref loop.

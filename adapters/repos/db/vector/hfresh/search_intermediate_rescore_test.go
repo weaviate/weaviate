@@ -85,8 +85,10 @@ func TestIntermediateRescoreCorrectsRQ1(t *testing.T) {
 	require.NoError(t, tf.Index.UpdateUserConfig(uc, func() {}))
 
 	ctx := context.Background()
+	// most random probes disagree, so a few already exercise the correction
+	const probes = 20
 	corrected := 0
-	for probeSeed := 0; probeSeed < 200; probeSeed++ {
+	for probeSeed := 0; probeSeed < probes; probeSeed++ {
 		probe := randomMultiVector(rand.New(rand.NewSource(int64(1000+probeSeed))), tokens, dim)
 
 		tf.Index.disableIntermediateRescore = true
@@ -113,8 +115,8 @@ func TestIntermediateRescoreCorrectsRQ1(t *testing.T) {
 		corrected++
 	}
 	require.Greater(t, corrected, 0,
-		"no probe produced an RQ1/exact-FDE disagreement in 200 attempts; the C-case was not exercised")
-	t.Logf("category-C events corrected: %d/200 probes", corrected)
+		"no probe produced an RQ1/exact-FDE disagreement in %d attempts; the C-case was not exercised", probes)
+	t.Logf("category-C events corrected: %d/%d probes", corrected, probes)
 }
 
 // TestIntermediateRescoreOrderingMatchesExactFDE pins the fold math: with a

@@ -330,6 +330,16 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			}
 		}
 
+		// filepath.IsLocal refuses an empty name and an absolute name. It also
+		// refuses a name whose cleaned form starts with a ".." element, such as
+		// "../shard/fileA", even though that name comes back into the shard
+		// directory. IsLocal accepts a name that cleans to ".". That name is the
+		// shard directory itself, and its ".tmp" file would sit beside the
+		// directory, so the check refuses it too. The check reads only the
+		// name's text, because the shard directory may not exist yet.
+		if !filepath.IsLocal(meta.FileName) || filepath.Clean(meta.FileName) == "." {
+			return fmt.Errorf("file name %q from source node is not a path inside the shard directory", meta.FileName)
+		}
 		localFilePath := filepath.Join(shardBase, meta.FileName)
 
 		_, checksum, err := integrity.CRC32(localFilePath)

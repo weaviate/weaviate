@@ -37,7 +37,11 @@ func (t *Traverser) validateExploreDistance(params ExploreParams) error {
 // ensures that all classes are configured with the same distance type.
 // if all classes are configured with the same type, said type is returned.
 // otherwise an error indicating which classes are configured differently.
+// With NAMESPACES_ENABLED it refuses, as a cross-class vector search would.
 func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []string) (distType string, err error) {
+	if t.config.Config.Namespaces.Enabled {
+		return "", errors.New("exploring across collections is not supported with NAMESPACES_ENABLED")
+	}
 	classes := t.schemaGetter.ReadOnlySchema().Classes
 	if len(classes) == 0 {
 		return common.DefaultDistanceMetric, nil

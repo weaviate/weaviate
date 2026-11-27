@@ -23,9 +23,8 @@ import (
 )
 
 // maxStorableValueLength caps OIDC user IDs and group names, the only values in a
-// policy row with no limit of their own. 256 fits any OIDC subject (255 by spec)
-// and matches maxTargetLength for user and group patterns in a permission.
-const maxStorableValueLength = 256
+// policy row with no limit of their own. 256 fits any OIDC subject (255 by spec).
+const maxStorableValueLength = MaxTargetLength
 
 // ValidateStorableValue rejects user input longer than maxStorableValueLength or
 // with a character ValidateStorableCharacters refuses.

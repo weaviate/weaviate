@@ -12,7 +12,6 @@
 package db
 
 import (
-	"os"
 	"path/filepath"
 	"runtime/debug"
 	"testing"
@@ -27,11 +26,7 @@ func TestShardVersioner_ClosesItsFile(t *testing.T) {
 
 	// a file left open would otherwise be closed by its finalizer
 	defer debug.SetGCPercent(debug.SetGCPercent(-1))
-	openFiles := func() int {
-		entries, err := os.ReadDir("/dev/fd")
-		require.NoError(t, err)
-		return len(entries)
-	}
+	openFiles := func() int { return len(openDescriptorNames(t)) }
 
 	before := openFiles()
 	for range 20 {

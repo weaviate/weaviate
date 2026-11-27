@@ -155,7 +155,7 @@ func TestAddPermissionsRejectsUnstorableValues(t *testing.T) {
 }
 
 // TestLongResourceIsStorable accepts a permission whose resource, which joins
-// several targets, is longer than maxTargetLength though each target fits.
+// several targets, is longer than conv.MaxTargetLength though each target fits.
 func TestLongResourceIsStorable(t *testing.T) {
 	perm := &models.Permission{
 		Action: String(authorization.ReadData),
@@ -166,7 +166,7 @@ func TestLongResourceIsStorable(t *testing.T) {
 	}
 	policies, err := conv.RolesToPolicies(&models.Role{Name: String("longRole"), Permissions: []*models.Permission{perm}})
 	require.NoError(t, err)
-	require.Greater(t, len(policies["longRole"][0].Resource), maxTargetLength, "the resource must be longer than any one target")
+	require.Greater(t, len(policies["longRole"][0].Resource), conv.MaxTargetLength, "the resource must be longer than any one target")
 
 	t.Run("create role", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)

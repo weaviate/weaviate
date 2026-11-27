@@ -162,7 +162,8 @@ func newTestIndex(t *testing.T, uc ent.UserConfig, mvStore *muveraTestStore, opt
 
 	scheduler := queue.NewScheduler(
 		queue.SchedulerOptions{
-			Logger: logger,
+			Logger:           logger,
+			ScheduleInterval: testScheduleInterval,
 		},
 	)
 	cfg.Scheduler = scheduler

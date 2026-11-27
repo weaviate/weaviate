@@ -42,7 +42,7 @@ func startWeaviate(ctx context.Context,
 	exposeGRPCPort, exposeDebugPort, tmpfsData bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
-	hostGateway bool,
+	hostGateway, dataVolume bool,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -192,6 +192,13 @@ func startWeaviate(ctx context.Context,
 		req.HostConfigModifier = func(hc *container.HostConfig) {
 			hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 		}
+	}
+	if dataVolume {
+		// In the image, PERSISTENCE_DATA_PATH (./data) resolves to /data.
+		// Raft state lives under it too. The network name makes the volume
+		// name unique per cluster. A replacement container with the same
+		// name mounts the same volume.
+		req.Mounts = testcontainers.Mounts(testcontainers.VolumeMount(networkName+"-"+containerName, "/data"))
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,

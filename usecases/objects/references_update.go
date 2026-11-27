@@ -126,8 +126,9 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			}
 		}
 		// A classless beacon on a multi-target prop would reach
-		// validateExistence with Class=="", which scans every collection, other
-		// namespaces' included. With namespaces on, no DELETE could remove it.
+		// validateExistence with Class=="", which scans every collection; with
+		// NAMESPACES_ENABLED, DB.anyExists refuses that lookup, so refuse the
+		// beacon as a bad request.
 		if parsedTargetRefs[i].Class == "" {
 			if err := validation.CheckMultiTargetRefWithoutClass(m.config, m.metrics); err != nil {
 				return &Error{err.Error(), StatusBadRequest, err}

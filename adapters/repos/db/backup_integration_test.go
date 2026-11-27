@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -747,6 +748,9 @@ func restoreAndVerify(
 	for i, err := range errs {
 		require.NoError(t, err, "chunk %d restore failed", i)
 	}
+	top, err := os.ReadDir(restoreDir)
+	require.NoError(t, err)
+	require.True(t, len(top) == 1 && top[0].Name() == strings.ToLower(classDescs[0].Name) && top[0].IsDir(), "staged top-level entries: %v", top)
 
 	for _, sd := range classDescs[0].Shards {
 		src := classDescs[0].ShardFileSource(sd.Name)

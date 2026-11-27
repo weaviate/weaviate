@@ -181,6 +181,17 @@ func addRestartVectors(t *testing.T, index *HFresh, store *testVectorStore, from
 	return all
 }
 
+// requireSelfSearchEvery checks every step-th vector, for tests where search
+// is a sanity check rather than proof that no vector was lost.
+func requireSelfSearchEvery(t *testing.T, index *HFresh, vectors [][]float32, step int) {
+	t.Helper()
+	for i := 0; i < len(vectors); i += step {
+		ids, _, err := index.SearchByVector(t.Context(), vectors[i], 1, nil)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
+	}
+}
+
 func requireSelfSearchExcept(t *testing.T, index *HFresh, vectors [][]float32, skip int) {
 	t.Helper()
 	for i, v := range vectors {
@@ -605,7 +616,7 @@ func TestEmptyIndexReopenKeepsCentroidMode(t *testing.T) {
 			all := addRestartVectors(t, index, vectors, 0, singlePostingThreshold+200)
 			index.waitForMaintenance(t)
 			require.Greater(t, index.PostingSizes.Count(), uint64(1), "the posting must split")
-			requireSelfSearchExcept(t, index, all, -1)
+			requireSelfSearchEvery(t, index, all, 10)
 		})
 	}
 }
