@@ -13,7 +13,10 @@ package rest
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -88,6 +91,11 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 			return
 		}
 
+		if field := invalidShardNoopPathField(req.ID, req.Collection, req.Units, req.UnitGroups, req.UnitToShard); field != "" {
+			http.Error(w, `{"error":"invalid `+field+` field"}`, http.StatusBadRequest)
+			return
+		}
+
 		payload := distributedtask.ShardNoopProviderPayload{
 			FailUnitID:        req.FailUnit,
 			Collection:        req.Collection,
@@ -135,4 +143,26 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 		w.WriteHeader(http.StatusAccepted)
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
 	}))
+}
+
+// invalidShardNoopPathField returns the first field whose values the provider
+// joins into marker paths but which are not a single path element, or "".
+func invalidShardNoopPathField(id, collection string, units []string, unitGroups, unitToShard map[string]string) string {
+	for _, f := range []struct {
+		name   string
+		values []string
+	}{
+		{"id", []string{id}},
+		{"collection", []string{collection}},
+		{"units", units},
+		{"unitGroups", slices.Collect(maps.Values(unitGroups))},
+		{"unitToShard", slices.Collect(maps.Values(unitToShard))},
+	} {
+		for _, v := range f.values {
+			if v == "." || v == ".." || strings.ContainsAny(v, `/\`) {
+				return f.name
+			}
+		}
+	}
+	return ""
 }
