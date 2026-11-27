@@ -188,6 +188,12 @@ func (g *growIndex) layoutDueBy(factor int) bool {
 	return int(g.nextSlot)-g.meta.VectorsLaidOut >= factor*max(g.meta.VectorsLaidOut, 1)
 }
 
+// layoutBytes is what a pass that lays the vectors out writes: the exact
+// vector of every doc id the index holds, and the table of their slots.
+func (g *growIndex) layoutBytes() uint64 {
+	return uint64(g.meta.Live)*uint64(4*g.meta.Dims) + 4*uint64(len(g.live))
+}
+
 // growLayout is a pass that writes the exact vectors of an index again, those
 // of every posting in a row.
 type growLayout struct {

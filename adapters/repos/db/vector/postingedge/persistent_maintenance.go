@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -90,6 +91,18 @@ func (p *Persistent) wakeMaintenance() {
 	case p.wake <- struct{}{}:
 	default:
 	}
+}
+
+// errLayoutNoRoom is a pass that lays the vectors out and did not start: the
+// disk has no room for what it writes.
+var errLayoutNoRoom = errors.New("the disk has no room to lay the vectors out again")
+
+// layoutRoom is how many bytes the disk must have free for a pass that
+// writes the given ones to start: its files, and a quarter more for what the
+// inserts and the store write while it runs. The files the index has stay
+// until the pass ends, so the vectors are on the disk twice by then.
+func layoutRoom(writes uint64) uint64 {
+	return writes + writes/4
 }
 
 // layoutDue tells whether a pass that lays the vectors out is due. An index
@@ -180,6 +193,15 @@ func (p *Persistent) maintain(ctx context.Context, atRest bool) error {
 		// again with every insert, but once the index has grown by a tenth
 		// more.
 		p.layoutNotBefore.Store(slots + max(slots/10, layoutStep))
+		if errors.Is(err, errLayoutNoRoom) {
+			// Nothing of the index is wrong: its vectors stay in the order
+			// they are in, and whoever settles it is not told of an error.
+			p.logger.WithFields(logrus.Fields{
+				"action": "postingedge_layout",
+				"id":     p.cfg.ID,
+			}).Warnf("the vectors of the index stay in the order they are in: %v", err)
+			return nil
+		}
 		return err
 	}
 	return nil
@@ -200,6 +222,14 @@ func (p *Persistent) layOut(ctx context.Context) error {
 		return nil
 	}
 	g := p.g
+	// A pass writes every vector again next to the files the index has. One
+	// that does not fit would fill the disk before it failed, for the
+	// inserts and for everything else that writes to it: it does not start.
+	writes := g.layoutBytes()
+	if free, err := p.cfg.diskFree(g.dir); err == nil && free < layoutRoom(writes) {
+		p.mu.RUnlock()
+		return errors.Wrapf(errLayoutNoRoom, "%d bytes free in %s, and the pass writes %d", free, g.dir, writes)
+	}
 	pass, err := g.beginLayout()
 	p.mu.RUnlock()
 	if err != nil {

@@ -277,6 +277,10 @@ type PersistentConfig struct {
 	// set, is the clock it reads, for the tests.
 	layoutQuiet time.Duration
 	now         func() time.Time
+	// diskFree, if set, tells the bytes free on the disk of a directory in
+	// place of the disk itself (diskFree), for the tests: a pass that lays
+	// the vectors out asks it before it starts (Persistent.layOut).
+	diskFree func(dir string) (uint64, error)
 	// float32Centroids has the graph over the centroids keep them in float32
 	// in memory, as before, and not as 8-bit RQ codes in a bucket of the
 	// store, as HFresh keeps its own: for the tests of the conversion and the
@@ -326,6 +330,9 @@ func (c *PersistentConfig) validate() error {
 	}
 	if c.now == nil {
 		c.now = time.Now
+	}
+	if c.diskFree == nil {
+		c.diskFree = diskFree
 	}
 	return nil
 }
