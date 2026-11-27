@@ -39,7 +39,6 @@ var _NUMCPU = runtime.NumCPU()
 type client struct {
 	lock         sync.RWMutex
 	apiKey       string
-	host         string
 	path         string
 	httpClient   *http.Client
 	maxDocuments int
@@ -50,7 +49,6 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 	return &client{
 		apiKey:       apiKey,
 		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
-		host:         "https://api.voyageai.com/v1",
 		path:         "/rerank",
 		maxDocuments: 1000,
 		logger:       logger,
@@ -95,9 +93,9 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 	cfg moduletools.ClassConfig,
 ) ([]ent.DocumentScore, error) {
 	settings := config.NewClassSettings(cfg)
-	voyageAIUrl, err := url.JoinPath(c.host, c.path)
+	voyageAIUrl, err := c.getVoyageAIUrl(ctx, settings.BaseURL())
 	if err != nil {
-		return nil, errors.Wrap(err, "join VoyageAI API host and path")
+		return nil, err
 	}
 
 	input := RankInput{
@@ -212,6 +210,18 @@ func (c *client) getApiKey(ctx context.Context) (string, error) {
 		"nor in environment variable under VOYAGEAI_APIKEY")
 }
 
+func (c *client) getVoyageAIUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Voyageai-Baseurl", baseURL)
+	if err != nil {
+		return "", err
+	}
+	voyageAIUrl, err := url.JoinPath(passedBaseURL, c.path)
+	if err != nil {
+		return "", errors.Wrap(err, "join VoyageAI API host and path")
+	}
+	return voyageAIUrl, nil
+}
+
 type RankInput struct {
 	Documents       []string `json:"documents"`
 	Query           string   `json:"query"`
@@ -229,6 +239,12 @@ type Data struct {
 	RelevanceScore float64  `json:"relevance_score"`
 	Document       Document `json:"document"`
 }
+
+// ResultIndex and ResultScore satisfy rerankertest.ResultItem, letting the
+// shared reranker test harness (usecases/modulecomponents/rerankertest) build
+// and inspect Data values generically.
+func (d Data) ResultIndex() int     { return d.Index }
+func (d Data) ResultScore() float64 { return d.RelevanceScore }
 
 type Usage struct {
 	TotalTokens int `json:"total_tokens"`
