@@ -22,7 +22,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -59,6 +62,45 @@ func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.
 	}
 
 	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
+}
+
+// refTargetScope returns the collections a reference target may live in and
+// the tenant to authorize them with. A beacon without a class may point into
+// any collection the property targets, across all of their tenants.
+func refTargetScope(class *models.Class, property, targetClass, tenant string) ([]string, string, error) {
+	if targetClass != "" {
+		return []string{targetClass}, tenant, nil
+	}
+	prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(property))
+	if err != nil {
+		return nil, "", err
+	}
+	return prop.DataType, "", nil
+}
+
+func refTargetResources(classes []string, tenant string) []string {
+	resources := make([]string, 0, len(classes))
+	for _, class := range classes {
+		resources = append(resources, authorization.ShardsData(class, tenant)...)
+	}
+	return resources
+}
+
+// validateRefTargetExistence succeeds when ref's target exists in one of
+// classes, so that a beacon without a class never probes other collections.
+func validateRefTargetExistence(ctx context.Context, v *validation.Validator,
+	ref *crossref.Ref, classes []string, tenant string,
+) error {
+	var err error
+	for _, class := range classes {
+		target := *ref
+		target.Class = class
+		if err = v.ValidateExistence(ctx, &target, "validate reference", tenant); err == nil ||
+			errors.Is(err, replicaerrors.ErrReplicas) {
+			return err
+		}
+	}
+	return err
 }
 
 func referenceAuthorizationError(err error) *Error {

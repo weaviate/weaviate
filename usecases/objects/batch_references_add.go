@@ -154,8 +154,15 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 				refs[i].Err = fmt.Errorf("multi-target references require the class name in the target beacon url")
 				continue
 			}
-			authorizedTargetTenants[i] = ""
-			uniqueClassShard["#"] = classAndShard{}
+			targetClasses, _, err := refTargetScope(fetchedClasses[ref.From.Class.String()].Class,
+				ref.From.Property.String(), "", "")
+			if err != nil {
+				refs[i].Err = err
+				continue
+			}
+			for _, targetClass := range targetClasses {
+				uniqueClassShard[targetClass+"#"] = classAndShard{Class: targetClass}
+			}
 			continue
 		}
 

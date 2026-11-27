@@ -143,16 +143,23 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			input.Refs[i].Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, parsedTargetRefs[i].TargetID).String())
 		}
 
+		targetClasses, targetTenant, err := refTargetScope(class, input.Property, parsedTargetRefs[i].Class, tenant)
+		if err != nil {
+			return &Error{"bad inputs", StatusBadRequest, err}
+		}
 		// only check authZ once per class/tenant combination
-		checkName := parsedTargetRefs[i].Class + "#" + tenant
-		if _, ok := previouslyAuthorized[checkName]; !ok {
-			if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, tenant)...); err != nil {
+		for _, targetClass := range targetClasses {
+			checkName := targetClass + "#" + targetTenant
+			if _, ok := previouslyAuthorized[checkName]; ok {
+				continue
+			}
+			if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetClass, targetTenant)...); err != nil {
 				return referenceAuthorizationError(err)
 			}
 			previouslyAuthorized[checkName] = struct{}{}
 		}
 
-		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
+		if err := validateRefTargetExistence(ctx, validator, parsedTargetRefs[i], targetClasses, tenant); err != nil {
 			if errors.Is(err, replicaerrors.ErrReplicas) {
 				return &Error{"validate existence", StatusInternalServerError, err}
 			}
@@ -194,13 +201,6 @@ func (req *PutReferenceInput) validate(v *validation.Validator, class *models.Cl
 	}
 
 	return refs, validateReferenceSchema(class, req.Property)
-}
-
-func (req *PutReferenceInput) validateExistence(
-	ctx context.Context,
-	v *validation.Validator, tenant string, ref *crossref.Ref,
-) error {
-	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
 }
 
 func validateReferenceSchema(c *models.Class, property string) error {

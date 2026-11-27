@@ -296,26 +296,65 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("non-NS: classless beacon on multi-target ref property is not gated", func(t *testing.T) {
-		// Non-NS clusters keep byte-exact compare on delete: a classless
-		// stored beacon only matches a classless delete, so the gate is
-		// NS-only. Preserve the legacy behaviour. Exists is called with
-		// Class=="" (the existing pre-fix behaviour) and we let it through.
-		m, _, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false)
-		repo.On("Exists", "", refID).Return(true, nil).Once()
-		repo.On("Exists", "Source", id).Return(true, nil).Once()
-		repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Once()
-		mp.On("UsingRef2Vec", mock.Anything).Return(false)
-
-		input := &AddReferenceInput{
-			Class: "Source", ID: id, Property: "hasOther",
-			Ref: models.SingleRef{
-				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+	t.Run("non-NS: classless beacon is authorized and probed in the property's targets only", func(t *testing.T) {
+		// The gate is NS-only, and the stored beacon stays classless. Denying
+		// the all-collections scope pins that only Alpha and Beta are needed.
+		beacon := strfmt.URI("weaviate://localhost/" + string(refID))
+		ops := []struct {
+			name    string
+			arrange func(*fakeObjectFinder)
+			call    func(*Manager) *Error
+		}{
+			{
+				name: "add reference",
+				arrange: func(repo *fakeObjectFinder) {
+					repo.On("Exists", "Source", id).Return(true, nil).Once()
+					repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Once()
+				},
+				call: func(m *Manager) *Error {
+					return m.AddObjectReference(context.Background(), &models.Principal{Username: "u"},
+						&AddReferenceInput{Class: "Source", ID: id, Property: "hasOther", Ref: models.SingleRef{Beacon: beacon}}, nil, "")
+				},
+			},
+			{
+				name: "replace references",
+				arrange: func(repo *fakeObjectFinder) {
+					repo.On("Object", "Source", id, mock.Anything, mock.Anything, "").
+						Return(&search.Result{ID: id, ClassName: "Source", Schema: map[string]interface{}{}}, nil).Once()
+					repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+				},
+				call: func(m *Manager) *Error {
+					return m.UpdateObjectReferences(context.Background(), &models.Principal{Username: "u"},
+						&PutReferenceInput{Class: "Source", ID: id, Property: "hasOther", Refs: models.MultipleRef{{Beacon: beacon}}}, nil, "")
+				},
 			},
 		}
-		err := m.AddObjectReference(context.Background(), &models.Principal{Username: "admin"}, input, nil, "")
-		require.Nil(t, err, "non-NS classless on multi-target must pass the gate (it's NS-only)")
-		repo.AssertExpectations(t)
+		for _, op := range ops {
+			t.Run(op.name, func(t *testing.T) {
+				m, _, repo, mp, authz := newNSManagers(t, multiTargetNSSchema(false), false)
+				authz.Deny(authorization.ShardsData("", "")...)
+				repo.On("Exists", "Alpha", refID).Return(false, nil).Once()
+				repo.On("Exists", "Beta", refID).Return(true, nil).Once()
+				mp.On("UsingRef2Vec", mock.Anything).Return(false)
+				op.arrange(repo)
+
+				require.Nil(t, op.call(m))
+				var targetReads [][]string
+				for _, call := range authz.Calls() {
+					if call.Verb == authorization.READ {
+						targetReads = append(targetReads, call.Resources)
+					}
+				}
+				require.NotEmpty(t, targetReads)
+				var got []string
+				for _, r := range targetReads {
+					got = append(got, r...)
+				}
+				assert.Subset(t, got, append(authorization.ShardsData("Alpha", ""), authorization.ShardsData("Beta", "")...))
+				repo.AssertNotCalled(t, "Exists", "", refID)
+				repo.AssertExpectations(t)
+			})
+		}
 	})
 
 	t.Run("NS: classless multi-target gate fires for global admin too", func(t *testing.T) {
@@ -1040,23 +1079,24 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		// legacy behaviour: the ref reaches AddBatchReferences with no Err
 		// and no class on the target. (The NS gate above is the only new
 		// rejection introduced.)
-		targetResources := authorization.ShardsData("", "")
+		// The target scope is every collection the property points to, not
+		// every collection: denying the all-collections scope must not matter.
 		for _, permission := range []struct {
-			name    string
-			allowed bool
+			name   string
+			denied []string
 		}{
-			{name: "target read allowed", allowed: true},
-			{name: "target read denied"},
+			{name: "property targets readable", denied: authorization.ShardsData("", "")},
+			{name: "one property target denied", denied: authorization.ShardsData("Beta", "")},
 		} {
 			t.Run(permission.name, func(t *testing.T) {
 				_, b, repo, _, authz := newNSManagers(t, multiTargetNSSchema(false), false)
-				if permission.allowed {
+				authz.Deny(permission.denied...)
+				allowed := permission.name == "property targets readable"
+				if allowed {
 					repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
 						return len(refs) == 1 && refs[0].Err == nil &&
 							refs[0].To != nil && refs[0].To.Class == ""
 					})).Return(nil).Once()
-				} else {
-					authz.Deny(targetResources...)
 				}
 
 				refs := []*models.BatchReference{
@@ -1066,14 +1106,16 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 					},
 				}
 				_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
-				if permission.allowed {
+				if allowed {
 					require.NoError(t, err)
 				} else {
 					require.ErrorAs(t, err, &autherrs.Forbidden{})
 					repo.AssertNotCalled(t, "AddBatchReferences", mock.Anything)
 				}
+				targetResources := append(authorization.ShardsData("Alpha", ""), authorization.ShardsData("Beta", "")...)
 				require.True(t, slices.ContainsFunc(authz.Calls(), func(call mocks.AuthZReq) bool {
-					return call.Verb == authorization.READ && slices.Equal(call.Resources, targetResources)
+					return call.Verb == authorization.READ && assert.ObjectsAreEqual(len(targetResources), len(call.Resources)) &&
+						assert.Subset(t, call.Resources, targetResources)
 				}))
 				repo.AssertExpectations(t)
 			})

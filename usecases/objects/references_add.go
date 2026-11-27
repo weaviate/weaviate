@@ -136,10 +136,14 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Ref.Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, targetRef.TargetID).String())
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
+	targetClasses, targetTenant, err := refTargetScope(class, input.Property, targetRef.Class, tenant)
+	if err != nil {
+		return &Error{"validate inputs", StatusBadRequest, err}
+	}
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, refTargetResources(targetClasses, targetTenant)...); err != nil {
 		return referenceAuthorizationError(err)
 	}
-	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+	if err := validateRefTargetExistence(ctx, validator, targetRef, targetClasses, tenant); err != nil {
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return &Error{"validate existence", StatusInternalServerError, err}
 		}
@@ -229,11 +233,4 @@ func (req *AddReferenceInput) validate(
 	}
 
 	return ref, validateReferenceSchema(class, req.Property)
-}
-
-func (req *AddReferenceInput) validateExistence(
-	ctx context.Context,
-	v *validation.Validator, tenant string, ref *crossref.Ref,
-) error {
-	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
 }
