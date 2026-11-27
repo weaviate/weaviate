@@ -740,6 +740,42 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **En los dos integrados, 8 llamadores rinden como 1:** +2.7 % y +0.9 %. **v5.2 con 8 da 3.62 veces su N = 1,** como a 1M (3.60).
 - **El heap tras abrir:** 28.3 MB en `b6200010ab` y 24.3 en la cabeza. Bajan los centroides (4.90 MB en `float32` pasan a 1.37 en códigos RQ8) y la tabla de cuándo se hicieron las aristas (0.51 MB). Lo demás es igual: 9.0 de códigos de ruteo, 2.45 de cambios pendientes, 0.85 de bloom.
 
+**Resultado de la enmienda 1 (los cuatro puntos, 08:30–09:47): sin regresión, ni nuestra ni de main.**
+
+| punto | llamadores | inserts/s (pasada 1, 2) | media | escrito a disco (MB, pasada 1, 2) | amplificación de escritura | recall ef 40 | recall ef 160 |
+|---|---:|---|---:|---|---:|---|---|
+| `b6200010ab` (hito 2) | 1 | 335.5, 334.7 | 335.1 | 2 339, 2 343 | 3.81 | 0.9870; 0.9880 | 0.9973; 0.9974 |
+| `4beecb4f1e` (antes de la fusión) | 1 | 337.5, 334.6 | 336.0 | 2 386, 2 367 | 3.87 | 0.9878; 0.9877 | 0.9976; 0.9974 |
+| `02a95212cf` (la fusión) | 1 | 332.5, 336.2 | 334.4 | 2 329, 2 353 | 3.81 | 0.9886; 0.9882 | 0.9975; 0.9975 |
+| `c6c8b2e347` (la cabeza) | 1 | 335.5, 336.1 | 335.8 | 2 347, 2 359 | 3.83 | 0.9884; 0.9882 | 0.9973; 0.9975 |
+| `b6200010ab` | 8 | 325.5, 330.0 | 327.7 | 2 327, 2 299 | 3.77 | 0.9880; 0.9882 | 0.9970; 0.9970 |
+| `4beecb4f1e` | 8 | 333.2, 330.8 | 332.0 | 2 358, 2 360 | 3.84 | 0.9882; 0.9890 | 0.9974; 0.9978 |
+| `02a95212cf` | 8 | 330.6, 318.0 | 324.3 | 2 371, 2 323 | 3.82 | 0.9873; 0.9882 | 0.9974; 0.9977 |
+| `c6c8b2e347` | 8 | 331.5, 324.8 | 328.2 | 2 348, 2 370 | 3.84 | 0.9895; 0.9884 | 0.9975; 0.9975 |
+
+- **Inserts por segundo:**
+  - Entre el hito 2 y antes de la fusión (lo nuestro): +0.3 % con 1 llamador y +1.3 % con 8.
+  - Entre antes y después de la fusión (lo de main): −0.5 % y −2.3 %. La fusión con 8 llamadores varía 12.6 entre sus dos pasadas, más que su diferencia con el punto anterior.
+  - Ninguna diferencia llega al 10 % de la regla: **no hay bisect.**
+- **Bytes escritos:** de 2 299 a 2 386 MB, 3.77 a 3.87 veces los de los vectores (614.4 MB), sin orden entre puntos.
+- **Recall:** igual en los cuatro, dentro de 0.0025.
+- **El heap tras abrir**, por componente:
+
+| componente | hito 2 | antes de la fusión | la fusión | la cabeza |
+|---|---:|---:|---:|---:|
+| códigos de ruteo | 9.00 | 9.00 | 9.00 | 9.00 |
+| centroides | 4.97 (`float32`) | 1.35 (RQ8) | 1.34 (RQ8) | 1.32 (RQ8) |
+| cambios de aristas pendientes | 2.60 | 2.38 | 2.34 | 2.32 |
+| `lsmkv` (bloom casi todo) | 0.89 | 0.86 | 0.88 | 0.86 |
+| docID → posting, slot | 1.02 | 1.02 | 1.02 | 1.02 |
+| docID → cuándo se hicieron sus aristas | 0.51 | 0.51 | 0.51 | — |
+| vivos, tombstones, por posting y el grafo de centroides | 0.49 | 0.48 | 0.47 | 0.48 |
+| **en el perfil** | **19.77** | **15.84** | **16.08** | **15.28** |
+| **heap en uso** | **28.70** | **24.85** | **24.72** | **24.02** |
+
+- Las dos bajadas son nuestras: los centroides en RQ8 (−3.6 MB, antes de la fusión) y la tabla que ya no se carga (−0.5 MB, después). La fusión no cambia ningún componente.
+- Datos: `testdata/bench/insert-regression-100k/`.
+
 ### Dónde se va el tiempo del insert con 8 llamadores (2026-11-27, `m2` a 100k, perfilado)
 
 *Una corrida aparte de la cabeza con 8 llamadores (329 inserts por segundo, igual que sin perfiles), con los perfiles de CPU, de bloqueo (eventos de 10 µs o más) y de mutex. Al lado, v5.2 con 8 buscadores y su perfil de CPU (1 037 por segundo). Todo en macOS, en este Mac.*

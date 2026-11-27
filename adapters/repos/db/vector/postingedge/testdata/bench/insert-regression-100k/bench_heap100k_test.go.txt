@@ -1,0 +1,106 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench
+
+package postingedge
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/pprof"
+	"testing"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+)
+
+// TestHeap100k opens the index TestIntegrationScale left in PE_DIR as its
+// open does, but with no cycle and no maintenance, collects, and writes the
+// profile of the heap in use to PE_HEAP and what the index holds to PE_OUT.
+// Run it with -test.memprofilerate=1. The same file builds at b6200010ab and
+// at the head of m2 (the regression check of 2026-11-27 in bench-report.md).
+func TestHeap100k(t *testing.T) {
+	dir, heapOut, out := os.Getenv("PE_DIR"), os.Getenv("PE_HEAP"), os.Getenv("PE_OUT")
+	if dir == "" || heapOut == "" || out == "" {
+		t.Skip("no PE_DIR, PE_HEAP and PE_OUT given")
+	}
+	ctx := context.Background()
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	begin := time.Now()
+	noop := cyclemanager.NewCallbackGroupNoop()
+	store, err := lsmkv.New(filepath.Join(dir, "lsm"), dir, logger, nil, nil, noop, noop, noop)
+	require.NoError(t, err)
+	p, err := Open(PersistentConfig{
+		ID:                "main",
+		ShardName:         "integration",
+		ClassName:         "Integration",
+		RootPath:          dir,
+		Logger:            logger,
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeBucketOptions(lsmkv.MakeRegularBucketOptions),
+		BaseSize:          10000,
+		Seed:              1,
+		noMaintenance:     true,
+	}, ent.NewDefaultUserConfig(), store)
+	require.NoError(t, err)
+	opened := time.Since(begin)
+	defer func() {
+		require.NoError(t, p.Shutdown(ctx))
+		require.NoError(t, store.Shutdown(ctx))
+	}()
+	runtime.GC()
+	runtime.GC()
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	file, err := os.Create(heapOut)
+	require.NoError(t, err)
+	require.NoError(t, pprof.Lookup("heap").WriteTo(file, 0))
+	require.NoError(t, file.Close())
+
+	p.mu.RLock()
+	g := p.g
+	info := map[string]any{
+		"openSeconds": opened.Seconds(), "heapInuse": mem.HeapInuse, "heapAlloc": mem.HeapAlloc,
+		"meta": g.meta, "liveSlots": len(g.live), "deletedLen": len(g.deleted), "builtAtLen": len(g.builtAt),
+		"codeWords": len(g.st.side.codes),
+	}
+	p.mu.RUnlock()
+	g.retiredMu.RLock()
+	live := 0
+	for _, retired := range g.retired {
+		if !retired {
+			live++
+		}
+	}
+	g.retiredMu.RUnlock()
+	info["livePostings"] = live
+	stats, err := g.st.centroids.graph.Stats()
+	require.NoError(t, err)
+	info["centroidGraph"] = map[string]any{
+		"layers": stats.DistributionLayers, "tombstones": stats.NumTombstones, "compressed": stats.Compressed,
+	}
+	raw, err := json.MarshalIndent(info, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(out, raw, 0o644))
+	t.Logf("opened in %s: heap in use %.1f MB, allocated and in use %.1f MB", opened.Round(time.Millisecond),
+		float64(mem.HeapInuse)/1e6, float64(mem.HeapAlloc)/1e6)
+}

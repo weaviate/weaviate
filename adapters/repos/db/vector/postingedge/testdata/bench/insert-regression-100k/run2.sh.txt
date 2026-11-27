@@ -1,0 +1,45 @@
+#!/bin/bash
+# Amendment 1 of the insert regression check (bench-report.md of
+# feat/posting-edge-index, fa9fb627e7): four points, the milestone (b62), m2
+# right before the merge of main (pre), the merge (merge) and the head (m2),
+# 1 and 8 callers, two passes alternated, with the bytes the process wrote
+# (TestZZWritten, after the harness in the same process) and the heap of each
+# point after its first 1-caller run. Builds the four binaries first, once.
+set -u
+S=<scratch>
+R=$S/r100
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+COMMON="-bench.dataset $D -bench.limit 100000 -bench.queries 1000 -test.v -test.timeout 0"
+for v in b62 pre merge m2; do
+  (cd $R/$v/adapters/repos/db/vector/postingedge && go test -trimpath -tags postingedgebench -c -o $R/$v-w.test . 2>&1 | tail -5)
+  echo "build $v exit $?"
+done
+integ() { # version callers pass
+  local v=$1 c=$2 p=$3 dir=$R/runs2/$1-c$2-p$3
+  mkdir -p $dir/index
+  date "+== %H:%M:%S $v callers $c pass $p"
+  (cd $R/$v/adapters/repos/db/vector/postingedge && PE_RUSAGE=$dir/rusage.json $R/$v-w.test \
+    -test.run '^(TestIntegrationScale|TestZZWritten)$' $COMMON \
+    -bench.integrationdir $dir/index -bench.integrationout $dir/result.json -bench.integrationbase 10000 \
+    -bench.integrationwriters $c -bench.integrationcycles -bench.integrationdelete 0 -bench.integrationreopen=false \
+    -bench.integrationefs 40,160 > $dir/run.log 2>&1)
+  echo "$v c$c p$p exit $?"
+}
+heap() { # version
+  local v=$1 dir=$R/runs2/$1-c1-p1
+  date "+== %H:%M:%S heap $v"
+  (cd $R/$v/adapters/repos/db/vector/postingedge && PE_DIR=$dir/index PE_HEAP=$dir/heap.heap PE_OUT=$dir/heap.json \
+    $R/$v-w.test -test.run '^TestHeap100k$' -test.v -test.timeout 0 -test.memprofilerate=1 > $dir/heap.log 2>&1)
+  echo "heap $v exit $?"
+  go tool pprof -raw $R/$v-w.test $dir/heap.heap 2>/dev/null > $dir/heap.raw
+}
+for p in 1 2; do
+  for v in b62 pre merge m2; do
+    integ $v 1 $p
+    [ $p = 1 ] && heap $v
+  done
+  for v in b62 pre merge m2; do
+    integ $v 8 $p
+  done
+done
+date "+== %H:%M:%S done"

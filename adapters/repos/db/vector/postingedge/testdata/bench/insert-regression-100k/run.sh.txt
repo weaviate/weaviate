@@ -1,0 +1,49 @@
+#!/bin/bash
+# The insert regression check at 100 000 (bench-report.md of
+# feat/posting-edge-index, pre-registered in 11629a6de8): two passes of six
+# cells, alternated, each binary built once before; after the first 1-caller
+# run of b62 and of m2, the heap of what it left, in another process.
+set -u
+S=<scratch>
+R=$S/r100
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+COMMON="-bench.dataset $D -bench.limit 100000 -bench.queries 1000 -test.v -test.timeout 0"
+integ() { # version callers pass
+  local v=$1 c=$2 p=$3 dir=$R/runs/$1-c$2-p$3
+  mkdir -p $dir/index
+  date "+== %H:%M:%S $v callers $c pass $p"
+  (cd $R/$v/adapters/repos/db/vector/postingedge && $R/$v.test -test.run '^TestIntegrationScale$' $COMMON \
+    -bench.integrationdir $dir/index -bench.integrationout $dir/result.json -bench.integrationbase 10000 \
+    -bench.integrationwriters $c -bench.integrationcycles -bench.integrationdelete 0 -bench.integrationreopen=false \
+    -bench.integrationefs 40,160 > $dir/run.log 2>&1)
+  echo "$v c$c p$p exit $?"
+}
+v52() { # callers batch pass
+  local c=$1 w=$2 p=$3 dir=$R/runs/v52-c$1-p$3
+  mkdir -p $dir/index
+  date "+== %H:%M:%S v52 searchers $c batch $w pass $p"
+  (cd $R/v52/adapters/repos/db/vector/postingedge && $R/v52.test -test.run '^TestGrowTimedInserts$' $COMMON \
+    -bench.growdir $dir/index -bench.growmanifest $dir/result.json -bench.growstart 10 -bench.growthreshold 360 \
+    -bench.growinsertef 160 -bench.growbits 512 -bench.growk 0 -bench.growsearchers $c -bench.growbatch $w \
+    > $dir/run.log 2>&1)
+  echo "v52 c$c p$p exit $?"
+}
+heap() { # version
+  local v=$1 dir=$R/runs/$1-c1-p1
+  date "+== %H:%M:%S heap $v"
+  (cd $R/$v/adapters/repos/db/vector/postingedge && PE_DIR=$dir/index PE_HEAP=$dir/heap.heap PE_OUT=$dir/heap.json \
+    $R/$v.test -test.run '^TestHeap100k$' -test.v -test.timeout 0 -test.memprofilerate=1 > $dir/heap.log 2>&1)
+  echo "heap $v exit $?"
+  go tool pprof -raw $R/$v.test $dir/heap.heap 2>/dev/null > $dir/heap.raw
+}
+for p in 1 2; do
+  integ b62 1 $p
+  [ $p = 1 ] && heap b62
+  integ m2 1 $p
+  [ $p = 1 ] && heap m2
+  v52 1 1 $p
+  integ b62 8 $p
+  integ m2 8 $p
+  v52 8 32 $p
+done
+date "+== %H:%M:%S done"

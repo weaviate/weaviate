@@ -1,0 +1,29 @@
+#!/bin/bash
+# The profiles of where the insert's time goes (bench-report.md of
+# feat/posting-edge-index, pre-registered in 11629a6de8): m2 with 8 callers at
+# 100 000, with the CPU, block (10 us) and mutex (every event) profiles; and,
+# for the comparison, v5.2's path with 8 searchers and batches of 32 with the
+# CPU profile. Not part of the regression check.
+set -u
+S=<scratch>
+R=$S/r100
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+COMMON="-bench.dataset $D -bench.limit 100000 -bench.queries 1000 -test.v -test.timeout 0"
+dir=$R/runs/m2-c8-prof
+mkdir -p $dir/index
+date "+== %H:%M:%S m2 callers 8 profiled"
+(cd $R/m2/adapters/repos/db/vector/postingedge && $R/m2.test -test.run '^TestIntegrationScale$' $COMMON \
+  -bench.integrationdir $dir/index -bench.integrationout $dir/result.json -bench.integrationbase 10000 \
+  -bench.integrationwriters 8 -bench.integrationcycles -bench.integrationdelete 0 -bench.integrationreopen=false \
+  -bench.integrationefs 40 -test.cpuprofile $dir/cpu.prof -test.blockprofile $dir/block.prof \
+  -test.blockprofilerate 10000 -test.mutexprofile $dir/mutex.prof -test.mutexprofilefraction 1 > $dir/run.log 2>&1)
+echo "m2 profiled exit $?"
+dir=$R/runs/v52-c8-prof
+mkdir -p $dir/index
+date "+== %H:%M:%S v52 searchers 8 profiled"
+(cd $R/v52/adapters/repos/db/vector/postingedge && $R/v52.test -test.run '^TestGrowTimedInserts$' $COMMON \
+  -bench.growdir $dir/index -bench.growmanifest $dir/result.json -bench.growstart 10 -bench.growthreshold 360 \
+  -bench.growinsertef 160 -bench.growbits 512 -bench.growk 0 -bench.growsearchers 8 -bench.growbatch 32 \
+  -test.cpuprofile $dir/cpu.prof > $dir/run.log 2>&1)
+echo "v52 profiled exit $?"
+date "+== %H:%M:%S done"

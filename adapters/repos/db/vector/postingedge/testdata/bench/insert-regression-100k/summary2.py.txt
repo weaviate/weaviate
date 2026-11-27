@@ -1,0 +1,24 @@
+import glob, json, os, statistics, sys
+d = sys.argv[1]
+rows = {}
+for path in sorted(glob.glob(d + "/*-c*-p*/result.json")):
+    name = os.path.basename(os.path.dirname(path))
+    v, c, p = name.split("-")
+    r = json.load(open(path))
+    ru = json.load(open(os.path.dirname(path) + "/rusage.json")) if os.path.exists(os.path.dirname(path) + "/rusage.json") else {}
+    rec = {pt["ef"]: pt["recall"] for s in r.get("stages", []) for pt in s.get("points", [])}
+    rows.setdefault((v, c), []).append((p, r["insertsPerSecond"], ru.get("diskBytesWritten", 0), rec, r["meta"]["postings"]))
+order = ["b62", "pre", "merge", "m2"]
+print("| punto | llamadores | inserts/s (p1, p2) | media | escrito (MB, p1, p2) | amplificación | recall ef 40 | recall ef 160 | postings |")
+for c in ["c1", "c8"]:
+    for v in order:
+        runs = sorted(rows.get((v, c), []))
+        if not runs:
+            continue
+        rates = [x[1] for x in runs]
+        written = [x[2] for x in runs]
+        print("| %s | %s | %s | %.1f | %s | %.2f | %s | %s | %s |" % (
+            v, c[1:], ", ".join("%.1f" % x for x in rates), statistics.mean(rates),
+            ", ".join("%.0f" % (x / 1e6) for x in written), statistics.mean(written) / (100000 * 6144),
+            "; ".join("%.4f" % x[3].get(40, 0) for x in runs), "; ".join("%.4f" % x[3].get(160, 0) for x in runs),
+            ", ".join(str(x[4]) for x in runs)))

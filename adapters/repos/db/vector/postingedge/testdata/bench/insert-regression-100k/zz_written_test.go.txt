@@ -1,0 +1,49 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package postingedge
+
+import (
+	"encoding/binary"
+	"encoding/json"
+	"os"
+	"syscall"
+	"testing"
+	"unsafe"
+
+	"github.com/stretchr/testify/require"
+)
+
+// TestZZWritten runs after TestIntegrationScale in the same process (the
+// file name sorts last) and writes to PE_RUSAGE what the system accounted to
+// the process so far (proc_pid_rusage, RUSAGE_INFO_V2): the bytes it wrote to
+// and read from disk, and its page-ins. The same file builds at every point
+// of the regression check of 2026-11-27 (bench-report.md).
+func TestZZWritten(t *testing.T) {
+	out := os.Getenv("PE_RUSAGE")
+	if out == "" {
+		t.Skip("no PE_RUSAGE given")
+	}
+	const procInfoCallPidRusage, rusageInfoV2 = 9, 2
+	var buf [256]byte
+	_, _, errno := syscall.Syscall6(syscall.SYS_PROC_INFO, procInfoCallPidRusage, uintptr(os.Getpid()), rusageInfoV2, 0,
+		uintptr(unsafe.Pointer(&buf[0])), 0)
+	require.Zero(t, errno, "proc_pid_rusage")
+	word := func(i int) uint64 { return binary.LittleEndian.Uint64(buf[16+8*i:]) }
+	raw, err := json.MarshalIndent(map[string]uint64{
+		"pageins": word(4), "diskBytesRead": word(16), "diskBytesWritten": word(17),
+	}, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(out, raw, 0o644))
+	t.Logf("written to disk %.1f MB, read %.1f MB", float64(word(17))/1e6, float64(word(16))/1e6)
+}
