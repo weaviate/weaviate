@@ -13,10 +13,12 @@ package schema
 
 import (
 	"regexp"
+	"regexp/syntax"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateOKClassName(t *testing.T) {
@@ -398,6 +400,93 @@ func TestValidateTenantName_RejectsNamespaceSeparator(t *testing.T) {
 				"tenant pattern %q containing NamespaceSeparator must be rejected", name)
 		})
 	}
+}
+
+// namespaceNameProperties lists what every namespace name that
+// ValidateNamespaceNameSyntax accepts must have.
+var namespaceNameProperties = []struct {
+	name  string
+	holds func(ns string) bool
+}{
+	// rewritePolicy and qualifyResourceForCreate splice the namespace into a
+	// policy pattern that KeyMatch5 compiles as a regex.
+	{"no regex metacharacter", func(ns string) bool { return regexp.QuoteMeta(ns) == ns }},
+	// rewritePolicy checks a segment's owner with HasPrefix on "<ns>:".
+	// NamespaceFromQualified cuts a name at its first ':'.
+	{"no namespace separator", func(ns string) bool { return !strings.Contains(ns, NamespaceSeparator) }},
+	// anyNamespacePattern matches a namespace as a run of bytes other than '/'
+	// and ':'. Index.path joins the qualified class name into a directory path.
+	{"no slash", func(ns string) bool { return !strings.Contains(ns, "/") }},
+	// indexID lowercases the qualified class name to name its data directory, so
+	// a namespace strings.ToLower changes shares that directory with another.
+	{"lowercase", func(ns string) bool { return strings.ToLower(ns) == ns }},
+}
+
+// TestValidateNamespaceNameSyntax_EveryByte puts every byte at each position of
+// a minimum-length name, and each name ValidateNamespaceNameSyntax accepts must
+// have every property in namespaceNameProperties.
+func TestValidateNamespaceNameSyntax_EveryByte(t *testing.T) {
+	base := strings.Repeat("a", NamespaceMinLength)
+	for pos := range len(base) {
+		accepted := 0
+		for b := range 256 {
+			ns := base[:pos] + string([]byte{byte(b)}) + base[pos+1:]
+			if ValidateNamespaceNameSyntax(ns) != nil {
+				continue
+			}
+			accepted++
+			for _, p := range namespaceNameProperties {
+				assert.True(t, p.holds(ns), "accepted namespace %q breaks %q", ns, p.name)
+			}
+		}
+		// With no name accepted at a position, the loop above asserts nothing for it.
+		require.NotZero(t, accepted, "no namespace accepted with a byte at position %d", pos)
+	}
+}
+
+// TestNamespaceNameRegexCore_EveryMatchableRune checks each rune a node of
+// NamespaceNameRegexCore can match. It catches a loosening whose names
+// TestValidateNamespaceNameSyntax_EveryByte never builds, such as a suffix group.
+func TestNamespaceNameRegexCore_EveryMatchableRune(t *testing.T) {
+	re, err := syntax.Parse(NamespaceNameRegexCore, syntax.Perl)
+	require.NoError(t, err)
+	holdsAll := func(node *syntax.Regexp, c rune) bool {
+		for _, p := range namespaceNameProperties {
+			if !p.holds(string(c)) {
+				t.Errorf("%s can match %q, which breaks %q", node, c, p.name)
+				return false
+			}
+		}
+		return true
+	}
+	var walk func(node *syntax.Regexp)
+	walk = func(node *syntax.Regexp) {
+		if node.Flags&syntax.FoldCase != 0 {
+			t.Errorf("%s folds case, which breaks %q", node, "lowercase")
+		}
+		switch node.Op {
+		case syntax.OpAnyChar, syntax.OpAnyCharNotNL:
+			t.Errorf("%s matches any character", node)
+		case syntax.OpLiteral:
+			for _, c := range node.Rune {
+				holdsAll(node, c)
+			}
+		case syntax.OpCharClass:
+			for i := 0; i+1 < len(node.Rune); i += 2 {
+				for c := node.Rune[i]; c <= node.Rune[i+1]; c++ {
+					if !holdsAll(node, c) {
+						break
+					}
+				}
+			}
+		default:
+			// The other ops match no rune themselves; the loop below walks their subs.
+		}
+		for _, sub := range node.Sub {
+			walk(sub)
+		}
+	}
+	walk(re)
 }
 
 // TestIndexNameRegexCore covers what IndexNameRegexCore accepts and rejects:

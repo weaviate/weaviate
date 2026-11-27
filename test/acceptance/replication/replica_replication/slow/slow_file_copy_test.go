@@ -129,14 +129,19 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
 		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
-		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		require.NoError(t, clientErr, "failed to get nodes status: %+v", clientErr)
-		require.NotNil(t, body.Payload)
+		var nodes []*models.NodeStatus
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr, "failed to get nodes status: %+v", clientErr)
+			require.NotNil(ct, body.Payload)
+			nodes = body.Payload.Nodes
+		}, 15*time.Second, 500*time.Millisecond)
+
 		targetNode := docker.Weaviate2
 		hasFoundNode := false
 		hasFoundShard := false
 
-		for i, node := range body.Payload.Nodes {
+		for i, node := range nodes {
 			if node.Name == targetNode {
 				continue
 			}

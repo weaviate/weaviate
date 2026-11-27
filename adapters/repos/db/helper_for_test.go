@@ -549,6 +549,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		idx.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
 	idx.initCycleCallbacksNoop()
 	for _, opt := range indexOpts {
 		opt(idx)
@@ -587,17 +588,14 @@ func openDescriptorCount(t *testing.T, filePath string) int {
 	require.NoError(t, err)
 	want := info.Sys().(*syscall.Stat_t)
 
-	entries, err := os.ReadDir("/dev/fd")
-	require.NoError(t, err)
-
 	count := 0
-	for _, entry := range entries {
-		fd, err := strconv.Atoi(entry.Name())
+	for _, name := range openDescriptorNames(t) {
+		fd, err := strconv.Atoi(name)
 		if err != nil {
 			continue
 		}
 		var got syscall.Stat_t
-		// ReadDir closed the descriptor it listed /dev/fd through, so Fstat fails on it
+		// the descriptor /dev/fd was listed through is closed by now, so Fstat fails on it
 		if err := syscall.Fstat(fd, &got); err != nil {
 			continue
 		}
@@ -606,6 +604,18 @@ func openDescriptorCount(t *testing.T, filePath string) int {
 		}
 	}
 	return count
+}
+
+// openDescriptorNames lists /dev/fd; os.ReadDir fails there on darwin.
+func openDescriptorNames(t *testing.T) []string {
+	t.Helper()
+
+	dir, err := os.Open("/dev/fd")
+	require.NoError(t, err)
+	defer dir.Close()
+	names, err := dir.Readdirnames(-1)
+	require.NoError(t, err)
+	return names
 }
 
 func testObject(className string) *storobj.Object {

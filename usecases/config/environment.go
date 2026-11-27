@@ -2252,6 +2252,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		BasicAuth: cluster.BasicAuth{
 			Username: basicAuthUsername,
 			Password: basicAuthPassword,
+			SendOnly: entcfg.Enabled(os.Getenv("CLUSTER_BASIC_AUTH_SEND_ONLY")),
 		},
 	}
 

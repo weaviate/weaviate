@@ -130,6 +130,9 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	idx.shardCreateLocks.RLock(shardName)
 	defer idx.shardCreateLocks.RUnlock(shardName)
 
+	class := idx.getClass()
+	targets = db.locallyDroppedTargets(class, collection, shardName, targets)
+
 	// A shard in the map finishes its own drops: loaded, it retries them, which
 	// never opens index.db against its own lock; a lazy one does so under its
 	// loading mutex, so no load starts against the offline removal. Only a
@@ -142,7 +145,6 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 		return s.sweepDroppedVectorIndexes(targets)
 	}
 	helper := newVectorDropIndexHelper()
-	class := idx.getClass()
 	for _, target := range targets {
 		// Siblings are read per target: the collection's other vector names are
 		// what stops a drop deleting a live vector whose own bucket happens to
@@ -167,12 +169,30 @@ func (db *DB) RemoveDroppedVectorDimensions(ctx context.Context, collection, sha
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
 	}
-	for _, target := range targets {
+	for _, target := range db.locallyDroppedTargets(idx.getClass(), collection, shardName, targets) {
 		if err := removeDimensionsForDroppedVector(ctx, idx, shardName, target); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// locallyDroppedTargets keeps the targets this node's own schema marks dropped.
+// The drop task gates its destructive steps on a class read from the leader,
+// and a leader that has not yet applied a delete and re-create of the
+// collection still reports a vector as dropped that is live again here.
+func (db *DB) locallyDroppedTargets(class *models.Class, collection, shardName string, targets []string) []string {
+	dropped := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if !isDroppedVectorIndex(class, target) {
+			db.logger.WithField("collection", collection).
+				WithField("shard", shardName).WithField("target_vector", target).
+				Warn("drop-vector: target is not marked dropped in the local schema, leaving its data in place")
+			continue
+		}
+		dropped = append(dropped, target)
+	}
+	return dropped
 }
 
 // errDimensionsShardNotLoaded reports a unit whose shard left memory between

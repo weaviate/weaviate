@@ -53,11 +53,6 @@ var availableV3Models = []string{
 	TextEmbedding3Large,
 }
 
-var availableV3ModelsDimensions = map[string][]int64{
-	TextEmbedding3Small: {512, TextEmbedding3SmallDefaultDimensions},
-	TextEmbedding3Large: {256, 1024, TextEmbedding3LargeDefaultDimensions},
-}
-
 var availableOpenAIModels = []string{
 	"ada",     // supports 001 and 002
 	"babbage", // only supports 001
@@ -194,18 +189,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	version := cs.ModelVersion()
 	if err := cs.validateModelVersion(version, model, docType); err != nil {
 		return err
-	}
-
-	dimensions := cs.Dimensions()
-	if !cs.IsThirdPartyProvider() && version == "" && dimensions != nil {
-		// validate dimensions setting only for V3 models
-		if !basesettings.ValidateSetting(model, availableV3Models) {
-			return errors.Errorf("dimensions setting can only be used with V3 embedding models: %v", availableV3Models)
-		}
-		availableDimensions := availableV3ModelsDimensions[model]
-		if !basesettings.ValidateSetting(*dimensions, availableDimensions) {
-			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
-		}
 	}
 
 	if cs.IsAzure() {

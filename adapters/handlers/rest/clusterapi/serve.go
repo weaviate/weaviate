@@ -243,8 +243,8 @@ var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
 // addClusterHandlerMiddleware will inject a middleware that will catch all requests matching clusterv1Regexp.
 // If the request match, it will route it to a dedicated http.Handler and skip the next middleware.
 // If the request doesn't match, it will continue to the next handler.
-// The dedicated http.Handler is wrapped with the provided auth so /v1/cluster/* endpoints
-// require basic auth when it is enabled in the cluster auth config.
+// The dedicated http.Handler is wrapped with the provided auth. /v1/cluster/* endpoints check
+// basic auth when credentials are set in the cluster auth config and send-only mode is off.
 func addClusterHandlerMiddleware(next http.Handler, appState *state.State, auth auth) http.Handler {
 	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
 	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)

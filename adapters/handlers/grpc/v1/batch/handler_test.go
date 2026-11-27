@@ -16,15 +16,21 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
@@ -112,4 +118,140 @@ func TestHandler_BatchObjects(t *testing.T) {
 		}
 		assert.ElementsMatch(t, []int32{0, 1}, indexes)
 	})
+}
+
+// Invalid UUIDs stop authorized objects before they reach the batch manager.
+func TestHandler_BatchObjectsAuthorization(t *testing.T) {
+	const badUUID = "not-a-uuid"
+	_, errBadUUID := uuid.Parse(badUUID)
+	errDenied := errors.New("denied")
+	errRead := errors.New("schema read failed")
+	errDangling := errors.New(`alias "DroppedAlias" points to collection "Dropped" which does not exist`)
+	authzCall := func(verb, class, tenant string) authMocks.AuthZReq {
+		req := authMocks.AuthZReq{
+			Verb:      verb,
+			Resources: authorization.ShardsData(class, tenant),
+			Method:    authMocks.MethodAuthorize,
+		}
+		if verb == authorization.CREATE {
+			req.Method = authMocks.MethodAuthorizeAndRequireActiveNamespace
+			req.Class = class
+		}
+		return req
+	}
+
+	tests := []struct {
+		name         string
+		objects      []*pb.BatchObject
+		allowedCalls int
+		authzErr     error
+		wantErrs     []error
+		wantCalls    []authMocks.AuthZReq
+	}{
+		{
+			name: "reuses authorization for the same pair",
+			objects: []*pb.BatchObject{
+				{Collection: "Foo", Tenant: "tenantA"},
+				{Collection: "Foo", Tenant: "tenantA"},
+			},
+			wantErrs: []error{errBadUUID, errBadUUID},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Foo", "tenantA"),
+				authzCall(authorization.CREATE, "Foo", "tenantA"),
+			},
+		},
+		{
+			name: "authorizes colliding pairs separately",
+			objects: []*pb.BatchObject{
+				{Collection: "Foo", Tenant: "tenantA#Victim"},
+				{Collection: "Foo#tenantA", Tenant: "Victim"},
+			},
+			allowedCalls: 2,
+			authzErr:     errDenied,
+			wantErrs:     []error{errBadUUID, errDenied},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Foo", "tenantA#Victim"),
+				authzCall(authorization.CREATE, "Foo", "tenantA#Victim"),
+				authzCall(authorization.UPDATE, "Foo#tenantA", "Victim"),
+			},
+		},
+		{
+			name:         "a refused create check refuses the object",
+			objects:      []*pb.BatchObject{{Collection: "FooAlias"}},
+			allowedCalls: 1,
+			authzErr:     errDenied,
+			wantErrs:     []error{errDenied},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Foo", ""),
+				authzCall(authorization.CREATE, "Foo", ""),
+			},
+		},
+		{
+			name:     "a failed schema read refuses the pair's next object without reading again",
+			objects:  []*pb.BatchObject{{Collection: "Broken"}, {Collection: "Broken"}},
+			wantErrs: []error{errRead, errRead},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Broken", ""),
+				authzCall(authorization.CREATE, "Broken", ""),
+			},
+		},
+		{
+			name:     "a refused pair is refused again without another authorization",
+			objects:  []*pb.BatchObject{{Collection: "FooAlias"}, {Collection: "FooAlias"}},
+			authzErr: errDenied,
+			wantErrs: []error{errDenied, errDenied},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Foo", ""),
+			},
+		},
+		{
+			name:     "an admitted missing class does not admit a dangling alias to it",
+			objects:  []*pb.BatchObject{{Collection: "Dropped"}, {Collection: "DroppedAlias"}},
+			wantErrs: []error{errBadUUID, errDangling},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Dropped", ""),
+				authzCall(authorization.CREATE, "Dropped", ""),
+			},
+		},
+		{
+			name:     "a dangling alias's refusal does not refuse the class it names",
+			objects:  []*pb.BatchObject{{Collection: "DroppedAlias"}, {Collection: "Dropped"}},
+			wantErrs: []error{errDangling, errBadUUID},
+			wantCalls: []authMocks.AuthZReq{
+				authzCall(authorization.UPDATE, "Dropped", ""),
+				authzCall(authorization.CREATE, "Dropped", ""),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			authorizer := authMocks.NewMockAuthorizer()
+			authorizer.SetErrAfter(tt.allowedCalls, tt.authzErr)
+			schemaManager := objects.NewMockClassResolver(t)
+			schemaManager.EXPECT().ResolveAlias("FooAlias").Return("Foo").Maybe()
+			schemaManager.EXPECT().ResolveAlias("DroppedAlias").Return("Dropped").Maybe()
+			schemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
+			schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, "Foo").
+				Return(map[string]versioned.Class{"Foo": {Class: &models.Class{Class: "Foo"}}}, nil).Maybe()
+			schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, "Dropped").
+				Return(map[string]versioned.Class{}, nil).Maybe()
+			schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, "Broken").
+				Return(nil, errRead).Maybe()
+			handler := NewHandler(authorizer, nil, logger, auth.NewHandler(true, nil), schemaManager, namespacing.Disabled)
+
+			wantErrors := make([]*pb.BatchObjectsReply_BatchError, len(tt.objects))
+			for i, obj := range tt.objects {
+				obj.Uuid = badUUID
+				wantErrors[i] = &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: tt.wantErrs[i].Error()}
+			}
+
+			reply, err := handler.BatchObjects(context.Background(), &pb.BatchObjectsRequest{Objects: tt.objects})
+
+			require.NoError(t, err)
+			require.ElementsMatch(t, wantErrors, reply.Errors)
+			require.Equal(t, tt.wantCalls, authorizer.Calls())
+		})
+	}
 }

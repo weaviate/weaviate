@@ -275,7 +275,7 @@ func NewAliasesGetAliasNotFound() *AliasesGetAliasNotFound {
 /*
 AliasesGetAliasNotFound describes a response with status code 404, with default header values.
 
-Not Found - Alias does not exist
+Not Found - Alias does not exist, or the caller has no permission to read it.
 */
 type AliasesGetAliasNotFound struct {
 	Payload *models.ErrorResponse
