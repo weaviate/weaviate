@@ -12,11 +12,7 @@
 package telemetry
 
 import (
-	"context"
 	"net/http"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 // ClientTrackingMiddleware creates an HTTP middleware that tracks client SDK usage
@@ -61,30 +57,4 @@ func (it *IntegrationTracker) TrackHeader(headerValue string) {
 		return
 	}
 	it.inner.send(name, version)
-}
-
-// ClientTrackingUnaryInterceptor creates a gRPC unary interceptor that tracks
-// client SDK usage (from x-weaviate-client) and integration usage (from
-// x-weaviate-client-integration) via the gRPC metadata. It also sets the
-// sanitized client header in the context under "clientIdentifier", combining
-// tracking and context-setting to avoid parsing metadata twice.
-// Either tracker may be nil; the respective metadata header is then ignored.
-func ClientTrackingUnaryInterceptor(tracker *ClientTracker, integrationTracker *IntegrationTracker) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			if tracker != nil {
-				if vals := md.Get("x-weaviate-client"); len(vals) > 0 {
-					sanitized := SanitizeClientHeader(vals[0])
-					ctx = context.WithValue(ctx, "clientIdentifier", sanitized)
-					tracker.TrackHeader(vals[0])
-				}
-			}
-			if integrationTracker != nil {
-				if vals := md.Get(integrationHeaderKeyLower); len(vals) > 0 {
-					integrationTracker.TrackHeader(vals[0])
-				}
-			}
-		}
-		return handler(ctx, req)
-	}
 }

@@ -174,6 +174,9 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 
 	message, err := stream.Recv()
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil // Client closed the stream without sending any messages.
+		}
 		return fmt.Errorf("initial stream message receive: %w", err)
 	}
 

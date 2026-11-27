@@ -32,7 +32,7 @@ func TestRestrictionViolationToGrpcError(t *testing.T) {
 		Allowed:         []string{"hfresh", "hnsw"},
 		RenderedMessage: "flat is not allowed for vector_index_type",
 	}
-	err := restrictionViolationToGrpcError(v)
+	err := restrictionViolationToGRPCError(v)
 	if err == nil {
 		t.Fatal("expected non-nil error")
 	}

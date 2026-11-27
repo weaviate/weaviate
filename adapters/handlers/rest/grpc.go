@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"github.com/prometheus/client_golang/prometheus"
 	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -21,7 +22,11 @@ import (
 )
 
 func createGrpcServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
-	return grpcHandler.CreateGRPCServer(state, clientTracker, integrationTracker, options...)
+	return grpcHandler.CreateGRPCServer(state, grpcHandler.Config{
+		ClientTracker:      clientTracker,
+		IntegrationTracker: integrationTracker,
+		Registerer:         prometheus.DefaultRegisterer,
+	}, options...)
 }
 
 func startGrpcServer(server *grpc.Server, state *state.State) {

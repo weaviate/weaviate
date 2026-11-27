@@ -26,7 +26,7 @@ func TestLimitExceededToGrpcError(t *testing.T) {
 		Value:           10000,
 		RenderedMessage: "hit limit of 10000 objects",
 	}
-	err := limitExceededToGrpcError(le)
+	err := limitExceededToGRPCError(le)
 	if err == nil {
 		t.Fatal("expected non-nil error")
 	}
