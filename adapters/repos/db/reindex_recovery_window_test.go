@@ -253,11 +253,13 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testCtx()
 			className := "RangeableReadiness_" + uuid.NewString()[:8]
-			shd, idx := testShardWithSettings(t, ctx, rangeableEnabledTestClass(className),
+			class := rangeableEnabledTestClass(className)
+			shd, idx := testShardWithSettings(t, ctx, class,
 				enthnsw.UserConfig{Skip: true}, false, false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
-			require.True(t, shard.IsRangeableLocallyReady(propName),
+			prop := class.Properties[0]
+			require.True(t, shard.loadView().RangeableReady(prop),
 				"fixture: a property whose rangeable bucket exists defaults to ready")
 
 			if tt.unreadable {
@@ -272,7 +274,7 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 
 			markInFlightRangeableMigrationsNotReady(shard)
 
-			require.Equal(t, tt.wantReady, shard.IsRangeableLocallyReady(propName))
+			require.Equal(t, tt.wantReady, shard.loadView().RangeableReady(prop))
 		})
 	}
 }

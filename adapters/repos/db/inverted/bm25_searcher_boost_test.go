@@ -73,9 +73,8 @@ func TestGenerateQueryTermsAndStatsBoost(t *testing.T) {
 				}},
 			}
 
-			terms, _, pins, err := searcher.generateQueryTermsAndStats(context.Background(), class,
+			terms, _, err := searcher.generateQueryTermsAndStats(context.Background(), class,
 				searchparams.KeywordRanking{Query: "space", Properties: []string{test.property}})
-			defer pins.release()
 
 			if test.wantErr != nil {
 				require.Error(t, err)
@@ -112,7 +111,7 @@ func newBoostTestSearcher(t *testing.T) *BM25Searcher {
 	t.Cleanup(func() { tracker.Close() })
 
 	return &BM25Searcher{
-		store:          store,
+		store:          storeView{BucketLookup: store},
 		propLenTracker: tracker,
 		logger:         logger,
 	}

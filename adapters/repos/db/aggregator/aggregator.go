@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -47,46 +46,25 @@ type vectorIndexMulti interface {
 }
 
 type Aggregator struct {
-	logger                  logrus.FieldLogger
-	store                   lsmkv.BucketLookup
-	params                  aggregation.Params
-	getSchema               schemaUC.SchemaGetter
-	propIndices             propertyspecific.Indices // to support geo-filters
-	classSearcher           inverted.ClassSearcher   // to support ref-filters
-	vectorIndex             vectorIndex
-	stopwordProvider        *stopwords.Provider
-	shardVersion            uint16
-	propLenTracker          *inverted.JsonShardMetaData
-	isFallbackToSearchable  inverted.IsFallbackToSearchable
-	isRangeableLocallyReady inverted.IsRangeableLocallyReady
-	tenant                  string
-	nestedCrossRefLimit     int64
-	bitmapFactory           *roaringset.BitmapFactory
-	modules                 *modules.Provider
-	defaultLimit            int64
-	// tokResolver, when non-nil, is propagated to inverted.Searcher /
-	// inverted.BM25Searcher built by this aggregator so query input
-	// gets analyzed under the per-shard tokenization overlay during
-	// the FINALIZING window of a change-tokenization migration. Nil
-	// means "no overlay configured" — query input is tokenized against
-	// prop.Tokenization directly (tests and callers with no in-flight
-	// migration).
-	tokResolver inverted.TokenizationResolver
-	// bucketPinResolver, when non-nil, is propagated to every BM25Searcher
-	// built by this aggregator. See [inverted.SearchableBucketPinningResolver].
-	bucketPinResolver inverted.SearchableBucketPinningResolver
+	logger              logrus.FieldLogger
+	store               inverted.IndexView
+	params              aggregation.Params
+	getSchema           schemaUC.SchemaGetter
+	propIndices         propertyspecific.Indices // to support geo-filters
+	classSearcher       inverted.ClassSearcher   // to support ref-filters
+	vectorIndex         vectorIndex
+	stopwordProvider    *stopwords.Provider
+	shardVersion        uint16
+	propLenTracker      *inverted.JsonShardMetaData
+	tenant              string
+	nestedCrossRefLimit int64
+	bitmapFactory       *roaringset.BitmapFactory
+	modules             *modules.Provider
+	defaultLimit        int64
 	// batchedContainsEnabled is propagated to the inverted.Searcher built
 	// by this aggregator. Nil (the default) means the batched Contains
 	// resolution stays off.
 	batchedContainsEnabled *runtime.DynamicValue[bool]
-}
-
-// WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
-func (a *Aggregator) WithSearchableBucketPinningResolver(
-	r inverted.SearchableBucketPinningResolver,
-) *Aggregator {
-	a.bucketPinResolver = r
-	return a
 }
 
 // WithBatchedContainsEnabled: nil (the default) keeps the batched Contains
@@ -96,38 +74,32 @@ func (a *Aggregator) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *
 	return a
 }
 
-func New(store lsmkv.BucketLookup, params aggregation.Params,
+func New(view inverted.IndexView, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, propIndices propertyspecific.Indices,
 	classSearcher inverted.ClassSearcher,
 	stopwordProvider *stopwords.Provider, shardVersion uint16,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
 	propLenTracker *inverted.JsonShardMetaData,
-	isFallbackToSearchable inverted.IsFallbackToSearchable,
-	isRangeableLocallyReady inverted.IsRangeableLocallyReady,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
 	modules *modules.Provider, defaultLimit int64,
-	tokResolver inverted.TokenizationResolver,
 ) *Aggregator {
 	return &Aggregator{
-		logger:                  logger,
-		store:                   store,
-		params:                  params,
-		getSchema:               getSchema,
-		propIndices:             propIndices,
-		classSearcher:           classSearcher,
-		stopwordProvider:        stopwordProvider,
-		shardVersion:            shardVersion,
-		vectorIndex:             vectorIndex,
-		propLenTracker:          propLenTracker,
-		isFallbackToSearchable:  isFallbackToSearchable,
-		isRangeableLocallyReady: isRangeableLocallyReady,
-		tenant:                  tenant,
-		nestedCrossRefLimit:     nestedCrossRefLimit,
-		bitmapFactory:           bitmapFactory,
-		modules:                 modules,
-		defaultLimit:            defaultLimit,
-		tokResolver:             tokResolver,
+		logger:              logger,
+		store:               view,
+		params:              params,
+		getSchema:           getSchema,
+		propIndices:         propIndices,
+		classSearcher:       classSearcher,
+		stopwordProvider:    stopwordProvider,
+		shardVersion:        shardVersion,
+		vectorIndex:         vectorIndex,
+		propLenTracker:      propLenTracker,
+		tenant:              tenant,
+		nestedCrossRefLimit: nestedCrossRefLimit,
+		bitmapFactory:       bitmapFactory,
+		modules:             modules,
+		defaultLimit:        defaultLimit,
 	}
 }
 

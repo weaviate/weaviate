@@ -29,9 +29,10 @@ const (
 var reindexIndexTypes = []string{indexTypeFilterable, indexTypeSearchable, indexTypeRangeable}
 
 type reindexBuildTarget struct {
-	indexTypes   []string
-	tokenization string // empty keeps the property's
-	blockmax     bool
+	migrationType ReindexMigrationType
+	indexTypes    []string
+	tokenization  string // empty keeps the property's
+	blockmax      bool
 }
 
 func reindexBuildTargetOf(h ReindexTaskHeader) (reindexBuildTarget, error) {
@@ -39,7 +40,7 @@ func reindexBuildTargetOf(h ReindexTaskHeader) (reindexBuildTarget, error) {
 	if !known {
 		return reindexBuildTarget{}, fmt.Errorf("unknown migration type %q", h.MigrationType)
 	}
-	target := reindexBuildTarget{indexTypes: types}
+	target := reindexBuildTarget{migrationType: h.MigrationType, indexTypes: types}
 	switch h.MigrationType {
 	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
 		target.tokenization = h.TargetTokenization

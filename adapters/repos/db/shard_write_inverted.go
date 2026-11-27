@@ -90,24 +90,37 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 }
 
 func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
+	return s.analyzeObjectInView(object, s.loadView())
+}
+
+// analyzeObjectInView analyzes a write with its view's settings. Only properties
+// the view does not govern take the swap overlay.
+func (s *Shard) analyzeObjectInView(object *storobj.Object, v *shardView,
+) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
 	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
 	if c == nil {
 		return nil, nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
-
 	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
-	// Applies the shard's migration override where the live schema lacks it, so a
-	// write in a swap window is analyzed the way the migrated index is built.
-	if overlay := s.writePathAnalyzerOverlay(c.Properties); overlay != nil {
+	props, ungoverned := c.Properties, c.Properties
+	if len(v.props) > 0 {
+		props, ungoverned = make([]*models.Property, len(c.Properties)), nil
+		for i, p := range c.Properties {
+			pv, governed := v.props[p.Name]
+			if props[i] = viewProperty(p, pv, governed); !governed {
+				ungoverned = append(ungoverned, p)
+			}
+		}
+	}
+	analyzer := inverted.NewAnalyzer(v.FallbackToSearchable, object.Class().String())
+	if overlay := s.writePathAnalyzerOverlay(ungoverned); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
-	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
-	return props, nilProps, nestedProps, err
+	out, nestedProps, err := analyzer.Object(schemaMap, props, object.ID())
+	return out, nilProps, nestedProps, err
 }
 
 func (s *Shard) writePathAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {

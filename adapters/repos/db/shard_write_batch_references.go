@@ -96,6 +96,8 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		return errs
 	}
 
+	view := b.shard.acquireView()
+	defer view.release()
 	invertedMerger := inverted.NewDeltaMerger()
 	propsByName, err := b.getSchemaPropsByName()
 	if err != nil {
@@ -168,7 +170,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		}
 	}
 
-	if err := b.writeInverted(b.shard.Store(), invertedMerger.Merge()); err != nil {
+	if err := b.writeInverted(view, invertedMerger.Merge()); err != nil {
 		for i := range errs {
 			errs[i] = errors.Wrap(err, "write inverted batch")
 		}

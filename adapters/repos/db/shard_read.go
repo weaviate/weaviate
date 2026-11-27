@@ -608,6 +608,9 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		ctx = admittedCtx
 	}
 
+	view := s.acquireView()
+	defer view.release()
+
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
@@ -620,12 +623,10 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var filterDocIds helpers.AllowList
 
 		if filters != nil {
-			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
+			filterDocIds, err = inverted.NewSearcher(s.index.logger, view,
 				s.index.getSchema.ReadOnlyClass, s.propertyIndicesSnapshot(),
 				s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
-				s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit,
-				s.bitmapFactory).
-				WithTokenizationResolver(s.TokenizationFor).
+				s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 				WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
@@ -638,11 +639,9 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		className := s.index.Config.ClassName
 		bm25Config := s.index.GetInvertedIndexConfig().BM25
 		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
-		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
+		bm25searcher := inverted.NewBM25Searcher(bm25Config, view,
 			s.index.getSchema.ReadOnlyClass, s.index.classSearcher, s.index.getStopwordProvider(),
-			s.GetPropertyLengthTracker(), logger, s.versioner.Version()).
-			WithTokenizationResolver(s.TokenizationFor).
-			WithSearchableBucketPinningResolver(s.PinTokenizationAndSearchableBucket)
+			s.GetPropertyLengthTracker(), logger, s.versioner.Version())
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err
@@ -652,14 +651,13 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if filters == nil {
-		objs, err := s.ObjectList(ctx, limit, sort,
+		objs, err := s.objectList(ctx, view, limit, sort,
 			cursor, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
-	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
+	objs, err := inverted.NewSearcher(s.index.logger, view, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndicesSnapshot(), s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
-		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		WithTokenizationResolver(s.TokenizationFor).
+		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties,
 			s.index.Config.InvertedSorterDisabled)
@@ -733,11 +731,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil, nil, err
 	}
 	defer release()
+	view := s.acquireView()
+	defer view.release()
 
 	var allowList helpers.AllowList
 	if filters != nil {
 		beforeFilter := time.Now()
-		list, err := s.buildAllowList(ctx, filters, additional)
+		list, err := s.buildAllowList(ctx, view, filters, additional)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -880,7 +880,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	if len(sort) > 0 {
 		beforeSort := time.Now()
-		idsCombined, distCombined, err = s.sortDocIDsAndDists(ctx, limit, sort,
+		idsCombined, distCombined, err = s.sortDocIDsAndDists(ctx, view, limit, sort,
 			s.index.Config.ClassName, idsCombined, distCombined)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search sort")
@@ -918,10 +918,18 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+	view := s.acquireView()
+	defer view.release()
+	return s.objectList(ctx, view, limit, sort, cursor, additional, className)
+}
+
+func (s *Shard) objectList(ctx context.Context, view *shardView, limit int, sort []filters.Sort, cursor *filters.Cursor,
+	additional additional.Properties, className schema.ClassName,
+) ([]*storobj.Object, error) {
 	s.activityTrackerRead.Add(1)
 	if len(sort) > 0 {
 		beforeSort := time.Now()
-		docIDs, err := s.sortedObjectList(ctx, limit, sort, className)
+		docIDs, err := s.sortedObjectList(ctx, view, limit, sort, className)
 		if err != nil {
 			return nil, err
 		}
@@ -995,10 +1003,10 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	return out[:i], nil
 }
 
-func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,
+func (s *Shard) sortedObjectList(ctx context.Context, view *shardView, limit int, sort []filters.Sort,
 	className schema.ClassName,
 ) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
+	lsmSorter, err := sorter.NewLSMSorter(view, s.index.getSchema.ReadOnlyClass,
 		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {
 		return nil, errors.Wrap(err, "sort object list")
@@ -1010,10 +1018,10 @@ func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.
 	return docIDs, nil
 }
 
-func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+func (s *Shard) sortDocIDsAndDists(ctx context.Context, view *shardView, limit int, sort []filters.Sort,
 	className schema.ClassName, docIDs []uint64, dists []float32,
 ) ([]uint64, []float32, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
+	lsmSorter, err := sorter.NewLSMSorter(view, s.index.getSchema.ReadOnlyClass,
 		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "sort objects with distances")
@@ -1025,11 +1033,12 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 	return sortedDocIDs, sortedDists, nil
 }
 
-func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
-	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
+func (s *Shard) buildAllowList(ctx context.Context, view *shardView, filters *filters.LocalFilter,
+	addl additional.Properties,
+) (helpers.AllowList, error) {
+	list, err := inverted.NewSearcher(s.index.logger, view, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndicesSnapshot(), s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
-		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		WithTokenizationResolver(s.TokenizationFor).
+		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {

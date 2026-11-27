@@ -38,12 +38,8 @@ import (
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, pins *pinnedSearchableBuckets, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
-	// Same pinned-bucket reuse as createTerm.
-	bucket, pinned := pins.bucketFor(propName)
-	if !pinned {
-		bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-	}
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*lsmkv.SegmentBlockMax, map[string]uint64, func(), error) {
+	bucket := b.GetBucket(propName)
 	if bucket == nil {
 		return nil, nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
 	}
@@ -69,18 +65,14 @@ func (b *BM25Searcher) wandBlock(
 		return []*storobj.Object{}, []float32{}, false, nil
 	}
 
-	qterms, qstats, pins, err := b.generateQueryTermsAndStats(ctx, class, params)
+	qterms, qstats, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	defer pins.release()
 
 	// fallback to the old search process if not all buckets are inverted
 	if !qstats.allBucketsAreInverted {
-		// Reuse this query's terms, stats, and pinned buckets on the fallback
-		// path instead of regenerating them; the deferred pins.release() above
-		// runs once wandFromStats returns.
-		objects, scores, err := b.wandFromStats(ctx, filterDocIds, params, limit, additional, qterms, qstats, pins, start)
+		objects, scores, err := b.wandFromStats(ctx, filterDocIds, params, limit, additional, qterms, qstats, start)
 		return objects, scores, true, err
 	}
 
@@ -165,7 +157,7 @@ func (b *BM25Searcher) wandBlock(
 			if err := egCtx.Err(); err != nil {
 				return err
 			}
-			results, idfCounts, release, err := b.createBlockTerm(qstats.n, filterDocIds, job.queryTerms, job.propName, qterms.propertyBoosts[job.propName], job.duplicateBoosts, b.config, pins, egCtx)
+			results, idfCounts, release, err := b.createBlockTerm(qstats.n, filterDocIds, job.queryTerms, job.propName, qterms.propertyBoosts[job.propName], job.duplicateBoosts, b.config, egCtx)
 			if err != nil {
 				return err
 			}

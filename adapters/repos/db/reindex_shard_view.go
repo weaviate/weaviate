@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -33,6 +35,7 @@ import (
 // caller acquires it once and takes every property index from it. A retire
 // deletes a folder only after this view and every older one are released.
 type shardView struct {
+	shard  *Shard
 	store  *lsmkv.Store
 	props  map[string]reindexPropView
 	served map[string]*lsmkv.Bucket // keyed by the plain name; nil while the index is off
@@ -52,12 +55,44 @@ type stagedBuild struct {
 	indexType string
 	name      string
 	bucket    *lsmkv.Bucket
+
+	strategy MigrationStrategy
+	overlay  map[string]inverted.PropertyOverlay
+	add      onAddToPropertyValueIndex
+	del      onDeleteFromPropertyValueIndex
 }
 
-var _ lsmkv.BucketLookup = (*shardView)(nil)
+var _ inverted.IndexView = (*shardView)(nil)
 
-func newShardView(store *lsmkv.Store, props map[string]reindexPropView) *shardView {
-	return &shardView{store: store, props: props, served: map[string]*lsmkv.Bucket{}, drained: make(chan struct{})}
+func newShardView(s *Shard, props map[string]reindexPropView) *shardView {
+	return &shardView{shard: s, store: s.store, props: props, served: map[string]*lsmkv.Bucket{}, drained: make(chan struct{})}
+}
+
+// Tokenization falls back to the swap overlay for a property the view does not govern.
+func (v *shardView) Tokenization(propName, schemaTokenization string) string {
+	if pv, ok := v.props[propName]; ok {
+		return pv.tokenization
+	}
+	return v.shard.TokenizationFor(propName, schemaTokenization)
+}
+
+// RangeableReady follows the view for a property it governs.
+func (v *shardView) RangeableReady(prop *models.Property) bool {
+	name := helpers.BucketRangeableFromPropNameLSM(prop.Name)
+	if b, ok := v.served[name]; ok {
+		return b != nil
+	}
+	if !inverted.HasRangeableIndex(prop) {
+		return false
+	}
+	if ready, set := v.shard.rangeableReadyMark(prop.Name); set {
+		return ready
+	}
+	return !v.shard.rangeableUndecidable.Load() && v.Bucket(name) != nil
+}
+
+func (v *shardView) FallbackToSearchable() bool {
+	return v.shard.isFallbackToSearchable()
 }
 
 func (v *shardView) Bucket(name string) *lsmkv.Bucket {
@@ -80,14 +115,14 @@ func (s *Shard) loadView() *shardView {
 	if v := s.view.current.Load(); v != nil {
 		return v
 	}
-	return newShardView(s.store, nil)
+	return newShardView(s, nil)
 }
 
 func (s *Shard) acquireView() *shardView {
 	for {
 		v := s.view.current.Load()
 		if v == nil {
-			return newShardView(s.store, nil)
+			return newShardView(s, nil)
 		}
 		v.refs.Add(1)
 		if s.view.current.Load() == v {
@@ -175,13 +210,13 @@ func (s *Shard) loadReindexView() error {
 			}
 		}
 	}
-	s.view.current.Store(newShardView(s.store, props))
+	s.view.current.Store(newShardView(s, props))
 	return nil
 }
 
 func (s *Shard) finishViewLoad() {
 	cur := s.loadView()
-	next := newShardView(s.store, cur.props)
+	next := newShardView(s, cur.props)
 	for prop, pv := range cur.props {
 		for _, t := range reindexIndexTypes {
 			next.served[reindexBucketName(prop, t, 0)] = nil
@@ -246,7 +281,7 @@ func (s *Shard) refreshViewLocked(ctx context.Context) error {
 		return nil
 	}
 	cur := s.loadView()
-	next := newShardView(s.store, props)
+	next := newShardView(s, props)
 	var opened []string
 	if err := s.resolveServed(ctx, class, next, &opened); err != nil {
 		s.closeUnpublished(opened)
@@ -358,6 +393,83 @@ func (s *Shard) openStagedBuild(ctx context.Context, prop *models.Property, next
 		return fmt.Errorf("open build folder %q: %w", b.name, err)
 	}
 	b.bucket = s.store.Bucket(b.name)
+	strategy, err := stagedStrategy(s.index.Config.ClassName.String(), target, st, b)
+	if err != nil {
+		return err
+	}
+	b.strategy, b.overlay = strategy, strategy.AnalyzerOverlay([]string{prop.Name})
+	namer := func(string) string { return b.name }
+	armed := armedMirror{props: map[string]struct{}{prop.Name: {}}, buckets: map[string]*lsmkv.Bucket{prop.Name: b.bucket}}
+	b.add, b.del = strategy.MakeAddCallback(namer, armed), strategy.MakeDeleteCallback(namer, armed)
+	return nil
+}
+
+// stagedStrategy builds one index type of a staged task with target's settings.
+func stagedStrategy(className string, target *models.Property, st reindexStaged, b *stagedBuild,
+) (MigrationStrategy, error) {
+	gen, props := int(b.gen), []string{b.prop}
+	switch st.target.migrationType {
+	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
+		if b.indexType == indexTypeFilterable {
+			return &FilterableRetokenizeStrategy{
+				propName: b.prop, targetTokenization: target.Tokenization,
+				className: className, generation: gen,
+			}, nil
+		}
+		return &SearchableRetokenizeStrategy{
+			propName: b.prop, targetTokenization: target.Tokenization,
+			className: className, bucketStrategy: b.bucket.Strategy(), generation: gen,
+		}, nil
+	case ReindexTypeEnableFilterable:
+		return &EnableFilterableStrategy{propNames: props, generation: gen}, nil
+	case ReindexTypeEnableSearchable:
+		return &EnableSearchableStrategy{propNames: props, tokenization: target.Tokenization, generation: gen}, nil
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		return &FilterableToRangeableStrategy{propNames: props, generation: gen}, nil
+	case ReindexTypeChangeAlgorithm:
+		return &MapToBlockmaxStrategy{generation: gen}, nil
+	case ReindexTypeRebuildSearchable:
+		return &RebuildSearchableStrategy{propNames: props, generation: gen}, nil
+	case ReindexTypeRepairFilterable:
+		return &RoaringSetRefreshStrategy{generation: gen}, nil
+	default:
+		return nil, fmt.Errorf("build %q: unknown migration type %q", b.name, st.target.migrationType)
+	}
+}
+
+// writeStaged moves a write's previous and new version through every build its
+// view stages, each analyzed the way that build's strategy indexes it.
+func (s *Shard) writeStaged(v *shardView, object, prev *storobj.Object, docID, prevDocID uint64) error {
+	for _, b := range v.staged {
+		if prev != nil {
+			if err := s.mirrorStaged(b, prev, prevDocID, b.del); err != nil {
+				return err
+			}
+		}
+		if object != nil {
+			if err := s.mirrorStaged(b, object, docID, b.add); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Shard) mirrorStaged(b *stagedBuild, obj *storobj.Object, docID uint64,
+	write func(*Shard, uint64, *inverted.Property) error,
+) error {
+	props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, b.overlay)
+	if err != nil {
+		return fmt.Errorf("analyze for build %q: %w", b.name, err)
+	}
+	for i := range props {
+		if props[i].Name != b.prop {
+			continue
+		}
+		if err := write(s, docID, &props[i]); err != nil {
+			return fmt.Errorf("write into build %q: %w", b.name, err)
+		}
+	}
 	return nil
 }
 

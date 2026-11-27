@@ -272,8 +272,8 @@ func runLiveQueryDuringChangeTokenizationCase(
 		"observed %d out-of-range samples for %s→%s on %s — every sample "+
 			"must lie within [min(baseline, expectedAfter)=%d, "+
 			"max(baseline, expectedAfter)=%d]. The per-shard tokenization "+
-			"overlay (Shard.TokenizationFor, BM25Searcher.WithTokenizationResolver, "+
-			"Searcher.WithTokenizationResolver, aggregator.New tokResolver) is "+
+			"overlay (Shard.TokenizationFor, read through the query's "+
+			"inverted.IndexView) is "+
 			"not keeping the query analyzer aligned with bucket content during "+
 			"the FINALIZING window. Investigate the resolver wiring and the "+
 			"set/clear hooks in OnGroupCompleted / OnTaskCompleted.",

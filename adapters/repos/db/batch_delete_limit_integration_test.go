@@ -683,7 +683,7 @@ func TestBatchDeleteObjects_FailsOnAReadError(t *testing.T) {
 	failing := &stubDocIDBucket{err: readErr}
 
 	limit := int(batchDeleteLimit)
-	pass, err := shard.resolveAndCollectUUIDs(ctx, batchDeleteMatchAllParams(true).Filters,
+	pass, err := shard.resolveAndCollectUUIDs(ctx, shard.loadView(), batchDeleteMatchAllParams(true).Filters,
 		limit, failing)
 	require.ErrorContains(t, err, "resolve uuids")
 	require.ErrorIs(t, err, readErr, "the store's error still reaches the caller")

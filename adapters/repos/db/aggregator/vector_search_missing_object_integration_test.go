@@ -86,7 +86,7 @@ func TestAggregatorObjectVectorSearch_MissingObjectKeepsDistancesAligned(t *test
 			limit := count
 			agg := &Aggregator{
 				logger:      logger,
-				store:       store,
+				store:       storeView{store},
 				params:      aggregation.Params{ObjectLimit: &limit, Certainty: tc.certainty},
 				vectorIndex: &fixedVectorIndex{ids: ranked, dists: dists},
 			}

@@ -698,36 +698,19 @@ func (s *Shard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
 }
 
-// IsRangeableLocallyReady reports whether this shard's local rangeable
-// bucket for the given property is fully populated and safe to query.
+// rangeableReadyMark is what the rangeable migration's hooks set for propName.
 // See [rangeableLocalReady] for the full rationale.
-func (s *Shard) IsRangeableLocallyReady(propName string) bool {
+func (s *Shard) rangeableReadyMark(propName string) (ready, set bool) {
 	s.rangeableLocalReadyMu.RLock()
-	if s.rangeableLocalReady != nil {
-		if ready, set := s.rangeableLocalReady[propName]; set {
-			s.rangeableLocalReadyMu.RUnlock()
-			return ready
-		}
-	}
-	s.rangeableLocalReadyMu.RUnlock()
-
-	if s.rangeableUndecidable.Load() {
-		return false
-	}
-
-	// Default: ready iff the rangeable bucket physically exists in the
-	// store. Cheap (a map lookup under bucketAccessLock.RLock in
-	// lsmkv.Store.Bucket). We avoid materializing the explicit entry
-	// here on purpose — the migration hooks own the lifecycle of the
-	// map, and adding a "shadow" entry from a query goroutine would
-	// race the hook's clear-then-set sequence.
-	return s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName)) != nil
+	defer s.rangeableLocalReadyMu.RUnlock()
+	ready, set = s.rangeableLocalReady[propName]
+	return ready, set
 }
 
 // setRangeableLocallyReady is invoked by the rangeable migration's
 // lifecycle hooks. It is intentionally NOT exported beyond the package
 // because outside callers should observe the state via
-// [IsRangeableLocallyReady] only; mutating it from outside the
+// [shardView.RangeableReady] only; mutating it from outside the
 // migration code paths would corrupt the per-replica routing invariant.
 func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 	s.rangeableLocalReadyMu.Lock()
@@ -788,33 +771,6 @@ func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOver
 	}
 
 	return oldMainBucket, nil
-}
-
-// PinTokenizationAndSearchableBucket resolves propName's tokenization AND
-// pins its bucket under one RLock. Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
-func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
-) (string, *lsmkv.Bucket, func()) {
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-
-	if propName == "" {
-		bucket, release := s.store.AcquireBucketForRead(bucketName)
-		return liveTokenization, bucket, release
-	}
-
-	s.propertyOverlayMu.RLock()
-	var overlay inverted.PropertyOverlay
-	if s.propertyOverlay != nil {
-		overlay = s.propertyOverlay[propName]
-	}
-	// Pin the bucket pointer under the SAME RLock as the overlay so the
-	// (tokenization, pinned bucket) pair is a single consistent snapshot.
-	bucket, release := s.store.AcquireBucketForRead(bucketName)
-	s.propertyOverlayMu.RUnlock()
-
-	if overlay.Tokenization == "" {
-		return liveTokenization, bucket, release
-	}
-	return overlay.Tokenization, bucket, release
 }
 
 // Runs ahead of the indexType bucket's removal, so a removal that fails after

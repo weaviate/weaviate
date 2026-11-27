@@ -102,7 +102,7 @@ func TestUnfilteredProperties_ReadObjectsOnceForAllProperties(t *testing.T) {
 		before := openedReplaceCursors(t)
 		logger, _ := test.NewNullLogger()
 		ua := unfilteredAggregator{Aggregator: &Aggregator{
-			store:     store,
+			store:     storeView{store},
 			logger:    logger,
 			getSchema: propsTestSchema(t),
 			params:    aggregation.Params{ClassName: propsTestClass, Properties: props},

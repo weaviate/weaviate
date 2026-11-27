@@ -547,9 +547,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	// publishes the overlay before it disarms, so a disarmed snapshot means
 	// the analysis below already sees the overlay.
 	st := s.loadPropValueIndexState()
-	buckets := s.store
+	// One view gives the write its analysis and buckets and holds off their retire.
+	buckets := s.acquireView()
+	defer buckets.release()
 
-	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
+	props, nilprops, nestedProps, err := s.analyzeObjectInView(object, buckets)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
@@ -559,7 +561,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	var prevNestedProps []inverted.NestedProperty
 
 	if prevObject != nil {
-		prevProps, prevNilprops, prevNestedProps, err = s.AnalyzeObject(prevObject)
+		prevProps, prevNilprops, prevNestedProps, err = s.analyzeObjectInView(prevObject, buckets)
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
@@ -632,6 +634,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 	if err := s.extendNestedInvertedIndicesLSM(buckets, nestedProps, status.docID); err != nil {
 		return fmt.Errorf("put nested inverted indices: %w", err)
+	}
+	if err := s.writeStaged(buckets, object, prevObject, status.docID, status.oldDocID); err != nil {
+		return fmt.Errorf("staged reindex builds: %w", err)
 	}
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 

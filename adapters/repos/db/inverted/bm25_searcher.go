@@ -45,67 +45,17 @@ import (
 
 type BM25Searcher struct {
 	config           schema.BM25Config
-	store            lsmkv.BucketLookup
+	store            IndexView
 	getClass         func(string) *models.Class
 	classSearcher    ClassSearcher // to allow recursive searches on ref-props
 	propLenTracker   propLengthRetriever
 	logger           logrus.FieldLogger
 	shardVersion     uint16
 	stopwordProvider *stopwords.Provider
-	// tokResolver, when non-nil, overrides prop.Tokenization on query
-	// input analysis. Used by the per-shard tokenization overlay to
-	// keep query tokenization aligned with the bucket content during
-	// the FINALIZING window of a change-tokenization migration. Nil =
-	// use prop.Tokenization directly (tests and callers with no
-	// in-flight migration).
-	tokResolver TokenizationResolver
-	// bucketPinResolver, when non-nil, supersedes tokResolver + GetBucket for
-	// searchable text props: one consistent (tokenization, bucket) snapshot,
-	// pinned for the whole query. See [SearchableBucketPinningResolver].
-	bucketPinResolver SearchableBucketPinningResolver
 }
 
 type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
-}
-
-// pinnedSearchableBuckets carries the buckets one query pinned at prop
-// discovery, so lookup reuses the pinned pointer instead of re-fetching by
-// name. Per-query, never stored on the shared BM25Searcher.
-type pinnedSearchableBuckets struct {
-	byProp   map[string]*lsmkv.Bucket
-	releases []func()
-	released bool
-}
-
-func (p *pinnedSearchableBuckets) bucketFor(propName string) (*lsmkv.Bucket, bool) {
-	if p == nil || p.byProp == nil {
-		return nil, false
-	}
-	b, ok := p.byProp[propName]
-	return b, ok
-}
-
-// bucket may be nil; the release is still recorded so it runs at query end.
-func (p *pinnedSearchableBuckets) add(propName string, bucket *lsmkv.Bucket, release func()) {
-	if p.byProp == nil {
-		p.byProp = map[string]*lsmkv.Bucket{}
-	}
-	p.byProp[propName] = bucket
-	if release != nil {
-		p.releases = append(p.releases, release)
-	}
-}
-
-// release is idempotent and nil-safe.
-func (p *pinnedSearchableBuckets) release() {
-	if p == nil || p.released {
-		return
-	}
-	p.released = true
-	for _, r := range p.releases {
-		r()
-	}
 }
 
 type termListRequest struct {
@@ -116,14 +66,14 @@ type termListRequest struct {
 	propertyBoosts     map[string]float32
 }
 
-func NewBM25Searcher(config schema.BM25Config, store lsmkv.BucketLookup,
+func NewBM25Searcher(config schema.BM25Config, view IndexView,
 	getClass func(string) *models.Class,
 	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:           config,
-		store:            store,
+		store:            view,
 		getClass:         getClass,
 		classSearcher:    classSearcher,
 		propLenTracker:   propLenTracker,
@@ -131,30 +81,6 @@ func NewBM25Searcher(config schema.BM25Config, store lsmkv.BucketLookup,
 		shardVersion:     shardVersion,
 		stopwordProvider: stopwordProvider,
 	}
-}
-
-// WithTokenizationResolver attaches a [TokenizationResolver] used by query
-// input analysis to consult a per-shard tokenization overlay before
-// falling back to the schema-stored `prop.Tokenization`. Returns the
-// receiver for fluent chaining at construction sites.
-//
-// Production callers wire `Shard.TokenizationFor` here so a
-// change-tokenization migration's FINALIZING-window overlay routes
-// query input to the post-swap tokenization. See [TokenizationResolver]
-// for the misalignment this closes.
-//
-// Pass nil (the default) to use the schema-stored value directly.
-func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Searcher {
-	b.tokResolver = r
-	return b
-}
-
-// WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
-func (b *BM25Searcher) WithSearchableBucketPinningResolver(
-	r SearchableBucketPinningResolver,
-) *BM25Searcher {
-	b.bucketPinResolver = r
-	return b
 }
 
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
@@ -235,26 +161,15 @@ type queryStats struct {
 	averagePropLength float64
 }
 
-// Pin lifetime: on SUCCESS the caller owns the pins and MUST defer
-// pins.release(); on ERROR they are released here and the caller's
-// deferred release no-ops.
-func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (queryTerms, queryStats, *pinnedSearchableBuckets, error) {
-	pins := &pinnedSearchableBuckets{}
-	failed := true
-	defer func() {
-		if failed {
-			pins.release()
-		}
-	}()
-
+func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (queryTerms, queryStats, error) {
 	// Nil once Store.Shutdown has cleared the bucket map; fail fast.
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
-		return queryTerms{}, queryStats{}, pins, fmt.Errorf("objects bucket not available (store shutting down?)")
+		return queryTerms{}, queryStats{}, fmt.Errorf("objects bucket not available (store shutting down?)")
 	}
 	count, err := objectsBucket.CountApproximate()
 	if err != nil {
-		return queryTerms{}, queryStats{}, pins, fmt.Errorf("count objects: %w", err)
+		return queryTerms{}, queryStats{}, fmt.Errorf("count objects: %w", err)
 	}
 	N := float64(count)
 
@@ -272,14 +187,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// This avoids eagerly tokenizing the query for all possible tokenizations
 	// when only a subset is actually used by the searched properties.
 	type propInfo struct {
-		name string
-		prop *models.Property
-		// effectiveTokenization is the active query-time tokenization for
-		// this property — either the schema-stored `prop.Tokenization`
-		// or the value returned by the per-shard tokenization overlay
-		// (see [TokenizationResolver]). Computed once at prop discovery
-		// and used everywhere downstream to avoid recomputing the same
-		// value across the BM25 pipeline.
+		name                  string
+		prop                  *models.Property
 		effectiveTokenization string
 		tokKey                string
 		propMean              float64
@@ -299,7 +208,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
 			boost, err := strconv.ParseFloat(boostStr, 32)
 			if err != nil {
-				return queryTerms{}, queryStats{}, pins, fmt.Errorf("parse boost of property %q: %w", propertyWithBoost, err)
+				return queryTerms{}, queryStats{}, fmt.Errorf("parse boost of property %q: %w", propertyWithBoost, err)
 			}
 			propBoost = float32(boost)
 		}
@@ -314,32 +223,18 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
-			return queryTerms{}, queryStats{}, pins, err
+			return queryTerms{}, queryStats{}, err
 		}
 
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
-			return queryTerms{}, queryStats{}, pins, err
+			return queryTerms{}, queryStats{}, err
 		}
 
-		var (
-			bucket       *lsmkv.Bucket
-			effectiveTok string
-		)
-		if b.bucketPinResolver != nil {
-			var release func()
-			// Resolve by the user-supplied name, not prop.Name: a dotted
-			// input would otherwise silently search the parent prop's bucket
-			// instead of erroring like the non-pinning path.
-			effectiveTok, bucket, release = b.bucketPinResolver(property, prop.Tokenization)
-			// Record even when bucket==nil so the release still runs.
-			pins.add(property, bucket, release)
-		} else {
-			bucket = b.GetBucket(property)
-			effectiveTok = ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
-		}
+		bucket := b.GetBucket(property)
+		effectiveTok := b.store.Tokenization(prop.Name, prop.Tokenization)
 		if bucket == nil {
-			return queryTerms{}, queryStats{}, pins, fmt.Errorf("could not find bucket for property %v", property)
+			return queryTerms{}, queryStats{}, fmt.Errorf("could not find bucket for property %v", property)
 		}
 
 		if bucket.Strategy() != lsmkv.StrategyInverted {
@@ -373,7 +268,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 				meanValid:             !math.IsNaN(float64(propMean)),
 			})
 		default:
-			return queryTerms{}, queryStats{}, pins, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
+			return queryTerms{}, queryStats{}, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
@@ -425,7 +320,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			if pi.effectiveTokenization == models.PropertyTokenizationWord {
 				d, err := b.stopwordProvider.Get(pi.prop)
 				if err != nil {
-					return queryTerms{}, queryStats{}, pins, err
+					return queryTerms{}, queryStats{}, err
 				}
 				sw = d
 			}
@@ -437,7 +332,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 
 		if _, exists := propNamesByTokenization[tokKey]; !exists {
-			return queryTerms{}, queryStats{}, pins, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+			return queryTerms{}, queryStats{}, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
 				pi.effectiveTokenization, pi.prop.Name)
 		}
 		propNamesByTokenization[tokKey] = append(propNamesByTokenization[tokKey], pi.name)
@@ -464,12 +359,10 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		crossPropQueryTerms, crossPropDuplicateBoosts, err = sharedCrossPropQueryTerms(analyzerByTokenization,
 			propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization)
 		if err != nil {
-			return queryTerms{}, queryStats{}, pins, err
+			return queryTerms{}, queryStats{}, err
 		}
 	}
 
-	// Success: the caller now owns the pins; disarm the error-path release.
-	failed = false
 	return queryTerms{
 		propNamesByTokenization:       propNamesByTokenization,
 		queryTermsByTokenization:      queryTermsByTokenization,
@@ -481,7 +374,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		allBucketsAreInverted: allBucketsAreInverted,
 		n:                     N,
 		averagePropLength:     averagePropLength,
-	}, pins, nil
+	}, nil
 }
 
 // analyzerFingerprint identifies the settings that decide how a property tokenizes
@@ -563,21 +456,18 @@ func (b *BM25Searcher) wand(
 ) ([]*storobj.Object, []float32, error) {
 	start := time.Now()
 
-	qterms, qstats, pins, err := b.generateQueryTermsAndStats(ctx, class, params)
+	qterms, qstats, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, err
 	}
-	// A leaked pin would block a future retokenization swap's Shutdown forever.
-	defer pins.release()
 
-	return b.wandFromStats(ctx, filterDocIds, params, limit, additional, qterms, qstats, pins, start)
+	return b.wandFromStats(ctx, filterDocIds, params, limit, additional, qterms, qstats, start)
 }
 
 // wandFromStats is wand with the query terms/stats precomputed; start feeds
-// the slow-query timing annotations. The caller keeps ownership of pins and
-// must release them after this returns.
+// the slow-query timing annotations.
 func (b *BM25Searcher) wandFromStats(
-	ctx context.Context, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int, additional additional.Properties, qterms queryTerms, qstats queryStats, pins *pinnedSearchableBuckets, start time.Time,
+	ctx context.Context, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int, additional additional.Properties, qterms queryTerms, qstats queryStats, start time.Time,
 ) ([]*storobj.Object, []float32, error) {
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
@@ -660,7 +550,7 @@ func (b *BM25Searcher) wandFromStats(
 				}
 			}()
 
-			termResult, termErr := b.createTerm(qstats.n, filterDocIds, term, termId, propNames, qterms.propertyBoosts, duplicateBoost, pins, ctx)
+			termResult, termErr := b.createTerm(qstats.n, filterDocIds, term, termId, propNames, qterms.propertyBoosts, duplicateBoost, ctx)
 			if termErr != nil {
 				err = termErr
 				return err
@@ -793,7 +683,7 @@ func (b *BM25Searcher) getTopKIds(topKHeap *priorityqueue.Queue[[]*terms.DocPoin
 	return ids, scores, explanations, nil
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, pins *pinnedSearchableBuckets, ctx context.Context) (*terms.Term, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
 	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0), b.config)
 
 	var filteredDocIDs *sroar.Bitmap
@@ -813,12 +703,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 		eg.Go(
 			func() error {
-				// Reuse the bucket pinned at prop discovery — a by-name
-				// re-fetch could land on the post-swap bucket or a freed mmap.
-				bucket, pinned := pins.bucketFor(propName)
-				if !pinned {
-					bucket = b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-				}
+				bucket := b.GetBucket(propName)
 				if bucket == nil {
 					return fmt.Errorf("could not find bucket for property %v", propName)
 				}

@@ -64,12 +64,14 @@ type viewFixture struct {
 
 const plainTitle = "property_title"
 
-func newViewFixture(t *testing.T, className string) *viewFixture {
-	f := &viewFixture{t: t, tasks: &fakeTaskStates{}, class: &models.Class{
-		Class: className, InvertedIndexConfig: invertedConfig(),
-		Properties: []*models.Property{{
+func newViewFixture(t *testing.T, className string, props ...*models.Property) *viewFixture {
+	if len(props) == 0 {
+		props = []*models.Property{{
 			Name: "title", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWord,
-		}},
+		}}
+	}
+	f := &viewFixture{t: t, tasks: &fakeTaskStates{}, class: &models.Class{
+		Class: className, InvertedIndexConfig: invertedConfig(), Properties: props,
 	}}
 	sl, idx := testShardWithSettings(t, context.Background(), f.class, enthnsw.UserConfig{Skip: true}, false, false, false,
 		func(i *Index) {

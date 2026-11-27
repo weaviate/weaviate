@@ -44,7 +44,7 @@ func TestCombineResults_PropagatesGetObjectsError(t *testing.T) {
 	require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 	b := &BM25Searcher{
-		store:  store,
+		store:  storeView{BucketLookup: store},
 		logger: logger,
 	}
 
