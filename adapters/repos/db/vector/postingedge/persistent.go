@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -729,6 +730,12 @@ func (p *Persistent) addWindow(ctx context.Context, ids []uint64, vectors [][]fl
 		}
 	}()
 
+	// The search of an insert reads its rows and its vectors one at a time,
+	// in the goroutine that calls: the inserts run next to each other as
+	// their callers do, and goroutines of their own for every round of a
+	// search cost more than the reads they wait for (bench-report.md of
+	// feat/posting-edge-index, "Dónde se va el tiempo del insert").
+	ctx = concurrency.CtxWithBudget(ctx, 1)
 	p.mu.RLock()
 	if err := p.usable(); err != nil {
 		p.mu.RUnlock()

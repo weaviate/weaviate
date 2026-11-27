@@ -52,6 +52,9 @@ type Index struct {
 	cosine             bool
 	tempVectors        *common.TempVectorsPool
 	rescoreConcurrency int
+	// rescoreFanouts counts the rescores that read their vectors in
+	// goroutines of their own, which one with a budget of one does not.
+	rescoreFanouts atomic.Int64
 
 	// The search-time tunables, readable without a lock.
 	ef            atomic.Int64

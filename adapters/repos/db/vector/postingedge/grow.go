@@ -493,7 +493,10 @@ type growIndex struct {
 	batchApplied []uint64
 	// vectorReads counts the exact vectors read from the file.
 	vectorReads atomic.Int64
-	sinceCycle  int
+	// fanouts counts the rounds whose rows were read by goroutines of their
+	// own (fetch), which a search with a budget of one read does not start.
+	fanouts    atomic.Int64
+	sinceCycle int
 	// deletedCount is how many vectors are marked deleted, and
 	// scratchPostings the postings the scratch of a search has room for.
 	deletedCount    int
@@ -1768,7 +1771,32 @@ func (g *growIndex) fetch(round *diskRound, picks []scored) error {
 		if err := g.fetchCounting(round, picks); err != nil {
 			return err
 		}
+	} else if round.inFlight == 1 {
+		// A budget of one read at a time reads the rows of the round in line,
+		// one after another, in the goroutine of the search: a goroutine for
+		// each, started one at a time, costs more than the read it waits for.
+		// So reads the search of an insert, whose parallelism is that of its
+		// callers.
+		for i, pick := range picks {
+			p, dp := uint32(pick.id), &round.postings[i]
+			dp.bytes, dp.took = [3]int{}, [3]time.Duration{}
+			if err := timedRead(&dp.took[diskBlockMembers], func() error { return g.fetchMembers(p, dp) }); err != nil {
+				return err
+			}
+			if err := timedRead(&dp.took[diskBlockEdges], func() error { return g.fetchLists(p, dp) }); err != nil {
+				return err
+			}
+			if g.noCodes {
+				if err := timedRead(&dp.took[diskBlockHalo], func() (err error) {
+					dp.bytes[diskBlockHalo], err = g.fetchHalo(p, &dp.halo)
+					return err
+				}); err != nil {
+					return err
+				}
+			}
+		}
 	} else {
+		g.fanouts.Add(1)
 		eg := enterrors.NewErrorGroupWrapper(g.logger)
 		rows := 2
 		if g.noCodes {
