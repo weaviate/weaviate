@@ -1204,6 +1204,13 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 	for _, index := range m.db.indices {
 		index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
+				// Pinned for the whole scan: a teardown waits for the pin instead of holding the wrapper's mutex the scan needs.
+				release, err := pinShard(shard, true)
+				if err != nil {
+					m.logInvertedReindexShard(shard).Errorf("failed pinning shard for reindexing: %v", err)
+					return errors.Wrapf(err, "failed reindexing shard '%s'", shard.ID())
+				}
+				defer release()
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
 					reindexer.AddTask(task)
@@ -1261,6 +1268,14 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
+
+					release, err := pinShard(shard, true)
+					if err != nil {
+						m.logMissingFilterableShard(shard).Errorf("failed pinning shard for filterable indexing: %v", err)
+						return errors.Wrapf(err, "failed filterable indexing for shard '%s' of index '%s'",
+							shard.ID(), index.ID())
+					}
+					defer release()
 
 					reindexer := NewShardInvertedReindexer(shard, m.logger)
 					reindexer.AddTask(task)
