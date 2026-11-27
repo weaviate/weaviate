@@ -145,6 +145,60 @@ func (m *manifestRecords) Initialize(records map[string]manifestRecord) error {
 	return m.ns.Put([]byte(manifestFormatVersionKey), []byte("1"))
 }
 
+// manifestTask and manifestTasks are manifestRecord and manifestRecords for the
+// rebuild tasks.
+type manifestTask struct {
+	TaskID      string            `json:"task_id"`
+	TaskVersion uint64            `json:"task_version"`
+	Source      manifestTaskIndex `json:"source"`
+	Candidate   manifestTaskIndex `json:"candidate"`
+}
+
+type manifestTaskIndex struct {
+	PhysicalID string `json:"physical_id"`
+	IndexType  string `json:"index_type"`
+}
+
+type manifestTasks struct {
+	ns *shardmeta.Namespace
+}
+
+func newManifestTasks(db *shardmeta.DB) *manifestTasks {
+	return &manifestTasks{ns: db.Namespace("vector_index_tasks")}
+}
+
+func tasksOf(s *Shard) *manifestTasks {
+	return newManifestTasks(s.metadataDB)
+}
+
+func (m *manifestTasks) Put(name string, task manifestTask) error {
+	v, err := json.Marshal(task)
+	if err != nil {
+		return err
+	}
+	err = m.ns.Put([]byte(manifestFormatVersionKey), []byte("1"))
+	if err != nil {
+		return err
+	}
+	return m.ns.Put([]byte(manifestKey(name)), v)
+}
+
+// Load lists the vectors that have a task.
+func (m *manifestTasks) Load() (names []string, err error) {
+	err = m.ns.ForEach(func(k, _ []byte) error {
+		if string(k) != manifestFormatVersionKey {
+			names = append(names, string(k))
+		}
+		return nil
+	})
+	return names, err
+}
+
+func (m *manifestTasks) Get(name string) (value []byte, ok bool, err error) {
+	value, err = m.ns.Get([]byte(manifestKey(name)))
+	return value, value != nil, err
+}
+
 // recorded is name's record as the shard writes it today: built at
 // physicalID with its queue beside it, holding the schema's config.
 func recorded(shard *Shard, name, physicalID, state string) manifestRecord {

@@ -480,6 +480,26 @@ func TestManifest_CreateFinishesADropInProgress(t *testing.T) {
 	assert.Equal(t, "creating", rec.State)
 }
 
+// The drop a creation finishes takes both indexes of a rebuild and its task.
+func TestManifest_CreateFinishesADropInProgressDuringARebuild(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "title", "body")
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+	plant(t, files(dir, "vectors_a-b")...)
+	_, err := m.BeginDrop("title")
+	require.NoError(t, err)
+
+	_, err = m.Create(t.Context(), "title", enthnsw.NewDefaultUserConfig())
+	require.NoError(t, err)
+	for _, path := range files(dir, "vectors_a-b") {
+		assert.NoDirExists(t, path)
+	}
+	assert.NoDirExists(t, filepath.Join(dir, "vectors_title.hnsw.commitlog.d"))
+	_, ok, err := m.tasks.Get("title")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 func TestManifest_ADropInProgressIsNotOverwritten(t *testing.T) {
 	cfg := enthnsw.NewDefaultUserConfig()
 	tests := []struct {
@@ -587,4 +607,388 @@ func TestManifest_HasStorage(t *testing.T) {
 	exists, err = m.HasStorage(e)
 	require.NoError(t, err)
 	assert.True(t, exists)
+}
+
+// rebuildOf is a rebuild from source to candidate.
+func rebuildOf(source, candidate string) rebuildTask {
+	return rebuildTask{
+		TaskID: "task-1", TaskVersion: 1,
+		Source:    taskIndex{PhysicalID: source, IndexType: "hnsw"},
+		Candidate: taskIndex{PhysicalID: candidate, IndexType: "hfresh"},
+	}
+}
+
+// files lists the buckets and directories planted for an index at id.
+func files(dir, id string) []string {
+	return []string{filepath.Join(dir, "lsm", id), filepath.Join(dir, id+".hfresh.d")}
+}
+
+// The index the record names stays, the other one its task names goes, then
+// the task.
+func TestManifest_OpenFinishesARebuild(t *testing.T) {
+	tests := []struct {
+		name     string
+		record   func(record) *record
+		inSchema bool
+		kept     string
+		removed  []string
+		// rewound is whether the chunks kept during the rebuild are served again
+		rewound bool
+	}{
+		{
+			name: "the record names the source", record: func(r record) *record { return &r },
+			inSchema: true, kept: "vectors_title", removed: []string{"vectors_a-b"},
+		},
+		{
+			name: "the record names the candidate", record: func(r record) *record { r.PhysicalID = "a-b"; return &r },
+			inSchema: true, kept: "vectors_a-b", removed: []string{"vectors_title"}, rewound: true,
+		},
+		{
+			name: "dropping", record: func(r record) *record { r.State = "dropping"; return &r },
+			removed: []string{"vectors_title", "vectors_a-b"},
+		},
+		{
+			name: "dropping an index neither of them", record: func(r record) *record {
+				r.State, r.PhysicalID = "dropping", "c-d"
+				return &r
+			},
+			removed: []string{"vectors_title", "vectors_a-b", "vectors_c-d"},
+		},
+		{
+			name: "no record and gone from the schema", record: func(record) *record { return nil },
+			removed: []string{"vectors_title", "vectors_a-b"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			m := loaded(t, dir, "title", "body")
+			cfg := enthnsw.NewDefaultUserConfig()
+			rec, _, err := m.records.Get("title")
+			require.NoError(t, err)
+			require.NoError(t, m.records.Delete("title"))
+			if want := tt.record(rec); want != nil {
+				require.NoError(t, m.records.Put("title", *want))
+			}
+			require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+			for _, id := range []string{"vectors_title", "vectors_a-b", "vectors_c-d", "vectors_body"} {
+				plant(t, files(dir, id)...)
+			}
+			buildHNSW(t, dir, "vectors_a-b")
+			chunk := filepath.Join(dir, "vectors_title.queue.d", "chunk-1.bin")
+			plant(t, filepath.Dir(chunk))
+			require.NoError(t, os.WriteFile(chunk, []byte("x"), 0o600))
+			require.NoError(t, os.WriteFile(chunk+".processed", nil, 0o600))
+
+			schema := schemaVectors{"body": cfg}
+			if tt.inSchema {
+				schema["title"] = cfg
+			}
+			entries, _, err := m.Open(t.Context(), schema, nil)
+			require.NoError(t, err)
+			require.Len(t, entries, len(schema))
+
+			for _, id := range tt.removed {
+				for _, path := range files(dir, id) {
+					assert.NoDirExists(t, path)
+				}
+			}
+			for _, id := range []string{"vectors_body", tt.kept} {
+				if id == "" {
+					continue
+				}
+				for _, path := range files(dir, id) {
+					assert.DirExists(t, path)
+				}
+			}
+			if tt.kept != "" {
+				assert.Equal(t, tt.kept, entries[1].StorageID)
+				assert.Equal(t, "vectors_title", entries[1].QueueID)
+				assert.FileExists(t, chunk)
+				assert.Equal(t, !tt.rewound, pathExists(chunk+".processed"))
+			}
+			_, ok, err := m.tasks.Get("title")
+			require.NoError(t, err)
+			assert.False(t, ok)
+		})
+	}
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// A load told that a vector is dropped deletes every index of its rebuild,
+// as it does for a record that says dropping.
+func TestManifest_OpenFinishesADropItWasToldOfDuringARebuild(t *testing.T) {
+	for _, recorded := range []string{"vectors_title", "a-b", "c-d"} {
+		t.Run(recorded, func(t *testing.T) {
+			dir := t.TempDir()
+			m := loaded(t, dir, "title", "body")
+			rec, _, err := m.records.Get("title")
+			require.NoError(t, err)
+			rec.PhysicalID = recorded
+			require.NoError(t, m.records.Put("title", rec))
+			require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+			queueDir := filepath.Join(dir, "vectors_title.queue.d")
+			plant(t, queueDir)
+			for _, id := range []string{"vectors_title", "vectors_a-b", "vectors_body", rec.storageID()} {
+				plant(t, files(dir, id)...)
+			}
+
+			_, _, err = m.Open(t.Context(), schemaVectors{"body": enthnsw.NewDefaultUserConfig()}, []string{"title"})
+			require.NoError(t, err)
+			for _, id := range []string{"vectors_title", "vectors_a-b", rec.storageID()} {
+				for _, path := range files(dir, id) {
+					assert.NoDirExists(t, path)
+				}
+			}
+			assert.NoDirExists(t, queueDir)
+			for _, path := range files(dir, "vectors_body") {
+				assert.DirExists(t, path)
+			}
+			c, err := m.load()
+			require.NoError(t, err)
+			assert.Equal(t, []string{"body"}, c.names())
+		})
+	}
+}
+
+// A task the records cannot account for fails the load before anything goes.
+func TestManifest_OpenRefusesATask(t *testing.T) {
+	cfg := enthnsw.NewDefaultUserConfig()
+	title := record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", QueueID: "vectors_title", Config: cfg}
+	tests := []struct {
+		name    string
+		change  func(t *testing.T, m *Manifest)
+		wantErr string
+	}{
+		{
+			name: "the record names neither index",
+			change: func(t *testing.T, m *Manifest) {
+				other := title
+				other.PhysicalID = "c-d"
+				require.NoError(t, m.records.Put("title", other))
+				require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+			},
+			wantErr: `vector "title": the mapping names "c-d", the rebuild task names source "vectors_title" and candidate "a-b"`,
+		},
+		{
+			name: "a vector of the schema without a record",
+			change: func(t *testing.T, m *Manifest) {
+				require.NoError(t, m.records.Delete("title"))
+				require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+			},
+			wantErr: `vector "title": a rebuild task but no record`,
+		},
+		{
+			name: "the candidate is another vector's index",
+			change: func(t *testing.T, m *Manifest) {
+				require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "vectors_body")))
+			},
+			wantErr: `the rebuild task of vector "title" names "vectors_body", an index of vector "body"`,
+		},
+		{
+			name: "the source is another vector's index",
+			change: func(t *testing.T, m *Manifest) {
+				require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_body", "vectors_title")))
+			},
+			wantErr: `the rebuild task of vector "title" names "vectors_body", an index of vector "body"`,
+		},
+		{
+			name: "two tasks name one candidate",
+			change: func(t *testing.T, m *Manifest) {
+				require.NoError(t, m.tasks.Put("body", rebuildOf("vectors_body", "a-b")))
+				require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "vectors_a-b")))
+			},
+			wantErr: `the rebuild task of vector "body" names "a-b", an index of vector "title"`,
+		},
+		{
+			name: "the candidate shares a bucket with another vector's index",
+			change: func(t *testing.T, m *Manifest) {
+				body := title
+				body.PhysicalID, body.QueueID = "x-1", "vectors_body"
+				require.NoError(t, m.records.Put("body", body))
+				require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "x-1_centroids")))
+			},
+			wantErr: `the rebuild task of vector "title" names "x-1_centroids", which shares "vectors_compressed_x-1_centroids" with vector "body"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			m := loaded(t, dir, "title", "body")
+			ids := []string{"vectors_title", "vectors_body", "vectors_a-b", "vectors_c-d", "vectors_x-1", "vectors_x-1_centroids"}
+			for _, id := range ids {
+				plant(t, files(dir, id)...)
+			}
+			tt.change(t, m)
+
+			_, _, err := m.Open(t.Context(), schemaVectors{"title": cfg, "body": cfg}, nil)
+			require.ErrorContains(t, err, tt.wantErr)
+			for _, id := range ids {
+				for _, path := range files(dir, id) {
+					assert.DirExists(t, path, "nothing is deleted")
+				}
+			}
+		})
+	}
+}
+
+// A rebuild whose cleanup fails keeps its task, and the next load finishes it.
+func TestManifest_OpenRetriesARebuildItCouldNotFinish(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "title")
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+	plant(t, files(dir, "vectors_a-b")...)
+	schema := schemaVectors{"title": enthnsw.NewDefaultUserConfig()}
+
+	removeBucket := m.removeBucket
+	m.removeBucket = func(context.Context, string) error { return assert.AnError }
+	_, _, err := m.Open(t.Context(), schema, nil)
+	require.ErrorIs(t, err, assert.AnError)
+	_, ok, err := m.tasks.Get("title")
+	require.NoError(t, err)
+	assert.True(t, ok, "the task outlives a failed cleanup")
+
+	m.removeBucket = removeBucket
+	_, _, err = m.Open(t.Context(), schema, nil)
+	require.NoError(t, err)
+	for _, path := range files(dir, "vectors_a-b") {
+		assert.NoDirExists(t, path)
+	}
+	_, ok, err = m.tasks.Get("title")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A refused task stops the load before the valid tasks sorted ahead of it
+// delete anything.
+func TestManifest_OpenRefusesATaskBeforeFinishingAny(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "body", "title")
+	require.NoError(t, m.tasks.Put("body", rebuildOf("vectors_body", "a-b")))
+	rec, _, err := m.records.Get("title")
+	require.NoError(t, err)
+	rec.PhysicalID = "c-d"
+	require.NoError(t, m.records.Put("title", rec))
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "e-f")))
+	plant(t, files(dir, "vectors_a-b")...)
+
+	cfg := enthnsw.NewDefaultUserConfig()
+	_, _, err = m.Open(t.Context(), schemaVectors{"body": cfg, "title": cfg}, nil)
+	require.ErrorContains(t, err, `vector "title": the mapping names "c-d"`)
+	for _, path := range files(dir, "vectors_a-b") {
+		assert.DirExists(t, path)
+	}
+	_, ok, err := m.tasks.Get("body")
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
+// A finished rebuild removes the dynamic index state of the index it retires.
+func TestManifest_OpenFinishesARebuildWithItsDynamicState(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "title")
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+	retired, kept := []byte("upgraded_a-b"), []byte("upgraded_title")
+	require.NoError(t, m.state.Put(retired, []byte{1}))
+	require.NoError(t, m.state.Put(kept, []byte{1}))
+
+	_, _, err := m.Open(t.Context(), schemaVectors{"title": enthnsw.NewDefaultUserConfig()}, nil)
+	require.NoError(t, err)
+	v, err := m.state.Get(retired)
+	require.NoError(t, err)
+	assert.Nil(t, v)
+	v, err = m.state.Get(kept)
+	require.NoError(t, err)
+	assert.NotNil(t, v)
+}
+
+func TestManifest_OpenRefusesTasksWithoutRecords(t *testing.T) {
+	m := openTestManifest(t, t.TempDir())
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+	_, _, err := m.Open(t.Context(), nil, nil)
+	require.ErrorContains(t, err, "rebuild tasks without a vector index mapping")
+}
+
+// The tasks of vectors whose names share a file, which predates the check, do
+// not refuse the load: the shared bucket is spared instead.
+func TestManifest_OpenAcceptsATaskOfCollidingNames(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "foo", "foo_muvera_vectors")
+	require.NoError(t, m.tasks.Put("foo", rebuildOf("vectors_foo", "a-b")))
+	rec, _, err := m.records.Get("foo")
+	require.NoError(t, err)
+	rec.PhysicalID = "a-b"
+	require.NoError(t, m.records.Put("foo", rec))
+	buildHNSW(t, dir, "vectors_a-b")
+	shared := filepath.Join(dir, "lsm", "vectors_foo_muvera_vectors")
+	own := filepath.Join(dir, "lsm", "vectors_foo")
+	plant(t, shared, own)
+
+	cfg := enthnsw.NewDefaultUserConfig()
+	_, _, err = m.Open(t.Context(), schemaVectors{"foo": cfg, "foo_muvera_vectors": cfg}, nil)
+	require.NoError(t, err)
+	assert.DirExists(t, shared)
+	assert.NoDirExists(t, own)
+}
+
+// A drop during a rebuild deletes both indexes, then the record and the task.
+func TestManifest_DropDuringARebuild(t *testing.T) {
+	for _, recorded := range []string{"vectors_title", "a-b"} {
+		t.Run(recorded, func(t *testing.T) {
+			dir := t.TempDir()
+			m := loaded(t, dir, "title", "body")
+			rec, _, err := m.records.Get("title")
+			require.NoError(t, err)
+			rec.PhysicalID = recorded
+			require.NoError(t, m.records.Put("title", rec))
+			require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+			for _, id := range []string{"vectors_title", "vectors_a-b", "vectors_body"} {
+				plant(t, files(dir, id)...)
+			}
+
+			found, err := m.BeginDrop("title")
+			require.NoError(t, err)
+			assert.True(t, found)
+			require.NoError(t, m.FinishDrop(t.Context(), "title"))
+
+			for _, path := range append(files(dir, "vectors_title"), files(dir, "vectors_a-b")...) {
+				assert.NoDirExists(t, path)
+			}
+			for _, path := range files(dir, "vectors_body") {
+				assert.DirExists(t, path)
+			}
+			_, ok, err := m.records.Get("title")
+			require.NoError(t, err)
+			assert.False(t, ok)
+			_, ok, err = m.tasks.Get("title")
+			require.NoError(t, err)
+			assert.False(t, ok)
+		})
+	}
+}
+
+// A drop refuses a task that names another vector's index.
+func TestManifest_DropRefusesATaskNamingASibling(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "title", "body")
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "vectors_body")))
+	plant(t, files(dir, "vectors_title")...)
+	plant(t, files(dir, "vectors_body")...)
+
+	_, err := m.BeginDrop("title")
+	require.ErrorContains(t, err, `an index of vector "body"`)
+	rec, _, err := m.records.Get("title")
+	require.NoError(t, err)
+	assert.Equal(t, "ready", rec.State)
+
+	rec.State = "dropping"
+	require.NoError(t, m.records.Put("title", rec))
+	require.ErrorContains(t, m.FinishDrop(t.Context(), "title"), `an index of vector "body"`)
+	for _, path := range append(files(dir, "vectors_title"), files(dir, "vectors_body")...) {
+		assert.DirExists(t, path)
+	}
 }

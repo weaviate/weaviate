@@ -96,14 +96,54 @@ func collisionError(name string, collisions []string) error {
 	return fmt.Errorf("vector %q cannot be created: %s", name, strings.Join(collisions, "; "))
 }
 
-// refuseSharedFiles fails when a drop of one vector would delete what another
-// one uses.
-func refuseSharedFiles(records map[string]record) error {
-	err := refuseSharedQueues(records)
+// refuseSharedFiles fails when deleting what one vector owns would delete what
+// another one uses.
+func (c contents) refuseSharedFiles() error {
+	err := refuseSharedQueues(c.records)
 	if err != nil {
 		return err
 	}
-	return refuseGeneratedCollisions(records)
+	err = refuseGeneratedCollisions(c.records)
+	if err != nil {
+		return err
+	}
+	return c.refuseSharedTaskIndexes()
+}
+
+// refuseSharedTaskIndexes fails when a rebuild task names an index of another
+// vector, or one that shares a file with another vector's when either has a
+// generated ID. Files shared by two name-derived IDs are spared instead.
+func (c contents) refuseSharedTaskIndexes() error {
+	for _, name := range slices.Sorted(maps.Keys(c.tasks)) {
+		for _, index := range []taskIndex{c.tasks[name].Source, c.tasks[name].Candidate} {
+			id := index.storageID()
+			own := map[string]struct{}{}
+			for _, file := range helpers.VectorIndexArtifactNamesForID(id).All() {
+				own[file] = struct{}{}
+			}
+			for _, other := range c.names() {
+				if other == name {
+					continue
+				}
+				for _, otherID := range c.storageIDs(other) {
+					if otherID == id {
+						return fmt.Errorf("the rebuild task of vector %q names %q, an index of vector %q",
+							name, index.recordedID(), other)
+					}
+					if !isGeneratedID(id) && !isGeneratedID(otherID) {
+						continue
+					}
+					for _, file := range helpers.VectorIndexArtifactNamesForID(otherID).All() {
+						if _, shared := own[file]; shared {
+							return fmt.Errorf("the rebuild task of vector %q names %q, which shares %q with vector %q",
+								name, index.recordedID(), file, other)
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // RefuseCollidingNames fails when a vector of added would own a file that one

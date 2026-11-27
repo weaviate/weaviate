@@ -19,6 +19,7 @@ package vectormanifest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -47,6 +49,7 @@ type Config struct {
 // is the empty name.
 type Manifest struct {
 	records      *recordStore
+	tasks        *taskStore
 	state        dynamic.StateOps
 	shardDir     string
 	removeBucket func(ctx context.Context, bucket string) error
@@ -73,9 +76,57 @@ type Entry struct {
 	Config schemaConfig.VectorIndexConfig
 }
 
+// contents is everything the manifest has on disk, by vector name.
+type contents struct {
+	records map[string]record
+	tasks   map[string]rebuildTask
+}
+
+// names lists the vectors that have a record or a task, in order.
+func (c contents) names() []string {
+	names := slices.AppendSeq(slices.Collect(maps.Keys(c.records)), maps.Keys(c.tasks))
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// storageIDs lists the IDs name's files are under: its record's, and the two
+// of its task.
+func (c contents) storageIDs(name string) []string {
+	var ids []string
+	if rec, ok := c.records[name]; ok {
+		ids = append(ids, rec.storageID())
+	}
+	if task, ok := c.tasks[name]; ok {
+		ids = append(ids, task.Source.storageID(), task.Candidate.storageID())
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids)
+}
+
+// otherStorageIDs lists the storage IDs of every vector but name.
+func (c contents) otherStorageIDs(name string) []string {
+	var ids []string
+	for _, other := range c.names() {
+		if other != name {
+			ids = append(ids, c.storageIDs(other)...)
+		}
+	}
+	return ids
+}
+
+// indexArtifacts is what the index at id owns alone.
+func (c contents) indexArtifacts(id string) helpers.VectorIndexArtifacts {
+	var others []string
+	for _, name := range c.names() {
+		others = append(others, c.storageIDs(name)...)
+	}
+	return helpers.VectorIndexArtifactsForID(id, others)
+}
+
 func New(cfg Config) *Manifest {
 	return &Manifest{
 		records:      newRecordStore(cfg.DB),
+		tasks:        newTaskStore(cfg.DB),
 		state:        cfg.DB.Namespace(dynamic.StateNamespace),
 		shardDir:     cfg.ShardDir,
 		removeBucket: cfg.RemoveBucket,
@@ -104,6 +155,13 @@ func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.Vect
 	if err != nil {
 		return nil, false, err
 	}
+	tasks, err := m.tasks.Load()
+	if err != nil {
+		return nil, false, err
+	}
+	if !initialized && len(tasks) > 0 {
+		return nil, false, errors.New("rebuild tasks without a vector index mapping")
+	}
 	if len(stripped) > 0 {
 		m.logger.Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
@@ -113,7 +171,7 @@ func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.Vect
 		}
 	}
 	if initialized {
-		records, err = m.reconcile(ctx, schema, dropped, records)
+		records, err = m.reconcile(ctx, schema, dropped, contents{records: records, tasks: tasks})
 		if err != nil {
 			return nil, false, err
 		}
@@ -152,28 +210,40 @@ func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.Vect
 //     missing record (a vector added while the shard was cold) are built,
 //     then marked ready.
 //
-// A drop is finished first, whether the record or the schema says so. Any other
-// record the schema no longer has is deleted; its storage is left alone.
+// Drops, whether the record or the schema says so, and interrupted rebuilds are
+// finished first. Any other record the schema no longer has is deleted; its
+// storage is left alone.
 func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig,
-	dropped []string, records map[string]record,
+	dropped []string, c contents,
 ) (map[string]record, error) {
 	// before any deletion: finishing a drop would take the other's queue
-	err := refuseSharedFiles(records)
+	err := c.refuseSharedFiles()
 	if err != nil {
 		return nil, err
 	}
+	// a drop that found this shard loading left its record as it was
+	for _, name := range dropped {
+		if rec, ok := c.records[name]; ok {
+			rec.State = stateDropping
+			c.records[name] = rec
+		}
+	}
+	err = m.finishRebuilds(ctx, schema, c)
+	if err != nil {
+		return nil, err
+	}
+	records := c.records
 
 	for _, name := range slices.Sorted(maps.Keys(records)) {
-		// a deletion the process did not live to finish, or a drop that found
-		// this shard loading
-		if records[name].State != stateDropping && !slices.Contains(dropped, name) {
+		if records[name].State != stateDropping {
 			continue
 		}
-		err := m.finishDrop(ctx, name, records)
+		err := m.finishDrop(ctx, name, c)
 		if err != nil {
 			return nil, err
 		}
 		delete(records, name)
+		delete(c.tasks, name)
 	}
 
 	toBuild := make(map[string]record, len(schema))
@@ -226,6 +296,77 @@ func (m *Manifest) reconcile(ctx context.Context, schema map[string]schemaConfig
 	return toBuild, nil
 }
 
+// finishRebuilds finishes the rebuilds a restart interrupted: the index the
+// record names stays, the others its task names go, then the task. It runs
+// before any queue opens, which deletes the chunks a rebuild kept. Every task
+// is checked before anything is deleted.
+func (m *Manifest) finishRebuilds(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig,
+	c contents,
+) error {
+	names := slices.Sorted(maps.Keys(c.tasks))
+	retired := make(map[string][]taskIndex, len(names))
+	for _, name := range names {
+		rec, recorded := c.records[name]
+		if _, ok := schema[name]; ok && !recorded {
+			return fmt.Errorf("vector %q: a rebuild task but no record", name)
+		}
+		if recorded && rec.State == stateDropping {
+			continue // the drop takes both indexes
+		}
+		var err error
+		retired[name], err = c.tasks[name].retired(rec, recorded)
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", name, err)
+		}
+	}
+	for _, name := range names {
+		rec, recorded := c.records[name]
+		if recorded && rec.State == stateDropping {
+			continue
+		}
+		task := c.tasks[name]
+		m.logger.WithFields(logrus.Fields{
+			"target_vector": name,
+			"task_id":       task.TaskID,
+			"task_version":  task.TaskVersion,
+			"source":        task.Source.recordedID(),
+			"candidate":     task.Candidate.recordedID(),
+		}).Infof("finishing a vector index rebuild interrupted by a restart, removing %v", retired[name])
+		if recorded && rec.storageID() == task.Candidate.storageID() {
+			err := queue.RewindDir(filepath.Join(m.shardDir, helpers.QueueDirName(rec.queueIDOrDefault())))
+			if err != nil {
+				return fmt.Errorf("vector %q: serve the writes kept during the rebuild again: %w", name, err)
+			}
+		}
+		err := m.finishRebuild(ctx, name, retired[name], c)
+		if err != nil {
+			return err
+		}
+		delete(c.tasks, name)
+	}
+	return nil
+}
+
+// finishRebuild deletes the retired indexes of name's rebuild, then its task,
+// so a failed cleanup is retried at the next load.
+func (m *Manifest) finishRebuild(ctx context.Context, name string, retired []taskIndex, c contents) error {
+	others := c.otherStorageIDs(name)
+	if rec, ok := c.records[name]; ok {
+		others = append(others, rec.storageID())
+	}
+	for _, index := range retired {
+		id := index.storageID()
+		err := m.removeArtifacts(ctx, helpers.VectorIndexArtifactsForID(id, others))
+		if err == nil {
+			err = dynamic.RemoveStateKeyIn(m.state, id)
+		}
+		if err != nil {
+			return fmt.Errorf("vector %q: remove the %s index at %q: %w", name, index.IndexType, index.recordedID(), err)
+		}
+	}
+	return m.tasks.Delete(name)
+}
+
 // dropUnrecorded deletes what the naming rule says dropped own, in a shard
 // without records. The files of siblings stay.
 func (m *Manifest) dropUnrecorded(ctx context.Context, dropped, siblings []string) error {
@@ -250,14 +391,15 @@ func (m *Manifest) Create(ctx context.Context, name string, cfg schemaConfig.Vec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	records, _, err := m.records.Load()
+	c, err := m.load()
 	if err != nil {
 		return Entry{}, err
 	}
+	records := c.records
 	// the cluster can free the name while this shard's drop failed: the
 	// caller runs once the vector's teardown is done, so it can be finished
 	if records[name].State == stateDropping {
-		err := m.finishDrop(ctx, name, records)
+		err := m.finishDrop(ctx, name, c)
 		if err != nil {
 			return Entry{}, err
 		}
@@ -378,15 +520,15 @@ func (m *Manifest) RemoveIndexFiles(ctx context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	records, _, err := m.records.Load()
+	c, err := m.load()
 	if err != nil {
 		return err
 	}
-	rec, ok := records[name]
+	rec, ok := c.records[name]
 	if !ok {
 		return nil
 	}
-	return m.removeArtifacts(ctx, helpers.VectorIndexArtifactsForID(rec.storageID(), otherStorageIDs(records, name)))
+	return m.removeArtifacts(ctx, c.indexArtifacts(rec.storageID()))
 }
 
 // BeginDrop records that name is being dropped, so a crash before its files go
@@ -396,17 +538,17 @@ func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	records, _, err := m.records.Load()
+	c, err := m.load()
 	if err != nil {
 		return false, err
 	}
-	rec, ok := records[name]
+	rec, ok := c.records[name]
 	if !ok {
 		return false, nil
 	}
 	// a load and Create refuse shared files already: this guards the teardown
 	// that follows against an index.db changed behind the shard
-	err = refuseSharedFiles(records)
+	err = c.refuseSharedFiles()
 	if err != nil {
 		return false, err
 	}
@@ -414,28 +556,29 @@ func (m *Manifest) BeginDrop(name string) (found bool, err error) {
 	return true, m.records.Put(name, rec)
 }
 
-// FinishDrop deletes everything name owns, its record last. A retry after a
-// partial run finds less to do. It refuses a vector BeginDrop did not mark.
+// FinishDrop deletes everything name owns, its record and its rebuild task
+// last. A retry after a partial run finds less to do. It refuses a vector
+// BeginDrop did not mark.
 func (m *Manifest) FinishDrop(ctx context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	records, _, err := m.records.Load()
+	c, err := m.load()
 	if err != nil {
 		return err
 	}
-	rec, ok := records[name]
+	rec, ok := c.records[name]
 	if !ok {
 		return nil
 	}
 	if rec.State != stateDropping {
 		return fmt.Errorf("vector %q is %s, not %s", name, rec.State, stateDropping)
 	}
-	return m.finishDrop(ctx, name, records)
+	return m.finishDrop(ctx, name, c)
 }
 
-func (m *Manifest) finishDrop(ctx context.Context, name string, records map[string]record) error {
-	artifacts, err := dropArtifacts(records, name)
+func (m *Manifest) finishDrop(ctx context.Context, name string, c contents) error {
+	artifacts, err := dropArtifacts(c, name)
 	if err != nil {
 		return fmt.Errorf("drop vector %q: %w", name, err)
 	}
@@ -443,12 +586,41 @@ func (m *Manifest) finishDrop(ctx context.Context, name string, records map[stri
 	if err != nil {
 		return fmt.Errorf("drop vector %q: %w", name, err)
 	}
-	err = dynamic.RemoveStateKeyIn(m.state, records[name].storageID())
-	if err != nil {
-		return fmt.Errorf("drop vector %q: %w", name, err)
+	for _, id := range c.storageIDs(name) {
+		err = dynamic.RemoveStateKeyIn(m.state, id)
+		if err != nil {
+			return fmt.Errorf("drop vector %q: %w", name, err)
+		}
 	}
 	// the record goes last, so a failed drop keeps it for the retry
-	return m.records.Delete(name)
+	if _, ok := c.tasks[name]; !ok {
+		return m.records.Delete(name)
+	}
+	key := []byte(recordKey(name))
+	err = shardmeta.Update([]*shardmeta.Namespace{m.records.ns, m.tasks.ns}, func(b []*shardmeta.Batch) error {
+		err := b[0].Delete(key)
+		if err != nil {
+			return err
+		}
+		return b[1].Delete(key)
+	})
+	if err != nil {
+		return fmt.Errorf("delete the record and rebuild task of vector %q: %w", name, err)
+	}
+	return nil
+}
+
+// load reads the records and the tasks.
+func (m *Manifest) load() (contents, error) {
+	records, _, err := m.records.Load()
+	if err != nil {
+		return contents{}, err
+	}
+	tasks, err := m.tasks.Load()
+	if err != nil {
+		return contents{}, err
+	}
+	return contents{records: records, tasks: tasks}, nil
 }
 
 // Get returns name's entry with the config its record holds, and whether it
@@ -523,27 +695,23 @@ func removeArtifacts(shardDir string, artifacts helpers.VectorIndexArtifacts, re
 	return nil
 }
 
-// dropArtifacts is what dropping name deletes: its index's files, minus the
-// buckets another vector owns, and its queue.
-func dropArtifacts(records map[string]record, name string) (helpers.VectorIndexArtifacts, error) {
+// dropArtifacts is what dropping name deletes: the files of every index it has,
+// minus the buckets another vector owns, and its queue.
+func dropArtifacts(c contents, name string) (helpers.VectorIndexArtifacts, error) {
 	// a vector sharing a queue or files with name would lose them
-	err := refuseSharedFiles(records)
+	err := c.refuseSharedFiles()
 	if err != nil {
 		return helpers.VectorIndexArtifacts{}, err
 	}
-	rec := records[name]
-	artifacts := helpers.VectorIndexArtifactsForID(rec.storageID(), otherStorageIDs(records, name))
-	artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))
-	return artifacts, nil
-}
-
-// otherStorageIDs lists the storage IDs of every vector but name.
-func otherStorageIDs(records map[string]record, name string) []string {
-	ids := make([]string, 0, len(records))
-	for other, rec := range records {
-		if other != name {
-			ids = append(ids, rec.storageID())
-		}
+	var artifacts helpers.VectorIndexArtifacts
+	others := c.otherStorageIDs(name)
+	for _, id := range c.storageIDs(name) {
+		a := helpers.VectorIndexArtifactsForID(id, others)
+		artifacts.LSMBuckets = append(artifacts.LSMBuckets, a.LSMBuckets...)
+		artifacts.ShardDirs = append(artifacts.ShardDirs, a.ShardDirs...)
 	}
-	return ids
+	if rec, ok := c.records[name]; ok {
+		artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))
+	}
+	return artifacts, nil
 }
