@@ -175,10 +175,17 @@ func (g *growIndex) takeSlot(docID uint64) error {
 // out are as many as those that were laid out then: the index has doubled.
 // The rule is provisional (integration-plan.md, section 7).
 func (g *growIndex) layoutDue() bool {
+	return g.layoutDueBy(1)
+}
+
+// layoutDueBy tells whether the vectors that came in since they were last
+// laid out are factor times those that were laid out then, or more: with 1
+// the index has doubled, with 3 it holds four times as many.
+func (g *growIndex) layoutDueBy(factor int) bool {
 	if g.meta.VectorGen == 0 {
 		return false
 	}
-	return int(g.nextSlot)-g.meta.VectorsLaidOut >= max(g.meta.VectorsLaidOut, 1)
+	return int(g.nextSlot)-g.meta.VectorsLaidOut >= factor*max(g.meta.VectorsLaidOut, 1)
 }
 
 // growLayout is a pass that writes the exact vectors of an index again, those

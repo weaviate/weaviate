@@ -140,6 +140,11 @@ func newPersistentFixtureMode(t *testing.T, n int, cacheMode string, change func
 		DistanceProvider: f.provider,
 		BaseSize:         persistentBase,
 		Seed:             7,
+		// The rule of an index at rest, whenever its last insert came: the
+		// tests of what a pass over the vectors does have one as soon as the
+		// index doubles. Those of the rule set it
+		// (persistent_layout_rule_test.go).
+		layoutQuiet: -1,
 	}
 	if change != nil {
 		change(&f.cfg)

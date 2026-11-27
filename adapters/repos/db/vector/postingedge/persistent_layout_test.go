@@ -169,7 +169,7 @@ func TestPersistentOpensAnIndexOfTheFirstVersion(t *testing.T) {
 	require.Zero(t, g.meta.VectorGen)
 	require.NoError(t, f.index.Delete(3, gone))
 	f.add(t, persistentBase+100, total)
-	require.NoError(t, f.index.maintain(persistentCtx()))
+	require.NoError(t, f.index.maintain(persistentCtx(), true))
 	require.Zero(t, f.index.layouts.Load(), "its vectors are at their doc ids")
 	f.covered(t, "grown")
 	held := func(id uint64) bool { return id != 3 && id != gone }

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -150,6 +151,9 @@ type Persistent struct {
 	// plans has the plans of the inserts, which every caller takes for the
 	// vectors it is adding and gives back.
 	plans sync.Pool
+	// lastInsert is when the last insert was applied, in nanoseconds of the
+	// clock of the config: zero for none since the index was opened.
+	lastInsert atomic.Int64
 	// batches gathers the plans of the callers into batches
 	// (persistent_batches.go).
 	batches insertBatches
@@ -199,6 +203,19 @@ const (
 	// vectors of 768 dimensions with the budget scaled per posting), past the
 	// 15 % the rule allowed, and wrote its rows of edges 1.8 times as often.
 	DefaultPendingBudget = 128 << 20
+	// DefaultLayoutQuiet is how long after its last insert an index still
+	// counts as being ingested into, and layoutIngestFactor how many times
+	// the vectors laid out must have come since for a pass to be due
+	// meanwhile: with 3, when the index holds four times as many, where an
+	// index at rest lays out when it has doubled. A pass writes every exact
+	// vector again and competes with the inserts for the disk: growing to
+	// 3.3M vectors, the eight passes at every doubling wrote a tenth of all
+	// the bytes written, and up to 70 times the bytes of the vectors of a
+	// five-minute stretch (bench-report.md of feat/posting-edge-index, "El
+	// diario y las reorganizaciones de la noche"). What a query pays for
+	// vectors out of order while the index grows is not measured yet.
+	DefaultLayoutQuiet = time.Minute
+	layoutIngestFactor = 3
 
 	growBucketPrefix = "postingedge_grow_"
 )
@@ -253,6 +270,13 @@ type PersistentConfig struct {
 	// passes that are on.
 	noMaintenance bool
 	noBackground  bool
+	// layoutQuiet is how long after its last insert the index still counts
+	// as being ingested into, and lays its vectors out less often
+	// (Persistent.layoutDue): DefaultLayoutQuiet when zero, never when
+	// negative, which is the rule of an index at rest all along. now, if
+	// set, is the clock it reads, for the tests.
+	layoutQuiet time.Duration
+	now         func() time.Time
 	// float32Centroids has the graph over the centroids keep them in float32
 	// in memory, as before, and not as 8-bit RQ codes in a bucket of the
 	// store, as HFresh keeps its own: for the tests of the conversion and the
@@ -296,6 +320,12 @@ func (c *PersistentConfig) validate() error {
 	}
 	if c.pendingBudget == 0 {
 		c.pendingBudget = DefaultPendingBudget
+	}
+	if c.layoutQuiet == 0 {
+		c.layoutQuiet = DefaultLayoutQuiet
+	}
+	if c.now == nil {
+		c.now = time.Now
 	}
 	return nil
 }
@@ -737,6 +767,7 @@ func (p *Persistent) write(ctx context.Context, g *growIndex, plan *growPlan) er
 		return err
 	}
 	p.dirty = true
+	p.lastInsert.Store(p.cfg.now().UnixNano())
 	return nil
 }
 
@@ -759,7 +790,7 @@ func (p *Persistent) payInLine(ctx context.Context, id uint64) error {
 // wakeIfDue tells what runs in the background that there is work, if there
 // is. The caller holds writeMu.
 func (p *Persistent) wakeIfDue() {
-	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.refreshDue() || p.cleaning != nil ||
+	if p.g != nil && (p.layoutDue(false) || p.refreshing != nil || p.refreshDue() || p.cleaning != nil ||
 		len(p.staged) > 0) {
 		p.wakeMaintenance()
 	}

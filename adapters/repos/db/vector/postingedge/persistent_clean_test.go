@@ -56,7 +56,7 @@ func TestPersistentCleansItsDeletes(t *testing.T) {
 		require.NoError(t, f.index.Delete(id))
 		deleted[id] = true
 	}
-	require.NoError(t, f.index.maintain(ctx))
+	require.NoError(t, f.index.maintain(ctx, true))
 	require.Equal(t, under, f.marked(), "a pass is not due under %.0f %% of the vectors", 100*growCleanShare)
 	require.Zero(t, f.index.cleans.Load())
 
@@ -273,7 +273,7 @@ func persistentMaintenanceNextToEverything(t *testing.T, cacheMode string) {
 	t.Logf("%d vectors in when both had run", n)
 
 	// What is left to do is done, and the index is whole.
-	require.NoError(t, f.index.maintain(ctx))
+	require.NoError(t, f.index.maintain(ctx, true))
 	require.NoError(t, f.index.clean(ctx))
 	require.Zero(t, f.marked())
 	f.covered(t, "at the end")
@@ -340,7 +340,7 @@ func TestPersistentCleanStops(t *testing.T) {
 			require.NoError(t, f.index.Delete(id))
 			deleted[id] = true
 		}
-		require.NoError(t, f.index.maintain(ctx))
+		require.NoError(t, f.index.maintain(ctx, true))
 		require.Zero(t, f.index.cleans.Load())
 		require.Equal(t, len(deleted), f.marked(), "its deleted vectors stay marked")
 		require.ErrorContains(t, f.index.clean(ctx), "a value per list")
