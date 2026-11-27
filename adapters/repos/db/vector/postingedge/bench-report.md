@@ -1414,6 +1414,165 @@ Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seg
 - La caché de ficheros son 22.5 GB, para un índice de 21 GB y un dataset de 31 GB que el arnés lee al azar.
 - El compresor de memoria guarda 42 GB en 13, y hay 3.5 GB de swap usados de 5.1.
 
+#### La corrida del 10M hasta las 21:22: lo que ya dice el arnés por tramo, y la primera muestra de pilas
+
+*Medido, sin interpretar más allá de las cifras. La tabla entera, tramo a tramo, está en `testdata/bench/night-10m-grown/monitor/stretches-until-2122.tsv`. Las columnas del monitor de fuera empiezan en el tramo de las 21:27; estas salen de lo que el arnés lee del proceso al cerrar cada tramo.*
+
+| hora | millones dentro | inserts/s | cores usuario | cores sistema | ms de CPU por insert | leído MB/s | leído KB por insert | escrito MB/s | escrito KB por insert | heap en uso GB |  |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 17:22:03 | 0.36 | 550 | 5.63 | 0.49 | 11.1 | 13.1 | 24 | 8.9 | 16 | 4.8 |  |
+| 17:42:07 | 0.95 | 462 | 5.75 | 0.45 | 13.4 | 8.0 | 17 | 12.7 | 28 | 5.6 |  |
+| 18:12:13 | 1.71 | 394 | 5.59 | 0.43 | 15.3 | 12.4 | 31 | 12.7 | 32 | 5.1 |  |
+| 18:42:16 | 2.41 | 376 | 5.65 | 0.43 | 16.2 | 11.4 | 30 | 13.6 | 36 | 7.0 |  |
+| 18:52:18 | 2.63 | 369 | 5.59 | 0.49 | 16.5 | 31.4 | 85 | 41.4 | 112 | 9.6 |  |
+| 19:12:22 | 3.07 | 356 | 5.57 | 0.46 | 16.9 | 12.0 | 34 | 12.5 | 35 | 4.7 |  |
+| 19:42:32 | 3.70 | 350 | 5.61 | 0.47 | 17.4 | 11.5 | 33 | 14.0 | 40 | 7.7 |  |
+| 20:12:40 | 4.31 | 328 | 5.50 | 0.43 | 18.1 | 15.4 | 47 | 11.0 | 33 | 6.4 |  |
+| 20:27:42 | 4.61 | 329 | 5.57 | 0.44 | 18.3 | 19.9 | 61 | 14.5 | 44 | 7.1 |  |
+| 20:37:43 | 4.81 | 325 | 5.42 | 0.42 | 18.0 | 30.6 | 94 | 14.0 | 43 | 13.4 |  |
+| 20:42:45 | 4.90 | 316 | 5.27 | 0.41 | 18.0 | 53.4 | 169 | 14.9 | 47 | 9.5 |  |
+| 20:47:47 | 4.99 | 307 | 5.08 | 0.39 | 17.8 | 88.9 | 289 | 16.5 | 54 | 9.6 |  |
+| 20:52:47 | 5.08 | 282 | 4.77 | 0.40 | 18.3 | 155.2 | 550 | 9.7 | 34 | 6.7 |  |
+| 20:57:49 | 5.16 | 284 | 4.92 | 0.41 | 18.8 | 123.4 | 435 | 14.6 | 51 | 8.6 | caché de Go borrada |
+| 21:02:50 | 5.26 | 305 | 5.17 | 0.41 | 18.3 | 83.8 | 275 | 10.9 | 36 | 7.7 |  |
+| 21:12:54 | 5.44 | 302 | 5.17 | 0.41 | 18.5 | 75.2 | 249 | 10.9 | 36 | 7.5 |  |
+| 21:22:56 | 5.62 | 303 | 5.07 | 0.40 | 18.1 | 97.8 | 323 | 13.7 | 45 | 10.4 | muestra de pilas |
+
+*La CPU y los bytes son del proceso entero: los inserts, y también la compactación, los volcados, el GC y el arnés.*
+
+**Lo que se lee en la tabla.**
+- **Con 8 llamadores el proceso ocupa unos 6 cores desde el primer tramo, no 8:** 5.6 de usuario y 0.5 de sistema a 0.36M, y 5.1 y 0.4 a 5.6M.
+- **La CPU por insert crece de 11.1 ms a 18.1,** 1.63 veces, y casi todo antes de 3M: 13.4 a 0.95M, 15.3 a 1.7M, 16.9 a 3.1M, 18.1 a 4.3M, y ahí se queda.
+- **El ritmo cae de 550 a 303 inserts por segundo, 0.55 veces.** Sale de esas dos cifras: 1.63 veces más CPU por insert, y 0.90 veces los cores ocupados.
+- **Las lecturas de disco eran planas hasta 4.2M,** entre 17 y 38 KB por insert salvo cuatro tramos de 48 a 85, **y desde ahí se disparan:** 61 KB a 4.6M, 169 a 4.9M, 550 a 5.08M, que son 155 MB por segundo.
+  - En esos tramos el ritmo baja de 329 a 282 y los cores de usuario de 5.6 a 4.8, con la CPU por insert igual.
+  - **Tras borrar la caché de Go bajan a entre 240 y 320 KB por insert** y el ritmo vuelve a 300. Lo que creo que lo explica, sin haberlo medido: borrar 22 GB de ficheros soltó también las páginas suyas que hubiera en la caché de ficheros.
+- **Las escrituras no crecen con el tamaño:** entre 16 y 62 KB por insert, con un tramo de 112 a las 18:52.
+- **El tramo muestreado no se distingue de los anteriores:** 303 inserts por segundo, donde los tres de antes dieron 300, 302 y 309.
+
+**La memoria del sistema hacia las 21:20** (una lectura, no un tramo): 22.5 GB de caché de ficheros, 27.6 de páginas anónimas, 13 GB ocupados por el compresor para guardar 42, y 3.5 GB de swap. El proceso tiene 18 GB residentes; su heap en uso va de 4 a 13 GB según el tramo.
+
+**La primera muestra de pilas** (21:22:05 a 21:22:16, 5.6M dentro, 849 muestras por hilo, 164 hilos):
+
+| qué hacen | hilos |
+|---|---:|
+| aparcados en una variable de condición | 155.48 |
+| corriendo código Go | 5.01 |
+| leyendo (`pread`) | 1.29 |
+| durmiendo (`usleep`) | 1.10 |
+| en `kevent` | 1.00 |
+| escribiendo (`pwrite`) | 0.06 |
+| despertando a otro hilo | 0.04 |
+| en un cerrojo del núcleo | 0.02 |
+| sincronizando (`fsync`) | 0.00 |
+
+- **De 8 llamadores, 5.0 hilos calculan y 1.3 leen.** Faltan 1.7 para 8, que están entre los aparcados: lo que esperan no se ve desde fuera.
+- **Los que calculan, por la función en que estaban:** 1.43 siguiendo aristas y el conjunto de visitados, 1.39 puntuando códigos, 0.51 decodificando y juntando filas, 0.36 en búsquedas en mapas, 0.24 reservando memoria, 0.24 copiando bytes, 0.17 en lecturas del store, 0.16 en el GC.
+  - Es por la hoja de la pila: de casi ninguna muestra se ve quién llamó. El perfil por líneas va en la pasada de diagnóstico.
+
+**Lo que el índice ya cuenta, y que no estaba mirando.** `growStats` lleva acumulados los contadores y los relojes de cada insert, y el arnés los escribe en `grow.json` al cerrar cada tramo, pisando los anteriores. Desde las 21:27 guardo una copia por tramo (`snap.py`), así que de aquí al final salen por tamaño. De 0 a 5.6M, la media:
+
+| por insert, media de 0 a 5.6M | |
+|---|---:|
+| búsqueda del plan, por su reloj | 13.85 ms |
+| asignar | 0.09 ms |
+| escribir el miembro | 0.03 ms |
+| aristas inversas | 0.06 ms |
+| split | 0.02 ms |
+| filas reescritas | 0.01 ms |
+| cargas de posting | 88.2 |
+| rondas | 21.8 |
+| filas leídas del store | 176.4, 3.73 MB |
+| vectores exactos leídos | 150.0 |
+| vecinos mirados para aristas inversas | 11.2 |
+| aristas inversas entradas | 6.12 |
+| splits | 4.02 por mil |
+
+- **El insert es su búsqueda:** 13.85 ms de 14.05 que suman los relojes. Aplicarlo bajo el cerrojo son 0.1 ms: escribir el miembro, las aristas inversas, el split y las filas.
+- **Esos relojes no cubren todo.** A 373 inserts por segundo de media, cada llamador tarda 21.5 ms por insert. Los 7.4 que faltan no los cuenta ningún reloj: la espera a que se aplique el lote, el `Flush` que el arnés hace tras cada ronda, y la lectura de los vectores del dataset. Es lo que la pasada de diagnóstico tiene que separar.
+
+#### Pasada de diagnóstico del insert (pre-registro, 27 de noviembre a las 21:30, antes de escribir su código)
+
+**El encargo (del usuario, 21:15).** Saber por qué el insert se encarece con el tamaño y por qué 8 llamadores no rinden 8 veces. Solo medir. Después del 10M, antes de las tablas por docID, sobre el mismo clon del 10M y sobre uno de 100k:
+1. contadores por insert: cargas, filas leídas, segmentos consultados por fila, extremos puntuados, vectores exactos, splits;
+2. tiempo por fase con 1, 2, 4 y 8 llamadores: plan (centroides, filas, recorrido, vectores exactos), espera al aplicador, aplicar bajo el cerrojo, diario y fsync, split, aristas inversas;
+3. la búsqueda del insert (ef 160, rescore 150) como consulta de solo lectura sobre el mismo índice, con 1 y 8 hilos, comparada con la fase de plan;
+4. E/S por insert: bytes y operaciones, separando diario, volcados y compactación; fallos de página; segmentos por bucket; una pasada con la compactación parada;
+5. contención: traza de ejecución de Go de 5 a 10 s y, por tramo, `runtime/metrics` (espera en mutex, latencia del planificador, CPU de GC, CPU ociosa);
+6. perfil de CPU por líneas con 1 y 8 llamadores, descontando el artefacto de macOS.
+
+Entrega: por tamaño, ms y porcentaje por fase; para cada fase que crece, la causa medida (más trabajo, fallo de caché, E/S o espera) con sus líneas. Sin propuestas hasta tener la tabla.
+
+**El código que se mide.** `m2` con la serie (`44c35ee9b9`), el que hizo crecer el índice, más tres cosas que no cambian lo que hace un insert:
+- **Relojes y contadores nuevos,** apagados salvo que el arnés los pida.
+- **El arreglo de #13944** (`c0e54c57c3`), que `m2` no lleva. Sin él la traza de ejecución puede matar el proceso en arm64. Solo toca los núcleos en ensamblador, que guardan y restauran el puntero de marco.
+- **Contadores en el store,** solo en esta rama: segmentos consultados por lectura, y bytes de volcados y de compactación.
+- Va en una rama local de diagnóstico. No entra en `m2`.
+
+**Control de que medir no cambia lo medido.** Los mismos inserts con el binario de `m2` sin tocar y con el de diagnóstico con los relojes puestos, 8 llamadores, a 100k y a 10M. Si el ritmo difiere más de un 3 %, lo digo y la tabla lleva la advertencia.
+
+**Los índices.**
+- **10M:** clones APFS del índice crecido, uno nuevo por pasada, para que todas salgan del mismo estado. El índice está sin su reorganización final, y lo digo en cada cifra a la que afecte.
+- **100k:** crecido de nuevo con el mismo arnés y el mismo dataset (las primeras filas del mismo orden), y clonado igual.
+- **Tamaños intermedios:** no hago más índices. La curva entre 5.6M y 10M sale de la corrida en marcha, por tramo: los relojes y contadores de `growStats` y el monitor de fuera.
+
+**Los vectores de los inserts. Un problema que no había visto:** al acabar el 10M el dataset no tiene filas sin insertar. El conjunto de 1M es sus primeras filas, comprobado.
+- **Los 20 000 inserts son filas ya insertadas, elegidas al azar con semilla fija, con ids nuevos** (de 10 000 000 en adelante). Cada una encuentra a su gemela a distancia 0.
+  - El trabajo de su búsqueda es el de un vector nuevo de la misma distribución: mismas cargas, mismas filas, mismo recorrido. El recall y la calidad de las aristas no se miden con ellos.
+  - **Control:** las 1 000 queries del dataset, que sí son vectores nuevos, insertadas en una pasada aparte con 8 llamadores. Si su coste por insert difiere más de un 5 % del de las filas repetidas, lo digo y las fases se dan con las queries donde alcancen.
+- Vale igual para los 20 000 inserts de las tablas por docID.
+- Los vectores se cargan en memoria antes del reloj: el arnés no lee el dataset mientras mide.
+
+**Las pasadas, cada una de 20 000 inserts sobre un clon nuevo.**
+
+| pasada | llamadores | qué lleva puesto | a 100k | a 10M |
+|---|---|---|---|---|
+| control | 8 | nada; binario de `m2` y binario de diagnóstico | sí | sí |
+| fases | 1, 2, 4 y 8 | relojes por fase y `runtime/metrics` por tramo | sí, dos veces en orden alterno | sí, dos veces en orden alterno |
+| contadores | 8 | contadores de trabajo de la búsqueda, que cuestan una segunda pasada por posting; sin cronómetro | sí | sí |
+| vectores nuevos | 8 | relojes; las 1 000 queries | sí | sí |
+| sin compactación | 8 | relojes; el ciclo de compactación sin arrancar | sí | sí |
+| búsqueda sola | 1 y 8 hilos | la búsqueda del insert como consulta, sin aplicar nada | sí | sí |
+| perfil | 1 y 8 | perfil de CPU; y `sample` desde fuera con 8 | sí | sí |
+| traza | 8 | traza de ejecución de 8 s a mitad de la pasada | sí | sí |
+
+- **Tramos de 2 000 inserts** dentro de cada pasada, para ver si la pasada deriva.
+- **El arnés hace `Flush` tras cada ronda,** como en el crecimiento, y lo cronometra aparte.
+- **Caché de ficheros:** las pasadas a 10M van seguidas, sin vaciarla. El índice son 39 GB y la máquina no lo tiene entero en caché; cada pasada da lo que leyó de disco, y no se llama «en caliente».
+- **Marcador, 15 minutos de inactividad y `caffeinate`,** como siempre. Nada compila mientras corre.
+
+**Qué mide cada punto del encargo.**
+1. **Contadores por insert:** de `growStats` las cargas, las rondas, las filas y sus bytes, los vectores exactos, los splits y las aristas inversas. De la pasada de contadores, los miembros recorridos, las aristas seguidas y los extremos puntuados. Del store, los segmentos y memtables consultados por fila leída, y cuántos de ellos pasaron el filtro de Bloom.
+2. **Fases, por el reloj de cada llamador,** que suman su tiempo entero por insert:
+   - plan: centroides, filas (pedir al store y decodificar), recorrido y vectores exactos, con los relojes que la búsqueda ya tiene para las queries;
+   - espera a entrar a buscar mientras se aplica un lote;
+   - espera a que su lote se aplique;
+   - aplicar bajo el cerrojo, partido en escribir el miembro, aristas inversas, split y filas reescritas, más el registro del diario;
+   - `Flush` de la ronda, con su fsync;
+   - lo que quede sin nombre, que se da como tal.
+3. **La búsqueda sola:** las mismas 20 000 búsquedas con ef 160, k = 16 y 150 vectores exactos, sin aplicar nada, con 1 y 8 hilos. Se compara con la fase de plan de las pasadas con 1 y 8 llamadores: ms por búsqueda, y CPU, instrucciones y ciclos por búsqueda.
+4. **E/S por insert:**
+   - del proceso, bytes leídos y escritos, page-ins y fallos de página (`proc_pid_rusage`), y del disco las operaciones de lectura y escritura con su tiempo (el monitor de fuera, que corre también aquí);
+   - bytes del diario, de los vectores, de los volcados de memtable y de la compactación, cada uno con su contador;
+   - segmentos por bucket al empezar y al acabar la pasada;
+   - la pasada sin compactación da lo mismo con los segmentos acumulándose.
+5. **Contención:** por tramo, de `runtime/metrics`, la espera acumulada en mutex, la latencia del planificador, la CPU del GC, la CPU ociosa y la de usuario. Y una traza de ejecución de 8 s con 8 llamadores, de la que saco el tiempo de las gorutinas de los llamadores por estado: corriendo, listas sin core, bloqueadas en sincronización, en llamada al sistema.
+   - Sin perfiles de bloqueo ni de mutex.
+6. **Perfil por líneas:** `pprof -lines` con 1 y con 8 llamadores.
+   - **El artefacto de macOS:** con muchos hilos que duermen y despiertan, el perfil de Go pone muestras de más en despertar hilos. Lo descuento así: el total del perfil se compara con la CPU que el sistema cuenta al proceso; con 8 llamadores doy además las líneas que saca `sample` desde fuera, que no depende de la señal del perfil; y donde los dos no coincidan en una función, lo digo y no la uso.
+
+**La tabla que entrego.** Por tamaño (100k y 10M) y por número de llamadores, cada fase en ms por insert y en porcentaje del tiempo del llamador. Para cada fase que crece de 100k a 10M, o de 1 a 8 llamadores, cuál de estas cuatro cosas lo explica, con la cifra que lo dice:
+- **más trabajo:** suben sus contadores o sus instrucciones;
+- **fallo de caché de memoria:** mismas instrucciones y más ciclos;
+- **E/S:** bytes leídos de disco, fallos de página, tiempo en lecturas;
+- **espera:** espera en mutex, latencia del planificador, espera al aplicador.
+
+Y las líneas del perfil donde está. Lo que no quede explicado se da como no explicado.
+
+**Lo que no hago.** Ninguna optimización ni propuesta hasta tener la tabla. Nada de búsqueda en frío sobre el índice sin reorganizar.
+
+**Dónde va en el orden** (*mío*, si el usuario no dice otra cosa): números del 10M, borrar `tenm` y `codes/`, propagación, esta pasada, tablas por docID.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
