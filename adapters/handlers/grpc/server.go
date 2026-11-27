@@ -279,13 +279,14 @@ func (s *serverState) admit(method string) error {
 	var err error
 	switch method {
 
-	// Healthcheck request.
-	case grpc_health_v1.Health_Check_FullMethodName,
+	case // Healthcheck request.
+		grpc_health_v1.Health_Check_FullMethodName,
 		grpc_health_v1.Health_Watch_FullMethodName,
 		grpc_health_v1.Health_List_FullMethodName:
 
-	// Read request.
-	case pbv1.Weaviate_Search_FullMethodName,
+	case // Read request.
+		pbv0.Weaviate_Search_FullMethodName,
+		pbv1.Weaviate_Search_FullMethodName,
 		pbv1.Weaviate_Aggregate_FullMethodName,
 		pbv1.Weaviate_TenantsGet_FullMethodName:
 
@@ -293,8 +294,9 @@ func (s *serverState) admit(method string) error {
 			err = config.ErrWriteOnlyModeEnabled
 		}
 
-	// Write request.
-	case pbv1.Weaviate_BatchObjects_FullMethodName,
+	case // Write request.
+		pbv0.Weaviate_BatchObjects_FullMethodName,
+		pbv1.Weaviate_BatchObjects_FullMethodName,
 		pbv1.Weaviate_BatchStream_FullMethodName,
 		pbv1.Weaviate_BatchReferences_FullMethodName,
 		pbv1.Weaviate_BatchDelete_FullMethodName:
@@ -306,7 +308,7 @@ func (s *serverState) admit(method string) error {
 			err = config.ErrScaleOutModeEnabled
 		}
 	default:
-		panic(method + " not handled by interceptor")
+		return status.Error(codes.Unimplemented, "unknown method")
 	}
 	if err != nil {
 		return status.Error(codes.Unavailable, err.Error())

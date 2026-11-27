@@ -37,6 +37,7 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/sentry"
+	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -299,6 +300,14 @@ func TestServerState_admit(t *testing.T) {
 			code: codes.Unavailable, err: config.ErrWriteOnlyModeEnabled,
 		},
 
+		{method: pbv0.Weaviate_Search_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv0.Weaviate_Search_FullMethodName, mode: config.READ_ONLY},
+		{method: pbv0.Weaviate_Search_FullMethodName, mode: config.SCALE_OUT},
+		{
+			method: pbv0.Weaviate_Search_FullMethodName, mode: config.WRITE_ONLY,
+			code: codes.Unavailable, err: config.ErrWriteOnlyModeEnabled,
+		},
+
 		{method: pbv1.Weaviate_TenantsGet_FullMethodName, mode: config.READ_WRITE},
 		{method: pbv1.Weaviate_TenantsGet_FullMethodName, mode: config.READ_ONLY},
 		{method: pbv1.Weaviate_TenantsGet_FullMethodName, mode: config.SCALE_OUT},
@@ -316,6 +325,17 @@ func TestServerState_admit(t *testing.T) {
 		},
 		{
 			method: pbv1.Weaviate_BatchObjects_FullMethodName, mode: config.SCALE_OUT,
+			code: codes.Unavailable, err: config.ErrScaleOutModeEnabled,
+		},
+
+		{method: pbv0.Weaviate_BatchObjects_FullMethodName, mode: config.READ_WRITE},
+		{method: pbv0.Weaviate_BatchObjects_FullMethodName, mode: config.WRITE_ONLY},
+		{
+			method: pbv0.Weaviate_BatchObjects_FullMethodName, mode: config.READ_ONLY,
+			code: codes.Unavailable, err: config.ErrReadOnlyModeEnabled,
+		},
+		{
+			method: pbv0.Weaviate_BatchObjects_FullMethodName, mode: config.SCALE_OUT,
 			code: codes.Unavailable, err: config.ErrScaleOutModeEnabled,
 		},
 
@@ -350,6 +370,11 @@ func TestServerState_admit(t *testing.T) {
 		{
 			method: pbv1.Weaviate_BatchDelete_FullMethodName, mode: config.SCALE_OUT,
 			code: codes.Unavailable, err: config.ErrScaleOutModeEnabled,
+		},
+
+		{
+			method: "unknown method", mode: config.READ_WRITE,
+			code: codes.Unimplemented, err: errors.New("unknown method"),
 		},
 	} {
 		t.Run(fmt.Sprintf("method=%s mode=%s", tt.method, tt.mode), func(t *testing.T) {
