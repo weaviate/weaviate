@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -493,6 +494,11 @@ type ClassDescriptor struct {
 	StagingDir              string             `json:"-"` // non-serialized; staging dir for hard-linked snapshot files
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
+
+	// ReindexTasks is absent in a backup taken before the capture, and [] when the class had no ended task.
+	ReindexTasks json.RawMessage `json:"reindexTasks,omitempty"`
+	// ReindexLive is absent when every property index of the class serves generation 0.
+	ReindexLive json.RawMessage `json:"reindexLive,omitempty"`
 }
 
 type CompressionType string

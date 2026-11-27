@@ -78,6 +78,7 @@ type TaskHeader interface {
 
 // HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. DecodeHeader must be a pure function of the payload.
 // The Manager derives the header when a task copy enters memory (add, restore, receive), so readers never decode the payload.
+// json.Marshal of a header must decode back to an equal header, because [Manager.CompactEndedTasks] stores it as the payload.
 type HeaderDecoder interface {
 	DecodeHeader(payload []byte) (TaskHeader, error)
 }
@@ -623,6 +624,9 @@ type Task struct {
 	// Nil for tasks whose provider does not implement [UnitAwareProvider]
 	// (no OnGroupCompleted to ack).
 	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
+
+	// Summary replaces Units on a copy from [Manager.CompactEndedTasks].
+	Summary *UnitSummary `json:"summary,omitempty"`
 }
 
 // PostCompletionAck records one node's OnGroupCompleted result for a

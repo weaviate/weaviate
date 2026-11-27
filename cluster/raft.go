@@ -93,6 +93,10 @@ func (s *Raft) LocalTaskStatuses(namespace, shard string) []distributedtask.Task
 	return s.store.LocalTaskStatuses(namespace, shard)
 }
 
+func (s *Raft) CompactEndedTasks(namespace, collection string) ([]*distributedtask.Task, error) {
+	return s.store.CompactEndedTasks(namespace, collection)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }

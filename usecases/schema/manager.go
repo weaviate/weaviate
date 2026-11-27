@@ -58,6 +58,7 @@ type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
 	ReadOnlyClass(string) *models.Class
+	ClassLive(class string) map[string]map[string]uint64
 	ResolveAlias(string) string
 	GetAliasesForClass(class string) []*models.Alias
 	Nodes() []string

@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
@@ -90,7 +91,7 @@ func TestBackupVsReindexSuite(t *testing.T) {
 	})
 
 	t.Run("BackupSucceedsAfterMigrationFinishes", func(t *testing.T) {
-		testBackupSucceedsAfterMigrationFinishes(t, restURI)
+		testBackupSucceedsAfterMigrationFinishes(t, ctx, compose, restURI)
 	})
 
 	t.Run("CancelOnNoInFlightReturns202NoOp", func(t *testing.T) {
@@ -125,7 +126,7 @@ func testBaselineBackupRoundTrip(t *testing.T, restURI string) {
 	require.EqualValues(t, 200, preCount)
 
 	backupAndRestoreRoundTrip(t, className, "reindex-backup-baseline", preCount,
-		"restored count must equal pre-backup count")
+		"restored count must equal pre-backup count", nil)
 }
 
 // testBackupRefusedDuringInFlightMigration asserts that a backup fired
@@ -235,7 +236,7 @@ func errorResponseMessage(er *models.ErrorResponse) string {
 // testBackupSucceedsAfterMigrationFinishes asserts that once the
 // migration completes, backup-create + restore work cleanly — i.e. the
 // rejection path didn't leave the per-shard halt counter incremented.
-func testBackupSucceedsAfterMigrationFinishes(t *testing.T, restURI string) {
+func testBackupSucceedsAfterMigrationFinishes(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
 	className := "ReindexBackup_SucceedsAfterFinish"
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -259,8 +260,57 @@ func testBackupSucceedsAfterMigrationFinishes(t *testing.T, restURI string) {
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable",
 		reindexhelpers.WithTimeout(60*time.Second))
 
-	backupAndRestoreRoundTrip(t, className, "reindex-backup-after-finish", preCount,
-		"post-migration backup must round-trip object count cleanly")
+	const backupID = "reindex-backup-after-finish"
+	backupAndRestoreRoundTrip(t, className, backupID, preCount,
+		"post-migration backup must round-trip object count cleanly", func(t *testing.T) {
+			tasks := endedReindexTasksInBackup(t, ctx, compose, backupID, className)
+			require.Len(t, tasks, 1, "the class's backup must carry its finished reindex task")
+			assert.Equal(t, taskID, tasks[0].ID)
+			assert.Equal(t, "FINISHED", tasks[0].Status)
+			require.NotNil(t, tasks[0].Summary, "the task must carry a unit summary")
+			assert.Equal(t, map[string]int{"COMPLETED": 1}, tasks[0].Summary.Counts)
+			assert.Nil(t, tasks[0].Units, "the task must not carry its units")
+		})
+}
+
+type backedUpReindexTask struct {
+	ID      string `json:"ID"`
+	Status  string `json:"status"`
+	Summary *struct {
+		Counts map[string]int `json:"counts"`
+	} `json:"summary"`
+	Units json.RawMessage `json:"units"`
+}
+
+// endedReindexTasksInBackup reads the class's reindexTasks from the node's backup.json.
+func endedReindexTasksInBackup(t *testing.T, ctx context.Context, compose *docker.DockerCompose, backupID, className string) []backedUpReindexTask {
+	t.Helper()
+	container := compose.GetWeaviate().Container()
+	code, out, err := container.Exec(ctx, []string{"find", "/tmp/backups/" + backupID, "-type", "f", "-name", "backup.json"}, tcexec.Multiplexed())
+	require.NoError(t, err)
+	require.Zero(t, code)
+	found, err := io.ReadAll(out)
+	require.NoError(t, err)
+	paths := strings.Fields(string(found))
+	require.Len(t, paths, 1, "single-node backup must hold one node descriptor: %s", found)
+
+	rc, err := container.CopyFileFromContainer(ctx, paths[0])
+	require.NoError(t, err)
+	defer rc.Close()
+	var desc struct {
+		Classes []struct {
+			Name         string                `json:"name"`
+			ReindexTasks []backedUpReindexTask `json:"reindexTasks"`
+		} `json:"classes"`
+	}
+	require.NoError(t, json.NewDecoder(rc).Decode(&desc))
+	for _, class := range desc.Classes {
+		if class.Name == className {
+			return class.ReindexTasks
+		}
+	}
+	require.Failf(t, "class missing from backup", "%s not in %s", className, paths[0])
+	return nil
 }
 
 // importBodies inserts `count` objects with a `body` text property long
@@ -454,15 +504,18 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 	deletedByTest = true
 }
 
-// backupAndRestoreRoundTrip creates a filesystem backup, deletes the
-// class, restores it, and asserts the post-restore count equals
-// preCount.
-func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCount int64, msg string) {
+// backupAndRestoreRoundTrip creates a filesystem backup, runs inspect if
+// set, deletes the class, restores it, and asserts the post-restore count
+// equals preCount.
+func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCount int64, msg string, inspect func(t *testing.T)) {
 	t.Helper()
 	_, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, "filesystem", backupID)
 	require.NoError(t, err)
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil,
 		helper.WithDeadline(2*time.Minute))
+	if inspect != nil {
+		inspect(t)
+	}
 
 	helper.DeleteClass(t, className)
 	_, err = helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, "filesystem", backupID, nil, false)
