@@ -28,8 +28,8 @@ import (
 )
 
 const (
-	baseURLKey        string = "X-ContextualAI-Baseurl"
-	apiKeyKey         string = "X-ContextualAI-Api-Key"
+	baseURLKey        string = "X-Contextualai-Baseurl"
+	apiKeyKey         string = "X-Contextualai-Api-Key"
 	testAPIKey        string = "test-key"
 	contentTypeHeader string = "Content-Type"
 	applicationJSON   string = "application/json"

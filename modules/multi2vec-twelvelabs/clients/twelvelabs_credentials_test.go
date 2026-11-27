@@ -55,7 +55,7 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-Twelvelabs-Baseurl": server.URL},
-			wantErr: "X-Twelvelabs-Baseurl needs X-Twelvelabs-Api-Key: the server's key is sent only to the configured URL",
+			wantErr: "X-Twelvelabs-Baseurl needs X-Twelvelabs-Api-Key",
 		},
 		{
 			name:    "baseURL header with a request key",

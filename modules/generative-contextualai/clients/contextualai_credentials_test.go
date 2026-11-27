@@ -55,13 +55,13 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 		{
 			name:    "baseURL header without a request key",
 			headers: map[string]string{"X-ContextualAI-Baseurl": server.URL},
-			wantErr: "X-ContextualAI-Baseurl needs X-ContextualAI-Api-Key: the server's key is sent only to the configured URL",
+			wantErr: "X-Contextualai-Baseurl needs X-Contextualai-Api-Key",
 		},
 		{
 			name:    "gRPC baseURL header without a request key",
 			headers: map[string]string{"X-ContextualAI-Baseurl": server.URL},
 			grpc:    true,
-			wantErr: "X-ContextualAI-Baseurl needs X-ContextualAI-Api-Key: the server's key is sent only to the configured URL",
+			wantErr: "X-Contextualai-Baseurl needs X-Contextualai-Api-Key",
 		},
 		{
 			name:     "baseURL header with a request key",

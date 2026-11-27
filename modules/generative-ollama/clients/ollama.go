@@ -152,7 +152,7 @@ func (v *ollama) getDebugInformation(debug bool, prompt string) *modulecapabilit
 }
 
 func (v *ollama) getOllamaUrl(ctx context.Context, baseURL string) (string, error) {
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Ollama-BaseURL"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Ollama-Baseurl"); headerBaseURL != "" {
 		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
 			return "", err
 		}

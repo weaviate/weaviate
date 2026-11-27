@@ -65,13 +65,14 @@ func (s *Server) HostPort() string {
 	return strings.TrimPrefix(s.URL, "https://")
 }
 
-// Context returns a context that stores each header as a []string under the
-// name given. REST stores request headers the same way under their canonical
-// names (X-Openai-Api-Key); this helper does not canonicalize.
+// Context returns a context that stores each header as a []string under its
+// canonical name (X-Contextualai-Api-Key for X-ContextualAI-Api-Key), as the
+// REST middleware does. A module that looks a header up under another
+// spelling does not find it over REST, and its test fails.
 func Context(headers map[string]string) context.Context {
 	ctx := context.Background()
 	for k, v := range headers {
-		ctx = context.WithValue(ctx, k, []string{v})
+		ctx = context.WithValue(ctx, http.CanonicalHeaderKey(k), []string{v})
 	}
 	return ctx
 }

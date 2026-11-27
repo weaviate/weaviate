@@ -130,7 +130,7 @@ func TestRequestBaseURL(t *testing.T) {
 		{
 			name:      "requested path on the configured host without a request key",
 			requested: configured + "/proxy",
-			wantErr:   "a URL set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:      "requested path on the configured host with a request key",
@@ -142,22 +142,22 @@ func TestRequestBaseURL(t *testing.T) {
 			name:       "requested gateway path of another tenant",
 			requested:  "https://gw.example.com/v1/other-account/openai",
 			configured: "https://gw.example.com/v1/openai",
-			wantErr:    "a URL set in the query needs X-Openai-Api-Key",
+			wantErr:    "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:       "requested path differs only in case",
 			requested:  "https://api.openai.com/V1",
 			configured: "https://api.openai.com/v1",
-			wantErr:    "a URL set in the query needs X-Openai-Api-Key",
+			wantErr:    "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
 		},
-		{name: "requested adds a query", requested: configured + "?x=1", wantErr: "a URL set in the query needs X-Openai-Api-Key"},
-		{name: "requested adds a fragment", requested: configured + "#x", wantErr: "a URL set in the query needs X-Openai-Api-Key"},
-		{name: "requested adds userinfo", requested: "https://user@api.openai.com", wantErr: "a URL set in the query needs X-Openai-Api-Key"},
-		{name: "requested adds the default port", requested: "https://api.openai.com:443", wantErr: "a URL set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds a query", requested: configured + "?x=1", wantErr: "a baseURL or endpoint set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds a fragment", requested: configured + "#x", wantErr: "a baseURL or endpoint set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds userinfo", requested: "https://user@api.openai.com", wantErr: "a baseURL or endpoint set in the query needs X-Openai-Api-Key"},
+		{name: "requested adds the default port", requested: "https://api.openai.com:443", wantErr: "a baseURL or endpoint set in the query needs X-Openai-Api-Key"},
 		{
 			name:      "requested host without a request key",
 			requested: attacker,
-			wantErr:   "a URL set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key: the server's key is sent only to the configured URL",
 		},
 		{
 			name:      "requested host with a request key",
@@ -168,22 +168,22 @@ func TestRequestBaseURL(t *testing.T) {
 		{
 			name:      "requested scheme differs",
 			requested: "http://api.openai.com",
-			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested port differs",
 			requested: "https://api.openai.com:8443",
-			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested host hidden behind userinfo",
 			requested: "https://api.openai.com@attacker.example.com",
-			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested URL does not parse",
 			requested: "https://api.openai.com%zz",
-			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:    "header host without a request key",
@@ -210,7 +210,7 @@ func TestRequestBaseURL(t *testing.T) {
 			name:      "another provider's key does not count",
 			requested: attacker,
 			headers:   map[string]string{"X-Azure-Api-Key": "caller"},
-			wantErr:   "a URL set in the query needs X-Openai-Api-Key",
+			wantErr:   "a baseURL or endpoint set in the query needs X-Openai-Api-Key",
 		},
 		{
 			name:      "requested host validated when validation is on",

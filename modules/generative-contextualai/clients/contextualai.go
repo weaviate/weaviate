@@ -249,7 +249,7 @@ func (c *contextualai) extractKnowledge(properties []*modulecapabilities.Generat
 }
 
 func (c *contextualai) getContextualAIURL(ctx context.Context) (string, error) {
-	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-ContextualAI-Baseurl", "", "https://api.contextual.ai", "X-ContextualAI-Api-Key")
+	baseURL, err := modulecomponents.RequestBaseURL(ctx, "X-Contextualai-Baseurl", "", "https://api.contextual.ai", "X-Contextualai-Api-Key")
 	if err != nil {
 		return "", err
 	}
@@ -257,7 +257,7 @@ func (c *contextualai) getContextualAIURL(ctx context.Context) (string, error) {
 }
 
 func (c *contextualai) getAPIKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-ContextualAI-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Contextualai-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if c.apiKey != "" {
