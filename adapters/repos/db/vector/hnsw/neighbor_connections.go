@@ -255,20 +255,37 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
-		if err := n.pickEntrypoint(ctx, level); err != nil {
-			return errors.Wrap(err, "pick entrypoint at level beginning")
-		}
-		if n.bootstrapped {
-			return nil
-		}
-		eps := priorityqueue.NewMin[any](1)
-		eps.Insert(n.entryPointID, n.entryPointDist)
-		var err error
+		for {
+			if err := n.ctx.Err(); err != nil {
+				return err
+			}
+			if err := n.pickEntrypoint(ctx, level); err != nil {
+				return errors.Wrap(err, "pick entrypoint at level beginning")
+			}
+			if n.bootstrapped {
+				return nil
+			}
+			eps := priorityqueue.NewMin[any](1)
+			eps.Insert(n.entryPointID, n.entryPointDist)
+			var err error
 
-		results, err = n.graph.searchLayerByVectorWithDistancer(ctx, n.nodeVec, eps, n.graph.efConstruction,
-			level, nil, n.distancer)
-		if err != nil {
-			return errors.Wrapf(err, "search layer at level %d", level)
+			results, err = n.graph.searchLayerByVectorWithDistancer(ctx, n.nodeVec, eps, n.graph.efConstruction,
+				level, nil, n.distancer)
+			if err != nil {
+				return errors.Wrapf(err, "search layer at level %d", level)
+			}
+
+			if level > 0 || results.Len() > 0 {
+				break
+			}
+
+			n.graph.pools.pqResults.Put(results)
+			if err := n.leaveTombstones(); err != nil {
+				return err
+			}
+			if n.bootstrapped {
+				return nil
+			}
 		}
 
 		n.graph.insertMetrics.findAndConnectSearch(before)
@@ -398,70 +415,94 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	}
 
 	maximumConnections := n.maximumConnections(level)
-	if len(currentConnections) < maximumConnections {
-		// we can simply append
-		// updatedConnections = append(currentConnections, n.nodeID)
-		neighbor.appendConnectionAtLevelNoLock(level, n.nodeID, maximumConnections)
-		if err := n.graph.commitLog.AddLinkAtLevel(neighborID, level, n.nodeID); err != nil {
-			return err
-		}
-	} else {
-		// we need to run the heuristic
-
-		dist, err := n.graph.distBetweenNodes(n.nodeID, neighborID)
-		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-				// it seems either the node or the neighbor were deleted in the meantime,
-				// there is nothing we can do now
-				return nil
-			}
-			return errors.Wrapf(err, "dist between %d and %d", n.nodeID, neighborID)
-		}
-
-		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
-		candidates.Insert(n.nodeID, dist)
-
-		for _, existingConnection := range currentConnections {
-			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-			if err != nil {
-				var e storobj.ErrNotFound
-				if errors.As(err, &e) {
-					n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-					// was deleted in the meantime
-					continue
-				}
-				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
-			}
-
-			candidates.Insert(existingConnection, dist)
-		}
-
-		// no deny list: the inserting node is a candidate here and denies
-		// itself in n.denyList
-		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, nil)
-		if err != nil {
-			return errors.Wrap(err, "connect neighbors")
-		}
-
-		neighbor.resetConnectionsAtLevelNoLock(level)
-		if err := n.graph.commitLog.ClearLinksAtLevel(neighborID, uint16(level)); err != nil {
-			return err
-		}
-
-		ids := make([]uint64, 0, candidates.Len())
-		for candidates.Len() > 0 {
-			id := candidates.Pop().ID
-			ids = append(ids, id)
-			if err := n.graph.commitLog.AddLinkAtLevel(neighborID, level, id); err != nil {
-				return err
-			}
-		}
-		neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
+	if len(currentConnections) >= maximumConnections {
+		return n.pruneNeighborAtLevel(neighbor, neighborID, level, currentConnections, maximumConnections)
 	}
 
+	// we can simply append
+	// updatedConnections = append(currentConnections, n.nodeID)
+	neighbor.appendConnectionAtLevelNoLock(level, n.nodeID, maximumConnections)
+	return n.graph.commitLog.AddLinkAtLevel(neighborID, level, n.nodeID)
+}
+
+// pruneNeighborAtLevel makes room for the node in a full list of connections. The
+// caller holds the lock of the neighbor.
+func (n *neighborFinderConnector) pruneNeighborAtLevel(neighbor *vertex, neighborID uint64,
+	level int, currentConnections []uint64, maximumConnections int,
+) error {
+	// we need to run the heuristic
+
+	candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
+
+	// tombstones don't compete with live nodes for a slot: pruned down to them, a
+	// node leaves the live part of the graph behind. They only get what's left,
+	// until cleanup they can still be the one way to reach another node. That goes
+	// for this node too, if its delete has overtaken its insert.
+	live, tombstoned := n.graph.splitOffTombstones(currentConnections)
+	if n.graph.hasTombstone(n.nodeID) {
+		tombstoned = append(tombstoned, n.nodeID)
+	} else {
+		dist, found, err := n.distToNeighbor(n.nodeID, neighborID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			// there is nothing we can do now
+			return nil
+		}
+		candidates.Insert(n.nodeID, dist)
+	}
+
+	for _, existingConnection := range live {
+		dist, found, err := n.distToNeighbor(existingConnection, neighborID)
+		if err != nil {
+			return err
+		}
+		if found {
+			candidates.Insert(existingConnection, dist)
+		}
+	}
+
+	// no deny list: the inserting node is a candidate here and denies
+	// itself in n.denyList
+	err := n.graph.selectNeighborsHeuristic(candidates, maximumConnections, nil)
+	if err != nil {
+		return errors.Wrap(err, "connect neighbors")
+	}
+
+	neighbor.resetConnectionsAtLevelNoLock(level)
+	if err := n.graph.commitLog.ClearLinksAtLevel(neighborID, uint16(level)); err != nil {
+		return err
+	}
+
+	ids := make([]uint64, 0, candidates.Len()+len(tombstoned))
+	for candidates.Len() > 0 {
+		ids = append(ids, candidates.Pop().ID)
+	}
+	ids = append(ids, tombstoned[:min(len(tombstoned), maximumConnections-len(ids))]...)
+	for _, id := range ids {
+		if err := n.graph.commitLog.AddLinkAtLevel(neighborID, level, id); err != nil {
+			return err
+		}
+	}
+	neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
+
 	return nil
+}
+
+// distToNeighbor reports found=false if one of the two was deleted in the meantime.
+func (n *neighborFinderConnector) distToNeighbor(id, neighborID uint64) (dist float32, found bool, err error) {
+	dist, err = n.graph.distBetweenNodes(id, neighborID)
+	if err == nil {
+		return dist, true, nil
+	}
+
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+		return 0, false, nil
+	}
+	return 0, false, errors.Wrapf(err, "dist between %d and %d", id, neighborID)
 }
 
 func (n *neighborFinderConnector) skipNeighbor(neighborID uint64, neighbor *vertex) bool {
@@ -542,6 +583,27 @@ func (n *neighborFinderConnector) pickEntrypoint(ctx context.Context, level int)
 		acceptUnlinked = true
 		candidate = n.graph.getEntrypoint()
 	}
+}
+
+// leaveTombstones gets an insert out of a part of the graph with nothing but
+// tombstones in reach. It can't link to any of them, and a node without edges is
+// out of reach of every search for good: tombstone cleanup only visits nodes that
+// have tombstoned neighbors. So the node takes over from the dead entrypoint or, if
+// a concurrent insert was first, starts over from that one. The search may have come
+// from a local entrypoint, in which case the global one gets its turn first.
+func (n *neighborFinderConnector) leaveTombstones() error {
+	if global := n.graph.getEntrypoint(); global != n.entryPointID {
+		n.entryPointID = global
+		return nil
+	}
+
+	tookOver, err := n.graph.takeOverDeadEntrypoint(n.nodeID, n.node, n.nodeVec)
+	if err != nil {
+		return err
+	}
+	n.bootstrapped = tookOver
+	n.entryPointID = n.graph.getEntrypoint()
+	return nil
 }
 
 func (n *neighborFinderConnector) tryEpCandidate(candidate uint64, level int, acceptUnlinked bool) (bool, error) {
