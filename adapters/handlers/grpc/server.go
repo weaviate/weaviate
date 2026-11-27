@@ -63,7 +63,6 @@ type Config struct {
 }
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.ServerOption passed first.
-// clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
 func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	grpcConf := state.ServerConfig.Config.GRPC
 	o := []grpc.ServerOption{
