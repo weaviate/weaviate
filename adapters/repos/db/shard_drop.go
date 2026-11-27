@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -62,6 +63,7 @@ func (s *Shard) drop() (err error) {
 	}
 
 	defer s.releaseCountedStatus()
+	_ = s.handle.ReportPhase(clusterschema.PhaseShutdown)
 
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 

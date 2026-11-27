@@ -13,33 +13,18 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
-
-// Standardized reasons for shard status changes.  These are stored in
-// ShardStatus.Reason and used by the recovery logic to decide whether a
-// READONLY shard can be automatically transitioned back to READY.
-const (
-	statusReasonResourcePressure = "resource pressure"
-	statusReasonResourceRecovery = "resource usage below threshold"
-	statusReasonManualUpdate     = "manually set by user"
-	statusReasonShutdown         = "shutdown"
-	statusReasonNotifyReady      = "notify ready"
-	statusReasonMirrorUnarmed    = "a reindex migration could not re-arm its double-write mirror"
-)
-
-type ShardStatus struct {
-	Status storagestate.Status
-	Reason string
-}
 
 func (s *Shard) registerCountedStatus(status storagestate.Status) {
 	s.statusLock.Lock()
@@ -74,136 +59,112 @@ func (s *Shard) releaseCountedStatus() {
 	s.countedStatus = ""
 }
 
-// GetStatus recomputes READY/INDEXING from the vector queues. The gauge is not
-// moved by the recompute, only by status writes.
 func (s *Shard) GetStatus() storagestate.Status {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	return s.getStatusUnlocked()
+	status := s.handle.Status()
+	if status != storagestate.StatusReady || !s.hasQueuedVectors() {
+		return status
+	}
+	return storagestate.StatusIndexing
 }
 
-func (s *Shard) getStatusUnlocked() storagestate.Status {
-	if s.status.Status != storagestate.StatusReady && s.status.Status != storagestate.StatusIndexing {
-		return s.status.Status
-	}
-
+func (s *Shard) hasQueuedVectors() bool {
 	if !s.hasAnyVectorIndex() {
-		return s.status.Status
+		return false
 	}
-
-	status := storagestate.StatusReady
+	queued := false
 	_ = s.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
-		if queue.Size() > 0 {
-			status = storagestate.StatusIndexing
-		}
+		queued = queued || queue.Size() > 0
 		return nil
 	})
 	_ = s.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
-		if queue.Size() > 0 {
-			status = storagestate.StatusIndexing
-		}
+		queued = queued || queue.Size() > 0
 		return nil
 	})
-	s.status.Status = status
-	return status
+	return queued
 }
 
-func (s *Shard) GetStatusReason() string {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-	return s.status.Reason
-}
-
-// isReadOnly returns an error if shard is readOnly and nil otherwise
+// isReadOnly fails a write the node overlay refuses; a user's READONLY is refuseUserReadOnly's.
 func (s *Shard) isReadOnly() error {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	if s.status.Status == storagestate.StatusReadOnly {
-		return storagestate.ErrStatusReadOnlyWithReason(s.status.Reason)
-	}
-	return nil
+	return s.handle.RefuseWrite()
 }
 
-func (s *Shard) SetStatusReadonly(reason string) error {
-	return s.UpdateStatus(storagestate.StatusReadOnly.String(), reason)
+// syncGainedBuckets drives each loaded shard's store again after it gained buckets, so they pause with it.
+func syncGainedBuckets(shards []ShardLike) {
+	for _, sl := range shards {
+		s, _ := sl.(*Shard)
+		if lazy, ok := asLazyLoadShard(sl); ok {
+			s = lazy.currentShard()
+		}
+		if s != nil {
+			_ = s.handle.Sync() // only a closed store fails, and it takes no writes
+		}
+	}
 }
 
-func (s *Shard) UpdateStatus(in, reason string) error {
-	if err := s.retryHeldMigrations(in); err != nil {
-		return err
-	}
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	return s.updateStatusUnlocked(in, reason)
-}
-
-// UpdateStatusIf writes the new status only if cond holds for the current one,
-// evaluating cond and writing under a single statusLock acquisition so a status
-// another writer sets in between cannot be overwritten. cond runs with the lock
-// held and must not call back into the shard.
-func (s *Shard) UpdateStatusIf(cond func(ShardStatus) bool, in, reason string) error {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	current := ShardStatus{Status: s.getStatusUnlocked(), Reason: s.status.Reason}
-	if !cond(current) {
-		return nil
-	}
-	return s.updateStatusUnlocked(in, reason)
-}
-
-// updateStatusUnlocked updates the status without locking the statusLock.
-// Warning: Use UpdateStatus instead.
-func (s *Shard) updateStatusUnlocked(in, reason string) error {
-	targetStatus, err := storagestate.ValidateStatus(strings.ToUpper(in))
-	if err != nil {
-		return errors.Wrap(err, in)
-	}
-	// isReadOnly lets every status but READONLY take writes, so the gate refuses each of them until a retry arms or stamps every held task.
-	if targetStatus != storagestate.StatusReadOnly && len(s.migrationMirrors.heldUnarmed()) > 0 {
-		return s.heldReadOnlyErr(errors.New("no recovery retry has re-armed its mirror or stamped it Unmirrored"))
-	}
-	oldStatus := s.status.Status
-	s.status.Status = targetStatus
-	s.status.Reason = reason
-
-	logger := s.index.logger.WithFields(logrus.Fields{
-		"action": "update_shard_status",
-		"class":  s.index.Config.ClassName,
-		"shard":  s.name,
-		"status": targetStatus.String(),
-		"prev":   oldStatus.String(),
-		"reason": reason,
+// PauseStore is the node overlay's control of this shard's background I/O.
+func (s *Shard) PauseStore(paused, tempPaused bool) error {
+	return s.store.UpdateBucketsStatusBy(func(bucket string) storagestate.Status {
+		if paused && (tempPaused || !strings.HasSuffix(bucket, schema.InternalTempSuffix)) {
+			return storagestate.StatusReadOnly
+		}
+		return storagestate.StatusReady
 	})
-	if err = s.store.UpdateBucketsStatus(targetStatus); err != nil {
-		logger.WithError(err).Error("shard status change failed")
-		return err
-	}
+}
 
-	if targetStatus != storagestate.StatusReadOnly {
-		s.migrationMirrors.releaseHeld()
-	}
-	s.moveCountedStatusUnlocked(targetStatus)
+// StatusChanged follows the node overlay's status for this shard in the status gauge and the log.
+func (s *Shard) StatusChanged(next storagestate.Status) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
 
-	lvl := logrus.DebugLevel
-	if targetStatus == storagestate.StatusReadOnly {
-		lvl = logrus.WarnLevel
+	if prev := s.countedStatus; prev != "" && prev != next.String() {
+		lvl := logrus.DebugLevel
+		if next == storagestate.StatusReadOnly {
+			lvl = logrus.WarnLevel
+		}
+		s.index.logger.WithFields(logrus.Fields{
+			"action": "update_shard_status",
+			"class":  s.index.Config.ClassName,
+			"shard":  s.name,
+			"status": next.String(),
+			"prev":   prev,
+		}).Log(lvl, "shard status changed")
 	}
-	logger.Log(lvl, "shard status changed")
-	return nil
+	s.moveCountedStatusUnlocked(next)
+}
+
+// markShutdown lifts any pause for good: a store going down takes what is in flight.
+func (s *Shard) markShutdown() {
+	_ = s.handle.ReportPhase(clusterschema.PhaseShutdown)
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	s.moveCountedStatusUnlocked(storagestate.StatusShutdown)
+	// a closed store is the only failure, and it takes no writes
+	_ = s.store.UpdateBucketsStatus(storagestate.StatusShutdown)
+}
+
+// setReindexing(false) also ends the swap: a reindex that fails mid-swap gives the store back.
+func (s *Shard) setReindexing(reindexing bool) error {
+	if reindexing {
+		return s.handle.Set(clusterschema.ConditionReindexing, true)
+	}
+	return s.handle.Set(clusterschema.ConditionReindexing|clusterschema.ConditionReindexSwapping, false)
+}
+
+// setReindexSwapping pauses the reindex's temp buckets too, so they can be renamed into place.
+func (s *Shard) setReindexSwapping() error {
+	return s.handle.Set(clusterschema.ConditionReindexSwapping, true)
+}
+
+func (s *Shard) setMigrationHeld(held bool) error {
+	return s.handle.Set(clusterschema.ConditionMigrationHeld, held)
 }
 
 // retryHeldMigrations starts the arm and refuses at once: a status change can run inside a RAFT apply,
 // which must never wait on the disk.
 // A shutdown waits for the arm's shard reference, and a drop waits about 30 s for it.
-func (s *Shard) retryHeldMigrations(in string) error {
-	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
-	held := s.migrationMirrors.heldUnarmed()
-	// performShutdown writes SHUTDOWN while holding shutdownLock, which preventShutdown would wait on forever.
-	if err != nil || target == storagestate.StatusReadOnly || len(held) == 0 || s.shut.Load() {
+func (s *Shard) retryHeldMigrations() error {
+	if len(s.migrationMirrors.heldUnarmed()) == 0 || s.shut.Load() {
 		return nil
 	}
 	release, err := s.preventShutdown()
@@ -236,16 +197,16 @@ func (s *Shard) rearmHeld() error {
 	unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), claimed)
 	ec := errorcompounder.New()
 	ec.Add(err)
-	// Buckets the arm opened go back to READONLY before the hold changes, so no lift races the reset.
-	ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
 	if len(skipped) > 0 {
 		ec.Add(fmt.Errorf("a teardown holds the unit of %d migration(s); set the status again once it ends", len(skipped)))
 	}
 	if err != nil || len(skipped) > 0 {
+		// Buckets the arm opened pause again before the hold changes, so no lift races the reset.
+		ec.Add(s.handle.Sync())
 		s.migrationMirrors.holdUnarmed(append(unarmed, skipped...))
 	} else {
-		s.migrationMirrors.markHeldSettled()
-		ec.Add(s.index.db.liftHeldShard(s))
+		s.migrationMirrors.releaseHeld()
+		ec.Add(s.setMigrationHeld(false))
 	}
 	return ec.ToError()
 }
@@ -253,4 +214,38 @@ func (s *Shard) rearmHeld() error {
 func (s *Shard) heldReadOnlyErr(cause error) error {
 	return fmt.Errorf("shard %q: a reindex migration's double-write mirror is not armed and "+
 		"cannot be stamped Unmirrored: %w", s.name, cause)
+}
+
+func (i *Index) nodeOverlay() nodeOverlay {
+	if i.db == nil {
+		return noNodeOverlay
+	}
+	return i.db.overlay()
+}
+
+func (i *Index) refuseUserReadOnly(shardName string) error {
+	return i.nodeOverlay().RefuseClientWrite(i.Config.ClassName.String(), shardName)
+}
+
+// updateShardStatus is the store's part of a PUT on a shard's status: a READY retries the reindex
+// migrations holding a loaded shard read-only. It runs in the RAFT apply, so it never loads a shard or
+// waits on a loading one.
+func (i *Index) updateShardStatus(_ context.Context, shardName, targetStatus string) error {
+	if strings.EqualFold(targetStatus, storagestate.StatusReadOnly.String()) {
+		return nil
+	}
+	loaded := i.shards.Load(shardName)
+	shard, _ := loaded.(*Shard)
+	if lazy, ok := asLazyLoadShard(loaded); ok {
+		shard = lazy.currentShard()
+	}
+	if shard == nil {
+		return nil
+	}
+	return shard.retryHeldMigrations()
+}
+
+// unloadedShardStatus is the status of a shard with no shard object loaded.
+func (i *Index) unloadedShardStatus(shardName string) storagestate.Status {
+	return i.nodeOverlay().Status(i.Config.ClassName.String(), shardName)
 }

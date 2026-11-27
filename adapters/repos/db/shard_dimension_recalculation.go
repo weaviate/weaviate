@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -114,9 +113,10 @@ func (i *Index) openUnloadedShard(ctx context.Context, class *models.Class, name
 		index:         i,
 		class:         class,
 		name:          name,
-		status:        ShardStatus{Status: storagestate.StatusReady},
 		bitmapBufPool: i.bitmapBufPool,
 	}
+	// never reports ready: the overlay leaves a rebuild's store alone
+	s.handle = i.nodeOverlay().Attach(i.Config.ClassName.String(), name, s)
 	// the options of a MapCollection bucket depend on the shard version
 	count, err := indexcounter.Read(s.path())
 	if err != nil {

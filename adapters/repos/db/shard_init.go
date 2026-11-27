@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -84,7 +85,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shutCtx:       shutCtx,
 		shutCtxCancel: shutCtxCancel,
 
-		status:                          ShardStatus{Status: storagestate.StatusLoading},
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
@@ -93,6 +93,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		registration:                    registration,
 	}
 
+	s.handle = index.nodeOverlay().Attach(index.Config.ClassName.String(), shardName, s)
 	s.registerCountedStatus(storagestate.StatusLoading)
 
 	defer func() {
@@ -126,7 +127,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}()
 
 	defer func() {
-		index.metrics.ObserveUpdateShardStatus(s.status.Status.String(), time.Since(start))
+		index.metrics.ObserveUpdateShardStatus(s.handle.Phase().Status().String(), time.Since(start))
 	}()
 
 	s.activityTrackerRead.Store(1)  // initial state
@@ -186,7 +187,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 	s.NotifyReady()
-	s.inheritResourcePressureReadOnly()
 
 	if exists {
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
@@ -214,27 +214,9 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 	log.Debug("successfully cleaned up partially initialized shard")
 }
 
-// inheritResourcePressureReadOnly marks a freshly built shard READONLY while
-// the resource scan holds the DB read-only, so a shard that did not exist when
-// the scan swept does not come up READY and take the writes the scan is trying
-// to stop.
-//
-// The flag is raised before the sweep, so a lazily loaded shard is caught by
-// exactly one of the two: this runs under the load lock the sweep needs to see
-// the shard as loaded. An eagerly built shard is not in the shard map yet here,
-// and reconciles against the flag when it is published instead.
-func (s *Shard) inheritResourcePressureReadOnly() {
-	if !s.index.db.resourcePressureReadOnly() {
-		return
-	}
-	if err := s.SetStatusReadonly(statusReasonResourcePressure); err != nil {
-		s.index.logger.WithField("action", "set_shard_read_only").
-			Errorf("failed to set to READONLY on init: shard %q: %v", s.name, err)
-	}
-}
-
+// NotifyReady hands the shard to the node overlay, which pauses it at once if a condition holds.
 func (s *Shard) NotifyReady() {
-	s.UpdateStatus(storagestate.StatusReady.String(), statusReasonNotifyReady)
+	_ = s.handle.ReportPhase(clusterschema.PhaseReady)
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)

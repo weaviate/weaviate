@@ -45,7 +45,6 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -329,24 +328,22 @@ func TestIndex_AddNewVectorIndex(t *testing.T) {
 func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	ctx := testCtx()
 	class := &models.Class{Class: "deletetest"}
-	shard, index := testShard(t, ctx, class.Class)
+	_, index := testShard(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
-	require.Nil(t, err)
+	setResourcePressure(index, true)
 
-	err = index.drop()
+	err := index.drop()
 	require.Nil(t, err)
 }
 
 func TestIndex_DropReadOnlyEmptyIndex_MultiTenant(t *testing.T) {
 	ctx := testCtx()
 	class := &models.Class{Class: "deletetest"}
-	shard, index := testShardMultiTenant(t, ctx, class.Class)
+	_, index := testShardMultiTenant(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
-	require.Nil(t, err)
+	setResourcePressure(index, true)
 
-	err = index.drop()
+	err := index.drop()
 	require.Nil(t, err)
 }
 
@@ -451,8 +448,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 
 	// set all shards to readonly
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		err = shard.UpdateStatus(storagestate.StatusReadOnly.String(), "test readonly")
-		require.Nil(t, err)
+		require.NoError(t, shard.setReindexing(true))
 		return nil
 	})
 

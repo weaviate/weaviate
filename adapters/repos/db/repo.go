@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -60,6 +61,7 @@ import (
 )
 
 type DB struct {
+	nodeOverlay               nodeOverlay
 	logger                    logrus.FieldLogger
 	localNodeName             string
 	schemaGetter              schemaUC.SchemaGetter
@@ -401,6 +403,11 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}),
 	}
 
+	db.nodeOverlay = config.NodeOverlay
+	if config.NodeOverlay == nil {
+		db.nodeOverlay = clusterSchema.NewNodeOverlay(logger)
+	}
+
 	// Serve replication calls targeting the local node in-process instead of
 	// over a loopback round-trip.
 	db.replicaClient = newRoutingReplicationClient(replicaClient, db, nodeResolver, localNodeName)
@@ -442,6 +449,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 }
 
 type Config struct {
+	// NodeOverlay is the schema layer's, shared so it drives this DB's shards; nil gives the DB a private one.
+	NodeOverlay                    *clusterSchema.NodeOverlay
 	RootPath                       string
 	QueryLimit                     int64
 	QueryMaximumResults            int64
@@ -527,6 +536,26 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+}
+
+// nodeOverlay is the schema layer's node overlay, which drives this DB's shards.
+type nodeOverlay interface {
+	Attach(class, shard string, store clusterSchema.ShardStore) *clusterSchema.ShardHandle
+	Node() clusterSchema.Condition
+	SetNode(c clusterSchema.Condition, on bool)
+	RefuseWrite() error
+	RefuseClientWrite(class, shard string) error
+	Status(class, shard string) storagestate.Status
+}
+
+// noNodeOverlay has no conditions and drives nothing, for a DB built without one.
+var noNodeOverlay nodeOverlay = (*clusterSchema.NodeOverlay)(nil)
+
+func (db *DB) overlay() nodeOverlay {
+	if db.nodeOverlay == nil {
+		return noNodeOverlay
+	}
+	return db.nodeOverlay
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

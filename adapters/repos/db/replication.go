@@ -363,7 +363,8 @@ func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersi
 }
 
 // writableShard runs f with the named shard pinned, releasing on every path so
-// callers cannot leak one. Skips f if the shard is not local or is read-only.
+// callers cannot leak one. Skips f if the shard is not local or refuses the write,
+// a user's read-only included: replica prepares carry client writes.
 func (i *Index) writableShard(ctx context.Context, name string, f func(shard replicaPreparer) replica.SimpleResponse) replica.SimpleResponse {
 	localShard, release, err := i.getOrInitShard(ctx, name)
 	defer release()
@@ -372,7 +373,7 @@ func (i *Index) writableShard(ctx context.Context, name string, f func(shard rep
 			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting or initializing shard %q: %v", name, err), Err: err},
 		}}
 	}
-	if localShard.isReadOnly() != nil {
+	if localShard.isReadOnly() != nil || i.refuseUserReadOnly(name) != nil {
 		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
 			Code: replicaerrors.StatusReadOnly, Msg: name,
 		}}}

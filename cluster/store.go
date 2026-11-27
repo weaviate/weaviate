@@ -188,6 +188,9 @@ type Config struct {
 	NamespacesController *usecasesNamespaces.Controller
 	NamespacesEnabled    bool
 
+	// NodeOverlay is shared with storage, which it drives; nil gives the schema a private one.
+	NodeOverlay *schema.NodeOverlay
+
 	// Replication bounds the home-node lists Raft.AddNamespace and
 	// Raft.UpdateNamespace propose.
 	Replication entreplication.GlobalConfig
@@ -437,6 +440,9 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 
 func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.NamespacesController, reg, cfg.Logger)
+	if cfg.NodeOverlay != nil {
+		schemaManager.SetNodeOverlay(cfg.NodeOverlay)
+	}
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
@@ -1502,6 +1508,8 @@ func (st *Store) recoverSingleNode(force bool) error {
 	// the restore to avoid any data change.
 	recoveryConfig.MetadataOnlyVoters = true
 	recoveryConfig.DB = nil
+	// the restore resets the overlay, which would drop this node's flags
+	recoveryConfig.NodeOverlay = nil
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.
 	tempFSM := NewFSM(recoveryConfig, prometheus.NewPedanticRegistry())

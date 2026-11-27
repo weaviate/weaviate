@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -563,6 +564,27 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 	idx.shards.Store(shardName, shard)
 
 	return idx.shards.Load(shardName), idx
+}
+
+// setUserReadOnly is what a PUT on a shard's status writes on this node.
+func setUserReadOnly(db *DB, class, shard string, on bool) {
+	db.nodeOverlay.(*clusterschema.NodeOverlay).Set(class, shard, clusterschema.ConditionUserReadOnly, on)
+}
+
+// syncShard drives a loaded shard's store from the node overlay again.
+func syncShard(shard ShardLike) error {
+	if lazy, ok := shard.(*LazyLoadShard); ok {
+		loaded := lazy.currentShard()
+		if loaded == nil {
+			return nil
+		}
+		return loaded.handle.Sync()
+	}
+	return shard.(*Shard).handle.Sync()
+}
+
+func setResourcePressure(idx *Index, pressure bool) {
+	idx.db.nodeOverlay.SetNode(clusterschema.ConditionResourcePressure, pressure)
 }
 
 // Simplified functions that delegate to the common helper
