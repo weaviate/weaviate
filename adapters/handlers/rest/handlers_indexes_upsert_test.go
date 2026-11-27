@@ -101,11 +101,11 @@ func activeReindexTask(id, collection string, mt db.ReindexMigrationType, target
 	payload, _ := json.Marshal(db.ReindexTaskPayload{
 		Collection: collection, MigrationType: mt, TargetTokenization: targetTok, Properties: props,
 	})
-	return &distributedtask.Task{
+	return withHeader(&distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id},
 		Status:         status,
 		Payload:        payload,
-	}
+	})
 }
 
 func partlyMigratedRun(t *testing.T, prop string, mt db.ReindexMigrationType, tok string, groups ...string) *distributedtask.Task {
@@ -1028,7 +1028,7 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 				map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 			run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
 			run.SwapsOwed = map[string][]string{"b": {"n2"}}
-			require.True(t, db.ReindexDetector{}.CutoverLanded(loadReindexTasks(t, run)[0], func(string) *models.Class { return class }))
+			require.True(t, db.ReindexDetector{}.CutoverLanded(withHeader(run), func(string) *models.Class { return class }))
 			run.Status = distributedtask.TaskStatusFinished
 			tasks := []*distributedtask.Task{run}
 

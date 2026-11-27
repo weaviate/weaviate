@@ -72,7 +72,7 @@ func newClassificationProvider(cls *models.Class) *ReindexProvider {
 	return &ReindexProvider{
 		logger:        logger,
 		schemaManager: &schema.Manager{SchemaReader: classReaderStub{class: cls}},
-		payloads:      make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		seenTasks:     make(map[distributedtask.TaskDescriptor]struct{}),
 		reindexTasks:  make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		endedTasks:    make(map[distributedtask.TaskDescriptor]struct{}),
 	}
@@ -86,7 +86,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		// Never becomes parsable, so this must be permanent, not transient.
 		p := &ReindexProvider{
 			logger:       logger,
-			payloads:     make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+			seenTasks:    make(map[distributedtask.TaskDescriptor]struct{}),
 			reindexTasks: make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 			endedTasks:   make(map[distributedtask.TaskDescriptor]struct{}),
 		}
@@ -192,12 +192,11 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 				// The class is not locally readable, so a flip that runs
 				// errors and one that never runs cannot.
 				p := newClassificationProvider(nil)
-				err := p.OnTaskCompleted(&distributedtask.Task{
-					Namespace:      ReindexNamespace,
+				err := p.OnTaskCompleted(loadTasks(t, ReindexNamespace, &distributedtask.Task{
 					TaskDescriptor: distributedtask.TaskDescriptor{ID: "t2", Version: 1},
 					Status:         tc.status,
 					Payload:        payloadJSON,
-				})
+				})[0])
 				if tc.wantFlip {
 					require.Error(t, err, "swapping is the status that owns the cluster-wide flip")
 					return
@@ -216,12 +215,11 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		}
 		payloadJSON, err := json.Marshal(payload)
 		require.NoError(t, err)
-		task := &distributedtask.Task{
-			Namespace:      ReindexNamespace,
+		task := loadTasks(t, ReindexNamespace, &distributedtask.Task{
 			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t3", Version: 1},
 			Status:         distributedtask.TaskStatusSwapping,
 			Payload:        payloadJSON,
-		}
+		})[0]
 		classWith := func(tok string) *models.Class {
 			return &models.Class{Class: "Docs", Properties: []*models.Property{
 				{Name: "title", DataType: []string{"text"}, Tokenization: tok},

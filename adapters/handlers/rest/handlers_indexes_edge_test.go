@@ -54,8 +54,7 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 		StartedAt: time.Now(),
 		Units:     units,
 	}
-	task.IndexGroups()
-	return task
+	return withHeader(task)
 }
 
 func tasksMap(tasks ...*distributedtask.Task) []db.ReindexRun {

@@ -68,7 +68,8 @@ func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader,
 	return ReindexTaskHeader{p}, nil
 }
 
-func reindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {
+// ReindexHeaderOf is how every reader gets a reindex task's payload, and is false when the payload did not decode.
+func ReindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {
 	h, ok := task.Header().(ReindexTaskHeader)
 	return h, ok
 }

@@ -88,14 +88,13 @@ func newOverlayFixture(t *testing.T, prefix, prop string,
 }
 
 // task is the completion tick the provider sees for this fixture's migration.
-func (f *overlayFixture) task(id string, status distributedtask.TaskStatus) *distributedtask.Task {
-	return &distributedtask.Task{
-		Namespace:      ReindexNamespace,
+func (f *overlayFixture) task(t *testing.T, id string, status distributedtask.TaskStatus) *distributedtask.Task {
+	return loadTasks(t, ReindexNamespace, &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
 		Status:         status,
 		Payload:        f.payload,
 		Units:          map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: f.shard.Name()}},
-	}
+	})[0]
 }
 
 // object is a write carrying value for the fixture's property.
@@ -289,7 +288,7 @@ func TestTaskCompletionLeavesThePropertyOverlayAlone(t *testing.T) {
 				tc.tokenization, tc.shape)
 			f.shard.SetPropertyOverlay(prop, tc.overlay)
 
-			require.NoError(t, f.provider.OnTaskCompleted(f.task("T", tc.status)))
+			require.NoError(t, f.provider.OnTaskCompleted(f.task(t, "T", tc.status)))
 
 			assert.Equal(t, tc.overlay, f.overlay())
 		})

@@ -286,15 +286,14 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			// Terminal-status cleanup needs a DB; an empty one is a no-op.
 			p := NewReindexProvider(&DB{}, nil, nil, logger, "", nil, context.Background())
 
-			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-				Namespace:          ReindexNamespace,
+			require.NoError(t, p.OnTaskCompleted(loadTasks(t, ReindexNamespace, &distributedtask.Task{
 				TaskDescriptor:     distributedtask.TaskDescriptor{ID: "T_cancel", Version: 1},
 				Status:             distributedtask.TaskStatusCancelled,
 				Payload:            payload,
 				PostCompletionAcks: tc.postAcks,
 				PreparedGroups:     tc.prepAcks,
 				SwapDecidedGroups:  tc.decided,
-			}))
+			})[0]))
 
 			var guided, resubmitSeen bool
 			var guidance string
@@ -470,9 +469,9 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	idx.db.SetReindexUnitSeal(p.ReindexUnitSealBuilder())
 
 	task := shardTask(shard.Name())
-	task.Namespace, task.TaskDescriptor = ReindexNamespace, distributedtask.TaskDescriptor{ID: "T_cancel_disk", Version: 1}
+	task.TaskDescriptor = distributedtask.TaskDescriptor{ID: "T_cancel_disk", Version: 1}
 	task.Status, task.Payload = distributedtask.TaskStatusCancelled, payload
-	require.NoError(t, p.OnTaskCompleted(task))
+	require.NoError(t, p.OnTaskCompleted(loadTasks(t, ReindexNamespace, task)[0]))
 
 	require.Empty(t, concrete.migrationRecords.Records(), "fixture: the cleanup has to remove the evidence")
 	require.True(t, loggedRepairGuidance(hook),
@@ -515,9 +514,9 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	structuralInvariantInjectHandle(p, desc)
 
 	task := shardTask(shard.Name())
-	task.Namespace, task.TaskDescriptor = ReindexNamespace, desc
+	task.TaskDescriptor = desc
 	task.Status, task.Payload = distributedtask.TaskStatusCancelled, payload
-	require.NoError(t, p.OnTaskCompleted(task))
+	require.NoError(t, p.OnTaskCompleted(loadTasks(t, ReindexNamespace, task)[0]))
 
 	var drainTimedOut bool
 	for _, e := range hook.AllEntries() {

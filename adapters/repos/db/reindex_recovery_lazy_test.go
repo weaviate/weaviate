@@ -1008,7 +1008,10 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			payload := tc.payload(fx)
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
-			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: fx.logger})
+			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+				Logger:            fx.logger,
+				ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: ReindexDetector{}},
+			})
 			restoreTask(t, mgr, &distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: fx.desc, Payload: raw, Status: tc.status,
 				NeedsPreparationBarrier: true,
@@ -1397,14 +1400,12 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
 			task := func(status distributedtask.TaskStatus) *distributedtask.Task {
-				task := &distributedtask.Task{
-					Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
-					Status: status, Payload: raw, NeedsPreparationBarrier: true,
+				return loadTasks(t, ReindexNamespace, &distributedtask.Task{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+					Status:         status, Payload: raw, NeedsPreparationBarrier: true,
 					SwapDecidedGroups: map[string]time.Time{group: time.Now()}, SwapsOwed: map[string][]string{group: {node}},
 					Units: map[string]*distributedtask.Unit{unitID: {ID: unitID, GroupID: group, Shard: group, NodeID: node}},
-				}
-				task.IndexGroups()
-				return task
+				})[0]
 			}
 			p.processOneUnit(ctx, task(distributedtask.TaskStatusStarted), &payload, idx, unitID, newFakeRecorder())
 			require.NoError(t, p.OnGroupCompleted(task(distributedtask.TaskStatusPreparing), group, []string{unitID}))

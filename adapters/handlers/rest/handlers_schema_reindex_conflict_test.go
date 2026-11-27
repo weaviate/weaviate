@@ -33,25 +33,31 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-// loadReindexTasks hands back tasks the way the RAFT apply sees them: restored into a Manager, which caches their headers.
-func loadReindexTasks(t *testing.T, tasks ...*distributedtask.Task) []*distributedtask.Task {
-	t.Helper()
-	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {db.ReindexNamespace: tasks}})
-	require.NoError(t, err)
-	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+// withHeaders uses one Manager per task so tasks that share an ID stay apart.
+func withHeaders(tasks ...*distributedtask.Task) []*distributedtask.Task {
+	loaded := make([]*distributedtask.Task, len(tasks))
+	for i, task := range tasks {
+		task.Namespace = db.ReindexNamespace
+		snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {db.ReindexNamespace: {task}}})
+		if err != nil {
+			panic(err)
+		}
+		mgr := newReindexManager()
+		if err := mgr.Restore(snapshot); err != nil {
+			panic(err)
+		}
+		loaded[i] = mgr.LocalDistributedTasks()[db.ReindexNamespace][0]
+	}
+	return loaded
+}
+
+func withHeader(task *distributedtask.Task) *distributedtask.Task { return withHeaders(task)[0] }
+
+func newReindexManager() *distributedtask.Manager {
+	return distributedtask.NewManager(distributedtask.ManagerParameters{
 		Logger:            logrus.New(),
 		ConflictDetectors: map[string]distributedtask.ConflictDetector{db.ReindexNamespace: db.ReindexDetector{}},
 	})
-	require.NoError(t, mgr.Restore(snapshot))
-	byID := map[string]*distributedtask.Task{}
-	for _, task := range mgr.LocalDistributedTasks()[db.ReindexNamespace] {
-		byID[task.ID] = task
-	}
-	loaded := make([]*distributedtask.Task, len(tasks))
-	for i, task := range tasks {
-		loaded[i] = byID[task.ID]
-	}
-	return loaded
 }
 
 // gateWithTasks builds the schema handler with just enough wiring for
@@ -115,7 +121,7 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 		return gateWithTasks(task).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true),
 			db.ReindexDetector{}.
-				CheckPropertyUpdate("C", "title", loadReindexTasks(t, task))
+				CheckPropertyUpdate("C", "title", withHeaders(task))
 	}
 
 	// The remedy for the cancellable statuses; elsewhere it must be gone,
@@ -223,7 +229,7 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 				Payload:        []byte(tc.raw),
 			}
 
-			restReason := gateWithTasks(task).
+			restReason := gateWithTasks(withHeader(task)).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true)
 			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {db.ReindexNamespace: {task}}})
 			require.NoError(t, err)
@@ -373,7 +379,7 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			preflight := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, true)
 			withoutCounts := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, false)
-			applied := db.ReindexDetector{}.CheckPropertyUpdate("C", tc.property, loadReindexTasks(t, tc.tasks...))
+			applied := db.ReindexDetector{}.CheckPropertyUpdate("C", tc.property, withHeaders(tc.tasks...))
 			if tc.resubmit == "" {
 				require.Empty(t, preflight)
 				require.NoError(t, applied)

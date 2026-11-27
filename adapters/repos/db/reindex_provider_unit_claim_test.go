@@ -102,12 +102,12 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	require.NoError(t, p.OnSwapRequested(&distributedtask.Task{
-		Namespace: ReindexNamespace, TaskDescriptor: desc,
-		Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
+	require.NoError(t, p.OnSwapRequested(loadTasks(t, ReindexNamespace, &distributedtask.Task{
+		TaskDescriptor: desc,
+		Status:         distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
 		SwapDecidedGroups: map[string]time.Time{"g1": {}},
 		Units:             map[string]*distributedtask.Unit{unitID: {ID: unitID, Shard: tenant, NodeID: node}},
-	}, "g1", []string{unitID}))
+	})[0], "g1", []string{unitID}))
 
 	got, err := os.ReadFile(filepath.Join(tenantLSM, canonical, "promoted.marker"))
 	require.NoError(t, err, "the canonical name must hold the migrated data")
@@ -466,28 +466,21 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 	}
 }
 
-// Pins that a swap retried after OnTaskCompleted decodes the payload once and frees it when the task leaves.
-func TestLoadPayloadIsKeptUntilTheTaskLeavesTheList(t *testing.T) {
+func TestPayloadOfKeepsTheTaskListedUntilCleanup(t *testing.T) {
 	p := NewReindexProvider(nil, nil, nil, logrus.New(), "node-0", nil, nil)
 	raw, err := json.Marshal(ReindexTaskPayload{Collection: "Docs", MigrationType: ReindexTypeChangeTokenization})
 	require.NoError(t, err)
-	task := &distributedtask.Task{
+	task := loadTasks(t, ReindexNamespace, &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
 		Status:         distributedtask.TaskStatusFailed, Payload: raw,
-	}
+	})[0]
 
-	first, err := p.loadPayload(task)
+	_, err = p.payloadOf(task)
 	require.NoError(t, err)
-	again, err := p.loadPayload(task)
-	require.NoError(t, err)
-	require.Same(t, first, again, "a retry reuses the decoded payload")
 	require.Equal(t, []distributedtask.TaskDescriptor{task.TaskDescriptor}, p.GetLocalTasks())
 
 	require.NoError(t, p.CleanupTask(task.TaskDescriptor))
 	require.Empty(t, p.GetLocalTasks())
-	fresh, err := p.loadPayload(task)
-	require.NoError(t, err)
-	require.NotSame(t, first, fresh, "a cleaned-up task decodes again")
 }
 
 // Each unit is bound to one node; another node's unit names a shard this node does not hold.
@@ -500,14 +493,14 @@ func TestStartTaskWorksOnlyThisNodesUnits(t *testing.T) {
 	raw, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeRepairFilterable, Properties: []string{"title"}})
 	require.NoError(t, err)
 
-	handle, err := p.StartTask(&distributedtask.Task{
-		Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
-		Status: distributedtask.TaskStatusStarted, Payload: raw,
+	handle, err := p.StartTask(loadTasks(t, ReindexNamespace, &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+		Status:         distributedtask.TaskStatusStarted, Payload: raw,
 		Units: map[string]*distributedtask.Unit{
 			"s1__node1": {ID: "s1__node1", Shard: "s1", NodeID: "node1"},
 			"s2__node2": {ID: "s2__node2", Shard: "s2", NodeID: "node2"},
 		},
-	})
+	})[0])
 	require.NoError(t, err)
 	<-handle.Done()
 

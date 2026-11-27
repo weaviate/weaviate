@@ -155,7 +155,7 @@ func cancelResponse(t *testing.T, resp middleware.Responder) (int, string, strin
 // TestCancelReindexTask_StartedTaskCancels pins the happy path: a STARTED
 // task cancels through the real FSM and returns 202 CANCELLED.
 func TestCancelReindexTask_StartedTaskCancels(t *testing.T) {
-	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
+	mgr := newReindexManager()
 	seedReindexTask(t, mgr, "C:enable-filterable:p:aaaa", "C", "p",
 		db.ReindexTypeEnableFilterable, distributedtask.TaskStatusStarted, nil)
 

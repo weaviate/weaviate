@@ -33,13 +33,12 @@ func lookupTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 	unitID := MigrationUnitID(shard, "node-1")
-	return &distributedtask.Task{
-		Namespace:      ReindexNamespace,
+	return loadTasks(t, ReindexNamespace, &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
 		Payload:        raw,
 		Status:         status,
 		Units:          map[string]*distributedtask.Unit{unitID: {ID: unitID, Shard: shard, NodeID: "node-1"}},
-	}
+	})[0]
 }
 
 // Pins: the lookup treats an unrecognized status as in-flight.

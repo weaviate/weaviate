@@ -13,7 +13,6 @@ package db
 
 import (
 	"cmp"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -60,7 +59,7 @@ func ReindexRunLanded(class *models.Class, mt ReindexMigrationType, targetTok st
 }
 
 func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(string) *models.Class) bool {
-	h, ok := reindexHeaderOf(task)
+	h, ok := ReindexHeaderOf(task)
 	if !ok {
 		return false
 	}
@@ -69,7 +68,7 @@ func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(
 
 func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName string, task *distributedtask.Task) error {
 	if task != nil && task.Status == distributedtask.TaskStatusSwapping {
-		if h, ok := reindexHeaderOf(task); ok &&
+		if h, ok := ReindexHeaderOf(task); ok &&
 			strings.EqualFold(h.Collection(), className) && slices.Contains(h.Properties, propertyName) {
 			return nil
 		}
@@ -139,19 +138,7 @@ func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property strin
 func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 	runs := make([]ReindexRun, 0, len(tasks))
 	for _, task := range tasks {
-		var payload ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err == nil {
-			runs = append(runs, ReindexRun{Task: task, Payload: payload})
-		}
-	}
-	return runs
-}
-
-// reindexHeaderRuns is ReindexRuns built from cached headers for the RAFT apply.
-func reindexHeaderRuns(tasks []*distributedtask.Task) []ReindexRun {
-	runs := make([]ReindexRun, 0, len(tasks))
-	for _, task := range tasks {
-		if h, ok := reindexHeaderOf(task); ok {
+		if h, ok := ReindexHeaderOf(task); ok {
 			runs = append(runs, ReindexRun{Task: task, Payload: h.ReindexTaskPayload})
 		}
 	}
@@ -161,16 +148,10 @@ func reindexHeaderRuns(tasks []*distributedtask.Task) []ReindexRun {
 func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string,
 	accepts func(*ReindexRun) bool, tenantCounts bool,
 ) string {
-	return reindexPartialRunConflict(tasks, ReindexRuns, collection, property, accepts, tenantCounts)
-}
-
-func reindexPartialRunConflict(tasks []*distributedtask.Task, runsOf func([]*distributedtask.Task) []ReindexRun,
-	collection, property string, accepts func(*ReindexRun) bool, tenantCounts bool,
-) string {
 	if !slices.ContainsFunc(tasks, ReindexLeftPartial) {
 		return ""
 	}
-	runs := runsOf(tasks)
+	runs := ReindexRuns(tasks)
 	for _, scope := range [][]string{{"searchable"}, {"filterable"}, {"rangeable"}} {
 		run, migrated, covered := ReindexPartialRun(runs, collection, property, scope)
 		if run == nil || (accepts != nil && accepts(run)) {
@@ -208,13 +189,12 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	if len(task.SwapsOwed) > 0 {
 		return true
 	}
-	targets := reindexTargets{}
-	target := targets.of(task)
+	target := reindexTargetOf(task)
 	if target == nil {
 		return false // the status endpoint cannot read it either
 	}
 	partial := ReindexLeftPartial(task)
-	newestOn := p.indexTypesNotRunSince(task, target, namespaceTasks, targets, partial)
+	newestOn := p.indexTypesNotRunSince(task, target, namespaceTasks, partial)
 	if len(newestOn) == 0 {
 		return false
 	}
@@ -227,7 +207,7 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 		if older.Version >= task.Version || (older.Status != distributedtask.TaskStatusFailed && !ReindexLeftPartial(older)) {
 			continue
 		}
-		olderTarget := targets.of(older)
+		olderTarget := reindexTargetOf(older)
 		if olderTarget == nil {
 			continue
 		}
@@ -241,40 +221,23 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	return false
 }
 
-// reindexTarget is the subset of ReindexTaskPayload the retainer reads.
-// Skipping the per-unit maps keeps decoding cheap, since every node decodes
-// this on every scheduler tick.
-type reindexTarget struct {
-	MigrationType ReindexMigrationType `json:"migrationType"`
-	Collection    string               `json:"collection"`
-	Properties    []string             `json:"properties"`
+func reindexTargetOf(task *distributedtask.Task) *ReindexTaskPayload {
+	h, ok := ReindexHeaderOf(task)
+	if !ok {
+		return nil
+	}
+	return &h.ReindexTaskPayload
 }
 
-// reindexTargets decodes each task at most once per retention decision; nil
-// marks an unreadable payload.
-type reindexTargets map[distributedtask.TaskDescriptor]*reindexTarget
-
-func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
-	if target, ok := ts[task.TaskDescriptor]; ok {
-		return target
-	}
-	target := &reindexTarget{}
-	if err := json.Unmarshal(task.Payload, target); err != nil {
-		target = nil
-	}
-	ts[task.TaskDescriptor] = target
-	return target
-}
-
-func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
-	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, targets reindexTargets, flipsOnly bool,
+func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, target *ReindexTaskPayload,
+	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, flipsOnly bool,
 ) []string {
 	remaining, _ := ReindexIndexTypes(target.MigrationType)
 	for _, other := range namespaceTasks {
 		if other.Version <= task.Version {
 			continue
 		}
-		otherTarget := targets.of(other)
+		otherTarget := reindexTargetOf(other)
 		if otherTarget == nil || (flipsOnly &&
 			(other.Status != distributedtask.TaskStatusFinished || !IsSemanticMigration(otherTarget.MigrationType))) {
 			continue
@@ -289,7 +252,7 @@ func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, targ
 
 // indexTypesRunOnSameProperties returns other's index types when other runs on
 // target's collection and every property in target, and nil otherwise.
-func (p *ReindexProvider) indexTypesRunOnSameProperties(other, target *reindexTarget) []string {
+func (p *ReindexProvider) indexTypesRunOnSameProperties(other, target *ReindexTaskPayload) []string {
 	if !strings.EqualFold(other.Collection, target.Collection) {
 		return nil
 	}
@@ -306,7 +269,7 @@ func (p *ReindexProvider) indexTypesRunOnSameProperties(other, target *reindexTa
 // properties. Only an enable run leaves its index off on failure; any other
 // run found off had it dropped afterward, and no run can cover a dropped
 // index, so its failure would otherwise be kept forever.
-func (p *ReindexProvider) indexDroppedSince(target *reindexTarget, indexType string) bool {
+func (p *ReindexProvider) indexDroppedSince(target *ReindexTaskPayload, indexType string) bool {
 	enable := []ReindexMigrationType{ReindexTypeEnableSearchable, ReindexTypeEnableFilterable, ReindexTypeEnableRangeable}
 	if slices.Contains(enable, target.MigrationType) || p.schemaManager == nil || len(target.Properties) == 0 {
 		return false

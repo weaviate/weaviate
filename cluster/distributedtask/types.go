@@ -822,7 +822,7 @@ func (t *Task) UnitShard(unitID string) string {
 	return ""
 }
 
-// Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire.
+// Header is nil when the payload did not decode or its namespace has no decoder.
 func (t *Task) Header() TaskHeader {
 	return t.header
 }

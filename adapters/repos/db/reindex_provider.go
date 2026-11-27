@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -79,9 +78,8 @@ type ReindexProvider struct {
 
 	runningHandles map[distributedtask.TaskDescriptor]*reindexTaskHandle
 
-	// payloads caches deserialized task payloads for use in OnGroupCompleted,
-	// which receives the raw *Task but needs the typed payload.
-	payloads map[distributedtask.TaskDescriptor]*ReindexTaskPayload
+	// seenTasks holds every task a callback read the header of, so GetLocalTasks hands it to the scheduler's cleanup.
+	seenTasks map[distributedtask.TaskDescriptor]struct{}
 
 	// reindexTasks caches the ShardReindexTaskGeneric instances created during
 	// processOneUnit, keyed by task descriptor and unit ID. For semantic
@@ -204,7 +202,7 @@ func NewReindexProvider(
 		concurrency:       concurrency,
 		serverCtx:         serverCtx,
 		runningHandles:    make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
-		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		seenTasks:         make(map[distributedtask.TaskDescriptor]struct{}),
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		endedTasks:        make(map[distributedtask.TaskDescriptor]struct{}),
 		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
@@ -245,9 +243,9 @@ func (p *ReindexProvider) SeedReindexTaskCache(
 func (p *ReindexProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	descs := slices.Collect(maps.Keys(p.payloads))
+	descs := slices.Collect(maps.Keys(p.seenTasks))
 	for desc := range p.reindexTasks {
-		if _, ok := p.payloads[desc]; !ok {
+		if _, ok := p.seenTasks[desc]; !ok {
 			descs = append(descs, desc)
 		}
 	}
@@ -258,11 +256,10 @@ func (p *ReindexProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
 // TaskDescriptor. Every state mutation goes through one of these so the
 // lock is always released via defer.
 
-func (p *ReindexProvider) registerStartingTask(desc distributedtask.TaskDescriptor, handle *reindexTaskHandle, payload *ReindexTaskPayload) {
+func (p *ReindexProvider) registerStartingTask(desc distributedtask.TaskDescriptor, handle *reindexTaskHandle) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.runningHandles[desc] = handle
-	p.payloads[desc] = payload
 }
 
 func (p *ReindexProvider) deleteRunningHandle(desc distributedtask.TaskDescriptor) {
@@ -278,16 +275,10 @@ func (p *ReindexProvider) runningHandle(desc distributedtask.TaskDescriptor) (*r
 	return handle, ok
 }
 
-func (p *ReindexProvider) cachedPayload(desc distributedtask.TaskDescriptor) *ReindexTaskPayload {
+func (p *ReindexProvider) markSeen(desc distributedtask.TaskDescriptor) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.payloads[desc]
-}
-
-func (p *ReindexProvider) cachePayload(desc distributedtask.TaskDescriptor, payload *ReindexTaskPayload) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.payloads[desc] = payload
+	p.seenTasks[desc] = struct{}{}
 }
 
 func (p *ReindexProvider) cachedReindexTasks(desc distributedtask.TaskDescriptor, unitID string) []*ShardReindexTaskGeneric {
@@ -314,7 +305,7 @@ func (p *ReindexProvider) evictReindexTasks(desc distributedtask.TaskDescriptor,
 func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor, ended bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	delete(p.payloads, desc)
+	delete(p.seenTasks, desc)
 	delete(p.reindexTasks, desc)
 	if ended {
 		p.endedTasks[desc] = struct{}{}
@@ -453,9 +444,9 @@ func (p *ReindexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error
 }
 
 func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask.TaskHandle, error) {
-	var payload ReindexTaskPayload
-	if err := json.Unmarshal(task.Payload, &payload); err != nil {
-		return nil, fmt.Errorf("unmarshal reindex payload: %w", err)
+	payload, err := p.payloadOf(task)
+	if err != nil {
+		return nil, err
 	}
 
 	className := entschema.ClassName(payload.Collection)
@@ -483,7 +474,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 		doneCh: make(chan struct{}),
 	}
 
-	p.registerStartingTask(task.TaskDescriptor, handle, &payload)
+	p.registerStartingTask(task.TaskDescriptor, handle)
 
 	// Progress is emitted from the inverted-index reindex iteration every
 	// checkProcessingEveryNoObjects iterations (default 1000). p.recorder
@@ -497,7 +488,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 			close(handle.doneCh)
 		}()
 
-		p.processUnits(ctx, task, &payload, idx, localUnits, p.recorder)
+		p.processUnits(ctx, task, payload, idx, localUnits, p.recorder)
 	}, p.logger)
 
 	return handle, nil
@@ -888,22 +879,13 @@ func (p *ReindexProvider) propertyHasFilterableBucket(className, propName string
 	return false
 }
 
-// loadPayload returns the cached payload for a task descriptor, or
-// unmarshals it from task.Payload if the cache is empty. The cache is
-// populated by StartTask; it can be empty for OnGroupCompleted / etc.
-// after a node restart that happened between reindex finishing and the
-// group callback firing.
-func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskPayload, error) {
-	if cached := p.cachedPayload(task.TaskDescriptor); cached != nil {
-		return cached, nil
+func (p *ReindexProvider) payloadOf(task *distributedtask.Task) (*ReindexTaskPayload, error) {
+	h, ok := ReindexHeaderOf(task)
+	if !ok {
+		return nil, fmt.Errorf("reindex task %s has no readable payload", task.ID)
 	}
-
-	var pl ReindexTaskPayload
-	if err := json.Unmarshal(task.Payload, &pl); err != nil {
-		return nil, fmt.Errorf("unmarshal payload: %w", err)
-	}
-	p.cachePayload(task.TaskDescriptor, &pl)
-	return &pl, nil
+	p.markSeen(task.TaskDescriptor)
+	return &h.ReindexTaskPayload, nil
 }
 
 // failUnit records that the given unit has failed. The recorder call
@@ -1287,7 +1269,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 //   - separate per-shard LSM store / bucket pointers (Shard.store).
 //   - separate per-shard tokenization overlay (Shard.TokenizationFor).
 //
-// Provider-level shared state (p.payloads, p.runningHandles,
+// Provider-level shared state (p.seenTasks, p.runningHandles,
 // p.reindexTasks) is already mutex-protected via p.mu in
 // resolveUnitForPhase and its peers, so concurrent calls are safe.
 func (p *ReindexProvider) runPerUnitPhase(
@@ -1448,7 +1430,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return nil
 	}
 
-	payload, err := p.loadPayload(task)
+	payload, err := p.payloadOf(task)
 	if err != nil {
 		logger.Errorf("reindex provider: group-completion: failed to load payload: %v", err)
 		return fmt.Errorf("load payload: %w", err)
@@ -1530,7 +1512,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return nil
 	}
 
-	payload, err := p.loadPayload(task)
+	payload, err := p.payloadOf(task)
 	if err != nil {
 		logger.Errorf("reindex provider: swap-requested — failed to load payload: %v", err)
 		return fmt.Errorf("load payload: %w", err)
@@ -1604,7 +1586,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // always returns nil.
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
-	payload, payloadErr := p.loadPayload(task)
+	payload, payloadErr := p.payloadOf(task)
 	p.clearTaskCaches(task.TaskDescriptor, !slices.ContainsFunc(task.Groups(), func(g string) bool {
 		return task.SwapOwedBy(g, p.localNode)
 	}))
@@ -2086,12 +2068,10 @@ func (p *ReindexProvider) reindexRunsWith(task *distributedtask.Task, payload *R
 		p.logger.WithField("taskID", task.ID).Warnf("reindex provider: cannot list earlier runs for the repair guidance: %v", err)
 		return runs
 	}
-	for _, other := range tasksByNS[ReindexNamespace] {
-		var otherPayload ReindexTaskPayload
-		if other.TaskDescriptor == task.TaskDescriptor || json.Unmarshal(other.Payload, &otherPayload) != nil {
-			continue
+	for _, other := range ReindexRuns(tasksByNS[ReindexNamespace]) {
+		if other.Task.TaskDescriptor != task.TaskDescriptor {
+			runs = append(runs, other)
 		}
-		runs = append(runs, ReindexRun{Task: other, Payload: otherPayload})
 	}
 	return runs
 }

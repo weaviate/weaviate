@@ -78,14 +78,15 @@ func (f *fakeDrainSealer) SealLocalTaskDrain(_ context.Context, desc distributed
 func reindexTaskOn(t *testing.T, id, collection, property string) *distributedtask.Task {
 	t.Helper()
 	payload, err := json.Marshal(db.ReindexTaskPayload{
-		Collection: collection,
-		Properties: []string{property},
+		Collection:    collection,
+		MigrationType: db.ReindexTypeRepairFilterable,
+		Properties:    []string{property},
 	})
 	require.NoError(t, err)
-	return &distributedtask.Task{
+	return withHeader(&distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
 		Payload:        payload,
-	}
+	})
 }
 
 // The pre-submit scrub fails closed on an unknown migration type or a scrub
@@ -237,7 +238,7 @@ func TestHandlersScopeStaleSweepToRequestTenants(t *testing.T) {
 		{
 			name: "cancel",
 			call: func(h *indexesHandlers) middleware.Responder {
-				mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
+				mgr := newReindexManager()
 				seedReindexTask(t, mgr, collection+":repair-filterable:p:aaaa", collection, prop,
 					db.ReindexTypeRepairFilterable, distributedtask.TaskStatusStarted, []string{requested})
 				return h.cancelReindexTask(context.Background(), realFSMCanceller{mgr},

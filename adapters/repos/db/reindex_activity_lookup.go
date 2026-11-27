@@ -12,8 +12,6 @@
 package db
 
 import (
-	"encoding/json"
-
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -41,15 +39,15 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 		if !IsLiveReindexTaskStatus(task.Status) {
 			continue
 		}
-		var payload ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		header, ok := ReindexHeaderOf(task)
+		if !ok {
 			logger.WithField("action", "backup_reindex_gate").
 				WithField("task_id", task.ID).
-				Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+				Warn("backup-reindex gate: task payload has no header; skipping task")
 			continue
 		}
 		for _, unit := range task.Units {
-			live[shardKey{payload.Collection, unit.Shard}] = true
+			live[shardKey{header.Collection(), unit.Shard}] = true
 		}
 	}
 	return func(collection, shardName string) bool {

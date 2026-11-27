@@ -211,7 +211,7 @@ func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
 			}
 
 			reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-				[]string{"foo"}, []*distributedtask.Task{existing})
+				[]string{"foo"}, withHeaders(existing))
 			require.NoError(t, err)
 			require.NotEmpty(t, reason)
 			require.Contains(t, reason, "conflicts")
@@ -232,7 +232,7 @@ func TestCheckReindexConflict_AllowsSameTypeDifferentProperty(t *testing.T) {
 	}
 
 	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-		[]string{"bar"}, []*distributedtask.Task{existing})
+		[]string{"bar"}, withHeaders(existing))
 	require.NoError(t, err)
 	require.Empty(t, reason, "different property must not conflict")
 }
@@ -257,7 +257,7 @@ func TestCheckReindexConflict_IgnoresTerminalTasks(t *testing.T) {
 				}),
 			}
 			reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-				[]string{"foo"}, []*distributedtask.Task{existing})
+				[]string{"foo"}, withHeaders(existing))
 			require.NoError(t, err)
 			require.Empty(t, reason,
 				"%s task must not block new submission", status)
@@ -278,7 +278,7 @@ func TestCheckReindexConflict_DifferentCollections(t *testing.T) {
 	}
 
 	reason, err := checkReindexConflict("B", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
+		[]string{"foo"}, withHeaders(existing))
 	require.NoError(t, err)
 	require.Empty(t, reason)
 }
@@ -296,7 +296,7 @@ func TestCheckReindexConflict_CollectionMatchIsCaseInsensitive(t *testing.T) {
 	}
 
 	reason, err := checkReindexConflict("myclass", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
+		[]string{"foo"}, withHeaders(existing))
 	require.NoError(t, err)
 	require.NotEmpty(t, reason, "case-insensitive collection match expected")
 }
@@ -314,7 +314,7 @@ func TestCheckReindexConflict_MalformedPayloadIsRejected(t *testing.T) {
 		Payload:        []byte(`{not valid json`),
 	}
 	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
+		[]string{"foo"}, withHeaders(existing))
 	require.Empty(t, reason)
 	require.Error(t, err, "unparseable payload must surface as an error so the handler can refuse the submit")
 	require.Contains(t, err.Error(), "unparseable")
@@ -331,7 +331,7 @@ func TestCheckReindexConflict_MalformedPayloadDifferentCollectionAlsoRejected(t 
 		Payload:        []byte(`{still not valid`),
 	}
 	_, err := checkReindexConflict("OtherCollection", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
+		[]string{"foo"}, withHeaders(existing))
 	require.Error(t, err)
 }
 
@@ -358,9 +358,9 @@ func TestCheckReindexConflict_EmptyJsonPayloadIsRejected(t *testing.T) {
 				Payload:        []byte(c.payload),
 			}
 			_, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-				[]string{"foo"}, []*distributedtask.Task{existing})
+				[]string{"foo"}, withHeaders(existing))
 			require.Error(t, err, "payload %q parses but is informationally empty; must be rejected", c.payload)
-			require.Contains(t, err.Error(), "empty Collection or MigrationType")
+			require.Contains(t, err.Error(), "unparseable")
 		})
 	}
 }
@@ -1223,11 +1223,11 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 			name: "a reindex task is running",
 			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
 				return map[string][]*distributedtask.Task{
-					db.ReindexNamespace: {{
+					db.ReindexNamespace: withHeaders(&distributedtask.Task{
 						Status:  distributedtask.TaskStatusStarted,
-						Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),
+						Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C", MigrationType: db.ReindexTypeRepairFilterable}),
 						Units:   map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: "shard1"}},
-					}},
+					}),
 					db.DropVectorIndexNamespace: {{
 						Status:  distributedtask.TaskStatusStarted,
 						Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),

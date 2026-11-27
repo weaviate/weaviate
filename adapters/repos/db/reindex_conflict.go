@@ -95,7 +95,7 @@ func (ReindexDetector) CheckConflict(newHeader distributedtask.TaskHeader, exist
 			continue
 		}
 
-		existP, ok := reindexHeaderOf(task)
+		existP, ok := ReindexHeaderOf(task)
 		if !ok {
 			// Existing task has an unparseable payload. We can't prove
 			// non-conflict, so reject — the alternative (silently
@@ -234,7 +234,7 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 			continue
 		}
 
-		existP, ok := reindexHeaderOf(task)
+		existP, ok := ReindexHeaderOf(task)
 		if !ok {
 			return fmt.Errorf(
 				"in-flight reindex task %q has an unparseable payload; "+
@@ -265,7 +265,7 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	if msg := reindexPartialRunConflict(existingTasks, reindexHeaderRuns, className, propertyName, nil, false); msg != "" {
+	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, nil, false); msg != "" {
 		return fmt.Errorf("%s", msg)
 	}
 	return nil
@@ -293,7 +293,7 @@ func (ReindexDetector) CheckClassMutation(className string, existingTasks []*dis
 			continue
 		}
 
-		existP, ok := reindexHeaderOf(task)
+		existP, ok := ReindexHeaderOf(task)
 		if !ok {
 			return fmt.Errorf(
 				"in-flight reindex task %q has an unparseable payload; "+
@@ -348,7 +348,7 @@ func (ReindexDetector) CheckTenantMutation(className string, tenants []string, e
 			continue
 		}
 
-		existP, ok := reindexHeaderOf(task)
+		existP, ok := ReindexHeaderOf(task)
 		if !ok {
 			return fmt.Errorf(
 				"in-flight reindex task %q has an unparseable payload; "+

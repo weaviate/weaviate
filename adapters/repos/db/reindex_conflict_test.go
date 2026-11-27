@@ -1075,7 +1075,7 @@ func TestCheckTenantMutation_AllocatesIndependentlyOfPayloadSize(t *testing.T) {
 }
 
 // A submit's header decode and conflict check build neither unit map a payload from an older build still carries.
-func TestCheckConflict_SkipsTheUnitMaps(t *testing.T) {
+func payloadWithUnitMaps(t *testing.T) []byte {
 	const units = 300_000
 	unitToNode, unitToShard := make(map[string]string, units), make(map[string]string, units)
 	for i := range units {
@@ -1087,6 +1087,11 @@ func TestCheckConflict_SkipsTheUnitMaps(t *testing.T) {
 		"unitToNode": unitToNode, "unitToShard": unitToShard,
 	})
 	require.NoError(t, err)
+	return raw
+}
+
+func TestCheckConflict_SkipsTheUnitMaps(t *testing.T) {
+	raw := payloadWithUnitMaps(t)
 
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
