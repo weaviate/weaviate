@@ -90,13 +90,39 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 		apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user1"}},
 		logger:         logger,
 		rbacconfig: rbacconf.Config{
-			RootUsers: []string{"root-user"},
+			RootUsers:      []string{"root-user"},
+			RootGroups:     []string{"root-group"},
+			ReadOnlyGroups: []string{"viewer-root-group"},
+			MetadataGroups: []string{"metadata-group"},
 		},
 	}
 	res := h.assignRoleToGroup(params, principal)
 	parsed, ok := res.(*authz.AssignRoleToGroupOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
+}
+
+func TestValidateGroupID(t *testing.T) {
+	tests := []struct {
+		id      string
+		wantErr bool
+	}{
+		{id: "group:admins", wantErr: true},
+		{id: "group:group:admins", wantErr: true},
+		{id: "admins"},
+		{id: "Group:admins"},
+		{id: "eng:group:admins"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			err := validateGroupID(tt.id)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // TestAssignEmptyRoleSkipsPlaceholderPolicy: empty roles surface from GetRoles
@@ -372,6 +398,18 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 			expectedError: "roles can not be empty",
 		},
 	}
+	for _, group := range []string{"root-group", "viewer-root-group", "metadata-group"} {
+		tests = append(tests, testCase{
+			name: "prefixed " + group,
+			params: authz.AssignRoleToGroupParams{
+				ID:          conv.PrefixGroupName(group),
+				HTTPRequest: req,
+				Body:        authz.AssignRoleToGroupBody{Roles: []string{"some-role"}, GroupType: models.GroupTypeOidc},
+			},
+			principal:     &models.Principal{Username: "root-user"},
+			expectedError: "must not start with 'group:'",
+		})
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -383,6 +421,12 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					RootUsers:      []string{"root-user"},
+					RootGroups:     []string{"root-group"},
+					ReadOnlyGroups: []string{"viewer-root-group"},
+					MetadataGroups: []string{"metadata-group"},
+				},
 			}
 			if tt.callAuthZ {
 				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -390,7 +434,7 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 
 			res := h.assignRoleToGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.AssignRoleToGroupBadRequest)
-			assert.True(t, ok)
+			require.True(t, ok, "got %T", res)
 
 			if tt.expectedError != "" {
 				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
@@ -498,6 +542,16 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 			},
 			principal:     &models.Principal{Username: "root-user"},
 			expectedError: "assigning: cannot assign or revoke from root group root-group",
+		},
+		{
+			name: "read-only group",
+			params: authz.AssignRoleToGroupParams{
+				ID:          "viewer-root-group",
+				HTTPRequest: req,
+				Body:        authz.AssignRoleToGroupBody{Roles: []string{"some-role"}, GroupType: models.GroupTypeOidc},
+			},
+			principal:     &models.Principal{Username: "root-user"},
+			expectedError: "assigning: cannot assign or revoke from root group viewer-root-group",
 		},
 		{
 			name: "metadata group",
