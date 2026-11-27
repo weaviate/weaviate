@@ -443,7 +443,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 
 	if groupBy != nil {
 		res, err := refcache.NewResolverWithGroup(refcache.NewCacher(db, db.logger, tenant), groupBy.Properties).
-			Do(ctx, objs, props, addl)
+			Do(ctx, objs, props)
 		if err != nil {
 			return nil, fmt.Errorf("resolve cross-refs: %w", err)
 		}
@@ -451,7 +451,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	}
 
 	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenant)).
-		Do(ctx, objs, props, addl)
+		Do(ctx, objs, props)
 	if err != nil {
 		return nil, fmt.Errorf("resolve cross-refs: %w", err)
 	}

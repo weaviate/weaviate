@@ -276,12 +276,9 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		getExpectedSchema := func(withVector bool) map[string]interface{} {
 			fields := map[string]interface{}{
+				// location is not selected, so the read leaves it out
 				"name": "Luxury Parking Garage",
-				"location": &models.GeoCoordinates{
-					Latitude:  ptFloat32(48.864716),
-					Longitude: ptFloat32(2.349014),
-				},
-				"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+				"id":   strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
 			}
 			if withVector {
 				fields["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
@@ -447,12 +444,9 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		expectedSchemaWithLotRefWithVector := getExpectedSchemaWithLotRef(true)
 		getExpectedSchemaWithGarageRef := func(withVector bool) map[string]interface{} {
 			fields := map[string]interface{}{
+				// location is not selected, so the read leaves it out
 				"name": "Luxury Parking Garage",
-				"location": &models.GeoCoordinates{
-					Latitude:  ptFloat32(48.864716),
-					Longitude: ptFloat32(2.349014),
-				},
-				"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+				"id":   strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
 			}
 			if withVector {
 				fields["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
@@ -479,12 +473,9 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				fieldsParkingLot["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
 			}
 			fieldsParkingGarage := map[string]interface{}{
+				// location is not selected, so the read leaves it out
 				"name": "Luxury Parking Garage",
-				"location": &models.GeoCoordinates{
-					Latitude:  ptFloat32(48.864716),
-					Longitude: ptFloat32(2.349014),
-				},
-				"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+				"id":   strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
 			}
 			if withVector {
 				fieldsParkingGarage["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}

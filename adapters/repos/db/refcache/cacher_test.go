@@ -37,7 +37,7 @@ func TestCacher(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger, "")
-		err := cr.Build(context.Background(), nil, nil, additional.Properties{}, nil)
+		err := cr.Build(context.Background(), nil, nil, nil)
 		assert.Nil(t, err)
 	})
 
@@ -51,7 +51,7 @@ func TestCacher(t *testing.T) {
 				ClassName: "BestClass",
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, nil)
+		err := cr.Build(context.Background(), input, nil, nil)
 		assert.Nil(t, err)
 	})
 
@@ -69,7 +69,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, nil)
+		err := cr.Build(context.Background(), input, nil, nil)
 		assert.Nil(t, err)
 	})
 
@@ -90,7 +90,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, nil)
+		err := cr.Build(context.Background(), input, nil, nil)
 		require.Nil(t, err)
 		_, ok := cr.Get(multi.Identifier{ID: "123", ClassName: "SomeClass"})
 		assert.False(t, ok)
@@ -156,7 +156,7 @@ func TestCacher(t *testing.T) {
 				repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = expected
 				logger, _ := test.NewNullLogger()
 				cr := NewCacher(repo, logger, "")
-				err := cr.Build(context.Background(), tt.input, selectProps, additional.Properties{}, nil)
+				err := cr.Build(context.Background(), tt.input, selectProps, nil)
 				require.Nil(t, err)
 				res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 				require.True(t, ok, "the ref object's ref must be resolved")
@@ -238,16 +238,12 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
+		// ignoredRef is not selected, so the read leaves it out
 		expectedOuter := search.Result{
 			ID:        strfmt.UUID(id1),
 			ClassName: "SomeClass",
 			Schema: map[string]interface{}{
 				"primitive": "foobar",
-				"ignoredRef": models.MultipleRef{
-					&models.SingleRef{
-						Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
-					},
-				},
 				"nestedRef": models.MultipleRef{
 					&models.SingleRef{
 						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
@@ -264,7 +260,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
+		err := cr.Build(context.Background(), input, selectProps, nil)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -391,7 +387,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
+		err := cr.Build(context.Background(), input, selectProps, nil)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -587,13 +583,13 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
+		err := cr.Build(context.Background(), input, selectProps, nil)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedOuter, res)
 		input2 := []search.Result{expectedInner, expectedInner2}
-		err = cr.Build(context.Background(), input2, nil, additional.Properties{}, nil)
+		err = cr.Build(context.Background(), input2, nil, nil)
 		require.Nil(t, err)
 		nested1, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -710,7 +706,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps.Indexed())
+		err := cr.Build(context.Background(), input, nil, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -841,7 +837,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps.Indexed())
+		err := cr.Build(context.Background(), input, nil, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -987,16 +983,12 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
+		// ignoredRef is not selected, so the read leaves it out
 		expectedOuter := search.Result{
 			ID:        strfmt.UUID(id1),
 			ClassName: "SomeClass",
 			Schema: map[string]interface{}{
 				"primitive": "foobar",
-				"ignoredRef": models.MultipleRef{
-					&models.SingleRef{
-						Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
-					},
-				},
 				"nestedRef": models.MultipleRef{
 					&models.SingleRef{
 						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
@@ -1029,7 +1021,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, groupByProps.Indexed())
+		err := cr.Build(context.Background(), input, selectProps, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -1047,6 +1039,212 @@ func TestCacher(t *testing.T) {
 	})
 }
 
+// TestResolveObjectReachedByTwoPaths resolves one object that two reference
+// paths of a query reach with different selections. Each path must get what it
+// selected, whichever path the cacher meets first.
+func TestResolveObjectReachedByTwoPaths(t *testing.T) {
+	const (
+		person   = "00000000-0000-0000-0000-000000000001"
+		friend   = "00000000-0000-0000-0000-000000000002"
+		pet      = "00000000-0000-0000-0000-000000000003"
+		reviewer = "00000000-0000-0000-0000-000000000004"
+	)
+	beacon := func(id string) models.MultipleRef {
+		return models.MultipleRef{{Beacon: strfmt.URI("weaviate://localhost/" + id)}}
+	}
+	prim := func(name string) search.SelectProperty {
+		return search.SelectProperty{Name: name, IsPrimitive: true}
+	}
+	ref := func(name, class string, props ...search.SelectProperty) search.SelectProperty {
+		return search.SelectProperty{Name: name, Refs: []search.SelectClass{{ClassName: class, RefProperties: props}}}
+	}
+	withVectors := func(p search.SelectProperty, addl additional.Properties) search.SelectProperty {
+		p.Refs[0].AdditionalProperties = addl
+		return p
+	}
+	store := newFakeRepo()
+	for _, obj := range []search.Result{
+		{ID: person, ClassName: "Person", Vector: []float32{1, 2}, Vectors: models.Vectors{"title": []float32{3, 4}}, Schema: map[string]interface{}{
+			"name": "p", "age": 41.0, "friend": beacon(friend),
+		}},
+		{ID: friend, ClassName: "Person", Vector: []float32{5, 6}, Schema: map[string]interface{}{"name": "f", "pet": beacon(pet)}},
+		{ID: pet, ClassName: "Dog", Schema: map[string]interface{}{"name": "d"}},
+		{ID: reviewer, ClassName: "Person", Schema: map[string]interface{}{"name": "q", "mentor": beacon(person)}},
+	} {
+		store.lookup[multi.Identifier{ID: obj.ID.String(), ClassName: obj.ClassName}] = obj
+	}
+
+	type check struct {
+		article int
+		path    []string // reference properties, then the field read on the last object
+		want    interface{}
+	}
+	cases := []struct {
+		name     string
+		articles []map[string]string // reference property to target id, per article; author and reviewer of person when nil
+		props    search.SelectProperties
+		checks   []check
+		// goneOnReread is a Person id that reads as missing after the first MultiGet
+		goneOnReread string
+	}{
+		{
+			name:     "one article, only the second path selects nested refs",
+			articles: []map[string]string{{"author": person, "reviewer": person}},
+			props: search.SelectProperties{
+				ref("author", "Person", prim("name")),
+				ref("reviewer", "Person", ref("friend", "Person", prim("name"))),
+			},
+			checks: []check{
+				{0, []string{"author", "name"}, "p"},
+				{0, []string{"reviewer", "friend", "name"}, "f"},
+			},
+		},
+		{
+			name: "paths select different depths below the shared object",
+			props: search.SelectProperties{
+				ref("author", "Person", ref("friend", "Person", prim("name"))),
+				ref("reviewer", "Person", ref("friend", "Person", ref("pet", "Dog", prim("name")))),
+			},
+			checks: []check{
+				{0, []string{"author", "friend", "name"}, "f"},
+				{1, []string{"reviewer", "friend", "pet", "name"}, "d"},
+			},
+		},
+		{
+			name:     "object fetched a level earlier selects another property",
+			articles: []map[string]string{{"author": person, "reviewer": reviewer}},
+			props: search.SelectProperties{
+				ref("author", "Person", prim("name")),
+				ref("reviewer", "Person", ref("mentor", "Person", prim("age"))),
+			},
+			checks: []check{
+				{0, []string{"author", "name"}, "p"},
+				{0, []string{"reviewer", "mentor", "age"}, 41.0},
+			},
+		},
+		{
+			name:     "object fetched a level earlier selects a vector",
+			articles: []map[string]string{{"author": person, "reviewer": reviewer}},
+			props: search.SelectProperties{
+				ref("author", "Person", prim("name")),
+				ref("reviewer", "Person", withVectors(ref("mentor", "Person", prim("name")), additional.Properties{Vector: true})),
+			},
+			checks: []check{{0, []string{"reviewer", "mentor", "vector"}, []float32{1, 2}}},
+		},
+		{
+			name:         "object gone when a later level reads it again",
+			articles:     []map[string]string{{"author": person, "reviewer": reviewer}},
+			goneOnReread: person,
+			props: search.SelectProperties{
+				ref("author", "Person", prim("name")),
+				ref("reviewer", "Person", ref("mentor", "Person", prim("age"))),
+			},
+			// every path resolves it as missing, so its beacon stays unresolved
+			checks: []check{
+				{0, []string{"author"}, beacon(person)},
+				{0, []string{"reviewer", "mentor"}, beacon(person)},
+			},
+		},
+		{
+			name: "vector selected on one path only",
+			props: search.SelectProperties{
+				ref("author", "Person", prim("name")),
+				withVectors(ref("reviewer", "Person", prim("name")), additional.Properties{Vector: true}),
+			},
+			checks: []check{
+				{0, []string{"author", "vector"}, nil},
+				{1, []string{"reviewer", "vector"}, []float32{1, 2}},
+			},
+		},
+		{
+			name: "named vector selected on one path only",
+			props: search.SelectProperties{
+				ref("author", "Person", prim("name")),
+				withVectors(ref("reviewer", "Person", prim("name")), additional.Properties{Vectors: []string{"title"}}),
+			},
+			checks: []check{
+				{0, []string{"author", "vectors"}, nil},
+				{1, []string{"reviewer", "vectors"}, map[string]models.Vector{"title": []float32{3, 4}}},
+			},
+		},
+		{
+			name: "nested vector selected on one path only",
+			props: search.SelectProperties{
+				ref("author", "Person", ref("friend", "Person", prim("name"))),
+				ref("reviewer", "Person", withVectors(ref("friend", "Person", prim("name")), additional.Properties{Vector: true})),
+			},
+			checks: []check{{1, []string{"reviewer", "friend", "vector"}, []float32{5, 6}}},
+		},
+		{
+			name:     "paths select different targets of a multi-target ref",
+			articles: []map[string]string{{"author": friend}, {"reviewer": friend}},
+			props: search.SelectProperties{
+				ref("author", "Person", ref("pet", "Cat", prim("name"))),
+				ref("reviewer", "Person", ref("pet", "Dog", prim("name"))),
+			},
+			checks: []check{{1, []string{"reviewer", "pet", "name"}, "d"}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.articles == nil {
+				tc.articles = []map[string]string{{"author": person}, {"reviewer": person}}
+			}
+			// the loop repeats because the cacher walks an object's properties in map order
+			for range 20 {
+				articles := make([]search.Result, len(tc.articles))
+				for i, refs := range tc.articles {
+					schema := map[string]interface{}{}
+					for prop, id := range refs {
+						schema[prop] = beacon(id)
+					}
+					articles[i] = search.Result{ID: strfmt.UUID(fmt.Sprintf("10000000-0000-0000-0000-%012d", i)), ClassName: "Article", Schema: schema}
+				}
+				var r repo = store
+				if tc.goneOnReread != "" {
+					r = &goneOnRereadRepo{fakeRepo: store, gone: multi.Identifier{ID: tc.goneOnReread, ClassName: "Person"}}
+				}
+				logger, _ := test.NewNullLogger()
+				res, err := NewResolver(NewCacher(r, logger, "")).Do(context.Background(), articles, tc.props)
+				require.NoError(t, err)
+
+				for _, c := range tc.checks {
+					fields := res[c.article].Schema.(map[string]interface{})
+					for _, prop := range c.path[:len(c.path)-1] {
+						refs, ok := fields[prop].([]interface{})
+						require.Truef(t, ok, "%v: %q is not resolved, got %T", c.path, prop, fields[prop])
+						require.Len(t, refs, 1)
+						fields = refs[0].(search.LocalRef).Fields
+					}
+					assert.Equal(t, c.want, fields[c.path[len(c.path)-1]], "%v", c.path)
+				}
+			}
+		})
+	}
+}
+
+// goneOnRereadRepo reads like fakeRepo, except that gone reads as missing
+// after the first MultiGet.
+type goneOnRereadRepo struct {
+	*fakeRepo
+	gone  multi.Identifier
+	calls int
+}
+
+func (g *goneOnRereadRepo) MultiGet(ctx context.Context, query []multi.Identifier,
+	selections map[string]search.SelectClass, tenant string,
+) ([]search.Result, error) {
+	res, err := g.fakeRepo.MultiGet(ctx, query, selections, tenant)
+	g.calls++
+	for i, q := range query {
+		if g.calls > 1 && q == g.gone {
+			res[i] = search.Result{}
+		}
+	}
+	return res, err
+}
+
 type fakeRepo struct {
 	lookup        map[multi.Identifier]search.Result
 	counter       int // count request
@@ -1059,16 +1257,44 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties, tenant string) ([]search.Result, error) {
+// MultiGet returns each object with only the properties and vectors its
+// class's selection names.
+func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier,
+	selections map[string]search.SelectClass, tenant string,
+) ([]search.Result, error) {
 	f.counter++
 	f.objectCounter += len(query)
 	out := make([]search.Result, len(query))
 	for i, q := range query {
-		if res, ok := f.lookup[q]; ok {
-			out[i] = res
-		} else {
-			out[i] = search.Result{}
+		res, ok := f.lookup[q]
+		if !ok {
+			continue
 		}
+		sel, ok := selections[q.ClassName]
+		if !ok {
+			return nil, fmt.Errorf("no selection for class %q", q.ClassName)
+		}
+		schema := map[string]interface{}{}
+		for _, name := range sel.RefProperties.GetPropertyNames() {
+			if v, ok := res.Schema.(map[string]interface{})[name]; ok {
+				schema[name] = v
+			}
+		}
+		res.Schema = schema
+		if !sel.AdditionalProperties.Vector {
+			res.Vector = nil
+		}
+		var vectors models.Vectors
+		for _, name := range sel.AdditionalProperties.Vectors {
+			if v, ok := res.Vectors[name]; ok {
+				if vectors == nil {
+					vectors = models.Vectors{}
+				}
+				vectors[name] = v
+			}
+		}
+		res.Vectors = vectors
+		out[i] = res
 	}
 
 	return out, nil
@@ -1105,7 +1331,7 @@ func BenchmarkCacherBuildManyRefs(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				cr := NewCacher(repo, logger, "")
-				require.NoError(b, cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil))
+				require.NoError(b, cr.Build(context.Background(), input, selectProps, nil))
 			}
 		})
 	}

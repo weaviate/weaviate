@@ -345,21 +345,9 @@ func TestNestedReferences(t *testing.T) {
 				search.LocalRef{
 					Class: "City",
 					Fields: map[string]interface{}{
+						// inCountry is not selected, so the read leaves it out
 						"name": "San Francisco",
 						"id":   strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
-						// why is inCountry present here? We didn't specify it our select
-						// properties. Note it is "inCountry" with a lowercase letter
-						// (meaning unresolved) whereas "inCountry" would mean it was
-						// resolved. In GraphQL this property would simply be hidden (as
-						// the GQL is unaware of unresolved properties)
-						// However, for caching and other queries it is helpful that this
-						// info is still present, the important thing is that we're
-						// avoiding the costly resolving of it, if we don't need it.
-						"inCountry": models.MultipleRef{
-							&models.SingleRef{
-								Beacon: "weaviate://localhost/18c80a16-346a-477d-849d-9d92e5040ac9",
-							},
-						},
 					},
 				},
 			},
@@ -419,6 +407,7 @@ func fullyNestedSelectProperties() search.SelectProperties {
 				{
 					ClassName: "City",
 					RefProperties: search.SelectProperties{
+						{Name: "name", IsPrimitive: true},
 						search.SelectProperty{
 							Name:        "inCountry",
 							IsPrimitive: false,
@@ -426,6 +415,7 @@ func fullyNestedSelectProperties() search.SelectProperties {
 								{
 									ClassName: "Country",
 									RefProperties: search.SelectProperties{
+										{Name: "name", IsPrimitive: true},
 										search.SelectProperty{
 											Name:        "onContinent",
 											IsPrimitive: false,
@@ -433,13 +423,14 @@ func fullyNestedSelectProperties() search.SelectProperties {
 												{
 													ClassName: "Continent",
 													RefProperties: search.SelectProperties{
+														{Name: "name", IsPrimitive: true},
 														search.SelectProperty{
 															Name:        "onPlanet",
 															IsPrimitive: false,
 															Refs: []search.SelectClass{
 																{
 																	ClassName:     "Planet",
-																	RefProperties: nil,
+																	RefProperties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
 																},
 															},
 														},
@@ -467,6 +458,7 @@ func fullyNestedSelectPropertiesWithVector() search.SelectProperties {
 				{
 					ClassName: "City",
 					RefProperties: search.SelectProperties{
+						{Name: "name", IsPrimitive: true},
 						search.SelectProperty{
 							Name:        "inCountry",
 							IsPrimitive: false,
@@ -474,6 +466,7 @@ func fullyNestedSelectPropertiesWithVector() search.SelectProperties {
 								{
 									ClassName: "Country",
 									RefProperties: search.SelectProperties{
+										{Name: "name", IsPrimitive: true},
 										search.SelectProperty{
 											Name:        "onContinent",
 											IsPrimitive: false,
@@ -481,13 +474,14 @@ func fullyNestedSelectPropertiesWithVector() search.SelectProperties {
 												{
 													ClassName: "Continent",
 													RefProperties: search.SelectProperties{
+														{Name: "name", IsPrimitive: true},
 														search.SelectProperty{
 															Name:        "onPlanet",
 															IsPrimitive: false,
 															Refs: []search.SelectClass{
 																{
 																	ClassName:     "Planet",
-																	RefProperties: nil,
+																	RefProperties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
 																	AdditionalProperties: additional.Properties{
 																		Vector: true,
 																	},
@@ -526,7 +520,7 @@ func partiallyNestedSelectProperties() search.SelectProperties {
 			Refs: []search.SelectClass{
 				{
 					ClassName:     "City",
-					RefProperties: search.SelectProperties{},
+					RefProperties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
 				},
 			},
 		},

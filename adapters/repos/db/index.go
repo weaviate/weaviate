@@ -2161,7 +2161,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
-	ids []strfmt.UUID,
+	ids []strfmt.UUID, props []string, addl additional.Properties,
 ) ([]*storobj.Object, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -2177,11 +2177,11 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 		return nil, err
 	}
 
-	return shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
+	return shard.MultiObjectByIDWithProps(ctx, wrapIDsInMulti(ids), props, addl)
 }
 
 func (i *Index) multiObjectByID(ctx context.Context,
-	query []multi.Identifier, tenant string,
+	query []multi.Identifier, props []string, addl additional.Properties, tenant string,
 ) ([]*storobj.Object, error) {
 	type idsAndPos struct {
 		ids []multi.Identifier
@@ -2216,12 +2216,12 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
 			func(shard ShardLike) error {
 				var err error
-				objects, err = shard.MultiObjectByID(ctx, group.ids)
+				objects, err = shard.MultiObjectByIDWithProps(ctx, group.ids, props, addl)
 				return errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
 			},
 			func() error {
 				var err error
-				objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
+				objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids), props, addl)
 				return errors.Wrapf(err, "remote shard %s", shardName)
 			})
 		if err != nil {

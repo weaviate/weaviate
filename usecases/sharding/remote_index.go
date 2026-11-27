@@ -83,7 +83,7 @@ type RemoteIndexClient interface {
 	MergeObject(ctx context.Context, hostname, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
-		ids []strfmt.UUID) ([]*storobj.Object, error)
+		ids []strfmt.UUID, props []string, addl additional.Properties) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
 		searchVector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
@@ -238,7 +238,7 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
-	ids []strfmt.UUID,
+	ids []strfmt.UUID, props []string, addl additional.Properties,
 ) ([]*storobj.Object, error) {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -250,7 +250,7 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids)
+	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids, props, addl)
 }
 
 type ReplicasSearchResult struct {

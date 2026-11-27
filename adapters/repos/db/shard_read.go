@@ -111,6 +111,27 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 }
 
 func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
+	return s.multiObjectByID(query, storobj.FromBinaryDisk)
+}
+
+// MultiObjectByIDWithProps is MultiObjectByID decoding only props and the
+// vectors addl selects, and every named single vector once it names one. Nil
+// props reads whole objects, which a node that never sends props expects.
+func (s *Shard) MultiObjectByIDWithProps(ctx context.Context, query []multi.Identifier,
+	props []string, addl additional.Properties,
+) ([]*storobj.Object, error) {
+	if props == nil {
+		return s.MultiObjectByID(ctx, query)
+	}
+	propExtraction := storobj.NewPropExtraction().Add(props...)
+	return s.multiObjectByID(query, func(data []byte, className string) (*storobj.Object, error) {
+		return storobj.FromBinaryOptionalDisk(data, className, addl, propExtraction)
+	})
+}
+
+func (s *Shard) multiObjectByID(query []multi.Identifier,
+	decode func(data []byte, className string) (*storobj.Object, error),
+) ([]*storobj.Object, error) {
 	s.activityTrackerRead.Add(1)
 	objects := make([]*storobj.Object, len(query))
 
@@ -135,10 +156,6 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 		return nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 
-	// Decode props via jsonparser (no reflection). Only schema properties are
-	// decoded; a stored property absent from the schema (i.e. deleted) is dropped.
-	propExtraction := storobj.AllPropertiesExtraction(s.index.getSchema.ReadOnlyClass(className))
-
 	for i, id := range ids {
 		bytes, err := bucket.Get(id)
 		if err != nil {
@@ -149,7 +166,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinaryDiskWithProps(bytes, className, propExtraction)
+		obj, err := decode(bytes, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}

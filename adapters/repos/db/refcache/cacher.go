@@ -14,6 +14,7 @@ package refcache
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -26,8 +27,10 @@ import (
 )
 
 type repo interface {
+	// MultiGet reads each object of class c with the properties and vectors
+	// selections[c] selects.
 	MultiGet(ctx context.Context, query []multi.Identifier,
-		additional additional.Properties, tenant string) ([]search.Result, error)
+		selections map[string]search.SelectClass, tenant string) ([]search.Result, error)
 }
 
 func NewCacher(repo repo, logger logrus.FieldLogger, tenant string) *Cacher {
@@ -40,20 +43,21 @@ func NewCacher(repo repo, logger logrus.FieldLogger, tenant string) *Cacher {
 	}
 }
 
+// cacherJob holds in sel the union of what the reference paths reaching si
+// select. Of their additional properties, sel keeps only the vectors.
 type cacherJob struct {
 	si       multi.Identifier
-	props    search.SelectProperties
+	sel      search.SelectClass
 	complete bool
 }
 
 type Cacher struct {
 	sync.Mutex
 	jobs       []cacherJob
-	jobIdx     map[multi.Identifier]int // first position of each identifier in jobs
+	jobIdx     map[multi.Identifier]int // position of each identifier in jobs
 	logger     logrus.FieldLogger
 	repo       repo
 	store      map[multi.Identifier]search.Result
-	additional additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
 	tenant     string
 	groupByIdx search.SelectPropertiesIndex
 }
@@ -78,16 +82,14 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 //
 // This keeps request times to a minimum even on deeply nested requests.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
-	properties search.SelectProperties, additional additional.Properties, groupByIdx search.SelectPropertiesIndex,
+	properties search.SelectProperties, groupByIdx search.SelectPropertiesIndex,
 ) error {
-	c.additional = additional
 	c.groupByIdx = groupByIdx
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
 		return fmt.Errorf("build request cache: %w", err)
 	}
 
-	c.dedupJobList()
 	err = c.fetchJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("build request cache: %w", err)
@@ -171,8 +173,6 @@ func (c *Cacher) parseSchemaMap(schemaMap map[string]interface{}, idx search.Sel
 		}
 
 		for _, selectPropRef := range selectProp.Refs {
-			innerProperties := selectPropRef.RefProperties
-
 			for _, item := range unresolved {
 				ref, err := c.extractAndParseBeacon(item)
 				if err != nil {
@@ -181,7 +181,7 @@ func (c *Cacher) parseSchemaMap(schemaMap map[string]interface{}, idx search.Sel
 				c.addJob(multi.Identifier{
 					ID:        ref.TargetID.String(),
 					ClassName: selectPropRef.ClassName,
-				}, innerProperties)
+				}, selectPropRef)
 			}
 		}
 	}
@@ -227,17 +227,28 @@ func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 		ClassName: obj.ClassName,
 	})
 	if ok {
-		return job.props, nil
+		return job.sel.RefProperties, nil
 	}
 
 	return properties, nil
 }
 
-func (c *Cacher) addJob(si multi.Identifier, props search.SelectProperties) {
-	if _, ok := c.jobIdx[si]; !ok {
-		c.jobIdx[si] = len(c.jobs)
+// addJob adds what sel selects to the job for si. A job that already exists
+// takes the union, and runs again if that grows it, because its earlier read
+// decoded only what was selected then.
+func (c *Cacher) addJob(si multi.Identifier, sel search.SelectClass) {
+	i, ok := c.jobIdx[si]
+	if !ok {
+		i = len(c.jobs)
+		c.jobIdx[si] = i
+		c.jobs = append(c.jobs, cacherJob{si: si})
 	}
-	c.jobs = append(c.jobs, cacherJob{si, props, false})
+
+	job := &c.jobs[i]
+	var grew bool
+	if job.sel, grew = mergeSelectClass(job.sel, sel); grew {
+		job.complete = false
+	}
 }
 
 func (c *Cacher) findJob(si multi.Identifier) (cacherJob, bool) {
@@ -246,15 +257,6 @@ func (c *Cacher) findJob(si multi.Identifier) (cacherJob, bool) {
 		return cacherJob{}, false
 	}
 	return c.jobs[i], true
-}
-
-func (c *Cacher) reindexJobs() {
-	clear(c.jobIdx)
-	for i, job := range c.jobs {
-		if _, ok := c.jobIdx[job.si]; !ok {
-			c.jobIdx[job.si] = i
-		}
-	}
 }
 
 // finds incompleteJobs without altering the original job list
@@ -271,66 +273,6 @@ func (c *Cacher) incompleteJobs() []cacherJob {
 	return out[:n]
 }
 
-// finds complete jobs  without altering the original job list
-func (c *Cacher) completeJobs() []cacherJob {
-	out := make([]cacherJob, len(c.jobs))
-	n := 0
-	for _, job := range c.jobs {
-		if job.complete {
-			out[n] = job
-			n++
-		}
-	}
-
-	return out[:n]
-}
-
-// alters the list, removes duplicates.
-func (c *Cacher) dedupJobList() {
-	incompleteJobs := c.incompleteJobs()
-	before := len(incompleteJobs)
-	if before == 0 {
-		// nothing to do
-		return
-	}
-
-	c.logger.
-		WithFields(logrus.Fields{
-			"action": "request_cacher_dedup_joblist_start",
-			"jobs":   before,
-		}).
-		Debug("starting job list deduplication")
-	deduped := make([]cacherJob, len(incompleteJobs))
-	found := map[multi.Identifier]struct{}{}
-
-	// don't look up refs that are already completed - this can for example happen with cyclic refs
-	for _, job := range c.completeJobs() {
-		found[job.si] = struct{}{}
-	}
-
-	n := 0
-	for _, job := range incompleteJobs {
-		if _, ok := found[job.si]; ok {
-			continue
-		}
-
-		found[job.si] = struct{}{}
-		deduped[n] = job
-		n++
-	}
-
-	c.jobs = append(c.completeJobs(), deduped[:n]...)
-	c.reindexJobs()
-
-	c.logger.
-		WithFields(logrus.Fields{
-			"action":      "request_cacher_dedup_joblist_complete",
-			"jobs":        n,
-			"removedJobs": before - n,
-		}).
-		Debug("completed job list deduplication")
-}
-
 func (c *Cacher) fetchJobs(ctx context.Context) error {
 	jobs := c.incompleteJobs()
 	if len(jobs) == 0 {
@@ -338,10 +280,26 @@ func (c *Cacher) fetchJobs(ctx context.Context) error {
 		return nil
 	}
 
-	query := jobListToMultiGetQuery(jobs)
-	res, err := c.repo.MultiGet(ctx, query, c.additional, c.tenant)
+	query := make([]multi.Identifier, len(jobs))
+	selections := map[string]search.SelectClass{}
+	for i, job := range jobs {
+		query[i] = job.si
+		sel := selections[job.si.ClassName]
+		sel.ClassName = job.si.ClassName
+		sel, _ = mergeSelectClass(sel, job.sel)
+		selections[job.si.ClassName] = sel
+	}
+
+	res, err := c.repo.MultiGet(ctx, query, selections, c.tenant)
 	if err != nil {
 		return errors.Wrap(err, "fetch job list")
+	}
+
+	// an object gone on its re-read must not keep the narrower earlier read
+	for i, r := range res {
+		if r.ID == "" {
+			delete(c.store, query[i])
+		}
 	}
 
 	return c.parseAndStore(ctx, res)
@@ -356,15 +314,12 @@ func (c *Cacher) logSkipFetchJobs() {
 		Trace("skip fetch jobs, have no incomplete jobs")
 }
 
-// parseAndStore parses the results for nested refs. Since it is already a
-// []search.Result no other parsing is required, as we can expect this type to
-// have all primitive props parsed correctly
-//
-// If nested refs are found, the recursion is started.
-//
-// Once no more nested refs can be found, the recursion triggers its exit
-// condition and all jobs are stored.
+// parseAndStore stores the results, then parses them for nested refs and
+// builds the next level from them. Storing comes first because a nested level
+// can read an object again with more properties, and that read must win.
 func (c *Cacher) parseAndStore(ctx context.Context, res []search.Result) error {
+	c.storeResults(res)
+
 	// mark all current jobs as done, as we use the amount of incomplete jobs as
 	// the exit condition for the recursion. Next up, we will start a nested
 	// Build() call. If the Build call returns no new jobs, we are done and the
@@ -372,14 +327,9 @@ func (c *Cacher) parseAndStore(ctx context.Context, res []search.Result) error {
 	// iteration which will eventually come to this place again
 	c.markAllJobsAsDone()
 
-	err := c.Build(ctx, removeEmptyResults(res), nil, c.additional, nil)
+	err := c.Build(ctx, removeEmptyResults(res), nil, nil)
 	if err != nil {
 		return errors.Wrap(err, "build nested cache")
-	}
-
-	err = c.storeResults(res)
-	if err != nil {
-		return err
 	}
 
 	return nil
@@ -398,15 +348,13 @@ func removeEmptyResults(in []search.Result) []search.Result {
 	return out[0:n]
 }
 
-func (c *Cacher) storeResults(res search.Results) error {
+func (c *Cacher) storeResults(res search.Results) {
 	for _, item := range res {
 		c.store[multi.Identifier{
 			ID:        item.ID.String(),
 			ClassName: item.ClassName,
 		}] = item
 	}
-
-	return nil
 }
 
 func (c *Cacher) markAllJobsAsDone() {
@@ -415,11 +363,63 @@ func (c *Cacher) markAllJobsAsDone() {
 	}
 }
 
-func jobListToMultiGetQuery(jobs []cacherJob) []multi.Identifier {
-	query := make([]multi.Identifier, len(jobs))
-	for i, job := range jobs {
-		query[i] = job.si
-	}
+// mergeSelectProperties returns the union of a and b, merging the reference
+// selections of a property both select. grew reports whether b selects anything
+// a does not.
+func mergeSelectProperties(a, b search.SelectProperties) (merged search.SelectProperties, grew bool) {
+	return mergeByKey(a, b, func(p search.SelectProperty) string { return p.Name },
+		func(x, y search.SelectProperty) (search.SelectProperty, bool) {
+			var refsGrew bool
+			x.Refs, refsGrew = mergeByKey(x.Refs, y.Refs,
+				func(sc search.SelectClass) string { return sc.ClassName }, mergeSelectClass)
+			return x, refsGrew
+		})
+}
 
-	return query
+func mergeSelectClass(x, y search.SelectClass) (search.SelectClass, bool) {
+	var propsGrew, vectorsGrew bool
+	x.RefProperties, propsGrew = mergeSelectProperties(x.RefProperties, y.RefProperties)
+	x.AdditionalProperties, vectorsGrew = mergeVectors(x.AdditionalProperties, y.AdditionalProperties)
+	return x, propsGrew || vectorsGrew
+}
+
+// mergeVectors adds the vectors b selects to a. The resolver renders only a
+// referenced object's vectors and header fields, so vectors are the only
+// additional properties its read needs to decode.
+func mergeVectors(a, b additional.Properties) (merged additional.Properties, grew bool) {
+	vectorGrew := b.Vector && !a.Vector
+	a.Vector = a.Vector || b.Vector
+	var namesGrew bool
+	a.Vectors, namesGrew = mergeByKey(a.Vectors, b.Vectors,
+		func(name string) string { return name },
+		func(name, _ string) (string, bool) { return name, false })
+	return a, vectorGrew || namesGrew
+}
+
+// mergeByKey returns the union of a and b, with merge combining two elements
+// that share a key. It copies instead of writing to a or b, which alias the
+// query's selections. grew reports whether b added anything to a.
+func mergeByKey[T any](a, b []T, key func(T) string, merge func(x, y T) (T, bool)) (merged []T, grew bool) {
+	if len(a) == 0 {
+		return b, len(b) > 0
+	}
+	if len(b) == 0 || (len(b) <= len(a) && &a[0] == &b[0]) {
+		return a, false
+	}
+	merged = a
+	for _, elem := range b {
+		k := key(elem)
+		i := slices.IndexFunc(merged, func(m T) bool { return key(m) == k })
+		if i < 0 {
+			merged = append(slices.Clip(merged), elem)
+			grew = true
+			continue
+		}
+		if m, ok := merge(merged[i], elem); ok {
+			merged = slices.Clone(merged)
+			merged[i] = m
+			grew = true
+		}
+	}
+	return merged, grew
 }
