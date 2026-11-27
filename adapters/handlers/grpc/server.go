@@ -54,12 +54,15 @@ import (
 )
 
 type Config struct {
-	ClientTracker      *telemetry.ClientTracker
+	// If set, server tracks client SDK usage.
+	ClientTracker *telemetry.ClientTracker
+	// If set, server tracks integrations usage.
 	IntegrationTracker *telemetry.IntegrationTracker
-	Registerer         prometheus.Registerer
+	// Collects batch metrics.
+	Registerer prometheus.Registerer
 }
 
-// CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
+// CreateGRPCServer creates *grpc.Server with optional grpc.ServerOption passed first.
 // clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
 func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	grpcConf := state.ServerConfig.Config.GRPC
@@ -67,6 +70,11 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		grpc.MaxRecvMsgSize(grpcConf.MaxMsgSize),
 		grpc.MaxSendMsgSize(grpcConf.MaxMsgSize),
 	}
+
+	// Presently these are used to inject monitoring interceptors, which need to
+	// run first (outermost). This means options cannot be used to override any
+	// of the subsequent configurations, but that's not a requirement at the moment.
+	o = append(o, options...)
 
 	// Add TLS creds for the GRPC connection, if defined.
 	if len(grpcConf.CertFile) > 0 || len(grpcConf.KeyFile) > 0 {
@@ -110,9 +118,6 @@ func CreateGRPCServer(state *state.State, conf Config, options ...grpc.ServerOpt
 		serverStateStreamInterceptor((*serverState)(state)),
 		makeDocsLinkStreamInterceptor(),
 	))
-
-	// Allow caller to override any of our default configurations.
-	o = append(o, options...)
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
