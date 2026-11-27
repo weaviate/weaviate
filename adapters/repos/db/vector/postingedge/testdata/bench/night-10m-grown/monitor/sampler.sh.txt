@@ -1,0 +1,18 @@
+#!/bin/bash
+# A sample of the stacks of the process that grows the 10M index, 10 seconds
+# every 30 minutes, with /usr/bin/sample at 10 ms between samples
+# (bench-report.md of feat/posting-edge-index, "Vigilancia de la corrida del
+# 10M"). It sends the process no signal; sample suspends it for an instant at
+# every sample, and the stretch it falls in is marked from samples.log.
+# Usage: sampler.sh <pid>
+set -u
+M=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/grow10m/mon
+PID=$1
+while ps -p $PID > /dev/null 2>&1; do
+  at=$(date +%H%M%S)
+  echo "$(date '+%Y-%m-%d %H:%M:%S') start sample-$at" >> $M/samples.log
+  /usr/bin/sample $PID 10 10 -file $M/sample-$at.txt >> $M/sampler.out 2>&1
+  echo "$(date '+%Y-%m-%d %H:%M:%S') end sample-$at exit $?" >> $M/samples.log
+  sleep 1785
+done
+echo "$(date '+%Y-%m-%d %H:%M:%S') the process is gone" >> $M/samples.log

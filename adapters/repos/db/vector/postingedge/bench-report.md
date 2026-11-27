@@ -1376,6 +1376,44 @@ Cada uno lleva dentro los pasos anteriores, también el paso 1, que entonces seg
   - El diff de #14023 contra `m2` pasa de 143 553 a 162 548 líneas añadidas. De ellas 22 616 son arnés; casi todo lo demás son datos de las medidas de filtros.
 - **Las tablas por docID, sobre la serie:** el trabajo sin compilar está ahora encima de `44c35ee9b9`, como commits locales. La cuenta de lo que escribe un layout, que es nueva, ya lee la tabla. Sigue sin compilar.
 
+#### Vigilancia de la corrida del 10M desde fuera (pre-registro, 27 de noviembre a las 21:35, antes de lanzarla)
+
+**El encargo (del usuario, 21:15).** Objetivo: saber por qué el insert se encarece con el tamaño y por qué 8 llamadores no rinden 8 veces. Solo medir, sin optimizar nada. Ahora, sobre la corrida, sin compilar y sin nada que pueda matarla:
+- por tramo, junto al ritmo: CPU del proceso (usuario y sistema), actividad de disco (operaciones y MB por segundo, lectura y escritura separadas si se puede) y estado de la caché de ficheros y la paginación;
+- cada 30 minutos, una muestra de pilas de 10 s: cuántos hilos calculan, leen, esperan un cerrojo o están aparcados;
+- sin perfiles de bloqueo ni de mutex en este binario (#13944) y sin señales; marcar los tramos muestreados.
+
+**Lo que ya había.** Cada tramo del arnés guarda desde el principio lo que el sistema cuenta al proceso (`proc_pid_rusage`): CPU de usuario y de sistema, bytes leídos de disco y escritos, page-ins y huella. Eso cubre también los tramos anteriores a esta vigilancia.
+
+**Lo que añado, desde fuera y solo leyendo** (`monitor.py`, cada 10 s):
+- **Del proceso** (`proc_pid_rusage` v4 y `proc_pidinfo`): CPU de usuario y de sistema, tiempo de sus hilos listos sin core, bytes leídos y escritos, page-ins, fallos de página, cambios de contexto, llamadas al sistema, hilos, instrucciones y ciclos.
+- **Sus hilos por estado** (`ps -M`): corriendo o listos, dormidos, en espera no interrumpible.
+- **Del disco interno** (los contadores de su driver, por `ioreg`): operaciones y bytes de lectura y de escritura, y el tiempo total de cada una. De ahí salen las operaciones y los MB por segundo de cada sentido y el tiempo medio por operación.
+  - Es del disco entero, no del proceso. La máquina no hace otra cosa; mis commits del informe escriben poco y los marco.
+- **De la memoria del sistema** (`vm_stat` y el swap): páginas de fichero, que son la caché de ficheros, páginas anónimas, lo que guarda y ocupa el compresor, page-ins, page-outs, swap y nivel de presión.
+- **Se agrega por tramo del arnés, por la hora.** El borde de un tramo cae a 10 s o menos de una muestra.
+
+**Las muestras de pilas:** `/usr/bin/sample <pid> 10 10`, cada 30 minutos, la primera al lanzar.
+- **10 ms entre muestras y no 1 ms** (*mío*): `sample` suspende el proceso un instante en cada muestra. El proceso tiene 164 hilos, y mil muestras bastan para contar estados.
+- **Probado antes sobre un proceso Go de prueba** (`gofmt`), no sobre la corrida: funciona sin pedir autorización y el proceso sigue.
+- **Lo que puede decir y lo que no,** visto en esa prueba:
+  - De un hilo que calcula se ve la pila Go.
+  - De un hilo dentro de una llamada de libc (leer, escribir, sincronizar, la espera de una variable de condición) solo se ve la llamada. La pila Go de encima no, porque Go hace esas llamadas en la pila del sistema.
+  - **No separa «espera un cerrojo» de «aparcado».** En Go quien espera un `sync.Mutex` es la gorutina; su hilo se aparca o corre otra cosa. La espera en cerrojos sale de la pasada de diagnóstico, con `runtime/metrics` y la traza.
+  - Cuento, entonces: hilos que calculan y dónde, que leen, que escriben o sincronizan, y aparcados.
+- **Sin perfiles de bloqueo ni de mutex y sin señales al proceso.** Nada de esto abre ficheros del índice.
+- **Cada muestra queda con su hora de inicio y de fin,** y el tramo donde cae va marcado en la tabla.
+
+**Lo que perturba.** El monitor son cuatro comandos cada 10 s. La muestra para el proceso una parte de sus 10 s; lo estimo en pocos segundos cada media hora, y lo mido con el tramo marcado.
+
+**Lo que entrego con esto:** la tabla por tramo y el recuento de hilos por muestra. Sin interpretar más allá de lo medido hasta tener la pasada de diagnóstico.
+
+**Primera lectura, al probar el monitor** (6 s hacia las 21:25, no es un tramo):
+- 5.0 cores de usuario y 0.4 de sistema.
+- El proceso lee de disco 80 MB por segundo, en 4 800 operaciones por segundo.
+- La caché de ficheros son 22.5 GB, para un índice de 21 GB y un dataset de 31 GB que el arnés lee al azar.
+- El compresor de memoria guarda 42 GB en 13, y hay 3.5 GB de swap usados de 5.1.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
