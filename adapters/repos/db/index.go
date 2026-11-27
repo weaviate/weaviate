@@ -667,6 +667,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				promMetrics.NewLoadedShard()
 				newShard.metricsRegistered.Store(true)
 				i.shards.Store(shardName, newShard)
+				newShard.notifyViewRefresh()
 				startupShards.eager.Add(1)
 				return nil
 			}
@@ -1117,10 +1118,12 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 }
 
 // publishShard makes the shard visible under shardName, reconciling it against
-// the resource-pressure flag it may have read before becoming visible.
+// the resource-pressure flag it may have read before becoming visible. The
+// refresh notice repairs a task change its load read too early to see.
 func (i *Index) publishShard(shardName string, shard ShardLike) {
 	i.shards.Store(shardName, shard)
 	i.db.reconcileShardResourcePressure(shardName, shard)
+	i.db.reindexRefresher().notify(i.Config.ClassName.String(), []string{shardName})
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {

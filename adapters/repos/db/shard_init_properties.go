@@ -83,7 +83,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	var geoProps []*models.Property
 
 	for _, prop := range props {
-		prop = s.withMigratedIndexes(prop)
+		prop = s.withViewIndexes(s.withMigratedIndexes(prop))
 		propCopy := *prop // prevent loop variable capture
 
 		if _, ok := schema.AsNested(prop.DataType); ok {
@@ -479,31 +479,17 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			}
 		}
 
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
+		if err := s.store.CreateOrLoadBucket(ctx, s.servedIndexName(prop.Name, indexTypeFilterable),
+			s.propertyIndexOptions(prop, indexTypeFilterable, makeBucketOptions)...,
 		); err != nil {
 			return err
 		}
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		// The per-property stamp overrides the class-level flag: a new tenant
-		// shard on a permanently-partial class must create a blockmax bucket for
-		// an already-stamped property, not default to the class-wide WAND flag.
-		blockmax := s.usingBlockMaxWAND
-		if prop.SearchableBlockmax != nil {
-			blockmax = *prop.SearchableBlockmax
-		}
-		strategy := lsmkv.DefaultSearchableStrategy(blockmax)
-		searchableBucketOpts := makeBucketOptions(strategy)
-
-		if s.class.InvertedIndexConfig != nil {
-			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithBM25Config(s.class.InvertedIndexConfig.Bm25))
-		}
-
-		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
-		if err := s.store.CreateOrLoadBucket(ctx, bucketName, searchableBucketOpts...); err != nil {
+		bucketName := s.servedIndexName(prop.Name, indexTypeSearchable)
+		if err := s.store.CreateOrLoadBucket(ctx, bucketName,
+			s.propertyIndexOptions(prop, indexTypeSearchable, makeBucketOptions)...); err != nil {
 			return err
 		}
 
@@ -519,17 +505,40 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasRangeableIndex(prop) {
-		// Appended last so it wins over makeDefaultBucketOptions' value.
-		opts := append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
-			lsmkv.WithKeepSegmentsInMemory(s.index.Config.keepRangeableInMemory(prop.Name)))
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketRangeableFromPropNameLSM(prop.Name), opts...,
+		if err := s.store.CreateOrLoadBucket(ctx, s.servedIndexName(prop.Name, indexTypeRangeable),
+			s.propertyIndexOptions(prop, indexTypeRangeable, makeBucketOptions)...,
 		); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (s *Shard) propertyIndexOptions(prop *models.Property, indexType string,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+) []lsmkv.BucketOption {
+	switch indexType {
+	case indexTypeSearchable:
+		// The per-property stamp overrides the class-level flag: a new tenant
+		// shard on a permanently-partial class must create a blockmax bucket for
+		// an already-stamped property, not default to the class-wide WAND flag.
+		blockmax := s.usingBlockMaxWAND
+		if prop.SearchableBlockmax != nil {
+			blockmax = *prop.SearchableBlockmax
+		}
+		opts := makeBucketOptions(lsmkv.DefaultSearchableStrategy(blockmax))
+		if s.class.InvertedIndexConfig != nil {
+			opts = append(opts, lsmkv.WithBM25Config(s.class.InvertedIndexConfig.Bm25))
+		}
+		return opts
+	case indexTypeRangeable:
+		// Appended last so it wins over makeDefaultBucketOptions' value.
+		return append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithKeepSegmentsInMemory(s.index.Config.keepRangeableInMemory(prop.Name)))
+	default:
+		return makeBucketOptions(lsmkv.StrategyRoaringSet)
+	}
 }
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property,

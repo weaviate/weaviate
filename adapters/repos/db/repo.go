@@ -124,12 +124,15 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexLookupsMu guards the two lookups below: written at scheduler start, read from backup.
+	// reindexLookupsMu guards the three lookups below: written at startup, read from backups and shards.
 	reindexLookupsMu                   sync.RWMutex
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
+	reindexTaskStates                  ReindexTaskStateSource
 
 	endedReindexTasks EndedReindexTaskReader
+
+	reindexRefresh *reindexRefresh
 
 	// Both carry their own lock; see [migrationUnitSeals] and
 	// [migrationClusterReconciler].
@@ -192,6 +195,7 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 	}
 
 	db.startupComplete.Store(true)
+	db.reindexRefresh.start()
 	// Only once init has returned: unlike AddClass, it does not settle the
 	// indices it builds against the read-only flag, so a transition landing
 	// while one is still being assembled would reach its shards through neither
@@ -365,6 +369,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 
 	// The reconciler walks this node's loaded shards, so it needs a way back.
 	db.migrationCluster.db = db
+	db.reindexRefresh = newReindexRefresh(db)
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
@@ -442,6 +447,7 @@ type Config struct {
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
+	ReindexStagingFailureTimeout        time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	LSMSkipWriteClassNameEnabled        bool
 	NamespacesEnabled                   bool
@@ -739,6 +745,7 @@ func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error)
 func (db *DB) Shutdown(ctx context.Context) error {
 	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
+	db.reindexRefresh.shutdown()
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {

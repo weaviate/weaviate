@@ -40,11 +40,8 @@ func TestBucketNestedMetaFromPropNameLSM(t *testing.T) {
 }
 
 func TestBucketGenerationAware(t *testing.T) {
-	// Cover every helper variant against every meaningful generation value.
-	// The contract: gen==0 returns the legacy unsuffixed name (so clusters
-	// that never ran a semantic reindex find their existing buckets on
-	// disk unchanged); gen>=1 appends a "__gen<N>" suffix so old and new
-	// generations can coexist on disk during a migration.
+	// Generation 0 returns the plain name, so existing buckets load unchanged.
+	// A higher generation gets its own folder beside the old one.
 	type variant struct {
 		legacyName  func(string) string
 		atGenName   func(string, int64) string
@@ -84,13 +81,16 @@ func TestBucketGenerationAware(t *testing.T) {
 			assert.Equal(t, legacy, v.atGenName("foo", -1))
 		})
 
-		t.Run(label+"/gen>=1 appends __gen<N>", func(t *testing.T) {
-			legacy := v.legacyName("foo")
+		t.Run(label+"/gen>=1 puts .gen<N> after the property name", func(t *testing.T) {
 			for _, gen := range []int64{1, 2, 7, 42} {
-				expected := legacy + "__gen" + itoa(gen)
+				expected := v.legacyName("foo.gen" + itoa(gen))
 				assert.Equal(t, expected, v.atGenName("foo", gen))
 				assert.Equal(t, expected, v.propertyVar(&models.Property{Name: "foo", BucketGeneration: gen}))
 			}
+		})
+
+		t.Run(label+"/a generation never takes another property's plain name", func(t *testing.T) {
+			assert.NotEqual(t, v.atGenName("title__gen1", 0), v.atGenName("title", 1))
 		})
 
 		t.Run(label+"/different generations do not collide", func(t *testing.T) {

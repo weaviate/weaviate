@@ -79,6 +79,7 @@ type PrometheusMetrics struct {
 	MigrationRecordsWedged           prometheus.Counter
 	MigrationRecordsNotUnderstood    prometheus.Counter
 	ReindexHeldShards                prometheus.Gauge
+	ReindexViewRefreshPending        prometheus.Gauge
 
 	// Backup/Restore metrics
 	BackupRestoreDurations            *prometheus.SummaryVec
@@ -651,6 +652,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "reindex_held_shards",
 			Help: "Shards on this node held READONLY because a reindex migration's double-write mirror could not arm and its Unmirrored stamp could not be written. Each needs its cause cleared; the node's Error log line names the shard and the cause.",
 		}),
+		ReindexViewRefreshPending: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "reindex_view_refresh_pending",
+			Help: "Shards on this node whose reindex view refresh failed or was not ready and waits for a retry. The node's warning log names the first failing shard of each collection.",
+		}),
 		MigrationRecordsNotUnderstood: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "migration_records_not_understood_total",
 			Help: "Reindex migration records a shard load could not place: one it could not stat or read, one over the size bound, one it could not decode, one whose content names a different file, records naming more than one migration unit, or a records directory it could not read at all. Each withholds every promoting and destructive reindex action on its shard; the log line names the file and the reason.",
@@ -1126,6 +1131,13 @@ func (m *PrometheusMetrics) AddReindexHeldShards(delta float64) {
 		return
 	}
 	m.ReindexHeldShards.Add(delta)
+}
+
+func (m *PrometheusMetrics) SetReindexViewRefreshPending(shards int) {
+	if m == nil {
+		return
+	}
+	m.ReindexViewRefreshPending.Set(float64(shards))
 }
 
 const (

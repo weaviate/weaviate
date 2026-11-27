@@ -42,6 +42,11 @@ import (
 type fakeSchemaGetter struct {
 	schema     schema.Schema
 	shardState *sharding.State
+	live       map[string]map[string]map[string]uint64
+}
+
+func (f *fakeSchemaGetter) ClassLive(class string) map[string]map[string]uint64 {
+	return f.live[class]
 }
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {

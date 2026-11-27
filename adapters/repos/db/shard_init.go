@@ -167,9 +167,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	markInFlightRangeableMigrationsNotReady(s)
 
+	if err := s.loadReindexView(); err != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, err)
+	}
+
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
+	s.finishViewLoad()
 
 	// Needs the dimensions bucket, which initNonVector opens.
 	s.clearDroppedVectorDimensions(ctx, class)

@@ -277,6 +277,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	defer s.releaseCountedStatus()
 	s.shutdownRequested.Store(false)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
+	s.closeViews()
 
 	// The teardown below cannot be abandoned: every step of it consumes ctx.
 	// Stopping after s.shut is set leaves buckets unflushed and registry entries

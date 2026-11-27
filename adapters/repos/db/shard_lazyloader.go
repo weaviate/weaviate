@@ -175,6 +175,7 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	l.shard = shard
 	l.loaded = true
+	shard.notifyViewRefresh()
 
 	return true, nil
 }

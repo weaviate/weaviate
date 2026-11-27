@@ -35,6 +35,54 @@ func (_m *MockSchemaGetter) EXPECT() *MockSchemaGetter_Expecter {
 	return &MockSchemaGetter_Expecter{mock: &_m.Mock}
 }
 
+// ClassLive provides a mock function with given fields: class
+func (_m *MockSchemaGetter) ClassLive(class string) map[string]map[string]uint64 {
+	ret := _m.Called(class)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClassLive")
+	}
+
+	var r0 map[string]map[string]uint64
+	if rf, ok := ret.Get(0).(func(string) map[string]map[string]uint64); ok {
+		r0 = rf(class)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]map[string]uint64)
+		}
+	}
+
+	return r0
+}
+
+// MockSchemaGetter_ClassLive_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClassLive'
+type MockSchemaGetter_ClassLive_Call struct {
+	*mock.Call
+}
+
+// ClassLive is a helper method to define mock.On call
+//   - class string
+func (_e *MockSchemaGetter_Expecter) ClassLive(class interface{}) *MockSchemaGetter_ClassLive_Call {
+	return &MockSchemaGetter_ClassLive_Call{Call: _e.mock.On("ClassLive", class)}
+}
+
+func (_c *MockSchemaGetter_ClassLive_Call) Run(run func(class string)) *MockSchemaGetter_ClassLive_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaGetter_ClassLive_Call) Return(_a0 map[string]map[string]uint64) *MockSchemaGetter_ClassLive_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaGetter_ClassLive_Call) RunAndReturn(run func(string) map[string]map[string]uint64) *MockSchemaGetter_ClassLive_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ClusterHealthScore provides a mock function with no fields
 func (_m *MockSchemaGetter) ClusterHealthScore() int {
 	ret := _m.Called()

@@ -406,6 +406,8 @@ type Shard struct {
 	propertyOverlayMu sync.RWMutex
 	propertyOverlay   map[string]inverted.PropertyOverlay
 
+	view shardViewState
+
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
