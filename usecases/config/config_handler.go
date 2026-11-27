@@ -270,7 +270,7 @@ type Config struct {
 	// the backup path performs no reindex check.
 	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
 
-	// RedactInternals (REDACT_INTERNALS) hides deployment details from /v1/meta that users of a managed cluster should not see.
+	// RedactInternals (REDACT_INTERNALS) hides deployment details from /v1/meta.
 	RedactInternals bool `json:"redact_internals" yaml:"redact_internals"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
