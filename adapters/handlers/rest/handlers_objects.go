@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -106,6 +107,10 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) || cerrors.NamespaceErrRendersUnprocessable(err) {
+			return objects.NewObjectsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		} else if errors.Is(err, storagestate.ErrStatusReadOnly) {
+			// A read-only shard is an expected operational state, not a fault.
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
@@ -413,6 +418,10 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) || cerrors.NamespaceErrRendersUnprocessable(err) {
+			return objects.NewObjectsClassPutUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		} else if errors.Is(err, storagestate.ErrStatusReadOnly) {
+			// A read-only shard is an expected operational state, not a fault.
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &authzerrors.Forbidden{}) {

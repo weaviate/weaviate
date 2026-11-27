@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -206,6 +207,10 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 		if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
 			m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
 			return &Error{"not found", StatusNotFound, err}
+		}
+		if errors.Is(err, storagestate.ErrStatusReadOnly) {
+			// A read-only shard is an expected operational state, not a fault.
+			return &Error{"repo.merge", StatusUnprocessableEntity, err}
 		}
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
