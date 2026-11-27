@@ -419,3 +419,42 @@ func TestSnapshotShardsForExport_CancelUnblocksLockedShard(t *testing.T) {
 		t.Fatal("snapshotShardsForExport did not respect context cancellation while holding a contended lock")
 	}
 }
+
+type exportTenantsStatus struct {
+	schemaUC.TenantsActivityManager
+}
+
+func (exportTenantsStatus) TenantsStatus(_ string, tenants ...string) (map[string]string, error) {
+	res := make(map[string]string, len(tenants))
+	for _, t := range tenants {
+		res[t] = models.TenantActivityStatusACTIVE
+	}
+	return res, nil
+}
+
+func TestSnapshotShardsForExport_ReportsTenancy(t *testing.T) {
+	tests := []struct {
+		name string
+		mt   bool
+	}{
+		{name: "single-tenant", mt: false},
+		{name: "multi-tenant", mt: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := newTestIndexForSnapshot(t, "TestClass")
+			idx.getSchema = &fakeSchemaGetter{schema: schema.Schema{Objects: &models.Schema{
+				Classes: []*models.Class{{
+					Class:              "TestClass",
+					MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: tt.mt},
+				}},
+			}}}
+			idx.tenantsManager = exportTenantsStatus{}
+
+			res, err := idx.snapshotShardsForExport(context.Background(), []string{"shard-0"}, "export-id")
+			require.NoError(t, err)
+			require.Len(t, res, 1)
+			require.Equal(t, tt.mt, res[0].MultiTenant)
+		})
+	}
+}

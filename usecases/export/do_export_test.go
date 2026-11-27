@@ -292,3 +292,43 @@ func TestSnapshotAllShards_Error(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
 }
+
+// Tenancy comes from the snapshot result, so it matches the index that was
+// snapshotted.
+func TestSnapshotAllShards_TenancyFromSnapshot(t *testing.T) {
+	tests := []struct {
+		name string
+		mt   bool
+	}{
+		{name: "single-tenant", mt: false},
+		{name: "multi-tenant", mt: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			store, _ := createTestStore(t, 1)
+			t.Cleanup(func() { store.Shutdown(context.Background()) })
+			selector := &fakeSelector{
+				shards:        map[string]map[string]*testShard{"Article": {"shard0": {store: store, name: "shard0"}}},
+				mt:            map[string]bool{"Article": tt.mt},
+				snapshotsRoot: t.TempDir(),
+			}
+
+			p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil)
+			req := &ExportRequest{
+				ID:       "test-export",
+				Backend:  "fake",
+				Classes:  []string{"Article"},
+				Shards:   map[string][]string{"Article": {"shard0"}},
+				Bucket:   "bucket",
+				Path:     "path",
+				NodeName: "node1",
+			}
+
+			snapshots, _, err := p.snapshotAllShards(context.Background(), req)
+			require.NoError(t, err)
+			require.Len(t, snapshots, 1)
+			require.Equal(t, tt.mt, snapshots[0].isMT)
+		})
+	}
+}

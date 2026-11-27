@@ -199,11 +199,19 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			st.setClusterID(snap.ClusterID)
 		}
 
+		snapIndex := lastSnapshotIndex(st.snapshotStore)
+		// Only Apply moves lastAppliedIndex otherwise, so a version wait for a
+		// restored class would block until the next log entry.
+		defer func() {
+			if snapIndex > st.lastAppliedIndex.Load() {
+				st.lastAppliedIndex.Store(snapIndex)
+			}
+		}()
+
 		if st.cfg.MetadataOnlyVoters {
 			return nil
 		}
 
-		snapIndex := lastSnapshotIndex(st.snapshotStore)
 		if st.lastAppliedIndexToDB.Load() <= snapIndex {
 			// db shall reload after snapshot applied to schema
 			st.reloadDBFromSchema()

@@ -116,16 +116,6 @@ func assignShardsToNodes(shards map[string][]string) map[string][]string {
 	return result
 }
 
-// IsMultiTenant returns true if the class has multi-tenancy enabled.
-func (db *DB) IsMultiTenant(_ context.Context, className string) bool {
-	idx := db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return false
-	}
-	class := idx.getClass()
-	return class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
-}
-
 // IsAsyncReplicationEnabled reports whether a class is safe to export: its
 // replicas are kept consistent by async replication, or it has no replicas.
 // It returns true for RF ≤ 1 (irrelevant), false for a missing local index,
@@ -143,6 +133,11 @@ func (db *DB) IsAsyncReplicationEnabled(_ context.Context, className string) boo
 // the given shards of a class. It acquires the index's dropIndex.RLock once
 // for the entire batch.
 func (db *DB) SnapshotShards(ctx context.Context, className string, shardNames []string, exportID string) ([]export.ShardSnapshotResult, error) {
+	// indexForRead waits for a class this node is still applying; the lookup
+	// below takes dropIndex under indexLock.
+	if _, err := db.indexForRead(ctx, schema.ClassName(className)); err != nil {
+		return nil, err
+	}
 	var (
 		idx    *Index
 		exists bool
@@ -199,6 +194,7 @@ func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string
 	results := make([]export.ShardSnapshotResult, len(shardNames))
 	for idx, name := range shardNames {
 		results[idx].ShardName = name
+		results[idx].MultiTenant = isMT
 	}
 
 	// Dispatch loop with TryRLock: shards whose lock is held by a concurrent

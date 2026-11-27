@@ -524,8 +524,9 @@ func (db *DB) registeredIndex(className schema.ClassName) *Index {
 
 // indexForRead returns className's index, or nil and no error if this node has
 // none. On a miss for a class the local schema holds, it first waits until this
-// node has applied that class version. Never call it from SchemaManager.apply,
-// which would wait for its own version.
+// node has applied that class version; an index registered while that wait
+// failed is still returned. Never call it from SchemaManager.apply, which would
+// wait for its own version.
 func (db *DB) indexForRead(ctx context.Context, className schema.ClassName) (*Index, error) {
 	if index := db.registeredIndex(className); index != nil {
 		return index, nil
@@ -535,6 +536,9 @@ func (db *DB) indexForRead(ctx context.Context, className schema.ClassName) (*In
 		return nil, nil
 	}
 	if err := db.schemaReader.WaitForUpdate(ctx, version); err != nil {
+		if index := db.registeredIndex(className); index != nil {
+			return index, nil
+		}
 		return nil, fmt.Errorf("wait for class %s to be applied locally: %w", className, err)
 	}
 	return db.registeredIndex(className), nil

@@ -755,8 +755,6 @@ func (p *Participant) snapshotAllShards(
 			continue
 		}
 
-		isMT := p.selector.IsMultiTenant(ctx, className)
-
 		results, snapshotErr := p.selector.SnapshotShards(ctx, className, shardNames, req.ID)
 		if snapshotErr != nil {
 			// SnapshotShards cleans up any partial snapshot dirs on error,
@@ -785,7 +783,7 @@ func (p *Participant) snapshotAllShards(
 			snapshots = append(snapshots, shardSnapshot{
 				className: className,
 				shardName: r.ShardName,
-				isMT:      isMT,
+				isMT:      r.MultiTenant,
 				dir:       r.SnapshotDir,
 				strategy:  r.Strategy,
 			})

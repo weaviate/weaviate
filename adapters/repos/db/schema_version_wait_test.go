@@ -403,6 +403,14 @@ func TestReadsWaitForTheIndexOfAClassBeingApplied(t *testing.T) {
 			waitErrReturned: true,
 		},
 		{
+			name: "SnapshotShards",
+			read: func(ctx context.Context, db *DB) (bool, error) {
+				res, err := db.SnapshotShards(ctx, applyingClass, []string{"shard1"}, "export1")
+				return len(res) == 1, err
+			},
+			waitErrReturned: true,
+		},
+		{
 			name: "LocalNodeStatus",
 			read: func(ctx context.Context, db *DB) (bool, error) {
 				res, err := db.LocalNodeStatus(ctx, applyingClass, "", verbosity.OutputVerbose)
@@ -431,6 +439,12 @@ func TestReadsWaitForTheIndexOfAClassBeingApplied(t *testing.T) {
 			name:        "wait fails",
 			finishApply: func(func()) error { return errWait },
 			wantErr:     true,
+		},
+		{
+			// A DB reload registers the index without moving the applied index.
+			name:        "wait fails after the index was registered",
+			finishApply: func(register func()) error { register(); return errWait },
+			wantReached: true,
 		},
 	}
 
