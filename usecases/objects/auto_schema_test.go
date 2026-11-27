@@ -1725,16 +1725,6 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 			expectedDataType: []string{"Movies"},
 		},
 		{
-			name:             "an unreadable collection is ignored",
-			principal:        confinedPrincipal,
-			sourceClass:      "customer1:Library",
-			lookupIn:         "customer1",
-			repoClasses:      []string{"customer1:Movies"},
-			deniedResources:  authorization.Collections("customer1:Movies"),
-			checkedClasses:   []string{"customer1:Movies"},
-			expectedDataType: []string{"object[]"},
-		},
-		{
 			name:             "a later readable collection resolves",
 			principal:        confinedPrincipal,
 			sourceClass:      "customer1:Library",

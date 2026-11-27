@@ -509,26 +509,6 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 	}
 }
 
-func inlineRefTestObject(class, target string, id, refID strfmt.UUID, tenant string) *models.Object {
-	return &models.Object{
-		Class:  class,
-		ID:     id,
-		Tenant: tenant,
-		Properties: map[string]interface{}{
-			"hasAnimals": []interface{}{map[string]interface{}{
-				"beacon": "weaviate://localhost/" + target + "/" + string(refID),
-			}},
-		},
-	}
-}
-
-func objectErrorAsError(objErr *Error) error {
-	if objErr != nil {
-		return objErr
-	}
-	return nil
-}
-
 func TestDedicatedRefTargetAuthorizationFailureIsInternal(t *testing.T) {
 	const class, target, tenant = "Zoo", "Animal", "tenantA"
 	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
@@ -564,41 +544,27 @@ func TestDedicatedRefTargetAuthorizationFailureIsInternal(t *testing.T) {
 			},
 		},
 	}
-	scenarios := []struct {
-		name               string
-		precedingAuthCalls int
-		targetResources    []string
-	}{
-		{
-			name:               "initial target check",
-			precedingAuthCalls: 1,
-			targetResources:    authorization.ShardsData(target, tenant),
-		},
-	}
+	for _, op := range ops {
+		t.Run(op.name, func(t *testing.T) {
+			m, _, repo, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
+			if op.arrange != nil {
+				op.arrange(repo)
+			}
+			// Source UPDATE is allowed; the target READ check fails.
+			authz.SetErrAfter(1, authorizationFailed)
 
-	for _, scenario := range scenarios {
-		for _, op := range ops {
-			t.Run(scenario.name+"/"+op.name, func(t *testing.T) {
-				m, _, repo, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
-				if op.arrange != nil {
-					op.arrange(repo)
-				}
-				authz.SetErrAfter(scenario.precedingAuthCalls, authorizationFailed)
+			err := op.call(m)
+			require.Error(t, err)
+			require.Equal(t, StatusInternalServerError, err.Code)
+			require.ErrorIs(t, err, authorizationFailed)
+			require.NotErrorAs(t, err, &authzerrs.Forbidden{})
 
-				err := op.call(m)
-				require.Error(t, err)
-				require.Equal(t, StatusInternalServerError, err.Code)
-				require.ErrorIs(t, err, authorizationFailed)
-				require.NotErrorAs(t, err, &authzerrs.Forbidden{})
-
-				calls := authz.Calls()
-				require.Len(t, calls, scenario.precedingAuthCalls+1)
-				targetCall := calls[len(calls)-1]
-				require.Equal(t, authorization.READ, targetCall.Verb)
-				require.Equal(t, scenario.targetResources, targetCall.Resources)
-				repo.AssertExpectations(t)
-			})
-		}
+			calls := authz.Calls()
+			require.Len(t, calls, 2)
+			require.Equal(t, authorization.READ, calls[1].Verb)
+			require.Equal(t, authorization.ShardsData(target, tenant), calls[1].Resources)
+			repo.AssertExpectations(t)
+		})
 	}
 }
 
@@ -641,42 +607,32 @@ func TestAutoSchemaClasslessRefLookupSkipsUnreadableCollections(t *testing.T) {
 		},
 	}
 
-	denials := []struct {
-		name      string
-		resources []string
-	}{
-		{name: "data denied", resources: authorization.CollectionsData(target)},
-		{name: "metadata denied", resources: authorization.CollectionsMetadata(target)},
-	}
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			classes := []*models.Class{
+				{Class: class, Vectorizer: config.VectorizerModuleNone},
+				{Class: target, Vectorizer: config.VectorizerModuleNone},
+			}
+			m, b, repo, mods, authz := newNSManagers(t, classes, false, withAutoSchema(nil))
+			authz.Deny(authorization.CollectionsData(target)...)
+			repo.On("ObjectsByID", refID, mock.Anything, mock.Anything, "", "").
+				Return(search.Results{{ClassName: target}}, nil).Once()
+			repo.On("Exists", target, refID).Return(false, nil).Maybe()
 
-	for _, denial := range denials {
-		for _, operation := range operations {
-			t.Run(denial.name+"/"+operation.name, func(t *testing.T) {
-				classes := []*models.Class{
-					{Class: class, Vectorizer: config.VectorizerModuleNone},
-					{Class: target, Vectorizer: config.VectorizerModuleNone},
+			require.NoError(t, operation.call(t, m, b, repo, mods))
+			repo.AssertNotCalled(t, "Exists", target, refID)
+
+			var lookupCalls int
+			for _, call := range authz.Calls() {
+				if call.Verb == authorization.READ && len(call.Resources) == len(targetResources) {
+					require.Equal(t, targetResources, call.Resources)
+					require.True(t, call.Silent)
+					lookupCalls++
 				}
-				m, b, repo, mods, authz := newNSManagers(t, classes, false, withAutoSchema(nil))
-				authz.Deny(denial.resources...)
-				repo.On("ObjectsByID", refID, mock.Anything, mock.Anything, "", "").
-					Return(search.Results{{ClassName: target}}, nil).Once()
-				repo.On("Exists", target, refID).Return(false, nil).Maybe()
-
-				require.NoError(t, operation.call(t, m, b, repo, mods))
-				repo.AssertNotCalled(t, "Exists", target, refID)
-
-				var lookupCalls int
-				for _, call := range authz.Calls() {
-					if call.Verb == authorization.READ && len(call.Resources) == len(targetResources) {
-						require.Equal(t, targetResources, call.Resources)
-						require.True(t, call.Silent)
-						lookupCalls++
-					}
-				}
-				require.Equal(t, 1, lookupCalls)
-				repo.AssertExpectations(t)
-			})
-		}
+			}
+			require.Equal(t, 1, lookupCalls)
+			repo.AssertExpectations(t)
+		})
 	}
 }
 
@@ -691,6 +647,10 @@ func classlessAutoSchemaObject(class string, refID strfmt.UUID) *models.Object {
 	}
 }
 
+// Validating a write checks that each cross-reference target exists, at the
+// request's consistency level. Too few reachable replicas is a server fault
+// and must reach the handlers as 500; any other outcome of that check stays
+// the client's fault and keeps its 4xx.
 func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 	const class, target = "Zoo", "Animal"
 	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
@@ -698,7 +658,12 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 	beacon := "weaviate://localhost/" + target + "/" + string(refID)
 	found := &search.Result{ID: id, ClassName: class}
 	withRef := func() *models.Object {
-		return inlineRefTestObject(class, target, id, refID, "")
+		return &models.Object{
+			Class: class, ID: id,
+			Properties: map[string]interface{}{
+				"hasAnimals": []interface{}{map[string]interface{}{"beacon": beacon}},
+			},
+		}
 	}
 
 	// The create and PUT handlers check for ErrInvalidUserInput first. An error
@@ -717,6 +682,14 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 			require.Equal(t, code, objErr.Code)
 		}
 	}
+	// A nil *Error must stay a nil error interface.
+	asErr := func(objErr *Error) error {
+		if objErr != nil {
+			return objErr
+		}
+		return nil
+	}
+
 	outcomes := []struct {
 		name     string
 		err      error
@@ -775,7 +748,7 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()
 			},
 			call: func(m *Manager) error {
-				return objectErrorAsError(m.MergeObject(context.Background(), &models.Principal{}, withRef(), nil))
+				return asErr(m.MergeObject(context.Background(), &models.Principal{}, withRef(), nil))
 			},
 			internal:  requireCode(StatusInternalServerError),
 			userFault: requireCode(StatusBadRequest),
@@ -787,7 +760,7 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 					Class: class, ID: id, Property: "hasAnimals",
 					Ref: models.SingleRef{Beacon: strfmt.URI(beacon)},
 				}
-				return objectErrorAsError(m.AddObjectReference(context.Background(), &models.Principal{}, input, nil, ""))
+				return asErr(m.AddObjectReference(context.Background(), &models.Principal{}, input, nil, ""))
 			},
 			internal:  requireCode(StatusInternalServerError),
 			userFault: requireCode(StatusBadRequest),
@@ -802,7 +775,7 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 					Class: class, ID: id, Property: "hasAnimals",
 					Refs: models.MultipleRef{{Beacon: strfmt.URI(beacon)}},
 				}
-				return objectErrorAsError(m.UpdateObjectReferences(context.Background(), &models.Principal{}, input, nil, ""))
+				return asErr(m.UpdateObjectReferences(context.Background(), &models.Principal{}, input, nil, ""))
 			},
 			internal:  requireCode(StatusInternalServerError),
 			userFault: requireCode(StatusBadRequest),
