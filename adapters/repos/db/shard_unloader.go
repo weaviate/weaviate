@@ -31,16 +31,12 @@ import (
 // The db only calls it when [Config.ShardUnloader] is set; a nil unloader
 // leaves every path as it was.
 //
-// Concurrency contract: BeforeLoad runs on the loading goroutine while that
-// wrapper's load mutex is held, so it must not block and must not call back
-// into that wrapper. The unloader's own goroutines unload with
+// Concurrency contract: the unloader's goroutines unload with
 // [LazyLoadShard.TryUnload], which only try-locks, so it can never wait on a load.
 type ShardUnloader interface {
 	// Registry returns the registry the db records loaded wrappers in. It must
 	// return the same registry for the unloader's whole life.
 	Registry() *LoadedShardRegistry
-	// BeforeLoad runs before a cold wrapper loads, never for a startup warmup load; it cannot fail the load.
-	BeforeLoad(shard *LazyLoadShard)
 	// Collecting reports whether idle shards are being unloaded now; it reads atomics only.
 	Collecting() bool
 	// Close stops the unloader's goroutines. DB.Shutdown calls it before any
@@ -233,7 +229,7 @@ func (c *Config) wrapsShardsForUnloading() bool {
 // loads the shard into a wrapper instead of building a bare *Shard, through the
 // same memory and limiter admission. Callers hold shardCreateLocks, or own an
 // index not yet published, as its startup does with opts skipping the memory
-// check and the BeforeLoad the eager startup load never had.
+// check the eager startup load never had.
 func (i *Index) initLoadedLazyShard(ctx context.Context, shardName string, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics, opts loadOpts,
 ) (*LazyLoadShard, error) {

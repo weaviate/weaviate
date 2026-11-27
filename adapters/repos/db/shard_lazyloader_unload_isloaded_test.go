@@ -49,11 +49,12 @@ func TestLazyLoadShard_IsLoadedWaitsForALoadInFlight(t *testing.T) {
 	require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 	loading := make(chan struct{})
 	loaded := make(chan struct{})
-	hook := func(*LazyLoadShard) {
+	hook := func() error {
 		close(loading)
 		<-loaded
+		return nil
 	}
-	f.unloader.onBeforeLoad.Store(&hook)
+	f.loadHook.hook.Store(&hook)
 	go func() {
 		_, _, err := f.lazy.loadIfCold(testCtx())
 		assert.NoError(t, err)
@@ -62,7 +63,7 @@ func TestLazyLoadShard_IsLoadedWaitsForALoadInFlight(t *testing.T) {
 	result := make(chan bool, 1)
 	go func() { result <- f.lazy.isLoaded() }()
 	waiting := assert.Eventually(t, func() bool { return f.lazy.loadWaiters.Load() == 1 }, 5*time.Second, time.Millisecond)
-	f.unloader.onBeforeLoad.Store(nil)
+	f.loadHook.hook.Store(nil)
 	close(loaded)
 	require.True(t, waiting)
 	require.True(t, <-result, "a load in flight is waited on")

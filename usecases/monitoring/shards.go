@@ -11,6 +11,8 @@
 
 package monitoring
 
+import "time"
+
 // ShardRegistration is the value of the closed `registration` label on
 // weaviate_shards: eager for a shard opened when it was created, lazy for one
 // registered unloaded and opened on first access.
@@ -98,6 +100,15 @@ func (pm *PrometheusMetrics) RecordWarmupOutcome(outcome WarmupOutcome) {
 	}
 
 	pm.LazyShardWarmupDecisions.WithLabelValues(string(outcome)).Inc()
+}
+
+// ObserveLazyShardReloadAfterUnload records how long a lazy shard stayed unloaded before it loaded again.
+func (pm *PrometheusMetrics) ObserveLazyShardReloadAfterUnload(d time.Duration) {
+	if pm == nil {
+		return
+	}
+
+	pm.LazyShardReloadAfterUnload.Observe(d.Seconds())
 }
 
 // Move the shard from unloaded to in progress. Only a lazy shard loads this

@@ -31,7 +31,6 @@ type fakeShard struct {
 
 	lastAccess atomic.Uint32
 	loadedAt   atomic.Int64
-	unloadedAt atomic.Int64
 	pending    atomic.Bool
 	inUse      atomic.Bool
 	block      atomic.Pointer[chan struct{}]
@@ -44,13 +43,6 @@ type fakeShard struct {
 }
 
 func (f *fakeShard) LastAccess() uint32 { return f.lastAccess.Load() }
-
-func (f *fakeShard) UnloadedAt() time.Time {
-	if ns := f.unloadedAt.Load(); ns != 0 {
-		return time.Unix(0, ns)
-	}
-	return time.Time{}
-}
 
 func (f *fakeShard) UnloadCandidate() bool {
 	return f.loadedAt.Load() != 0 && !f.pending.Load() && !f.inUse.Load()
@@ -79,7 +71,6 @@ func (f *fakeShard) TryUnload(_ context.Context, req db.UnloadRequest) bool {
 	}
 	f.reg.remove(f)
 	f.loadedAt.Store(0)
-	f.unloadedAt.Store(time.Now().UnixNano())
 	return true
 }
 

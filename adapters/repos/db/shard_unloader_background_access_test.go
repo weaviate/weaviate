@@ -116,8 +116,6 @@ func TestBackgroundFindUUIDsNeverReloadAShardUnloadedBeforeItsPin(t *testing.T) 
 			var outcome bool
 			e := &unloadAtFirstLookup{unload: func() { outcome = f.lazy.TryUnload(context.Background(), UnloadRequest{}) }}
 			f.index.namespace, f.index.namespacesExister = "alpha", e
-			loadsBefore := f.unloader.beforeLoads.Load()
-
 			found, err := tt.find(f, &filters.LocalFilter{Root: &filters.Clause{
 				Operator: filters.OperatorEqual,
 				On:       &filters.Path{Class: schema.ClassName(f.index.Config.ClassName.String()), Property: filters.InternalPropID},
@@ -128,7 +126,7 @@ func TestBackgroundFindUUIDsNeverReloadAShardUnloadedBeforeItsPin(t *testing.T) 
 
 			require.True(t, outcome)
 			f.requireUnloaded(t)
-			require.Equal(t, loadsBefore, f.unloader.beforeLoads.Load())
+			require.NotZero(t, f.lazy.unloadedAt.Load(), "no load cleared the unload stamp")
 		})
 	}
 }
@@ -239,7 +237,7 @@ func TestBackgroundLoadsDoNotCountAsAccess(t *testing.T) {
 		{name: "request pin waiting on a background load", wantStamped: true, load: func(t *testing.T, f *unloadFixture) {
 			var fired atomic.Bool
 			done := make(chan error, 1)
-			hook := func(*LazyLoadShard) {
+			hook := func() error {
 				if fired.CompareAndSwap(false, true) {
 					go func() {
 						_, release, err := f.index.GetShard(testCtx(), f.name)
@@ -248,9 +246,10 @@ func TestBackgroundLoadsDoNotCountAsAccess(t *testing.T) {
 					}()
 					time.Sleep(20 * time.Millisecond)
 				}
+				return nil
 			}
-			f.unloader.onBeforeLoad.Store(&hook)
-			defer f.unloader.onBeforeLoad.Store(nil)
+			f.loadHook.hook.Store(&hook)
+			defer f.loadHook.hook.Store(nil)
 			pin(t, f, bg())
 			require.NoError(t, <-done)
 		}},
@@ -266,13 +265,12 @@ func TestBackgroundLoadsDoNotCountAsAccess(t *testing.T) {
 			require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 			f.unloader.idle.Store(!tt.collecting)
 			f.lazy.lastAccess.Store(0)
-			loadsBefore := f.unloader.beforeLoads.Load()
 
 			tt.load(t, f)
 
 			if tt.staysUnloaded {
 				f.requireUnloaded(t)
-				require.Equal(t, loadsBefore, f.unloader.beforeLoads.Load())
+				require.NotZero(t, f.lazy.unloadedAt.Load(), "no load cleared the unload stamp")
 				require.Zero(t, f.lazy.LastAccess())
 				return
 			}

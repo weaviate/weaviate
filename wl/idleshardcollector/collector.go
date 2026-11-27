@@ -66,8 +66,6 @@ func New(cfg Config) *Collector {
 
 func (u *Collector) Registry() *db.LoadedShardRegistry { return u.registry }
 
-func (u *Collector) BeforeLoad(shard *db.LazyLoadShard) { u.p.beforeLoad(shard) }
-
 func (u *Collector) Collecting() bool { return u.p.collecting() }
 
 func (u *Collector) Close(ctx context.Context) error { return u.p.close(ctx) }

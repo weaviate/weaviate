@@ -35,8 +35,8 @@ func (l *LazyLoadShard) unloader() ShardUnloader {
 // LastAccess is the access clock tick of the wrapper's last pin.
 func (l *LazyLoadShard) LastAccess() uint32 { return l.lastAccess.Load() }
 
-// UnloadedAt is when TryUnload last closed the shard; zero once it loads again.
-func (l *LazyLoadShard) UnloadedAt() time.Time {
+// unloadedTime is when TryUnload last closed the shard; zero once it loads again.
+func (l *LazyLoadShard) unloadedTime() time.Time {
 	if ns := l.unloadedAt.Load(); ns != 0 {
 		return time.Unix(0, ns)
 	}
@@ -70,9 +70,12 @@ func (l *LazyLoadShard) stampAccess(tick uint32) {
 	raiseUint32(&l.lastAccess, tick)
 }
 
-// markLoaded registers a load that just published shard, stamping access unless it ran for background work; callers hold l.mutex.
+// markLoaded registers a load that just published shard, records how long it
+// stayed unloaded, and stamps access unless it ran for background work; callers hold l.mutex.
 func (l *LazyLoadShard) markLoaded(u ShardUnloader, shard *Shard, access bool) {
-	l.unloadedAt.Store(0)
+	if ns := l.unloadedAt.Swap(0); ns != 0 {
+		l.shardOpts.promMetrics.ObserveLazyShardReloadAfterUnload(time.Since(time.Unix(0, ns)))
+	}
 	if access {
 		l.recordAccess()
 	}

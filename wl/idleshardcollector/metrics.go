@@ -30,8 +30,7 @@ type metrics struct {
 	unloading prometheus.Gauge
 	unloads   *prometheus.CounterVec
 
-	unloadDuration    prometheus.Histogram
-	reloadAfterUnload prometheus.Histogram
+	unloadDuration prometheus.Histogram
 }
 
 // newMetrics registers with reg; a nil reg leaves the metrics working but unregistered.
@@ -54,18 +53,12 @@ func newMetrics(reg prometheus.Registerer, logger logrus.FieldLogger) *metrics {
 			Help:    "Duration of successful lazy shard unloads (flush and close).",
 			Buckets: prometheus.ExponentialBuckets(0.001, 2, 16),
 		}),
-		reloadAfterUnload: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "weaviate_idle_shard_collector_reload_after_unload_seconds",
-			Help:    "Time between unloading a lazy shard and its next load; low values mean thrashing.",
-			Buckets: prometheus.ExponentialBuckets(1, 2, 16),
-		}),
 	}
 	if reg != nil {
 		m.loaded = register(reg, m.loaded, logger)
 		m.unloading = register(reg, m.unloading, logger)
 		m.unloads = register(reg, m.unloads, logger)
 		m.unloadDuration = register(reg, m.unloadDuration, logger)
-		m.reloadAfterUnload = register(reg, m.reloadAfterUnload, logger)
 	}
 	return m
 }

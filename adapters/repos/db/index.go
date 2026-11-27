@@ -646,7 +646,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				}
 				if i.Config.lazyShardUnloading() {
 					lazyShard, err := i.initLoadedLazyShard(ctx, shardName, class, promMetrics,
-						loadOpts{skipMemoryCheck: true, warmup: true})
+						loadOpts{skipMemoryCheck: true})
 					if err != nil {
 						return err
 					}
@@ -925,7 +925,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	ctx, done := i.cancelOnCloseRequested(context.Background())
 	defer done()
 
-	_, loaded, err := lazyShard.loadForWarmup(ctx)
+	_, loaded, err := lazyShard.loadIfCold(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -3806,10 +3806,6 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	if i.Config.backgroundWarmupEnabled() {
 		var shouldWarm bool
 		if shouldWarm, outcome = i.warmupDecisionLocked(shardName, shard); shouldWarm {
-			if lazy, isLazy := asLazyLoadShard(shard); isLazy {
-				_, _, err := lazy.loadForWarmup(ctx)
-				return err
-			}
 			_, _, err := l.loadIfCold(ctx)
 			return err
 		}

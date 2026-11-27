@@ -18,15 +18,10 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
-
-func cold(h *harness) *fakeShard {
-	return &fakeShard{reg: h.reg}
-}
 
 func tickOnce(interval time.Duration) {
 	time.Sleep(interval)
@@ -294,28 +289,12 @@ func TestCloseStopsEveryGoroutineAndReleasesQueuedShards(t *testing.T) {
 		require.Zero(t, h.p.pending.Load())
 		require.False(t, h.p.collecting())
 
-		h.p.beforeLoad(cold(h))
 		h.p.refreshConfig()
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		require.Empty(t, shards[1].requests())
 		require.Empty(t, shards[2].requests())
 	})
-}
-
-func TestBeforeLoadAllocatesNothing(t *testing.T) {
-	h := newHarness(t, func(k *testKnobs) { set(t, k.checkInterval, time.Hour) })
-	observed := func() uint64 {
-		var m dto.Metric
-		require.NoError(t, h.p.metrics.reloadAfterUnload.Write(&m))
-		return m.GetHistogram().GetSampleCount()
-	}
-	h.p.beforeLoad(cold(h))
-	require.Zero(t, observed(), "a never-unloaded shard is not observed")
-	loading := cold(h)
-	loading.unloadedAt.Store(time.Now().UnixNano())
-	require.Zero(t, testing.AllocsPerRun(200, func() { h.p.beforeLoad(loading) }))
-	require.Positive(t, observed())
 }
 
 func TestSeriesStayBounded(t *testing.T) {

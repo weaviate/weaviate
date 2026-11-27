@@ -16,7 +16,6 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -28,7 +27,6 @@ import (
 type shard interface {
 	comparable
 	LastAccess() uint32
-	UnloadedAt() time.Time
 	UnloadCandidate() bool
 	TryMarkUnloadPending() bool
 	ClearUnloadPending()
@@ -58,8 +56,7 @@ type policyDeps struct {
 
 // policy is the unloading policy over any shard type, so tests can drive it with fakes.
 //
-// Concurrency: beforeLoad runs on loading goroutines and only observes a metric.
-// The loop is the only goroutine that resizes workers and owns the loop* fields.
+// Concurrency: the loop is the only goroutine that resizes workers and owns the loop* fields.
 type policy[S shard] struct {
 	policyDeps
 	reg   registry[S]
@@ -143,16 +140,6 @@ func (p *policy[S]) wakeLoop() {
 func (p *policy[S]) collecting() bool {
 	s := p.snap.Load()
 	return !p.closed.Load() && s.idleTTL > 0 && !s.paused
-}
-
-// beforeLoad only observes how soon an unloaded shard came back; it never blocks and never fails.
-func (p *policy[S]) beforeLoad(loading S) {
-	if p.closed.Load() || p.snap.Load().paused {
-		return
-	}
-	if at := loading.UnloadedAt(); !at.IsZero() {
-		p.metrics.reloadAfterUnload.Observe(time.Since(at).Seconds())
-	}
 }
 
 // enqueue hands a claimed shard to the workers without blocking; on failure,

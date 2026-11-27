@@ -184,13 +184,10 @@ func TestLazyLoadShard_TornWrapperIsNotServedOrReloaded(t *testing.T) {
 	require.False(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
 	_, _, err := f.index.getOrInitShard(testCtx(), f.name)
 	require.ErrorContains(t, err, "injected vector index shutdown failure")
-	beforeLoads := f.unloader.beforeLoads.Load()
-
 	for _, op := range fastPathOps()[:3] {
 		t.Run(op.name, func(t *testing.T) {
 			require.Error(t, op.run(f, id))
 			require.Same(t, s, f.lazy.currentShard(), "the torn shard stays published")
-			require.Equal(t, beforeLoads, f.unloader.beforeLoads.Load(), "a torn wrapper never reloads")
 		})
 	}
 }
@@ -201,7 +198,6 @@ func TestLazyLoadShard_ColdWrapperLoadsOnceUnderConcurrentPins(t *testing.T) {
 			f := newUnloadFixture(t)
 			id := f.put(t)
 			require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
-			beforeLoads := f.unloader.beforeLoads.Load()
 
 			const callers = 16
 			start := make(chan struct{})
@@ -217,8 +213,8 @@ func TestLazyLoadShard_ColdWrapperLoadsOnceUnderConcurrentPins(t *testing.T) {
 				r := <-done
 				require.NoError(t, r.err)
 				require.False(t, r.shard.shut.Load())
+				require.Same(t, f.lazy.currentShard(), r.shard, "concurrent callers loaded more than once")
 			}
-			require.Equal(t, beforeLoads+1, f.unloader.beforeLoads.Load(), "concurrent callers loaded more than once")
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
 		})
 	}

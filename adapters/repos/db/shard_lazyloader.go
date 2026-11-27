@@ -223,16 +223,9 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (*Shard, bool, error) {
 	return l.load(ctx, loadOpts{})
 }
 
-// loadForWarmup is loadIfCold for the startup warmup, which skips BeforeLoad.
-func (l *LazyLoadShard) loadForWarmup(ctx context.Context) (*Shard, bool, error) {
-	return l.load(ctx, loadOpts{warmup: true})
-}
-
 type loadOpts struct {
 	// skipMemoryCheck skips the memwatch mapping reservation, as an eager startup load does.
 	skipMemoryCheck bool
-	// warmup skips the unloader's BeforeLoad.
-	warmup bool
 	// noAccess keeps the load from stamping lastAccess, for background work.
 	noAccess bool
 }
@@ -256,12 +249,6 @@ func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, 
 		if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, false, errors.Wrap(err, "memory pressure: cannot load shard")
 		}
-	}
-
-	// Past memwatch, so only loads that go ahead are observed.
-	u := l.unloader()
-	if u != nil && !opts.warmup {
-		u.BeforeLoad(l)
 	}
 
 	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
@@ -309,6 +296,7 @@ func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, 
 
 	l.shardOpts.promMetrics.FinishLoadingShard()
 	shard.metricsRegistered.Store(true)
+	u := l.unloader()
 	if u != nil {
 		shard.deferredShutdownDone = func() { l.deregisterShard(shard) }
 	}

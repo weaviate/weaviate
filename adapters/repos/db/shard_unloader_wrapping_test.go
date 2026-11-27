@@ -202,10 +202,9 @@ func TestLazyShardUnloadingRestartLoadsEveryAutoEagerShard(t *testing.T) {
 			require.True(t, ok, "%s keeps its object", class.Class)
 		})
 	}
-	require.Zero(t, u.beforeLoads.Load(), "every shard loaded at startup, which never calls BeforeLoad")
 }
 
-func TestStartupWarmupAcrossIndexesLoadsEveryShardWithoutBeforeLoad(t *testing.T) {
+func TestStartupWarmupAcrossIndexesLoadsEveryShard(t *testing.T) {
 	const indexes = 6
 	u := newFakeShardUnloader()
 	repo, migrator, _, _ := newLazyLoadRepoWithConfig(t, singleShardState(), true, 0, withShardUnloader(u))
@@ -219,5 +218,4 @@ func TestStartupWarmupAcrossIndexesLoadsEveryShardWithoutBeforeLoad(t *testing.T
 		require.Eventually(t, index.allShardsReady.Load, 20*time.Second, 10*time.Millisecond)
 	}
 	require.EqualValues(t, indexes, u.registry.Loaded(), "warmup loads every shard")
-	require.Zero(t, u.beforeLoads.Load(), "a warmup load never calls BeforeLoad")
 }

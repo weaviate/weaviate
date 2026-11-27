@@ -20,19 +20,21 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type fakeShardUnloader struct {
-	registry     *LoadedShardRegistry
-	beforeLoads  atomic.Int64
-	onBeforeLoad atomic.Pointer[func(*LazyLoadShard)]
-	onRegistry   atomic.Pointer[func()]
-	closes       atomic.Int64
-	idle         atomic.Bool
+	registry   *LoadedShardRegistry
+	onRegistry atomic.Pointer[func()]
+	closes     atomic.Int64
+	idle       atomic.Bool
 }
 
 func (f *fakeShardUnloader) Collecting() bool { return !f.idle.Load() }
@@ -49,11 +51,19 @@ func (f *fakeShardUnloader) Registry() *LoadedShardRegistry {
 	return f.registry
 }
 
-func (f *fakeShardUnloader) BeforeLoad(l *LazyLoadShard) {
-	f.beforeLoads.Add(1)
-	if fn := f.onBeforeLoad.Load(); fn != nil {
-		(*fn)(l)
+// hookedAllocChecker runs hook inside a load's memory check, which holds the wrapper's load mutex.
+type hookedAllocChecker struct {
+	memwatch.AllocChecker
+	hook atomic.Pointer[func() error]
+}
+
+func (c *hookedAllocChecker) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
+	if fn := c.hook.Load(); fn != nil {
+		if err := (*fn)(); err != nil {
+			return err
+		}
 	}
+	return c.AllocChecker.CheckMappingAndReserve(numberMappings, reservationTimeInS)
 }
 
 func (f *fakeShardUnloader) Close(context.Context) error { f.closes.Add(1); return nil }
@@ -65,6 +75,7 @@ func withShardUnloader(u ShardUnloader) func(*Config) {
 type unloadFixture struct {
 	*addPropertyLazyFixture
 	unloader *fakeShardUnloader
+	loadHook *hookedAllocChecker
 	name     string
 	lazy     *LazyLoadShard
 }
@@ -77,6 +88,8 @@ func newUnloadFixture(t *testing.T) *unloadFixture {
 	for name, lazy := range f.coldShards(t) {
 		uf.name, uf.lazy = name, lazy
 	}
+	uf.loadHook = &hookedAllocChecker{AllocChecker: uf.lazy.memMonitor}
+	uf.lazy.memMonitor = uf.loadHook
 	return uf
 }
 
@@ -232,11 +245,11 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}), "the refusal lifts with its cause")
 				f.requireUnloaded(t)
 			}
-			require.False(t, f.lazy.UnloadedAt().Before(before))
+			require.False(t, f.lazy.unloadedTime().Before(before))
 			require.True(t, f.exists(t, id), "data survives the unload and the reload")
 			require.NotSame(t, s, f.lazy.currentShard())
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
-			require.True(t, f.lazy.UnloadedAt().IsZero(), "a reload clears it")
+			require.True(t, f.lazy.unloadedTime().IsZero(), "a reload clears it")
 		})
 	}
 }
@@ -363,5 +376,68 @@ func setManualStatus(status storagestate.Status) func(t *testing.T, f *unloadFix
 		require.NoError(t, f.index.withShardForWrite(testCtx(), f.name, func(w shardWriter) error {
 			return w.UpdateStatus(status.String(), statusReasonManualUpdate)
 		}))
+	}
+}
+
+func TestLazyLoadShard_ReloadAfterUnloadIsObservedOnce(t *testing.T) {
+	refused := errors.New("injected memory pressure")
+	load := func(t *testing.T, f *unloadFixture) error {
+		_, release, err := f.index.GetShard(testCtx(), f.name)
+		if err == nil {
+			release()
+		}
+		return err
+	}
+	tests := []struct {
+		name         string
+		run          func(t *testing.T, f *unloadFixture)
+		wantObserved uint64
+	}{
+		{name: "first load of a never unloaded shard", run: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, load(t, f))
+		}},
+		{name: "reload after an unload", wantObserved: 1, run: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, load(t, f))
+			require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+			require.NoError(t, load(t, f))
+			require.Zero(t, f.lazy.unloadedAt.Load())
+		}},
+		{name: "pin of an already loaded shard", wantObserved: 1, run: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, load(t, f))
+			require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+			require.NoError(t, load(t, f))
+			require.NoError(t, load(t, f))
+		}},
+		{name: "refused load keeps the stamp for the next load", wantObserved: 1, run: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, load(t, f))
+			require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+			refuse := func() error { return refused }
+			f.loadHook.hook.Store(&refuse)
+			require.ErrorIs(t, load(t, f), refused)
+			require.NotZero(t, f.lazy.unloadedAt.Load())
+			f.loadHook.hook.Store(nil)
+			require.NoError(t, load(t, f))
+		}},
+		{name: "every unload and reload is observed", wantObserved: 3, run: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, load(t, f))
+			for range 3 {
+				require.True(t, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+				require.NoError(t, load(t, f))
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			require.NotSame(t, monitoring.GetMetrics(), f.lazy.shardOpts.promMetrics)
+			h := prometheus.NewHistogram(prometheus.HistogramOpts{Name: "reload_after_unload_test"})
+			f.lazy.shardOpts.promMetrics.LazyShardReloadAfterUnload = h
+
+			tt.run(t, f)
+
+			var m dto.Metric
+			require.NoError(t, h.Write(&m))
+			require.Equal(t, tt.wantObserved, m.GetHistogram().GetSampleCount())
+		})
 	}
 }
