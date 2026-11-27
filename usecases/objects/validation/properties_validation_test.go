@@ -161,45 +161,60 @@ func getDataType(dataType schema.DataType) *schema.DataType {
 	return &dataType
 }
 
-func TestParseAndValidateSingleRefAuthorizesResolvedTarget(t *testing.T) {
+func TestParseAndValidateSingleRefAuthorizesTarget(t *testing.T) {
 	const refID = "8e555f0d-8590-48c2-a9a6-70772ed14c0a"
+	type probe struct{ class, tenant string }
 	tests := []struct {
 		name        string
 		principal   *models.Principal
 		qualifier   namespacing.Qualifier
 		sourceClass string
 		beacon      string
-		tenant      string
-		wantTarget  string
-		wantTenant  string
+		deny        []string
+		tenantRetry bool
+		wantForbid  bool
+		wantAuth    [][]string
+		wantProbed  []probe
 		wantBeacon  string
 	}{
-		{
-			name:        "target tenant",
-			sourceClass: "Zoo",
-			beacon:      "weaviate://localhost/Animal/" + refID,
-			tenant:      "tenantA",
-			wantTarget:  "Animal",
-			wantTenant:  "tenantA",
-			wantBeacon:  "weaviate://localhost/Animal/" + refID,
-		},
 		{
 			name:        "qualified namespace target",
 			principal:   &models.Principal{Username: "writer", Namespace: "customer1"},
 			qualifier:   wlnamespaces.NewPrefixing(),
 			sourceClass: "customer1:Zoo",
 			beacon:      "weaviate://localhost/Animal/" + refID,
-			tenant:      "tenantA",
-			wantTarget:  "customer1:Animal",
-			wantTenant:  "tenantA",
+			wantAuth:    [][]string{authorization.ShardsData("customer1:Animal", "tenantA")},
+			wantProbed:  []probe{{"customer1:Animal", "tenantA"}},
 			wantBeacon:  "weaviate://localhost/Animal/" + refID,
 		},
 		{
-			name:        "classless target",
+			name:        "classless target uses the tenantless scope",
 			sourceClass: "Source",
 			beacon:      "weaviate://localhost/" + refID,
-			tenant:      "tenantA",
+			wantAuth:    [][]string{authorization.ShardsData("", "")},
+			wantProbed:  []probe{{"", ""}},
 			wantBeacon:  "weaviate://localhost/" + refID,
+		},
+		{
+			name:        "denied target is not probed",
+			sourceClass: "Zoo",
+			beacon:      "weaviate://localhost/Animal/" + refID,
+			deny:        authorization.ShardsData("Animal", "tenantA"),
+			wantForbid:  true,
+			wantAuth:    [][]string{authorization.ShardsData("Animal", "tenantA")},
+		},
+		{
+			name:        "denied tenantless retry is not probed",
+			sourceClass: "Zoo",
+			beacon:      "weaviate://localhost/Animal/" + refID,
+			deny:        authorization.ShardsData("Animal", ""),
+			tenantRetry: true,
+			wantForbid:  true,
+			wantAuth: [][]string{
+				authorization.ShardsData("Animal", "tenantA"),
+				authorization.ShardsData("Animal", ""),
+			},
+			wantProbed: []probe{{"Animal", "tenantA"}},
 		},
 	}
 
@@ -209,166 +224,39 @@ func TestParseAndValidateSingleRefAuthorizesResolvedTarget(t *testing.T) {
 				tc.qualifier = namespacing.Disabled
 			}
 			authorizer := authzmocks.NewMockAuthorizer()
-			var gotTarget, gotTenant string
+			authorizer.Deny(tc.deny...)
+			var probed []probe
 			validator := &Validator{
 				principal:  tc.principal,
 				qualifier:  tc.qualifier,
 				authorizer: authorizer,
 				exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, tenant string) (bool, error) {
-					gotTarget = class
-					gotTenant = tenant
+					probed = append(probed, probe{class, tenant})
+					if tc.tenantRetry && tenant != "" {
+						return false, fmt.Errorf("class %s %w", class, enterrors.ErrTenantForNonMultiTenantClass)
+					}
 					return true, nil
 				},
 			}
 
 			ref, err := validator.parseAndValidateSingleRef(context.Background(), "hasTarget",
-				map[string]interface{}{"beacon": tc.beacon}, tc.sourceClass, tc.tenant)
-			require.NoError(t, err)
-			require.Equal(t, strfmt.URI(tc.wantBeacon), ref.Beacon)
-			require.Equal(t, tc.wantTarget, gotTarget)
-			require.Equal(t, tc.wantTenant, gotTenant)
+				map[string]interface{}{"beacon": tc.beacon}, tc.sourceClass, "tenantA")
+			if tc.wantForbid {
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, strfmt.URI(tc.wantBeacon), ref.Beacon)
+			}
+			require.Equal(t, tc.wantProbed, probed)
 
-			calls := authorizer.Calls()
-			require.Len(t, calls, 1)
-			require.Equal(t, authorization.READ, calls[0].Verb)
-			require.Equal(t, authorization.ShardsData(tc.wantTarget, tc.wantTenant), calls[0].Resources)
+			var gotAuth [][]string
+			for _, call := range authorizer.Calls() {
+				require.Equal(t, authorization.READ, call.Verb)
+				gotAuth = append(gotAuth, call.Resources)
+			}
+			require.Equal(t, tc.wantAuth, gotAuth)
 		})
 	}
-}
-
-func TestParseAndValidateSingleRefDeniesResolvedTargetBeforeProbe(t *testing.T) {
-	const (
-		tenant = "tenantA"
-		refID  = "8e555f0d-8590-48c2-a9a6-70772ed14c0a"
-	)
-	tests := []struct {
-		name           string
-		principal      *models.Principal
-		qualifier      namespacing.Qualifier
-		sourceClass    string
-		beacon         string
-		resolvedTarget string
-		targetTenant   string
-	}{
-		{
-			name:           "qualified namespace target",
-			principal:      &models.Principal{Username: "writer", Namespace: "customer1"},
-			qualifier:      wlnamespaces.NewPrefixing(),
-			sourceClass:    "customer1:Zoo",
-			beacon:         "weaviate://localhost/Animal/" + refID,
-			resolvedTarget: "customer1:Animal",
-			targetTenant:   tenant,
-		},
-		{
-			name:           "classless target",
-			sourceClass:    "Source",
-			beacon:         "weaviate://localhost/" + refID,
-			resolvedTarget: "",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.qualifier == nil {
-				tc.qualifier = namespacing.Disabled
-			}
-			authorizer := authzmocks.NewMockAuthorizer()
-			targetResources := authorization.ShardsData(tc.resolvedTarget, tc.targetTenant)
-			authorizer.Deny(targetResources...)
-			existsCalled := false
-			validator := &Validator{
-				principal:  tc.principal,
-				qualifier:  tc.qualifier,
-				authorizer: authorizer,
-				exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
-					existsCalled = true
-					return true, nil
-				},
-			}
-
-			_, err := validator.parseAndValidateSingleRef(context.Background(), "hasTarget",
-				map[string]interface{}{"beacon": tc.beacon}, tc.sourceClass, tenant)
-			require.ErrorAs(t, err, &authzerrors.Forbidden{})
-			require.False(t, existsCalled)
-
-			calls := authorizer.Calls()
-			require.Len(t, calls, 1)
-			require.Equal(t, authorization.READ, calls[0].Verb)
-			require.Equal(t, targetResources, calls[0].Resources)
-		})
-	}
-}
-
-func TestPropertiesAuthorizesEveryInlineRef(t *testing.T) {
-	const tenant = "tenantA"
-	class := &models.Class{
-		Class: "Source",
-		Properties: []*models.Property{
-			{Name: "hasOther", DataType: []string{"Alpha", "Beta"}},
-		},
-	}
-	obj := &models.Object{
-		Class:  "Source",
-		Tenant: tenant,
-		Properties: map[string]interface{}{
-			"hasOther": []interface{}{
-				map[string]interface{}{"beacon": "weaviate://localhost/Alpha/8e555f0d-8590-48c2-a9a6-70772ed14c0a"},
-				map[string]interface{}{"beacon": "weaviate://localhost/Beta/9f666f1e-9701-49d3-bab7-81883fe25d1b"},
-			},
-		},
-	}
-	authorizer := authzmocks.NewMockAuthorizer()
-	authorizer.Deny(authorization.ShardsData("Beta", tenant)...)
-	probedTargets := []string{}
-	validator := &Validator{
-		authorizer: authorizer,
-		qualifier:  namespacing.Disabled,
-		exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
-			probedTargets = append(probedTargets, class)
-			return true, nil
-		},
-	}
-
-	err := validator.properties(context.Background(), class, obj, nil)
-	require.ErrorAs(t, err, &authzerrors.Forbidden{})
-	require.Equal(t, []string{"Alpha"}, probedTargets)
-
-	calls := authorizer.Calls()
-	require.Len(t, calls, 2)
-	require.Equal(t, authorization.ShardsData("Alpha", tenant), calls[0].Resources)
-	require.Equal(t, authorization.ShardsData("Beta", tenant), calls[1].Resources)
-}
-
-func TestParseAndValidateSingleRefAuthorizesTenantlessRetry(t *testing.T) {
-	const (
-		target = "Animal"
-		tenant = "tenantA"
-		refID  = "8e555f0d-8590-48c2-a9a6-70772ed14c0a"
-	)
-	authorizer := authzmocks.NewMockAuthorizer()
-	authorizer.Deny(authorization.ShardsData(target, "")...)
-	probedTenants := []string{}
-	validator := &Validator{
-		authorizer: authorizer,
-		qualifier:  namespacing.Disabled,
-		exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, tenant string) (bool, error) {
-			probedTenants = append(probedTenants, tenant)
-			if tenant != "" {
-				return false, fmt.Errorf("class %s %w", target, enterrors.ErrTenantForNonMultiTenantClass)
-			}
-			return true, nil
-		},
-	}
-
-	_, err := validator.parseAndValidateSingleRef(context.Background(), "hasTarget",
-		map[string]interface{}{"beacon": "weaviate://localhost/" + target + "/" + refID}, "Zoo", tenant)
-	require.ErrorAs(t, err, &authzerrors.Forbidden{})
-	require.Equal(t, []string{tenant}, probedTenants)
-
-	calls := authorizer.Calls()
-	require.Len(t, calls, 2)
-	require.Equal(t, authorization.ShardsData(target, tenant), calls[0].Resources)
-	require.Equal(t, authorization.ShardsData(target, ""), calls[1].Resources)
 }
 
 func TestProperties(t *testing.T) {

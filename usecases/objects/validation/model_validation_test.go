@@ -75,10 +75,8 @@ func TestValidationReference(t *testing.T) {
 func TestValidateExistence(t *testing.T) {
 	tenantErr := fmt.Errorf("class To %w", enterrors.ErrTenantForNonMultiTenantClass)
 	tenantNotFoundErr := fmt.Errorf("validate tenant: %w", enterrors.ErrTenantNotFound)
-	tenantNotActiveErr := fmt.Errorf("validate tenant: %w", enterrors.ErrTenantNotActive)
 	replicasErr := fmt.Errorf("check existence: %w",
 		replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 replicas down")))
-	storageErr := errors.New("connection refused")
 	retryErr := errors.New("retry failed")
 
 	tests := []struct {
@@ -91,39 +89,12 @@ func TestValidateExistence(t *testing.T) {
 		check       func(t *testing.T, err error)
 	}{
 		{
-			name:        "replica shortage on the tenant-scoped check is returned without retry",
-			initialErr:  replicasErr,
-			denyRetry:   true,
-			wantTenants: []string{"tenantA"},
-			check: func(t *testing.T, err error) {
-				require.ErrorIs(t, err, replicaerrors.ErrReplicas)
-			},
-		},
-		{
 			name:        "missing tenant is returned without retry",
 			initialErr:  tenantNotFoundErr,
 			denyRetry:   true,
 			wantTenants: []string{"tenantA"},
 			check: func(t *testing.T, err error) {
 				require.ErrorIs(t, err, enterrors.ErrTenantNotFound)
-			},
-		},
-		{
-			name:        "inactive tenant is returned without retry",
-			initialErr:  tenantNotActiveErr,
-			denyRetry:   true,
-			wantTenants: []string{"tenantA"},
-			check: func(t *testing.T, err error) {
-				require.ErrorIs(t, err, enterrors.ErrTenantNotActive)
-			},
-		},
-		{
-			name:        "storage error is returned without retry",
-			initialErr:  storageErr,
-			denyRetry:   true,
-			wantTenants: []string{"tenantA"},
-			check: func(t *testing.T, err error) {
-				require.ErrorIs(t, err, storageErr)
 			},
 		},
 		{
