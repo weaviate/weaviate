@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package vectormanifest
 
 import (
 	"errors"
@@ -20,14 +20,15 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 )
 
-// vectorIndexStorageDirs lists the directories an index of indexType at
+// storageDirs lists the directories an index of indexType at
 // physicalID occupies under shardDir. The startup probe and the durability
 // sync both use it, so they cannot drift. A dynamic index is in its flat
 // bucket until its verdict says it upgraded.
-func vectorIndexStorageDirs(shardDir string, state dynamic.StateOps, indexType, physicalID string) ([]string, error) {
+func storageDirs(shardDir string, state dynamic.StateOps, indexType, physicalID string) ([]string, error) {
 	hnswDir := filepath.Join(shardDir, helpers.HNSWCommitLogDirNameForID(physicalID))
 	flatDir := filepath.Join(shardDir, "lsm", helpers.VectorsBucketNameForID(physicalID))
 
@@ -52,9 +53,9 @@ func vectorIndexStorageDirs(shardDir string, state dynamic.StateOps, indexType, 
 	}
 }
 
-// vectorIndexStorageExists reports whether every dir exists; a file in a
+// storageExists reports whether every dir exists; a file in a
 // dir's place is an error.
-func vectorIndexStorageExists(dirs []string) (bool, error) {
+func storageExists(dirs []string) (bool, error) {
 	for _, dir := range dirs {
 		info, err := os.Stat(dir)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -70,17 +71,17 @@ func vectorIndexStorageExists(dirs []string) (bool, error) {
 	return true, nil
 }
 
-// syncVectorIndexStorage fsyncs every dir and its parent: the constructors
+// syncStorage fsyncs every dir and its parent: the constructors
 // MkdirAll without a sync, and a record must not outlive the entries it
 // points at.
-func syncVectorIndexStorage(dirs []string) error {
+func syncStorage(dirs []string) error {
 	synced := map[string]struct{}{}
 	for _, dir := range dirs {
 		for _, path := range []string{dir, filepath.Dir(dir)} {
 			if _, done := synced[path]; done {
 				continue
 			}
-			err := fsyncDir(path)
+			err := diskio.Fsync(path)
 			if err != nil {
 				return fmt.Errorf("sync directory %s: %w", path, err)
 			}

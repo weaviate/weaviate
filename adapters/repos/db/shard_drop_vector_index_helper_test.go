@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
@@ -185,9 +186,9 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 
 		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
-		foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
-		bar := vectorIndexRecord{PhysicalID: "vectors_bar", IndexType: "flat", State: "ready"}
-		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "bar": bar}))
+		foo := manifestRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+		bar := manifestRecord{PhysicalID: "vectors_bar", IndexType: "flat", State: "ready"}
+		require.NoError(t, newManifestRecords(db).Initialize(map[string]manifestRecord{"foo": foo, "bar": bar}))
 		require.NoError(t, db.Close())
 
 		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "foo", nil))
@@ -195,10 +196,10 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		db, err = shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
 		defer db.Close()
-		records, initialized, err := newVectorIndexMapping(db).Load()
+		records, initialized, err := newManifestRecords(db).Load()
 		require.NoError(t, err)
 		assert.True(t, initialized)
-		assert.Equal(t, map[string]vectorIndexRecord{"bar": bar}, records)
+		assert.Equal(t, map[string]manifestRecord{"bar": bar}, records)
 	})
 
 	t.Run("removes the queue under the record's queue ID", func(t *testing.T) {
@@ -208,9 +209,9 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 
 		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
-		foo := vectorIndexRecord{PhysicalID: "vectors_foo_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
-		bar := vectorIndexRecord{PhysicalID: "vectors_bar", IndexType: "hnsw", State: "ready", QueueID: "vectors_bar"}
-		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "bar": bar}))
+		foo := manifestRecord{PhysicalID: "vectors_foo_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
+		bar := manifestRecord{PhysicalID: "vectors_bar", IndexType: "hnsw", State: "ready", QueueID: "vectors_bar"}
+		require.NoError(t, newManifestRecords(db).Initialize(map[string]manifestRecord{"foo": foo, "bar": bar}))
 		require.NoError(t, db.Close())
 
 		commitLog := filepath.Join(shardDir, "vectors_foo_2.hnsw.commitlog.d")
@@ -235,9 +236,9 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 
 		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
-		foo := vectorIndexRecord{PhysicalID: "vectors_foo_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
-		bar := vectorIndexRecord{PhysicalID: "vectors_bar", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
-		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "bar": bar}))
+		foo := manifestRecord{PhysicalID: "vectors_foo_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
+		bar := manifestRecord{PhysicalID: "vectors_bar", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
+		require.NoError(t, newManifestRecords(db).Initialize(map[string]manifestRecord{"foo": foo, "bar": bar}))
 		require.NoError(t, db.Close())
 
 		commitLog := filepath.Join(shardDir, "vectors_foo_2.hnsw.commitlog.d")
@@ -255,9 +256,9 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		db, err = shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
 		defer db.Close()
-		records, _, err := newVectorIndexMapping(db).Load()
+		records, _, err := newManifestRecords(db).Load()
 		require.NoError(t, err)
-		assert.Equal(t, map[string]vectorIndexRecord{"foo": foo, "bar": bar}, records)
+		assert.Equal(t, map[string]manifestRecord{"foo": foo, "bar": bar}, records)
 	})
 
 	t.Run("refuses files a sibling with a generated ID names and deletes nothing", func(t *testing.T) {
@@ -267,9 +268,9 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 
 		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
-		foo := vectorIndexRecord{PhysicalID: "a-b", IndexType: "hnsw", State: "ready", QueueID: "a-b"}
-		mv := vectorIndexRecord{PhysicalID: "vectors_a-b", IndexType: "hnsw", State: "ready", QueueID: "vectors_mv"}
-		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "mv": mv}))
+		foo := manifestRecord{PhysicalID: "a-b", IndexType: "hnsw", State: "ready", QueueID: "a-b"}
+		mv := manifestRecord{PhysicalID: "vectors_a-b", IndexType: "hnsw", State: "ready", QueueID: "vectors_mv"}
+		require.NoError(t, newManifestRecords(db).Initialize(map[string]manifestRecord{"foo": foo, "mv": mv}))
 		require.NoError(t, db.Close())
 
 		commitLog := filepath.Join(shardDir, "vectors_a-b.hnsw.commitlog.d")
@@ -287,38 +288,41 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		db, err = shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
 		defer db.Close()
-		records, _, err := newVectorIndexMapping(db).Load()
+		records, _, err := newManifestRecords(db).Load()
 		require.NoError(t, err)
-		assert.Equal(t, map[string]vectorIndexRecord{"foo": foo, "mv": mv}, records)
+		assert.Equal(t, map[string]manifestRecord{"foo": foo, "mv": mv}, records)
 	})
 
-	t.Run("refuses records without a format version and deletes nothing", func(t *testing.T) {
-		indexPath, shardName := setup(t)
-		shardDir := filepath.Join(indexPath, shardName)
-		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+	// the vector's own record, or only a sibling's
+	for _, owner := range []string{"foo", "bar"} {
+		t.Run(fmt.Sprintf("refuses a record of %s without a format version and deletes nothing", owner), func(t *testing.T) {
+			indexPath, shardName := setup(t)
+			shardDir := filepath.Join(indexPath, shardName)
+			require.NoError(t, os.MkdirAll(shardDir, 0o755))
 
-		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
-		require.NoError(t, err)
-		record := []byte(`{"physical_id":"a-b","index_type":"hnsw","state":"ready"}`)
-		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte(vectorIndexMappingKey("foo")), record))
-		require.NoError(t, db.Close())
+			db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+			require.NoError(t, err)
+			record := []byte(`{"physical_id":"a-b","index_type":"hnsw","state":"ready"}`)
+			require.NoError(t, db.Namespace(manifestNamespace).Put([]byte(manifestKey(owner)), record))
+			require.NoError(t, db.Close())
 
-		named := filepath.Join(shardDir, "lsm", "vectors_foo")
-		generated := filepath.Join(shardDir, "lsm", "vectors_a-b")
-		for _, dir := range []string{named, generated} {
-			require.NoError(t, os.MkdirAll(dir, 0o755))
-			require.NoError(t, os.WriteFile(filepath.Join(dir, "segment.db"), []byte("data"), 0o644))
-		}
+			named := filepath.Join(shardDir, "lsm", "vectors_foo")
+			generated := filepath.Join(shardDir, "lsm", "vectors_a-b")
+			for _, dir := range []string{named, generated} {
+				require.NoError(t, os.MkdirAll(dir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "segment.db"), []byte("data"), 0o644))
+			}
 
-		err = h.removeVectorIndexFiles(indexPath, shardName, "foo", nil)
-		require.ErrorContains(t, err, "records without a format version")
+			err = h.removeVectorIndexFiles(indexPath, shardName, "foo", []string{"bar"})
+			require.ErrorContains(t, err, "records without a format version")
 
-		assert.True(t, pathExists(named))
-		assert.True(t, pathExists(generated))
-		v, _, err := shardmeta.GetOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingKey("foo")))
-		require.NoError(t, err)
-		assert.Equal(t, record, v, "the record stays for the retry")
-	})
+			assert.True(t, pathExists(named))
+			assert.True(t, pathExists(generated))
+			v, _, err := shardmeta.GetOffline(shardDir, manifestNamespace, []byte(manifestKey(owner)))
+			require.NoError(t, err)
+			assert.Equal(t, record, v, "the record stays for the retry")
+		})
+	}
 
 	t.Run("leaves the record to a shard that holds the file locked", func(t *testing.T) {
 		indexPath, shardName := setup(t)
@@ -329,14 +333,14 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
 		defer db.Close()
-		foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
-		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo}))
+		foo := manifestRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+		require.NoError(t, newManifestRecords(db).Initialize(map[string]manifestRecord{"foo": foo}))
 
 		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "foo", nil))
 
-		records, _, err := newVectorIndexMapping(db).Load()
+		records, _, err := newManifestRecords(db).Load()
 		require.NoError(t, err)
-		assert.Equal(t, map[string]vectorIndexRecord{"foo": foo}, records,
+		assert.Equal(t, map[string]manifestRecord{"foo": foo}, records,
 			"the loaded owner deletes through its own handle")
 	})
 }

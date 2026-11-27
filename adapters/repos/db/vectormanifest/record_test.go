@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package vectormanifest
 
 import (
 	"encoding/json"
@@ -21,14 +21,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	entdynamic "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -36,56 +34,20 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func newTestVectorIndexMapping(t *testing.T) (*vectorIndexMapping, *shardmeta.DB) {
+func newTestRecordStore(t *testing.T) (*recordStore, *shardmeta.DB) {
 	t.Helper()
 	db, err := shardmeta.Open(t.TempDir(), entlsmkv.BoltFlockTimeout)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	return newVectorIndexMapping(db), db
+	return newRecordStore(db), db
 }
 
-// recorded is name's record as the shard writes it today: built at
-// physicalID with its queue beside it, holding the schema's config.
-func recorded(shard *Shard, name, physicalID, state string) vectorIndexRecord {
-	cfg := shard.index.GetVectorIndexConfig(name)
-	return vectorIndexRecord{PhysicalID: physicalID, IndexType: cfg.IndexType(), State: state, QueueID: physicalID, Config: cfg}
-}
-
-// seedGeneratedVectorIndexRecords initializes the mapping of the shard at
-// shardDir before its first load, every vector in configs (the legacy one
-// under the empty name) recorded creating at a generated physical and queue
-// ID, as a rebuild names them. The first load builds each index there.
-func seedGeneratedVectorIndexRecords(t *testing.T, shardDir string,
-	configs map[string]schemaConfig.VectorIndexConfig,
-) map[string]vectorIndexRecord {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(shardDir, 0o755))
-	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
-	require.NoError(t, err)
-	defer db.Close()
-	records := make(map[string]vectorIndexRecord, len(configs))
-	for name, cfg := range configs {
-		if !vectorIndexHasStorage(cfg) {
-			continue
-		}
-		records[name] = vectorIndexRecord{
-			PhysicalID: uuid.NewString(),
-			IndexType:  cfg.IndexType(),
-			State:      vectorIndexStateCreating,
-			QueueID:    uuid.NewString(),
-			Config:     cfg,
-		}
-	}
-	require.NoError(t, newVectorIndexMapping(db).Initialize(records))
-	return records
-}
-
-// TestVectorIndexMapping_KeyLayout pins the on-disk keys. They are read by
+// TestRecordStore_KeyLayout pins the on-disk keys. They are read by
 // every later version, so a change here is a format change, not a rename.
-func TestVectorIndexMapping_KeyLayout(t *testing.T) {
-	assert.Equal(t, "vector_index_mapping", vectorIndexMappingNamespace)
-	assert.Equal(t, ".format_version", vectorIndexMappingFormatVersionKey)
-	assert.Equal(t, "1", vectorIndexMappingFormatVersion)
+func TestRecordStore_KeyLayout(t *testing.T) {
+	assert.Equal(t, "vector_index_mapping", namespace)
+	assert.Equal(t, ".format_version", formatVersionKey)
+	assert.Equal(t, "1", formatVersion)
 
 	tests := []struct {
 		name string
@@ -99,8 +61,8 @@ func TestVectorIndexMapping_KeyLayout(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
-			assert.Equal(t, tt.key, vectorIndexMappingKey(tt.name))
-			name, ok := vectorIndexMappingName(tt.key)
+			assert.Equal(t, tt.key, recordKey(tt.name))
+			name, ok := vectorName(tt.key)
 			require.True(t, ok)
 			assert.Equal(t, tt.name, name)
 		})
@@ -109,19 +71,19 @@ func TestVectorIndexMapping_KeyLayout(t *testing.T) {
 	// keys that name no vector: the format version, an unknown dotted key,
 	// and an empty key
 	for _, key := range []string{".format_version", ".unknown", ""} {
-		_, ok := vectorIndexMappingName(key)
+		_, ok := vectorName(key)
 		assert.False(t, ok, key)
 	}
 }
 
-func TestVectorIndexMapping_Load(t *testing.T) {
+func TestRecordStore_Load(t *testing.T) {
 	put := func(t *testing.T, db *shardmeta.DB, key, value string) {
 		t.Helper()
-		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte(key), []byte(value)))
+		require.NoError(t, db.Namespace(namespace).Put([]byte(key), []byte(value)))
 	}
 
 	t.Run("empty db is uninitialized", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
+		m, _ := newTestRecordStore(t)
 		records, initialized, err := m.Load()
 		require.NoError(t, err)
 		assert.False(t, initialized)
@@ -130,17 +92,17 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 
 	// a deferred deletion the process did not finish; the next load does
 	t.Run("a dropping record loads", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
+		m, db := newTestRecordStore(t)
 		put(t, db, ".format_version", "1")
 		put(t, db, "title", `{"physical_id":"vectors_title","index_type":"hnsw","state":"dropping"}`)
 		records, initialized, err := m.Load()
 		require.NoError(t, err)
 		assert.True(t, initialized)
-		assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "dropping"}, records["title"])
+		assert.Equal(t, record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "dropping"}, records["title"])
 	})
 
 	t.Run("reads every record under its logical name", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
+		m, db := newTestRecordStore(t)
 		put(t, db, ".format_version", "1")
 		put(t, db, ".legacy", `{"physical_id":"main","index_type":"hnsw","state":"ready"}`)
 		put(t, db, "title", `{"physical_id":"vectors_title","index_type":"dynamic","state":"ready"}`)
@@ -149,7 +111,7 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		records, initialized, err := m.Load()
 		require.NoError(t, err)
 		assert.True(t, initialized)
-		assert.Equal(t, map[string]vectorIndexRecord{
+		assert.Equal(t, map[string]record{
 			"":        {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
 			"title":   {PhysicalID: "vectors_title", IndexType: "dynamic", State: "ready"},
 			"summary": {PhysicalID: "vectors_summary", IndexType: "flat", State: "creating"},
@@ -157,7 +119,7 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 	})
 
 	t.Run("initialized with no records", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
+		m, db := newTestRecordStore(t)
 		put(t, db, ".format_version", "1")
 		records, initialized, err := m.Load()
 		require.NoError(t, err)
@@ -188,7 +150,7 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m, db := newTestVectorIndexMapping(t)
+			m, db := newTestRecordStore(t)
 			if !tt.noVersion {
 				put(t, db, ".format_version", "1")
 			}
@@ -201,7 +163,7 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 
 // Every ID the naming rule gives a vector name loads, and so does a generated
 // ID, which has a "-"; a record without a queue ID predates the field.
-func TestVectorIndexMapping_LoadAcceptedIDs(t *testing.T) {
+func TestRecordStore_LoadAcceptedIDs(t *testing.T) {
 	tests := []struct {
 		name       string
 		physicalID string
@@ -216,9 +178,9 @@ func TestVectorIndexMapping_LoadAcceptedIDs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m, _ := newTestVectorIndexMapping(t)
-			rec := vectorIndexRecord{PhysicalID: tt.physicalID, IndexType: "hnsw", State: "ready", QueueID: tt.queueID}
-			require.NoError(t, m.Initialize(map[string]vectorIndexRecord{"title": rec}))
+			m, _ := newTestRecordStore(t)
+			rec := record{PhysicalID: tt.physicalID, IndexType: "hnsw", State: "ready", QueueID: tt.queueID}
+			require.NoError(t, m.Initialize(map[string]record{"title": rec}))
 			records, _, err := m.Load()
 			require.NoError(t, err)
 			assert.Equal(t, rec, records["title"])
@@ -228,7 +190,7 @@ func TestVectorIndexMapping_LoadAcceptedIDs(t *testing.T) {
 
 // The naming rule: the IDs a vector name gets keep their files, any other ID
 // is named as if it carried the vectors_ prefix, never as the legacy vector.
-func TestVectorIndexStorageID(t *testing.T) {
+func TestStorageID(t *testing.T) {
 	tests := []struct {
 		physicalID string
 		want       string
@@ -240,16 +202,16 @@ func TestVectorIndexStorageID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.physicalID, func(t *testing.T) {
-			rec := vectorIndexRecord{PhysicalID: tt.physicalID}
+			rec := record{PhysicalID: tt.physicalID}
 			assert.Equal(t, tt.want, rec.storageID())
 			assert.Equal(t, tt.physicalID, rec.recordedID())
 		})
 	}
 }
 
-// Only the mapping reads a record's raw physical ID. Anywhere else a raw ID
-// that is not main or vectors_<x> would name the legacy vector's files.
-func TestVectorIndexRecord_PhysicalIDReadOnlyByTheMapping(t *testing.T) {
+// Only the record reads its raw physical ID. Anywhere else a raw ID that is
+// not main or vectors_<x> would name the legacy vector's files.
+func TestRecord_PhysicalIDReadOnlyByTheRecord(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 	fset := token.NewFileSet()
@@ -257,7 +219,7 @@ func TestVectorIndexRecord_PhysicalIDReadOnlyByTheMapping(t *testing.T) {
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") ||
-			name == "shard_vector_mapping.go" {
+			name == "record.go" {
 			continue
 		}
 		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
@@ -273,35 +235,9 @@ func TestVectorIndexRecord_PhysicalIDReadOnlyByTheMapping(t *testing.T) {
 	assert.Empty(t, offenders, "read the physical ID through storageID, or recordedID for messages")
 }
 
-// The schema's collision check reads vector names only. It is complete
-// because every file name a generated ID owns has a "-" and no file name a
-// vector name owns has one, so the two can never share a file.
-func TestVectorIndexGeneratedIDsNeverCollideWithNames(t *testing.T) {
-	generated := []string{"3f2a9c1e-0b7d-4c1a-9e2f-5d6c7b8a9f00", "a-b", "-", "x_-_y"}
-	for _, id := range generated {
-		require.NoError(t, validateVectorIndexID(id), id)
-		for _, n := range ownerOf(vectorIndexRecord{PhysicalID: id, QueueID: id}).names() {
-			assert.Contains(t, n, "-", "generated ID %q owns %q", id, n)
-		}
-	}
-
-	names := []string{"", "title", "_", "compressed", "a_centroids", "x", "Muvera_Vectors", "mv_mappings"}
-	for _, name := range names {
-		require.Regexp(t, `^(`+schema.TargetVectorNameRegex+`)?$`, name)
-		for _, n := range ownerAt(vectorIndexID(name)).names() {
-			assert.NotContains(t, n, "-", "vector %q owns %q", name, n)
-		}
-	}
-
-	// without a "-" an ID outside the naming rule would be one a vector name can reach
-	for _, id := range []string{"title", "vectors_", "abc_def", "vectors_9x"} {
-		assert.Error(t, validateVectorIndexID(id), id)
-	}
-}
-
 // A record written by a newer version carries fields this one ignores; the
 // strip rewrites exactly those records and leaves a mapping it wrote alone.
-func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
+func TestRecordStore_LoadAndStrip(t *testing.T) {
 	const (
 		own   = `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`
 		newer = `{"physical_id":"main","index_type":"hnsw","state":"ready","queue_id":"main","future":{"ef":64}}`
@@ -318,16 +254,16 @@ func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
 		defer tx.Rollback()
 		return tx.ID()
 	}
-	loadAndStrip := func(t *testing.T, dir string) (map[string]vectorIndexRecord, []string, map[string]string) {
+	loadAndStrip := func(t *testing.T, dir string) (map[string]record, []string, map[string]string) {
 		t.Helper()
 		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
 		defer db.Close()
-		records, initialized, stripped, err := newVectorIndexMapping(db).LoadAndStrip()
+		records, initialized, stripped, err := newRecordStore(db).LoadAndStrip()
 		require.NoError(t, err)
 		assert.True(t, initialized)
 		raw := map[string]string{}
-		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).ForEach(func(k, v []byte) error {
+		require.NoError(t, db.Namespace(namespace).ForEach(func(k, v []byte) error {
 			raw[string(k)] = string(v)
 			return nil
 		}))
@@ -339,7 +275,7 @@ func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
 		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
 		defer db.Close()
-		ns := db.Namespace(vectorIndexMappingNamespace)
+		ns := db.Namespace(namespace)
 		require.NoError(t, ns.Put([]byte(".format_version"), []byte("1")))
 		for k, v := range values {
 			require.NoError(t, ns.Put([]byte(k), []byte(v)))
@@ -351,7 +287,7 @@ func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
 		dir := setup(t, map[string]string{".legacy": newer, "title": own, "summary": newer})
 		records, stripped, raw := loadAndStrip(t, dir)
 		assert.Equal(t, []string{"", "summary"}, stripped)
-		assert.Equal(t, map[string]vectorIndexRecord{
+		assert.Equal(t, map[string]record{
 			"":        {PhysicalID: "main", IndexType: "hnsw", State: "ready", QueueID: "main"},
 			"title":   {PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"},
 			"summary": {PhysicalID: "main", IndexType: "hnsw", State: "ready", QueueID: "main"},
@@ -375,7 +311,7 @@ func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
 		before := lastTxID(t, dir)
 		records, stripped, raw := loadAndStrip(t, dir)
 		assert.Empty(t, stripped)
-		assert.Equal(t, map[string]vectorIndexRecord{
+		assert.Equal(t, map[string]record{
 			"title": {PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"},
 		}, records)
 		assert.Equal(t, map[string]string{".format_version": "1", "title": own}, raw)
@@ -390,7 +326,7 @@ func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
 		before := lastTxID(t, dir)
 		db, err = shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
-		records, initialized, stripped, err := newVectorIndexMapping(db).LoadAndStrip()
+		records, initialized, stripped, err := newRecordStore(db).LoadAndStrip()
 		require.NoError(t, err)
 		require.NoError(t, db.Close())
 		assert.False(t, initialized)
@@ -405,19 +341,19 @@ func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
 		dir := setup(t, map[string]string{".legacy": newer, "title": `{"physical_id":"","index_type":"hnsw","state":"ready","config":{}}`})
 		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
-		_, _, _, err = newVectorIndexMapping(db).LoadAndStrip()
+		_, _, _, err = newRecordStore(db).LoadAndStrip()
 		require.ErrorContains(t, err, "physical id")
-		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte(".legacy"))
+		v, err := db.Namespace(namespace).Get([]byte(".legacy"))
 		require.NoError(t, err)
 		assert.Equal(t, newer, string(v))
 		require.NoError(t, db.Close())
 	})
 }
 
-func TestVectorIndexMapping_Initialize(t *testing.T) {
+func TestRecordStore_Initialize(t *testing.T) {
 	t.Run("writes the format version and every record at once", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
-		err := m.Initialize(map[string]vectorIndexRecord{
+		m, db := newTestRecordStore(t)
+		err := m.Initialize(map[string]record{
 			"":      {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
 			"title": {PhysicalID: "vectors_title", IndexType: "flat", State: "ready"},
 		})
@@ -427,11 +363,11 @@ func TestVectorIndexMapping_Initialize(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, initialized)
 		assert.Len(t, records, 2)
-		assert.Equal(t, vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}, records[""])
-		assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "flat", State: "ready"}, records["title"])
+		assert.Equal(t, record{PhysicalID: "main", IndexType: "hnsw", State: "ready"}, records[""])
+		assert.Equal(t, record{PhysicalID: "vectors_title", IndexType: "flat", State: "ready"}, records["title"])
 
 		// the bytes on disk are the pinned layout
-		ns := db.Namespace(vectorIndexMappingNamespace)
+		ns := db.Namespace(namespace)
 		v, err := ns.Get([]byte(".format_version"))
 		require.NoError(t, err)
 		assert.Equal(t, "1", string(v))
@@ -441,7 +377,7 @@ func TestVectorIndexMapping_Initialize(t *testing.T) {
 	})
 
 	t.Run("no records is a valid initialization", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
+		m, _ := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
 		records, initialized, err := m.Load()
 		require.NoError(t, err)
@@ -450,20 +386,20 @@ func TestVectorIndexMapping_Initialize(t *testing.T) {
 	})
 
 	t.Run("refuses to initialize twice", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
+		m, _ := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
-		err := m.Initialize(map[string]vectorIndexRecord{
+		err := m.Initialize(map[string]record{
 			"title": {PhysicalID: "vectors_title", IndexType: "flat", State: "ready"},
 		})
-		require.ErrorIs(t, err, errVectorIndexMappingInitialized)
+		require.ErrorIs(t, err, errInitialized)
 		records, _, err := m.Load()
 		require.NoError(t, err)
 		assert.Empty(t, records)
 	})
 
 	t.Run("an invalid record writes nothing", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
-		err := m.Initialize(map[string]vectorIndexRecord{
+		m, _ := newTestRecordStore(t)
+		err := m.Initialize(map[string]record{
 			"":      {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
 			"title": {PhysicalID: "vectors_title", IndexType: "flat", State: "bogus"},
 		})
@@ -475,36 +411,36 @@ func TestVectorIndexMapping_Initialize(t *testing.T) {
 	})
 }
 
-func TestVectorIndexMapping_Put(t *testing.T) {
+func TestRecordStore_Put(t *testing.T) {
 	t.Run("writes and overwrites one record", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
+		m, _ := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
 
-		creating := vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "creating"}
+		creating := record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "creating"}
 		require.NoError(t, m.Put("title", creating))
 		records, _, err := m.Load()
 		require.NoError(t, err)
-		assert.Equal(t, map[string]vectorIndexRecord{"title": creating}, records)
+		assert.Equal(t, map[string]record{"title": creating}, records)
 
 		ready := creating
 		ready.State = "ready"
 		require.NoError(t, m.Put("title", ready))
 		records, _, err = m.Load()
 		require.NoError(t, err)
-		assert.Equal(t, map[string]vectorIndexRecord{"title": ready}, records)
+		assert.Equal(t, map[string]record{"title": ready}, records)
 
 		// the legacy vector is the empty name
-		legacy := vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}
+		legacy := record{PhysicalID: "main", IndexType: "hnsw", State: "ready"}
 		require.NoError(t, m.Put("", legacy))
 		records, _, err = m.Load()
 		require.NoError(t, err)
-		assert.Equal(t, map[string]vectorIndexRecord{"title": ready, "": legacy}, records)
+		assert.Equal(t, map[string]record{"title": ready, "": legacy}, records)
 	})
 
 	t.Run("refuses an uninitialized mapping", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
-		err := m.Put("title", vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"})
-		require.ErrorIs(t, err, errVectorIndexMappingUninitialized)
+		m, _ := newTestRecordStore(t)
+		err := m.Put("title", record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"})
+		require.ErrorIs(t, err, errUninitialized)
 		_, initialized, err := m.Load()
 		require.NoError(t, err)
 		assert.False(t, initialized)
@@ -512,17 +448,17 @@ func TestVectorIndexMapping_Put(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		rec     vectorIndexRecord
+		rec     record
 		wantErr string
 	}{
-		{name: "unknown state", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "done"}, wantErr: `state "done"`},
-		{name: "empty physical id", rec: vectorIndexRecord{IndexType: "hnsw", State: "ready"}, wantErr: "physical id"},
-		{name: "empty index type", rec: vectorIndexRecord{PhysicalID: "vectors_title", State: "ready"}, wantErr: "index type"},
-		{name: "config of another type", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", Config: entflat.NewDefaultUserConfig()}, wantErr: "config is for a flat index, the record says hnsw"},
+		{name: "unknown state", rec: record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "done"}, wantErr: `state "done"`},
+		{name: "empty physical id", rec: record{IndexType: "hnsw", State: "ready"}, wantErr: "physical id"},
+		{name: "empty index type", rec: record{PhysicalID: "vectors_title", State: "ready"}, wantErr: "index type"},
+		{name: "config of another type", rec: record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", Config: entflat.NewDefaultUserConfig()}, wantErr: "config is for a flat index, the record says hnsw"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m, _ := newTestVectorIndexMapping(t)
+			m, _ := newTestRecordStore(t)
 			require.NoError(t, m.Initialize(nil))
 			err := m.Put("title", tt.rec)
 			require.ErrorContains(t, err, tt.wantErr)
@@ -533,10 +469,10 @@ func TestVectorIndexMapping_Put(t *testing.T) {
 	}
 }
 
-func TestVectorIndexMapping_Get(t *testing.T) {
-	m, db := newTestVectorIndexMapping(t)
-	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
-	require.NoError(t, m.Initialize(map[string]vectorIndexRecord{"foo": foo}))
+func TestRecordStore_Get(t *testing.T) {
+	m, db := newTestRecordStore(t)
+	foo := record{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, m.Initialize(map[string]record{"foo": foo}))
 
 	rec, ok, err := m.Get("foo")
 	require.NoError(t, err)
@@ -547,17 +483,17 @@ func TestVectorIndexMapping_Get(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 
-	require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte("broken"), []byte("{")))
+	require.NoError(t, db.Namespace(namespace).Put([]byte("broken"), []byte("{")))
 	_, _, err = m.Get("broken")
 	require.ErrorContains(t, err, `record "broken"`)
 }
 
 // A record whose queue outlived the index it was created with keeps both
 // IDs through a write and a read.
-func TestVectorIndexMapping_QueueIDOtherThanThePhysicalID(t *testing.T) {
-	m, _ := newTestVectorIndexMapping(t)
+func TestRecordStore_QueueIDOtherThanThePhysicalID(t *testing.T) {
+	m, _ := newTestRecordStore(t)
 	require.NoError(t, m.Initialize(nil))
-	title := vectorIndexRecord{PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_title"}
+	title := record{PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_title"}
 	require.NoError(t, m.Put("title", title))
 
 	rec, ok, err := m.Get("title")
@@ -569,13 +505,13 @@ func TestVectorIndexMapping_QueueIDOtherThanThePhysicalID(t *testing.T) {
 
 // A record without a queue ID finds its queue where its index's files are,
 // under the naming rule, and adopting the record persists that ID.
-func TestVectorIndexRecord_MissingQueueIDFollowsTheNamingRule(t *testing.T) {
+func TestRecord_MissingQueueIDFollowsTheNamingRule(t *testing.T) {
 	for _, tc := range []struct{ physicalID, want string }{
 		{"main", "main"},
 		{"vectors_title", "vectors_title"},
 		{"abc-1", "vectors_abc-1"},
 	} {
-		rec := vectorIndexRecord{PhysicalID: tc.physicalID, IndexType: "hnsw", State: "ready"}
+		rec := record{PhysicalID: tc.physicalID, IndexType: "hnsw", State: "ready"}
 		assert.Equal(t, tc.want, rec.queueIDOrDefault(), tc.physicalID)
 		adopted, changed := rec.adopted(nil)
 		assert.True(t, changed, tc.physicalID)
@@ -583,49 +519,18 @@ func TestVectorIndexRecord_MissingQueueIDFollowsTheNamingRule(t *testing.T) {
 	}
 }
 
-// Records that name one file refuse the load when either has a generated ID;
-// collisions between name-derived IDs predate the check and still load.
-func TestRefuseGeneratedVectorIndexCollisions(t *testing.T) {
-	rec := func(id string) vectorIndexRecord {
-		return vectorIndexRecord{PhysicalID: id, IndexType: "hnsw", State: "ready", QueueID: id}
-	}
-	tests := []struct {
-		name    string
-		a, b    string
-		wantErr string
-	}{
-		{"one storage ID", "a-b", "vectors_a-b", `both name "vectors_a-b"`},
-		{"centroids of one, compressed of the other", "x-1", "x-1_centroids", `both name "vectors_compressed_x-1_centroids"`},
-		{"compressed of one, vectors of the other", "a-b", "compressed_a-b", `both name "vectors_compressed_a-b"`},
-		{"distinct generated IDs", "a-b", "c-d", ""},
-		{"generated and name-derived", "a-b", "vectors_title", ""},
-		{"name-derived only", "main", "vectors_compressed", ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := refuseGeneratedVectorIndexCollisions(map[string]vectorIndexRecord{"a": rec(tc.a), "b": rec(tc.b)})
-			if tc.wantErr == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.ErrorContains(t, err, tc.wantErr)
-			require.ErrorContains(t, err, `vectors "a" and "b"`)
-		})
-	}
-}
-
-func TestVectorIndexMapping_Delete(t *testing.T) {
+func TestRecordStore_Delete(t *testing.T) {
 	t.Run("removes one record and leaves the rest", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
-		legacy := vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}
-		title := vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "flat", State: "ready"}
-		require.NoError(t, m.Initialize(map[string]vectorIndexRecord{"": legacy, "title": title}))
+		m, _ := newTestRecordStore(t)
+		legacy := record{PhysicalID: "main", IndexType: "hnsw", State: "ready"}
+		title := record{PhysicalID: "vectors_title", IndexType: "flat", State: "ready"}
+		require.NoError(t, m.Initialize(map[string]record{"": legacy, "title": title}))
 
 		require.NoError(t, m.Delete("title"))
 		records, initialized, err := m.Load()
 		require.NoError(t, err)
 		assert.True(t, initialized)
-		assert.Equal(t, map[string]vectorIndexRecord{"": legacy}, records)
+		assert.Equal(t, map[string]record{"": legacy}, records)
 
 		require.NoError(t, m.Delete(""))
 		records, initialized, err = m.Load()
@@ -635,13 +540,13 @@ func TestVectorIndexMapping_Delete(t *testing.T) {
 	})
 
 	t.Run("a missing record is already deleted", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
+		m, _ := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
 		require.NoError(t, m.Delete("title"))
 	})
 
 	t.Run("an uninitialized mapping has nothing to delete", func(t *testing.T) {
-		m, _ := newTestVectorIndexMapping(t)
+		m, _ := newTestRecordStore(t)
 		require.NoError(t, m.Delete("title"))
 		_, initialized, err := m.Load()
 		require.NoError(t, err)
@@ -649,140 +554,10 @@ func TestVectorIndexMapping_Delete(t *testing.T) {
 	})
 }
 
-// The offline reader refuses what Load refuses: a deletion must not act on
-// a record this binary cannot read.
-// A cold shard's vectors are found through their records; a vector without
-// one, or a shard without a mapping, is where the naming rule puts it.
-func TestUnloadedVectorIndexStorageIDs(t *testing.T) {
-	const generated = "3f2a9c1e-0b7d-4c1a-9e2f-5d6c7b8a9f00"
-	names := []string{"", "title", "body"}
-	defaults := map[string]string{"": "main", "title": "vectors_title", "body": "vectors_body"}
-
-	writeMapping := func(t *testing.T, dir, version string, records map[string]string) {
-		t.Helper()
-		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
-		require.NoError(t, err)
-		ns := db.Namespace(vectorIndexMappingNamespace)
-		require.NoError(t, ns.Put([]byte(vectorIndexMappingFormatVersionKey), []byte(version)))
-		for name, rec := range records {
-			require.NoError(t, ns.Put([]byte(vectorIndexMappingKey(name)), []byte(rec)))
-		}
-		require.NoError(t, db.Close())
-	}
-
-	t.Run("no metadata file", func(t *testing.T) {
-		ids, locked, err := unloadedVectorIndexStorageIDs(t.TempDir(), names)
-		require.NoError(t, err)
-		assert.False(t, locked)
-		assert.Equal(t, defaults, ids)
-	})
-
-	t.Run("metadata file without a mapping", func(t *testing.T) {
-		dir := t.TempDir()
-		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
-		require.NoError(t, err)
-		require.NoError(t, db.Close())
-		ids, locked, err := unloadedVectorIndexStorageIDs(dir, names)
-		require.NoError(t, err)
-		assert.False(t, locked)
-		assert.Equal(t, defaults, ids)
-	})
-
-	t.Run("records decide, a vector without one keeps the naming rule", func(t *testing.T) {
-		dir := t.TempDir()
-		writeMapping(t, dir, "1", map[string]string{
-			"":      `{"physical_id":"main","index_type":"hnsw","state":"ready"}`,
-			"title": `{"physical_id":"` + generated + `","index_type":"hnsw","state":"ready"}`,
-		})
-		ids, locked, err := unloadedVectorIndexStorageIDs(dir, names)
-		require.NoError(t, err)
-		assert.False(t, locked)
-		assert.Equal(t, map[string]string{"": "main", "title": "vectors_" + generated, "body": "vectors_body"}, ids)
-	})
-
-	t.Run("a load holding the file", func(t *testing.T) {
-		dir := t.TempDir()
-		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
-		require.NoError(t, err)
-		t.Cleanup(func() { db.Close() })
-		ids, locked, err := unloadedVectorIndexStorageIDs(dir, names)
-		require.NoError(t, err)
-		assert.True(t, locked)
-		assert.Equal(t, defaults, ids)
-	})
-
-	t.Run("unsupported format version", func(t *testing.T) {
-		dir := t.TempDir()
-		writeMapping(t, dir, "2", nil)
-		ids, _, err := unloadedVectorIndexStorageIDs(dir, names)
-		require.ErrorContains(t, err, "format version")
-		assert.Equal(t, defaults, ids)
-	})
-
-	t.Run("records without a format version", func(t *testing.T) {
-		dir := t.TempDir()
-		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
-		require.NoError(t, err)
-		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte(vectorIndexMappingKey("title")),
-			[]byte(`{"physical_id":"`+generated+`","index_type":"hnsw","state":"ready"}`)))
-		require.NoError(t, db.Close())
-		ids, _, err := unloadedVectorIndexStorageIDs(dir, names)
-		require.ErrorContains(t, err, "records without a format version")
-		assert.Equal(t, defaults, ids)
-	})
-
-	t.Run("invalid record", func(t *testing.T) {
-		dir := t.TempDir()
-		writeMapping(t, dir, "1", map[string]string{
-			"":     `{"physical_id":"` + generated + `","index_type":"hnsw","state":"ready"}`,
-			"body": `{"physical_id":"title","index_type":"hnsw","state":"ready"}`,
-		})
-		ids, _, err := unloadedVectorIndexStorageIDs(dir, names)
-		require.ErrorContains(t, err, `record "body": physical id`)
-		assert.Equal(t, defaults, ids, "no ID read before the invalid record is kept")
-	})
-}
-
-func TestReadVectorIndexRecordOffline(t *testing.T) {
-	valid := `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`
-	tests := []struct {
-		name    string
-		version string
-		record  string
-		wantErr string
-		wantOK  bool
-	}{
-		{name: "reads a record", version: "1", record: valid, wantOK: true},
-		{name: "unsupported format version", version: "2", record: valid, wantErr: "format version"},
-		{name: "invalid record", version: "1", record: `{"physical_id":"","index_type":"hnsw","state":"ready"}`, wantErr: "physical id"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
-			require.NoError(t, err)
-			ns := db.Namespace(vectorIndexMappingNamespace)
-			require.NoError(t, ns.Put([]byte(vectorIndexMappingFormatVersionKey), []byte(tt.version)))
-			require.NoError(t, ns.Put([]byte("title"), []byte(tt.record)))
-			require.NoError(t, db.Close())
-
-			rec, ok, initialized, err := readVectorIndexRecordOffline(dir, "title")
-			assert.True(t, initialized)
-			assert.Equal(t, tt.wantOK, ok)
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}, rec)
-		})
-	}
-}
-
-// TestVectorIndexRecord_Format pins the fields a record carries beyond the
+// TestRecord_Format pins the fields a record carries beyond the
 // first three: the queue ID and the adopted config, inside the same JSON
 // object, so a reader from before them still reads the record.
-func TestVectorIndexRecord_Format(t *testing.T) {
+func TestRecord_Format(t *testing.T) {
 	hnswCfg := enthnsw.NewDefaultUserConfig()
 	hnswCfg.EF = 200
 	flatCfg := entflat.NewDefaultUserConfig()
@@ -792,9 +567,9 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 	t.Run("every type round-trips through the store", func(t *testing.T) {
 		for _, cfg := range []schemaConfig.VectorIndexConfig{hnswCfg, flatCfg, dynamicCfg, hfreshCfg} {
 			t.Run(cfg.IndexType(), func(t *testing.T) {
-				m, _ := newTestVectorIndexMapping(t)
+				m, _ := newTestRecordStore(t)
 				require.NoError(t, m.Initialize(nil))
-				rec := vectorIndexRecord{
+				rec := record{
 					PhysicalID: "vectors_title", IndexType: cfg.IndexType(), State: "ready",
 					QueueID: "vectors_title", Config: cfg,
 				}
@@ -806,19 +581,19 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 				assert.Equal(t, rec, got)
 				records, _, err := m.Load()
 				require.NoError(t, err)
-				assert.Equal(t, map[string]vectorIndexRecord{"title": rec}, records)
+				assert.Equal(t, map[string]record{"title": rec}, records)
 			})
 		}
 	})
 
 	t.Run("the bytes on disk", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
+		m, db := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
-		require.NoError(t, m.Put("title", vectorIndexRecord{
+		require.NoError(t, m.Put("title", record{
 			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
 			QueueID: "vectors_title", Config: hnswCfg,
 		}))
-		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte("title"))
+		v, err := db.Namespace(namespace).Get([]byte("title"))
 		require.NoError(t, err)
 
 		var onDisk map[string]json.RawMessage
@@ -838,22 +613,22 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 	})
 
 	t.Run("a record without the fields loads with them empty", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
+		m, db := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
-		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte("title"),
+		require.NoError(t, db.Namespace(namespace).Put([]byte("title"),
 			[]byte(`{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`)))
 		rec, ok, err := m.Get("title")
 		require.NoError(t, err)
 		require.True(t, ok)
-		assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}, rec)
+		assert.Equal(t, record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}, rec)
 		assert.Nil(t, rec.Config)
 		assert.Equal(t, "vectors_title", rec.queueIDOrDefault(), "the queue has always lived under the index's ID")
 	})
 
 	t.Run("a null config is no config", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
+		m, db := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
-		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte("title"),
+		require.NoError(t, db.Namespace(namespace).Put([]byte("title"),
 			[]byte(`{"physical_id":"vectors_title","index_type":"hnsw","state":"ready","config":null}`)))
 		rec, _, err := m.Get("title")
 		require.NoError(t, err)
@@ -861,10 +636,10 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 	})
 
 	t.Run("a record without the fields writes none", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
+		m, db := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
-		require.NoError(t, m.Put("title", vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}))
-		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte("title"))
+		require.NoError(t, m.Put("title", record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}))
+		v, err := db.Namespace(namespace).Get([]byte("title"))
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`, string(v))
 	})
@@ -873,13 +648,13 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 	// was then. Its decoder ignores the fields it does not know, and a
 	// record it rewrites loses them, which the loading shard fills back in.
 	t.Run("a reader from before the fields ignores them", func(t *testing.T) {
-		m, db := newTestVectorIndexMapping(t)
+		m, db := newTestRecordStore(t)
 		require.NoError(t, m.Initialize(nil))
-		require.NoError(t, m.Put("title", vectorIndexRecord{
+		require.NoError(t, m.Put("title", record{
 			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
 			QueueID: "vectors_title", Config: hnswCfg,
 		}))
-		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte("title"))
+		v, err := db.Namespace(namespace).Get([]byte("title"))
 		require.NoError(t, err)
 
 		type recordBeforeTheFields struct {
@@ -895,23 +670,23 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 
 // adopted records cfg and fills in a missing queue ID, and says whether
 // that changed anything.
-func TestVectorIndexRecord_Adopted(t *testing.T) {
+func TestRecord_Adopted(t *testing.T) {
 	cfg := enthnsw.NewDefaultUserConfig()
 	other := cfg
 	other.EF = cfg.EF + 1
 
 	t.Run("fills in a record from before the fields", func(t *testing.T) {
-		old := vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}
+		old := record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}
 		rec, changed := old.adopted(cfg)
 		assert.True(t, changed)
-		assert.Equal(t, vectorIndexRecord{
+		assert.Equal(t, record{
 			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
 			QueueID: "vectors_title", Config: cfg,
 		}, rec)
 	})
 
 	t.Run("the same config changes nothing", func(t *testing.T) {
-		complete := vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", QueueID: "vectors_title", Config: cfg}
+		complete := record{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", QueueID: "vectors_title", Config: cfg}
 		rec, changed := complete.adopted(cfg)
 		assert.False(t, changed)
 		assert.Equal(t, complete, rec)

@@ -289,7 +289,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	// the reset rebuilt at the recorded ID: record ready, storage present
 	s := underlyingShard(t, shd)
-	rec, ok, err := s.mapping.Get("")
+	rec, ok, err := recordsOf(s).Get("")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, recorded(s, "", "main", "ready"), rec)
@@ -297,6 +297,28 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+// A debug reset that fails once it dropped the index leaves the record
+// creating, which the next load builds again.
+func TestShard_DebugResetVectorIndex_FailedRebuildLeavesCreating(t *testing.T) {
+	ctx := testCtx()
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "TestClass"}, hnsw.UserConfig{}, false, true)
+	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"added": hnsw.UserConfig{}}))
+	s := underlyingShard(t, shd)
+	want, _, err := recordsOf(s).Get("added")
+	require.NoError(t, err)
+	want.State = "creating"
+
+	idx.vectorIndexUserConfigLock.Lock()
+	idx.vectorIndexUserConfigs["added"] = hnsw.UserConfig{Distance: "bogus"}
+	idx.vectorIndexUserConfigLock.Unlock()
+	require.ErrorContains(t, shd.DebugResetVectorIndex(ctx, "added"), "bogus")
+
+	rec, ok, err := recordsOf(s).Get("added")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, want, rec)
 }
 
 // A vector added on a running shard is recorded, so the reset finds its
@@ -311,16 +333,22 @@ func TestShard_DebugResetVectorIndex_AddedVector(t *testing.T) {
 
 	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"added": hnsw.UserConfig{}}))
 	s := underlyingShard(t, shd)
-	before, ok, err := s.mapping.Get("added")
+	want, ok, err := recordsOf(s).Get("added")
 	require.NoError(t, err)
 	require.True(t, ok)
+
+	// the record holds the config the new index is built with, not the old one's
+	updated := hnsw.UserConfig{EF: 42}
+	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"added": updated}))
+	require.NotEqual(t, updated, want.Config)
+	want.Config = updated
 
 	require.NoError(t, shd.DebugResetVectorIndex(ctx, "added"))
 
-	after, ok, err := s.mapping.Get("added")
+	after, ok, err := recordsOf(s).Get("added")
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, before, after)
+	assert.Equal(t, want, after)
 	assert.True(t, storageExistsFor(t, s, after))
 
 	// a vector without a record cannot be reset

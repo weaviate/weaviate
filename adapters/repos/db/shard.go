@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/adapters/repos/db/vectormanifest"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
@@ -407,8 +408,8 @@ type Shard struct {
 	// metadataDB is <shard>/index.db, open for the shard's life: the vector
 	// index mapping and dynamic's upgrade verdicts live in it.
 	metadataDB *shardmeta.DB
-	// mapping is the shard's persisted view of its vector indexes.
-	mapping *vectorIndexMapping
+	// manifest owns the persisted state of the shard's vector indexes.
+	manifest *vectormanifest.Manifest
 
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut atomic.Bool

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/adapters/repos/db/vectormanifest"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -579,7 +580,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 
 	// one shard's unreadable mapping must not fail the whole collection's report
-	indexIDs, locked, err := unloadedVectorIndexStorageIDs(shardPath(i.path(), shardName), slices.Collect(maps.Keys(vectorConfigs)))
+	indexIDs, locked, err := vectormanifest.UnloadedStorageIDs(shardPath(i.path(), shardName), slices.Collect(maps.Keys(vectorConfigs)))
 	cacheable := !locked && err == nil
 	if !cacheable {
 		reason := "a load holds the vector index mapping"

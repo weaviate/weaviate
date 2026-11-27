@@ -31,7 +31,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/additional"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -271,10 +270,11 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	markDropped(class, "foo")
 
 	// what a drop that failed after its record write leaves behind
-	rec, ok, err := shard.mapping.Get("foo")
+	_, ok, err := recordsOf(shard).Get("foo")
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NoError(t, shard.markVectorIndexDropping("foo", rec))
+	_, err = shard.manifest.BeginDrop("foo")
+	require.NoError(t, err)
 	require.NotEmpty(t, entriesNamed(t, shard, "foo"))
 
 	db := &DB{localNodeName: "node1", logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
@@ -284,7 +284,7 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	assert.Less(t, time.Since(start), time.Second)
 
 	assert.Empty(t, entriesNamed(t, shard, "foo"), "the sweep finished the drop")
-	_, ok, err = shard.mapping.Get("foo")
+	_, ok, err = recordsOf(shard).Get("foo")
 	require.NoError(t, err)
 	assert.False(t, ok)
 
@@ -303,10 +303,10 @@ func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
 	markDropped(class, "foo")
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 
-	records, initialized, err := shard.mapping.Load()
+	records, initialized, err := recordsOf(shard).Load()
 	require.NoError(t, err)
 	assert.True(t, initialized)
-	assert.Equal(t, map[string]vectorIndexRecord{
+	assert.Equal(t, map[string]manifestRecord{
 		"":   recorded(shard, "", "main", "ready"),
 		"mv": recorded(shard, "mv", "vectors_mv", "ready"),
 	}, records)
@@ -325,7 +325,7 @@ func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 	markDropped(class, "foo")
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 
-	records, initialized, err := shard.mapping.Load()
+	records, initialized, err := recordsOf(shard).Load()
 	require.NoError(t, err)
 	assert.False(t, initialized)
 	assert.Empty(t, records)
@@ -338,7 +338,7 @@ func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 // older backup restores it.
 func wipeMapping(t *testing.T, shard *Shard) {
 	t.Helper()
-	ns := shard.metadataDB.Namespace(vectorIndexMappingNamespace)
+	ns := shard.metadataDB.Namespace(manifestNamespace)
 	var keys [][]byte
 	require.NoError(t, ns.ForEach(func(key, _ []byte) error {
 		keys = append(keys, key)
@@ -364,7 +364,7 @@ func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) 
 	err := db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
 	require.ErrorIs(t, err, errShutdownInProgress)
 
-	records, _, err := shard.mapping.Load()
+	records, _, err := recordsOf(shard).Load()
 	require.NoError(t, err)
 	assert.Equal(t, foo, records["foo"], "nothing was swept, so the record stays for the retry")
 }
@@ -418,12 +418,12 @@ func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
 }
 
 // reopenMapping reads a shut-down shard's mapping through a fresh handle.
-func reopenMapping(t *testing.T, shardDir string) (map[string]vectorIndexRecord, bool, error) {
+func reopenMapping(t *testing.T, shardDir string) (map[string]manifestRecord, bool, error) {
 	t.Helper()
 	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 	require.NoError(t, err)
 	defer db.Close()
-	return newVectorIndexMapping(db).Load()
+	return newManifestRecords(db).Load()
 }
 
 // entriesNamed lists every entry under the shard directory and its lsm
@@ -464,7 +464,7 @@ func TestDropVectorIndex_LeavesNothingBehind(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, found)
 	assert.Empty(t, entriesNamed(t, shard, "foo"), "no file of foo under the shard")
-	_, ok, err := shard.mapping.Get("foo")
+	_, ok, err := recordsOf(shard).Get("foo")
 	require.NoError(t, err)
 	assert.False(t, ok)
 	found, err = shard.WithVectorIndex("mv", func(VectorIndex) error { return nil })
@@ -486,16 +486,44 @@ func TestDropVectorIndex_MarksTheRecordDroppingFirst(t *testing.T) {
 	dropErr := make(chan error, 1)
 	go func() { dropErr <- shard.DropVectorIndex(ctx, "foo") }()
 	require.Eventually(t, func() bool {
-		rec, ok, err := shard.mapping.Get("foo")
+		rec, ok, err := recordsOf(shard).Get("foo")
 		require.NoError(t, err)
-		return ok && rec.State == vectorIndexStateDropping
+		return ok && rec.State == "dropping"
 	}, time.Second, 10*time.Millisecond)
 
 	slot.release()
 	require.NoError(t, <-dropErr)
-	_, ok, err := shard.mapping.Get("foo")
+	_, ok, err := recordsOf(shard).Get("foo")
 	require.NoError(t, err)
 	assert.False(t, ok, "the record goes with the files")
+}
+
+// A drop that would take what another vector uses is refused before the index
+// and its queue are torn down.
+func TestDropVectorIndex_RefusesSharedFilesBeforeTheTeardown(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	foo := recorded(shard, "foo", "vectors_foo", "ready")
+	shared := foo
+	shared.QueueID = "vectors_mv"
+	require.NoError(t, recordsOf(shard).Put("foo", shared))
+	markDropped(class, "foo")
+
+	before := entriesNamed(t, shard, "foo")
+	require.ErrorContains(t, shard.DropVectorIndex(ctx, "foo"), `both record queue "vectors_mv"`)
+
+	assert.Equal(t, before, entriesNamed(t, shard, "foo"), "every file stays")
+	found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+		assert.True(t, index.ContainsDoc(0))
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, found, "the index is still open")
+	rec, _, err := recordsOf(shard).Get("foo")
+	require.NoError(t, err)
+	assert.Equal(t, shared, rec)
+	require.NoError(t, recordsOf(shard).Put("foo", foo))
 }
 
 // remapFoo reloads the shard with foo recorded at vectors_foo_v2, writes an
@@ -503,9 +531,9 @@ func TestDropVectorIndex_MarksTheRecordDroppingFirst(t *testing.T) {
 // rule's path that no drop of foo may touch.
 func remapFoo(t *testing.T, ctx context.Context, shard *Shard, class *models.Class) (*Shard, string) {
 	t.Helper()
-	remapped := vectorIndexRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "ready"}
+	remapped := manifestRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "ready"}
 	shard = reloadAfter(t, ctx, shard, class, func() {
-		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		withOfflineMapping(t, shard.path(), func(m *manifestRecords, _ *shardmeta.Namespace) {
 			require.NoError(t, m.Put("foo", remapped))
 		})
 	})
@@ -530,7 +558,7 @@ func TestDropVectorIndex_DeletesAtTheRecordedID(t *testing.T) {
 	assert.Empty(t, entriesWithID(t, shard, "vectors_foo_v2"))
 	_, err := os.Stat(decoy)
 	assert.NoError(t, err, "the naming rule's paths were not touched")
-	_, ok, err := shard.mapping.Get("foo")
+	_, ok, err := recordsOf(shard).Get("foo")
 	require.NoError(t, err)
 	assert.False(t, ok)
 
@@ -624,17 +652,18 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedLazyShard(t *testing
 	// what a drop that failed after its record write leaves behind
 	require.NoError(t, loaded.PutObject(ctx, dropVecObject(t, "one", true)))
 	markDropped(class, "foo")
-	rec, ok, err := loaded.mapping.Get("foo")
+	_, ok, err := recordsOf(loaded).Get("foo")
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NoError(t, loaded.markVectorIndexDropping("foo", rec))
+	_, err = loaded.manifest.BeginDrop("foo")
+	require.NoError(t, err)
 
 	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
 	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
 	// the offline route would have skipped on the loaded shard's lock, leaving
 	// the record and the files; the shard's own drop finishes them
 	assert.Empty(t, entriesNamed(t, loaded, "foo"), "the sweep finished the drop")
-	_, ok, err = loaded.mapping.Get("foo")
+	_, ok, err = recordsOf(loaded).Get("foo")
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
@@ -642,7 +671,7 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedLazyShard(t *testing
 // liveCreate rebuilds the index of targetVector from its mapping record,
 // as an index that was unpublished without a teardown.
 func liveCreate(ctx context.Context, shard *Shard, targetVector string) error {
-	rec, ok, err := shard.mapping.Get(targetVector)
+	rec, ok, err := recordsOf(shard).Get(targetVector)
 	if err != nil {
 		return err
 	}
@@ -650,7 +679,7 @@ func liveCreate(ctx context.Context, shard *Shard, targetVector string) error {
 		return fmt.Errorf("no mapping record for %q", targetVector)
 	}
 	cfg := shard.index.GetVectorIndexConfig(targetVector)
-	return shard.createVectorIndex(ctx, targetVector, rec.PhysicalID, rec.queueIDOrDefault(), cfg, false)
+	return shard.createVectorIndex(ctx, targetVector, rec.PhysicalID, rec.queueID(), cfg, false)
 }
 
 // searchIDs returns the IDs the index of targetVector finds for vector.
@@ -827,7 +856,7 @@ func TestDropVectorIndex_DuringALazyLoad(t *testing.T) {
 
 			assert.Empty(t, entriesNamed(t, loaded, "foo"))
 			assert.NotEmpty(t, entriesNamed(t, loaded, "mv"), "the sibling stays")
-			_, ok, err := loaded.mapping.Get("foo")
+			_, ok, err := recordsOf(loaded).Get("foo")
 			require.NoError(t, err)
 			assert.False(t, ok)
 		})
@@ -909,38 +938,4 @@ func TestDropVectorIndex_LoadWithAClassOlderThanTheDrop(t *testing.T) {
 			assert.True(t, found)
 		})
 	}
-}
-
-// A shard without records deletes what the naming rule gives the vector, its
-// dynamic index's state included, and spares a bucket an active vector owns.
-func TestRemoveUnrecordedVectorIndexes(t *testing.T) {
-	ctx := testCtx()
-	shard, _ := setupDropVectorShard(t, ctx)
-	own := []string{
-		filepath.Join(shard.pathLSM(), "vectors_gone"),
-		filepath.Join(shard.path(), "vectors_gone.hnsw.commitlog.d"),
-		filepath.Join(shard.path(), "vectors_gone.queue.d"),
-	}
-	sibling := filepath.Join(shard.pathLSM(), "vectors_gone_muvera_vectors")
-	for _, dir := range append(own, sibling) {
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-	}
-	state := shard.metadataDB.Namespace(dynamic.StateNamespace)
-	for _, key := range []string{"upgraded_gone", "upgraded_gone_muvera_vectors"} {
-		require.NoError(t, state.Put([]byte(key), []byte{1}))
-	}
-
-	require.NoError(t, shard.removeUnrecordedVectorIndexes(ctx, []string{"gone", "never existed"},
-		map[string]schemaConfig.VectorIndexConfig{"gone_muvera_vectors": hnsw.NewDefaultUserConfig()}))
-
-	for _, dir := range own {
-		assert.NoDirExists(t, dir)
-	}
-	assert.DirExists(t, sibling)
-	v, err := state.Get([]byte("upgraded_gone"))
-	require.NoError(t, err)
-	assert.Nil(t, v)
-	v, err = state.Get([]byte("upgraded_gone_muvera_vectors"))
-	require.NoError(t, err)
-	assert.NotNil(t, v, "the sibling's state stays")
 }
