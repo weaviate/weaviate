@@ -17,6 +17,7 @@ import (
 	"math/rand"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -28,8 +29,16 @@ import (
 )
 
 func TestLSMKV_ReplaceBucket(t *testing.T) {
+	// Latency is asserted as a tail budget rather than on the single worst
+	// query: shared CI runners occasionally stall a few individual queries past
+	// the threshold through no fault of the bucket (weaviate/weaviate#12898).
+	// The test fails if more than maxOverThresholdRatio of puts or gets exceed
+	// their threshold (i.e. p99.99 must stay below it), or if any single query
+	// exceeds hardCeiling, which still catches genuine stalls.
 	putThreshold := 100 * time.Millisecond
 	getThreshold := 100 * time.Millisecond
+	hardCeiling := 1 * time.Second
+	maxOverThresholdRatio := 0.0001
 	trackWorstQueries := 10
 	workers := 4
 
@@ -77,42 +86,33 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 	wg.Wait()
 	logger.WithField("concurrency", workers).Infof("%d workers completed", workers)
 
-	var putOutsideThreshold []float32
-	var getOutsideThreshold []float32
+	var worstPutsMs []float32
+	var worstGetsMs []float32
 
 	totalIngested := 0
 	totalSpotChecks := 0
+	totalPutsOverThreshold := 0
+	totalGetsOverThreshold := 0
 
 	for _, r := range results {
 		totalIngested += r.ingested
 		totalSpotChecks += r.getSpotChecks
+		totalPutsOverThreshold += r.putsOverThreshold
+		totalGetsOverThreshold += r.getsOverThreshold
 
 		for r.worstPutQueries.Len() > 0 {
-			tookMs := r.worstPutQueries.Pop().Dist * 1000
-			if tookMs > float32(putThreshold.Milliseconds()) {
-				putOutsideThreshold = append(putOutsideThreshold, tookMs)
-			}
+			worstPutsMs = append(worstPutsMs, r.worstPutQueries.Pop().Dist*1000)
 		}
 
 		for r.worstGetQueries.Len() > 0 {
-			tookMs := r.worstGetQueries.Pop().Dist * 1000
-			if tookMs > float32(getThreshold.Milliseconds()) {
-				getOutsideThreshold = append(getOutsideThreshold, tookMs)
-			}
+			worstGetsMs = append(worstGetsMs, r.worstGetQueries.Pop().Dist*1000)
 		}
 	}
 
-	if len(putOutsideThreshold) > 0 {
-		t.Errorf("%d put queries outside threshold (%s): %v", len(putOutsideThreshold), putThreshold, putOutsideThreshold)
-	} else {
-		logger.Infof("all put queries were within threshold (%s)", putThreshold)
-	}
-
-	if len(getOutsideThreshold) > 0 {
-		t.Errorf("%d get queries outside threshold (%s) : %v", len(getOutsideThreshold), getThreshold, getOutsideThreshold)
-	} else {
-		logger.Infof("all get queries were within threshold (%s)", getThreshold)
-	}
+	assertLatencyBudget(t, logger, "put", totalPutsOverThreshold, totalIngested, worstPutsMs,
+		putThreshold, hardCeiling, maxOverThresholdRatio)
+	assertLatencyBudget(t, logger, "get", totalGetsOverThreshold, totalSpotChecks, worstGetsMs,
+		getThreshold, hardCeiling, maxOverThresholdRatio)
 
 	// This a sanity check to make sure the test actually ran. The expected total
 	// is a lot more, but if the test were to just block for 60s and do nothing,
@@ -129,12 +129,48 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 	}
 }
 
+// assertLatencyBudget fails the test if the share of queries slower than
+// threshold exceeds maxRatio, or if any tracked query is slower than ceiling.
+// worstMs holds the slowest tracked queries in milliseconds, for reporting.
+func assertLatencyBudget(t *testing.T, logger logrus.FieldLogger, op string,
+	overThreshold, total int, worstMs []float32,
+	threshold, ceiling time.Duration, maxRatio float64,
+) {
+	t.Helper()
+
+	sort.Slice(worstMs, func(i, j int) bool { return worstMs[i] > worstMs[j] })
+
+	var aboveCeiling []float32
+	for _, ms := range worstMs {
+		if ms > float32(ceiling.Milliseconds()) {
+			aboveCeiling = append(aboveCeiling, ms)
+		}
+	}
+	if len(aboveCeiling) > 0 {
+		t.Errorf("%d %s queries exceeded the hard ceiling (%s): %v", len(aboveCeiling), op, ceiling, aboveCeiling)
+	}
+
+	if total == 0 {
+		return // the throughput sanity checks report this case
+	}
+	ratio := float64(overThreshold) / float64(total)
+	if ratio > maxRatio {
+		t.Errorf("%d of %d %s queries (%.4f%%) exceeded threshold (%s), budget is %.4f%%; worst (ms): %v",
+			overThreshold, total, op, ratio*100, threshold, maxRatio*100, worstMs)
+	} else {
+		logger.Infof("%d of %d %s queries (%.4f%%) exceeded threshold (%s), within budget of %.4f%%; worst (ms): %v",
+			overThreshold, total, op, ratio*100, threshold, maxRatio*100, worstMs)
+	}
+}
+
 type result struct {
-	workerID        int
-	worstPutQueries *priorityqueue.Queue[float32]
-	worstGetQueries *priorityqueue.Queue[float32]
-	ingested        int
-	getSpotChecks   int
+	workerID          int
+	worstPutQueries   *priorityqueue.Queue[float32]
+	worstGetQueries   *priorityqueue.Queue[float32]
+	ingested          int
+	getSpotChecks     int
+	putsOverThreshold int
+	getsOverThreshold int
 }
 
 func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int, bucket *lsmkv.Bucket, logger logrus.FieldLogger,
@@ -148,6 +184,8 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 
 	i := 0
 	totalAsserted := 0
+	putsOverThreshold := 0
+	getsOverThreshold := 0
 	for {
 		if ctx.Err() != nil {
 			break
@@ -157,7 +195,8 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 		took := time.Since(before)
 		trackWorstQuery(worstPutQueries, i, took, trackWorstQueries)
 		if took > putThreshold {
-			logger.Warnf("put took too long: %s", time.Since(before))
+			putsOverThreshold++
+			logger.Warnf("put took too long: %s", took)
 		}
 
 		// perform spot checks every 10000 iterations
@@ -173,7 +212,8 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 				}
 				took := time.Since(before)
 				if took > getThreshold {
-					logger.Warnf("get took too long: %s", time.Since(before))
+					getsOverThreshold++
+					logger.Warnf("get took too long: %s", took)
 				}
 
 				if string(val) != fmt.Sprintf("value-%d", j) {
@@ -195,11 +235,13 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 	}
 
 	results[workerID] = result{
-		workerID:        workerID,
-		worstPutQueries: worstPutQueries,
-		worstGetQueries: worstGetQueries,
-		ingested:        i,
-		getSpotChecks:   totalAsserted,
+		workerID:          workerID,
+		worstPutQueries:   worstPutQueries,
+		worstGetQueries:   worstGetQueries,
+		ingested:          i,
+		getSpotChecks:     totalAsserted,
+		putsOverThreshold: putsOverThreshold,
+		getsOverThreshold: getsOverThreshold,
 	}
 
 	logger.WithField("imported", i).WithField("get_spot_checks", totalAsserted).Infof("completed worker")
