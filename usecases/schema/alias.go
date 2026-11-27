@@ -68,18 +68,16 @@ func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, ali
 	}
 	alias = qAlias
 
-	a, err := h.schemaManager.GetAlias(ctx, alias)
+	a, err := h.lookupAlias(ctx, alias)
 	if err != nil {
-		if errors.Is(err, cschema.ErrAliasNotFound) {
-			return nil, h.aliasNotFound(alias)
-		}
 		return nil, err
 	}
-
-	if err := h.authorizeExistingAlias(ctx, principal, authorization.READ, a, alias); err != nil {
+	if err := h.authorizeAlias(ctx, principal, authorization.READ, alias, a); err != nil {
 		return nil, err
 	}
-
+	if a == nil {
+		return nil, h.aliasNotFound(alias)
+	}
 	return a, nil
 }
 
@@ -157,15 +155,16 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
-
-	if len(aliases) != 1 {
-		return nil, h.aliasNotFound(aliasName)
+	var alias *models.Alias
+	if len(aliases) == 1 {
+		alias = aliases[0]
 	}
-
-	alias := aliases[0]
 	// Moving an alias also needs update_aliases on the collection it leaves.
-	if err := h.authorizeExistingAlias(ctx, principal, authorization.UPDATE, alias, aliasName); err != nil {
+	if err := h.authorizeAlias(ctx, principal, authorization.UPDATE, aliasName, alias); err != nil {
 		return nil, err
+	}
+	if alias == nil {
+		return nil, h.aliasNotFound(aliasName)
 	}
 
 	targetClass := h.schemaReader.ReadOnlyClass(targetClassName)
@@ -186,31 +185,39 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	return &models.Alias{Alias: alias.Alias, Class: targetClass.Class}, nil
 }
 
-// authorizeExistingAlias authorizes verb on an alias that exists. A caller who
-// cannot read the alias gets the missing-alias answer instead of Forbidden.
-func (h *Handler) authorizeExistingAlias(ctx context.Context, principal *models.Principal,
-	verb string, a *models.Alias, aliasName string,
-) error {
-	resources := authorization.Aliases(a.Class, a.Alias)
-	err := h.Authorizer.Authorize(ctx, principal, verb, resources...)
+func (h *Handler) aliasNotFound(aliasName string) error {
+	return fmt.Errorf("%w, no alias found with name: %s", ErrNotFound, aliasName)
+}
+
+// lookupAlias returns the alias, or nil when it does not exist.
+func (h *Handler) lookupAlias(ctx context.Context, aliasName string) (*models.Alias, error) {
+	a, err := h.schemaManager.GetAlias(ctx, aliasName)
+	if errors.Is(err, cschema.ErrAliasNotFound) {
+		return nil, nil
+	}
+	return a, err
+}
+
+// authorizeAlias checks verb on alias a, or, when a is nil because the alias
+// does not exist, on aliasName in every collection of its namespace. A denial
+// always names the latter, so a caller without permission gets the same 403
+// whether the alias exists or not and never learns its collection.
+func (h *Handler) authorizeAlias(ctx context.Context, principal *models.Principal, verb, aliasName string, a *models.Alias) error {
+	anyCollection := namespacing.QualifiedName(namespacing.NamespaceFromQualified(aliasName), "*")
+	anyTarget := authorization.Aliases(anyCollection, aliasName)
+	if a == nil {
+		return h.Authorizer.Authorize(ctx, principal, verb, anyTarget...)
+	}
+	err := h.Authorizer.Authorize(ctx, principal, verb, authorization.Aliases(a.Class, a.Alias)...)
 	if !errors.As(err, &authzerrors.Forbidden{}) {
 		return err
 	}
-	if verb == authorization.READ {
-		return h.aliasNotFound(aliasName)
+	// Permission on every collection implies permission on this one, so this
+	// check fails too and only supplies the error.
+	if anyErr := h.Authorizer.AuthorizeSilent(ctx, principal, verb, anyTarget...); anyErr != nil {
+		return anyErr
 	}
-	readErr := h.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ, resources...)
-	if readErr == nil {
-		return err
-	}
-	if errors.As(readErr, &authzerrors.Forbidden{}) {
-		return h.aliasNotFound(aliasName)
-	}
-	return readErr
-}
-
-func (h *Handler) aliasNotFound(aliasName string) error {
-	return fmt.Errorf("%w, no alias found with name: %s", ErrNotFound, aliasName)
+	return err
 }
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
@@ -221,16 +228,15 @@ func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, 
 	}
 	aliasName = qAlias
 
-	a, err := h.schemaManager.GetAlias(ctx, aliasName)
+	a, err := h.lookupAlias(ctx, aliasName)
 	if err != nil {
-		if errors.Is(err, cschema.ErrAliasNotFound) {
-			return h.aliasNotFound(aliasName)
-		}
 		return err
 	}
-
-	if err := h.authorizeExistingAlias(ctx, principal, authorization.DELETE, a, aliasName); err != nil {
+	if err := h.authorizeAlias(ctx, principal, authorization.DELETE, aliasName, a); err != nil {
 		return err
+	}
+	if a == nil {
+		return h.aliasNotFound(aliasName)
 	}
 
 	if _, err := h.schemaManager.DeleteAlias(ctx, aliasName); err != nil {

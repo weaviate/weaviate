@@ -100,9 +100,6 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	// before class-aware authz runs. RBAC for restore is covered in backups_test.go.
 	ignoreEndpointMethods := map[string]map[string]bool{
 		"/backups/{backend}/{id}/restore": {http.MethodPost: true},
-		// A forbidden alias answers 404 like a missing one, so its existence
-		// stays hidden. Covered in aliases_test.go.
-		"/aliases/{aliasName}": {http.MethodGet: true, http.MethodDelete: true},
 	}
 
 	ignoreGetAll := []string{

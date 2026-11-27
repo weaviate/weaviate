@@ -12,10 +12,10 @@
 package authz
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -144,16 +144,14 @@ func TestAuthzUpdateAliasRequiresPermissionOnCurrentTarget(t *testing.T) {
 		require.Equal(t, want, got.Class)
 	}
 
-	t.Run("caller who cannot read the alias gets the missing-alias answer", func(t *testing.T) {
+	t.Run("caller without permission on the alias gets forbidden whether it exists or not", func(t *testing.T) {
 		_, missingErr := helper.UpdateAliasAuthWithReturn(t, "NoSuchAlias", scratchClass, malloryKey)
-		var missing *schema.AliasesUpdateNotFound
+		var missing *schema.AliasesUpdateForbidden
 		require.ErrorAs(t, missingErr, &missing)
 
 		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, malloryKey)
-		var denied *schema.AliasesUpdateNotFound
+		var denied *schema.AliasesUpdateForbidden
 		require.ErrorAs(t, err, &denied)
-		assert.Equal(t, missing, denied)
-		assert.Equal(t, missingErr.Error(), err.Error())
 		assertTarget(t, victimClass)
 	})
 
@@ -178,9 +176,7 @@ func TestAuthzUpdateAliasRequiresPermissionOnCurrentTarget(t *testing.T) {
 	t.Run("delete_aliases on the new target alone cannot delete the alias", func(t *testing.T) {
 		_, err := helper.DeleteAliasAuthWithReturn(t, aliasName, malloryKey)
 		var forbidden *schema.AliasesDeleteForbidden
-		var notFound *schema.AliasesDeleteNotFound
-		require.True(t, errors.As(err, &forbidden) || errors.As(err, &notFound),
-			"want 403 or 404, got %v", err)
+		require.ErrorAs(t, err, &forbidden)
 		assertTarget(t, victimClass)
 	})
 
@@ -196,14 +192,11 @@ func TestAuthzUpdateAliasRequiresPermissionOnCurrentTarget(t *testing.T) {
 	})
 }
 
-// TestAuthzAliasesHideForbiddenAlias pins that a caller without alias
-// permissions cannot tell an existing alias from a missing one.
-func TestAuthzAliasesHideForbiddenAlias(t *testing.T) {
+// TestAuthzAliasesForbiddenWithoutPermission pins that a caller without
+// permission gets the same 403 whether the alias exists or not, and a caller
+// with permission gets 404 for a missing alias and the real answer otherwise.
+func TestAuthzAliasesForbiddenWithoutPermission(t *testing.T) {
 	adminKey := "admin-key"
-	noPermKey := "custom-key"
-	readerUser := "read-user"
-	readerKey := "read-key"
-	readerRole := "alias-reader"
 
 	compose, down := composeUpShared(t)
 	defer down()
@@ -214,101 +207,137 @@ func TestAuthzAliasesHideForbiddenAlias(t *testing.T) {
 	missing := "Payroll"
 	helper.CreateAliasAuth(t, &models.Alias{Alias: existing, Class: target.Class}, adminKey)
 
-	do := func(t *testing.T, method, path, key string) (int, string) {
+	do := func(t *testing.T, method, alias, key string) (int, string) {
 		t.Helper()
-		req, err := http.NewRequest(method, fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), path), nil)
+		var body io.Reader
+		if method == http.MethodPut {
+			body = strings.NewReader(fmt.Sprintf(`{"class":%q}`, target.Class))
+		}
+		url := fmt.Sprintf("http://%s/v1/aliases/%s", compose.GetWeaviate().URI(), alias)
+		req, err := http.NewRequest(method, url, body)
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		return resp.StatusCode, string(body)
+		return resp.StatusCode, string(respBody)
 	}
 
+	allAliases := func(actions ...string) []*models.Permission {
+		perms := make([]*models.Permission, len(actions))
+		for i, action := range actions {
+			perms[i] = helper.NewAliasesPermission().WithAction(action).Permission()
+		}
+		return perms
+	}
+
+	// want maps a method to its status for the existing and the missing alias.
+	type statuses map[string][2]int
+	forbiddenEverywhere := statuses{
+		http.MethodGet:    {http.StatusForbidden, http.StatusForbidden},
+		http.MethodPut:    {http.StatusForbidden, http.StatusForbidden},
+		http.MethodDelete: {http.StatusForbidden, http.StatusForbidden},
+	}
 	tests := []struct {
-		name         string
-		method       string
-		existingPath string
-		missingPath  string
-		wantStatus   int
+		name  string
+		user  string
+		key   string
+		perms []*models.Permission
+		want  statuses
 	}{
 		{
-			name:         "get alias",
-			method:       http.MethodGet,
-			existingPath: "/aliases/" + existing,
-			missingPath:  "/aliases/" + missing,
-			wantStatus:   http.StatusNotFound,
+			name: "no permissions",
+			user: "custom-user",
+			key:  "custom-key",
+			want: forbiddenEverywhere,
 		},
 		{
-			name:         "delete alias",
-			method:       http.MethodDelete,
-			existingPath: "/aliases/" + existing,
-			missingPath:  "/aliases/" + missing,
-			wantStatus:   http.StatusNotFound,
+			name: "permissions on other aliases",
+			user: "limited-user",
+			key:  "limited-key",
+			perms: []*models.Permission{
+				helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithAlias("Other*").Permission(),
+				helper.NewAliasesPermission().WithAction(authorization.UpdateAliases).WithAlias("Other*").Permission(),
+				helper.NewAliasesPermission().WithAction(authorization.DeleteAliases).WithAlias("Other*").Permission(),
+			},
+			want: forbiddenEverywhere,
+		},
+		{
+			name: "permissions on another collection",
+			user: "write-user",
+			key:  "write-key",
+			perms: []*models.Permission{
+				helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection("OtherCollection").Permission(),
+				helper.NewAliasesPermission().WithAction(authorization.UpdateAliases).WithCollection("OtherCollection").Permission(),
+				helper.NewAliasesPermission().WithAction(authorization.DeleteAliases).WithCollection("OtherCollection").Permission(),
+			},
+			want: forbiddenEverywhere,
+		},
+		{
+			name:  "read on every alias",
+			user:  "read-user",
+			key:   "read-key",
+			perms: allAliases(authorization.ReadAliases),
+			want: statuses{
+				http.MethodGet:    {http.StatusOK, http.StatusNotFound},
+				http.MethodPut:    {http.StatusForbidden, http.StatusForbidden},
+				http.MethodDelete: {http.StatusForbidden, http.StatusForbidden},
+			},
+		},
+		{
+			name: "read on the alias's collection only",
+			user: "custom-user2",
+			key:  "custom-key2",
+			perms: []*models.Permission{
+				helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection(target.Class).Permission(),
+			},
+			want: statuses{
+				http.MethodGet:    {http.StatusOK, http.StatusForbidden},
+				http.MethodPut:    {http.StatusForbidden, http.StatusForbidden},
+				http.MethodDelete: {http.StatusForbidden, http.StatusForbidden},
+			},
+		},
+		{
+			name:  "update and delete on every alias",
+			user:  "test-user",
+			key:   "test-key",
+			perms: allAliases(authorization.UpdateAliases, authorization.DeleteAliases),
+			want: statuses{
+				http.MethodGet:    {http.StatusForbidden, http.StatusForbidden},
+				http.MethodPut:    {http.StatusOK, http.StatusNotFound},
+				http.MethodDelete: {http.StatusNoContent, http.StatusNotFound},
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			existingStatus, existingBody := do(t, tt.method, tt.existingPath, noPermKey)
-			missingStatus, missingBody := do(t, tt.method, tt.missingPath, noPermKey)
+			if len(tt.perms) > 0 {
+				role := "alias-" + tt.user
+				helper.CreateRole(t, adminKey, &models.Role{Name: &role, Permissions: tt.perms})
+				helper.AssignRoleToUser(t, adminKey, role, tt.user)
+			}
+			for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+				want := tt.want[method]
+				existingStatus, existingBody := do(t, method, existing, tt.key)
+				missingStatus, missingBody := do(t, method, missing, tt.key)
 
-			assert.Equal(t, tt.wantStatus, missingStatus)
-			assert.Equal(t, missingStatus, existingStatus)
-			assert.Equal(t, missingBody, existingBody)
-			assert.NotContains(t, existingBody, target.Class)
-			helper.GetAliasWithAuthz(t, existing, helper.CreateAuth(adminKey))
-		})
-	}
-
-	scopedReaders := []struct {
-		name string
-		user string
-		key  string
-		perm *models.Permission
-	}{
-		{
-			name: "reader scoped to other aliases",
-			user: "limited-user",
-			key:  "limited-key",
-			perm: helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithAlias("Other*").Permission(),
-		},
-		{
-			name: "reader scoped to another collection",
-			user: "write-user",
-			key:  "write-key",
-			perm: helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection("OtherCollection").Permission(),
-		},
-	}
-	for _, sr := range scopedReaders {
-		t.Run(sr.name, func(t *testing.T) {
-			role := "scoped-" + sr.user
-			helper.CreateRole(t, adminKey, &models.Role{Name: &role, Permissions: []*models.Permission{sr.perm}})
-			helper.AssignRoleToUser(t, adminKey, role, sr.user)
-
-			for _, method := range []string{http.MethodGet, http.MethodDelete} {
-				existingStatus, existingBody := do(t, method, "/aliases/"+existing, sr.key)
-				missingStatus, missingBody := do(t, method, "/aliases/"+missing, sr.key)
-
-				assert.Equal(t, http.StatusNotFound, missingStatus, method)
-				assert.Equal(t, missingStatus, existingStatus, method)
-				assert.Equal(t, missingBody, existingBody, method)
+				assert.Equal(t, want[0], existingStatus, "%s existing: %s", method, existingBody)
+				assert.Equal(t, want[1], missingStatus, "%s missing: %s", method, missingBody)
+				if existingStatus == http.StatusForbidden && missingStatus == http.StatusForbidden {
+					// The bodies differ only in the alias name the caller sent.
+					assert.Equal(t, strings.ReplaceAll(missingBody, missing, existing), existingBody, method)
+					if method != http.MethodPut { // PUT echoes the target the caller sent
+						assert.NotContains(t, existingBody, target.Class, method)
+					}
+				}
+				if method == http.MethodDelete && existingStatus == http.StatusNoContent {
+					helper.CreateAliasAuth(t, &models.Alias{Alias: existing, Class: target.Class}, adminKey)
+				}
 			}
 			helper.GetAliasWithAuthz(t, existing, helper.CreateAuth(adminKey))
 		})
 	}
-
-	t.Run("delete by a caller who may read the alias is forbidden", func(t *testing.T) {
-		helper.CreateRole(t, adminKey, &models.Role{Name: &readerRole, Permissions: []*models.Permission{
-			helper.NewAliasesPermission().WithAction(authorization.ReadAliases).Permission(),
-		}})
-		helper.AssignRoleToUser(t, adminKey, readerRole, readerUser)
-
-		status, _ := do(t, http.MethodDelete, "/aliases/"+existing, readerKey)
-		assert.Equal(t, http.StatusForbidden, status)
-		status, _ = do(t, http.MethodDelete, "/aliases/"+missing, readerKey)
-		assert.Equal(t, http.StatusNotFound, status)
-		helper.GetAliasWithAuthz(t, existing, helper.CreateAuth(adminKey))
-	})
 }

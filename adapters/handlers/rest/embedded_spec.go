@@ -370,7 +370,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -435,7 +435,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -483,7 +483,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13102,7 +13102,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13167,7 +13167,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13215,7 +13215,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

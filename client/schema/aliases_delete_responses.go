@@ -263,7 +263,7 @@ func NewAliasesDeleteNotFound() *AliasesDeleteNotFound {
 /*
 AliasesDeleteNotFound describes a response with status code 404, with default header values.
 
-Not Found - Alias does not exist, or the caller has no permission to read it.
+Not Found - Alias does not exist
 */
 type AliasesDeleteNotFound struct {
 	Payload *models.ErrorResponse

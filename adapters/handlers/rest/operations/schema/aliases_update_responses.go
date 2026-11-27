@@ -143,7 +143,7 @@ func (o *AliasesUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const AliasesUpdateNotFoundCode int = 404
 
 /*
-AliasesUpdateNotFound Not Found - Alias does not exist, or the caller has no permission to read it.
+AliasesUpdateNotFound Not Found - Alias does not exist
 
 swagger:response aliasesUpdateNotFound
 */
