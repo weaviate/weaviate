@@ -93,9 +93,8 @@ func entryOf(name string, rec record, cfg schemaConfig.VectorIndexConfig) Entry 
 
 // Open puts the persisted state in order against schema, the vectors that own
 // storage, and returns the indexes to open, in name order. Nothing may use the
-// shard's vector indexes before it. dropped names the vectors being dropped:
-// one that schema does not have goes with its files, since the drop itself may
-// have run before this load. firstLoad is true for a shard that has no records
+// shard's vector indexes before it. dropped names the vectors being dropped,
+// which go with their files; the caller leaves them out of schema. firstLoad is true for a shard that has no records
 // yet; Ready writes them.
 func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.VectorIndexConfig, dropped []string,
 ) (entries []Entry, firstLoad bool, err error) {
@@ -106,10 +105,11 @@ func (m *Manifest) Open(ctx context.Context, schema map[string]schemaConfig.Vect
 	if len(stripped) > 0 {
 		m.logger.Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
-	dropped = slices.DeleteFunc(slices.Clone(dropped), func(name string) bool {
-		_, ok := schema[name]
-		return ok
-	})
+	for _, name := range dropped {
+		if _, ok := schema[name]; ok {
+			return nil, false, fmt.Errorf("vector %q is both in the schema and dropped", name)
+		}
+	}
 	if initialized {
 		records, err = m.reconcile(ctx, schema, dropped, records)
 		if err != nil {
@@ -287,20 +287,21 @@ func (m *Manifest) Ready(built map[string]schemaConfig.VectorIndexConfig) error 
 		return m.initialize(built)
 	}
 	for _, name := range slices.Sorted(maps.Keys(built)) {
-		rec, ok := m.opened[name]
-		if !ok {
-			var err error
-			rec, ok, err = m.records.Get(name)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return fmt.Errorf("vector %q has no mapping record", name)
-			}
-		}
-		err := refuseDropping(name, rec)
+		stored, ok, err := m.records.Get(name)
 		if err != nil {
 			return err
+		}
+		if !ok {
+			return fmt.Errorf("vector %q has no mapping record", name)
+		}
+		// a drop may have begun since Open
+		err = refuseDropping(name, stored)
+		if err != nil {
+			return err
+		}
+		rec, opened := m.opened[name]
+		if !opened {
+			rec = stored
 		}
 		adopted, changed := rec.adopted(built[name])
 		if rec.State != stateReady {
