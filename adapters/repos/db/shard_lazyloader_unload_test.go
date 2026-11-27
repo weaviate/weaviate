@@ -462,3 +462,32 @@ func TestLazyLoadShard_TryUnloadReleasesAdmissionBeforeTheStatusRead(t *testing.
 	require.True(t, <-done)
 	f.requireUnloaded(t)
 }
+
+func TestTryShutdownIdleChecksInUseBeforeIdle(t *testing.T) {
+	tests := []struct {
+		name     string
+		pinned   bool
+		wantRuns bool
+	}{
+		{name: "pinned", pinned: true},
+		{name: "unpinned", wantRuns: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			f.put(t)
+			s := f.lazy.currentShard()
+			if tt.pinned {
+				release, err := s.preventShutdown()
+				require.NoError(t, err)
+				defer release()
+			}
+			ran := false
+			unloaded, err := s.tryShutdownIdle(testCtx(), func() bool { ran = true; return false }, nil)
+			require.NoError(t, err)
+			require.False(t, unloaded)
+			require.Equal(t, tt.wantRuns, ran, "the idle check runs only once the in-use check passed")
+			require.False(t, s.shut.Load())
+		})
+	}
+}
