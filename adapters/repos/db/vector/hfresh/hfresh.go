@@ -115,6 +115,8 @@ type HFresh struct {
 
 	taskQueue TaskQueue
 
+	shutdownState atomic.Uint32
+
 	visitedPool *visited.Pool
 
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
@@ -297,9 +299,23 @@ func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 	return nil
 }
 
+const (
+	shutdownNotStarted uint32 = iota
+	shutdownInProgress
+	shutdownComplete
+	shutdownCentroidsPending // queue writers are already closed; retry only the centroid drain
+)
+
 func (h *HFresh) Drop(ctx context.Context) error {
-	_ = h.Shutdown(ctx)
-	// Shard::drop will take care of handling store buckets
+	if h.ctx == nil {
+		return nil
+	}
+	err := h.Shutdown(ctx)
+	if h.shutdownState.Load() != shutdownComplete {
+		// The shard must not drop the buckets while maintenance is still running.
+		return err
+	}
+	// Shard::drop will take care of handling store buckets.
 	return nil
 }
 
@@ -307,9 +323,9 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 	if h.ctx == nil {
 		return nil // Already closed or not started
 	}
-
-	if h.ctx.Err() != nil {
-		return h.ctx.Err() // Context already cancelled
+	state := h.shutdownState.Load()
+	if (state != shutdownNotStarted && state != shutdownCentroidsPending) || !h.shutdownState.CompareAndSwap(state, shutdownInProgress) {
+		return context.Canceled // Already closed or draining
 	}
 
 	// Cancel the context to prevent new operations from being enqueued
@@ -317,26 +333,37 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	err := h.taskQueue.Close(ctx)
+	if state == shutdownNotStarted {
+		err := h.taskQueue.Close(ctx)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			h.shutdownState.Store(shutdownNotStarted)
+			return err
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		err = h.Flush()
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		err = h.IDs.Flush()
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	err := h.Centroids.Shutdown(ctx)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		h.shutdownState.Store(shutdownCentroidsPending)
+		return stderrors.Join(append(errs, err)...)
+	}
 	if err != nil {
 		errs = append(errs, err)
 	}
 
-	err = h.Flush()
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	err = h.IDs.Flush()
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	err = h.Centroids.Shutdown(ctx)
-	if err != nil {
-		errs = append(errs, err)
-	}
-
+	h.shutdownState.Store(shutdownComplete)
 	return stderrors.Join(errs...)
 }
 

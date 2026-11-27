@@ -21,6 +21,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 
+	diskqueue "github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -352,6 +353,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	// during partial initialization cleanup)
 	if s.metricsRegistered.Load() {
 		s.metrics.baseMetrics.StartUnloadingShard(s.registration)
+		defer s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
 	}
 
 	start := time.Now()
@@ -376,36 +378,52 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	capturedHT := s.mayStopAsyncReplication(true)
 
-	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
 			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
 		}
 
-		if err = queue.Close(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
+		if err = queue.Close(ctx); err != nil && !errors.Is(err, diskqueue.ErrAlreadyClosed) {
+			err = fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			ec.Add(err)
 		}
 
 		return nil
 	})
+	if err != nil {
+		ec.Add(err)
+		return ec.ToError()
+	}
 
-	_ = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
 			ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
 		}
 
-		if err = queue.Close(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err))
+		if err = queue.Close(ctx); err != nil && !errors.Is(err, diskqueue.ErrAlreadyClosed) {
+			err = fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			ec.Add(err)
 		}
 
 		return nil
 	})
+	if err != nil {
+		ec.Add(err)
+		return ec.ToError()
+	}
 
 	s.propertyIndicesLock.RLock()
 	err = s.propertyIndices.ShutdownGeoIndices(ctx)
 	s.propertyIndicesLock.RUnlock()
 	ec.AddWrapf(err, "shutdown geo property indices")
 
-	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// to ensure that all commitlog entries are written to disk.
 		// otherwise in some cases the tombstone cleanup process'
 		// 'RemoveTombstone' entry is not picked up on restarts
@@ -416,11 +434,19 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		}
 
 		if err = index.Shutdown(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
+			err = fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			ec.Add(err)
 		}
 
 		return nil
 	})
+	if err != nil {
+		ec.Add(err)
+		return ec.ToError()
+	}
 
 	storeDurable := false
 	if s.store != nil {
@@ -453,11 +479,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.metadataDB != nil {
 		err = s.metadataDB.Close()
 		ec.AddWrapf(err, "stop shard metadata db")
-	}
-
-	// Track shard unloaded: unloading -> unloaded
-	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
 	}
 
 	return ec.ToError()

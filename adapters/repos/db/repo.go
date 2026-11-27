@@ -65,6 +65,7 @@ type DB struct {
 	schemaGetter              schemaUC.SchemaGetter
 	config                    Config
 	indices                   map[string]*Index
+	pendingIndexDrops         map[string]*Index // guarded by indexLock, never served
 	remoteIndex               remote.IndexClient
 	asyncReplicationScheduler *AsyncReplicationScheduler
 	replicaClient             replica.Client
@@ -813,7 +814,13 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 // leaves it alone: DELETE_CLASS validates nothing, so a name differing only by
 // case reaches the store while the schema keeps the live class.
 func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error) {
+	id := indexID(className)
 	index := db.GetIndex(className)
+	if index == nil {
+		db.indexLock.RLock()
+		index = db.pendingIndexDrops[id]
+		db.indexLock.RUnlock()
+	}
 	if index == nil {
 		return false, nil
 	}
@@ -825,21 +832,33 @@ func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error)
 		}).Warn("left class data in place: index belongs to a live class that differs only by case")
 		return true, nil
 	}
-	id := indexID(className)
-
 	// a reader holding dropIndex would block the drop below
 	index.signalCloseRequested(errIndexDropped)
-
-	db.indexLock.Lock()
-	delete(db.indices, id)
-	db.indexLock.Unlock()
-
 	index.dropIndex.Lock()
 	defer index.dropIndex.Unlock()
+
+	db.indexLock.Lock()
+	if db.indices[id] != index && db.pendingIndexDrops[id] != index {
+		db.indexLock.Unlock()
+		return false, nil // another deletion finished while this caller waited
+	}
+	delete(db.indices, id)
+	if db.pendingIndexDrops == nil {
+		db.pendingIndexDrops = make(map[string]*Index)
+	}
+	db.pendingIndexDrops[id] = index
+	db.indexLock.Unlock()
+
 	if err := index.drop(); err != nil {
+		if index.dropRetry.Load() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false, err
+		}
 		db.logger.WithField("action", "delete_index").WithField("class", className).
 			Errorf("drop index: %v", err)
 	}
+	db.indexLock.Lock()
+	delete(db.pendingIndexDrops, id)
+	db.indexLock.Unlock()
 
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
 		db.logger.Errorf("can't delete prometheus metrics: %v", err)
@@ -887,6 +906,11 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	for id, index := range db.indices {
 		if err := index.Shutdown(ctx); err != nil && !errors.Is(err, errAlreadyShutdown) {
 			ec.AddWrapf(err, "shutdown index %q", id)
+		}
+	}
+	for id, index := range db.pendingIndexDrops {
+		if err := index.Shutdown(ctx); err != nil && !errors.Is(err, errAlreadyShutdown) {
+			ec.AddWrapf(err, "shutdown dropping index %q", id)
 		}
 	}
 

@@ -22,13 +22,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -468,4 +474,439 @@ func walBytesForShardTest(t *testing.T, id uint64) []byte {
 	var buf bytes.Buffer
 	require.NoError(t, compact.NewWALWriter(&buf).WriteAddNode(id, 0))
 	return buf.Bytes()
+}
+
+// A failed drain leaves a worker's bucket and metadata handles alive. Other
+// teardown failures still perform the usual best-effort resource cleanup.
+func TestShardTeardownKeepsResourcesForUndrainedWorkers(t *testing.T) {
+	for _, drop := range []bool{false, true} {
+		for _, cause := range []error{context.Canceled, context.DeadlineExceeded, errors.New("flush failed")} {
+			t.Run(fmt.Sprintf("drop=%t/%v", drop, cause), func(t *testing.T) {
+				ctx := context.Background()
+				sl, _ := testShard(t, ctx, "DrainFailure")
+				s := sl.(*Shard)
+				metrics := *monitoring.GetMetrics()
+				metrics.ShardsLoaded = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_loaded"})
+				metrics.ShardsLoading = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_loading"})
+				metrics.ShardsUnloaded = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_unloaded"})
+				metrics.ShardsUnloading = prometheus.NewGauge(prometheus.GaugeOpts{Name: "shards_unloading"})
+				metrics.Shards = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "weaviate_shards"}, []string{"state", "registration"})
+				s.metrics.baseMetrics = &metrics
+				metrics.NewLoadedShard()
+				gauges := shardMetricsHarness{metrics: &metrics}
+				require.Equal(t, shardGauges{loaded: 1}, gauges.gauges())
+				require.Equal(t, shardGauges{loaded: 1}, gauges.gaugesFor(s.registration))
+				vi, releaseIndex, ok := s.AcquireVectorIndex("")
+				require.True(t, ok)
+				releaseIndex()
+				held, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+				require.NotNil(t, held)
+				release()
+				ns := s.metadataDB.Namespace("shutdown-test")
+				require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+				wrapped := &undrainedVectorIndex{VectorIndex: vi, err: cause}
+				require.True(t, s.vectors.Replace("", wrapped))
+				t.Cleanup(func() { s.vectors.Replace("", vi); s.drop() })
+				var err error
+				if drop {
+					err = s.drop()
+				} else {
+					err = s.performShutdown(ctx)
+				}
+				require.ErrorIs(t, err, cause)
+				if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+					bucket, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+					require.NotNil(t, bucket, "a failed drain must keep the worker's store open")
+					require.Same(t, held, bucket, "a worker must retain the same bucket, not a reopened replacement")
+					release()
+					value, err := ns.Get([]byte("key"))
+					require.NoError(t, err, "a failed drain must keep the worker's metadata open")
+					require.Equal(t, []byte("value"), value)
+				} else {
+					bucket, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+					release()
+					require.Nil(t, bucket, "ordinary teardown errors still close the store")
+					_, err = ns.Get([]byte("key"))
+					require.Error(t, err, "ordinary teardown errors still close metadata")
+				}
+				if !drop {
+					assert.Equal(t, shardGauges{unloaded: 1}, gauges.gauges(), "a failed shutdown must finish the unloading transition")
+					assert.Equal(t, shardGauges{unloaded: 1}, gauges.gaugesFor(s.registration), "a failed shutdown must finish the labeled unloading transition")
+				}
+				require.True(t, s.vectors.Replace("", vi))
+				require.NoError(t, s.drop())
+				assert.Equal(t, shardGauges{}, gauges.gauges(), "dropping the shard must remove its count exactly once")
+				assert.Equal(t, shardGauges{}, gauges.gaugesFor(s.registration), "dropping the shard must remove its labeled count exactly once")
+			})
+		}
+	}
+}
+
+type undrainedVectorIndex struct {
+	VectorIndex
+	err error
+}
+
+func (v *undrainedVectorIndex) Shutdown(ctx context.Context) error {
+	if errors.Is(v.err, context.Canceled) || errors.Is(v.err, context.DeadlineExceeded) {
+		return v.err
+	}
+	return errors.Join(v.err, v.VectorIndex.Shutdown(ctx))
+}
+
+func (v *undrainedVectorIndex) Drop(ctx context.Context) error {
+	if errors.Is(v.err, context.Canceled) || errors.Is(v.err, context.DeadlineExceeded) {
+		return v.err
+	}
+	return errors.Join(v.err, v.VectorIndex.Drop(ctx))
+}
+
+func TestShardTeardownKeepsResourcesForUndrainedQueues(t *testing.T) {
+	for _, drop := range []bool{false, true} {
+		for _, geo := range []bool{false, true} {
+			t.Run(fmt.Sprintf("drop=%t/geo=%t", drop, geo), func(t *testing.T) {
+				ctx := context.Background()
+				sl, _ := testShard(t, ctx, "QueueDrainFailure")
+				s := sl.(*Shard)
+				started, releaseWorker := make(chan struct{}), make(chan struct{})
+				var once sync.Once
+				unblock := func() { once.Do(func() { close(releaseWorker) }) }
+				q, err := queue.NewDiskQueue(queue.DiskQueueOptions{
+					ID: "held-shutdown-queue", Dir: t.TempDir(), Logger: s.index.logger, Scheduler: s.scheduler,
+					TaskDecoder: heldShutdownTask{started: started, release: releaseWorker},
+				})
+				require.NoError(t, err)
+				require.NoError(t, q.Init())
+				s.scheduler.RegisterQueue(q)
+				iq, release, ok := s.AcquireVectorIndexQueue("")
+				require.True(t, ok)
+				release()
+				oldQueue, oldAsync := iq.DiskQueue, iq.asyncEnabled
+				if geo {
+					s.geoQueues["location"] = &VectorIndexQueue{DiskQueue: q, asyncEnabled: true}
+				} else {
+					iq.DiskQueue, iq.asyncEnabled = q, true
+				}
+				t.Cleanup(func() {
+					unblock()
+					q.Close(context.Background())
+					iq.DiskQueue, iq.asyncEnabled = oldQueue, oldAsync
+					delete(s.geoQueues, "location")
+					s.drop()
+				})
+				require.NoError(t, q.Push([]byte{1}))
+				require.NoError(t, q.Flush())
+				<-started
+				held, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+				release()
+				ns := s.metadataDB.Namespace("held-queue")
+				require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+				if drop {
+					err = s.drop()
+				} else {
+					ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+					defer cancel()
+					err = s.performShutdown(ctx)
+				}
+				require.ErrorIs(t, err, context.DeadlineExceeded, "shard teardown must report an undrained queue")
+				bucket, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+				release()
+				require.Same(t, held, bucket, "an undrained queue must keep the worker's store open")
+				value, err := ns.Get([]byte("key"))
+				require.NoError(t, err, "an undrained queue must keep the worker's metadata open")
+				require.Equal(t, []byte("value"), value)
+			})
+		}
+	}
+}
+
+type heldShutdownTask struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (d heldShutdownTask) DecodeTask([]byte) (queue.Task, error) { return d, nil }
+func (d heldShutdownTask) Op() uint8                             { return 1 }
+func (d heldShutdownTask) Key() uint64                           { return 0 }
+func (d heldShutdownTask) Execute(ctx context.Context) error {
+	close(d.started)
+	<-d.release
+	return ctx.Err()
+}
+
+func TestIndexDropRetriesUndrainedShard(t *testing.T) {
+	for _, firstWholeIndex := range []bool{false, true} {
+		for _, retryWholeIndex := range []bool{false, true} {
+			if firstWholeIndex && !retryWholeIndex {
+				continue // whole-index close permanently refuses ordinary shard operations
+			}
+			for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+				t.Run(fmt.Sprintf("whole=%t/retryWhole=%t/%v", firstWholeIndex, retryWholeIndex, cause), func(t *testing.T) {
+					sl, idx := testShard(t, context.Background(), "IndexDrainFailure")
+					s := sl.(*Shard)
+					vi, release, ok := s.AcquireVectorIndex("")
+					require.True(t, ok)
+					release()
+					require.True(t, s.vectors.Replace("", &undrainedVectorIndex{VectorIndex: vi, err: cause}))
+					t.Cleanup(func() { s.vectors.Replace("", vi); s.drop() })
+					ns := s.metadataDB.Namespace("index-drain")
+					require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+					drop := func(whole bool) error {
+						if whole {
+							return idx.drop()
+						}
+						return idx.dropShards([]string{s.Name()})
+					}
+					err := drop(firstWholeIndex)
+					require.ErrorIs(t, err, cause)
+					for range 2 {
+						err = drop(retryWholeIndex)
+						require.ErrorIs(t, err, cause, "index drop must retry the retained worker's drain")
+						require.DirExists(t, s.path(), "index drop must retain an undrained shard's directory")
+						value, err := ns.Get([]byte("key"))
+						require.NoError(t, err)
+						require.Equal(t, []byte("value"), value)
+					}
+					if !retryWholeIndex {
+						idx.purgeUnloadedShardRegistry([]string{s.Name()})
+						require.ErrorIs(t, lsmkv.GlobalBucketRegistry.TryAdd(path.Join(s.pathLSM(), helpers.ObjectsBucketLSM)), lsmkv.ErrBucketAlreadyRegistered,
+							"a pending drop must keep its live bucket registration")
+						// A failed deletion is reachable only for teardown, never for reloading.
+						alloc := idx.allocChecker
+						idx.allocChecker = failingAllocChecker{}
+						_, release, err := idx.getOrInitShard(context.Background(), s.Name())
+						release()
+						idx.allocChecker = alloc
+						require.ErrorIs(t, err, errDropInProgress, "an undrained shard must not be reopened")
+						require.ErrorIs(t, idx.LoadLocalShardForMovement(context.Background(), s.Name()), errDropInProgress)
+						require.ErrorIs(t, idx.LoadLocalShardForTenantAdd(context.Background(), s.Name()), errDropInProgress)
+					}
+					require.True(t, s.vectors.Replace("", vi))
+					require.NoError(t, drop(retryWholeIndex), "index drop must finish after the retained worker drains")
+					require.NoDirExists(t, s.path())
+				})
+			}
+		}
+	}
+}
+
+func TestRetainedDrainsReachTeardownConsumers(t *testing.T) {
+	for _, route := range []string{"delete-index", "orphaned-class", "frozen-tenant", "index-shutdown", "db-shutdown"} {
+		for _, lazy := range []bool{false, true} {
+			for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+				t.Run(fmt.Sprintf("%s/lazy=%t/%v", route, lazy, cause), func(t *testing.T) {
+					sl, idx := testShardWithSettings(t, context.Background(), &models.Class{Class: "RetainedDrain"},
+						enthnsw.UserConfig{Skip: true}, false, true)
+					idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+					s := sl.(*Shard)
+					vi, release, ok := s.AcquireVectorIndex("")
+					require.True(t, ok)
+					release()
+					geoQueue, err := newVectorIndexQueueWithID(s, "retained-geo", idx.logger, "geo_location", vi, 0)
+					require.NoError(t, err)
+					s.geoQueues["location"] = geoQueue
+					worker := &undrainedVectorIndex{VectorIndex: vi, err: cause}
+					require.True(t, s.vectors.Replace("", worker))
+					t.Cleanup(func() { s.vectors.Replace("", vi); s.drop() })
+					if lazy {
+						wrapper := &LazyLoadShard{shardOpts: &deferredShardOpts{name: s.Name(), index: idx}}
+						wrapper.shard.Store(s)
+						idx.shards.Store(s.Name(), wrapper)
+					}
+					ns := s.metadataDB.Namespace("retained-drain")
+					require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+					db := newShutdownTestDB(t, logrus.New(), 0)
+					db.indices = map[string]*Index{idx.ID(): idx}
+					db.config.RootPath, db.promMetrics = idx.Config.RootPath, monitoring.GetMetrics()
+					closed := false
+					t.Cleanup(func() {
+						if !closed {
+							db.Shutdown(context.Background())
+						}
+					})
+					m := NewMigrator(db, idx.logger, "node1")
+					m.SetCluster(&recordingProcessor{})
+					run := func() error {
+						switch route {
+						case "delete-index":
+							return db.DeleteIndex(idx.Config.ClassName)
+						case "orphaned-class":
+							_, err := db.DropOrphanedClass(idx.Config.ClassName)
+							return err
+						case "frozen-tenant":
+							ec := errorcompounder.NewSafe()
+							m.frozen(context.Background(), idx, []string{s.Name()}, ec)
+							return ec.ToError()
+						case "index-shutdown":
+							return idx.Shutdown(context.Background())
+						default:
+							closed = true
+							return db.Shutdown(context.Background())
+						}
+					}
+					switch route {
+					case "index-shutdown":
+						require.ErrorIs(t, idx.dropShards([]string{s.Name()}), cause)
+					case "db-shutdown":
+						require.ErrorIs(t, db.DeleteIndex(idx.Config.ClassName), cause, "class deletion must report an unfinished drain")
+					}
+					if route != "index-shutdown" && route != "db-shutdown" {
+						require.ErrorIs(t, run(), cause, "teardown must report the retained worker's unfinished drain")
+					}
+					require.DirExists(t, s.path(), "teardown must retain an undrained worker's directory")
+					value, err := ns.Get([]byte("key"))
+					require.NoError(t, err)
+					require.Equal(t, []byte("value"), value)
+					if route == "delete-index" || route == "orphaned-class" {
+						require.Nil(t, db.registeredIndex(idx.Config.ClassName), "a dropping index must not serve requests")
+						require.ErrorIs(t, m.AddClass(context.Background(), s.class), errDropInProgress, "a dropping index must not be reopened")
+					}
+					if route == "delete-index" || route == "orphaned-class" || route == "frozen-tenant" {
+						require.ErrorIs(t, run(), cause, "retry must report the retained worker's unfinished drain")
+						require.DirExists(t, s.path(), "retry must retain an undrained worker's directory")
+					}
+					require.True(t, s.vectors.Replace("", vi))
+					require.NoError(t, run(), "teardown must finish after the retained worker drains")
+					if route == "index-shutdown" || route == "db-shutdown" {
+						require.DirExists(t, s.path())
+					} else {
+						require.NoDirExists(t, s.path())
+					}
+					_, err = ns.Get([]byte("key"))
+					require.Error(t, err, "successful teardown must close the retained metadata handle")
+				})
+			}
+		}
+	}
+}
+
+func TestConcurrentIndexTeardownRetainsDrain(t *testing.T) {
+	for _, dropFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dropFirst=%t", dropFirst), func(t *testing.T) {
+			sl, idx := testShard(t, context.Background(), "ConcurrentDrain")
+			idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+			s := sl.(*Shard)
+			vi, release, ok := s.AcquireVectorIndex("")
+			require.True(t, ok)
+			release()
+			started, unblock := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			require.True(t, s.vectors.Replace("", &heldTeardownIndex{VectorIndex: vi, drain: func() error {
+				once.Do(func() { close(started) })
+				<-unblock
+				return context.DeadlineExceeded
+			}}))
+			db := newShutdownTestDB(t, logrus.New(), 0)
+			db.indices, db.promMetrics = map[string]*Index{idx.ID(): idx}, monitoring.GetMetrics()
+			done := make(chan error, 1)
+			enterrors.GoWrapper(func() {
+				if dropFirst {
+					done <- db.DeleteIndex(idx.Config.ClassName)
+				} else {
+					done <- idx.Shutdown(context.Background())
+				}
+			}, idx.logger)
+			<-started
+			var err error
+			if dropFirst {
+				err = db.Shutdown(context.Background())
+			} else {
+				err = db.DeleteIndex(idx.Config.ClassName)
+			}
+			close(unblock)
+			firstErr := <-done
+			s.vectors.Replace("", vi)
+			defer func() { s.drop(); db.Shutdown(context.Background()) }()
+			require.ErrorIs(t, err, context.Canceled, "concurrent teardown must report the active drain")
+			require.ErrorIs(t, firstErr, context.DeadlineExceeded)
+			require.DirExists(t, s.path())
+			require.NoError(t, db.DeleteIndex(idx.Config.ClassName), "deletion must retry after the active drain finishes")
+			require.NoDirExists(t, s.path())
+		})
+	}
+}
+
+type heldTeardownIndex struct {
+	VectorIndex
+	drain func() error
+}
+
+func (v *heldTeardownIndex) Shutdown(context.Context) error { return v.drain() }
+func (v *heldTeardownIndex) Drop(context.Context) error     { return v.drain() }
+
+func TestClassDropRetainsDrainBeyondErrorLimit(t *testing.T) {
+	sl, idx := testShard(t, context.Background(), "LimitedDrain")
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+	s := sl.(*Shard)
+	vi, release, ok := s.AcquireVectorIndex("")
+	require.True(t, ok)
+	release()
+	defer func() { s.vectors.Replace("", vi); s.drop() }()
+	ns := s.metadataDB.Namespace("limited-drain")
+	require.NoError(t, ns.Put([]byte("key"), []byte("value")))
+	reported := make(chan struct{}, maxReportedErrors)
+	for n := range maxReportedErrors {
+		name := fmt.Sprintf("failed-%d", n)
+		shard := NewMockShardLike(t)
+		shard.EXPECT().drop().Return(errors.New("drop failed")).Once()
+		// The drop worker asks for ID when logging, after recording its error.
+		shard.EXPECT().ID().RunAndReturn(func() string { reported <- struct{}{}; return name }).Once()
+		idx.shards.Store(name, shard)
+	}
+	var once sync.Once
+	require.True(t, s.vectors.Replace("", &heldTeardownIndex{VectorIndex: vi, drain: func() error {
+		once.Do(func() {
+			for range maxReportedErrors {
+				<-reported
+			}
+		})
+		return context.DeadlineExceeded
+	}}))
+	db := &DB{indices: map[string]*Index{idx.ID(): idx}, logger: idx.logger, promMetrics: monitoring.GetMetrics(), config: Config{RootPath: idx.Config.RootPath}}
+	_, err := db.DropOrphanedClass(idx.Config.ClassName)
+	require.Error(t, err, "a hidden drain error must still stop class deletion")
+	require.NotErrorIs(t, err, context.DeadlineExceeded, "the bounded summary must omit the last error")
+	require.DirExists(t, s.path(), "error truncation must not permit deleting an undrained shard")
+	value, err := ns.Get([]byte("key"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("value"), value)
+	_, err = db.DropOrphanedClass(idx.Config.ClassName)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "a retry must reach the retained drain")
+	require.True(t, s.vectors.Replace("", vi))
+	_, err = db.DropOrphanedClass(idx.Config.ClassName)
+	require.NoError(t, err)
+	require.NoDirExists(t, s.path())
+}
+
+func TestUnfreezeRetainsUndrainedShard(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			sl, idx := testShard(t, context.Background(), "UnfreezeDrain")
+			s := sl.(*Shard)
+			vi, release, ok := s.AcquireVectorIndex("")
+			require.True(t, ok)
+			release()
+			require.True(t, s.vectors.Replace("", &undrainedVectorIndex{VectorIndex: vi, err: cause}))
+			t.Cleanup(func() { s.vectors.Replace("", vi); idx.dropShards([]string{s.Name()}) })
+			m := NewMigrator(nil, idx.logger, "node1")
+			m.SetCluster(&recordingProcessor{})
+			ec := errorcompounder.NewSafe()
+			m.frozen(context.Background(), idx, []string{s.Name()}, ec)
+			require.ErrorIs(t, ec.ToError(), cause)
+			file := path.Join(s.pathHashTree(), "retained.ht")
+			require.NoError(t, os.MkdirAll(s.pathHashTree(), 0o700))
+			require.NoError(t, os.WriteFile(file, []byte("original"), 0o600))
+			m.cloud = &downloadingOffloadCloud{download: func(string, string) error {
+				return os.WriteFile(file, []byte("overwritten"), 0o600)
+			}}
+			for range 2 {
+				ec := errorcompounder.NewSafe()
+				m.unfreeze(context.Background(), idx, idx.Config.ClassName.String(), []string{s.Name() + "#node1"}, ec)
+				require.ErrorIs(t, ec.ToError(), errDropInProgress, "unfreeze must refuse an undrained shard")
+				got, err := os.ReadFile(file)
+				require.NoError(t, err, "unfreeze must retain the worker's hashtree")
+				require.Equal(t, "original", string(got), "unfreeze must not overwrite the worker's files")
+			}
+		})
+	}
 }

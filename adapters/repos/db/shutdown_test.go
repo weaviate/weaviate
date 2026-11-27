@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -376,6 +377,41 @@ func TestIndexShutdownStopsCyclesBeforeShards(t *testing.T) {
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Shutdown did not return")
+	}
+}
+
+func TestIndexShutdownRetriesInterruptedCycle(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		t.Run(fmt.Sprintf("deadline=%t", deadline), func(t *testing.T) {
+			idx := newShutdownTestIndex(t, nil)
+			idx.Config.RootPath = t.TempDir()
+			require.NoError(t, os.MkdirAll(idx.path(), 0o700))
+			releaseFlush := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(releaseFlush) })
+			t.Cleanup(unblock)
+			idx.cycleCallbacks.flushCycle = startInFlightCycle(t, idx.cycleCallbacks.flushCycle,
+				func(cyclemanager.ShouldAbortCallback) { <-releaseFlush })
+
+			ctx, cancel := context.WithCancel(context.Background())
+			want := context.Canceled
+			if deadline {
+				cancel()
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				want = context.DeadlineExceeded
+			}
+			cancel()
+			require.ErrorIs(t, idx.Shutdown(ctx), want)
+
+			unblock()
+			retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer retryCancel()
+			require.NoError(t, idx.Shutdown(retryCtx), "shutdown must retry an interrupted index cycle")
+			require.ErrorIs(t, idx.Shutdown(context.Background()), errAlreadyShutdown,
+				"a completed shutdown retry must reject repeated shutdown")
+			require.ErrorIs(t, idx.drop(), errAlreadyShutdown,
+				"a completed shutdown retry must reject a later drop")
+			require.DirExists(t, idx.path(), "a rejected drop must keep the index directory")
+		})
 	}
 }
 

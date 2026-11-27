@@ -41,6 +41,9 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
+// ErrAlreadyClosed reports a queue whose teardown has completed.
+var ErrAlreadyClosed = errors.New("queue already closed")
+
 const (
 	// defaultChunkSize is the maximum size of each chunk file. Defaults to 10MB.
 	defaultChunkSize = 10 * 1024 * 1024
@@ -115,6 +118,7 @@ type DiskQueue struct {
 	m            sync.RWMutex
 	lastPushTime time.Time
 	closed       bool
+	closing      chan struct{}
 	w            *chunkWriter
 	r            *chunkReader
 	recordCount  uint64
@@ -237,17 +241,38 @@ func (q *DiskQueue) Close(ctx context.Context) error {
 	}
 
 	q.m.Lock()
+	for q.closing != nil {
+		done := q.closing
+		q.m.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		q.m.Lock()
+	}
 	if q.closed {
 		q.m.Unlock()
-		return errors.New("queue already closed")
+		return ErrAlreadyClosed
 	}
-	q.closed = true
+	q.closing = make(chan struct{})
 	q.m.Unlock()
+	defer func() {
+		q.m.Lock()
+		close(q.closing)
+		q.closing = nil
+		q.m.Unlock()
+	}()
 
-	q.scheduler.UnregisterQueue(ctx, q.id)
+	if err := q.scheduler.UnregisterQueue(ctx, q.id); err != nil {
+		// Keep the handles and registration until the workers have stopped. A
+		// later Close can retry the wait with a fresh context.
+		return err
+	}
 
 	q.m.Lock()
 	defer q.m.Unlock()
+	q.closed = true
 
 	var errs []error
 
@@ -284,7 +309,7 @@ var bufPool = sync.Pool{
 
 func (q *DiskQueue) Push(record []byte) error {
 	q.m.RLock()
-	if q.closed {
+	if q.closed || q.closing != nil {
 		q.m.RUnlock()
 		return errors.New("queue closed")
 	}
@@ -702,6 +727,9 @@ func (q *DiskQueue) Drop(ctx context.Context) error {
 
 	err := q.Close(ctx)
 	if err != nil {
+		if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
 		q.Logger.WithError(err).Error("failed to close queue")
 	}
 

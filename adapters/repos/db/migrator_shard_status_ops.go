@@ -22,7 +22,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -36,37 +35,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec e
 		return
 	}
 
-	eg := enterrors.NewErrorGroupWrapper(m.logger)
-	eg.SetLimit(_NUMCPU * 2)
-
-	for _, name := range frozen {
-		eg.Go(func() error {
-			idx.backupLock.RLock(name)
-			defer idx.backupLock.RUnlock(name)
-
-			idx.shardCreateLocks.Lock(name)
-			defer idx.shardCreateLocks.Unlock(name)
-
-			shard, ok := idx.shards.LoadAndDelete(name)
-			if !ok {
-				// shard already does not exist or inactive, so remove local files if exists
-				// this pass will happen if the shard was COLD for example
-				var removeErr error
-				if err := os.RemoveAll(fmt.Sprintf("%s/%s", idx.path(), name)); err != nil {
-					removeErr = fmt.Errorf("attempt to delete local fs for shard %s: %w", name, err)
-					ec.Add(removeErr)
-				}
-				lsmkv.GlobalBucketRegistry.RemoveByPrefixes(shardPathLSM(idx.path(), name))
-				return removeErr
-			}
-
-			if err := shard.drop(); err != nil {
-				ec.Add(err)
-			}
-			return nil
-		})
-	}
-	eg.Wait()
+	ec.Add(idx.dropShards(frozen))
 }
 
 func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze []*schemaUC.UpdateTenantPayload, ec errorcompounder.ErrorCompounder) {
@@ -268,6 +237,16 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			nodeID := split[1]
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
+
+			if idx.pendingDrops.Load(name) != nil {
+				err := fmt.Errorf("shard %q: %w", name, errDropInProgress)
+				ec.Add(err)
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{Name: name},
+					Op:     command.TenantsProcess_OP_ABORT,
+				}
+				return err
+			}
 
 			// An artifact's .ht would be trusted verbatim on load, so none may survive the download on either leg.
 			discardHashtree := func() {

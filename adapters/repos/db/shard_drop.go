@@ -82,7 +82,14 @@ func (s *Shard) drop() (err error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 
-	// Guarantee the lsmkv store is shut down on every exit. The pre-Shutdown
+	// A timed-out queue/index drain leaves workers owning the store and metadata.
+	// Keep those handles alive on that failure; a later drop can retry the drain.
+	workersStopped := false
+	keepWorkerResources := func() bool {
+		return !workersStopped && (stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded))
+	}
+
+	// Guarantee the lsmkv store is shut down on every other exit. The pre-Shutdown
 	// steps below (queue/geo/vector-index Drop, cycle-callback Unregister)
 	// early-return on failure, but store.Shutdown is the ONLY step that
 	// deregisters this shard's buckets (each Bucket.Shutdown defers
@@ -90,6 +97,9 @@ func (s *Shard) drop() (err error) {
 	// guard makes the happy-path second call a no-op. A fresh context is used so a
 	// pre-Shutdown deadline expiry cannot also starve this shutdown.
 	defer func() {
+		if keepWorkerResources() {
+			return
+		}
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer shutdownCancel()
 		if serr := s.store.Shutdown(shutdownCtx); serr != nil && !stderrors.Is(serr, lsmkv.ErrAlreadyClosed) {
@@ -110,7 +120,7 @@ func (s *Shard) drop() (err error) {
 	// shard that was shut down before the drop already closed it (Close on a
 	// closed bolt DB is a no-op).
 	defer func() {
-		if s.metadataDB == nil {
+		if s.metadataDB == nil || keepWorkerResources() {
 			return
 		}
 		if cerr := s.metadataDB.Close(); cerr != nil {
@@ -154,6 +164,8 @@ func (s *Shard) drop() (err error) {
 	if err != nil {
 		return err
 	}
+
+	workersStopped = true
 
 	// unregister all callbacks at once, in parallel
 	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,

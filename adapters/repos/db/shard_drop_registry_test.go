@@ -63,27 +63,35 @@ func injectPreShutdownFailure(t *testing.T, shard *Shard) error {
 // Asserted at shard.drop altitude, where the index-level class sweep cannot mask
 // a missing guard.
 func TestShardDrop_StoreShutdownReachedOnPreShutdownFailure(t *testing.T) {
-	ctx := testCtx()
-	shardLike, _ := testShard(t, ctx, "TestClass")
-	shard, ok := shardLike.(*Shard)
-	require.True(t, ok, "expected an eagerly loaded *Shard, got %T", shardLike)
+	for _, cause := range []error{errors.New("injected pre-shutdown unregister failure"), context.Canceled, context.DeadlineExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			ctx := testCtx()
+			shardLike, _ := testShard(t, ctx, "TestClass")
+			shard, ok := shardLike.(*Shard)
+			require.True(t, ok, "expected an eagerly loaded *Shard, got %T", shardLike)
 
-	idBucketPath := filepath.Join(shard.pathLSM(),
-		helpers.BucketFromPropNameLSM(filters.InternalPropID))
+			idBucketPath := filepath.Join(shard.pathLSM(),
+				helpers.BucketFromPropNameLSM(filters.InternalPropID))
 
-	// Precondition: while the shard is live, the id bucket is registered.
-	require.ErrorIs(t, lsmkv.GlobalBucketRegistry.TryAdd(idBucketPath), lsmkv.ErrBucketAlreadyRegistered,
-		"precondition: the shard's id bucket must be registered while it is live")
-	// Balance the post-drop probe on every exit, including a failed-assertion Goexit.
-	t.Cleanup(func() { lsmkv.GlobalBucketRegistry.Remove(idBucketPath) })
+			// Precondition: while the shard is live, the id bucket is registered.
+			require.ErrorIs(t, lsmkv.GlobalBucketRegistry.TryAdd(idBucketPath), lsmkv.ErrBucketAlreadyRegistered,
+				"precondition: the shard's id bucket must be registered while it is live")
+			// Balance the post-drop probe on every exit, including a failed-assertion Goexit.
+			t.Cleanup(func() { lsmkv.GlobalBucketRegistry.Remove(idBucketPath) })
 
-	boom := injectPreShutdownFailure(t, shard)
+			boom := cause
+			shard.cycleCallbacks.flushCallbacksCtrl = failUnregisterCtrl{
+				CycleCallbackCtrl: shard.cycleCallbacks.flushCallbacksCtrl,
+				err:               boom,
+			}
 
-	err := shard.drop()
-	require.Error(t, err, "shard.drop must surface the pre-shutdown failure")
-	require.ErrorContains(t, err, boom.Error())
+			err := shard.drop()
+			require.Error(t, err, "shard.drop must surface the pre-shutdown failure")
+			require.ErrorContains(t, err, boom.Error())
 
-	require.NoError(t, lsmkv.GlobalBucketRegistry.TryAdd(idBucketPath),
-		"the deferred store.Shutdown guard must deregister the shard's buckets even when a pre-shutdown step failed")
-	lsmkv.GlobalBucketRegistry.Remove(idBucketPath)
+			require.NoError(t, lsmkv.GlobalBucketRegistry.TryAdd(idBucketPath),
+				"the deferred store.Shutdown guard must deregister the shard's buckets even when a pre-shutdown step failed")
+			lsmkv.GlobalBucketRegistry.Remove(idBucketPath)
+		})
+	}
 }

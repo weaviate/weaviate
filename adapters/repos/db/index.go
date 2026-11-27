@@ -373,6 +373,11 @@ type Index struct {
 
 	closed bool
 
+	// pendingDrops keeps interrupted teardowns out of the serving map, but reachable for retry.
+	pendingDrops shardMap
+	dropLock     sync.Mutex
+	dropRetry    atomic.Bool // also read by DB deletion when the error summary is truncated
+
 	// inflight counts operations admitted by enterRead. beginClose drains it
 	// instead of holding closeLock across teardown.
 	inflight sync.WaitGroup
@@ -1100,6 +1105,9 @@ func (i *Index) ensureShardDir(shardName string) error {
 func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool, implicitShardLoading bool,
 ) (ShardLike, error) {
+	if i.pendingDrops.Load(shardName) != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, errDropInProgress)
+	}
 	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
@@ -3731,6 +3739,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		}
 	}
 
+	if i.pendingDrops.Load(shardName) != nil {
+		return fmt.Errorf("shard %q: %w", shardName, errDropInProgress)
+	}
+
 	// A tenant activated without its folder (COLD at a wipe, or deactivated while queued) recovers instead of materialising empty.
 	if caller == callerTenantActivation && i.recoverShardOnActivation(ctx, class, shardName) {
 		return nil
@@ -4308,13 +4320,21 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
-	if err := i.beginClose(); err != nil {
-		return err
+	if !i.dropLock.TryLock() {
+		return context.Canceled
 	}
+	defer i.dropLock.Unlock()
+	if !i.dropRetry.Load() {
+		if err := i.beginClose(); err != nil {
+			return err
+		}
+	}
+	i.dropRetry.Store(false)
 	i.Config.DimensionsReindex.forget(i.ID())
 	i.Config.PropertyLengthsRecount.forget(i.ID())
 
 	ec := errorcompounder.NewSafe()
+	var drainFailed atomic.Bool
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	dropShard := func(shardName string, _ ShardLike) error {
@@ -4325,26 +4345,40 @@ func (i *Index) drop() error {
 			i.shardCreateLocks.Lock(shardName)
 			defer i.shardCreateLocks.Unlock(shardName)
 
-			shard, ok := i.shards.LoadAndDelete(shardName)
-			if !ok {
+			shard := i.pendingDrops.Load(shardName)
+			if shard == nil {
+				shard, _ = i.shards.LoadAndDelete(shardName)
+			}
+			if shard == nil {
 				return nil // shard already does not exist
 			}
 			if err := shard.drop(); err != nil {
 				ec.Add(err)
+				if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+					i.pendingDrops.Store(shardName, shard)
+					drainFailed.Store(true)
+					return nil
+				}
 				i.logger.WithField("action", "drop_shard").
 					WithField("shard", shard.ID()).Error(err)
 			}
 
+			i.pendingDrops.LoadAndDelete(shardName)
 			return nil
 		})
 		return nil
 	}
 
+	i.pendingDrops.Range(dropShard)
 	i.shards.Range(dropShard)
 
 	// the error group only carries a recovered worker panic, which would
 	// otherwise leave the shard un-dropped without failing the call
 	ec.Add(eg.Wait())
+	if drainFailed.Load() {
+		i.dropRetry.Store(true)
+		return ec.ToErrorLimited(maxReportedErrors)
+	}
 
 	// Covers the inactive tenants too: they were never in i.shards, but a cold
 	// usage scan creates a count for any shard it reads.
@@ -4356,7 +4390,7 @@ func (i *Index) drop() error {
 	defer cancel()
 
 	// the index is torn down regardless, so the cycles must stop and the
-	// directory must be renamed even when a shard or a cycle failed; a cycle that
+	// directory must be renamed after non-drain failures; a cycle that
 	// ran out of time must not hide one that failed for another reason
 	for _, cause := range causesOf(i.stopCycleManagers(ctx, "drop")) {
 		if !stderrors.Is(cause, context.Canceled) && !stderrors.Is(cause, context.DeadlineExceeded) {
@@ -4427,8 +4461,11 @@ func (i *Index) dropShards(names []string) error {
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
-			shard, ok := i.shards.LoadAndDelete(name)
-			if !ok {
+			shard := i.pendingDrops.Load(name)
+			if shard == nil {
+				shard, _ = i.shards.LoadAndDelete(name)
+			}
+			if shard == nil {
 				// Ensure that if the shard is not loaded we delete any reference on disk for any data.
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
@@ -4442,9 +4479,15 @@ func (i *Index) dropShards(names []string) error {
 				// If shard is loaded use the native primitive to drop it
 				if err := shard.drop(); err != nil {
 					ec.Add(err)
+					if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+						i.pendingDrops.Store(name, shard)
+						return nil
+					}
 					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
 				}
 			}
+
+			i.pendingDrops.LoadAndDelete(name)
 
 			// After the drop, not before: a drop-vector clear holding a reference
 			// on this shard invalidates its usage record as it finishes, which
@@ -4493,7 +4536,7 @@ func (i *Index) purgeUnloadedShardRegistry(names []string) {
 
 	dirs := make([]string, 0, len(names))
 	for _, name := range names {
-		if i.shards.Load(name) == nil {
+		if i.shards.Load(name) == nil && i.pendingDrops.Load(name) == nil {
 			dirs = append(dirs, shardPathLSM(i.path(), name))
 		}
 	}
@@ -4535,9 +4578,16 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 func (i *Index) Shutdown(ctx context.Context) error {
 	// a reader admitted by enterRead would hold up the whole DB shutdown
 	i.signalCloseRequested(errIndexShutdown)
-	if err := i.beginClose(); err != nil {
-		return err
+	if !i.dropLock.TryLock() {
+		return context.Canceled
 	}
+	defer i.dropLock.Unlock()
+	if !i.dropRetry.Load() {
+		if err := i.beginClose(); err != nil {
+			return err
+		}
+	}
+	i.dropRetry.Store(false)
 
 	// requestCycleStops runs first so the cycles start no compaction or flush
 	// during the shard shutdown. waitForCycleStops runs after the shards, so a
@@ -4545,11 +4595,14 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	cycleStops := i.requestCycleStops()
 
 	ec := errorcompounder.NewSafe()
-	ec.Add(i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
+	shutdownShard := func(name string, shard ShardLike) error {
 		i.backupLock.RLock(name)
 		defer i.backupLock.RUnlock(name)
 
 		if err := shard.Shutdown(ctx); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				i.dropRetry.Store(true)
+			}
 			if !errors.Is(err, errAlreadyShutdown) {
 				ec.AddWrapf(err, "shutdown shard %q", name)
 				return nil
@@ -4557,9 +4610,14 @@ func (i *Index) Shutdown(ctx context.Context) error {
 			i.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
 		}
 		return nil
-	}))
-	ec.Add(waitForCycleStops(ctx, "shutdown", cycleStops))
-
+	}
+	ec.Add(i.shards.RangeConcurrently(i.logger, shutdownShard))
+	ec.Add(i.pendingDrops.RangeConcurrently(i.logger, shutdownShard))
+	cycleErr := waitForCycleStops(ctx, "shutdown", cycleStops)
+	ec.Add(cycleErr)
+	if errors.Is(cycleErr, context.Canceled) || errors.Is(cycleErr, context.DeadlineExceeded) {
+		i.dropRetry.Store(true)
+	}
 	return ec.ToErrorLimited(maxReportedErrors)
 }
 
