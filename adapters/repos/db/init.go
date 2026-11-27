@@ -227,9 +227,7 @@ func (db *DB) init(ctx context.Context) error {
 
 			idx.usageLimits = db.usageLimits
 			idx.SetReplicationFSMReader(db.replicationFSM)
-			db.indexLock.Lock()
-			db.indices[idx.ID()] = idx
-			db.indexLock.Unlock()
+			db.registerIndex(idx)
 			db.logger.WithFields(logrus.Fields{
 				"action":                  "lazy_shard_auto_detection",
 				"class":                   class.Class,

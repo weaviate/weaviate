@@ -315,21 +315,51 @@ func BenchmarkReindexRefreshNoticeBeforeLoad(b *testing.B) {
 }
 
 func TestReindexShardViewSelfNoticeAfterLoad(t *testing.T) {
-	f := newViewFixture(t, "ViewTest")
-	require.NoError(t, f.shard.Shutdown(context.Background()))
-	lazy := NewLazyLoadShard(context.Background(), nil, f.shard.name, f.idx, f.class, f.idx.centralJobQueue,
-		f.idx.indexCheckpoints, f.idx.allocChecker, f.idx.shardLoadLimiter, f.idx.shardReindexer, false,
-		f.idx.bitmapBufPool)
-	f.idx.shards.Store(f.shard.name, lazy)
-	f.startLoop()
-
-	f.tasks.mu.Lock()
-	f.tasks.afterRead = func() { f.tasks.set(switchedTask("a")) }
-	f.tasks.mu.Unlock()
-	require.NoError(t, lazy.Load(context.Background()))
-	require.Eventually(t, func() bool {
-		return servedFolder(lazy.shard.loadView(), plainTitle) == gen1Title
-	}, 5*time.Second, 10*time.Millisecond)
+	tests := []struct {
+		name string
+		// load makes the shard visible after a task change its load read too early to see.
+		load func(f *viewFixture) *Shard
+	}{
+		{
+			name: "a lazy shard loads",
+			load: func(f *viewFixture) *Shard {
+				require.NoError(f.t, f.shard.Shutdown(context.Background()))
+				lazy := NewLazyLoadShard(context.Background(), nil, f.shard.name, f.idx, f.class, f.idx.centralJobQueue,
+					f.idx.indexCheckpoints, f.idx.allocChecker, f.idx.shardLoadLimiter, f.idx.shardReindexer, false,
+					f.idx.bitmapBufPool)
+				f.idx.shards.Store(f.shard.name, lazy)
+				f.tasks.mu.Lock()
+				f.tasks.afterRead = func() { f.tasks.set(switchedTask("a")) }
+				f.tasks.mu.Unlock()
+				require.NoError(f.t, lazy.Load(context.Background()))
+				return lazy.shard
+			},
+		},
+		{
+			name: "an index registers after the loop dropped its notice",
+			load: func(f *viewFixture) *Shard {
+				r := f.idx.db.reindexRefresh
+				f.tasks.set(switchedTask("a"))
+				r.notify(f.class.Class, nil)
+				for coll, shards := range r.takeWork(time.Now()) {
+					r.refreshCollection(context.Background(), coll, shards)
+				}
+				require.NotEqual(f.t, gen1Title, servedFolder(f.shard.loadView(), plainTitle))
+				f.idx.db.registerIndex(f.idx)
+				return f.shard
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newViewFixture(t, "ViewTest")
+			sh := tc.load(f)
+			f.startLoop()
+			require.Eventually(t, func() bool {
+				return servedFolder(sh.loadView(), plainTitle) == gen1Title
+			}, 5*time.Second, 10*time.Millisecond)
+		})
+	}
 }
 
 func TestReindexShardViewStagingLimit(t *testing.T) {

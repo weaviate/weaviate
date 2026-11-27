@@ -530,6 +530,14 @@ func (db *DB) registeredIndex(className schema.ClassName) *Index {
 	return db.indices[indexID(className)]
 }
 
+// registerIndex makes idx visible, then refreshes the shards whose own notices found no index.
+func (db *DB) registerIndex(idx *Index) {
+	db.indexLock.Lock()
+	db.indices[idx.ID()] = idx
+	db.indexLock.Unlock()
+	db.reindexRefresher().notify(idx.Config.ClassName.String(), nil)
+}
+
 // indexForRead returns className's index, or nil and no error if this node has
 // none. On a miss for a class the local schema holds, it first waits until this
 // node has applied that class version. Never call it from SchemaManager.apply,

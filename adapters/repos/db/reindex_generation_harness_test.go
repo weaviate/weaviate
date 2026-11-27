@@ -697,10 +697,9 @@ func copyTree(src, dst string) error {
 }
 
 // awaitStaged waits until the node's view of shard stages a build. It asks for
-// a refresh as a waiting unit does: a load's own notice comes before its index registers.
+// no refresh, so before the scheduler starts only the load's own notice stages it.
 func (n *genNode) awaitStaged(shard string) {
 	n.c.t.Helper()
-	n.shard(shard).notifyViewRefresh()
 	n.c.waitFor("a staged build on "+shard, func() bool { return len(n.shard(shard).loadView().staged) > 0 })
 }
 

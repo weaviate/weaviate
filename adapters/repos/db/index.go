@@ -667,7 +667,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				promMetrics.NewLoadedShard()
 				newShard.metricsRegistered.Store(true)
 				i.shards.Store(shardName, newShard)
-				newShard.notifyViewRefresh()
 				startupShards.eager.Add(1)
 				return nil
 			}

@@ -249,9 +249,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 
 	idx.usageLimits = m.db.usageLimits
 	idx.SetReplicationFSMReader(m.db.replicationFSM)
-	m.db.indexLock.Lock()
-	m.db.indices[idx.ID()] = idx
-	m.db.indexLock.Unlock()
+	m.db.registerIndex(idx)
 
 	// Shards built inside NewIndex read the read-only flag as they come up, but
 	// a transition landing after that read reaches them through neither path -
