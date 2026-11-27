@@ -32,6 +32,17 @@ type TaskRules interface {
 	Units(header TaskHeader, state *sharding.State) ([]UnitSpec, error)
 }
 
+// SwitchedByView is a header whose decisions every replica serves from its own
+// view, so a decision owes no swap.
+type SwitchedByView interface {
+	SwitchedByView() bool
+}
+
+func switchedByView(h TaskHeader) bool {
+	v, ok := h.(SwitchedByView)
+	return ok && v.SwitchedByView()
+}
+
 type EndRuling struct {
 	Compact bool
 	Forget  map[*Task][]string

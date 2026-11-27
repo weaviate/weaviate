@@ -109,6 +109,19 @@ func TestReindexViewWrites(t *testing.T) {
 			want: gen1Title + " 1 0",
 		},
 		{
+			name: "a staged build is analyzed with the view's tokenization, not the class's",
+			run: func(f *viewFixture) string {
+				tok := func(switched bool) distributedtask.ShardTaskState {
+					return viewTaskState("tok", 1, ReindexTypeChangeTokenization, distributedtask.TaskStatusFinished, switched, true)
+				}
+				f.refreshTo(tok(false))
+				f.refreshTo(tok(true), viewTaskState("rep", 2, ReindexTypeRepairFilterable, distributedtask.TaskStatusStarted, false, true))
+				f.putTitle(testObject(f.class.Class), "hello world")
+				return fmt.Sprint(cardinality(f.t, stagedTitle(f), []byte("hello world")), cardinality(f.t, stagedTitle(f), []byte("hello")))
+			},
+			want: "1 0",
+		},
+		{
 			name: "a length or null write after a switch lands in the plain length and null folders",
 			run: func(f *viewFixture) string {
 				f.refreshTo(stagedTask("a"))

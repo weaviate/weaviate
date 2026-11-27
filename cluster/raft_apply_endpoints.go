@@ -165,6 +165,17 @@ func (s *Raft) updateProperty(ctx context.Context, class string, property *model
 	return s.Execute(ctx, command)
 }
 
+func (s *Raft) ReindexFlip(ctx context.Context, class string, req cmd.ReindexFlipRequest) (uint64, error) {
+	if class == "" || req.Prop == "" {
+		return 0, fmt.Errorf("empty class or property: %w", schema.ErrBadRequest)
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	return s.Execute(ctx, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_REINDEX_FLIP, Class: class, SubCommand: subCommand})
+}
+
 func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, targetNode string) (uint64, error) {
 	if class == "" || shard == "" || targetNode == "" {
 		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode: %w", schema.ErrBadRequest)

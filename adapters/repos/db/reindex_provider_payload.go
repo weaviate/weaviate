@@ -28,6 +28,8 @@ type ReindexTaskHeader struct {
 
 func (h ReindexTaskHeader) Collection() string { return h.ReindexTaskPayload.Collection }
 
+func (h ReindexTaskHeader) SwitchedByView() bool { return h.Generation > 0 }
+
 func (h ReindexTaskHeader) VisiblePayload() map[string]any {
 	return visibleFields(ReindexTaskPayload{
 		MigrationType: h.MigrationType, Collection: h.ReindexTaskPayload.Collection,

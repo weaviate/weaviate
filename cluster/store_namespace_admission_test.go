@@ -91,6 +91,7 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_CLASS:                                               {},
 	api.ApplyRequest_TYPE_ADD_PROPERTY:                                               {},
 	api.ApplyRequest_TYPE_UPDATE_PROPERTY:                                            {},
+	api.ApplyRequest_TYPE_REINDEX_FLIP:                                               {},
 	api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:                                       {},
 	api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:                                  {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},

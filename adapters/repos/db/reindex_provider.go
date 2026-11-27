@@ -68,6 +68,7 @@ type ReindexProvider struct {
 	concurrency   func() int
 
 	taskLister distributedtask.TaskHeaderLister
+	flipper    ReindexFlipper // guarded by mu
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
 	// fires after StartTask's per-task goroutine has already returned (its ctx
@@ -104,6 +105,8 @@ type ReindexProvider struct {
 	swapFailed       *logrusext.Sampler
 	swapRetryOnce    sync.Once
 	swapRetry        *logrusext.Sampler
+	unitDoneOnce     sync.Once
+	unitDone         *logrusext.Sampler
 
 	recorderRetryOnce sync.Once
 	recorderRetry     *logrusext.Sampler
@@ -454,6 +457,9 @@ func (p *ReindexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error
 }
 
 func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask.TaskHandle, error) {
+	if h, ok := ReindexHeaderOf(task); ok && h.SwitchedByView() {
+		return p.startGenerationRun(task, h)
+	}
 	payload, err := p.payloadOf(task)
 	if err != nil {
 		return nil, err
@@ -1491,6 +1497,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			Debug("reindex provider: group-completion: skipping replay on past-terminal task")
 		return nil
 	}
+	if h, ok := ReindexHeaderOf(task); ok && h.SwitchedByView() {
+		return nil // each unit reported done only once its build was durable
+	}
 
 	payload, err := p.payloadOf(task)
 	if err != nil {
@@ -1655,6 +1664,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 
 	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
 	logger.Info("reindex provider: task-completion")
+	if h, ok := ReindexHeaderOf(task); ok && h.SwitchedByView() {
+		return p.completeGenerationRun(task, h)
+	}
 
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.

@@ -718,10 +718,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	// No unit specs: every replica builds the units from its sharding state when it applies the task.
-	if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
-		ctx, db.ReindexNamespace, taskID, payload, nil, semantic,
-	); err != nil {
+	if err := addReindexTask(ctx, h.appState.ClusterService, taskID, payload); err != nil {
 		return h.mapSubmitTaskError(ctx, principal, collection, taskID, err)
 	}
 
@@ -740,6 +737,16 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: reindexStartedStatus,
 	})
+}
+
+type reindexTaskAdder interface {
+	AddDistributedTaskWithGroupsBarrier(ctx context.Context, namespace, taskID string, taskPayload any,
+		unitSpecs []distributedtask.UnitSpec, needsPreparationBarrier bool) error
+}
+
+// addReindexTask sends no units, since every replica builds them when it applies the task.
+func addReindexTask(ctx context.Context, adder reindexTaskAdder, taskID string, payload db.ReindexTaskPayload) error {
+	return adder.AddDistributedTaskWithGroupsBarrier(ctx, db.ReindexNamespace, taskID, payload, nil, true)
 }
 
 // buildReindexPayload assembles the RAFT task payload. OriginalTokenization is
@@ -763,6 +770,7 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 		OriginalTokenization: originalTok,
 		BucketStrategy:       plan.bucketStrategy,
 		Tenants:              tenants,
+		ViewServed:           true,
 	}
 }
 
@@ -886,6 +894,11 @@ func (h *indexesHandlers) mapSubmitTaskError(ctx context.Context, principal *mod
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			"a conflicting reindex task on the same property is already in flight "+
 				"(a concurrent submit won the race); wait for it to finish or cancel it before retrying"))
+	}
+	if errors.Is(err, distributedtask.ErrTaskPartlyMigrated) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal,
+			"a failed or cancelled run of another target on this property still has switched tenants; "+
+				"resubmit that target and let it finish first"))
 	}
 	if errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,

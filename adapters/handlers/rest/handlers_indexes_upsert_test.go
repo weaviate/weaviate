@@ -657,6 +657,44 @@ func TestResolveRebuildPlan(t *testing.T) {
 	}
 }
 
+type capturedTaskAdd struct {
+	payload db.ReindexTaskPayload
+	specs   []distributedtask.UnitSpec
+	barrier bool
+}
+
+func (c *capturedTaskAdd) AddDistributedTaskWithGroupsBarrier(_ context.Context, _, _ string, payload any,
+	specs []distributedtask.UnitSpec, barrier bool,
+) error {
+	c.payload, c.specs, c.barrier = payload.(db.ReindexTaskPayload), specs, barrier
+	return nil
+}
+
+// Every submit is a generation run that switches per tenant through the barrier.
+func TestAddReindexTask(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		class *models.Class
+		plan  upsertPlan
+	}{
+		{"single-tenant repair-filterable", &models.Class{Class: "C"}, upsertPlan{migrationType: db.ReindexTypeRepairFilterable}},
+		{
+			"multi-tenant change-tokenization",
+			&models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+			upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got capturedTaskAdd
+			payload := buildReindexPayload(tc.class, "C", []string{"p"}, tc.plan, nil)
+			require.NoError(t, addReindexTask(context.Background(), &got, "C:p:ab3f", payload))
+			require.True(t, got.payload.ViewServed)
+			require.True(t, got.barrier)
+			require.Nil(t, got.specs)
+		})
+	}
+}
+
 // TestValidateTenantScope: NO_OP must reject a mis-scoped tenants param
 // just like the submit path, not silently return 200.
 func TestValidateTenantScope(t *testing.T) {

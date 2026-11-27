@@ -871,7 +871,7 @@ func (t *Task) decideSwap(group string, at time.Time) {
 	t.SwapDecidedGroups[group] = at
 	delete(t.PreparedGroups, group)
 	nodes := t.groupNodes(group)
-	if len(nodes) == 0 {
+	if len(nodes) == 0 || switchedByView(t.header) {
 		return
 	}
 	if t.SwapsOwed == nil {

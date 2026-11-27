@@ -71,6 +71,10 @@ func TestMapSubmitTaskError(t *testing.T) {
 		{"tenants missing", distributedtask.NewTenantsMissingError("C"), true, http.StatusBadRequest, "some target tenants do not exist"},
 		{"no shards", distributedtask.NewHasNoUnitsError("C"), true, http.StatusBadRequest, "collection has no shards"},
 		{"collection gone", distributedtask.NewCollectionGoneError("C"), true, http.StatusConflict, `collection "C" was deleted while the reindex was submitted`},
+		{
+			"another target partly migrated", distributedtask.NewTaskPartlyMigratedError("C"), true, http.StatusConflict,
+			"a failed or cancelled run of another target on this property still has switched tenants; resubmit that target and let it finish first",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var authz authorization.Authorizer = &collectionsOnly{}

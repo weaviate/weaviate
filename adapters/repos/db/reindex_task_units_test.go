@@ -82,19 +82,24 @@ func titleRun(mt ReindexMigrationType, tenants ...string) ReindexTaskPayload {
 func TestReindexUnits_SameOnEveryNode(t *testing.T) {
 	const tenants = 2000
 	for _, tc := range []struct {
-		name      string
-		payload   ReindexTaskPayload
-		units     int
-		grouped   bool // a multi-tenant semantic run switches per tenant, so each tenant is a group
-		wantFirst []string
+		name         string
+		payload      ReindexTaskPayload
+		units        int
+		singleTenant bool // one group "" covers every shard; a multi-tenant run has a group per tenant
+		wantFirst    []string
 	}{
 		{
-			name: "full semantic run", payload: titleRun(ReindexTypeChangeTokenization), units: 3 * tenants, grouped: true,
+			name: "full semantic run", payload: titleRun(ReindexTypeChangeTokenization), units: 3 * tenants,
 			wantFirst: []string{"tenant-00000__node-2", "tenant-00000__node-0", "tenant-00000__node-1", "tenant-00001__node-2"},
 		},
 		{
 			name: "full non-semantic run", payload: titleRun(ReindexTypeRepairFilterable), units: 3 * tenants,
 			wantFirst: []string{"tenant-00000__node-2", "tenant-00000__node-0", "tenant-00000__node-1", "tenant-00001__node-2"},
+		},
+		{
+			name: "single-tenant enable-filterable run", payload: titleRun(ReindexTypeEnableFilterable), units: 3 * tenants,
+			singleTenant: true,
+			wantFirst:    []string{"tenant-00000__node-2", "tenant-00000__node-0", "tenant-00000__node-1", "tenant-00001__node-2"},
 		},
 		{
 			name:      "scoped run, tenants named out of order and twice",
@@ -108,6 +113,7 @@ func TestReindexUnits_SameOnEveryNode(t *testing.T) {
 			var firstSnap []byte
 			for seed := int64(1); seed <= 5; seed++ {
 				state := shardingInOrder(seed, tenants, nil)
+				state.PartitioningEnabled = !tc.singleTenant
 				specs, err := ReindexTaskRules{}.Units(ReindexTaskHeader{tc.payload}, state)
 				require.NoError(t, err)
 				require.Len(t, specs, tc.units)
@@ -120,10 +126,10 @@ func TestReindexUnits_SameOnEveryNode(t *testing.T) {
 					firstSpecs, firstSnap = specs, snap
 					for i, id := range tc.wantFirst {
 						require.Equal(t, id, specs[i].ID)
-						if tc.grouped {
-							require.Equal(t, specs[i].Shard, specs[i].GroupID)
-						} else {
+						if tc.singleTenant {
 							require.Empty(t, specs[i].GroupID)
+						} else {
+							require.Equal(t, specs[i].Shard, specs[i].GroupID)
 						}
 					}
 					continue

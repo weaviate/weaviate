@@ -17,13 +17,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 const (
-	indexTypeFilterable = "filterable"
-	indexTypeSearchable = "searchable"
-	indexTypeRangeable  = "rangeable"
+	indexTypeFilterable = api.ReindexFilterable
+	indexTypeSearchable = api.ReindexSearchable
+	indexTypeRangeable  = api.ReindexRangeable
 )
 
 var reindexIndexTypes = []string{indexTypeFilterable, indexTypeSearchable, indexTypeRangeable}
@@ -33,6 +34,7 @@ type reindexBuildTarget struct {
 	indexTypes    []string
 	tokenization  string // empty keeps the property's
 	blockmax      bool
+	enable        bool
 }
 
 func reindexBuildTargetOf(h ReindexTaskHeader) (reindexBuildTarget, error) {
@@ -45,7 +47,9 @@ func reindexBuildTargetOf(h ReindexTaskHeader) (reindexBuildTarget, error) {
 	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
 		target.tokenization = h.TargetTokenization
 	case ReindexTypeEnableSearchable:
-		target.tokenization, target.blockmax = h.TargetTokenization, true
+		target.tokenization, target.blockmax, target.enable = h.TargetTokenization, true, true
+	case ReindexTypeEnableFilterable, ReindexTypeEnableRangeable:
+		target.enable = true
 	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable:
 		target.blockmax = true
 	default:

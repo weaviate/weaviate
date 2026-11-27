@@ -476,6 +476,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, !catchingUp)
 		}
+	case api.ApplyRequest_TYPE_REINDEX_FLIP:
+		f = func() {
+			ret.Error = st.schemaManager.ReindexFlip(&cmd, schemaOnly)
+		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
 			ret.Error = st.schemaManager.CreateAlias(&cmd)

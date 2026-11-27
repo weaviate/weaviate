@@ -56,6 +56,7 @@ type stagedBuild struct {
 	name      string
 	bucket    *lsmkv.Bucket
 
+	target   *models.Property
 	strategy MigrationStrategy
 	overlay  map[string]inverted.PropertyOverlay
 	add      onAddToPropertyValueIndex
@@ -397,7 +398,7 @@ func (s *Shard) openStagedBuild(ctx context.Context, prop *models.Property, next
 	if err != nil {
 		return err
 	}
-	b.strategy, b.overlay = strategy, strategy.AnalyzerOverlay([]string{prop.Name})
+	b.target, b.strategy, b.overlay = target, strategy, strategy.AnalyzerOverlay([]string{prop.Name})
 	namer := func(string) string { return b.name }
 	armed := armedMirror{props: map[string]struct{}{prop.Name: {}}, buckets: map[string]*lsmkv.Bucket{prop.Name: b.bucket}}
 	b.add, b.del = strategy.MakeAddCallback(namer, armed), strategy.MakeDeleteCallback(namer, armed)
@@ -458,16 +459,146 @@ func (s *Shard) writeStaged(v *shardView, object, prev *storobj.Object, docID, p
 func (s *Shard) mirrorStaged(b *stagedBuild, obj *storobj.Object, docID uint64,
 	write func(*Shard, uint64, *inverted.Property) error,
 ) error {
-	props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, b.overlay)
+	props, err := s.analyzeForBuild(b, obj)
 	if err != nil {
-		return fmt.Errorf("analyze for build %q: %w", b.name, err)
+		return err
 	}
 	for i := range props {
-		if props[i].Name != b.prop {
-			continue
-		}
 		if err := write(s, docID, &props[i]); err != nil {
 			return fmt.Errorf("write into build %q: %w", b.name, err)
+		}
+	}
+	return nil
+}
+
+// analyzeForBuild analyzes obj with the settings the view serves once b switches,
+// not the class's, which differ while an earlier run's switched tenants stand.
+func (s *Shard) analyzeForBuild(b *stagedBuild, obj *storobj.Object) ([]inverted.Property, error) {
+	className := s.index.Config.ClassName.String()
+	c := s.index.getSchema.ReadOnlyClass(className)
+	if c == nil {
+		return nil, fmt.Errorf("analyze for build %q: class %s not in schema", b.name, className)
+	}
+	schemaMap, _, err := s.analyzeObjectCommon(obj, c)
+	if err != nil {
+		return nil, fmt.Errorf("analyze for build %q: %w", b.name, err)
+	}
+	analyzer := inverted.NewAnalyzerWithRawValues(s.isFallbackToSearchable, className).WithSchemaOverlay(b.overlay)
+	props, _, err := analyzer.Object(schemaMap, []*models.Property{b.target}, obj.ID())
+	if err != nil {
+		return nil, fmt.Errorf("analyze for build %q: %w", b.name, err)
+	}
+	return slices.DeleteFunc(props, func(p inverted.Property) bool { return p.Name != b.prop }), nil // drops the internal _id
+}
+
+const reindexBuildSuffix = ".build"
+
+// ReindexBuild fills the task's builds of prop once staged. started runs in
+// between, so a unit records its start only over an emptied folder. The scan
+// waits until no write that loaded a view without the builds still runs.
+func (s *Shard) ReindexBuild(ctx context.Context, taskID string, gen uint64, prop string,
+	started func(context.Context) error,
+) error {
+	builds, err := s.awaitStagedBuilds(ctx, taskID, gen, prop)
+	if err != nil {
+		return err
+	}
+	if err := started(ctx); err != nil {
+		return err
+	}
+	v := s.acquireView() // holds off the retire of every build it stages
+	defer v.release()
+	for _, b := range builds {
+		if !slices.Contains(v.staged, b) {
+			return fmt.Errorf("build %q is no longer staged", b.name)
+		}
+	}
+	if prev := v.prev.Load(); prev != nil {
+		select {
+		case <-prev.drained:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	for _, b := range builds {
+		if err := s.scanIntoBuild(ctx, b); err != nil {
+			return fmt.Errorf("build %q: %w", b.name, err)
+		}
+	}
+	return nil
+}
+
+// scanIntoBuild places a scan under the live writes, which win. Every exit deletes the scratch.
+func (s *Shard) scanIntoBuild(ctx context.Context, b *stagedBuild) error {
+	name := b.name + reindexBuildSuffix
+	dir := filepath.Join(s.pathLSM(), name)
+	if s.store.Bucket(name) != nil {
+		if err := s.store.ShutdownBucket(ctx, name); err != nil {
+			return fmt.Errorf("close stale scratch: %w", err)
+		}
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("empty scratch: %w", err)
+	}
+	if err := s.store.CreateOrLoadBucket(ctx, name, s.makeDefaultBucketOptions(b.strategy.TargetStrategy(),
+		lsmkv.WithKeepSegmentsInMemory(false))...); err != nil {
+		return fmt.Errorf("open scratch: %w", err)
+	}
+	defer func() {
+		if s.store.Bucket(name) != nil {
+			if err := s.store.ShutdownBucket(context.Background(), name); err != nil {
+				s.index.logger.WithField("action", "reindex_build").WithField("bucket", name).
+					Errorf("cannot close the scan scratch: %v", err)
+			}
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			s.index.logger.WithField("action", "reindex_build").WithField("dir", dir).
+				Errorf("cannot delete the scan scratch: %v", err)
+		}
+	}()
+	scratch := s.store.Bucket(name)
+	if err := s.scanObjects(ctx, b, scratch); err != nil {
+		return err
+	}
+	if err := scratch.FlushAndSwitch(); err != nil {
+		return fmt.Errorf("flush scratch: %w", err)
+	}
+	if err := s.store.ShutdownBucket(ctx, name); err != nil {
+		return fmt.Errorf("close scratch: %w", err)
+	}
+	if err := b.bucket.PrependSegmentsFromBucket(ctx, dir); err != nil {
+		return fmt.Errorf("place the scan under live writes: %w", err)
+	}
+	return b.bucket.FlushAndSwitch()
+}
+
+// scanObjects has no time filter, since the coordinator stamps update times on
+// its own clock and a local cut-off could drop an object written before staging.
+func (s *Shard) scanObjects(ctx context.Context, b *stagedBuild, scratch *lsmkv.Bucket) error {
+	objects, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+	if objects == nil {
+		return fmt.Errorf("objects bucket: %w", lsmkv.ErrBucketNotFound)
+	}
+	defer release()
+	c := objects.Cursor()
+	defer c.Close()
+	className := s.index.Config.ClassName.String()
+	for k, val := c.First(); k != nil; k, val = c.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		obj, err := storobj.FromBinaryDisk(val, className)
+		if err != nil {
+			return fmt.Errorf("decode object: %w", err)
+		}
+		props, err := s.analyzeForBuild(b, obj)
+		if err != nil {
+			return err
+		}
+		for _, p := range props {
+			if err := b.strategy.WriteToReindexBucket(s, scratch, obj.DocID, p); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -653,8 +784,8 @@ func (w *stagingWait) waitingTasks() []string {
 }
 
 // awaitStagedBuilds returns the task's builds of prop once the refresh loop has
-// staged them. Shard.ReindexBuild calls it once builds run on views. It fails
-// only after opening the task's build folder kept failing for the configured limit.
+// staged them. It fails only after opening the task's build folder kept failing
+// for the configured limit.
 func (s *Shard) awaitStagedBuilds(ctx context.Context, taskID string, gen uint64, prop string,
 ) ([]*stagedBuild, error) {
 	limit := s.index.db.config.ReindexStagingFailureTimeout

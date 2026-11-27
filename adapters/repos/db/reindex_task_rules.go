@@ -122,7 +122,8 @@ func (ReindexTaskRules) BornSwitched(task *distributedtask.Task) bool {
 }
 
 // Units gives each replica of each shard in scope one unit, shards by name and replicas in their stored
-// order. A missing named tenant, or any shard in scope that is not HOT, refuses the whole run.
+// order. Each tenant switches as its own group. A missing named tenant, or any shard in scope that
+// is not HOT, refuses the whole run.
 func (ReindexTaskRules) Units(header distributedtask.TaskHeader, state *sharding.State) ([]distributedtask.UnitSpec, error) {
 	h, ok := header.(ReindexTaskHeader)
 	if !ok {
@@ -132,7 +133,6 @@ func (ReindexTaskRules) Units(header distributedtask.TaskHeader, state *sharding
 	if len(shards) == 0 {
 		shards = slices.Sorted(maps.Keys(state.Physical))
 	}
-	grouped := state.PartitioningEnabled && IsSemanticMigration(h.MigrationType)
 	specs := make([]distributedtask.UnitSpec, 0, 3*len(shards))
 	missing, notHot := false, 0
 	for _, name := range shards {
@@ -146,7 +146,7 @@ func (ReindexTaskRules) Units(header distributedtask.TaskHeader, state *sharding
 			continue
 		}
 		group := ""
-		if grouped {
+		if state.PartitioningEnabled {
 			group = name
 		}
 		for _, node := range physical.BelongsToNodes {

@@ -845,6 +845,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
 	)
+	reindexProvider.SetReindexFlipper(appState.ClusterService.Raft)
 	// The reindexer is set before any shard loads, so each load re-arms its mirrors before its first write.
 	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
 		appState.Logger,
