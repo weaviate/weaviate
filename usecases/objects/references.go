@@ -88,17 +88,25 @@ func refTargetResources(classes []string, tenant string) []string {
 
 // validateRefTargetExistence succeeds when ref's target exists in one of
 // classes, so that a beacon without a class never probes other collections.
+// A replica shortage in one class does not stop the others from answering; it
+// is returned only when none of them holds the target.
 func validateRefTargetExistence(ctx context.Context, v *validation.Validator,
 	ref *crossref.Ref, classes []string, tenant string,
 ) error {
-	var err error
+	var err, replicasErr error
 	for _, class := range classes {
 		target := *ref
 		target.Class = class
-		if err = v.ValidateExistence(ctx, &target, "validate reference", tenant); err == nil ||
-			errors.Is(err, replicaerrors.ErrReplicas) {
-			return err
+		err = v.ValidateExistence(ctx, &target, "validate reference", tenant)
+		if err == nil {
+			return nil
 		}
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			replicasErr = err
+		}
+	}
+	if replicasErr != nil {
+		return replicasErr
 	}
 	return err
 }
