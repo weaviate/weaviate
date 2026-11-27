@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -412,4 +413,23 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+// The Settings baseURL is the fallback when no header is sent, so it must be
+// validated like the header itself: a plain-HTTP one must never be sent the API
+// key and the payload.
+func TestVectorizeRejectsInsecureBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+
+	_, err := New("apiKey", time.Second, nullLogger()).Vectorize(context.Background(), []string{"This is my text"},
+		Settings{Model: "large", BaseURL: server.URL})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+	assert.Zero(t, requests.Load(), "no request may reach a non-HTTPS baseURL")
 }

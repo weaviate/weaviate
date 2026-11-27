@@ -319,3 +319,20 @@ func TestMetaInfo(t *testing.T) {
 func ptr[T any](v T) *T {
 	return &v
 }
+
+// A per-query baseURL reaches the client as the header fallback, so it must be
+// validated like the header itself.
+func TestGenerateValidatesPerQueryBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("request must not reach a non-HTTPS baseURL")
+	}))
+	defer server.Close()
+	properties := &modulecapabilities.GenerateProperties{Text: map[string]string{"prop": "value"}}
+
+	_, err := New("key", time.Minute, nullLogger()).GenerateSingleResult(context.Background(), properties, "prompt",
+		digitaloceanparams.Params{BaseURL: server.URL}, false, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+}

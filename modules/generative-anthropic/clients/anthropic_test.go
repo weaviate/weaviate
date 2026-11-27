@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,7 +26,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	anthropicparams "github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -197,4 +200,35 @@ func (f fakeClassConfig) P() float64 {
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 	return nil
+}
+
+// The baseURL a request falls back to without a header (class config or
+// per-query parameter) must be validated like the header itself: a plain-HTTP
+// one must never be sent the API key and the payload.
+func TestGenerateRejectsInsecureBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "value"}}}
+
+	tests := []struct {
+		name    string
+		options any
+		cfg     moduletools.ClassConfig
+	}{
+		{name: "baseURL from class config", cfg: &fakeClassConfig{baseURL: server.URL}},
+		{name: "baseURL from per-query params", options: anthropicparams.Params{BaseURL: server.URL}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := New("apiKey", time.Minute, nullLogger()).GenerateAllResults(context.Background(), props, "task", tt.options, false, tt.cfg)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+			assert.Zero(t, requests.Load(), "no request may reach a non-HTTPS baseURL")
+		})
+	}
 }

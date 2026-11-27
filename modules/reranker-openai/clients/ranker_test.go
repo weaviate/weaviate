@@ -868,6 +868,36 @@ func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 	}
 }
 
+// A class base URL may predate MODULES_VALIDATE_BASE_URL, so it is validated
+// when a query uses it, before the key and the documents are sent.
+func TestRankValidatesAClassBaseURLWhileBaseURLValidationIsOn(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	tests := []struct {
+		name string
+		// <fake> stands for the URL of the host the class names.
+		baseURL string
+		wantErr string
+	}{
+		{name: "http", baseURL: "<fake>", wantErr: "baseURL must use HTTPS"},
+		{name: "http with /v1", baseURL: "<fake>/v1", wantErr: "baseURL must use HTTPS"},
+		{name: "https to a loopback address", baseURL: "https://127.0.0.1:8443", wantErr: "baseURL cannot target internal addresses"},
+		{name: "https to localhost", baseURL: "https://localhost/v1", wantErr: "baseURL cannot target internal addresses"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classServer := newFake(t)
+			ctx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"headerKey"})
+
+			res, err := newTestClient(defaultFakeKey).Rank(ctx, churn, "text",
+				[]string{noRefund}, classConfig(strings.ReplaceAll(tt.baseURL, "<fake>", classServer.url()), nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Nil(t, res)
+			assert.Empty(t, classServer.received())
+		})
+	}
+}
+
 func TestRankKeepsTheBaseURLPath(t *testing.T) {
 	tests := []struct {
 		name       string

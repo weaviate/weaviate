@@ -291,6 +291,158 @@ func TestValidateClass(t *testing.T) {
 		assert.Nil(t, p.ValidateClass(ctx, class))
 	})
 
+	t.Run("when class has no vectorizer set, configured non-vectorizer modules are validated", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			moduleCfg   map[string]interface{}
+			expectedErr string
+		}{
+			{
+				name:        "invalid generative config is rejected",
+				moduleCfg:   map[string]interface{}{"my-generative": map[string]interface{}{"baseURL": "http://evil.com"}},
+				expectedErr: "module 'my-generative': invalid generative config",
+			},
+			{
+				name:      "valid generative config is accepted",
+				moduleCfg: map[string]interface{}{"my-valid-generative": map[string]interface{}{}},
+			},
+			{
+				name:      "inert vectorizer config is not validated",
+				moduleCfg: map[string]interface{}{"my-vectorizer": map[string]interface{}{}},
+			},
+			{
+				name:      "unknown module is skipped",
+				moduleCfg: map[string]interface{}{"not-registered": map[string]interface{}{}},
+			},
+			{
+				name: "invalid generative config next to inert vectorizer config is rejected",
+				moduleCfg: map[string]interface{}{
+					"my-vectorizer": map[string]interface{}{},
+					"my-generative": map[string]interface{}{},
+				},
+				expectedErr: "module 'my-generative': invalid generative config",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				class := &models.Class{
+					Class:        "Foo",
+					Vectorizer:   "none",
+					ModuleConfig: tt.moduleCfg,
+				}
+
+				p := NewProvider(logger, config.Config{})
+				p.Register(&dummyNonVectorizerClassConfigurator{
+					dummyNonVectorizerModule: newDummyNonVectorizerModule("my-generative"),
+					validateError:            errors.New("invalid generative config"),
+				})
+				p.Register(&dummyNonVectorizerClassConfigurator{
+					dummyNonVectorizerModule: newDummyNonVectorizerModule("my-valid-generative"),
+				})
+				p.Register(&dummyModuleClassConfigurator{
+					validateError: errors.New("vectorizer config must not be validated"),
+					dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
+						name: "my-vectorizer",
+					},
+				})
+
+				err := p.ValidateClass(ctx, class)
+				if tt.expectedErr == "" {
+					require.NoError(t, err)
+					return
+				}
+				require.Error(t, err)
+				assert.Equal(t, tt.expectedErr, err.Error())
+			})
+		}
+	})
+
+	t.Run("non-vectorizer modules are validated whatever the vector setup", func(t *testing.T) {
+		invalidReranker := map[string]interface{}{"my-reranker": map[string]interface{}{"baseURL": "http://evil.com"}}
+		tests := []struct {
+			name        string
+			moduleCfg   interface{}
+			expectedErr string
+		}{
+			{name: "invalid reranker config", moduleCfg: invalidReranker, expectedErr: "module 'my-reranker': invalid reranker config"},
+			{
+				name: "invalid reranker config next to a valid generative config",
+				moduleCfg: map[string]interface{}{
+					"my-valid-generative": map[string]interface{}{},
+					"my-reranker":         map[string]interface{}{},
+				},
+				expectedErr: "module 'my-reranker': invalid reranker config",
+			},
+			{name: "valid generative config", moduleCfg: map[string]interface{}{"my-valid-generative": map[string]interface{}{}}},
+			{name: "no module config"},
+			{name: "module config that is not an object", moduleCfg: "my-reranker"},
+		}
+		setups := []struct {
+			name  string
+			class func(moduleCfg interface{}) *models.Class
+		}{
+			{
+				name: "legacy vectorizer none",
+				class: func(moduleCfg interface{}) *models.Class {
+					return &models.Class{Class: "Foo", Vectorizer: "none", ModuleConfig: moduleCfg}
+				},
+			},
+			{
+				name: "legacy vectorizer module",
+				class: func(moduleCfg interface{}) *models.Class {
+					return &models.Class{Class: "Foo", Vectorizer: "my-vectorizer", ModuleConfig: moduleCfg}
+				},
+			},
+			{
+				name: "named vector without a vectorizer",
+				class: func(moduleCfg interface{}) *models.Class {
+					return &models.Class{
+						Class:        "Foo",
+						ModuleConfig: moduleCfg,
+						VectorConfig: map[string]models.VectorConfig{
+							"main": {Vectorizer: map[string]interface{}{"none": map[string]interface{}{}}},
+						},
+					}
+				},
+			},
+			{
+				name: "named vector with a vectorizer",
+				class: func(moduleCfg interface{}) *models.Class {
+					return &models.Class{
+						Class:        "Foo",
+						ModuleConfig: moduleCfg,
+						VectorConfig: map[string]models.VectorConfig{
+							"main": {Vectorizer: map[string]interface{}{"my-vectorizer": map[string]interface{}{}}},
+						},
+					}
+				},
+			},
+		}
+		for _, setup := range setups {
+			for _, tt := range tests {
+				t.Run(setup.name+"/"+tt.name, func(t *testing.T) {
+					p := NewProvider(logger, config.Config{})
+					p.Register(&dummyTypedClassConfigurator{
+						name: "my-reranker", moduleType: modulecapabilities.Text2TextReranker,
+						validateError: errors.New("invalid reranker config"),
+					})
+					p.Register(&dummyTypedClassConfigurator{
+						name: "my-valid-generative", moduleType: modulecapabilities.Text2TextGenerative,
+					})
+					p.Register(&dummyText2VecModuleNoCapabilities{name: "my-vectorizer"})
+
+					err := p.ValidateClass(ctx, setup.class(tt.moduleCfg))
+
+					if tt.expectedErr == "" {
+						require.NoError(t, err)
+						return
+					}
+					require.EqualError(t, err, tt.expectedErr)
+				})
+			}
+		}
+	})
+
 	t.Run("when vectorizer does not have capability, it skips validation",
 		func(t *testing.T) {
 			class := &models.Class{
@@ -900,3 +1052,52 @@ func (d *dummyModuleClassConfigurator) ValidateClass(ctx context.Context,
 
 var _ = modulecapabilities.ClassConfigurator(
 	&dummyModuleClassConfigurator{})
+
+type dummyNonVectorizerClassConfigurator struct {
+	dummyNonVectorizerModule
+	validateError error
+}
+
+func (d *dummyNonVectorizerClassConfigurator) ClassConfigDefaults() map[string]any {
+	return map[string]any{}
+}
+
+func (d *dummyNonVectorizerClassConfigurator) PropertyConfigDefaults(
+	dt *schema.DataType,
+) map[string]any {
+	return map[string]any{}
+}
+
+func (d *dummyNonVectorizerClassConfigurator) ValidateClass(ctx context.Context,
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
+	return d.validateError
+}
+
+var _ = modulecapabilities.ClassConfigurator(
+	&dummyNonVectorizerClassConfigurator{})
+
+// dummyTypedClassConfigurator is a class configurator of any module type.
+type dummyTypedClassConfigurator struct {
+	name          string
+	moduleType    modulecapabilities.ModuleType
+	validateError error
+}
+
+func (d *dummyTypedClassConfigurator) Name() string { return d.name }
+
+func (d *dummyTypedClassConfigurator) Type() modulecapabilities.ModuleType { return d.moduleType }
+
+func (d *dummyTypedClassConfigurator) Init(context.Context, moduletools.ModuleInitParams) error {
+	return nil
+}
+
+func (d *dummyTypedClassConfigurator) ClassConfigDefaults() map[string]any { return map[string]any{} }
+
+func (d *dummyTypedClassConfigurator) PropertyConfigDefaults(*schema.DataType) map[string]any {
+	return map[string]any{}
+}
+
+func (d *dummyTypedClassConfigurator) ValidateClass(context.Context, *models.Class, moduletools.ClassConfig) error {
+	return d.validateError
+}

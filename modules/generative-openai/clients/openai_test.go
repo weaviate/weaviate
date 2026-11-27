@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -26,8 +27,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	openaiparams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	usecasesconfig "github.com/weaviate/weaviate/usecases/config"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -275,3 +279,90 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 func ptString(in string) *string {
 	return &in
 }
+
+// The baseURL a request falls back to without a header (class config or
+// per-query parameter) must be validated like the header itself: a plain-HTTP
+// one must never be sent the API key and the payload.
+func TestGenerateRejectsInsecureBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "value"}}}
+
+	tests := []struct {
+		name    string
+		options any
+		cfg     moduletools.ClassConfig
+	}{
+		{name: "baseURL from class config", cfg: &fakeClassConfig{baseURL: server.URL}},
+		{name: "baseURL from per-query params", options: openaiparams.Params{BaseURL: server.URL}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := New("openAIApiKey", "", "", 0, nullLogger()).GenerateAllResults(context.Background(), props, "task", tt.options, false, tt.cfg)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+			assert.Zero(t, requests.Load(), "no request may reach a non-HTTPS baseURL")
+		})
+	}
+}
+
+// Unlike qna-openai, the Azure endpoint uses the base URL as its host, so it
+// is validated there too. Only an empty or default base URL falls back to the
+// resource name.
+func TestBuildOpenAIUrlValidatesTheAzureBaseURL(t *testing.T) {
+	const path = "/openai/deployments/deployment/chat/completions?api-version=2024-02-01"
+	tests := []struct {
+		name    string
+		baseURL string
+		wantURL string
+		wantErr string
+	}{
+		{name: "http", baseURL: "http://8.8.8.8", wantErr: "baseURL must use HTTPS"},
+		{name: "internal address", baseURL: "https://127.0.0.1", wantErr: "baseURL cannot target internal addresses"},
+		{name: "https", baseURL: "https://8.8.8.8", wantURL: "https://8.8.8.8" + path},
+		{name: "default", baseURL: "https://api.openai.com", wantURL: "https://resource.openai.azure.com" + path},
+		{name: "empty", baseURL: "", wantURL: "https://resource.openai.azure.com" + path},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			params := openaiparams.Params{
+				BaseURL: tt.baseURL, ResourceName: "resource", DeploymentID: "deployment", ApiVersion: "2024-02-01",
+			}
+
+			got, err := New("openAIApiKey", "", "azureApiKey", 0, nullLogger()).buildOpenAIUrl(context.Background(), params)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, got)
+		})
+	}
+}
+
+type fakeClassConfig struct {
+	baseURL string
+}
+
+func (f fakeClassConfig) Class() map[string]any { return nil }
+
+func (f fakeClassConfig) ClassByModuleName(string) map[string]any {
+	return map[string]any{"baseURL": f.baseURL}
+}
+
+func (f fakeClassConfig) Property(string) map[string]any { return nil }
+
+func (f fakeClassConfig) Tenant() string { return "" }
+
+func (f fakeClassConfig) TargetVector() string { return "" }
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType { return nil }
+
+func (f fakeClassConfig) Config() *usecasesconfig.Config { return nil }

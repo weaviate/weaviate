@@ -109,12 +109,18 @@ type Client[T dto.Embedding] struct {
 
 func EmbeddingsBuildUrlFn(settings Settings) (string, error) {
 	host := settings.BaseURL
+	if err := modulecomponents.ValidateBaseURL(host); err != nil {
+		return "", err
+	}
 	path := "/v1/embeddings"
 	return url.JoinPath(host, path)
 }
 
 func MultiVectorBuildUrlFn(settings Settings) (string, error) {
 	host := settings.BaseURL
+	if err := modulecomponents.ValidateBaseURL(host); err != nil {
+		return "", err
+	}
 	path := "/v1/multi-vector"
 	return url.JoinPath(host, path)
 }

@@ -186,3 +186,18 @@ func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
 }
+
+func TestVectorizeValidatesBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("request must not reach a non-HTTPS baseURL")
+	}))
+	defer server.Close()
+	c := &vectorizer{apiKey: "apiKey", httpClient: &http.Client{}, logger: nullLogger()}
+
+	_, _, _, err := c.Vectorize(context.Background(), []string{"text"},
+		fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+}

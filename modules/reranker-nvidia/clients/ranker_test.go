@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -240,4 +241,23 @@ func (f fakeClassConfig) Config() *config.Config {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+// A class-config baseURL is the fallback when no header is sent, so it must be
+// validated like the header itself: a plain-HTTP one must never be sent the API
+// key and the payload.
+func TestRankRejectsInsecureBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+
+	cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+	_, err := New("key", 0, nullLogger()).Rank(context.Background(), "q", "text", []string{"a"}, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+	assert.Zero(t, requests.Load(), "no request may reach a non-HTTPS baseURL")
 }
