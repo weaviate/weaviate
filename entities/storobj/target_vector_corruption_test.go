@@ -284,6 +284,13 @@ func TestUnmarshalMultiVectorsCorruptOffsets(t *testing.T) {
 	oversizedSegment := binary.LittleEndian.AppendUint32(nil, 1)
 	oversizedSegment = append(oversizedSegment, 0x32, 0x00) // vecLen=50, no data
 
+	// a well-formed first vector, then one whose length reaches past the
+	// segment: the reader sums every vector's length before it copies, so a
+	// later vector has to fail the same bound as the first
+	oversizedSecondSegment := binary.LittleEndian.AppendUint32(nil, 2)
+	oversizedSecondSegment = append(oversizedSecondSegment, encodeTargetVec(1, 2)...)
+	oversizedSecondSegment = append(oversizedSecondSegment, 0x32, 0x00)
+
 	cases := []struct {
 		name    string
 		offsets map[string]uint32
@@ -319,6 +326,13 @@ func TestUnmarshalMultiVectorsCorruptOffsets(t *testing.T) {
 			segLen:  uint32(len(oversizedSegment)),
 			segment: oversizedSegment,
 			errLike: "exceeds segment",
+		},
+		{
+			name:    "second document length crosses segment end",
+			offsets: map[string]uint32{"colbert": 0},
+			segLen:  uint32(len(oversizedSecondSegment)),
+			segment: oversizedSecondSegment,
+			errLike: "document 1 length 50 exceeds segment",
 		},
 		{
 			name:    "segment length exceeds buffer",
