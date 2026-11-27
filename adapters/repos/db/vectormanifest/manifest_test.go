@@ -836,6 +836,76 @@ func TestManifest_OpenRefusesATask(t *testing.T) {
 	}
 }
 
+// A rebuild whose cleanup fails keeps its task, and the next load finishes it.
+func TestManifest_OpenRetriesARebuildItCouldNotFinish(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "title")
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+	plant(t, files(dir, "vectors_a-b")...)
+	schema := schemaVectors{"title": enthnsw.NewDefaultUserConfig()}
+
+	removeBucket := m.removeBucket
+	m.removeBucket = func(context.Context, string) error { return assert.AnError }
+	_, _, err := m.Open(t.Context(), schema, nil)
+	require.ErrorIs(t, err, assert.AnError)
+	_, ok, err := m.tasks.Get("title")
+	require.NoError(t, err)
+	assert.True(t, ok, "the task outlives a failed cleanup")
+
+	m.removeBucket = removeBucket
+	_, _, err = m.Open(t.Context(), schema, nil)
+	require.NoError(t, err)
+	for _, path := range files(dir, "vectors_a-b") {
+		assert.NoDirExists(t, path)
+	}
+	_, ok, err = m.tasks.Get("title")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A refused task stops the load before the valid tasks sorted ahead of it
+// delete anything.
+func TestManifest_OpenRefusesATaskBeforeFinishingAny(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "body", "title")
+	require.NoError(t, m.tasks.Put("body", rebuildOf("vectors_body", "a-b")))
+	rec, _, err := m.records.Get("title")
+	require.NoError(t, err)
+	rec.PhysicalID = "c-d"
+	require.NoError(t, m.records.Put("title", rec))
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "e-f")))
+	plant(t, files(dir, "vectors_a-b")...)
+
+	cfg := enthnsw.NewDefaultUserConfig()
+	_, _, err = m.Open(t.Context(), schemaVectors{"body": cfg, "title": cfg}, nil)
+	require.ErrorContains(t, err, `vector "title": the mapping names "c-d"`)
+	for _, path := range files(dir, "vectors_a-b") {
+		assert.DirExists(t, path)
+	}
+	_, ok, err := m.tasks.Get("body")
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
+// A finished rebuild removes the dynamic index state of the index it retires.
+func TestManifest_OpenFinishesARebuildWithItsDynamicState(t *testing.T) {
+	dir := t.TempDir()
+	m := loaded(t, dir, "title")
+	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
+	retired, kept := []byte("upgraded_a-b"), []byte("upgraded_title")
+	require.NoError(t, m.state.Put(retired, []byte{1}))
+	require.NoError(t, m.state.Put(kept, []byte{1}))
+
+	_, _, err := m.Open(t.Context(), schemaVectors{"title": enthnsw.NewDefaultUserConfig()}, nil)
+	require.NoError(t, err)
+	v, err := m.state.Get(retired)
+	require.NoError(t, err)
+	assert.Nil(t, v)
+	v, err = m.state.Get(kept)
+	require.NoError(t, err)
+	assert.NotNil(t, v)
+}
+
 func TestManifest_OpenRefusesTasksWithoutRecords(t *testing.T) {
 	m := openTestManifest(t, t.TempDir())
 	require.NoError(t, m.tasks.Put("title", rebuildOf("vectors_title", "a-b")))
