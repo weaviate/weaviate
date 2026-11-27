@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -440,4 +441,24 @@ func TestLazyLoadShard_ReloadAfterUnloadIsObservedOnce(t *testing.T) {
 			require.Equal(t, tt.wantObserved, m.GetHistogram().GetSampleCount())
 		})
 	}
+}
+
+func TestLazyLoadShard_TryUnloadReleasesAdmissionBeforeTheStatusRead(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	s := f.lazy.currentShard()
+	s.statusLock.Lock()
+	unlock := sync.OnceFunc(s.statusLock.Unlock)
+	t.Cleanup(unlock)
+
+	done := make(chan bool, 1)
+	enterrors.GoWrapper(func() { done <- f.lazy.TryUnload(testCtx(), UnloadRequest{}) }, f.index.logger)
+
+	require.Eventually(t, func() bool { return f.lazy.unloadPhase.Load() == unloadPhaseTearing }, 5*time.Second, time.Millisecond,
+		"a blocked status read must not hold the deciding phase")
+	require.True(t, f.index.shardCreateLocks.TryLock(f.name), "a blocked status read must not hold shard-create admission")
+	f.index.shardCreateLocks.Unlock(f.name)
+	unlock()
+	require.True(t, <-done)
+	f.requireUnloaded(t)
 }

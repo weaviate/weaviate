@@ -180,11 +180,11 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) bool {
 	}
 	var manualReadOnly bool
 	unloaded, err := shard.tryShutdownIdle(ctx, stillIdle, func() {
-		// Past the in-use check under shutdownLock, so no pin can change the status anymore.
-		manualReadOnly = shard.manuallyReadOnly()
 		l.unloadPhase.Store(unloadPhaseTearing)
 		releaseCreateLock()
 		releaseRead()
+		// Shut and under l.mutex, so no pin can change the status; read after admission is released, as statusLock blocks.
+		manualReadOnly = shard.manuallyReadOnly()
 		if l.unloadMarkedHook != nil {
 			l.unloadMarkedHook()
 		}
