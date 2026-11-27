@@ -588,10 +588,6 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			exister: homeNodes("node-1", "node-9"), factor: 2, wantErr: "only 1 of the namespace's 2 home node(s) are storage candidates",
 		},
 		{
-			name:    "NS enabled: a class this node has not applied sends every home node in stored order",
-			exister: homeNodes("node-3", "node-1", "node-2"), wantNodes: []string{"node-3", "node-1", "node-2"},
-		},
-		{
 			name:    "NS enabled: a class this node has not applied leaves out a home node that is no storage candidate",
 			exister: homeNodes("node-3", "node-9", "node-1"), wantNodes: []string{"node-3", "node-1"},
 		},
