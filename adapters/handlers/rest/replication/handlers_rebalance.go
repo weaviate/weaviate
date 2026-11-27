@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	rebalance "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/license"
 )
@@ -93,11 +94,18 @@ func (h *replicationHandler) createRebalancePlan(params replication.CreateRebala
 	if err != nil {
 		return replication.NewCreateRebalancePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("could not generate uuid v4: %w", err)))
 	}
+	var collections []string
+	if params.Body.Collections != nil {
+		collections = make([]string, len(params.Body.Collections))
+		for i, c := range params.Body.Collections {
+			collections[i] = schema.UppercaseClassName(c)
+		}
+	}
 	req := &rebalance.CreatePlanRequest{
 		PlanID:          id.String(),
 		SourceNodes:     params.Body.SourceNodes,
 		TargetNodes:     params.Body.TargetNodes,
-		Collections:     params.Body.Collections,
+		Collections:     collections,
 		CreatedAtUnixMs: time.Now().UnixMilli(),
 	}
 	if err := h.rebalanceManager.CreateRebalancePlan(ctx, req); err != nil {
@@ -186,13 +194,13 @@ func (h *replicationHandler) getRebalancePlan(params replication.GetRebalancePla
 		if plan == nil {
 			return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 		}
-		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan, h.latestDraftTask(*plan)))
+		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan, h.latestDraftTask(*plan), time.Now().UnixMilli()))
 	}
 	plan, ok := h.rebalanceManager.ReadRebalancePlan()
 	if !ok {
 		return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 	}
-	return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(plan, h.latestDraftTask(plan)))
+	return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(plan, h.latestDraftTask(plan), time.Now().UnixMilli()))
 }
 
 // latestDraftTask returns the highest-version draft task of plan in this
@@ -225,10 +233,12 @@ func draftingStatus(unit rebalance.DraftUnitStatus) string {
 	}
 }
 
-// rebalancePlanResponse builds the GET payload for plan. Drafting lists the
-// source and target nodes only when task is non-nil. Callers pass the result
-// of latestDraftTask. Drafting is never nil, so its JSON is [] and not null.
-func rebalancePlanResponse(plan rebalance.Plan, task *rebalance.DraftTask) *models.ReplicationRebalancePlan {
+// rebalancePlanResponse builds the GET payload for plan at nowUnixMs. Drafting
+// lists the source and target nodes only when task is non-nil. Callers pass
+// the result of latestDraftTask. Drafting, nodes, baseline, goal and moves are
+// never nil, so each JSON list is [] and not null. A plan shown as EXPIRED is
+// stored as PROPOSED.
+func rebalancePlanResponse(plan rebalance.Plan, task *rebalance.DraftTask, nowUnixMs int64) *models.ReplicationRebalancePlan {
 	drafting := make([]*models.ReplicationRebalancePlanDraftingItems0, 0)
 	if task != nil {
 		for _, node := range slices.Concat(plan.SourceNodes, plan.TargetNodes) {
@@ -258,18 +268,49 @@ func rebalancePlanResponse(plan rebalance.Plan, task *rebalance.DraftTask) *mode
 			ReplicaCount:    int64(b.ReplicaCount),
 		}
 	}
+	goal := make([]*models.ReplicationRebalancePlanGoalItems0, len(plan.Goal))
+	for i, g := range plan.Goal {
+		goal[i] = &models.ReplicationRebalancePlanGoalItems0{
+			Node:            g.Node,
+			DiskUtilisation: g.DiskUtilisation,
+			ReplicaCount:    int64(g.ReplicaCount),
+		}
+	}
+	var estimatedBytes int64
+	moves := make([]*models.ReplicationRebalancePlanMovesItems0, len(plan.Moves))
+	for i, m := range plan.Moves {
+		moves[i] = &models.ReplicationRebalancePlanMovesItems0{
+			ID:             m.ID,
+			Collection:     m.Collection,
+			Shard:          m.Shard,
+			SourceNode:     m.SourceNode,
+			TargetNode:     m.TargetNode,
+			EstimatedBytes: m.EstimatedBytes,
+		}
+		estimatedBytes += m.EstimatedBytes
+	}
+	state := string(plan.State)
+	if plan.State == rebalance.PlanStateProposed && plan.Finished(nowUnixMs) {
+		state = models.ReplicationRebalancePlanStateEXPIRED
+	}
 	return &models.ReplicationRebalancePlan{
-		ID:               plan.ID,
-		State:            string(plan.State),
-		SourceNodes:      plan.SourceNodes,
-		TargetNodes:      plan.TargetNodes,
-		Collections:      plan.Collections,
-		CreatedAtUnixMs:  plan.CreatedAtUnixMs,
-		MeasuredAtUnixMs: plan.MeasuredAtUnixMs,
-		Reason:           plan.Reason,
-		Nodes:            nodes,
-		Baseline:         baseline,
-		Drafting:         drafting,
+		ID:                  plan.ID,
+		State:               state,
+		SourceNodes:         plan.SourceNodes,
+		TargetNodes:         plan.TargetNodes,
+		Collections:         plan.Collections,
+		CreatedAtUnixMs:     plan.CreatedAtUnixMs,
+		MeasuredAtUnixMs:    plan.MeasuredAtUnixMs,
+		Reason:              plan.Reason,
+		Nodes:               nodes,
+		Baseline:            baseline,
+		Drafting:            drafting,
+		Goal:                goal,
+		Moves:               moves,
+		MoveCount:           int64(plan.MoveCount),
+		EstimatedBytes:      estimatedBytes,
+		PlanHash:            plan.PlanHash,
+		ApproveBeforeUnixMs: plan.ApproveBeforeUnixMs,
 	}
 }
 

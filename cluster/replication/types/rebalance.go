@@ -22,6 +22,13 @@ type RebalanceShardSize struct {
 	Bytes      int64  `json:"bytes"`
 }
 
+// RebalanceNodeBalance is one node's measured or projected load in a plan.
+type RebalanceNodeBalance struct {
+	Node            string  `json:"node"`
+	DiskUtilisation float64 `json:"diskUtilisation"`
+	ReplicaCount    int     `json:"replicaCount"`
+}
+
 // RebalanceNodeMeasurement is one node's resource measurement taken by a
 // rebalance planning run.
 type RebalanceNodeMeasurement struct {

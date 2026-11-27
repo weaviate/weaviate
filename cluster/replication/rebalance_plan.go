@@ -69,13 +69,6 @@ var (
 	ErrPlanStaleRun = errors.New("rebalance planning run is stale")
 )
 
-// PlanNodeBalance is one node's measured or projected load in a plan.
-type PlanNodeBalance struct {
-	Node            string  `json:"node"`
-	DiskUtilisation float64 `json:"diskUtilisation"`
-	ReplicaCount    int     `json:"replicaCount"`
-}
-
 // Plan is the cluster's single rebalance plan, replicated through Raft.
 type Plan struct {
 	ID    string    `json:"id"`
@@ -97,11 +90,25 @@ type Plan struct {
 	Nodes            []types.RebalanceNodeMeasurement `json:"nodes"`
 	Reason           string                           `json:"reason"`
 
-	Baseline            []PlanNodeBalance `json:"baseline"`
-	Goal                []PlanNodeBalance `json:"goal"`
-	MoveCount           int               `json:"moveCount"`
-	PlanHash            string            `json:"planHash"`
-	ApproveBeforeUnixMs int64             `json:"approveBeforeUnixMs"`
+	Baseline            []types.RebalanceNodeBalance `json:"baseline"`
+	Goal                []types.RebalanceNodeBalance `json:"goal"`
+	MoveCount           int                          `json:"moveCount"`
+	PlanHash            string                       `json:"planHash"`
+	ApproveBeforeUnixMs int64                        `json:"approveBeforeUnixMs"`
+
+	// Moves is set only by a PROPOSED planning outcome; a plan in any other
+	// state holds none.
+	Moves []PlanMove `json:"moves"`
+}
+
+// PlanMove is one replica move in a proposed plan.
+type PlanMove struct {
+	ID             string `json:"id"`
+	Collection     string `json:"collection"`
+	Shard          string `json:"shard"`
+	SourceNode     string `json:"sourceNode"`
+	TargetNode     string `json:"targetNode"`
+	EstimatedBytes int64  `json:"estimatedBytes"`
 }
 
 // clone returns a Plan that shares no memory with p. GetPlan and snapshotPlan
@@ -115,6 +122,7 @@ func (p Plan) clone() Plan {
 	p.Nodes = slices.Clone(p.Nodes)
 	p.Baseline = slices.Clone(p.Baseline)
 	p.Goal = slices.Clone(p.Goal)
+	p.Moves = slices.Clone(p.Moves)
 	return p
 }
 
@@ -144,11 +152,13 @@ type CompletePlanningRequest struct {
 	MeasuredAtUnixMs    int64                            `json:"measuredAtUnixMs"`
 	Nodes               []types.RebalanceNodeMeasurement `json:"nodes"`
 	Reason              string                           `json:"reason"`
-	Baseline            []PlanNodeBalance                `json:"baseline"`
-	Goal                []PlanNodeBalance                `json:"goal"`
+	Baseline            []types.RebalanceNodeBalance     `json:"baseline"`
+	Goal                []types.RebalanceNodeBalance     `json:"goal"`
 	MoveCount           int                              `json:"moveCount"`
 	PlanHash            string                           `json:"planHash"`
 	ApproveBeforeUnixMs int64                            `json:"approveBeforeUnixMs"`
+	// Moves is stored only when Outcome is PROPOSED.
+	Moves []PlanMove `json:"moves"`
 }
 
 // StopPlanRequest is the payload of the stop-plan command.
@@ -218,6 +228,9 @@ func (s *ShardReplicationFSM) CompletePlanning(logTerm uint64, req *CompletePlan
 	next.MoveCount = req.MoveCount
 	next.PlanHash = req.PlanHash
 	next.ApproveBeforeUnixMs = req.ApproveBeforeUnixMs
+	if req.Outcome == PlanStateProposed {
+		next.Moves = slices.Clone(req.Moves)
+	}
 	s.replacePlanLocked(&next)
 	return nil
 }

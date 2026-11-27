@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 )
 
@@ -158,22 +159,27 @@ func TestManager_GetRebalancePlan(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NoError(t, m.CreateRebalancePlan(&api.ApplyRequest{SubCommand: create}))
+		moves := []replication.PlanMove{
+			{ID: "move-1", Collection: "Books", Shard: "s1", SourceNode: "node-1", TargetNode: "node-2", EstimatedBytes: 100},
+		}
 		complete, err := json.Marshal(&replication.CompletePlanningRequest{
 			PlanID:              "plan-1",
 			RunID:               "run-a",
 			RunTerm:             3,
 			Outcome:             replication.PlanStateProposed,
 			MeasuredAtUnixMs:    2000,
-			Baseline:            []replication.PlanNodeBalance{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
-			Goal:                []replication.PlanNodeBalance{{Node: "node-2", DiskUtilisation: 0.5, ReplicaCount: 2}},
+			Baseline:            []types.RebalanceNodeBalance{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
+			Goal:                []types.RebalanceNodeBalance{{Node: "node-2", DiskUtilisation: 0.5, ReplicaCount: 2}},
 			MoveCount:           1,
 			PlanHash:            "hash-1",
 			ApproveBeforeUnixMs: 5000,
+			Moves:               moves,
 		})
 		require.NoError(t, err)
 		require.NoError(t, m.CompleteRebalancePlanning(3, &api.ApplyRequest{SubCommand: complete}))
 		want, ok := m.GetReplicationFSM().GetPlan()
 		require.True(t, ok)
+		require.Equal(t, moves, want.Moves)
 
 		payload, err := m.GetRebalancePlan(query)
 		require.NoError(t, err)
