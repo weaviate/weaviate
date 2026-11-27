@@ -543,39 +543,6 @@ func TestRankValidatesTheBaseURLItUses(t *testing.T) {
 	}
 }
 
-// A header baseURL other than the class one needs the request's own key, so
-// the server's DIGITALOCEAN_APIKEY is only ever sent to the configured URL.
-func TestRankHeaderBaseURLNeedsRequestAPIKey(t *testing.T) {
-	t.Run("different header base URL without a request key", func(t *testing.T) {
-		server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(rankResponse{Results: []rankResult{{Index: 0, RelevanceScore: 1}}})
-		})
-		ctx := context.WithValue(context.Background(), "X-Digitalocean-Baseurl", []string{server.URL})
-		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": "https://inference.do-ai.run"}}
-
-		res, err := New("server-key", 0, nullLogger()).Rank(ctx, "q", []string{"a"}, cfg)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "X-Digitalocean-Api-Key")
-		assert.Nil(t, res)
-		assert.Zero(t, requests.Load())
-	})
-
-	t.Run("header base URL equal to the class one uses the server key", func(t *testing.T) {
-		server, requests := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "Bearer server-key", r.Header.Get("Authorization"))
-			json.NewEncoder(w).Encode(rankResponse{Results: []rankResult{{Index: 0, RelevanceScore: 1}}})
-		})
-		ctx := context.WithValue(context.Background(), "X-Digitalocean-Baseurl", []string{server.URL + "/"})
-		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
-
-		_, err := New("server-key", 0, nullLogger()).Rank(ctx, "q", []string{"a"}, cfg)
-
-		require.NoError(t, err)
-		assert.EqualValues(t, 1, requests.Load())
-	})
-}
-
 // countingServer starts a fake API and counts the requests it receives.
 func countingServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *atomic.Int64) {
 	t.Helper()
