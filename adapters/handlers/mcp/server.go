@@ -71,7 +71,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 			"0.1.0",
 			serverOptions(m, writeAccessEnabled)...,
 		),
-		creator:        create.NewWeaviateCreator(authHandler, state.BatchManager, logger, writeAccessEnabled),
+		creator:        create.NewWeaviateCreator(authHandler, state.BatchManager, state.SchemaManager, logger, writeAccessEnabled),
 		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, state.ClusterService.SchemaReader(), state.SchemaManager, state.NamespaceQualifier, logger),
 		reader:         read.NewWeaviateReader(authHandler, state.SchemaManager, state.SchemaManager, state.NamespaceQualifier, objectsManager, logger),
 		state:          state,
