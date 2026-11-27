@@ -71,15 +71,14 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/aggregate/{collection}",                                // aggregate is a read; a viewer holds data READ
 	}
 
-	// TODO: these leak status (404 for aliases, 501 for replication) before
-	// authz runs, so a viewer mutating them gets 404/501 instead of 403.
-	// Fix by moving authz to the top of each handler, then drop these entries.
+	// TODO: these leak status (501 for replication) before authz runs, so a
+	// viewer mutating them gets 501 instead of 403. Fix by moving authz to the
+	// top of each handler, then drop these entries.
 	ignoreEndpoints := []string{
 		// MCP's HTTP methods are protocol operations (GET=SSE session, DELETE=session
 		// close, POST=JSON-RPC envelope), not RBAC-gated resources. Authz runs per
 		// tool-call inside the JSON-RPC handler. RBAC is covered in mcp_test.go.
 		"/mcp",
-		"/aliases/{aliasName}",
 		"/replication/replicate",
 		"/replication/replicate/force-delete",
 		"/replication/scale",
@@ -100,6 +99,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	// before class-aware authz runs. RBAC for restore is covered in backups_test.go.
 	ignoreEndpointMethods := map[string]map[string]bool{
 		"/backups/{backend}/{id}/restore": {http.MethodPost: true},
+		// Deleting a missing alias answers 404. Covered in aliases_test.go.
+		"/aliases/{aliasName}": {http.MethodDelete: true},
 	}
 
 	for _, endpoint := range endpoints {

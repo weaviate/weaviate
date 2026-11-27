@@ -13,6 +13,9 @@ package authz
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -190,5 +193,122 @@ func TestAuthzUpdateAliasRequiresPermissionOnCurrentTarget(t *testing.T) {
 		_, err := helper.UpdateAliasAuthWithReturn(t, aliasName, scratchClass, malloryKey)
 		require.NoError(t, err)
 		assertTarget(t, scratchClass)
+	})
+}
+
+// TestAuthzAliasesHideForbiddenAlias pins that a caller without alias
+// permissions cannot tell an existing alias from a missing one.
+func TestAuthzAliasesHideForbiddenAlias(t *testing.T) {
+	adminKey := "admin-key"
+	noPermKey := "custom-key"
+	readerUser := "read-user"
+	readerKey := "read-key"
+	readerRole := "alias-reader"
+
+	compose, down := composeUpShared(t)
+	defer down()
+
+	target := articles.ParagraphsClass()
+	helper.CreateClassAuth(t, target, adminKey)
+	existing := "PublicView"
+	missing := "Payroll"
+	helper.CreateAliasAuth(t, &models.Alias{Alias: existing, Class: target.Class}, adminKey)
+
+	do := func(t *testing.T, method, path, key string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(method, fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), path), nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return resp.StatusCode, string(body)
+	}
+
+	tests := []struct {
+		name         string
+		method       string
+		existingPath string
+		missingPath  string
+		wantStatus   int
+	}{
+		{
+			name:         "get alias",
+			method:       http.MethodGet,
+			existingPath: "/aliases/" + existing,
+			missingPath:  "/aliases/" + missing,
+			wantStatus:   http.StatusNotFound,
+		},
+		{
+			name:         "delete alias",
+			method:       http.MethodDelete,
+			existingPath: "/aliases/" + existing,
+			missingPath:  "/aliases/" + missing,
+			wantStatus:   http.StatusNotFound,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			existingStatus, existingBody := do(t, tt.method, tt.existingPath, noPermKey)
+			missingStatus, missingBody := do(t, tt.method, tt.missingPath, noPermKey)
+
+			assert.Equal(t, tt.wantStatus, missingStatus)
+			assert.Equal(t, missingStatus, existingStatus)
+			assert.Equal(t, missingBody, existingBody)
+			assert.NotContains(t, existingBody, target.Class)
+			helper.GetAliasWithAuthz(t, existing, helper.CreateAuth(adminKey))
+		})
+	}
+
+	scopedReaders := []struct {
+		name string
+		user string
+		key  string
+		perm *models.Permission
+	}{
+		{
+			name: "reader scoped to other aliases",
+			user: "limited-user",
+			key:  "limited-key",
+			perm: helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithAlias("Other*").Permission(),
+		},
+		{
+			name: "reader scoped to another collection",
+			user: "write-user",
+			key:  "write-key",
+			perm: helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection("OtherCollection").Permission(),
+		},
+	}
+	for _, sr := range scopedReaders {
+		t.Run(sr.name, func(t *testing.T) {
+			role := "scoped-" + sr.user
+			helper.CreateRole(t, adminKey, &models.Role{Name: &role, Permissions: []*models.Permission{sr.perm}})
+			helper.AssignRoleToUser(t, adminKey, role, sr.user)
+
+			for _, method := range []string{http.MethodGet, http.MethodDelete} {
+				existingStatus, existingBody := do(t, method, "/aliases/"+existing, sr.key)
+				missingStatus, missingBody := do(t, method, "/aliases/"+missing, sr.key)
+
+				assert.Equal(t, http.StatusNotFound, missingStatus, method)
+				assert.Equal(t, missingStatus, existingStatus, method)
+				assert.Equal(t, missingBody, existingBody, method)
+			}
+			helper.GetAliasWithAuthz(t, existing, helper.CreateAuth(adminKey))
+		})
+	}
+
+	t.Run("delete by a caller who may read the alias is forbidden", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{Name: &readerRole, Permissions: []*models.Permission{
+			helper.NewAliasesPermission().WithAction(authorization.ReadAliases).Permission(),
+		}})
+		helper.AssignRoleToUser(t, adminKey, readerRole, readerUser)
+
+		status, _ := do(t, http.MethodDelete, "/aliases/"+existing, readerKey)
+		assert.Equal(t, http.StatusForbidden, status)
+		status, _ = do(t, http.MethodDelete, "/aliases/"+missing, readerKey)
+		assert.Equal(t, http.StatusNotFound, status)
+		helper.GetAliasWithAuthz(t, existing, helper.CreateAuth(adminKey))
 	})
 }
