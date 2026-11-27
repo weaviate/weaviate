@@ -965,6 +965,49 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
   - otro vector bajo un doc id indexado, que debe seguir rechazándose.
 - **El arreglo que propongo (*mío*):** un doc id ya indexado con el mismo vector, tal como el índice lo guarda, es una reentrega y se salta. Con otro vector sigue siendo un update, y se rechaza.
 
+### La reentrega de la cola: confirmada, arreglada, y lo que hacen HNSW, HFresh y la propia cola (2026-11-27)
+
+**Confirmado, y peor de lo que escribí arriba.** La cola no reintenta sin fin: el worker toma el rechazo por un error permanente y descarta el grupo entero (`queue/worker.go`). En el test de punta a punta, por un shard con indexación asíncrona, los 400 objetos importados después de la reentrega no se indexaron nunca, sin más aviso que una línea de log.
+
+**El arreglo (decisión del usuario), en `feat/posting-edge-integration-m2`** (`39d8448300` los tests en rojo, `d0fbd05006` el arreglo):
+- Un doc id que el índice ya tiene y llega con el mismo vector se salta en silencio: apartado antes de la base, en un posting, o borrado.
+- Con otro vector, el índice conserva el suyo, indexa el resto del lote y deja un aviso (`postingedge_vector_conflict`). Ni HNSW ni HFresh registran nada en ese caso, así que el aviso es *mío*.
+- Un id repetido dentro de un lote entra una vez.
+- Nada de eso hace fallar ya el lote.
+- **Propagado:** `feat/posting-edge-integration` (`8c7dc9f99f`, los dos commits con cherry-pick, sin arrastrar lo demás de `m2`) y `feat/posting-edge-backup` (`eb47743b11`), cada una con sus tests. `feat/posting-edge-none-direct` está fusionada en local (`fd5081de4a`) y se sube cuando acaben los suyos.
+
+**Tests en rojo desde main (`5d678d7acf`), sin arreglo, en una rama local (`local/queue-replay-red`), para una PR en borrador como #14003:**
+
+| test | qué muestra | alcance |
+|---|---|---|
+| la cola (`TestVectorIndexQueue_PermanentErrorOfOneVectorLosesTheRestOfItsGroup`) | un error no transitorio de un vector hace que el worker descarte la tarea, que es un `AddBatch` con todos los inserts de su parte del trozo: con 4 workers y 200 inserts, rechazar el vector 50 pierde otros 37 | cualquier índice; pérdida silenciosa de indexación (los objetos están, la búsqueda vectorial no los encuentra) |
+| HFresh (`TestAddBatchOfVectorsItHoldsIsAReplay`) | una reentrega añade otra vez cada vector a sus postings: 500 entradas pasan a 1 000 en el posting único, y 4 483 a 8 610 con postings | espacio y tiempo, no resultados: la búsqueda devuelve cada id una vez y los mismos k, y un borrado sigue borrado (esas aserciones pasan) |
+| HNSW (`TestAddBatchOfVectorsItHoldsIsAReplay`, *mío*: no estaba en el encargo) | una reentrega inserta cada id como un nodo nuevo en el lugar del que había: la capa 0 pasa de unos 98 700 enlaces a unos 68 300, quedan 130–230 enlaces de capas altas hacia nodos que ya no están en su capa, y el recall@10 al mismo ef baja de 0.98 a 0.955 | calidad: unos 2 puntos de recall por reentrega de un lote entero; sin duplicados en los resultados |
+
+- **Cuándo hay reentrega en main:** cualquier error transitorio de una tarea (memoria, solo lectura, disco lleno) cancela el lote y el trozo entero se lee otra vez, con las partes que ya habían entrado; también un `Flush` que falla o una caída antes de borrar el trozo.
+- La descripción de la PR está redactada; se abre cuando el usuario lo diga.
+
+### Los pasos 2 a 4 y la regla de reorganización: implementados; enmienda al pre-registro de sus medidas (2026-11-27 a las 12:05, antes de medir ninguno)
+
+**Implementados en local sobre `m2`, cada uno con sus tests, el paquete con `-race`, los tests por un shard y el lint. No se sube ninguno hasta tener su medida.**
+- **Paso 1** (`1a27c5a8e7`): planes con concurrencia 1.
+- **Paso 2** (`0b6700476f`): tandas de 32 con un aplicador, sobre los llamadores de `AddBatch`.
+  - Si un insert tiene que pagar su parte de una pasada (refresco, limpieza, vectores apartados), la paga tras su escritura, como antes, soltando el índice.
+  - El test de los llamadores falla solo al minuto, con lo que queda en la tanda, si sus planes no se aplican nunca.
+- **Paso 3** (`0918406a29`): una tanda es un registro del diario. Si una escritura falla a medias, falla la tanda entera para todos sus llamadores y el índice se para.
+- **Paso 4** (`f41aa7676c`, encargo del usuario): el vector va primero a su sitio en el fichero, y el registro lleva su posición, su longitud y su suma de control.
+  - Una copia tomada entre el vector y el registro abre como el índice de antes del insert: es un punto más del barrido de caídas.
+  - Al abrir se comprueba cada vector contra su suma. Si el fichero no lo tiene (solo tras la muerte de la máquina), se registra un error y el índice abre igual. **Que abra o no es una decisión que dejo al usuario (*mío*: abre).**
+  - Un binario anterior no lee un diario con el tipo nuevo. Solo importa tras una caída seguida de una vuelta atrás de versión.
+- **La regla de reorganización** (`4f1cb6b4a2`, encargo del usuario): con un insert en el último minuto, un layout solo cuando el índice tiene cuatro veces los vectores del último; un minuto después del último insert, o para quien llama a `Settle`, al doblar.
+  - **Pendiente (del usuario):** medir el coste en frío de una consulta mientras el índice crece con hasta 3 de cada 4 vectores sin ordenar.
+
+**Enmienda al pre-registro de las medidas (*mío*):**
+- **Los pasos 2 y 3** se miden como estaba escrito, cada uno contra la cabeza (`c6c8b2e347`), en la misma cadena que el paso 1 y la continuación del índice de 3.3M.
+- **El paso 4** se mide igual. Además del total escrito, doy los bytes del diario por insert, que el arnés ya cuenta.
+- **Un quinto punto, el paso 4 con la regla de reorganización:** a 100k los layouts de una ingesta pasan de tres (20k, 40k y 80k) a uno (40k). Doy inserts por segundo y bytes escritos, sin umbral.
+- **La línea de base cambia de significado desde el paso 2:** la cabeza no tiene el arreglo de la reentrega ni los pasos anteriores, así que cada razón es acumulada frente a la cabeza, no el efecto aislado del paso. El efecto de un paso sale de comparar su fila con la del paso anterior, entre cadenas distintas, y lo digo así.
+
 ### Los arreglos de `lsmkv` en las ramas del índice (2026-11-27, a petición del usuario)
 
 | | Set (`bf72a3bec8`, #13950) | Map (`87866f1cf8`, #13983) |
