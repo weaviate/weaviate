@@ -415,15 +415,17 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		}
 
 		require.Empty(t, upsert("ownRef", heldByNs1))
-		foreign := upsert("foreignRef", heldByNs2)
-		absent := upsert("absentRef", heldByNobody)
+		// Both go to one property name: a rejected beacon adds no property, and
+		// the error names the property.
+		foreign := upsert("classlessRef", heldByNs2)
+		absent := upsert("classlessRef", heldByNobody)
 		t.Logf("caller observed: foreign=%q absent=%q", foreign, absent)
 
 		dataTypes := map[string][]string{}
 		for _, prop := range helper.GetClassAuth(t, probe, user1Key).Properties {
 			dataTypes[prop.Name] = prop.DataType
 		}
-		for _, seen := range []string{foreign, absent, strings.Join(dataTypes["foreignRef"], ",")} {
+		for _, seen := range []string{foreign, absent} {
 			assert.NotContains(t, seen, ns2,
 				"the ns1 caller must not learn the namespace holding the id")
 			assert.NotContains(t, seen, victim,
@@ -435,8 +437,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 			"a beacon nothing resolves must be rejected, not typed as object[]")
 		assert.Equal(t, absent, foreign,
 			"an id another namespace holds must be rejected exactly like one nobody holds")
-		assert.NotContains(t, dataTypes, "foreignRef", "a rejected beacon must not add a property")
-		assert.NotContains(t, dataTypes, "absentRef", "a rejected beacon must not add a property")
+		assert.NotContains(t, dataTypes, "classlessRef", "a rejected beacon must not add a property")
 	})
 
 	t.Run("global principal auto-create rejected with 403", func(t *testing.T) {
