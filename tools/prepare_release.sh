@@ -25,7 +25,3 @@ tools/gen-code-from-swagger.sh
 git commit -a -m "prepare release v$VERSION"
 
 git tag -a "v$VERSION" -m "release v$VERSION - $MSG"
-
-echo "You can use the following template for the release notes, copy/paste below the line"
-echo "----------------------------"
-VERSION="$VERSION" LANGUAGES="$LANGUAGES" go run ./tools/release_template

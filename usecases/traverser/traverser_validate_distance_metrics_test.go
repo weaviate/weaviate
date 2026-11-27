@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestValidateCrossClassDistanceCompatibility(t *testing.T) {
@@ -31,10 +32,11 @@ func TestValidateCrossClassDistanceCompatibility(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		schema   schema.Schema
-		want     string
-		wantErrs []string
+		name              string
+		schema            schema.Schema
+		namespacesEnabled bool
+		want              string
+		wantErrs          []string
 	}{
 		{
 			name:   "no schema falls back to the default metric",
@@ -69,11 +71,24 @@ func TestValidateCrossClassDistanceCompatibility(t *testing.T) {
 			}}},
 			wantErrs: []string{"found different distance metrics", "class 'A' uses distance metric 'cosine'", "class 'B' uses distance metric 'dot'"},
 		},
+		{
+			name: "NAMESPACES_ENABLED refuses even with one metric",
+			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+				classWithDistance("ns1:Plain", common.DistanceCosine),
+			}}},
+			namespacesEnabled: true,
+			wantErrs:          []string{"not supported with NAMESPACES_ENABLED"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tr := &Traverser{schemaGetter: &fakeSchemaGetter{schema: tt.schema}}
+			tr := &Traverser{
+				config: &config.WeaviateConfig{Config: config.Config{
+					Namespaces: config.Namespaces{Enabled: tt.namespacesEnabled},
+				}},
+				schemaGetter: &fakeSchemaGetter{schema: tt.schema},
+			}
 
 			got, err := tr.validateCrossClassDistanceCompatibility(nil)
 			if len(tt.wantErrs) > 0 {

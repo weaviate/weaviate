@@ -277,8 +277,15 @@ const (
 // that is not a global operator. Keeps a reserved role's existence from leaking
 // through the assign/revoke/update/delete responses, mirroring the read paths.
 func (h *authZHandlers) resolveRoleNameForCaller(principal *models.Principal, rawID string) (string, error) {
+	if err := validateRoleID(rawID); err != nil {
+		return "", err
+	}
 	stored, err := namespacing.ResolveRoleName(principal, h.namespacesEnabled, rawID, h.roleExists)
 	if err != nil {
+		return "", err
+	}
+	// A namespace named "role" qualifies a bare name into a global role's casbin key.
+	if err := validateRoleID(stored); err != nil {
 		return "", err
 	}
 	if rolevisibility.RoleOperatorReservedFromCaller(h.namespacesEnabled, principal, stored) {
@@ -297,6 +304,9 @@ func (h *authZHandlers) resolveRoleNameForCaller(principal *models.Principal, ra
 // callers needing them avoid a second GetRoles; it is nil otherwise.
 func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *models.Principal, rawID string) (roleID string, policies []authorization.Policy, outcome roleReadOutcome, err error) {
 	if !h.namespacesEnabled {
+		if err := validateRoleID(rawID); err != nil {
+			return "", nil, roleReadBadRequest, err
+		}
 		if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, rawID); err != nil {
 			return "", nil, roleReadForbidden, err
 		}
@@ -395,6 +405,9 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	if err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
+	if err := validateRoleID(roleName); err != nil {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	// Reject namespace-qualified resource paths up front (callers submit bare
 	// names; a namespaced caller's are auto-prefixed below).
@@ -447,7 +460,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+	if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(params.ID)) {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not update built-in role %s", params.ID)))
 	}
 
@@ -559,7 +572,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		permissions[i] = &policies[i]
 	}
 
-	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+	if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(params.ID)) {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you cannot update built-in role %s", params.ID)))
 	}
 
@@ -792,7 +805,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+	if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(params.ID)) {
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not delete built-in role %s", params.ID)))
 	}
 
@@ -949,6 +962,10 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 
 		if err := validateEnvVarRoles(role); err != nil {
 			return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("assigning: %w", err)))
+		}
+
+		if err := validateRoleID(role); err != nil {
+			return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -1326,6 +1343,10 @@ func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDe
 			errors.New("endpoint is not supported in the current cluster configuration")))
 	}
 
+	if err := validateRoleID(params.ID); err != nil {
+		return authz.NewGetUsersForRoleDeprecatedBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	if err := validateEnvVarRoles(params.ID); err != nil && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -1472,6 +1493,10 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 
 		if err := validateEnvVarRoles(role); err != nil {
 			return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("revoking: %w", err)))
+		}
+
+		if err := validateRoleID(role); err != nil {
+			return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -1676,7 +1701,7 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 
 // validateEnvVarRoles validates that enduser do not touch the internal root role
 func validateEnvVarRoles(name string) error {
-	if slices.Contains(authorization.EnvVarRoles, name) {
+	if slices.Contains(authorization.EnvVarRoles, conv.TrimRoleNamePrefix(name)) {
 		return fmt.Errorf("modifying '%s' role or changing its assignments is not allowed", name)
 	}
 	return nil
@@ -1713,6 +1738,14 @@ func (h *authZHandlers) validateNotConfiguredGrant(internalID string, userType a
 				return fmt.Errorf("revoking: role '%s' of user '%s' is set by %s; remove the user from that setting instead", g.Role, internalID, configuredGrantSettings[g.Role])
 			}
 		}
+	}
+	return nil
+}
+
+// validateRoleID rejects a role ID carrying the casbin "role:" prefix, which would alias the unprefixed role.
+func validateRoleID(id string) error {
+	if strings.HasPrefix(id, conv.ROLE_NAME_PREFIX) {
+		return fmt.Errorf("'%s' is %w", id, namespacing.ErrInvalidRoleName)
 	}
 	return nil
 }

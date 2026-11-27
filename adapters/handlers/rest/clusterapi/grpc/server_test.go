@@ -68,11 +68,16 @@ func Test_ServerReplicationService(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name string
-		auth bool
+		name                string
+		auth                bool
+		sendOnly            bool
+		clientNoCreds       bool
+		wantUnauthenticated bool
 	}{
 		{name: "no auth"},
 		{name: "with auth", auth: true},
+		{name: "send only, client without creds", auth: true, sendOnly: true, clientNoCreds: true},
+		{name: "verify, client without creds", auth: true, clientNoCreds: true, wantUnauthenticated: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			grpcDialOpts := []grpcext.DialOption{grpcext.WithTransportCredentials(insecure.NewCredentials())}
@@ -84,12 +89,15 @@ func Test_ServerReplicationService(t *testing.T) {
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Password = pass
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Username = user
 
-				authHeader := grpcconn.BasicAuthHeader(user, pass)
-				grpcDialOpts = append(grpcDialOpts, grpcext.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)))
+				if !tt.clientNoCreds {
+					authHeader := grpcconn.BasicAuthHeader(user, pass)
+					grpcDialOpts = append(grpcDialOpts, grpcext.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)))
+				}
 			} else {
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Password = ""
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Username = ""
 			}
+			state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.SendOnly = tt.sendOnly
 
 			mockReplicator := types.NewMockReplicator(t)
 
@@ -106,6 +114,16 @@ func Test_ServerReplicationService(t *testing.T) {
 
 			go s.Serve()
 			defer s.Close(ctx)
+
+			if tt.wantUnauthenticated {
+				// bound the call: if the server wrongly accepts it, the test fails
+				// fast instead of waiting for the client's own query timeout
+				callCtx, callCancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer callCancel()
+				_, err := client.DigestObjects(callCtx, host, "C", "S", []strfmt.UUID{"id1"}, 9)
+				require.Equal(t, codes.Unauthenticated, status.Code(err))
+				return
+			}
 
 			t.Run("DigestObjects", func(t *testing.T) {
 				c := "C"

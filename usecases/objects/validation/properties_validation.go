@@ -116,8 +116,8 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 					}
 					if len(prop.DataType) > 1 {
 						// A classless beacon would reach Exists with an empty class,
-						// which scans every collection, other namespaces' included.
-						// With namespaces on, no DELETE could remove it.
+						// which scans every collection; with namespaces,
+						// DB.anyExists refuses that lookup, so refuse the beacon here.
 						if err := CheckMultiTargetRefWithoutClass(v.config, v.refCounter); err != nil {
 							return fmt.Errorf("'cref' %s:%s: %w", className, propertyKey, err)
 						}
