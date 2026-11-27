@@ -263,6 +263,22 @@ func TestDropUnloaded_DuringARebuild(t *testing.T) {
 	}
 }
 
+// A shard with tasks but no mapping is refused before anything is deleted.
+func TestDropUnloaded_RefusesTasksWithoutAMapping(t *testing.T) {
+	dir := t.TempDir()
+	db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	require.NoError(t, newTaskStore(db).Put("title", rebuildOf("vectors_title", "a-b")))
+	require.NoError(t, db.Close())
+	plant(t, append(files(dir, "vectors_title"), files(dir, "vectors_a-b")...)...)
+
+	err = DropUnloaded(dir, "title", nil)
+	require.ErrorContains(t, err, "rebuild tasks without a vector index mapping")
+	for _, path := range append(files(dir, "vectors_title"), files(dir, "vectors_a-b")...) {
+		assert.DirExists(t, path)
+	}
+}
+
 // The drop refuses a task that names another vector's index.
 func TestDropUnloaded_RefusesATaskNamingASibling(t *testing.T) {
 	dir := t.TempDir()
