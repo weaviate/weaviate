@@ -366,3 +366,22 @@ var aggregateTestSchema = schema.Schema{
 		},
 	},
 }
+
+func Test_Traverser_Aggregate_UsesGivenClassName(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	vectorRepo := &fakeVectorRepo{}
+	// the alias entry proves the given name is not resolved again
+	schemaGetter := &aliasSchemaGetter{
+		fakeSchemaGetter: &fakeSchemaGetter{aggregateTestSchema},
+		aliases:          map[string]string{"MyClass": "OtherClass"},
+	}
+	traverser := NewTraverser(&config.WeaviateConfig{}, logger, mocks.NewMockAuthorizer(),
+		vectorRepo, &fakeExplorer{}, schemaGetter, nil, nil, -1)
+
+	params := aggregation.Params{ClassName: "MyClass", IncludeMetaCount: true}
+	vectorRepo.On("Aggregate", params).Return(&aggregation.Result{}, nil).Once()
+
+	_, err := traverser.Aggregate(context.Background(), &models.Principal{}, &params)
+	require.NoError(t, err)
+	vectorRepo.AssertExpectations(t)
+}

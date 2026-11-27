@@ -139,7 +139,6 @@ type Compose struct {
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
 
-	withWeaviateAuth               bool
 	withWeaviateBasicAuth          bool
 	withWeaviateBasicAuthUsername  string
 	withWeaviateBasicAuthPassword  string
@@ -173,6 +172,7 @@ type Compose struct {
 	removeEnvs                     map[string]struct{}
 	weaviateFiles                  []testcontainers.ContainerFile
 	weaviateHostGateway            bool
+	weaviateDataVolumes            bool
 }
 
 func New() *Compose {
@@ -651,11 +651,6 @@ func (d *Compose) WithWeaviateBasicAuth(username, password string) *Compose {
 	return d
 }
 
-func (d *Compose) WithWeaviateAuth() *Compose {
-	d.withWeaviateAuth = true
-	return d.With1NodeCluster()
-}
-
 func (d *Compose) WithAdminListAdmins(users ...string) *Compose {
 	d.weaviateAdminlistAdminUsers = users
 	return d
@@ -681,6 +676,15 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 // container Stop/Start, so it works with the restart-based tests.
 func (d *Compose) WithWeaviateHostGateway() *Compose {
 	d.weaviateHostGateway = true
+	return d
+}
+
+// WithWeaviateDataVolumes mounts a named volume per Weaviate node at its data
+// directory, so ReplaceNodeWithEnv can start a new container on the old data.
+// When startCluster retries a node start, the retry mounts the volume the
+// failed attempt wrote to.
+func (d *Compose) WithWeaviateDataVolumes() *Compose {
+	d.weaviateDataVolumes = true
 	return d
 }
 
@@ -1082,7 +1086,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 				containers = append(containers, c)
 			}
 		}
-		return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, err
+		return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers, dataVolumes: d.weaviateDataVolumes}, err
 	}
 
 	if d.withSecondWeaviate {
@@ -1100,17 +1104,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.containerFiles(), d.weaviateHostGateway)
+		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.containerFiles(), d.weaviateHostGateway, d.weaviateDataVolumes)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
 		if err != nil {
-			return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, errors.Wrapf(err, "start %s", hostname)
+			return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers, dataVolumes: d.weaviateDataVolumes}, errors.Wrapf(err, "start %s", hostname)
 		}
 	}
 
-	return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers}, nil
+	return &DockerCompose{network: network, netOctet: d.netOctet, containers: containers, dataVolumes: d.weaviateDataVolumes}, nil
 }
 
 func (d *Compose) With1NodeCluster() *Compose {
@@ -1156,15 +1160,6 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateBasicAuth {
 		settings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
 		settings["CLUSTER_BASIC_AUTH_PASSWORD"] = d.withWeaviateBasicAuthPassword
-	}
-	if d.withWeaviateAuth {
-		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
-		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.weaviate.cloud/Peuc12y02UA0eAED1dqSjE5HtGUrpBsx"
-		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
-		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "roles"
-		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
-		settings["AUTHORIZATION_ADMINLIST_USERS"] = "oidc-test-user@weaviate.io"
 	}
 	if len(d.weaviateAdminlistAdminUsers) > 0 {
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
@@ -1288,7 +1283,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules,
-				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.containerFiles(), d.weaviateHostGateway)
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.containerFiles(), d.weaviateHostGateway, d.weaviateDataVolumes)
 			cancel()
 			if err == nil {
 				if attempt > 0 {

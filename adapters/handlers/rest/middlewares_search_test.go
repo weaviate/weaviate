@@ -19,24 +19,58 @@ import (
 	"strings"
 	"testing"
 
+	openapierrors "github.com/go-openapi/errors"
+	"github.com/go-openapi/loads"
+	"github.com/go-openapi/runtime/middleware"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
+// searchTestAppState sets the fields makeSetupGlobalMiddleware reads when
+// monitoring, Sentry and telemetry are off.
 func searchTestAppState(mode string) *state.State {
+	logger, _ := logrustest.NewNullLogger()
 	return &state.State{
 		ServerConfig: &config.WeaviateConfig{
 			Config: config.Config{
 				OperationalMode: configRuntime.NewDynamicValue(mode),
+				Sentry:          &entsentry.ConfigOpts{},
 			},
 		},
+		Logger: logger,
 	}
+}
+
+// routableContext returns a context whose router matches the Weaviate spec.
+func routableContext(t *testing.T) *middleware.Context {
+	t.Helper()
+	spec, err := loads.Embedded(SwaggerJSON, FlatSwaggerJSON)
+	require.NoError(t, err)
+	api := operations.NewWeaviateAPI(spec)
+	api.Init()
+	return middleware.NewRoutableContext(spec, api, middleware.DefaultRouter(spec, api))
+}
+
+// newGlobalChain builds the production REST handler: the global chain wrapped
+// around api.Serve. api.Serve runs its spec, docs and router handlers before
+// the operation. A nextRecorder replaces every operation, so a request that
+// reaches an operation gets 418.
+func newGlobalChain(t *testing.T, appState *state.State) http.Handler {
+	t.Helper()
+	spec, err := loads.Embedded(SwaggerJSON, FlatSwaggerJSON)
+	require.NoError(t, err)
+	api := operations.NewWeaviateAPI(spec)
+	inner := api.Serve(func(http.Handler) http.Handler { return &nextRecorder{} })
+	return makeSetupGlobalMiddleware(appState, api.Context(), nil)(inner)
 }
 
 // nextRecorder is a sentinel next handler that records having been reached.
@@ -49,21 +83,78 @@ func (n *nextRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusTeapot) // distinguishable from anything real
 }
 
-// TestAddOperationalModeSearchRoutes covers the operational-mode
-// classification of REST search requests: they carry POST bodies (an HTTP
-// "write" method) but are semantically reads, so they stay available in
-// READ_ONLY/SCALE_OUT and are blocked in WRITE_ONLY.
-func TestAddOperationalModeSearchRoutes(t *testing.T) {
+func TestAddOperationalMode(t *testing.T) {
 	searchBody := func() *strings.Reader { return strings.NewReader(`{"query":"space"}`) }
+	routes := routableContext(t)
 
 	run := func(t *testing.T, appState *state.State, method, path string) (*nextRecorder, *httptest.ResponseRecorder) {
 		t.Helper()
 		next := &nextRecorder{}
-		handler := addOperationalMode(appState, next)
+		handler := addMatchedRoute(routes, addOperationalMode(appState, next))
 		req := httptest.NewRequest(method, path, searchBody())
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		return next, rec
+	}
+
+	// POST /v1 and * match no route, so the gate passes them on and the
+	// router answers. GET /v1 matches the root route, which every mode allows.
+	shortPathTests := []struct {
+		name       string
+		mode       string
+		method     string
+		path       string
+		wantNext   bool
+		wantStatus int
+	}{
+		{
+			name:       "READ_ONLY leaves a write to the API root to the router",
+			mode:       config.READ_ONLY,
+			method:     http.MethodPost,
+			path:       "/v1",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+		{
+			name:       "SCALE_OUT leaves a write to the API root to the router",
+			mode:       config.SCALE_OUT,
+			method:     http.MethodPost,
+			path:       "/v1",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+		{
+			name:       "WRITE_ONLY lets the API root be read",
+			mode:       config.WRITE_ONLY,
+			method:     http.MethodGet,
+			path:       "/v1",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+		{
+			name:       "READ_ONLY leaves a target without path segments to the router",
+			mode:       config.READ_ONLY,
+			method:     http.MethodPost,
+			path:       "*",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+		{
+			name:       "READ_ONLY keeps non-v1 paths available",
+			mode:       config.READ_ONLY,
+			method:     http.MethodPost,
+			path:       "/",
+			wantNext:   true,
+			wantStatus: http.StatusTeapot,
+		},
+	}
+	for _, test := range shortPathTests {
+		t.Run(test.name, func(t *testing.T) {
+			next, rec := run(t, searchTestAppState(test.mode), test.method, test.path)
+
+			assert.Equal(t, test.wantNext, next.called)
+			assert.Equal(t, test.wantStatus, rec.Code)
+		})
 	}
 
 	t.Run("READ_ONLY lets search through", func(t *testing.T) {
@@ -211,8 +302,29 @@ func TestAddSearchBodyLimit(t *testing.T) {
 			wantNext:      true,
 			wantStatus:    http.StatusTeapot,
 		},
+		{
+			// the router binds A%2FB to one collection parameter
+			name:          "encoded-slash search is capped",
+			path:          "/v1/search/A%2FB/bm25",
+			contentLength: restsearch.MaxBodyBytes + 1,
+			wantStatus:    http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:          "encoded-slash aggregate is capped",
+			path:          "/v1/aggregate/A%2FB",
+			contentLength: restsearch.MaxBodyBytes + 1,
+			wantStatus:    http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:          "unmatched search-shaped path is not capped",
+			path:          "/v1/search/Movie/nosuch",
+			contentLength: restsearch.MaxBodyBytes + 1,
+			wantNext:      true,
+			wantStatus:    http.StatusTeapot,
+		},
 	}
 
+	routes := routableContext(t)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			next := &nextRecorder{}
@@ -220,7 +332,7 @@ func TestAddSearchBodyLimit(t *testing.T) {
 			req.ContentLength = test.contentLength
 			rec := httptest.NewRecorder()
 
-			addSearchBodyLimit(next).ServeHTTP(rec, req)
+			addMatchedRoute(routes, addSearchBodyLimit(next)).ServeHTTP(rec, req)
 
 			assert.Equal(t, test.wantNext, next.called)
 			assert.Equal(t, test.wantStatus, rec.Code)
@@ -233,6 +345,232 @@ func TestAddSearchBodyLimit(t *testing.T) {
 			require.Len(t, body.Error, 1)
 			assert.Equal(t, fmt.Sprintf("request body exceeds the %d byte limit", restsearch.MaxBodyBytes),
 				body.Error[0].Message)
+		})
+	}
+}
+
+// TestGlobalChainOperationalMode drives the production global chain, so the
+// gate and the body cap see only the route that addMatchedRoute adds.
+func TestGlobalChainOperationalMode(t *testing.T) {
+	const reference = "/v1/objects/Movie/8c29da7a-600a-43dc-85fb-83ab2b08c294/references/p"
+	allModes := []string{config.READ_WRITE, config.READ_ONLY, config.SCALE_OUT, config.WRITE_ONLY}
+	chains := map[string]http.Handler{}
+	for _, mode := range allModes {
+		chains[mode] = newGlobalChain(t, searchTestAppState(mode))
+	}
+
+	serve := func(h http.Handler, method, target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(method, target, strings.NewReader(`{}`)))
+		return rec
+	}
+
+	t.Run("bypass", func(t *testing.T) {
+		type bypass struct{ method, target, canonical string }
+		slashAndDot := []string{"//v1/objects", "/./v1/objects", "/x/../v1/objects", "/a%2Fb/../v1/objects"}
+		var writes, reads []bypass
+		for _, target := range slashAndDot {
+			writes = append(writes, bypass{http.MethodPost, target, "/v1/objects"})
+			reads = append(reads, bypass{http.MethodGet, target, "/v1/objects"})
+		}
+		writes = append(writes, bypass{http.MethodPost, "/v1/objects/%2E%2E/search/references/p", reference})
+		reads = append(reads,
+			bypass{http.MethodPost, "/v1/search/A%2FB/bm25", "/v1/search/Movie/bm25"},
+			bypass{http.MethodPost, "/v1/aggregate/A%2FB", "/v1/aggregate/Movie"},
+		)
+		byMode := map[string][]bypass{config.READ_ONLY: writes, config.SCALE_OUT: writes, config.WRITE_ONLY: reads}
+
+		for _, mode := range []string{config.READ_ONLY, config.SCALE_OUT, config.WRITE_ONLY} {
+			h := chains[mode]
+			for _, b := range byMode[mode] {
+				t.Run(mode+"/"+b.method+" "+b.target, func(t *testing.T) {
+					want := serve(h, b.method, b.canonical)
+					require.Equal(t, http.StatusServiceUnavailable, want.Code)
+
+					got := serve(h, b.method, b.target)
+					assert.Equal(t, want.Code, got.Code)
+					assert.Equal(t, want.Header().Get("Content-Type"), got.Header().Get("Content-Type"))
+					assert.Equal(t, want.Body.String(), got.Body.String())
+				})
+			}
+		}
+	})
+
+	t.Run("canonical", func(t *testing.T) {
+		tests := []struct {
+			mode, method, target string
+			want                 int
+		}{
+			{config.READ_WRITE, http.MethodPost, "/v1/objects", http.StatusTeapot},
+			{config.READ_WRITE, http.MethodGet, "/v1/objects", http.StatusTeapot},
+			{config.READ_WRITE, http.MethodPost, "/v1/search/Movie/bm25", http.StatusTeapot},
+			{config.READ_WRITE, http.MethodPost, "/v1/aggregate/Movie", http.StatusTeapot},
+			{config.READ_ONLY, http.MethodPost, "/v1/objects", http.StatusServiceUnavailable},
+			{config.READ_ONLY, http.MethodPost, reference, http.StatusServiceUnavailable},
+			{config.READ_ONLY, http.MethodGet, "/v1/objects", http.StatusTeapot},
+			{config.READ_ONLY, http.MethodPost, "/v1/search/Movie/bm25", http.StatusTeapot},
+			{config.READ_ONLY, http.MethodPost, "/v1/aggregate/Movie", http.StatusTeapot},
+			{config.READ_ONLY, http.MethodPost, "/v1/graphql", http.StatusTeapot},
+			{config.SCALE_OUT, http.MethodPost, "/v1/objects", http.StatusServiceUnavailable},
+			{config.SCALE_OUT, http.MethodGet, "/v1/objects", http.StatusTeapot},
+			{config.SCALE_OUT, http.MethodPost, "/v1/search/Movie/bm25", http.StatusTeapot},
+			{config.SCALE_OUT, http.MethodPost, "/v1/aggregate/Movie", http.StatusTeapot},
+			{config.SCALE_OUT, http.MethodPost, "/v1/replication/replicate", http.StatusTeapot},
+			{config.WRITE_ONLY, http.MethodPost, "/v1/objects", http.StatusTeapot},
+			{config.WRITE_ONLY, http.MethodGet, "/v1/objects", http.StatusServiceUnavailable},
+			{config.WRITE_ONLY, http.MethodPost, "/v1/search/Movie/bm25", http.StatusServiceUnavailable},
+			{config.WRITE_ONLY, http.MethodPost, "/v1/aggregate/Movie", http.StatusServiceUnavailable},
+			{config.WRITE_ONLY, http.MethodGet, "/v1/meta", http.StatusTeapot},
+			{config.WRITE_ONLY, http.MethodGet, "/v1/nodes", http.StatusTeapot},
+		}
+		for _, tc := range tests {
+			t.Run(tc.mode+"/"+tc.method+" "+tc.target, func(t *testing.T) {
+				assert.Equal(t, tc.want, serve(chains[tc.mode], tc.method, tc.target).Code)
+			})
+		}
+	})
+
+	t.Run("method case", func(t *testing.T) {
+		const object = "/v1/objects/Movie/8c29da7a-600a-43dc-85fb-83ab2b08c294"
+		// the router upper-cases the method before matching
+		tests := []struct {
+			mode, method, target string
+			want                 int
+		}{
+			{config.READ_WRITE, "get", "/v1/objects", http.StatusTeapot},
+			{config.WRITE_ONLY, "get", "/v1/objects", http.StatusServiceUnavailable},
+			{config.WRITE_ONLY, "Get", "/v1/objects", http.StatusServiceUnavailable},
+			{config.WRITE_ONLY, "post", "/v1/objects", http.StatusTeapot},
+			{config.WRITE_ONLY, "get", "/v1/meta", http.StatusTeapot},
+			{config.READ_ONLY, "get", "/v1/objects", http.StatusTeapot},
+			{config.READ_ONLY, "post", "/v1/objects", http.StatusServiceUnavailable},
+			{config.READ_ONLY, "Post", "/v1/objects", http.StatusServiceUnavailable},
+			{config.READ_ONLY, "head", object, http.StatusTeapot},
+			{config.SCALE_OUT, "get", "/v1/objects", http.StatusTeapot},
+			{config.SCALE_OUT, "post", "/v1/objects", http.StatusServiceUnavailable},
+			{config.SCALE_OUT, "Post", "/v1/objects", http.StatusServiceUnavailable},
+		}
+		for _, tc := range tests {
+			t.Run(tc.mode+"/"+tc.method+" "+tc.target, func(t *testing.T) {
+				h := chains[tc.mode]
+				want := serve(h, strings.ToUpper(tc.method), tc.target)
+				require.Equal(t, tc.want, want.Code)
+
+				got := serve(h, tc.method, tc.target)
+				assert.Equal(t, want.Code, got.Code)
+				if tc.want == http.StatusServiceUnavailable {
+					assert.Equal(t, want.Header().Get("Content-Type"), got.Header().Get("Content-Type"))
+					assert.Equal(t, want.Body.String(), got.Body.String())
+				}
+			})
+		}
+	})
+
+	t.Run("root readable in WriteOnly", func(t *testing.T) {
+		assert.Equal(t, http.StatusTeapot, serve(chains[config.WRITE_ONLY], http.MethodGet, "/v1").Code)
+	})
+
+	t.Run("unmatched", func(t *testing.T) {
+		tests := []struct {
+			method, target string
+			want           int
+		}{
+			{http.MethodPost, "/v1/nosuch", http.StatusNotFound},
+			{http.MethodPost, "/v1/%67raphql", http.StatusNotFound},
+			{http.MethodPost, "/%761/objects", http.StatusNotFound},
+			{http.MethodPost, "/v1", http.StatusMethodNotAllowed},
+		}
+		for _, mode := range allModes {
+			for _, tc := range tests {
+				t.Run(mode+"/"+tc.method+" "+tc.target, func(t *testing.T) {
+					assert.Equal(t, tc.want, serve(chains[mode], tc.method, tc.target).Code)
+				})
+			}
+		}
+	})
+
+	t.Run("no panic", func(t *testing.T) {
+		// net/http answers OPTIONS * itself, so only a direct handler call
+		// delivers it to the chain
+		targets := []struct{ name, target string }{
+			{"root", "/v1"},
+			{"asterisk", "*"},
+			{"empty path", "http://example.com"},
+		}
+		for _, mode := range allModes {
+			for _, tg := range targets {
+				for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodOptions} {
+					t.Run(mode+"/"+method+" "+tg.name, func(t *testing.T) {
+						var rec *httptest.ResponseRecorder
+						assert.NotPanics(t, func() { rec = serve(chains[mode], method, tg.target) })
+						if rec != nil {
+							assert.NotEqual(t, http.StatusServiceUnavailable, rec.Code)
+						}
+					})
+				}
+			}
+		}
+	})
+
+	t.Run("body cap is wired", func(t *testing.T) {
+		tests := []struct{ name, mode, target string }{
+			{"encoded-slash search in ReadWrite", config.READ_WRITE, "/v1/search/A%2FB/bm25"},
+			// the cap runs before the gate, so 413 wins over 503
+			{"canonical search in WriteOnly", config.WRITE_ONLY, "/v1/search/Movie/bm25"},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodPost, tc.target, strings.NewReader(`{}`))
+				req.ContentLength = restsearch.MaxBodyBytes + 1
+				rec := httptest.NewRecorder()
+				chains[tc.mode].ServeHTTP(rec, req)
+				assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+			})
+		}
+	})
+}
+
+func TestSearchServeError(t *testing.T) {
+	spec, err := loads.Embedded(SwaggerJSON, FlatSwaggerJSON)
+	require.NoError(t, err)
+	api := operations.NewWeaviateAPI(spec)
+	setupSearchServeError(api)
+
+	tests := []struct {
+		name            string
+		target          string
+		wantSearchShape bool
+	}{
+		{name: "search route", target: "/v1/search/A/nosuch", wantSearchShape: true},
+		{name: "search route with an encoded slash", target: "/v1/search/A%2FB/nosuch", wantSearchShape: true},
+		{name: "aggregate route", target: "/v1/aggregate/A", wantSearchShape: true},
+		{name: "aggregate route with an encoded slash", target: "/v1/aggregate/A%2FB", wantSearchShape: true},
+		{name: "non-search route falls through to the default", target: "/v1/objects/x", wantSearchShape: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			api.ServeError(rec, httptest.NewRequest(http.MethodPost, tt.target, nil), openapierrors.NotFound("not found"))
+
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+
+			var searchBody models.ErrorResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &searchBody))
+			var defaultBody struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultBody))
+
+			if tt.wantSearchShape {
+				require.Len(t, searchBody.Error, 1, rec.Body.String())
+				assert.NotEmpty(t, searchBody.Error[0].Message)
+				assert.Empty(t, defaultBody.Message)
+				return
+			}
+			assert.Empty(t, searchBody.Error, rec.Body.String())
+			assert.Equal(t, http.StatusNotFound, defaultBody.Code)
+			assert.NotEmpty(t, defaultBody.Message)
 		})
 	}
 }

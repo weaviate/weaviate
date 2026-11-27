@@ -152,7 +152,11 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 		return nil, nil
 	}
 
-	oldMainBucket, err := store.SwapBucketPointer(ctx, mainName, ingestName)
+	swap := store.SwapBucketPointer
+	if _, enables := migrationEnablesIndexType(t.migrationType); enables {
+		swap = store.InstallOrSwapBucketPointer
+	}
+	oldMainBucket, err := swap(ctx, mainName, ingestName)
 	if err != nil {
 		return nil, fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
 	}
@@ -204,6 +208,9 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
 		return false, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+	}
+	if err := t.refuseUnmirroredOn(concreteShard); err != nil {
+		return false, err
 	}
 
 	// context.Canceled means the index is closing — propagate unwrapped so
@@ -345,9 +352,6 @@ func (t *ShardReindexTaskGeneric) runSwapOnShard(ctx context.Context, shard Shar
 		logger.WithField("property_count", len(props)).
 			WithField("props", migrationReportedNames(props)).
 			Info("RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
-		if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
-			return err
-		}
 		if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
 			return fmt.Errorf("ensure buckets loaded: %w", err)
 		}
@@ -533,24 +537,14 @@ func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardL
 }
 
 // The flip needs a canonical bucket to point at; a waiting promotion opened none.
-func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context,
+func (t *ShardReindexTaskGeneric) refuseClosedCanonicalBuckets(ctx context.Context,
 	shard ShardLike, props []string,
 ) error {
 	concrete, err := unwrapShard(ctx, shard)
 	if err != nil {
-		return fmt.Errorf("open the canonical buckets this completion advertises: %w", err)
+		return fmt.Errorf("check the canonical buckets this completion advertises: %w", err)
 	}
-	closed := make([]string, 0, len(props))
 	for _, propName := range props {
-		if concrete.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
-			closed = append(closed, propName)
-		}
-	}
-	if len(closed) == 0 {
-		return nil
-	}
-	t.strategy.PreReindexHook(concrete, closed)
-	for _, propName := range closed {
 		name := t.strategy.SourceBucketName(propName)
 		if concrete.store.Bucket(name) == nil {
 			return fmt.Errorf("refusing to report migration complete for property %q: its canonical bucket %q "+
@@ -563,7 +557,7 @@ func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context
 func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
-	if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+	if err := t.refuseClosedCanonicalBuckets(ctx, shard, props); err != nil {
 		return err
 	}
 	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
@@ -697,11 +691,10 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 	return t.onAfterLsmInit(ctx, shard)
 }
 
-// Recovery's entry creates nothing: a record says how far a migration got, not that it
-// is live. No closing check: some NewShard routes already hold closeLock.RLock.
+// OnAfterLsmInit writes a record only to restart a migration whose owned directory is gone. It skips closingGuard because some NewShard routes hold closeLock.RLock.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
 	rec, hasRecord := t.migrationRecord(shard)
-	if !hasRecord || !rec.IterationComplete() || rec.State() == MigrationStatePromoted {
+	if !hasRecord || rec.State() == MigrationStatePromoted {
 		return nil
 	}
 	// Only a task verdict wedges an unflipped record at load, and its copy is never read.
@@ -761,6 +754,10 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 		logger.Debug("merged, not swapped. starting ingest buckets")
 	} else {
 		if hasRecord {
+			// loadReindexBuckets creates a missing directory empty, so resuming without this restart would swap in an empty rebuild.
+			if err = restartIfOwnedDirGone(logger, shard, rec.Subject()); err != nil {
+				return false, err
+			}
 			logger.Debug("resuming reindex buckets from disk")
 		} else {
 			logger.Debug("not reindexed. starting reindex buckets")
@@ -802,6 +799,30 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	return true, nil
 }
 
+func restartIfOwnedDirGone(logger logrus.FieldLogger, shard *Shard, subject MigrationSubject) error {
+	dirs := shardBucketDirs(shard.pathLSM())
+	for _, dir := range migrationOwnedDirs(subject) {
+		there, err := dirs.Exists(dir)
+		if err != nil {
+			return err
+		}
+		if there {
+			continue
+		}
+
+		restarted := subject
+		restarted.IterationCutoff = migrationHorizonEverything
+
+		logger.WithField("record", subject.Key.String()).Warnf(
+			"rebuilt data at %q is gone; restarting the rebuild from the beginning and re-covering the horizon the mirror held", dir)
+		if err := shard.migrationRecordStore().Put(NewMigrationRecordIterating(restarted, MigrationCheckpoint{})); err != nil {
+			return fmt.Errorf("record the restart for lost %q: %w", dir, err)
+		}
+		return nil
+	}
+	return nil
+}
+
 // A load holds this promotion back while the schema leaves the index off, and
 // the flip renames nothing, so until the next load the canonical name must keep
 // serving what it served before the restart.
@@ -815,7 +836,8 @@ func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, s
 			continue
 		}
 		// A removed index opens no canonical bucket, so nothing reads one.
-		if shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
+		_, enables := migrationEnablesIndexType(t.migrationType)
+		if !enables && shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
 			continue
 		}
 		displaced, err := t.processOneSwapProp(ctx, shard.store, 0, propName)
@@ -871,9 +893,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			if concrete, err = unwrapShard(ctx, shard); err != nil {
 				return zerotime, err
 			}
-			if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
-				return zerotime, err
-			}
 			if err = t.ensureReindexBucketsLoadedForSwap(ctx, logger, concrete, props); err != nil {
 				err = fmt.Errorf("ensure buckets loaded: %w", err)
 				return zerotime, err
@@ -884,7 +903,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if err = t.requireCanonicalHoldsMigratedData(shard, rec); err != nil {
 			return zerotime, err
 		}
-		if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+		if err = t.refuseClosedCanonicalBuckets(ctx, shard, props); err != nil {
 			return zerotime, err
 		}
 		// Same ordering contract as runtimeSwap (see there for reasoning):
@@ -1489,6 +1508,14 @@ func (t *ShardReindexTaskGeneric) refuseUnmirrored(subject MigrationSubject) err
 		"new migration covering the same properties", t.migrationRecordKey())
 }
 
+func (t *ShardReindexTaskGeneric) refuseUnmirroredOn(shard ShardLike) error {
+	rec, ok := t.migrationRecord(shard)
+	if !ok {
+		return nil
+	}
+	return t.refuseUnmirrored(rec.Subject())
+}
+
 func (t *ShardReindexTaskGeneric) migrationSubjectNow(shard ShardLike) (MigrationSubject, error) {
 	rec, ok := t.migrationRecord(shard)
 	if !ok {
@@ -1710,13 +1737,6 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) []string {
 		return propNames
 	}
 
-	// When selection is enabled and an explicit list of properties is given,
-	// the selected list IS the authoritative reindex target. Existing
-	// strategies (e.g. repair-searchable, change-tokenization) target
-	// properties whose source bucket already exists; new from-scratch
-	// strategies (enable-filterable, enable-searchable) target properties
-	// whose source bucket does not exist yet and will be created in
-	// PreReindexHook. Both cases reduce to "use the selected list".
 	if selected, ok := t.selectedProps(collectionName); ok {
 		return selected
 	}

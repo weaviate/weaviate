@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1122,6 +1123,228 @@ func TestFileWriterStagedRecorder(t *testing.T) {
 	}
 }
 
+func tarOfEntries(t *testing.T, entries ...string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, name := range entries {
+		if strings.HasSuffix(name, "/") {
+			require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeDir, Mode: 0o755}))
+			continue
+		}
+		body := []byte("evil")
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body))}))
+		_, err := tw.Write(body)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	return buf.Bytes()
+}
+
+func TestFileWriter_Write_RefusesForeignTopLevelEntries(t *testing.T) {
+	tests := []struct {
+		name         string
+		descName     string
+		materialized string
+		entries      []string
+		baseEntries  []string
+		attemptID    string
+		wantErr      string
+		wantStaged   string
+	}{
+		{name: "index dir with staging marker", descName: "Movies", materialized: "Movies", attemptID: "a1", entries: []string{"movies/s1/seg.db"}, wantStaged: "movies/s1/seg.db"},
+		{name: "staging marker name as dir", descName: "Movies", materialized: "Movies", entries: []string{"movies/s1/seg.db", stagingMarkerFile + "/x"}, wantErr: stagingMarkerFile},
+		{name: "only index dir", descName: "Movies", materialized: "Movies", entries: []string{"movies/s1/seg.db"}, wantStaged: "movies/s1/seg.db"},
+		{name: "root file", descName: "Movies", materialized: "Movies", entries: []string{"classifications.db"}, wantErr: "classifications.db"},
+		{name: "other class dir", descName: "Movies", materialized: "Movies", entries: []string{"otherclass/x"}, wantErr: "otherclass"},
+		{name: "index name as regular file", descName: "Movies", materialized: "Movies", entries: []string{"movies"}, wantErr: "movies"},
+		{name: "case variant", descName: "Movies", materialized: "Movies", entries: []string{"Movies/x"}, wantErr: "Movies"},
+		{name: "index dir plus root file", descName: "Movies", materialized: "Movies", entries: []string{"movies/s1/seg.db", "classifications.db"}, wantErr: "classifications.db"},
+		{name: "strip", descName: "ns1:Foo", materialized: "Foo", entries: []string{"ns1:foo/s1/seg.db"}, wantStaged: "foo/s1/seg.db"},
+		{name: "strip plus root file", descName: "ns1:Foo", materialized: "Foo", entries: []string{"ns1:foo/s1/seg.db", "evil.db"}, wantErr: "evil.db"},
+		{name: "root file from base backup", descName: "Movies", materialized: "Movies", entries: []string{"movies/s1/seg.db"}, baseEntries: []string{"classifications.db"}, wantErr: "classifications.db"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			served := map[string][]byte{"cur/n1/" + chunkKey(tc.descName, 0): tarOfEntries(t, tc.entries...)}
+			shard := &backup.ShardDescriptor{Name: "s1", Node: "n1"}
+			if tc.baseEntries != nil {
+				baseKey := chunkKey(tc.descName, 9)
+				served["base/n1/"+baseKey] = tarOfEntries(t, tc.baseEntries...)
+				shard.IncrementalBackupInfo.FilesPerBackup = map[string][]backup.IncrementalBackupInfo{
+					"base": {{File: "x", ChunkKeys: []string{baseKey}}},
+				}
+			}
+
+			mockBackend := modulecapabilities.NewMockBackupBackend(t)
+			mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+			mockBackend.EXPECT().
+				Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, backupID, key, _, _ string, w io.WriteCloser) (int64, error) {
+					defer w.Close()
+					data, ok := served[backupID+"/"+key]
+					if !ok {
+						return 0, fmt.Errorf("chunk not found: %s/%s", backupID, key)
+					}
+					return io.Copy(w, bytes.NewReader(data))
+				})
+
+			fw := newFileWriter(nil, nodeStore{
+				objectStore: objectStore{backend: mockBackend, backupId: "cur/n1", node: "n1"},
+			}, logrus.New()).withAttemptID(tc.attemptID)
+			desc := &backup.ClassDescriptor{
+				Name:   tc.descName,
+				Shards: []*backup.ShardDescriptor{shard},
+				Chunks: map[int32][]string{0: {"s1"}},
+			}
+
+			err := fw.Write(context.Background(), desc, tc.materialized, "", "", backup.CompressionNone)
+			classTempDir := filepath.Join(tempDir, TempDirectory, tc.materialized)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				_, statErr := os.Stat(classTempDir)
+				require.True(t, os.IsNotExist(statErr), "staging dir must be removed, got %v", statErr)
+				return
+			}
+			require.NoError(t, err)
+			require.FileExists(t, filepath.Join(classTempDir, tc.wantStaged))
+			if tc.attemptID != "" {
+				require.True(t, stagingMarkerMatches(classTempDir, tc.attemptID))
+			}
+		})
+	}
+}
+
+func TestRestoreClassDir_OnlyAdoptsIndexDir(t *testing.T) {
+	writeFile := func(t *testing.T, p, content string) {
+		t.Helper()
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	}
+	assertAbsent := func(t *testing.T, p string) {
+		t.Helper()
+		_, err := os.Lstat(p)
+		require.True(t, os.IsNotExist(err), "%s must not exist, got %v", p, err)
+	}
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, stage, data string)
+		wantErr string
+		check   func(t *testing.T, data string)
+	}{
+		{
+			name: "index dir moved",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "movies", "s1", "seg.db"), "seg")
+			},
+			check: func(t *testing.T, data string) {
+				require.FileExists(t, filepath.Join(data, "movies", "s1", "seg.db"))
+			},
+		},
+		{
+			name: "root file refused",
+			setup: func(t *testing.T, stage, data string) {
+				writeFile(t, filepath.Join(data, "classifications.db"), "good")
+				writeFile(t, filepath.Join(stage, "classifications.db"), "evil")
+			},
+			wantErr: "classifications.db",
+			check: func(t *testing.T, data string) {
+				got, err := os.ReadFile(filepath.Join(data, "classifications.db"))
+				require.NoError(t, err)
+				require.Equal(t, "good", string(got))
+			},
+		},
+		{
+			name: "other class dir refused",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "otherclass", "x"), "evil")
+			},
+			wantErr: "otherclass",
+			check: func(t *testing.T, data string) {
+				assertAbsent(t, filepath.Join(data, "otherclass"))
+			},
+		},
+		{
+			name: "index name as regular file refused",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "movies"), "evil")
+			},
+			wantErr: "movies",
+			check: func(t *testing.T, data string) {
+				assertAbsent(t, filepath.Join(data, "movies"))
+			},
+		},
+		{
+			name: "index name as symlink refused",
+			setup: func(t *testing.T, stage, _ string) {
+				target := t.TempDir()
+				writeFile(t, filepath.Join(target, "s1", "seg.db"), "evil")
+				require.NoError(t, os.MkdirAll(stage, 0o755))
+				require.NoError(t, os.Symlink(target, filepath.Join(stage, "movies")))
+			},
+			wantErr: "movies",
+			check: func(t *testing.T, data string) {
+				assertAbsent(t, filepath.Join(data, "movies"))
+			},
+		},
+		{
+			name: "index dir moved and root file refused",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "movies", "s1", "seg.db"), "seg")
+				writeFile(t, filepath.Join(stage, "classifications.db"), "evil")
+			},
+			wantErr: "classifications.db",
+			check: func(t *testing.T, data string) {
+				require.FileExists(t, filepath.Join(data, "movies", "s1", "seg.db"))
+				assertAbsent(t, filepath.Join(data, "classifications.db"))
+			},
+		},
+		{
+			name: "staging marker skipped",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, "movies", "s1", "seg.db"), "seg")
+				writeFile(t, filepath.Join(stage, stagingMarkerFile), "a1")
+			},
+			check: func(t *testing.T, data string) {
+				require.FileExists(t, filepath.Join(data, "movies", "s1", "seg.db"))
+				assertAbsent(t, filepath.Join(data, stagingMarkerFile))
+			},
+		},
+		{
+			name: "staging marker name as dir refused",
+			setup: func(t *testing.T, stage, _ string) {
+				writeFile(t, filepath.Join(stage, stagingMarkerFile, "x"), "evil")
+			},
+			wantErr: stagingMarkerFile,
+			check: func(t *testing.T, data string) {
+				assertAbsent(t, filepath.Join(data, stagingMarkerFile))
+			},
+		},
+		{
+			name:  "no staging dir",
+			check: func(t *testing.T, data string) {},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			data := t.TempDir()
+			stage := filepath.Join(data, TempDirectory, "Movies")
+			if tc.setup != nil {
+				tc.setup(t, stage, data)
+			}
+			err := RestoreClassDir(data)("Movies")
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			tc.check(t, data)
+			assertAbsent(t, stage)
+		})
+	}
+}
+
 // incrementalTestEnv provides shared infrastructure for incremental backup round-trip tests.
 // It holds an in-memory chunk store (mock backend) and helpers for running production
 // processShard (backup) and writeTempFiles (restore) code paths.
@@ -1165,6 +1388,16 @@ func (e *incrementalTestEnv) makeShardDesc(name string, files []string) *backup.
 		ShardVersionPath:      filepath.Join(name, "version.bin"),
 		Version:               append([]byte{}, e.inMemData...),
 	}
+}
+
+// makeIndexShardDesc is makeShardDesc with in-memory files under the class index dir, as restore staging requires.
+func (e *incrementalTestEnv) makeIndexShardDesc(name string, files []string) *backup.ShardDescriptor {
+	sd := e.makeShardDesc(name, files)
+	idx := strings.ToLower(e.className)
+	sd.DocIDCounterPath = filepath.Join(idx, sd.DocIDCounterPath)
+	sd.PropLengthTrackerPath = filepath.Join(idx, sd.PropLengthTrackerPath)
+	sd.ShardVersionPath = filepath.Join(idx, sd.ShardVersionPath)
+	return sd
 }
 
 // baseShard keeps the part of sd that FillFileInfo reads once sd's backup is a base.
@@ -1945,6 +2178,8 @@ func TestRestoreClassDirSkipsStagingMarker(t *testing.T) {
 
 // A skip flag excludes the corresponding snapshot. Restore leaves a backend
 // untouched when its blob is absent and replaces its state when one is present.
+// A user selection, including one that matched nothing, scopes the RBAC
+// snapshot to the selected users.
 func TestUploaderSnapshotSkip(t *testing.T) {
 	const class = "Article"
 
@@ -1952,10 +2187,12 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 		name                string
 		sel                 snapshotSelection
 		wantUsers, wantRBAC bool
+		wantScoped          bool
 	}{
 		{name: "whole-cluster default", sel: snapshotSelection{}, wantUsers: true, wantRBAC: true},
-		{name: "explicit selection", sel: snapshotSelection{users: []string{"u"}, roles: []string{"r"}}, wantUsers: true, wantRBAC: true},
-		{name: "users missed", sel: snapshotSelection{skipUsers: true, roles: []string{"r"}}, wantUsers: false, wantRBAC: true},
+		{name: "roles only", sel: snapshotSelection{roles: []string{"r"}}, wantUsers: true, wantRBAC: true},
+		{name: "explicit selection", sel: snapshotSelection{users: []string{"u"}, roles: []string{"r"}}, wantUsers: true, wantRBAC: true, wantScoped: true},
+		{name: "users missed", sel: snapshotSelection{skipUsers: true, roles: []string{"r"}}, wantUsers: false, wantRBAC: true, wantScoped: true},
 		{name: "roles missed", sel: snapshotSelection{users: []string{"u"}, skipRoles: true}, wantUsers: true, wantRBAC: false},
 		{name: "both missed", sel: snapshotSelection{skipUsers: true, skipRoles: true}, wantUsers: false, wantRBAC: false},
 	}
@@ -1989,17 +2226,147 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 
 			assert.Equal(t, tt.wantRBAC, rbac.calls == 1, "rbac snapshotter calls: %d", rbac.calls)
 			assert.Equal(t, tt.wantRBAC, len(desc.RbacBackups) > 0)
+			assert.Equal(t, tt.wantScoped, rbac.scopedCalls == 1, "rbac scoped snapshot calls: %d", rbac.scopedCalls)
+			if tt.wantScoped {
+				assert.Equal(t, tt.sel.users, rbac.forUsers)
+			}
 			assert.Equal(t, tt.wantUsers, users.calls == 1, "user snapshotter calls: %d", users.calls)
 			assert.Equal(t, tt.wantUsers, len(desc.UserBackups) > 0)
 		})
 	}
 }
 
-type countingSnapshotter struct{ calls int }
+// countingSnapshotter: calls counts every snapshot, scoped or not.
+// scopedCalls and forUsers record only ScopedSnapshot calls.
+type countingSnapshotter struct {
+	calls, scopedCalls int
+	forUsers           []string
+}
 
 func (s *countingSnapshotter) Snapshot(...string) ([]byte, error) {
 	s.calls++
 	return []byte(`{"v":1}`), nil
 }
 
+func (s *countingSnapshotter) ScopedSnapshot(forUsers []string, roles ...string) ([]byte, error) {
+	s.scopedCalls++
+	s.forUsers = forUsers
+	return s.Snapshot(roles...)
+}
+
 func (s *countingSnapshotter) Restore([]byte, bool) error { return nil }
+
+func TestValidateIncrementalRefs(t *testing.T) {
+	descWith := func(class, baseID, key string) *backup.BackupDescriptor {
+		return &backup.BackupDescriptor{Classes: []backup.ClassDescriptor{{
+			Name: class,
+			Shards: []*backup.ShardDescriptor{{
+				Name: "s1", Node: "n1",
+				IncrementalBackupInfo: backup.IncrementalBackupInfos{FilesPerBackup: map[string][]backup.IncrementalBackupInfo{
+					baseID: {{File: "s1/big.db", ChunkKeys: []string{chunkKey(class, 1), key}}},
+				}},
+			}},
+		}}}
+	}
+	tests := []struct {
+		name    string
+		desc    *backup.BackupDescriptor
+		wantErr []string
+	}{
+		{name: "first chunk", desc: descWith("Class", "base-1", "Class/chunk-0")},
+		{name: "later chunk", desc: descWith("Class", "base_1", "Class/chunk-17")},
+		{name: "namespace-qualified class", desc: descWith("ns1:Foo", "base-1", "ns1:Foo/chunk-3")},
+		{name: "no incremental info", desc: &backup.BackupDescriptor{Classes: []backup.ClassDescriptor{{
+			Name: "Class", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}},
+		}}}},
+		{name: "traversal key", desc: descWith("Class", "base-1", "../../../secret.tar"), wantErr: []string{"Class", "s1", "base-1", "../../../secret.tar"}},
+		{name: "other class key", desc: descWith("Class", "base-1", "Other/chunk-1"), wantErr: []string{"Other/chunk-1"}},
+		{name: "leading zero", desc: descWith("Class", "base-1", "Class/chunk-01"), wantErr: []string{"Class/chunk-01"}},
+		{name: "plus sign", desc: descWith("Class", "base-1", "Class/chunk-+1"), wantErr: []string{"Class/chunk-+1"}},
+		{name: "negative chunk", desc: descWith("Class", "base-1", "Class/chunk--1"), wantErr: []string{"Class/chunk--1"}},
+		{name: "trailing path", desc: descWith("Class", "base-1", "Class/chunk-1/../../x"), wantErr: []string{"Class/chunk-1/../../x"}},
+		{name: "int32 overflow", desc: descWith("Class", "base-1", "Class/chunk-99999999999"), wantErr: []string{"Class/chunk-99999999999"}},
+		{name: "empty key", desc: descWith("Class", "base-1", ""), wantErr: []string{`""`}},
+		{name: "traversal base id", desc: descWith("Class", "../escape", "Class/chunk-1"), wantErr: []string{"../escape"}},
+		{name: "nested base id", desc: descWith("Class", "a/b", "Class/chunk-1"), wantErr: []string{"a/b"}},
+		{name: "uppercase base id", desc: descWith("Class", "UPPER", "Class/chunk-1"), wantErr: []string{"UPPER"}},
+		{name: "empty base id", desc: descWith("Class", "", "Class/chunk-1"), wantErr: []string{"base backup id"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateIncrementalRefs(tc.desc)
+			if len(tc.wantErr) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, want := range tc.wantErr {
+				assert.Contains(t, err.Error(), want)
+			}
+		})
+	}
+}
+
+func TestIsChunkKeyOf(t *testing.T) {
+	tests := []struct {
+		class, key string
+		want       bool
+	}{
+		{"Class", "Class/chunk-0", true},
+		{"Class", "Class/chunk-2147483647", true},
+		{"ns1:Foo", "ns1:Foo/chunk-1", true},
+		{"Class", "Class/chunk-2147483648", false},
+		{"Class", "Class/chunk-", false},
+		{"Class", "Class/chunk-1 ", false},
+		{"Class", "Class/chunk-0x1", false},
+		{"Class", "ClassX/chunk-1", false},
+		{"Class", "/Class/chunk-1", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.class+"|"+tc.key, func(t *testing.T) {
+			assert.Equal(t, tc.want, isChunkKeyOf(tc.class, tc.key))
+		})
+	}
+}
+
+func TestValidateBaseChunkKeys(t *testing.T) {
+	baseOf := func(backupID, key string) *backup.BaseBackupDescriptor {
+		return &backup.BaseBackupDescriptor{Classes: []backup.BaseClassDescriptor{{
+			Name:     "Class",
+			BackupID: backupID,
+			Shards: []backup.BaseShardDescriptor{{Name: "s1", BigFilesChunk: map[string]backup.BigFileInfo{
+				"s1/big.db": {ChunkKeys: []string{"Class/chunk-1", key}},
+			}}},
+		}}}
+	}
+	baseWith := func(key string) *backup.BaseBackupDescriptor { return baseOf("backup-1", key) }
+	tests := []struct {
+		name    string
+		descrs  []*backup.BaseBackupDescriptor
+		wantErr string
+	}{
+		{name: "none"},
+		{name: "canonical", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2")}},
+		{name: "traversal", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2"), baseWith("../../evil")}, wantErr: "../../evil"},
+		{name: "other class", descrs: []*backup.BaseBackupDescriptor{baseWith("Other/chunk-2")}, wantErr: "Other/chunk-2"},
+		{name: "backup id traversal", descrs: []*backup.BaseBackupDescriptor{baseWith("Class/chunk-2"), baseOf("../escape", "Class/chunk-2")}, wantErr: "../escape"},
+		{name: "empty backup id", descrs: []*backup.BaseBackupDescriptor{baseOf("", "Class/chunk-2")}, wantErr: `backup id ""`},
+		{name: "pre-incremental base without backup id or big files", descrs: []*backup.BaseBackupDescriptor{{Classes: []backup.BaseClassDescriptor{{
+			Name: "Class", Shards: []backup.BaseShardDescriptor{{Name: "s1"}},
+		}}}}},
+		{name: "traversal backup id without big files", descrs: []*backup.BaseBackupDescriptor{{Classes: []backup.BaseClassDescriptor{{
+			Name: "Class", BackupID: "../escape", Shards: []backup.BaseShardDescriptor{{Name: "s1"}},
+		}}}}},
+		{name: "uppercase backup id", descrs: []*backup.BaseBackupDescriptor{baseOf("UPPER", "Class/chunk-2")}, wantErr: "UPPER"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBaseChunkKeys(tc.descrs)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}

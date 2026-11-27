@@ -16,6 +16,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -30,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -1497,5 +1500,96 @@ func TestCompressedBucketNameDerivesFromID(t *testing.T) {
 			assert.Equal(t, tt.want, index.compressedBucketName())
 			assert.NotNil(t, store.Bucket(tt.want), "the compressor must write to %q", tt.want)
 		})
+	}
+}
+
+// Deleting every node resets the index, but it stays compressed in memory, so
+// a restart must restore the compression the nodes added after the reset use,
+// also once compaction has dropped the log files from before the reset.
+func Test_ResetKeepsCompressionAcrossRestart(t *testing.T) {
+	const dimensions, size = 20, 50
+	vectors, _ := testinghelpers.RandomVecs(2*size, 0, dimensions)
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	withCompression := func(enable func(*ent.UserConfig)) ent.UserConfig {
+		// one PQ segment per dimension: fewer segments give vectors identical codes and a wrong top-1
+		uc := userConfig(dimensions, 5, 32, 64, 32, size)
+		uc.PQ.Enabled = false
+		enable(&uc)
+		return uc
+	}
+	tests := []struct {
+		name string
+		uc   ent.UserConfig
+	}{
+		{name: "PQ", uc: withCompression(func(uc *ent.UserConfig) { uc.PQ.Enabled = true })},
+		{name: "SQ", uc: withCompression(func(uc *ent.UserConfig) { uc.SQ = ent.SQConfig{Enabled: true} })},
+		{name: "BQ", uc: withCompression(func(uc *ent.UserConfig) { uc.BQ.Enabled = true })},
+		{name: "RQ 8 bits", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 8} })},
+		{name: "RQ 4 bits", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 4} })},
+		{name: "RQ 4 bits centered", uc: withCompression(func(uc *ent.UserConfig) {
+			uc.RQ = ent.RQConfig{Enabled: true, Bits: 4, Centering: true, TrainingLimit: size}
+		})},
+		{name: "RQ 1 bit", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 1} })},
+	}
+	for _, tt := range tests {
+		for _, compactLogs := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/compact=%v", tt.name, compactLogs), func(t *testing.T) {
+				tempDir := t.TempDir()
+				store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+				cfg := indexConfig("reset", tempDir, logger, vectors, distancer.NewL2SquaredProvider())
+				cfg.WaitForCachePrefill = true
+
+				index, err := New(cfg, withCompression(func(*ent.UserConfig) {}), cyclemanager.NewCallbackGroupNoop(), store)
+				require.NoError(t, err)
+				for id := range size {
+					require.NoError(t, index.Add(ctx, uint64(id), vectors[id]))
+				}
+				compressed := make(chan struct{})
+				require.NoError(t, index.UpdateUserConfig(tt.uc, func() { close(compressed) }))
+				<-compressed
+				// the compression data stays behind in a closed log file
+				_, err = index.commitLog.(*hnswCommitLogger).switchCommitLogs(true)
+				require.NoError(t, err)
+
+				for id := range size {
+					require.NoError(t, index.Delete(uint64(id)))
+				}
+				require.NoError(t, index.CleanUpTombstonedNodes(neverStop))
+				require.True(t, index.isEmpty(), "deleting every node must reset the index")
+				require.True(t, index.compressed.Load())
+
+				for id := size; id < 2*size; id++ {
+					require.NoError(t, index.Add(ctx, uint64(id), vectors[id]))
+				}
+				require.NoError(t, index.Flush())
+				require.NoError(t, index.Shutdown(ctx))
+				store.FlushMemtables(ctx)
+
+				if compactLogs {
+					logDir := filepath.Join(tempDir, "vectors_reset.hnsw.commitlog.d")
+					// a newer active log makes the closed ones eligible, as on restart
+					activeWAL := filepath.Join(logDir, "999999999999999999")
+					require.NoError(t, os.WriteFile(activeWAL, nil, 0o600))
+					action, err := compact.NewCompactor(compact.DefaultCompactorConfig(logDir), logger).RunCycle(nil)
+					require.NoError(t, err)
+					require.Equal(t, compact.ActionCreateSnapshot, action)
+					require.NoError(t, os.Remove(activeWAL))
+				}
+
+				index, err = New(cfg, tt.uc, cyclemanager.NewCallbackGroupNoop(), store)
+				require.NoError(t, err)
+				defer index.Shutdown(ctx)
+				index.PostStartup(ctx)
+
+				require.True(t, index.compressed.Load(), "the index must reload compressed")
+				for id := size; id < 2*size; id++ {
+					got, _, err := index.SearchByVector(ctx, vectors[id], 1, nil)
+					require.NoError(t, err)
+					require.Equal(t, []uint64{uint64(id)}, got)
+				}
+			})
+		}
 	}
 }

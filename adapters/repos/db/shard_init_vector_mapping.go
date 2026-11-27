@@ -15,11 +15,14 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -36,17 +39,18 @@ import (
 //     missing record (a vector added while the shard was cold) are built,
 //     then marked ready.
 //
-// A dropping record is finished first: its files, its state key, then the
-// record. A record the schema no longer has is deleted; its storage is left
-// alone.
+// A drop, whether the record or dropped says so, is finished first: its files,
+// its state key, then the record. Any other record the schema no longer has is
+// deleted; its storage is left alone.
 func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[string]schemaConfig.VectorIndexConfig,
-	records map[string]vectorIndexRecord,
+	dropped []string, records map[string]vectorIndexRecord,
 ) (map[string]vectorIndexRecord, error) {
 	for name, rec := range records {
-		if rec.State != vectorIndexStateDropping {
+		// a deferred deletion the process did not live to finish, or a drop that
+		// found this shard loading
+		if rec.State != vectorIndexStateDropping && !slices.Contains(dropped, name) {
 			continue
 		}
-		// a deferred deletion the process did not live to finish
 		err := s.removeVectorIndexArtifacts(ctx, name, rec.PhysicalID)
 		if err != nil {
 			return nil, err
@@ -93,7 +97,7 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 		if _, ok := active[name]; ok {
 			continue
 		}
-		// dropped or gone from the schema: the record goes, the storage stays
+		// gone from the schema without a drop: the record goes, the storage stays
 		err := s.mapping.Delete(name)
 		if err != nil {
 			return nil, err
@@ -170,6 +174,49 @@ func (s *Shard) markVectorIndexReady(name string, rec vectorIndexRecord) error {
 func (s *Shard) markVectorIndexDropping(name string, rec vectorIndexRecord) error {
 	rec.State = vectorIndexStateDropping
 	return s.mapping.Put(name, rec)
+}
+
+// removeUnrecordedVectorIndexes deletes what the naming rule says dropped own,
+// in a shard without a mapping. The files of active vectors stay.
+func (s *Shard) removeUnrecordedVectorIndexes(ctx context.Context, dropped []string,
+	active map[string]schemaConfig.VectorIndexConfig,
+) error {
+	siblings := slices.Collect(maps.Keys(active))
+	for _, name := range dropped {
+		artifacts := helpers.VectorIndexArtifactsFor(name, siblings)
+		for _, bucket := range artifacts.LSMBuckets {
+			err := s.removeBucket(ctx, bucket)
+			if err != nil {
+				return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, name, err)
+			}
+		}
+		for _, dir := range artifacts.ShardDirs {
+			err := os.RemoveAll(filepath.Join(s.path(), dir))
+			if err != nil {
+				return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
+			}
+		}
+		err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), vectorIndexID(name))
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// droppedVectorNames lists the vectors the class marks as being dropped.
+func (s *Shard) droppedVectorNames() []string {
+	class := s.index.getClass()
+	if class == nil {
+		return nil
+	}
+	var names []string
+	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one

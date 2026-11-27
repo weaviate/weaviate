@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.40.5"
+    "version": "1.40.7"
   },
   "basePath": "/v1",
   "paths": {
@@ -222,6 +222,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -364,7 +370,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -429,7 +435,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -477,7 +483,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2200,7 +2206,7 @@ func init() {
                   }
                 },
                 "objects": {
-                  "description": "Array of objects to be created.",
+                  "description": "Array of objects to be created. Each object needs a ` + "`" + `class` + "`" + `; an object without one fails on its own and the rest of the batch is still imported.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -3592,7 +3598,7 @@ func init() {
     },
     "/objects": {
       "get": {
-        "description": "Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (` + "`" + `class` + "`" + `) parameter to specify which collection's objects to list, otherwise, returns an empty list.",
+        "description": "Retrieves a list of data objects from the collection named in the ` + "`" + `class` + "`" + ` parameter. By default, objects are returned in reverse order of creation. \u003cbr/\u003e\u003cbr/\u003e**Note**: Calling this endpoint without ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, it lists objects across all collections. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
         "tags": [
           "objects"
         ],
@@ -3626,7 +3632,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful response containing the list of objects. If the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+            "description": "Successful response containing the list of objects.",
             "schema": {
               "$ref": "#/definitions/ObjectsListResponse"
             }
@@ -3683,7 +3689,7 @@ func init() {
         "operationId": "objects.create",
         "parameters": [
           {
-            "description": "The object to be created.",
+            "description": "The object to be created. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -3753,7 +3759,7 @@ func init() {
         "operationId": "objects.validate",
         "parameters": [
           {
-            "description": "The object definition to validate.",
+            "description": "The object definition to validate. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -6683,7 +6689,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully retrieved tenants.",
+            "description": "Successfully retrieved tenants. A collection the caller cannot read yields an empty list, whether or not it exists.",
             "schema": {
               "type": "array",
               "items": {
@@ -7240,7 +7246,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vectorizer needs a request header that is missing (a provider API key header, or Authorization and X-Weaviate-Cluster-Url for text2vec-weaviate), the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7426,7 +7432,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, the vectorizer needs a request header that is missing (a provider API key header, or Authorization and X-Weaviate-Cluster-Url for text2vec-weaviate), targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8683,16 +8689,16 @@ func init() {
           "default": false
         },
         "match": {
-          "description": "Outlines how to find the objects to be deleted.",
+          "description": "Outlines how to find the objects to be deleted. Required.",
           "type": "object",
           "properties": {
             "class": {
-              "description": "The name of the collection (class) from which to delete objects.",
+              "description": "The name of the collection (class) from which to delete objects. Required.",
               "type": "string",
               "example": "City"
             },
             "where": {
-              "description": "Filter to limit the objects to be deleted.",
+              "description": "Filter to limit the objects to be deleted. Required.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
@@ -12644,7 +12650,7 @@ func init() {
     },
     "CommonClassParameterQuery": {
       "type": "string",
-      "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+      "description": "The collection from which to list objects. \u003cbr/\u003e\u003cbr/\u003e**Note**: Omitting ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, the endpoint lists objects across all collections and does not support the ` + "`" + `after` + "`" + ` cursor. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
       "name": "class",
       "in": "query"
     },
@@ -12801,7 +12807,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.40.5"
+    "version": "1.40.7"
   },
   "basePath": "/v1",
   "paths": {
@@ -12975,6 +12981,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -13117,7 +13129,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13182,7 +13194,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13230,7 +13242,7 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14929,7 +14941,7 @@ func init() {
                   }
                 },
                 "objects": {
-                  "description": "Array of objects to be created.",
+                  "description": "Array of objects to be created. Each object needs a ` + "`" + `class` + "`" + `; an object without one fails on its own and the rest of the batch is still imported.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -16341,7 +16353,7 @@ func init() {
     },
     "/objects": {
       "get": {
-        "description": "Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (` + "`" + `class` + "`" + `) parameter to specify which collection's objects to list, otherwise, returns an empty list.",
+        "description": "Retrieves a list of data objects from the collection named in the ` + "`" + `class` + "`" + ` parameter. By default, objects are returned in reverse order of creation. \u003cbr/\u003e\u003cbr/\u003e**Note**: Calling this endpoint without ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, it lists objects across all collections. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
         "tags": [
           "objects"
         ],
@@ -16389,7 +16401,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+            "description": "The collection from which to list objects. \u003cbr/\u003e\u003cbr/\u003e**Note**: Omitting ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, the endpoint lists objects across all collections and does not support the ` + "`" + `after` + "`" + ` cursor. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
             "name": "class",
             "in": "query"
           },
@@ -16402,7 +16414,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful response containing the list of objects. If the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+            "description": "Successful response containing the list of objects.",
             "schema": {
               "$ref": "#/definitions/ObjectsListResponse"
             }
@@ -16459,7 +16471,7 @@ func init() {
         "operationId": "objects.create",
         "parameters": [
           {
-            "description": "The object to be created.",
+            "description": "The object to be created. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -16532,7 +16544,7 @@ func init() {
         "operationId": "objects.validate",
         "parameters": [
           {
-            "description": "The object definition to validate.",
+            "description": "The object definition to validate. ` + "`" + `class` + "`" + ` is required.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -19534,7 +19546,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully retrieved tenants.",
+            "description": "Successfully retrieved tenants. A collection the caller cannot read yields an empty list, whether or not it exists.",
             "schema": {
               "type": "array",
               "items": {
@@ -20091,7 +20103,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vectorizer needs a request header that is missing (a provider API key header, or Authorization and X-Weaviate-Cluster-Url for text2vec-weaviate), the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20277,7 +20289,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, the vectorizer needs a request header that is missing (a provider API key header, or Authorization and X-Weaviate-Cluster-Url for text2vec-weaviate), targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -21537,16 +21549,16 @@ func init() {
           "default": false
         },
         "match": {
-          "description": "Outlines how to find the objects to be deleted.",
+          "description": "Outlines how to find the objects to be deleted. Required.",
           "type": "object",
           "properties": {
             "class": {
-              "description": "The name of the collection (class) from which to delete objects.",
+              "description": "The name of the collection (class) from which to delete objects. Required.",
               "type": "string",
               "example": "City"
             },
             "where": {
-              "description": "Filter to limit the objects to be deleted.",
+              "description": "Filter to limit the objects to be deleted. Required.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
@@ -21560,16 +21572,16 @@ func init() {
       }
     },
     "BatchDeleteMatch": {
-      "description": "Outlines how to find the objects to be deleted.",
+      "description": "Outlines how to find the objects to be deleted. Required.",
       "type": "object",
       "properties": {
         "class": {
-          "description": "The name of the collection (class) from which to delete objects.",
+          "description": "The name of the collection (class) from which to delete objects. Required.",
           "type": "string",
           "example": "City"
         },
         "where": {
-          "description": "Filter to limit the objects to be deleted.",
+          "description": "Filter to limit the objects to be deleted. Required.",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
         }
@@ -25845,7 +25857,7 @@ func init() {
     },
     "CommonClassParameterQuery": {
       "type": "string",
-      "description": "The collection from which to query objects.  \u003cbr/\u003e\u003cbr/\u003eNote that if the collection name (` + "`" + `class` + "`" + `) is not provided, the response will not include any objects.",
+      "description": "The collection from which to list objects. \u003cbr/\u003e\u003cbr/\u003e**Note**: Omitting ` + "`" + `class` + "`" + ` is deprecated and will be removed in a future version. Without ` + "`" + `class` + "`" + `, the endpoint lists objects across all collections and does not support the ` + "`" + `after` + "`" + ` cursor. Some cluster configurations do not support a request without ` + "`" + `class` + "`" + `.",
       "name": "class",
       "in": "query"
     },

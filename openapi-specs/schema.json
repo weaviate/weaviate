@@ -3348,16 +3348,16 @@
       "type": "object",
       "properties": {
         "match": {
-          "description": "Outlines how to find the objects to be deleted.",
+          "description": "Outlines how to find the objects to be deleted. Required.",
           "type": "object",
           "properties": {
             "class": {
-              "description": "The name of the collection (class) from which to delete objects.",
+              "description": "The name of the collection (class) from which to delete objects. Required.",
               "type": "string",
               "example": "City"
             },
             "where": {
-              "description": "Filter to limit the objects to be deleted.",
+              "description": "Filter to limit the objects to be deleted. Required.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
@@ -4541,7 +4541,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.40.5"
+    "version": "1.40.7"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -4611,7 +4611,7 @@
       "type": "string"
     },
     "CommonClassParameterQuery": {
-      "description": "The collection from which to query objects.  <br/><br/>Note that if the collection name (`class`) is not provided, the response will not include any objects.",
+      "description": "The collection from which to list objects. <br/><br/>**Note**: Omitting `class` is deprecated and will be removed in a future version. Without `class`, the endpoint lists objects across all collections and does not support the `after` cursor. Some cluster configurations do not support a request without `class`.",
       "in": "query",
       "name": "class",
       "required": false,
@@ -7192,7 +7192,7 @@
     },
     "/objects": {
       "get": {
-        "description": "Retrieves a list of data objects. By default, objects are returned in reverse order of creation. Requires a collection name (`class`) parameter to specify which collection's objects to list, otherwise, returns an empty list.",
+        "description": "Retrieves a list of data objects from the collection named in the `class` parameter. By default, objects are returned in reverse order of creation. <br/><br/>**Note**: Calling this endpoint without `class` is deprecated and will be removed in a future version. Without `class`, it lists objects across all collections. Some cluster configurations do not support a request without `class`.",
         "operationId": "objects.list",
         "x-serviceIds": [
           "weaviate.local.query"
@@ -7225,7 +7225,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful response containing the list of objects. If the collection name (`class`) is not provided, the response will not include any objects.",
+            "description": "Successful response containing the list of objects.",
             "schema": {
               "$ref": "#/definitions/ObjectsListResponse"
             }
@@ -7284,7 +7284,7 @@
           {
             "in": "body",
             "name": "body",
-            "description": "The object to be created.",
+            "description": "The object to be created. `class` is required.",
             "required": true,
             "schema": {
               "$ref": "#/definitions/Object"
@@ -8567,7 +8567,7 @@
           {
             "in": "body",
             "name": "body",
-            "description": "The object definition to validate.",
+            "description": "The object definition to validate. `class` is required.",
             "required": true,
             "schema": {
               "$ref": "#/definitions/Object"
@@ -8640,7 +8640,7 @@
                   }
                 },
                 "objects": {
-                  "description": "Array of objects to be created.",
+                  "description": "Array of objects to be created. Each object needs a `class`; an object without one fails on its own and the rest of the batch is still imported.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Object"
@@ -10313,7 +10313,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Successfully retrieved tenants.",
+            "description": "Successfully retrieved tenants. A collection the caller cannot read yields an empty list, whether or not it exists.",
             "schema": {
               "type": "array",
               "items": {
@@ -10600,7 +10600,7 @@
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10665,7 +10665,7 @@
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10713,7 +10713,7 @@
             }
           },
           "404": {
-            "description": "Not Found - Alias does not exist",
+            "description": "Not Found - Alias does not exist, or the caller has no permission to read it.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12237,6 +12237,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -12412,7 +12418,7 @@
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0 and no `vector` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0 and no `vector` is supplied, the vectorizer needs a request header that is missing (a provider API key header, or Authorization and X-Weaviate-Cluster-Url for text2vec-weaviate), the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12598,7 +12604,7 @@
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, the vectorizer needs a request header that is missing (a provider API key header, or Authorization and X-Weaviate-Cluster-Url for text2vec-weaviate), targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

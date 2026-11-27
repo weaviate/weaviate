@@ -15,17 +15,23 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 
@@ -1084,6 +1090,133 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	})
 }
 
+// The deprecated handlers read the flag on every request, so a runtime override
+// takes effect without a restart. With namespaces enabled they answer 410
+// whatever the flag says.
+func TestObjectIDEndpointsWithoutClassGone(t *testing.T) {
+	id := strfmt.UUID("85f78e29-5937-4390-a121-5379f262b4e5")
+	body := &models.Object{Class: "Foo"}
+	endpoints := []struct {
+		name string
+		call func(h *objectHandlers, r *http.Request) middleware.Responder
+	}{
+		{"GET", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.getObjectDeprecated(objects.ObjectsGetParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"HEAD", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.headObjectDeprecated(objects.ObjectsHeadParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"PUT", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.updateObjectDeprecated(objects.ObjectsUpdateParams{HTTPRequest: r, ID: id, Body: body}, nil)
+		}},
+		{"PATCH", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.patchObjectDeprecated(objects.ObjectsPatchParams{HTTPRequest: r, ID: id, Body: body}, nil)
+		}},
+		{"DELETE", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.deleteObjectDeprecated(objects.ObjectsDeleteParams{HTTPRequest: r, ID: id}, nil)
+		}},
+		{"POST reference", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.addObjectReferenceDeprecated(objects.ObjectsReferencesCreateParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: new(models.SingleRef),
+			}, nil)
+		}},
+		{"PUT references", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.updateObjectReferencesDeprecated(objects.ObjectsReferencesUpdateParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: models.MultipleRef{},
+			}, nil)
+		}},
+		{"DELETE reference", func(h *objectHandlers, r *http.Request) middleware.Responder {
+			return h.deleteObjectReferenceDeprecated(objects.ObjectsReferencesDeleteParams{
+				HTTPRequest: r, ID: id, PropertyName: "ref", Body: new(models.SingleRef),
+			}, nil)
+		}},
+	}
+	status := func(res middleware.Responder) int {
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		return rec.Code
+	}
+	newHandler := func(cfg config.Config) *objectHandlers {
+		return &objectHandlers{
+			manager:             &fakeManager{getObjectReturn: &models.Object{Class: "Foo"}},
+			logger:              &logrus.Logger{},
+			config:              cfg,
+			metricRequestsTotal: &fakeMetricRequestsTotal{},
+		}
+	}
+
+	for _, e := range endpoints {
+		t.Run(e.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects/"+id.String(), nil)
+
+			disabled := configRuntime.NewDynamicValue(false)
+			h := newHandler(config.Config{DisableObjectIDEndpointsWithoutClass: disabled})
+			assert.NotEqual(t, http.StatusGone, status(e.call(h, req)))
+
+			require.NoError(t, disabled.SetValue(true))
+			assert.Equal(t, http.StatusGone, status(e.call(h, req)))
+
+			h = newHandler(config.Config{Namespaces: config.Namespaces{Enabled: true}})
+			assert.Equal(t, http.StatusGone, status(e.call(h, req)))
+		})
+	}
+}
+
+func TestObjectsListWithoutClassCounter(t *testing.T) {
+	empty, set, badInclude := "", "MyClass", "unknown"
+	tests := []struct {
+		name      string
+		class     *string
+		include   *string
+		listErr   error
+		wantResp  middleware.Responder
+		wantCount float64
+	}{
+		{name: "class omitted", wantResp: &objects.ObjectsListOK{}, wantCount: 1},
+		{name: "class empty", class: &empty, wantResp: &objects.ObjectsListOK{}, wantCount: 1},
+		{name: "class set", class: &set, wantResp: &objects.ObjectsListOK{}, wantCount: 0},
+		{
+			name: "rejected for a bad include", include: &badInclude,
+			wantResp: &objects.ObjectsListBadRequest{}, wantCount: 1,
+		},
+		{
+			name: "rejected while namespaces are enabled", listErr: uco.NewErrEndpointGone("gone"),
+			wantResp: &objects.ObjectsListGone{}, wantCount: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter, err := newObjectsListWithoutClassCounter(
+				&monitoring.PrometheusMetrics{Registerer: prometheus.NewPedanticRegistry()})
+			require.NoError(t, err)
+			h := &objectHandlers{
+				manager:                &fakeManager{getObjectsErr: tt.listErr},
+				logger:                 &logrus.Logger{},
+				metricRequestsTotal:    &fakeMetricRequestsTotal{},
+				metricListWithoutClass: counter,
+			}
+
+			res := h.getObjects(objects.ObjectsListParams{
+				HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil),
+				Class:       tt.class,
+				Include:     tt.include,
+			}, nil)
+
+			require.IsType(t, tt.wantResp, res)
+			require.Equal(t, tt.wantCount, testutil.ToFloat64(counter))
+		})
+	}
+
+	t.Run("monitoring disabled", func(t *testing.T) {
+		counter, err := newObjectsListWithoutClassCounter(nil)
+		require.NoError(t, err)
+		require.Nil(t, counter)
+		h := &objectHandlers{manager: &fakeManager{}, metricRequestsTotal: &fakeMetricRequestsTotal{}}
+		res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
+		require.IsType(t, &objects.ObjectsListOK{}, res)
+	})
+}
+
 // A stray qualified class on a beacon never leaks into the Href URL.
 func TestExtendReferenceWithAPILink_StripsQualifiedClass(t *testing.T) {
 	cases := []struct {
@@ -1173,6 +1306,7 @@ type fakeManager struct {
 	addObjectReturn    *models.Object
 	addObjectErr       error
 	queryResult        []*models.Object
+	getObjectsErr      error
 	queryErr           *uco.Error
 	updateObjectReturn *models.Object
 	updateObjectErr    error
@@ -1239,7 +1373,7 @@ func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *mod
 }
 
 func (f *fakeManager) GetObjects(ctx context.Context, principal *models.Principal, offset *int64, limit *int64, sort *string, order *string, after *string, addl additional.Properties, tenant string) ([]*models.Object, error) {
-	return f.queryResult, nil
+	return f.queryResult, f.getObjectsErr
 }
 
 func (f *fakeManager) Query(_ context.Context,

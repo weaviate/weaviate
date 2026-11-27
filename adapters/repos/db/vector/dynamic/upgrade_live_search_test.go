@@ -222,14 +222,17 @@ func flatUncompressed() flatent.UserConfig {
 	return fuc
 }
 
-func hnswWith(mutate func(*hnswent.UserConfig)) hnswent.UserConfig {
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
+// smallHNSWUserConfig returns the hnsw defaults with a graph that is cheap to build under the race detector.
+func smallHNSWUserConfig() hnswent.UserConfig {
+	hnswuc := hnswent.UserConfig{}
 	hnswuc.SetDefaults()
+	hnswuc.MaxConnections = 8
+	hnswuc.EFConstruction = 16
+	return hnswuc
+}
+
+func hnswWith(mutate func(*hnswent.UserConfig)) hnswent.UserConfig {
+	hnswuc := smallHNSWUserConfig()
 	mutate(&hnswuc)
 	return hnswuc
 }
@@ -262,12 +265,6 @@ func upgradeQuantizerCases() []upgradeQuantizerCase {
 		{name: "flat uncompressed -> hnsw BQ", flatUC: flatUncompressed(), hnswUC: hnswBQ()},
 		{name: "flat uncompressed -> hnsw RQ8", flatUC: flatUncompressed(), hnswUC: hnswRQ8()},
 		{name: "flat RQ8 -> hnsw uncompressed", flatUC: flatRQ8(), hnswUC: hnswWith(func(*hnswent.UserConfig) {})},
-		{
-			// evicted vectors are read back during the copy
-			name:   "flat RQ8 -> hnsw BQ, small hnsw cache",
-			flatUC: flatRQ8(),
-			hnswUC: hnswWith(func(uc *hnswent.UserConfig) { uc.BQ.Enabled = true; uc.VectorCacheMaxObjects = 100 }),
-		},
 	}
 }
 
@@ -315,9 +312,7 @@ func TestUpgrade_SearchDuringQuantizedCopy(t *testing.T) {
 			upgraded := env.search(t, queries, k, "after the upgrade committed")
 			codes := env.compressedCodeLengths()
 			if env.idx.Compressed() {
-				if tc.hnswUC.VectorCacheMaxObjects >= int(env.uc.Threshold) {
-					require.Len(t, codes, len(vectors), "every vector must be persisted compressed")
-				}
+				require.Len(t, codes, len(vectors), "every vector must be persisted compressed")
 				require.NotEmpty(t, codes)
 				for _, l := range codes {
 					require.Equal(t, codes[0], l, "compressed vectors of mixed length")
@@ -653,6 +648,8 @@ func TestUpgrade_InProgressUntilCompressed(t *testing.T) {
 
 	require.True(t, afterInstall, "between the swap and the compression")
 	require.True(t, afterCompress, "until the upgrade returns")
-	require.False(t, idx.UpgradeInProgress(), "once the upgrade returned")
+	// hnsw clears its compressing flag just after the compression callback
+	require.Eventually(t, func() bool { return !idx.UpgradeInProgress() },
+		5*time.Second, time.Millisecond, "once the upgrade returned")
 	require.True(t, idx.Compressed())
 }

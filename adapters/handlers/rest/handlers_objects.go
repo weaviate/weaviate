@@ -20,6 +20,7 @@ import (
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -42,6 +43,8 @@ type objectHandlers struct {
 	config              config.Config
 	modulesProvider     ModulesProvider
 	metricRequestsTotal restApiRequestsTotal
+	// metricListWithoutClass is nil when monitoring is disabled.
+	metricListWithoutClass prometheus.Counter
 }
 
 type ModulesProvider interface {
@@ -238,6 +241,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	if params.Class != nil && *params.Class != "" {
 		return h.query(params, principal)
 	}
+	h.logListWithoutClass()
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -655,7 +659,18 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 	manager *uco.Manager, config config.Config, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider, metrics *monitoring.PrometheusMetrics,
 ) {
-	h := &objectHandlers{manager, logger, config, modulesProvider, newObjectsRequestsTotal(metrics, logger)}
+	listWithoutClass, err := newObjectsListWithoutClassCounter(metrics)
+	if err != nil {
+		logger.Errorf("register objects_list_without_class_requests_total metric: %v", err)
+	}
+	h := &objectHandlers{
+		manager:                manager,
+		logger:                 logger,
+		config:                 config,
+		modulesProvider:        modulesProvider,
+		metricRequestsTotal:    newObjectsRequestsTotal(metrics, logger),
+		metricListWithoutClass: listWithoutClass,
+	}
 	api.ObjectsObjectsCreateHandler = objects.
 		ObjectsCreateHandlerFunc(h.addObject)
 	api.ObjectsObjectsValidateHandler = objects.
@@ -697,11 +712,17 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 		ObjectsReferencesDeleteHandlerFunc(h.deleteObjectReferenceDeprecated)
 }
 
+// objectIDEndpointsWithoutClassDisabled reports whether the *Deprecated
+// handlers answer 410 Gone instead of serving the request.
+func (h *objectHandlers) objectIDEndpointsWithoutClassDisabled() bool {
+	return h.config.Namespaces.Enabled || h.config.DisableObjectIDEndpointsWithoutClass.Get()
+}
+
 func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "GET "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsGetGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("getting an object without a class is not supported; use /objects/{className}/{id}")))
@@ -718,7 +739,7 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "HEAD "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsHeadGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("checking an object without a class is not supported; use /objects/{className}/{id}")))
@@ -732,7 +753,7 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 
 func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PATCH "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsPatchGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("patching an object without a class is not supported; use /objects/{className}/{id}")))
@@ -752,7 +773,7 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsUpdateGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("updating an object without a class is not supported; use /objects/{className}/{id}")))
@@ -770,7 +791,7 @@ func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeletePara
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsDeleteGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("deleting an object without a class is not supported; use /objects/{className}/{id}")))
@@ -786,7 +807,7 @@ func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsRefe
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "POST "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesCreateGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
@@ -804,7 +825,7 @@ func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.Objects
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesUpdateGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("replacing references without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
@@ -822,7 +843,7 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
-	if h.config.Namespaces.Enabled {
+	if h.objectIDEndpointsWithoutClassDisabled() {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesDeleteGone().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
@@ -899,6 +920,28 @@ type objectsRequestsTotal struct {
 func newObjectsRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) restApiRequestsTotal {
 	return &objectsRequestsTotal{
 		restApiRequestsTotalImpl: &restApiRequestsTotalImpl{newRequestsTotalMetric(metrics, "rest"), "rest", "objects", logger},
+	}
+}
+
+func newObjectsListWithoutClassCounter(metrics *monitoring.PrometheusMetrics) (prometheus.Counter, error) {
+	if metrics == nil || metrics.Registerer == nil {
+		return nil, nil
+	}
+	counter := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "objects_list_without_class_requests_total",
+		Help: "Number of GET /v1/objects requests without a class, which list objects across all collections. " +
+			"Listing without a class is deprecated. Rejected requests count too, such as the 410 answered while namespaces are enabled.",
+	})
+	registered, _, err := monitoring.EnsureRegisteredMetric(metrics.Registerer, counter)
+	if err != nil {
+		return nil, err
+	}
+	return registered, nil
+}
+
+func (h *objectHandlers) logListWithoutClass() {
+	if h.metricListWithoutClass != nil {
+		h.metricListWithoutClass.Inc()
 	}
 }
 

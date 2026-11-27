@@ -65,12 +65,33 @@ const (
 	ErrorInvalidProperties string = "properties of object %v must be of type map[string]interface"
 )
 
+// ErrMultiTargetRefWithoutClass is what a write returns when it refuses a beacon
+// without a class on a reference property with several target classes.
+var ErrMultiTargetRefWithoutClass = errors.New("multi-target references require the class name in the target beacon url")
+
+// MultiTargetRefCounter counts the beacons CheckMultiTargetRefWithoutClass sees.
+type MultiTargetRefCounter interface {
+	MultiTargetRefWithoutClassInc()
+}
+
+// CheckMultiTargetRefWithoutClass counts a beacon without a class on a
+// reference property with several target classes. It refuses the beacon while
+// namespaces are enabled or DisableMultiTargetReferencesWithoutClass is set.
+func CheckMultiTargetRefWithoutClass(cfg *config.WeaviateConfig, counter MultiTargetRefCounter) error {
+	counter.MultiTargetRefWithoutClassInc()
+	if cfg.Config.Namespaces.Enabled || cfg.Config.DisableMultiTargetReferencesWithoutClass.Get() {
+		return ErrMultiTargetRefWithoutClass
+	}
+	return nil
+}
+
 type Validator struct {
 	exists           exists
 	config           *config.WeaviateConfig
 	replicationProps *additional.ReplicationProperties
 	principal        *models.Principal
 	qualifier        namespacing.Qualifier
+	refCounter       MultiTargetRefCounter
 }
 
 // New constructs a Validator. principal and qualifier qualify the target class
@@ -79,6 +100,7 @@ type Validator struct {
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
 	principal *models.Principal, qualifier namespacing.Qualifier,
+	refCounter MultiTargetRefCounter,
 ) *Validator {
 	return &Validator{
 		exists:           exists,
@@ -86,6 +108,7 @@ func New(exists exists, config *config.WeaviateConfig,
 		replicationProps: repl,
 		principal:        principal,
 		qualifier:        qualifier,
+		refCounter:       refCounter,
 	}
 }
 

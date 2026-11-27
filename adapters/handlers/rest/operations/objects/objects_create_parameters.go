@@ -46,7 +46,7 @@ type ObjectsCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The object to be created.
+	/*The object to be created. `class` is required.
 	  Required: true
 	  In: body
 	*/

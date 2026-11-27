@@ -15,7 +15,9 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -34,6 +36,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -41,6 +44,13 @@ import (
 // setupReplayShard spins up a single-shard repo/index for replay tests.
 // Mirrors the bootstrap pattern used by TestOverwriteObjects.
 func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *models.Class) {
+	t.Helper()
+	return setupReplayShardSkipClassName(t, false)
+}
+
+// setupReplayShardSkipClassName is setupReplayShard with
+// LSMSkipWriteClassNameEnabled set to skipClassName.
+func setupReplayShardSkipClassName(t *testing.T, skipClassName bool) (repo *DB, idx *Index, shard string, class *models.Class) {
 	t.Helper()
 
 	dirName := t.TempDir()
@@ -83,10 +93,11 @@ func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *
 
 	var err error
 	repo, err = New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10,
-		MaxImportGoroutinesFactor: 1,
+		MemtablesFlushDirtyAfter:     60,
+		RootPath:                     dirName,
+		QueryMaximumResults:          10,
+		MaxImportGoroutinesFactor:    1,
+		LSMSkipWriteClassNameEnabled: skipClassName,
 	}, &FakeRemoteClient{}, &FakeNodeResolver{},
 		&FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
@@ -107,7 +118,8 @@ func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *
 	return repo, idx, shard, class
 }
 
-// mustMarshalPayload produces the raw storobj bytes that the source-side tee writes.
+// mustMarshalPayload produces storobj bytes with the class name written, the
+// same bytes MarshalBinaryDisk(false) produces.
 func mustMarshalPayload(t *testing.T, obj *models.Object, vector []float32) []byte {
 	t.Helper()
 	so := storobj.FromObject(obj, vector, nil, nil)
@@ -629,4 +641,56 @@ func TestOverwriteObjectsFromChangeLog_TeesIntoActiveMovementLog(t *testing.T) {
 	require.Equal(t, []strfmt.UUID{putID}, puts)
 	require.Equal(t, []strfmt.UUID{deletedID}, deletes)
 	require.NoError(t, idx.IncomingStopChangeCapture(ctx, shard, "movement-from-here"))
+}
+
+// A movement replays the change log its source shard captured. With
+// LSMSkipWriteClassNameEnabled the captured PUT and merge bytes carry no class
+// name, and the target must still apply them.
+func TestOverwriteObjectsFromChangeLog_ReplaysCapturedWritesWithoutClassName(t *testing.T) {
+	const opID = "movement"
+	ctx := context.Background()
+	id := strfmt.UUID("981c09f9-67f3-4e6e-a988-c53eaefbd58e")
+	source, sourceIdx, sourceShard, class := setupReplayShardSkipClassName(t, true)
+	target, targetIdx, targetShard, _ := setupReplayShardSkipClassName(t, true)
+
+	require.NoError(t, sourceIdx.IncomingStartChangeCapture(ctx, sourceShard, opID))
+	obj := &models.Object{
+		ID: id, Class: class.Class, CreationTimeUnix: 10, LastUpdateTimeUnix: 10,
+		Properties: map[string]interface{}{"stringProp": "put"}, Vector: []float32{1, 2, 3},
+	}
+	require.NoError(t, source.PutObject(ctx, obj, obj.Vector, nil, nil, nil, 0))
+	require.NoError(t, source.Merge(ctx, objects.MergeDocument{
+		Class: class.Class, ID: id, UpdateTime: 20,
+		PrimitiveSchema: map[string]interface{}{"stringProp": "merged"},
+	}, nil, "", 0))
+
+	lsn, err := sourceIdx.IncomingSnapshotChangeLogLSN(ctx, sourceShard, opID)
+	require.NoError(t, err)
+	tailer, err := sourceIdx.IncomingGetChangeLog(ctx, sourceShard, opID, lsn)
+	require.NoError(t, err)
+	defer tailer.Close()
+	var replay []ChangeLogReplayEntry
+	for {
+		e, err := tailer.Next(ctx)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err)
+		replay = append(replay, ChangeLogReplayEntry{
+			ID:                      strfmt.UUID(uuid.UUID(e.UUID).String()),
+			LastUpdateTimeUnixMilli: e.UpdateTimeMillis,
+			IsDelete:                e.IsDelete,
+			Payload:                 e.Payload,
+		})
+	}
+	require.Len(t, replay, 2, "the PUT and the merge")
+
+	require.NoError(t, targetIdx.OverwriteObjectsFromChangeLog(ctx, targetShard, replay))
+
+	want, err := source.Object(ctx, class.Class, id, nil, additional.Properties{}, nil, "")
+	require.NoError(t, err)
+	got, err := target.Object(ctx, class.Class, id, nil, additional.Properties{}, nil, "")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, want.Object(), got.Object())
 }

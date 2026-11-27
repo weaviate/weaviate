@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -467,7 +468,16 @@ Loop:
 		u.log.Info("includeRoles selects no roles, skipping RBAC backup")
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
-		descrp, err := u.rbacSourcer.Snapshot(u.selection.roles...)
+		// A backup that selects users carries dynamic-user assignments only for
+		// those users. A selection that matched no users (skipUsers) carries none.
+		// With no user selection, the backup covers the whole cluster unfiltered.
+		var descrp []byte
+		var err error
+		if len(u.selection.users) > 0 || u.selection.skipUsers {
+			descrp, err = u.rbacSourcer.ScopedSnapshot(u.selection.users, u.selection.roles...)
+		} else {
+			descrp, err = u.rbacSourcer.Snapshot(u.selection.roles...)
+		}
 		if err != nil {
 			return err
 		}
@@ -1046,7 +1056,40 @@ func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) 
 			}
 		}
 	}
+	if err := validateStagedClassDir(classTempDir, strings.ToLower(materializedName)); err != nil {
+		return fmt.Errorf("validate staged files: %w", err)
+	}
 	return nil
+}
+
+func isStagedIndexDir(e os.DirEntry, want string) bool {
+	return e.Name() == want && e.Type().IsDir() // Type() does not follow symlinks
+}
+
+func isStagingMarker(e os.DirEntry) bool {
+	return e.Name() == stagingMarkerFile && e.Type().IsRegular()
+}
+
+// validateStagedClassDir removes classTempDir if it holds anything besides the indexDir directory and the staging marker.
+func validateStagedClassDir(classTempDir, indexDir string) error {
+	entries, err := os.ReadDir(classTempDir)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", classTempDir, err)
+	}
+	var foreign []string
+	for _, e := range entries {
+		if !isStagedIndexDir(e, indexDir) && !isStagingMarker(e) {
+			foreign = append(foreign, e.Name())
+		}
+	}
+	if len(foreign) == 0 {
+		return nil
+	}
+	err = fmt.Errorf("staging dir %s holds foreign entries %q: only directory %q is allowed", classTempDir, foreign, indexDir)
+	if rerr := os.RemoveAll(classTempDir); rerr != nil {
+		err = errors.Join(err, fmt.Errorf("remove %s: %w", classTempDir, rerr))
+	}
+	return err
 }
 
 // readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.
@@ -1095,6 +1138,37 @@ func chunkKey(class string, id int32) string {
 	return fmt.Sprintf("%s/chunk-%d", class, id)
 }
 
+// isChunkKeyOf reports whether key is exactly what chunkKey produces for class.
+func isChunkKeyOf(class, key string) bool {
+	rest, ok := strings.CutPrefix(key, class+"/chunk-")
+	if !ok {
+		return false
+	}
+	n, err := strconv.ParseInt(rest, 10, 32)
+	return err == nil && n >= 0 && chunkKey(class, int32(n)) == key
+}
+
+// validateIncrementalRefs rejects base ids and chunk keys that could address objects outside the backups.
+func validateIncrementalRefs(desc *backup.BackupDescriptor) error {
+	for _, c := range desc.Classes {
+		for _, s := range c.Shards {
+			for baseID, infos := range s.IncrementalBackupInfo.FilesPerBackup {
+				if err := validateID(baseID); err != nil {
+					return fmt.Errorf("class=%q shard=%q: base backup id %q: %w", c.Name, s.Name, baseID, err)
+				}
+				for _, info := range infos {
+					for _, key := range info.ChunkKeys {
+						if !isChunkKeyOf(c.Name, key) {
+							return fmt.Errorf("class=%q shard=%q base=%q: invalid chunk key %q", c.Name, s.Name, baseID, key)
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func routinePoolSize(percentage int) int {
 	if percentage == 0 { // default value
 		percentage = DefaultCPUPercentage
@@ -1110,30 +1184,42 @@ func routinePoolSize(percentage int) int {
 // RestoreClassDir returns a func that restores classes on the filesystem directly from the temporary class backup stored on disk.
 // This function is invoked by the Raft store when a restoration request is sent by the backup coordinator.
 func RestoreClassDir(dataPath string) func(class string) error {
-	return func(class string) error {
+	return func(class string) (err error) {
 		classTempDir := filepath.Join(dataPath, TempDirectory, class)
 		// nothing to restore
 		if _, err := os.Stat(classTempDir); err != nil {
 			return nil
 		}
-		defer os.RemoveAll(classTempDir)
+		defer func() {
+			if rerr := os.RemoveAll(classTempDir); rerr != nil {
+				err = errors.Join(err, fmt.Errorf("remove %s: %w", classTempDir, rerr))
+			}
+		}()
 		files, err := os.ReadDir(classTempDir)
 		if err != nil {
-			return fmt.Errorf("read %s", classTempDir)
+			return fmt.Errorf("read %s: %w", classTempDir, err)
 		}
-		destDir := dataPath
 
-		for _, key := range files {
-			if key.Name() == stagingMarkerFile {
+		indexDir := strings.ToLower(class)
+		var errs []error
+		var refused []string
+		for _, e := range files {
+			if isStagingMarker(e) {
 				continue
 			}
-			from := path.Join(classTempDir, key.Name())
-			to := path.Join(destDir, key.Name())
+			if !isStagedIndexDir(e, indexDir) {
+				refused = append(refused, e.Name())
+				continue
+			}
+			from := filepath.Join(classTempDir, indexDir)
+			to := filepath.Join(dataPath, indexDir)
 			if err := os.Rename(from, to); err != nil {
-				return fmt.Errorf("move %s %s: %w", from, to, err)
+				errs = append(errs, fmt.Errorf("move %s %s: %w", from, to, err))
 			}
 		}
-
-		return nil
+		if len(refused) > 0 {
+			errs = append(errs, fmt.Errorf("refused staged entries %q in %s: only directory %q is adopted", refused, classTempDir, indexDir))
+		}
+		return errors.Join(errs...)
 	}
 }

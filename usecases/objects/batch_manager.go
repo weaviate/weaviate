@@ -70,7 +70,7 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		modulesProvider:   modulesProvider,
 		authorizer:        authorizer,
 		autoSchemaManager: autoSchemaManager,
-		metrics:           NewMetrics(prom),
+		metrics:           NewMetrics(prom, logger),
 		qualifier:         qualifier,
 	}
 }

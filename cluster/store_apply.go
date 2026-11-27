@@ -12,10 +12,12 @@
 package cluster
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,14 +58,19 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
+	// Tenant deletes, tenant updates and class deletes hold taskMovementLocks shared until they apply, so a submit waits for them.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
-	if collection != "" {
-		st.taskMovementLocks.Lock(collection)
-		defer st.taskMovementLocks.Unlock(collection)
+	switch key := classLockKey(cmp.Or(collection, req.Class)); {
+	case collection != "":
+		st.taskMovementLocks.Lock(key)
+		defer st.taskMovementLocks.Unlock(key)
+	case req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT ||
+		req.Type == api.ApplyRequest_TYPE_DELETE_CLASS:
+		st.taskMovementLocks.RLock(key)
+		defer st.taskMovementLocks.RUnlock(key)
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
@@ -134,7 +141,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace has a header decoder that reads a collection from its payload.
 func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
@@ -151,7 +158,12 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	return st.admitTaskReplicas(task, collection)
 }
 
-// admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
+// classLockKey gives every spelling of a class one key, since the schema matches class names with strings.EqualFold.
+func classLockKey(class string) string {
+	return strings.ToLower(strings.ToUpper(class))
+}
+
+// admitTaskReplicas refuses a task naming a shard that is not HOT, or one whose units no longer match the current replicas of the shards they name. A replica with no unit is never reindexed.
 // A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
 // A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
 func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
@@ -167,12 +179,16 @@ func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collecti
 		return nil
 	}
 
-	changed := false
+	changed, notHot := false, false
 	if err := st.schemaManager.NewSchemaReader().Read(collection, false, func(_ *models.Class, state *sharding.State) error {
 		for shard, nodes := range taskReplicas {
-			if !sameNodes(nodes, state.Physical[shard].BelongsToNodes) {
+			physical := state.Physical[shard]
+			if !sameNodes(nodes, physical.BelongsToNodes) {
 				changed = true
 				return nil
+			}
+			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
+				notHot = true
 			}
 		}
 		return nil
@@ -183,6 +199,9 @@ func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collecti
 	}
 	if changed {
 		return distributedtask.NewReplicasChangedError(collection)
+	}
+	if notHot {
+		return distributedtask.NewTenantsNotHotError(collection)
 	}
 	return nil
 }

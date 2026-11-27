@@ -45,19 +45,7 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		Logger:             appState.Logger,
 	})
 
-	// swagger-layer errors (bind validation, security, routing) on search
-	// and aggregate routes use the same ErrorResponse shape as handler errors
-	defaultServeError := api.ServeError
-	if defaultServeError == nil {
-		defaultServeError = openapierrors.ServeError
-	}
-	api.ServeError = func(rw http.ResponseWriter, r *http.Request, err error) {
-		if r != nil && (restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)) {
-			restsearch.ServeError(rw, r, err)
-			return
-		}
-		defaultServeError(rw, r, err)
-	}
+	setupSearchServeError(api)
 
 	api.SearchSearchNearTextHandler = searchops.SearchNearTextHandlerFunc(
 		func(params searchops.SearchNearTextParams, principal *models.Principal) middleware.Responder {
@@ -112,6 +100,24 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 			}
 			return aggregateops.NewAggregateOK().WithPayload(payload)
 		})
+}
+
+// setupSearchServeError makes swagger-layer errors (bind validation, security,
+// routing) on search and aggregate routes use the same ErrorResponse shape as
+// handler errors. It classifies on the escaped path, because that is the
+// string the router looks up.
+func setupSearchServeError(api *operations.WeaviateAPI) {
+	defaultServeError := api.ServeError
+	if defaultServeError == nil {
+		defaultServeError = openapierrors.ServeError
+	}
+	api.ServeError = func(rw http.ResponseWriter, r *http.Request, err error) {
+		if r != nil && (restsearch.IsSearchRoute(r.URL.EscapedPath()) || restsearch.IsAggregateRoute(r.URL.EscapedPath())) {
+			restsearch.ServeError(rw, r, err)
+			return
+		}
+		defaultServeError(rw, r, err)
+	}
 }
 
 // searchErrPayload renders a search APIError as the standard REST error body,
@@ -225,8 +231,7 @@ func searchNearVectorErrResponder(apiErr *restsearch.APIError) middleware.Respon
 }
 
 // aggregateErrResponder translates an aggregate APIError into the generated
-// responder for its status, keeping the standard REST error shape. aggregate
-// declares no 429 (the traverser's aggregate path is not rate limited).
+// responder for its status, keeping the standard REST error shape.
 func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	payload := searchErrPayload(apiErr)
 
@@ -239,6 +244,10 @@ func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 		return aggregateops.NewAggregateNotFound().WithPayload(payload)
 	case http.StatusUnprocessableEntity:
 		return aggregateops.NewAggregateUnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		// a where filter on a cross-reference runs a nested search, which the
+		// server can turn away when it is too busy
+		return aggregateops.NewAggregateTooManyRequests().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return aggregateops.NewAggregateInternalServerError().WithPayload(payload)
 	default:

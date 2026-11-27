@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -29,6 +30,22 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+type testHeader string
+
+func (h testHeader) Collection() string { return string(h) }
+
+// decodeWith is a detector that only supplies headers, refusing nothing.
+type decodeWith func([]byte) (string, bool)
+
+func (d decodeWith) CheckConflict([]byte, []*Task) error { return nil }
+
+func (d decodeWith) DecodeHeader(payload []byte) (TaskHeader, error) {
+	if collection, ok := d(payload); ok {
+		return testHeader(collection), nil
+	}
+	return nil, errors.New("unreadable payload")
+}
 
 // fakeConflictDetector lets the manager-side conflict-hook test pin
 // every branch of [Manager.AddTask]'s ConflictDetector invocation
@@ -1390,16 +1407,11 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 		"post-restore the missing-acks predicate must keep gating MarkTaskFinalized")
 }
 
-// fakeSchemaMutationDetector lets the manager-side CheckPropertyUpdate
-// dispatch test pin every branch with a scripted verdict. Records
-// arguments so we can assert the dispatch contract
-// (only the matching-namespace detector consulted, full FSM task list
-// passed in, etc.).
 type fakeSchemaMutationDetector struct {
 	called        int
 	lastClassName string
 	lastPropName  string
-	lastTaskCount int
+	lastTasks     []*Task
 	rejectWith    error
 }
 
@@ -1407,30 +1419,24 @@ func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName
 	f.called++
 	f.lastClassName = className
 	f.lastPropName = propertyName
-	f.lastTaskCount = len(existingTasks)
+	f.lastTasks = existingTasks
 	return f.rejectWith
 }
 
 func (f *fakeSchemaMutationDetector) CheckClassMutation(className string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
-	f.lastTaskCount = len(existingTasks)
+	f.lastTasks = existingTasks
 	return f.rejectWith
 }
 
 func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
-	f.lastTaskCount = len(existingTasks)
+	f.lastTasks = existingTasks
 	return f.rejectWith
 }
 
-// TestManager_CheckPropertyUpdate_DispatchToDetectors pins the cross-
-// FSM dispatch: the schema FSM's UpdateProperty apply consults this
-// method, which fans out to every registered
-// [SchemaMutationDetector] with the current FSM-stored task list for
-// each detector's namespace.
-//
 // Motivating bug: https://github.com/weaviate/0-weaviate-issues/issues/218. Symmetric to the existing
 // TestManager_AddTask_ConflictDetector pattern.
 func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
@@ -1469,28 +1475,6 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		require.Contains(t, err.Error(), "simulated conflict")
 	})
 
-	t.Run("detector receives full namespace-scoped task list at apply time", func(t *testing.T) {
-		h := newTestHarness(t)
-		detector := &fakeSchemaMutationDetector{rejectWith: nil}
-		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
-			"test": detector,
-		}
-		h.init(t)
-
-		// Seed a task into the manager.
-		c := toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace:             "test",
-			Id:                    "T1",
-			SubmittedAtUnixMillis: time.Now().UnixMilli(),
-			UnitIds:               []string{"su-1"},
-		})
-		require.NoError(t, h.manager.AddTask(c, 100))
-
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
-		require.Equal(t, 1, detector.lastTaskCount,
-			"detector MUST be passed the FSM-stored task list at apply time")
-	})
-
 	t.Run("nil detector entry → skipped gracefully", func(t *testing.T) {
 		h := newTestHarness(t)
 		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
@@ -1501,10 +1485,6 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	})
 }
 
-// TestManager_CheckClassMutation_DispatchToDetectors pins the dispatch
-// for the class-wide guard. Symmetric to the CheckPropertyUpdate
-// dispatch suite — same nil-safety, same propagate-rejection,
-// same full-task-list semantics.
 func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 	t.Run("no detectors registered → nil", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
@@ -1538,6 +1518,47 @@ func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 	})
 }
 
+func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
+	idOf := map[string]string{"Foo": "same", "Bar": "other", "": "unknown"}
+	checks := map[string]func(m *Manager, d *fakeRemovalGate) error{
+		"property": func(m *Manager, _ *fakeRemovalGate) error { return m.CheckPropertyUpdate("foo", "name") },
+		"class":    func(m *Manager, _ *fakeRemovalGate) error { return m.CheckClassMutation("foo") },
+		"tenant":   func(m *Manager, _ *fakeRemovalGate) error { return m.CheckTenantMutation("foo", []string{"t1"}) },
+		"vector config removal": func(m *Manager, _ *fakeRemovalGate) error {
+			return m.CheckVectorConfigRemoval("foo", []string{"v"}, nil)
+		},
+		"target vector purge": func(m *Manager, d *fakeRemovalGate) error {
+			m.RegisterTargetVectorExtractor("reindex", func(p []byte) (string, []string, bool) {
+				d.lastTasks = append(d.lastTasks, m.tasks["reindex"][idOf[string(p)]])
+				return "", nil, false
+			})
+			_, err := m.PurgeTasksForCollectionTargetVectors("foo", []string{"v"})
+			return err
+		},
+	}
+	for name, check := range checks {
+		t.Run(name, func(t *testing.T) {
+			h := newTestHarness(t)
+			detector := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}}
+			h.schemaMutationDetectors = map[string]SchemaMutationDetector{"reindex": detector}
+			h.conflictDetectors = map[string]ConflictDetector{"reindex": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 })}
+			h.init(t)
+			for collection, id := range idOf {
+				require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+					Namespace: "reindex", Id: id, Payload: []byte(collection), UnitIds: []string{"u"},
+				}), 100))
+			}
+
+			require.NoError(t, check(h.manager, detector))
+			var ids []string
+			for _, task := range detector.lastTasks {
+				ids = append(ids, task.ID)
+			}
+			require.ElementsMatch(t, []string{"same", "unknown"}, ids, "only the task on Foo and the one with no known collection")
+		})
+	}
+}
+
 // fakeRemovalGate is a SchemaMutationDetector that also implements
 // VectorConfigRemovalGate, so CheckVectorConfigRemoval can type-assert it out of
 // the shared detector registry.
@@ -1546,8 +1567,9 @@ type fakeRemovalGate struct {
 	gateCalled    int
 	lastRemoved   []string
 	lastShards    []string
-	lastTaskCount int
 	gateReject    error
+	proposeCalled int
+	proposeReject error
 }
 
 func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, shards []string, existing []*Task) error {
@@ -1555,8 +1577,64 @@ func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, sh
 	f.lastClassName = className
 	f.lastRemoved = removed
 	f.lastShards = shards
-	f.lastTaskCount = len(existing)
+	f.lastTasks = existing
 	return f.gateReject
+}
+
+func (f *fakeRemovalGate) CheckVectorConfigRemovalAtPropose(className string, removed, shards []string, existing []*Task) error {
+	f.proposeCalled++
+	f.lastRemoved = removed
+	f.lastShards = shards
+	f.lastTasks = existing
+	return f.proposeReject
+}
+
+// TestManager_CheckVectorConfigRemovalAtPropose_DispatchToGates pins that the
+// propose-time check reaches only the propose gate, with the namespace's tasks.
+func TestManager_CheckVectorConfigRemovalAtPropose_DispatchToGates(t *testing.T) {
+	tests := []struct {
+		name       string
+		removed    []string
+		reject     error
+		wantCalled int
+	}{
+		{name: "gate allows", removed: []string{"v1"}, wantCalled: 1},
+		{name: "gate refuses", removed: []string{"v1"}, reject: fmt.Errorf("not drained"), wantCalled: 1},
+		{name: "empty removal list", reject: fmt.Errorf("should not be reached")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHarness(t)
+			gate := &fakeRemovalGate{
+				fakeSchemaMutationDetector: &fakeSchemaMutationDetector{},
+				gateReject:                 fmt.Errorf("the apply-time gate must not be asked"),
+				proposeReject:              tt.reject,
+			}
+			h.schemaMutationDetectors = map[string]SchemaMutationDetector{
+				"drop-vector-index": gate,
+				// Does not implement the propose gate and must be skipped.
+				"reindex": &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("should not be reached")},
+			}
+			h.init(t)
+			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace: "drop-vector-index", Id: "T1",
+				SubmittedAtUnixMillis: time.Now().UnixMilli(), UnitIds: []string{"su-1"},
+			}), 100))
+
+			err := h.manager.CheckVectorConfigRemovalAtPropose("C", tt.removed, []string{"s1"})
+			if tt.reject != nil && tt.wantCalled > 0 {
+				require.ErrorIs(t, err, tt.reject)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.wantCalled, gate.proposeCalled)
+			require.Zero(t, gate.gateCalled)
+			if tt.wantCalled > 0 {
+				require.Equal(t, []string{"s1"}, gate.lastShards)
+				require.Len(t, gate.lastTasks, 1)
+			}
+		})
+	}
 }
 
 // TestManager_CheckVectorConfigRemoval_DispatchToGates pins the dispatch:
@@ -1594,7 +1672,7 @@ func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
 		require.Equal(t, 1, gate.gateCalled)
 		require.Equal(t, []string{"v1"}, gate.lastRemoved)
 		require.Equal(t, []string{"s1"}, gate.lastShards, "gate must receive the shard set")
-		require.Equal(t, 1, gate.lastTaskCount, "gate must receive the FSM-stored task list")
+		require.Len(t, gate.lastTasks, 1, "gate must receive the FSM-stored task list")
 	})
 
 	t.Run("gate returns error → CheckVectorConfigRemoval propagates", func(t *testing.T) {
@@ -1736,10 +1814,11 @@ func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 // (purge, enqueuer, conflict guard) — a byte-exact cascade would leak a
 // case-twin record past DELETE_CLASS.
 func TestManager_DeleteTasksForCollection_CaseInsensitive(t *testing.T) {
-	h := newTestHarness(t).init(t)
-	h.manager.RegisterCollectionExtractor("ns", func(payload []byte) (string, bool) {
+	h := newTestHarness(t)
+	h.conflictDetectors = map[string]ConflictDetector{"ns": decodeWith(func(payload []byte) (string, bool) {
 		return string(payload), true
-	})
+	})}
+	h.init(t)
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             "ns",
 		Id:                    "twin",
@@ -1780,8 +1859,13 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 	}
 
 	t.Run("removes only tasks whose payload matches the collection", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		h.manager.RegisterCollectionExtractor("scoped", collectionExtractor)
+		h := newTestHarness(t)
+		decodes := 0
+		h.conflictDetectors = map[string]ConflictDetector{"scoped": decodeWith(func(payload []byte) (string, bool) {
+			decodes++
+			return collectionExtractor(payload)
+		})}
+		h.init(t)
 
 		mkTask := func(id string, payload any) {
 			t.Helper()
@@ -1800,7 +1884,9 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		mkTask("bar-1", map[string]string{"collection": "Bar"})
 		mkTask("nope", "opaque-string")
 
+		decodes = 0
 		removed := h.manager.DeleteTasksForCollection("Foo")
+		require.Zero(t, decodes, "a class delete must not decode payloads")
 		require.Len(t, removed, 2, "should remove both Foo tasks")
 
 		removedIDs := []string{removed[0].ID, removed[1].ID}
@@ -1834,12 +1920,12 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 	})
 
 	t.Run("empty collection name is a no-op (refuses to nuke everything)", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		// Guard against a sloppy extractor emitting ("", true) accidentally
-		// matching every task on DeleteTasksForCollection("").
-		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) {
+		h := newTestHarness(t)
+		// A decoder that reads "" must not make DeleteTasksForCollection("") match every task.
+		h.conflictDetectors = map[string]ConflictDetector{"scoped": decodeWith(func([]byte) (string, bool) {
 			return "", true
-		})
+		})}
+		h.init(t)
 
 		addRawTask(t, h, "scoped", "still-here", []byte("anything"), "u-1")
 
@@ -1849,35 +1935,6 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		all, err := h.manager.ListDistributedTasks(context.Background())
 		require.NoError(t, err)
 		assert.Len(t, all["scoped"], 1, "task must still exist after empty-name query")
-	})
-
-	t.Run("RegisterCollectionExtractor is idempotent (last write wins)", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) { return "Foo", true })
-		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) { return "", false })
-
-		addRawTask(t, h, "scoped", "task", []byte("payload"), "u-1")
-
-		removed := h.manager.DeleteTasksForCollection("Foo")
-		assert.Empty(t, removed, "second extractor takes effect; task must NOT be removed")
-	})
-
-	t.Run("RegisterCollectionExtractor rejects nil extractor and empty namespace", func(t *testing.T) {
-		// Without these guards, DeleteTasksForCollection would either panic
-		// on the nil function pointer or shadow legitimate "" tasks.
-		h := newTestHarness(t).init(t)
-
-		h.manager.RegisterCollectionExtractor("scoped", nil)
-		addRawTask(t, h, "scoped", "task", []byte("anything"), "u-1")
-		require.NotPanics(t, func() {
-			removed := h.manager.DeleteTasksForCollection("Foo")
-			assert.Empty(t, removed, "nil extractor must not match anything")
-		})
-
-		h.manager.RegisterCollectionExtractor("", func([]byte) (string, bool) { return "Foo", true })
-		addRawTask(t, h, "", "task-in-empty-ns", []byte("anything"), "u-2")
-		removed := h.manager.DeleteTasksForCollection("Foo")
-		assert.Empty(t, removed, "empty-namespace registration must be ignored")
 	})
 }
 
@@ -1905,12 +1962,11 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 		{"a running task restored from a snapshot", "Movies", true, TaskStatusStarted, "", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newTestHarness(t).init(t)
+			h := newTestHarness(t)
 			extracts := 0
-			for _, ns := range []string{"ns", "ns2"} {
-				h.manager.RegisterCollectionExtractor(ns,
-					func([]byte) (string, bool) { extracts++; return tc.extracted, tc.extractOK })
-			}
+			decode := decodeWith(func([]byte) (string, bool) { extracts++; return tc.extracted, tc.extractOK })
+			h.conflictDetectors = map[string]ConflictDetector{"ns": decode, "ns2": decode}
+			h.init(t)
 			fixtureInStatus(t, h, tc.status)
 			tasks := 1
 			if tc.runningInNS != "" {
@@ -2545,8 +2601,9 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 		{name: "a run without per-tenant decisions is left alone", collection: "Foo", status: TaskStatusCancelled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newTestHarness(t).init(t)
-			h.manager.RegisterCollectionExtractor("ns", func(payload []byte) (string, bool) { return string(payload), true })
+			h := newTestHarness(t)
+			h.conflictDetectors = map[string]ConflictDetector{"ns": decodeWith(func(payload []byte) (string, bool) { return string(payload), true })}
+			h.init(t)
 			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 				Namespace: "ns", Id: "T", Payload: []byte(tc.collection), SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 				UnitSpecs:               []*cmd.UnitSpec{{Id: "a-1", GroupId: "a"}, {Id: "b-1", GroupId: "b"}},

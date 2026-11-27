@@ -486,13 +486,14 @@ func TestGetAliases_WithNonExistentClass(t *testing.T) {
 		}
 		handler.schemaReader = fakeSchemaManagerWithReader
 
-		// Call GetAliases with a class filter that doesn't exist
+		fakeSchemaManager.On("GetAliases", mock.Anything, "", &models.Class{Class: "NonExistentClass"}).
+			Return([]*models.Alias{}, nil)
+
 		aliases, err := handler.GetAliases(ctx, nil, "", "NonExistentClass")
 
 		require.NoError(t, err)
 		assert.Empty(t, aliases, "Should return empty list when class filter doesn't exist")
 
-		// Ensure GetAliases on schemaManager is not called since we return early
 		fakeSchemaManager.AssertExpectations(t)
 	})
 

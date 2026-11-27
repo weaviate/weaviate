@@ -76,6 +76,12 @@ func (o *AggregateReader) ReadResponse(response runtime.ClientResponse, consumer
 			return nil, err
 		}
 		return nil, result
+	case 429:
+		result := NewAggregateTooManyRequests()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewAggregateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -558,6 +564,74 @@ func (o *AggregateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AggregateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewAggregateTooManyRequests creates a AggregateTooManyRequests with default headers values
+func NewAggregateTooManyRequests() *AggregateTooManyRequests {
+	return &AggregateTooManyRequests{}
+}
+
+/*
+AggregateTooManyRequests describes a response with status code 429, with default header values.
+
+The server's query rate limit was reached; retry later.
+*/
+type AggregateTooManyRequests struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this aggregate too many requests response has a 2xx status code
+func (o *AggregateTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this aggregate too many requests response has a 3xx status code
+func (o *AggregateTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this aggregate too many requests response has a 4xx status code
+func (o *AggregateTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this aggregate too many requests response has a 5xx status code
+func (o *AggregateTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this aggregate too many requests response a status code equal to that given
+func (o *AggregateTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the aggregate too many requests response
+func (o *AggregateTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *AggregateTooManyRequests) Error() string {
+	return fmt.Sprintf("[POST /aggregate/{collection}][%d] aggregateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *AggregateTooManyRequests) String() string {
+	return fmt.Sprintf("[POST /aggregate/{collection}][%d] aggregateTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *AggregateTooManyRequests) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *AggregateTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

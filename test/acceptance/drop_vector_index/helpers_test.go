@@ -256,6 +256,23 @@ func dropTaskIDsErr() (map[string]string, error) {
 	return ids, nil
 }
 
+// dropTaskVerifyOnlyErr maps every drop-vector task ID to whether the round is
+// verify-only, i.e. strips nothing.
+func dropTaskVerifyOnlyErr() (map[string]bool, error) {
+	resp, err := helper.Client(nil).DistributedTasks.DistributedTasksGet(
+		distributed_tasks.NewDistributedTasksGetParams(), nil)
+	if err != nil {
+		return nil, err
+	}
+	tasks := resp.Payload["drop-vector-index"]
+	verifyOnly := make(map[string]bool, len(tasks))
+	for _, task := range tasks {
+		payload, _ := task.Payload.(map[string]any)
+		verifyOnly[task.ID], _ = payload["verifyOnly"].(bool)
+	}
+	return verifyOnly, nil
+}
+
 // setTenantStatusEventually retries a tenant status change through transient
 // rejections (leadership changes, other guards). Drop-vector cleanups no
 // longer block tenant mutations, so for them a plain update works too.
