@@ -32,7 +32,7 @@ func (h ReindexTaskHeader) VisiblePayload() map[string]any {
 	return visibleFields(ReindexTaskPayload{
 		MigrationType: h.MigrationType, Collection: h.ReindexTaskPayload.Collection,
 		TargetTokenization: h.TargetTokenization, OriginalTokenization: h.OriginalTokenization,
-		BucketStrategy: h.BucketStrategy,
+		BucketStrategy: h.BucketStrategy, ViewServed: h.ViewServed, Generation: h.Generation,
 	}, ReindexTaskVisiblePayloadFields)
 }
 
@@ -166,4 +166,5 @@ type ReindexTaskPayload struct {
 // nodes, so it stays hidden until it is listed here.
 var ReindexTaskVisiblePayloadFields = []string{
 	"migrationType", "collection", "targetTokenization", "originalTokenization", "bucketStrategy",
+	"viewServed", "generation",
 }
