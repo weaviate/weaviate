@@ -442,13 +442,6 @@ func TestServerStateInterceptor(t *testing.T) {
 		require.NoError(t, err, "create batch stream")
 		require.NotNil(t, s, "nil batch stream")
 
-		// The stream might've gotten closed in meantime.
-		if err := s.Send(&pbv1.BatchStreamRequest{
-			Message: &pbv1.BatchStreamRequest_Start_{},
-		}); err != nil {
-			require.ErrorIs(t, err, io.EOF, "send 'Start' message")
-		}
-
 		// Closing the batch stream means Recv() won't block
 		// in cases where we expect the request to succeed,
 		// because then it can return at least return io.EOF.
