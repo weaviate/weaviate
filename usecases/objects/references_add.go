@@ -16,10 +16,6 @@ import (
 	"errors"
 	"fmt"
 
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -27,6 +23,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -138,10 +136,14 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Ref.Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, targetRef.TargetID).String())
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+	targetClasses, targetTenant, err := refTargetScope(class, input.Property, targetRef.Class, tenant)
+	if err != nil {
+		return &Error{"validate inputs", StatusBadRequest, err}
 	}
-	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, refTargetResources(targetClasses, targetTenant)...); err != nil {
+		return referenceAuthorizationError(err)
+	}
+	if err := validateRefTargetExistence(ctx, validator, targetRef, targetClasses, tenant); err != nil {
 		if errors.Is(err, replicaerrors.ErrReplicas) {
 			return &Error{"validate existence", StatusInternalServerError, err}
 		}
@@ -174,7 +176,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	if shouldValidateMultiTenantRef(tenant, source, target) {
 		// MT validation uses targetRef (qualified); storage `target` is short.
 		_, err = validateReferenceMultiTenancy(ctx, principal,
-			m.schemaManager, m.vectorRepo, source, targetRef, tenant, fetchedClass)
+			m.schemaManager, m.authorizer, m.vectorRepo, source, targetRef, tenant,
+			tenant, fetchedClass)
 		if err != nil {
 			switch {
 			case errors.As(err, &autherrs.Forbidden{}):
@@ -230,11 +233,4 @@ func (req *AddReferenceInput) validate(
 	}
 
 	return ref, validateReferenceSchema(class, req.Property)
-}
-
-func (req *AddReferenceInput) validateExistence(
-	ctx context.Context,
-	v *validation.Validator, tenant string, ref *crossref.Ref,
-) error {
-	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
 }

@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -33,6 +34,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -40,8 +43,26 @@ import (
 
 // objectFinder looks an id up in the collections of one namespace.
 type objectFinder interface {
-	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, tenant, namespace string) (search.Results, error)
+	ObjectsByIDWithClassCheck(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
+		additional additional.Properties, tenant, namespace string,
+		check func(class string) (bool, error)) (search.Results, error)
+}
+
+type autoSchemaAuthorizationError struct {
+	err error
+}
+
+func (e *autoSchemaAuthorizationError) Error() string {
+	return e.err.Error()
+}
+
+func (e *autoSchemaAuthorizationError) Unwrap() error {
+	return e.err
+}
+
+func isAutoSchemaAuthorizationError(err error) bool {
+	var authErr *autoSchemaAuthorizationError
+	return errors.As(err, &authErr)
 }
 
 type AutoSchemaManager struct {
@@ -88,7 +109,8 @@ func NewAutoSchemaManager(schemaManager schemaManager, objectFinder objectFinder
 }
 
 func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
-	allowCreateClass bool, classes map[string]versioned.Class, objects ...*models.Object,
+	authorizer authorization.Authorizer, allowCreateClass bool,
+	classes map[string]versioned.Class, objects ...*models.Object,
 ) (uint64, error) {
 	enabled := m.config.Enabled.Get()
 
@@ -119,7 +141,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		if schemaClass == nil && !allowCreateClass {
 			return 0, ErrInvalidUserInput{"given class does not exist"}
 		}
-		properties, err := m.getProperties(ctx, object, principal, schemaClass)
+		properties, err := m.getProperties(ctx, object, principal, authorizer, schemaClass)
 		if err != nil {
 			return 0, err
 		}
@@ -187,14 +209,17 @@ func (m *AutoSchemaManager) createClass(ctx context.Context, principal *models.P
 }
 
 func (m *AutoSchemaManager) getProperties(ctx context.Context, object *models.Object,
-	principal *models.Principal, schemaClass *models.Class,
+	principal *models.Principal, authorizer authorization.Authorizer, schemaClass *models.Class,
 ) ([]*models.Property, error) {
 	properties := []*models.Property{}
 	namespace := namespacing.NamespaceFromQualified(object.Class)
 	if props, ok := object.Properties.(map[string]interface{}); ok {
 		for name, value := range props {
 			now := time.Now()
-			target := refTarget{class: schemaClass, property: name, sourceNamespace: namespace}
+			target := refTarget{
+				class: schemaClass, property: name, sourceNamespace: namespace,
+				principal: principal, authorizer: authorizer,
+			}
 			dt, err := m.determineType(ctx, target, value, false)
 			if err != nil {
 				return nil, fmt.Errorf("property '%s' on class '%s': %w", name, object.Class, err)
@@ -472,6 +497,8 @@ type refTarget struct {
 	class           *models.Class
 	property        string
 	sourceNamespace string
+	principal       *models.Principal
+	authorizer      authorization.Authorizer
 }
 
 // recordedDataType returns the data type class records for the property, or nil
@@ -516,10 +543,24 @@ func (m *AutoSchemaManager) asRef(ctx context.Context, target refTarget,
 		return schema.DataType(ref.Class), true, nil
 	}
 	// Asking a multi-tenant collection for a tenant can activate that tenant, so
-	// the lookup names none and ObjectsByID passes those collections over.
-	results, err := m.objectFinder.ObjectsByID(ctx, ref.TargetID, search.SelectProperties{},
-		additional.Properties{}, "", target.sourceNamespace)
+	// the lookup names none. The repository skips multi-tenant and unreadable
+	// collections before reading them.
+	results, err := m.objectFinder.ObjectsByIDWithClassCheck(ctx, ref.TargetID, search.SelectProperties{},
+		additional.Properties{}, "", target.sourceNamespace, func(class string) (bool, error) {
+			err := target.authorizer.AuthorizeSilent(ctx, target.principal, authorization.READ,
+				authorization.Collections(class)...)
+			if err == nil {
+				return true, nil
+			}
+			if errors.As(err, &autherrs.Forbidden{}) {
+				return false, nil
+			}
+			return false, &autoSchemaAuthorizationError{err: err}
+		})
 	if err != nil {
+		if isAutoSchemaAuthorizationError(err) {
+			return "", false, err
+		}
 		// Typing the property from a lookup that did not run stores every later
 		// beacon on it as text. The repo error names the index it failed on,
 		// which is a qualified class name, so only the log may carry it.
@@ -528,7 +569,10 @@ func (m *AutoSchemaManager) asRef(ctx context.Context, target refTarget,
 		return "", false, fmt.Errorf("cannot resolve the collection of beacon %q; name it in the beacon", beacon)
 	}
 	if len(results) == 0 {
-		return "", false, nil
+		// Typing the property as object[] would store every later beacon on it
+		// as text. The same error for an unknown id and an unreadable one keeps
+		// the response from revealing which it was.
+		return "", false, fmt.Errorf("cannot resolve the collection of beacon %q; name it in the beacon", beacon)
 	}
 	// Which of several collections holding the id comes first is unordered.
 	return schema.DataType(results[0].ClassName), true, nil

@@ -33,6 +33,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -669,7 +671,9 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			config:        tt.fields.config,
 		}
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := m.determineType(context.Background(), refTarget{}, tt.args.value, false)
+			got, err := m.determineType(context.Background(), refTarget{
+				authorizer: &authorization.DummyAuthorizer{},
+			}, tt.args.value, false)
 			if len(tt.errMsgs) == 0 {
 				require.NoError(t, err)
 				if !reflect.DeepEqual(got, tt.want) {
@@ -758,7 +762,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 
 	knownClasses := map[string]versioned.Class{}
 
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, &authorization.DummyAuthorizer{}, true, knownClasses, obj)
 	assert.EqualError(t, fmt.Errorf(validation.ErrorMissingObject), err.Error())
 }
 
@@ -794,7 +798,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 
 	// when
 	schemaBefore := schemaManager.GetSchemaResponse
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, &authorization.DummyAuthorizer{}, true, knownClasses, obj)
 	schemaAfter := schemaManager.GetSchemaResponse
 
 	// then
@@ -890,7 +894,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 		class.Class: {Version: 0, Class: class},
 	}
 
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, &authorization.DummyAuthorizer{}, true, knownClasses, obj)
 	require.Nil(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
@@ -1022,7 +1026,7 @@ func Test_autoSchemaManager_autoSchema_laggingLocalSchema(t *testing.T) {
 			// validateAndGetVector calls autoSchema once per object.
 			var err error
 			for _, props := range tt.objects {
-				if _, err = m.autoSchema(context.Background(), &models.Principal{}, true, classes,
+				if _, err = m.autoSchema(context.Background(), &models.Principal{}, &authorization.DummyAuthorizer{}, true, classes,
 					&models.Object{Class: className, Properties: props}); err != nil {
 					break
 				}
@@ -1066,7 +1070,7 @@ func Test_autoSchemaManager_autoSchema_keepsFetchedVersionWhenNothingIsAdded(t *
 	const fetchedAt uint64 = 17
 	classes := map[string]versioned.Class{class.Class: {Class: class, Version: fetchedAt}}
 
-	version, err := m.autoSchema(context.Background(), &models.Principal{}, true, classes,
+	version, err := m.autoSchema(context.Background(), &models.Principal{}, &authorization.DummyAuthorizer{}, true, classes,
 		&models.Object{Class: class.Class, Properties: map[string]interface{}{"title": "Heat", "director": "Mann"}})
 	require.NoError(t, err)
 	assert.Equal(t, fetchedAt, version)
@@ -1607,7 +1611,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			properties, _ := manager.getProperties(context.Background(), &models.Object{
 				Class:      "ClassWithObjectProps",
 				Properties: tc.valProperties,
-			}, nil, nil)
+			}, nil, &authorization.DummyAuthorizer{}, nil)
 
 			assertPropsMatch(t, tc.expectedProperties, properties)
 		})
@@ -1631,6 +1635,9 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 		lookupIn         string        // the namespace the lookup has to search
 		repoClasses      []string      // what ObjectsByID finds there, in the order it lists them
 		repoErr          error
+		authorizerErr    error
+		deniedResources  []string
+		checkedClasses   []string
 		expectedDataType []string
 		expectedErr      string
 	}{
@@ -1705,6 +1712,7 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 			schemaClass:      classWithProperty("other", "customer1:Movies"),
 			lookupIn:         "customer1",
 			repoClasses:      []string{"customer1:Ledger"},
+			checkedClasses:   []string{"customer1:Ledger"},
 			expectedDataType: []string{"Ledger"},
 		},
 		{
@@ -1713,7 +1721,18 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 			sourceClass:      "customer1:Library",
 			lookupIn:         "customer1",
 			repoClasses:      []string{"customer1:Movies"},
+			checkedClasses:   []string{"customer1:Movies"},
 			expectedDataType: []string{"Movies"},
+		},
+		{
+			name:             "a later readable collection resolves",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Movies", "customer1:Shows"},
+			deniedResources:  authorization.Collections("customer1:Movies"),
+			checkedClasses:   []string{"customer1:Movies", "customer1:Shows"},
+			expectedDataType: []string{"Shows"},
 		},
 		{
 			// Asking a multi-tenant collection for the tenant would activate it
@@ -1725,14 +1744,15 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 			schemaClass:      &models.Class{MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
 			lookupIn:         "customer1",
 			repoClasses:      []string{"customer1:Movies"},
+			checkedClasses:   []string{"customer1:Movies"},
 			expectedDataType: []string{"Movies"},
 		},
 		{
-			name:             "unknown uuid does not resolve",
-			principal:        confinedPrincipal,
-			sourceClass:      "customer1:Library",
-			lookupIn:         "customer1",
-			expectedDataType: []string{"object[]"},
+			name:        "unknown uuid does not resolve",
+			principal:   confinedPrincipal,
+			sourceClass: "customer1:Library",
+			lookupIn:    "customer1",
+			expectedErr: "name it in the beacon",
 		},
 		{
 			// A recorded target outside the source namespace is no reference this
@@ -1757,25 +1777,37 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 			expectedErr: "cannot resolve the collection of beacon",
 		},
 		{
+			name:           "authorization backend failure is returned",
+			principal:      confinedPrincipal,
+			sourceClass:    "customer1:Library",
+			lookupIn:       "customer1",
+			repoClasses:    []string{"customer1:Movies"},
+			authorizerErr:  errors.New("authorization backend failed"),
+			checkedClasses: []string{"customer1:Movies"},
+			expectedErr:    "authorization backend failed",
+		},
+		{
 			// A reference may not cross namespaces, and an operator writing
 			// into a namespaced collection is bound by that too.
-			name:             "global operator looks the id up in the source namespace",
-			principal:        globalOperator,
-			sourceClass:      "customer1:Library",
-			lookupIn:         "customer1",
-			expectedDataType: []string{"object[]"},
+			name:        "global operator looks the id up in the source namespace",
+			principal:   globalOperator,
+			sourceClass: "customer1:Library",
+			lookupIn:    "customer1",
+			expectedErr: "name it in the beacon",
 		},
 		{
 			name:             "global operator resolves an unqualified class",
 			principal:        globalOperator,
 			sourceClass:      "Library",
 			repoClasses:      []string{"Movies"},
+			checkedClasses:   []string{"Movies"},
 			expectedDataType: []string{"Movies"},
 		},
 		{
 			name:             "principal-less caller resolves an unqualified class",
 			sourceClass:      "Library",
 			repoClasses:      []string{"Movies"},
+			checkedClasses:   []string{"Movies"},
 			expectedDataType: []string{"Movies"},
 		},
 	}
@@ -1786,6 +1818,11 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 			vectorRepo.On("ObjectsByID", id, mock.Anything, mock.Anything, "", tc.lookupIn).
 				Return(searchResults(tc.repoClasses), tc.repoErr).Once()
 			manager := newBeaconTestManager(vectorRepo)
+			authorizer := authmocks.NewMockAuthorizer()
+			if tc.authorizerErr != nil {
+				authorizer.SetErr(tc.authorizerErr)
+			}
+			authorizer.Deny(tc.deniedResources...)
 
 			properties, err := manager.getProperties(context.Background(), &models.Object{
 				Class:  tc.sourceClass,
@@ -1795,18 +1832,31 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 						map[string]interface{}{"beacon": crossref.NewLocalhost(tc.beaconClass, id).String()},
 					},
 				},
-			}, tc.principal, tc.schemaClass)
+			}, tc.principal, authorizer, tc.schemaClass)
 
 			if tc.expectedErr != "" {
 				require.ErrorContains(t, err, tc.expectedErr)
-				assert.NotContains(t, err.Error(), assert.AnError.Error(),
-					"the repo error names the index it failed on, so it must not reach the caller")
-				return
+				if tc.authorizerErr != nil {
+					require.ErrorIs(t, err, tc.authorizerErr)
+				}
+				if tc.repoErr != nil {
+					assert.NotContains(t, err.Error(), tc.repoErr.Error(),
+						"the repo error names the index it failed on, so it must not reach the caller")
+				}
+			} else {
+				require.NoError(t, err)
+				require.Len(t, properties, 1)
+				assert.Equal(t, "watched", properties[0].Name)
+				assert.Equal(t, tc.expectedDataType, properties[0].DataType)
 			}
-			require.NoError(t, err)
-			require.Len(t, properties, 1)
-			assert.Equal(t, "watched", properties[0].Name)
-			assert.Equal(t, tc.expectedDataType, properties[0].DataType)
+
+			require.Len(t, authorizer.Calls(), len(tc.checkedClasses))
+			for i, class := range tc.checkedClasses {
+				call := authorizer.Calls()[i]
+				assert.Equal(t, authorization.READ, call.Verb)
+				assert.Equal(t, authorization.Collections(class), call.Resources)
+				assert.True(t, call.Silent)
+			}
 			if tc.schemaAnswers {
 				vectorRepo.AssertNotCalled(t, "ObjectsByID",
 					mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -1829,12 +1879,12 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray(t *testin
 		{
 			name:    "own namespace first",
 			beacons: []strfmt.UUID{ownID, otherID},
-			errMsg:  "element [1]: mismatched data type - reference expected, got 'object'",
+			errMsg:  "element [1]: cannot resolve the collection of beacon",
 		},
 		{
 			name:    "other namespace first",
 			beacons: []strfmt.UUID{otherID, ownID},
-			errMsg:  "element [1]: mismatched data type - 'object' expected, got reference",
+			errMsg:  "element [0]: cannot resolve the collection of beacon",
 		},
 	}
 	for _, tc := range cases {
@@ -1853,7 +1903,7 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray(t *testin
 			_, err := manager.getProperties(context.Background(), &models.Object{
 				Class:      "customer1:Library",
 				Properties: map[string]interface{}{"watched": values},
-			}, &models.Principal{Username: "u", Namespace: "customer1"}, nil)
+			}, &models.Principal{Username: "u", Namespace: "customer1"}, &authorization.DummyAuthorizer{}, nil)
 			require.ErrorContains(t, err, tc.errMsg)
 		})
 	}
@@ -2247,7 +2297,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 		class.Class: {Version: 0, Class: class},
 	}
 
-	_, err := manager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, object)
+	_, err := manager.autoSchema(context.Background(), &models.Principal{}, &authorization.DummyAuthorizer{}, true, knownClasses, object)
 	require.NoError(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse

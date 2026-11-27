@@ -27,6 +27,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 func Test_ReferencesAddDeprecated(t *testing.T) {
@@ -854,5 +857,61 @@ func zooAnimalSchemaForTest() schema.Schema {
 				},
 			},
 		},
+	}
+}
+
+func TestValidateRefTargetExistenceProbesEveryTarget(t *testing.T) {
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	replicasErr := replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 replicas down"))
+
+	tests := []struct {
+		name     string
+		classes  []string
+		answers  map[string]error // a nil answer means the class holds the target
+		wantErr  error
+		notFound bool
+	}{
+		{
+			name:    "replica shortage before the holding class",
+			classes: []string{"Alpha", "Beta"},
+			answers: map[string]error{"Alpha": replicasErr, "Beta": nil},
+		},
+		{
+			name:    "replica shortage after the holding class",
+			classes: []string{"Beta", "Alpha"},
+			answers: map[string]error{"Alpha": replicasErr, "Beta": nil},
+		},
+		{
+			name:    "replica shortage and no holding class",
+			classes: []string{"Alpha", "Beta"},
+			answers: map[string]error{"Alpha": replicasErr},
+			wantErr: replicaerrors.ErrReplicas,
+		},
+		{
+			name:     "no holding class",
+			classes:  []string{"Alpha", "Beta"},
+			answers:  map[string]error{},
+			notFound: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exists := func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
+				err, ok := tt.answers[class]
+				return ok && err == nil, err
+			}
+			v := validation.New(exists, &config.WeaviateConfig{}, nil, nil, false)
+
+			err := validateRefTargetExistence(context.Background(), v, &crossref.Ref{TargetID: refID}, tt.classes, "")
+			switch {
+			case tt.wantErr != nil:
+				require.ErrorIs(t, err, tt.wantErr)
+			case tt.notFound:
+				require.Error(t, err)
+				require.NotErrorIs(t, err, replicaerrors.ErrReplicas)
+			default:
+				require.NoError(t, err)
+			}
+		})
 	}
 }

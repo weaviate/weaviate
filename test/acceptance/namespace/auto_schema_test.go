@@ -364,7 +364,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 	t.Run("classless beacon resolves only within the source namespace", func(t *testing.T) {
 		// A beacon may omit its class, and asRef then resolves it by the id
 		// alone. An id ns1 holds types as its collection. Nothing an ns1 caller
-		// sees may name ns2, and an id ns2 holds types like one nobody holds.
+		// sees may name ns2, and an id ns2 holds is rejected like one nobody holds.
 		const victim, target, tenanted, probe = "BeaconVictim", "BeaconTarget", "BeaconTenanted", "BeaconProbe"
 		setupClassInNs1(t, ns2, victim, user2Key)
 		setupClassInNs1(t, ns1, target, user1Key)
@@ -392,51 +392,52 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		require.NoError(t, err)
 		heldByNobody := strfmt.UUID("99999999-aaaa-bbbb-cccc-222222222222")
 
-		beacon := func(id strfmt.UUID) []any {
-			return []any{map[string]any{"beacon": "weaviate://localhost/" + id.String()}}
-		}
-		var resp *create.UpsertObjectResp
-		err = helper.CallToolOnce(t.Context(), t, mcpToolUpsert, &create.UpsertObjectArgs{
-			CollectionName: probe,
-			Objects: []create.ObjectToUpsert{
-				{Properties: map[string]any{
-					"ownRef":     beacon(heldByNs1),
-					"foreignRef": beacon(heldByNs2),
-					"absentRef":  beacon(heldByNobody),
-				}},
-			},
-		}, &resp, user1Key)
-
-		var seen string
-		if err != nil {
-			seen = err.Error()
-		}
-		if resp != nil {
-			for _, r := range resp.Results {
-				seen += r.Error
+		// upsert writes one beacon into a new property and returns every error
+		// the caller sees, with the id replaced so two ids compare equal.
+		upsert := func(prop string, id strfmt.UUID) string {
+			var resp *create.UpsertObjectResp
+			err := helper.CallToolOnce(t.Context(), t, mcpToolUpsert, &create.UpsertObjectArgs{
+				CollectionName: probe,
+				Objects: []create.ObjectToUpsert{{Properties: map[string]any{
+					prop: []any{map[string]any{"beacon": "weaviate://localhost/" + id.String()}},
+				}}},
+			}, &resp, user1Key)
+			var seen string
+			if err != nil {
+				seen = err.Error()
 			}
+			if resp != nil {
+				for _, r := range resp.Results {
+					seen += r.Error
+				}
+			}
+			return strings.ReplaceAll(seen, id.String(), "<id>")
 		}
+
+		require.Empty(t, upsert("ownRef", heldByNs1))
+		// Both go to one property name: a rejected beacon adds no property, and
+		// the error names the property.
+		foreign := upsert("classlessRef", heldByNs2)
+		absent := upsert("classlessRef", heldByNobody)
+		t.Logf("caller observed: foreign=%q absent=%q", foreign, absent)
+
 		dataTypes := map[string][]string{}
 		for _, prop := range helper.GetClassAuth(t, probe, user1Key).Properties {
 			dataTypes[prop.Name] = prop.DataType
-			seen += " " + prop.Name + "=" + strings.Join(prop.DataType, ",")
 		}
-		t.Logf("caller observed: %s", seen)
-
-		assert.NotContains(t, seen, ns2,
-			"the ns1 caller must not learn the namespace holding the id")
-		assert.NotContains(t, seen, victim,
-			"the ns1 caller must not learn the collection holding the id")
-		// Without these the comparison below holds between two absent entries,
-		// which is what a rejected upsert leaves behind.
-		require.NotEmpty(t, dataTypes["foreignRef"], "the upsert must have typed foreignRef")
-		require.NotEmpty(t, dataTypes["absentRef"], "the upsert must have typed absentRef")
+		for _, seen := range []string{foreign, absent} {
+			assert.NotContains(t, seen, ns2,
+				"the ns1 caller must not learn the namespace holding the id")
+			assert.NotContains(t, seen, victim,
+				"the ns1 caller must not learn the collection holding the id")
+		}
 		assert.Equal(t, []string{target}, dataTypes["ownRef"],
 			"an id ns1 holds must type as the collection holding it")
-		assert.Equal(t, []string{"object[]"}, dataTypes["foreignRef"],
-			"an id another namespace holds must not type as a reference")
-		assert.Equal(t, dataTypes["absentRef"], dataTypes["foreignRef"],
-			"an id another namespace holds must type exactly like one nobody holds")
+		assert.Contains(t, absent, "name it in the beacon",
+			"a beacon nothing resolves must be rejected, not typed as object[]")
+		assert.Equal(t, absent, foreign,
+			"an id another namespace holds must be rejected exactly like one nobody holds")
+		assert.NotContains(t, dataTypes, "classlessRef", "a rejected beacon must not add a property")
 	})
 
 	t.Run("global principal auto-create rejected with 403", func(t *testing.T) {

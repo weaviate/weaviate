@@ -362,13 +362,17 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 	principal := &models.Principal{Username: "admin"}
 	denied := authzerrs.NewForbidden(principal, authorization.UPDATE, "collections/Zoo")
 	rejected := errors.New("collection is being deleted")
+	authorizationFailed := errors.New("authorization service unavailable")
 	limited := usagelimits.NewLimitExceededError("", usagelimits.LimitCollections, 1)
 
 	// requireStatus checks an error AddObject or UpdateObject returned.
-	requireStatus := func(t *testing.T, err error, wantForbidden, wantUserInput bool) {
+	requireStatus := func(t *testing.T, err error, wantForbidden, wantUserInput, wantAuthorizationFailure bool) {
 		switch {
 		case wantForbidden:
 			require.ErrorAs(t, err, &authzerrs.Forbidden{})
+			require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+		case wantAuthorizationFailure:
+			require.ErrorIs(t, err, authorizationFailed)
 			require.NotErrorAs(t, err, &ErrInvalidUserInput{})
 		case wantUserInput:
 			require.ErrorAs(t, err, &ErrInvalidUserInput{})
@@ -387,12 +391,18 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 	}
 
 	cases := []struct {
-		name          string
-		autoSchemaErr error
-		wantForbidden bool
-		wantUserInput bool
+		name                     string
+		autoSchemaErr            error
+		wantForbidden            bool
+		wantUserInput            bool
+		wantAuthorizationFailure bool
 	}{
 		{name: "denied", autoSchemaErr: denied, wantForbidden: true},
+		{
+			name:                     "authorization service failure",
+			autoSchemaErr:            &autoSchemaAuthorizationError{err: authorizationFailed},
+			wantAuthorizationFailure: true,
+		},
 		{name: "rejected", autoSchemaErr: rejected, wantUserInput: true},
 		{name: "permitted", autoSchemaErr: nil},
 	}
@@ -411,7 +421,7 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 
 				_, err := m.AddObject(context.Background(), principal, updates(), nil)
 
-				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput, tc.wantAuthorizationFailure)
 				repo.AssertExpectations(t)
 			})
 
@@ -428,7 +438,7 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 
 				_, err := m.UpdateObject(context.Background(), principal, class, id, updates(), nil)
 
-				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput, tc.wantAuthorizationFailure)
 				repo.AssertExpectations(t)
 			})
 
@@ -449,6 +459,10 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 				case tc.wantForbidden:
 					require.NotNil(t, objErr)
 					require.Equal(t, StatusForbidden, objErr.Code)
+				case tc.wantAuthorizationFailure:
+					require.NotNil(t, objErr)
+					require.Equal(t, StatusInternalServerError, objErr.Code)
+					require.ErrorIs(t, objErr, authorizationFailed)
 				case tc.wantUserInput:
 					// The handler renders a merge BadRequest as 422.
 					require.NotNil(t, objErr)
@@ -490,8 +504,145 @@ func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 				require.NotErrorAs(t, err, &ErrInvalidUserInput{})
 				return
 			}
-			requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+			requireStatus(t, err, tc.wantForbidden, tc.wantUserInput, false)
 		})
+	}
+}
+
+func TestDedicatedRefTargetAuthorizationFailureIsInternal(t *testing.T) {
+	const class, target, tenant = "Zoo", "Animal", "tenantA"
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	principal := &models.Principal{Username: "writer"}
+	authorizationFailed := errors.New("authorization service unavailable")
+
+	ops := []struct {
+		name    string
+		arrange func(*fakeObjectFinder)
+		call    func(*Manager) *Error
+	}{
+		{
+			name: "add reference",
+			call: func(m *Manager) *Error {
+				return m.AddObjectReference(context.Background(), principal, &AddReferenceInput{
+					Class: class, ID: id, Property: "hasAnimals",
+					Ref: models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + target + "/" + string(refID))},
+				}, nil, tenant)
+			},
+		},
+		{
+			name: "replace references",
+			arrange: func(repo *fakeObjectFinder) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, tenant).
+					Return(&search.Result{ID: id, ClassName: class, Tenant: tenant}, nil).Once()
+			},
+			call: func(m *Manager) *Error {
+				return m.UpdateObjectReferences(context.Background(), principal, &PutReferenceInput{
+					Class: class, ID: id, Property: "hasAnimals",
+					Refs: models.MultipleRef{{Beacon: strfmt.URI("weaviate://localhost/" + target + "/" + string(refID))}},
+				}, nil, tenant)
+			},
+		},
+	}
+	for _, op := range ops {
+		t.Run(op.name, func(t *testing.T) {
+			m, _, repo, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
+			if op.arrange != nil {
+				op.arrange(repo)
+			}
+			// Source UPDATE is allowed; the target READ check fails.
+			authz.SetErrAfter(1, authorizationFailed)
+
+			err := op.call(m)
+			require.Error(t, err)
+			require.Equal(t, StatusInternalServerError, err.Code)
+			require.ErrorIs(t, err, authorizationFailed)
+			require.NotErrorAs(t, err, &authzerrs.Forbidden{})
+
+			calls := authz.Calls()
+			require.Len(t, calls, 2)
+			require.Equal(t, authorization.READ, calls[1].Verb)
+			require.Equal(t, authorization.ShardsData(target, tenant), calls[1].Resources)
+			repo.AssertExpectations(t)
+		})
+	}
+}
+
+func TestAutoSchemaClasslessRefLookupSkipsUnreadableCollections(t *testing.T) {
+	const class, target = "Source", "Target"
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	principal := &models.Principal{Username: "writer"}
+	targetResources := authorization.Collections(target)
+
+	operations := []struct {
+		name string
+		call func(*testing.T, *Manager, *BatchManager, *fakeObjectFinder, *fakeModulesProvider) error
+	}{
+		{
+			name: "add object",
+			call: func(t *testing.T, m *Manager, _ *BatchManager, _ *fakeObjectFinder, _ *fakeModulesProvider) error {
+				_, err := m.AddObject(context.Background(), principal, classlessAutoSchemaObject(class, refID), nil)
+				return err
+			},
+		},
+		{
+			name: "batch objects",
+			call: func(t *testing.T, _ *Manager, b *BatchManager, repo *fakeObjectFinder, mods *fakeModulesProvider) error {
+				mods.On("BatchUpdateVector").Return(nil, nil).Once()
+				repo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+				objects, err := b.AddObjects(context.Background(), principal,
+					[]*models.Object{
+						classlessAutoSchemaObject(class, refID),
+						{Class: class},
+					}, nil, nil)
+				require.NoError(t, err)
+				require.Len(t, objects, 2)
+				require.Equal(t, 0, objects[0].OriginalIndex)
+				require.Equal(t, 1, objects[1].OriginalIndex)
+				require.NoError(t, objects[1].Err)
+				return objects[0].Err
+			},
+		},
+	}
+
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			classes := []*models.Class{
+				{Class: class, Vectorizer: config.VectorizerModuleNone},
+				{Class: target, Vectorizer: config.VectorizerModuleNone},
+			}
+			m, b, repo, mods, authz := newNSManagers(t, classes, false, withAutoSchema(nil))
+			authz.Deny(authorization.CollectionsData(target)...)
+			repo.On("ObjectsByID", refID, mock.Anything, mock.Anything, "", "").
+				Return(search.Results{{ClassName: target}}, nil).Once()
+			repo.On("Exists", target, refID).Return(false, nil).Maybe()
+
+			// An unreadable target is rejected like an unknown one.
+			require.ErrorContains(t, operation.call(t, m, b, repo, mods), "name it in the beacon")
+			repo.AssertNotCalled(t, "Exists", target, refID)
+
+			var lookupCalls int
+			for _, call := range authz.Calls() {
+				if call.Verb == authorization.READ && len(call.Resources) == len(targetResources) {
+					require.Equal(t, targetResources, call.Resources)
+					require.True(t, call.Silent)
+					lookupCalls++
+				}
+			}
+			require.Equal(t, 1, lookupCalls)
+			repo.AssertExpectations(t)
+		})
+	}
+}
+
+func classlessAutoSchemaObject(class string, refID strfmt.UUID) *models.Object {
+	return &models.Object{
+		Class: class,
+		Properties: map[string]interface{}{
+			"watched": []interface{}{map[string]interface{}{
+				"beacon": "weaviate://localhost/" + string(refID),
+			}},
+		},
 	}
 }
 

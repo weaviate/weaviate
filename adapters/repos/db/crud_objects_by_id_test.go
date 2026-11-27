@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -131,6 +132,42 @@ func TestObjectsByID(t *testing.T) {
 				got = append(got, res.ClassName)
 			}
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestObjectsByIDWithClassCheck(t *testing.T) {
+	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
+	logger, _ := test.NewNullLogger()
+	denied := errors.New("denied")
+
+	for _, tc := range []struct {
+		name     string
+		checkErr error
+	}{
+		{name: "a skipped collection is not read"},
+		{name: "a failed check prevents the collection read", checkErr: denied},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &DB{logger: logger, indices: map[string]*Index{}}
+			db.indices[indexID("Closed")] = objectsByIDTestIndex(t, "Closed", false, id)
+			// A read of the closed shard would fail with errAlreadyShutdown.
+			require.NoError(t, db.indices[indexID("Closed")].ForEachShard(func(_ string, shard ShardLike) error {
+				return shard.Shutdown(t.Context())
+			}))
+
+			results, err := db.ObjectsByIDWithClassCheck(t.Context(), id, nil, additional.Properties{}, "", "",
+				func(class string) (bool, error) {
+					assert.Equal(t, "Closed", class)
+					return false, tc.checkErr
+				})
+			require.NotErrorIs(t, err, errAlreadyShutdown)
+			if tc.checkErr != nil {
+				require.ErrorIs(t, err, tc.checkErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Empty(t, results)
 		})
 	}
 }

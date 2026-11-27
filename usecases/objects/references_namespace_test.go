@@ -296,26 +296,65 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("non-NS: classless beacon on multi-target ref property is not gated", func(t *testing.T) {
-		// Non-NS clusters keep byte-exact compare on delete: a classless
-		// stored beacon only matches a classless delete, so the gate is
-		// NS-only. Preserve the legacy behaviour. Exists is called with
-		// Class=="" (the existing pre-fix behaviour) and we let it through.
-		m, _, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false)
-		repo.On("Exists", "", refID).Return(true, nil).Once()
-		repo.On("Exists", "Source", id).Return(true, nil).Once()
-		repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Once()
-		mp.On("UsingRef2Vec", mock.Anything).Return(false)
-
-		input := &AddReferenceInput{
-			Class: "Source", ID: id, Property: "hasOther",
-			Ref: models.SingleRef{
-				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+	t.Run("non-NS: classless beacon is authorized and probed in the property's targets only", func(t *testing.T) {
+		// The gate is NS-only, and the stored beacon stays classless. Denying
+		// the all-collections scope pins that only Alpha and Beta are needed.
+		beacon := strfmt.URI("weaviate://localhost/" + string(refID))
+		ops := []struct {
+			name    string
+			arrange func(*fakeObjectFinder)
+			call    func(*Manager) *Error
+		}{
+			{
+				name: "add reference",
+				arrange: func(repo *fakeObjectFinder) {
+					repo.On("Exists", "Source", id).Return(true, nil).Once()
+					repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Once()
+				},
+				call: func(m *Manager) *Error {
+					return m.AddObjectReference(context.Background(), &models.Principal{Username: "u"},
+						&AddReferenceInput{Class: "Source", ID: id, Property: "hasOther", Ref: models.SingleRef{Beacon: beacon}}, nil, "")
+				},
+			},
+			{
+				name: "replace references",
+				arrange: func(repo *fakeObjectFinder) {
+					repo.On("Object", "Source", id, mock.Anything, mock.Anything, "").
+						Return(&search.Result{ID: id, ClassName: "Source", Schema: map[string]interface{}{}}, nil).Once()
+					repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+				},
+				call: func(m *Manager) *Error {
+					return m.UpdateObjectReferences(context.Background(), &models.Principal{Username: "u"},
+						&PutReferenceInput{Class: "Source", ID: id, Property: "hasOther", Refs: models.MultipleRef{{Beacon: beacon}}}, nil, "")
+				},
 			},
 		}
-		err := m.AddObjectReference(context.Background(), &models.Principal{Username: "admin"}, input, nil, "")
-		require.Nil(t, err, "non-NS classless on multi-target must pass the gate (it's NS-only)")
-		repo.AssertExpectations(t)
+		for _, op := range ops {
+			t.Run(op.name, func(t *testing.T) {
+				m, _, repo, mp, authz := newNSManagers(t, multiTargetNSSchema(false), false)
+				authz.Deny(authorization.ShardsData("", "")...)
+				repo.On("Exists", "Alpha", refID).Return(false, nil).Once()
+				repo.On("Exists", "Beta", refID).Return(true, nil).Once()
+				mp.On("UsingRef2Vec", mock.Anything).Return(false)
+				op.arrange(repo)
+
+				require.Nil(t, op.call(m))
+				var targetReads [][]string
+				for _, call := range authz.Calls() {
+					if call.Verb == authorization.READ {
+						targetReads = append(targetReads, call.Resources)
+					}
+				}
+				require.NotEmpty(t, targetReads)
+				var got []string
+				for _, r := range targetReads {
+					got = append(got, r...)
+				}
+				assert.Subset(t, got, append(authorization.ShardsData("Alpha", ""), authorization.ShardsData("Beta", "")...))
+				repo.AssertNotCalled(t, "Exists", "", refID)
+				repo.AssertExpectations(t)
+			})
+		}
 	})
 
 	t.Run("NS: classless multi-target gate fires for global admin too", func(t *testing.T) {
@@ -1040,31 +1079,51 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		// legacy behaviour: the ref reaches AddBatchReferences with no Err
 		// and no class on the target. (The NS gate above is the only new
 		// rejection introduced.)
-		_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false)
-		repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
-			return len(refs) == 1 && refs[0].Err == nil &&
-				refs[0].To != nil && refs[0].To.Class == ""
-		})).Return(nil).Once()
+		// The target scope is every collection the property points to, not
+		// every collection: denying the all-collections scope must not matter.
+		for _, permission := range []struct {
+			name   string
+			denied []string
+		}{
+			{name: "property targets readable", denied: authorization.ShardsData("", "")},
+			{name: "one property target denied", denied: authorization.ShardsData("Beta", "")},
+		} {
+			t.Run(permission.name, func(t *testing.T) {
+				_, b, repo, _, authz := newNSManagers(t, multiTargetNSSchema(false), false)
+				authz.Deny(permission.denied...)
+				allowed := permission.name == "property targets readable"
+				if allowed {
+					repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+						return len(refs) == 1 && refs[0].Err == nil &&
+							refs[0].To != nil && refs[0].To.Class == ""
+					})).Return(nil).Once()
+				}
 
-		refs := []*models.BatchReference{
-			{
-				From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
-				To:   strfmt.URI("weaviate://localhost/" + string(refID)),
-			},
+				refs := []*models.BatchReference{
+					{
+						From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
+						To:   strfmt.URI("weaviate://localhost/" + string(refID)),
+					},
+				}
+				_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+				if allowed {
+					require.NoError(t, err)
+				} else {
+					require.ErrorAs(t, err, &autherrs.Forbidden{})
+					repo.AssertNotCalled(t, "AddBatchReferences", mock.Anything)
+				}
+				targetResources := append(authorization.ShardsData("Alpha", ""), authorization.ShardsData("Beta", "")...)
+				require.True(t, slices.ContainsFunc(authz.Calls(), func(call mocks.AuthZReq) bool {
+					return call.Verb == authorization.READ && assert.ObjectsAreEqual(len(targetResources), len(call.Resources)) &&
+						assert.Subset(t, call.Resources, targetResources)
+				}))
+				repo.AssertExpectations(t)
+			})
 		}
-		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
-		require.NoError(t, err)
-		repo.AssertExpectations(t)
 	})
 
-	t.Run("missing READ on target shard: 403 even when MT validation also fails per-ref", func(t *testing.T) {
-		// Acceptance-test mirror for TestAuthZBatchRefAuthZTenantFiltering's
-		// "missing read_data" subtest. The user lacks READ on the target
-		// shard AND every ref additionally fails MT validation (the e2e
-		// fixture creates objects without a tenant on MT classes, so the
-		// Exists check returns false). The inner READ-authz must still
-		// trigger on the user-intended target, otherwise authorization is
-		// silently bypassed when validation happens to fail.
+	t.Run("all target scopes are authorized before multi-tenancy existence checks", func(t *testing.T) {
+		const tenant = "tenant1"
 		classes := []*models.Class{
 			{
 				Class:              "SourceMT",
@@ -1072,7 +1131,8 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 				Vectorizer:         config.VectorizerModuleNone,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 				Properties: []*models.Property{
-					{Name: "refTo", DataType: []string{"TargetMT"}},
+					{Name: "refMT", DataType: []string{"TargetMT"}},
+					{Name: "refPlain", DataType: []string{"TargetPlain"}},
 				},
 			},
 			{
@@ -1081,32 +1141,45 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 				Vectorizer:         config.VectorizerModuleNone,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 			},
+			{
+				Class:              "TargetPlain",
+				VectorIndexConfig:  hnsw.UserConfig{},
+				Vectorizer:         config.VectorizerModuleNone,
+				MultiTenancyConfig: &models.MultiTenancyConfig{},
+			},
 		}
-		_, b, repo, _, _ := newNSManagers(t, classes, false)
-		repo.On("Exists", "SourceMT", id).Return(false, nil)
-		// AddBatchReferences must NEVER run — the inner authz READ must
-		// fail-fast with a Forbidden before we reach persistence.
-		// (No repo.On("AddBatchReferences") expectation: would assert if called.)
-
-		// Replace the manager's authorizer with one that denies any
-		// resource path containing "TargetMT". The outer UPDATE on SourceMT
-		// still passes; only the inner READ on TargetMT is denied.
-		b.authorizer = &denyContainingAuthorizer{deny: "TargetMT"}
+		_, b, repo, _, authz := newNSManagers(t, classes, false)
+		mtResources := authorization.ShardsData("TargetMT", tenant)
+		plainResources := authorization.ShardsData("TargetPlain", "")
+		authz.Deny(plainResources...)
 
 		refs := []*models.BatchReference{
 			{
-				From:   strfmt.URI("weaviate://localhost/SourceMT/" + string(id) + "/refTo"),
+				From:   strfmt.URI("weaviate://localhost/SourceMT/" + string(id) + "/refMT"),
 				To:     strfmt.URI("weaviate://localhost/TargetMT/" + string(refID)),
-				Tenant: "tenant1",
+				Tenant: tenant,
+			},
+			{
+				From:   strfmt.URI("weaviate://localhost/SourceMT/" + string(id) + "/refPlain"),
+				To:     strfmt.URI("weaviate://localhost/TargetPlain/" + string(refID)),
+				Tenant: tenant,
 			},
 		}
 		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "u"}, refs, nil)
-		require.Error(t, err)
-		var forbidden autherrs.Forbidden
-		require.ErrorAs(t, err, &forbidden,
-			"missing READ on the target shard must surface as Forbidden, "+
-				"not be hidden by an earlier per-ref MT validation failure")
-		repo.AssertExpectations(t)
+		require.ErrorAs(t, err, &autherrs.Forbidden{})
+
+		var targetRead *mocks.AuthZReq
+		for _, call := range authz.Calls() {
+			if call.Verb == authorization.READ {
+				call := call
+				targetRead = &call
+				break
+			}
+		}
+		require.NotNil(t, targetRead)
+		wantResources := append(mtResources, plainResources...)
+		assert.ElementsMatch(t, wantResources, targetRead.Resources)
+		repo.AssertNotCalled(t, "Exists", mock.Anything, mock.Anything)
 	})
 
 	t.Run("admin: qualified source class in the batch URI", func(t *testing.T) {
@@ -1224,35 +1297,4 @@ func Test_References_Batch_Uses_SchemaVersion(t *testing.T) {
 				"the batch write must be made with the source collection's version")
 		})
 	}
-}
-
-// denyContainingAuthorizer is a test-only authorizer that denies any Authorize
-// call whose resources include a path containing the configured substring,
-// and allows everything else. Used to model "user has UPDATE on source but
-// not READ on target" without pulling in the full RBAC stack.
-type denyContainingAuthorizer struct {
-	deny string
-}
-
-func (a *denyContainingAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	for _, r := range resources {
-		if strings.Contains(r, a.deny) {
-			return autherrs.NewForbidden(principal, verb, r)
-		}
-	}
-	return nil
-}
-
-func (a *denyContainingAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.Authorize(ctx, principal, verb, resources...)
-}
-
-func (a *denyContainingAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	allowed := make([]string, 0, len(resources))
-	for _, r := range resources {
-		if !strings.Contains(r, a.deny) {
-			allowed = append(allowed, r)
-		}
-	}
-	return allowed, nil
 }

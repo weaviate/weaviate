@@ -290,6 +290,27 @@ func (f *fakeObjectFinder) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
+func (f *fakeObjectFinder) ObjectsByIDWithClassCheck(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	tenant, namespace string, check func(class string) (bool, error),
+) (search.Results, error) {
+	results, err := f.ObjectsByID(ctx, id, props, additional, tenant, namespace)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(search.Results, 0, len(results))
+	for _, result := range results {
+		ok, err := check(result.ClassName)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			allowed = append(allowed, result)
+		}
+	}
+	return allowed, nil
+}
+
 func (f *fakeObjectFinder) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties, tenant string,
 ) (search.Results, error) {

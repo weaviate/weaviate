@@ -196,7 +196,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
-		schemaVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, obj)
+		schemaVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, b.authorizer, true, fetchedClasses, obj)
 		if err != nil {
 			batchObjects[i].Err = err
 		}

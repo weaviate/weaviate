@@ -23,11 +23,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -39,6 +42,7 @@ var errAuthzFake = errors.New("just a test fake")
 
 func Test_Kinds_Authorization(t *testing.T) {
 	type testCase struct {
+		name              string
 		methodName        string
 		additionalArgs    []interface{}
 		expectedVerb      string
@@ -49,10 +53,20 @@ func Test_Kinds_Authorization(t *testing.T) {
 		// precedingCalls are the checks the authorizer allows before it denies
 		// the one this row pins.
 		precedingCalls []mocks.AuthZReq
+		prepare        func(*fakeSchemaManager, *fakeObjectFinder)
 	}
 
 	queryTenant := "tenant"
 	principal := &models.Principal{}
+	targetID := strfmt.UUID("11111111-1111-1111-1111-111111111111")
+	targetURI := strfmt.URI("weaviate://localhost/Target/" + string(targetID))
+	referenceClass := &models.Class{Class: "Class", Properties: []*models.Property{{
+		Name: "someProp", DataType: []string{"Target"},
+	}}}
+	prepareReference := func(schemaManager *fakeSchemaManager, vectorRepo *fakeObjectFinder) {
+		schemaManager.GetSchemaResponse.Objects = &models.Schema{Classes: []*models.Class{referenceClass}}
+		vectorRepo.On("Exists", "Target", targetID).Return(false, nil).Maybe()
+	}
 
 	tests := []testCase{
 		// single kind
@@ -161,6 +175,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 
 		// reference on objects
 		{
+			name:       "source update",
 			methodName: "AddObjectReference",
 			additionalArgs: []interface{}{
 				&AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -170,6 +185,25 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
+			name:       "target read after source update",
+			methodName: "AddObjectReference",
+			additionalArgs: []interface{}{
+				&AddReferenceInput{
+					Class: "class", ID: strfmt.UUID("foo"), Property: "someProp",
+					Ref: models.SingleRef{Beacon: targetURI},
+				},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
+			precedingCalls: []mocks.AuthZReq{{
+				Principal: principal, Verb: authorization.UPDATE,
+				Resources: authorization.ShardsData("class", "tenant"),
+			}},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsData("Target", "tenant"),
+			prepare:           prepareReference,
+		},
+		{
+			name:       "source read",
 			methodName: "DeleteObjectReference",
 			additionalArgs: []interface{}{
 				&DeleteReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -178,7 +212,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
-		{ // DeleteObjectReference authorizes READ then UPDATE, so this row pins the write gate
+		{
+			name:       "source update after read",
 			methodName: "DeleteObjectReference",
 			additionalArgs: []interface{}{
 				&DeleteReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -192,6 +227,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
+			name:       "source update",
 			methodName: "UpdateObjectReferences",
 			additionalArgs: []interface{}{
 				&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -199,6 +235,28 @@ func Test_Kinds_Authorization(t *testing.T) {
 			},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
+		},
+		{
+			name:       "target read after source update",
+			methodName: "UpdateObjectReferences",
+			additionalArgs: []interface{}{
+				&PutReferenceInput{
+					Class: "class", ID: strfmt.UUID("foo"), Property: "someProp",
+					Refs: models.MultipleRef{{Beacon: targetURI}},
+				},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
+			precedingCalls: []mocks.AuthZReq{{
+				Principal: principal, Verb: authorization.UPDATE,
+				Resources: authorization.ShardsData("class", "tenant"),
+			}},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsData("Target", "tenant"),
+			prepare: func(schemaManager *fakeSchemaManager, vectorRepo *fakeObjectFinder) {
+				prepareReference(schemaManager, vectorRepo)
+				vectorRepo.On("Object", "Class", strfmt.UUID("foo"), mock.Anything, mock.Anything, "tenant").
+					Return(&search.Result{ClassName: "Class"}, nil).Once()
+			},
 		},
 	}
 
@@ -216,7 +274,11 @@ func Test_Kinds_Authorization(t *testing.T) {
 	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			t.Run(test.methodName, func(t *testing.T) {
+			testName := test.methodName
+			if test.name != "" {
+				testName += "/" + test.name
+			}
+			t.Run(testName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				if test.authorizedBySchemaManager {
 					schemaManager.GetschemaErr = errAuthzFake
@@ -225,6 +287,9 @@ func Test_Kinds_Authorization(t *testing.T) {
 				authorizer := mocks.NewMockAuthorizer()
 				authorizer.SetErrAfter(len(test.precedingCalls), errAuthzFake)
 				vectorRepo := &fakeObjectFinder{}
+				if test.prepare != nil {
+					test.prepare(schemaManager, vectorRepo)
+				}
 				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
 					vectorRepo, getFakeModulesProvider(), &fakeMetrics{}, nil,
@@ -264,13 +329,17 @@ func expectedAuthZReqs(principal *models.Principal, preceding []mocks.AuthZReq,
 
 func Test_BatchKinds_Authorization(t *testing.T) {
 	type testCase struct {
+		name              string
 		methodName        string
 		additionalArgs    []interface{}
 		expectedVerb      string
 		expectedResources []string
+		deniedError       error
+		wantForbidden     bool
 		// precedingCalls are the checks the authorizer allows before it denies
 		// the one this row pins.
 		precedingCalls []mocks.AuthZReq
+		prepare        func(*fakeSchemaManager, *fakeObjectFinder)
 	}
 
 	uri := strfmt.URI("weaviate://localhost/Class/" + uuid.New().String())
@@ -278,6 +347,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 
 	tests := []testCase{
 		{
+			name:       "source update",
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
 				[]*models.Object{{Class: "class", Tenant: "tenant"}},
@@ -287,7 +357,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
-		{ // AddObjects authorizes UPDATE then CREATE, so this row pins the second check
+		{
+			name:       "source create after update",
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
 				[]*models.Object{{Class: "class", Tenant: "tenant"}},
@@ -302,6 +373,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
+			name:       "source update",
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
 				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: "tenant"}},
@@ -311,6 +383,27 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedResources: authorization.ShardsData("Class", "tenant"),
 		},
 		{
+			name:       "target read after source update",
+			methodName: "AddReferences",
+			additionalArgs: []interface{}{
+				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: "tenant"}},
+				&additional.ReplicationProperties{},
+			},
+			precedingCalls: []mocks.AuthZReq{{
+				Principal: principal, Verb: authorization.UPDATE,
+				Resources: authorization.ShardsData("Class", "tenant"),
+			}},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsData("Class", ""),
+			prepare: func(schemaManager *fakeSchemaManager, vectorRepo *fakeObjectFinder) {
+				schemaManager.GetSchemaResponse.Objects = &models.Schema{Classes: []*models.Class{{
+					Class: "Class", Properties: []*models.Property{{Name: "ref", DataType: []string{"Class"}}},
+				}}}
+				vectorRepo.On("AddBatchReferences", mock.Anything).Return(nil).Maybe()
+			},
+		},
+		{
+			name:       "source delete",
 			methodName: "DeleteObjects",
 			additionalArgs: []interface{}{
 				&models.BatchDeleteMatch{Class: "class"},
@@ -322,6 +415,34 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			},
 			expectedVerb:      authorization.DELETE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
+		},
+		{
+			name:       "filter read after source delete",
+			methodName: "DeleteObjects",
+			additionalArgs: []interface{}{
+				&models.BatchDeleteMatch{Class: "class", Where: &models.WhereFilter{
+					Path: []string{"name"}, Operator: "Equal", ValueText: ptString("value"),
+				}},
+				(*int64)(nil),
+				(*bool)(nil),
+				(*string)(nil),
+				&additional.ReplicationProperties{},
+				"tenant",
+			},
+			precedingCalls: []mocks.AuthZReq{{
+				Principal: principal, Verb: authorization.DELETE,
+				Resources: authorization.ShardsData("class", "tenant"),
+			}},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.Collections("class"),
+			deniedError:       authzerrors.NewForbidden(principal, authorization.READ, "data/collections/Class/shards/*/objects/*"),
+			wantForbidden:     true,
+			prepare: func(schemaManager *fakeSchemaManager, vectorRepo *fakeObjectFinder) {
+				schemaManager.GetSchemaResponse.Objects = &models.Schema{Classes: []*models.Class{{
+					Class: "Class", Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+				}}}
+				vectorRepo.On("BatchDeleteObjects", mock.Anything).Return(BatchDeleteResult{}, nil).Maybe()
+			},
 		},
 	}
 
@@ -340,12 +461,23 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			t.Run(test.methodName, func(t *testing.T) {
+			testName := test.methodName
+			if test.name != "" {
+				testName += "/" + test.name
+			}
+			t.Run(testName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
-				authorizer.SetErrAfter(len(test.precedingCalls), errAuthzFake)
+				deniedError := test.deniedError
+				if deniedError == nil {
+					deniedError = errAuthzFake
+				}
+				authorizer.SetErrAfter(len(test.precedingCalls), deniedError)
 				vectorRepo := &fakeObjectFinder{}
+				if test.prepare != nil {
+					test.prepare(schemaManager, vectorRepo)
+				}
 				modulesProvider := getFakeModulesProvider()
 				manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil,
 					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
@@ -359,8 +491,15 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 
 				returned := out[len(out)-1]
 				require.False(t, returned.IsNil(), "execution must abort with an error")
-				require.ErrorIs(t, returned.Interface().(error), errAuthzFake,
-					"execution must abort with the denial")
+				returnedError := returned.Interface().(error)
+				if test.wantForbidden {
+					var forbidden authzerrors.Forbidden
+					require.ErrorAs(t, returnedError, &forbidden,
+						"execution must abort with the denial")
+				} else {
+					require.ErrorIs(t, returnedError, deniedError,
+						"execution must abort with the denial")
+				}
 			})
 		}
 	})

@@ -115,12 +115,15 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
+	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, m.authorizer, false, fetchedClass, updates)
 	if err != nil {
-		// Extending the collection needs its own permission; reporting a denial
-		// as invalid input would hide the missing grant behind a 422.
+		// Extending the collection needs its own permission. Authorization
+		// failures must retain their status instead of becoming invalid input.
 		if errors.As(err, &authzerrs.Forbidden{}) {
 			return &Error{err.Error(), StatusForbidden, err}
+		}
+		if isAutoSchemaAuthorizationError(err) {
+			return &Error{"auto-schema authorization", StatusInternalServerError, err}
 		}
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
