@@ -1153,6 +1153,57 @@ La corrida: el clon APFS del índice a medias (3 311 508 vectores), el código d
 
 **Lo que espero en caliente (*mío*, antes de ningún dato):** la cabeza con 1 llamador, cerca de los 87 por segundo del final de la noche; `s` con 1 llamador, entre 150 y 250; `sn` con 8 llamadores, peor que `s`, porque ocho repartos compiten por los mismos núcleos.
 
+#### Resultados (27 de noviembre, de 14:18 a 14:48), y lo que corrigen
+
+**Con 8 llamadores y el código de los pasos, el índice de 3.3M toma 381 inserts por segundo en caliente: 4.4 veces los 85.7 de la cabeza. Con un llamador, 89.0. Y lo que escribí arriba sobre despertar hilos era falso: quitar el reparto en gorutinas cambia el ritmo un 4 % con un llamador y un 2 % con 8, no lo triplica.**
+
+| corrida | código | llamadores | inserts/s | reloj, ms por insert | búsqueda, ms por insert | CPU de usuario, ms por insert | CPU de sistema, ms por insert | leído de disco, GB | diario, B por insert |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| en frío | cabeza | 1 | 68.8 | 14.54 | 13.80 | 13.84 | 2.51 | 43.6 | 7 001 |
+| en frío | pasos (`s`) | 1 | 38.1 | 26.23 | 25.55 | 12.37 | 1.47 | 45.1 | 3 694 |
+| en frío | pasos (`s`) | 8 | 215.1 | 4.65 | 26.13 | 13.49 | 1.64 | 36.8 | 3 607 |
+| en caliente | cabeza | 1 | 85.7 | 11.67 | 11.28 | 13.41 | 1.23 | 0.4 | 7 009 |
+| en caliente | pasos (`s`) | 1 | 89.0 | 11.24 | 10.95 | 11.68 | 0.42 | 0.3 | 3 679 |
+| en caliente | sin el paso 1 (`sn`) | 1 | 85.6 | 11.69 | 11.31 | 13.26 | 1.22 | 0.5 | 3 690 |
+| en caliente | reparto para quien va solo (`sa`) | 1 | 83.2 | 12.03 | 11.65 | 13.60 | 1.24 | 0.3 | 3 676 |
+| en caliente | pasos (`s`) | 8 | 381.4 | 2.62 | 13.82 | 13.82 | 0.51 | 0.4 | 3 599 |
+| en caliente | sin el paso 1 (`sn`) | 8 | 372.6 | 2.68 | 14.25 | 15.33 | 1.27 | 0.3 | 3 612 |
+| en caliente | reparto para quien va solo (`sa`) | 8 | 387.4 | 2.58 | 13.61 | 13.72 | 0.46 | 0.1 | 3 606 |
+
+Una corrida de cada una. Todas hacen el mismo trabajo por insert: 93.9 postings cargados, 23.2 rondas y 150 vectores exactos. La búsqueda, con 8 llamadores, es la suma de las de todos entre los inserts.
+
+**Corrección: despertar hilos no es el 63 % de la CPU ni 10 ms por insert.**
+- **Lo que lo desmiente es la CPU que el sistema le cuenta al proceso,** que no depende del perfil. Con un llamador en caliente: 13.41 ms de usuario y 1.23 de sistema por insert con el reparto (la cabeza), y 11.68 y 0.42 sin él (`s`). El reparto cuesta 1.7 ms de usuario y 0.8 de sistema por insert, casi todo en otros núcleos, y 0.4 ms de reloj.
+- **El perfil de CPU de la cabeza atribuía mal.** En macOS la señal de muestreo de Go no llega al hilo que está trabajando en proporción a su trabajo cuando muchos hilos se despiertan y se duermen: carga las muestras en `pthread_cond_signal`. Con un solo hilo ocupado, que es `s` con un llamador, el perfil sí cuadra con la CPU del sistema (220 s de muestras en 230 s de reloj).
+- **También estaba mal el análisis de esta mañana a 100k** en lo que salía del mismo perfil: los 1.7 ms de CPU por insert «creando gorutinas». Lo que salía de los perfiles de bloqueo y de mutex (el 79 % esperando el cerrojo de escritura) no depende de esa señal, y las tandas lo han confirmado con 3.6 veces.
+- **El pendiente para Linux cambia de motivo.** No hay un coste de despertar hilos de 16 a 41 µs que sea de macOS: esa cifra salía del perfil. Sigue pendiente repetir allí los inserts a escala, porque el ritmo depende de la memoria y del disco de la máquina, pero no por eso.
+
+**Dónde está de verdad el tiempo de un insert a 3.3M** (perfil de `s` con un llamador, en caliente: 11.2 ms por insert):
+- visitar los postings cargados: 5.6 ms, la mitad. De ellos, seguir las aristas (el posting de cada extremo y el conjunto de visitados) 2.4 ms, y escanear y puntuar miembros y extremos unos 3.2;
+- leer los vectores exactos (`pread`): 1.6 ms;
+- copiar y decodificar filas: en torno a 1.2 ms;
+- el aplicador, todo junto: 0.1 ms.
+- **El ritmo cae al crecer porque la búsqueda del insert trabaja más y sobre tablas que ya no caben en las cachés:** 93.9 postings por insert a 3.3M, y cada arista seguida es una lectura a una tabla de 16 MB. No he separado cuánto es por más postings y cuánto por fallos de caché.
+
+**Lo que dicen del paso 1, con mi regla (a 3.3M y en caliente):**
+- `s` frente a `sn`: +4.0 % con un llamador (89.0 frente a 85.6) y +2.4 % con 8 (381.4 frente a 372.6). No llega al 5 % de la regla para quedarse, ni `sn` iguala a `s` para que salga.
+- `sa` frente a `s`: +1.6 % con 8 llamadores y −6.5 % con uno, donde debería ganar. No sustituye.
+- **Por la regla, no decide: doy la tabla y decide el usuario.** Son diferencias del tamaño de lo que puede separar a dos corridas iguales, que no he medido.
+- **En frío el paso 1 sí pesa, y en contra, con un llamador:** 38.1 frente a 68.8 de la cabeza. Leídas una detrás de otra, 150 lecturas a disco por insert son 26 ms. Un índice que no cabe en la caché de disco lee así. Con 8 llamadores en frío, 215.1; falta saber cuánto daría el reparto ahí.
+
+#### Enmienda 2 (14:55 del 27, antes de correrlas): las celdas que faltan para decidir el paso 1
+
+- **En frío, sin el paso 1:** `sn` con 1 y con 8 llamadores. Es la celda que falta: tandas con el reparto de las lecturas, con el disco frío.
+- **Una segunda corrida** de `s` en frío con 8 llamadores, y de `s` y `sn` en caliente con 1 y con 8, para saber cuánto se separan dos corridas iguales.
+- **No cambio la regla.** Con lo que salga doy las dos tablas, en frío y en caliente, y mi recomendación, y decide el usuario.
+- **Para esto paro la cadena,** que iba por la primera corrida del paso 4, y la relanzo detrás: estas corridas son de la medida que el usuario puso primero.
+
+**Cuánto tardaría 10M con 8 llamadores (lo que pidió el usuario).**
+- **Unas 8 horas, entre 7 y 9.** La noche, con el código de la cabeza, tardó 8.8 h en llegar a 3.3M, y su coste por insert crecía unos 2.3 ms cada vez que el índice se multiplicaba por e: 11.4 ms a 3.3M, unos 14 a 10M, y 12.8 de media en el tramo. Los 6.7M que faltan serían 23.8 h más: 32.6 h en total con ese código.
+- El código de los pasos con 8 llamadores va 3.6 veces más deprisa a 100k y 4.4 veces a 3.3M. Con 4 veces de media, 8.1 h; con 4.4, 7.4.
+- **Es una extrapolación de 3.3M a 10M** con la forma de la curva de la noche, y supone que los ficheros siguen en la caché de disco: el índice de 10M son unos 40 GB en una máquina de 64.
+- **Pasa por debajo de las 10 horas, así que va el de 10M.**
+
 ### Dejar la base en su mejor estado, medirla y congelarla (plan del usuario, 2026-11-27 a las 12:20)
 
 **El encargo (del usuario), en tres puntos, con un resumen al cerrar cada uno:**
