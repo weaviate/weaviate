@@ -105,8 +105,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 		if !overlaps || (run.Task.Status != distributedtask.TaskStatusFailed && run.Task.Status != distributedtask.TaskStatusCancelled) {
 			continue
 		}
-		same := run.Payload.MigrationType == target.MigrationType &&
-			run.Payload.TargetTokenization == target.TargetTokenization && run.Payload.BucketStrategy == target.BucketStrategy
+		same := sameReindexTarget(run.Payload, *target)
 		for group := range run.Task.SwapDecidedGroups {
 			if _, seen := swappedSince[group]; same && !seen {
 				migrated[group] = struct{}{}

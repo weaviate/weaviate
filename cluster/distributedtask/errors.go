@@ -99,7 +99,14 @@ var (
 	ErrTaskTenantsNotHot = errors.New("task names tenants that are not HOT")
 
 	ErrNothingLeftToCancel = errors.New("nothing left to cancel")
+
+	ErrTaskPartlyMigrated = errors.New("an ended task of another target still has switched groups")
 )
+
+func NewTaskPartlyMigratedError(collection string) error {
+	return wrapPermanent(ErrTaskPartlyMigrated,
+		fmt.Sprintf("an ended run of another target on the same properties of collection %q still has switched tenants", collection))
+}
 
 func NewBlockedByReplicaMovementError(collection string) error {
 	return wrapPermanent(ErrTaskBlockedByReplicaMovement,
@@ -152,6 +159,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrTaskReplicasChanged, "task-replicas-changed"},
 	{ErrTaskTenantsNotHot, "task-tenants-not-hot"},
 	{ErrNothingLeftToCancel, "nothing-left-to-cancel"},
+	{ErrTaskPartlyMigrated, "task-partly-migrated"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

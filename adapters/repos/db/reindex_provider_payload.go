@@ -155,6 +155,10 @@ type ReindexTaskPayload struct {
 
 	// Tenants scopes the cancel and terminal sweeps (MT only).
 	Tenants []string `json:"tenants,omitempty"`
+
+	// ReindexTaskRules.Admit gives a generation only to ViewServed runs, so v1.39.x payloads pass unchanged.
+	ViewServed bool   `json:"viewServed,omitempty"`
+	Generation uint64 `json:"generation,omitempty"`
 }
 
 // ReindexTaskVisiblePayloadFields are the payload fields GET /v1/tasks shows a

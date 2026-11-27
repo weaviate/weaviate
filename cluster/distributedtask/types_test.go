@@ -182,3 +182,26 @@ func unitPerGroup(groups []string) map[string]*Unit {
 	}
 	return units
 }
+
+// TakeOver at 1M tenants runs inside one apply, so it rebuilds the group index
+// once rather than per switched group.
+func TestTask_TakeOverIndexesGroupsOnce(t *testing.T) {
+	const groups, switched = 100_000, 50_000
+	names := make([]string, groups)
+	for i := range names {
+		names[i] = fmt.Sprintf("g%d", i)
+	}
+	kept := &Task{SwapDecidedGroups: make(map[string]time.Time, switched)}
+	for _, g := range names[:switched] {
+		kept.SwapDecidedGroups[g] = time.UnixMilli(1)
+	}
+
+	indexBytes := allocatedBytes(withUnits(&Task{}, unitPerGroup(names)).IndexGroups)
+	task := withUnits(&Task{}, unitPerGroup(names))
+	takeOverBytes := allocatedBytes(func() { task.TakeOver(kept) })
+
+	require.LessOrEqual(t, takeOverBytes, 2*indexBytes)
+	require.Len(t, task.Units, groups-switched)
+	require.Len(t, task.Groups(), groups-switched)
+	require.Equal(t, kept.SwapDecidedGroups, task.SwapDecidedGroups)
+}

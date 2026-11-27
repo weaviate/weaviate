@@ -195,6 +195,7 @@ type Config struct {
 	// extractors. See [distributedtask.ManagerParameters].
 	DistributedTaskConflictDetectors       map[string]distributedtask.ConflictDetector
 	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
+	DistributedTaskRules                   map[string]distributedtask.TaskRules
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
@@ -427,6 +428,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		ReadOnlyClass: func(collection string) *models.Class {
 			return schemaReader.ReadOnlyVersionedClass(collection).Class
 		},
+		TaskRules: cfg.DistributedTaskRules,
+		ClassLive: schemaReader.ClassLive,
 	})
 
 	schemaManager.SetMutationGuard(distributedTasksManager)

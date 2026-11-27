@@ -698,6 +698,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			db.ReindexNamespace:         db.ReindexDetector{},
 			db.DropVectorIndexNamespace: dropVectorDetector,
 		},
+		DistributedTaskRules: map[string]distributedtask.TaskRules{
+			db.ReindexNamespace: db.ReindexTaskRules{},
+		},
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		MaxCollections:                         appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,

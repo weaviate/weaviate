@@ -12,6 +12,7 @@
 package distributedtask
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -54,6 +55,8 @@ type Manager struct {
 	schemaMutationDetectors map[string]SchemaMutationDetector
 
 	readOnlyClass func(collection string) *models.Class
+	taskRules     map[string]TaskRules
+	classLive     func(collection string) map[string]map[string]uint64
 
 	headerDecoders         map[string]HeaderDecoder
 	targetVectorExtractors map[string]TargetVectorExtractor
@@ -329,6 +332,8 @@ type ManagerParameters struct {
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
 	ReadOnlyClass           func(collection string) *models.Class
+	TaskRules               map[string]TaskRules
+	ClassLive               func(collection string) map[string]map[string]uint64
 }
 
 func NewManager(params ManagerParameters) *Manager {
@@ -350,6 +355,8 @@ func NewManager(params ManagerParameters) *Manager {
 		conflictDetectors:       params.ConflictDetectors,
 		schemaMutationDetectors: params.SchemaMutationDetectors,
 		readOnlyClass:           params.ReadOnlyClass,
+		taskRules:               params.TaskRules,
+		classLive:               params.ClassLive,
 
 		logger: params.Logger,
 	}
@@ -571,14 +578,11 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	// of (newHeader, existingTasks) — see the ConflictDetector
 	// godoc on the FSM-determinism contract.
 	header := m.headerFor(r.Namespace, r.Payload)
+	existing := m.namespaceTasksWithLock(r.Namespace)
 	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
 		if header == nil {
 			return wrapPermanent(ErrTaskConflict,
 				fmt.Sprintf("task %s/%s conflicts with existing task: its payload has no readable header", r.Namespace, r.Id))
-		}
-		var existing []*Task
-		for _, t := range m.tasks[r.Namespace] {
-			existing = append(existing, t)
 		}
 		if err := cd.CheckConflict(header, existing); err != nil {
 			// Wrap the permanent-rejection sentinel (see [ErrTaskConflict]) so
@@ -622,6 +626,16 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	newTask.IndexGroups()
 
 	newTask.header = header
+	if rules := m.taskRules[r.Namespace]; rules != nil && header != nil {
+		kept, err := rules.Admit(newTask, existing, m.classLive(header.Collection()))
+		if err != nil {
+			return err
+		}
+		if kept != nil {
+			delete(m.tasks[kept.Namespace], kept.ID)
+			m.markWithLock(kept.Namespace, kept.ID).addedOrRemoved = true
+		}
+	}
 	m.setTaskWithLock(newTask)
 	m.markWithLock(newTask.Namespace, newTask.ID).addedOrRemoved = true
 	m.notifySchedulerWithLock()
@@ -1389,6 +1403,13 @@ func (m *Manager) findTaskWithLock(namespace, taskID string) *Task {
 	}
 
 	return task
+}
+
+// namespaceTasksWithLock orders by Version so every replica's rules see one order.
+func (m *Manager) namespaceTasksWithLock(namespace string) []*Task {
+	tasks := slices.Collect(maps.Values(m.tasks[namespace]))
+	slices.SortFunc(tasks, func(a, b *Task) int { return cmp.Compare(a.Version, b.Version) })
+	return tasks
 }
 
 func (m *Manager) setTaskWithLock(task *Task) {
