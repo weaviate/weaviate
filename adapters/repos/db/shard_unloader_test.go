@@ -244,6 +244,7 @@ func TestRecordAccessNeverMovesLastAccessBack(t *testing.T) {
 func TestRequestDuringAStalledAccessClockKeepsTheShard(t *testing.T) {
 	f := newUnloadFixture(t)
 	f.put(t)
+	f.lazy.lastAccess.Store(0)
 	prev := accessClock.Load()
 	t.Cleanup(func() { accessClock.Store(prev) })
 	require.Eventually(t, func() bool { return time.Since(accessClockEpoch) >= 3*time.Second },
