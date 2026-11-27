@@ -1008,6 +1008,32 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Un quinto punto, el paso 4 con la regla de reorganización:** a 100k los layouts de una ingesta pasan de tres (20k, 40k y 80k) a uno (40k). Doy inserts por segundo y bytes escritos, sin umbral.
 - **La línea de base cambia de significado desde el paso 2:** la cabeza no tiene el arreglo de la reentrega ni los pasos anteriores, así que cada razón es acumulada frente a la cabeza, no el efecto aislado del paso. El efecto de un paso sale de comparar su fila con la del paso anterior, entre cadenas distintas, y lo digo así.
 
+### El paso 1, medido solo, y dos variantes para decidirlo (2026-11-27 a las 13:10; las variantes, antes de compilarlas)
+
+**El paso 1 solo no gana: con un llamador inserta un 4.4 % menos que la cabeza.** A 100k, de 12:27 a 13:07, dos pasadas alternadas con la cabeza (`c6c8b2e347`).
+
+| binario | llamadores | inserts/s (p1, p2) | media | escrito, MB (p1, p2) | amplificación | recall ef 40 | recall ef 160 |
+|---|---:|---|---:|---|---:|---|---|
+| cabeza | 1 | 315.3, 319.4 | 317.3 | 2 360, 2 344 | 3.83 | 0.9889; 0.9882 | 0.9974; 0.9978 |
+| paso 1 | 1 | 302.6, 303.9 | 303.3 | 2 344, 2 318 | 3.79 | 0.9881; 0.9874 | 0.9975; 0.9977 |
+| cabeza | 8 | 312.9, 327.7 | 320.3 | 2 338, 2 377 | 3.84 | 0.9878; 0.9895 | 0.9971; 0.9973 |
+| paso 1 | 8 | 306.5, 321.1 | 313.8 | 2 345, 2 349 | 3.82 | 0.9887; 0.9881 | 0.9979; 0.9970 |
+
+- **Con 1 llamador: 0.956 veces la cabeza.** Las dos pasadas coinciden (302.6 y 303.9 frente a 315.3 y 319.4), así que no es ruido.
+- **Con 8 llamadores: 0.980,** dentro de lo que se separan las dos pasadas de la propia cabeza (un 4.7 %). Sin tandas, los 8 siguen entrando de uno en uno.
+- **Ni la escritura ni el recall cambian:** 0.99 veces los bytes, y el recall a 0.0008 o menos.
+- **Por qué pierde.** Esperaba que ganara: el reparto en gorutinas costaba 1.7 ms de CPU de los 2.88 ms de un plan. Pero ese reparto también solapaba las lecturas de una ronda, y leídas una detrás de otra tardan más de lo que se ahorra: el plan pasa de unos 3.15 a unos 3.30 ms. **Mi estimación de la ganancia para un llamador solo estaba equivocada.**
+- **Lo que el paso 1 vale se decide dentro de las tandas,** donde 8 llamadores planean a la vez y el reparto de cada uno compite por los mismos núcleos. Eso lo miden los pasos 2 y 3, que lo llevan dentro, y las dos variantes de abajo.
+
+**Dos variantes sobre el paso 3, para decidir el paso 1 (*mío*, antes de compilarlas):**
+- **`s3n`, sin el paso 1:** el paso 3 con los planes como antes, con el presupuesto de quien llama (dos líneas de `persistent_batches.go`).
+- **`s3a`, el reparto solo para quien inserta solo:** el plan de un `AddBatch` que es el único en vuelo conserva el presupuesto de quien llama; con otros `AddBatch` en vuelo, lee de una en una. Un contador de llamadas en vuelo, bajo el cerrojo de las tandas.
+- **La medida:** `s3`, `s3n` y `s3a` alternados, a 100k, con 1 y con 8 llamadores, dos pasadas. Sin corridas de la cabeza: la comparación es entre los tres, en la misma tanda.
+- **La regla:**
+  - si `s3a` iguala a `s3` con 8 llamadores (a un 2 % o menos) y con 1 llamador supera a `s3` en un 2 % o más, la regla de `s3a` sustituye al presupuesto fijo del paso 1, en un commit propio;
+  - si `s3n` iguala o supera a `s3` con 8 llamadores (a un 2 % o menos), el paso 1 no aporta nada y sale;
+  - en otro caso el paso 1 se queda como está, y la pérdida con un llamador queda dicha.
+
 ### Dejar la base en su mejor estado, medirla y congelarla (plan del usuario, 2026-11-27 a las 12:20)
 
 **El encargo (del usuario), en tres puntos, con un resumen al cerrar cada uno:**
@@ -1090,7 +1116,7 @@ Todo default pasa el gate de 0.99 subiendo solo ef.
 - **Tres rondas alternadas** (antes, después, antes, después, antes, después), cada una un proceso que abre el índice y cronometra los dos puntos. De cada binario y celda me quedo con la mediana de las tres rondas.
 - **Los ns por endpoint puntuado:** en cada ronda, un pase instrumentado con 1 hilo en cada punto. Es el tiempo de puntuar los extremos de las aristas y ordenar sus postings entre los extremos puntuados. Doy también los ns por miembro escaneado, que es donde se lee la marca de borrado.
 - **El heap:** el perfil tras abrir y recoger, por componente, de cada binario sobre ese índice.
-- **`none` necesita su índice (corrección de las 13:05, antes de compilar nada).** Había escrito que el heap en `none` saldría de los mismos ficheros. No puede: un índice crecido en `routing` no lleva el halo en sus postings y no abre en `none`. En `none` la única tabla en memoria es el mapa, y la búsqueda lo lee por cada extremo, así que lo mido también: un tercer índice de 1M, crecido en `none` por el binario de antes, que abren los dos. Sobre él, la búsqueda en caliente, los ns por endpoint y el heap, con la misma regla. Los inserts por segundo se comparan solo en `routing`. *Mío:* si el cambio cumple en `routing` y no en `none`, lo digo y decide el usuario.
+- **`none` necesita su índice (corrección de las 12:55, antes de compilar nada).** Había escrito que el heap en `none` saldría de los mismos ficheros. No puede: un índice crecido en `routing` no lleva el halo en sus postings y no abre en `none`. En `none` la única tabla en memoria es el mapa, y la búsqueda lo lee por cada extremo, así que lo mido también: un tercer índice de 1M, crecido en `none` por el binario de antes, que abren los dos. Sobre él, la búsqueda en caliente, los ns por endpoint y el heap, con la misma regla. Los inserts por segundo se comparan solo en `routing`. *Mío:* si el cambio cumple en `routing` y no en `none`, lo digo y decide el usuario.
 - **El arnés:** `bench_tables_test.go` (`TestTablesPoints`, `TestTablesTimed`, `TestTablesHeap`). Compila igual con los dos binarios, porque no lee nada de las tablas. La búsqueda pasa por la del índice con el cerrojo que toma `SearchByVector` y un presupuesto de concurrencia de 8 por query, el de v4.0.
 - **A 100k, además:** los inserts por segundo con 1 y con 8 llamadores, dos pasadas alternadas, como los pasos. Dan la dispersión entre pasadas con la que leer la diferencia de 1M, que sale de una sola corrida por binario.
 
