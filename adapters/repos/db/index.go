@@ -4202,6 +4202,14 @@ type backgroundPinner interface {
 	preventShutdownWithoutAccess() (release func(), err error)
 }
 
+// pinForBackgroundScan pins shard without stamping access while the collector runs, so a reindex scan is never torn down under it.
+func (i *Index) pinForBackgroundScan(shard ShardLike) (release func(), err error) {
+	if i.Config.ShardUnloader == nil {
+		return func() {}, nil
+	}
+	return pinShard(shard, true)
+}
+
 // pinShard is preventShutdown; for background work a lazy shard's load does not count as access.
 func pinShard(shard ShardLike, background bool) (release func(), err error) {
 	if p, ok := shard.(backgroundPinner); ok && background {
