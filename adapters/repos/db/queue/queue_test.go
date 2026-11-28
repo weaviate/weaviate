@@ -205,9 +205,13 @@ func TestQueueDecodeTask(t *testing.T) {
 	s.Start()
 	defer s.Close(t.Context())
 
+	// The subtests assert that the partial chunk is not read. It is read once
+	// it goes stale, so a stale timeout a slow run can exceed makes them flaky.
+	const staleTimeout = time.Hour
+
 	t.Run("a few tasks", func(t *testing.T) {
 		exec := discardExecutor()
-		q := makeQueueSize(t, s, exec, 50)
+		q := makeQueueWithStaleTimeout(t, s, exec, 50, t.TempDir(), staleTimeout)
 		// the test dequeues by hand: keep the running scheduler off the queue
 		q.Pause(t.Context())
 
@@ -348,7 +352,7 @@ func TestQueueDecodeTask(t *testing.T) {
 
 	t.Run("restart", func(t *testing.T) {
 		exec := discardExecutor()
-		q := makeQueueSize(t, s, exec, 50)
+		q := makeQueueWithStaleTimeout(t, s, exec, 50, t.TempDir(), staleTimeout)
 		// the test dequeues by hand: keep the running scheduler off the queue
 		q.Pause(t.Context())
 
@@ -368,7 +372,7 @@ func TestQueueDecodeTask(t *testing.T) {
 			Logger:       newTestLogger(),
 			Dir:          q.dir,
 			TaskDecoder:  &mockTaskDecoder{},
-			StaleTimeout: 500 * time.Millisecond,
+			StaleTimeout: staleTimeout,
 			ChunkSize:    50,
 		})
 		require.NoError(t, err)
