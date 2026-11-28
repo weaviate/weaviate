@@ -3732,6 +3732,56 @@ Al escribir el lector que aplica la fórmula (`gate.py`, antes de que exista nin
 
 Datos: `testdata/bench/lock-holds/`.
 
+#### El índice de 10M reorganizado, y su búsqueda en frío y en caliente (28 de noviembre a las 18:33; sesión de las 17:06 a las 18:11, sobre un clon)
+
+**Tal como lo dejó el crecimiento, el índice de 10M contesta en frío a 0.95 en 6.64 ms de p50 con 1 hilo, 1.65 veces la celda del lote de v4.0 (4.02). Reorganizado, en 5.68 ms: 1.41 veces. Esperaba menos de 1.3 y no se cumple. A 0.99 queda por debajo del lote, 11.58 frente a 16.21 ms, porque el índice crecido carga 62.9 postings donde el lote carga 88.9. La reorganización tarda 458 s y no cambia ni el recall ni las cargas.**
+
+**Los puntos,** iguales antes y después: a 0.95, ef 24, recall 0.9514 y 19.53 cargas (0.84 MB leídos por query); a 0.99, ef 106, recall 0.9901 y 62.90 cargas (2.71 MB).
+
+**La búsqueda, p50 en ms** (en caliente, la pasada mediana de 3 con las 1 000 queries; en frío, 500 queries en tandas, con el volumen desmontado antes de cada una).
+
+| | como lo dejó el crecimiento | reorganizado | cambio |
+| --- | --- | --- | --- |
+| 0.95, 1 hilo, en caliente | 1.83 (435 QPS) | 1.79 (442 QPS) | −2.4 % |
+| 0.95, 1 hilo, en frío | 6.64 | 5.68 | −14.4 % |
+| 0.95, 8 hilos, en caliente | 2.63 (2 472 QPS) | 2.44 (2 624 QPS) | −7.2 % |
+| 0.95, 8 hilos, en frío | 23.21 | 17.77 | −23.5 % |
+| 0.99, 1 hilo, en caliente | 4.96 (147 QPS) | 4.76 (155 QPS) | −4.0 % |
+| 0.99, 1 hilo, en frío | 14.53 | 11.58 | −20.3 % |
+| 0.99, 8 hilos, en caliente | 7.08 (831 QPS) | 6.26 (914 QPS) | −11.6 % |
+| 0.99, 8 hilos, en frío | 39.26 | 29.27 | −25.4 % |
+
+**De dónde sale lo que baja en frío** (0.95, 1 hilo, medias por query):
+
+| | leer las filas | recorrido | rescore |
+| --- | --- | --- | --- |
+| como lo dejó el crecimiento | 3.65 ms | 1.40 | 2.30 |
+| reorganizado | 2.26 ms | 1.45 | 2.48 |
+
+- **Baja leer las filas, no el rescore.** El almacén de postings pasa de 3 segmentos a 1, y eso es de la compactación, no de reordenar los vectores. Lo había dicho antes: esta medida no separa las dos cosas.
+- **El rescore en frío no mejora con los vectores en el orden de sus postings:** 150 lecturas, 2.3 a 2.5 ms antes y después. A 10M los 150 vectores de un rescore caen en postings distintos y cada uno es una lectura.
+
+**Frente a lo publicado en v4.0, en frío con 1 hilo.**
+
+| | 0.95 | 0.99 |
+| --- | --- | --- |
+| el índice crecido, como quedó | 6.64 ms | 14.53 |
+| el índice crecido, reorganizado | 5.68 ms | 11.58 |
+| la celda del lote de v4.0 | 4.02 ms | 16.21 |
+| HFresh a 10M, en serie | 92.62 ms | 595.74 |
+| crecido y reorganizado frente al lote | 1.41 veces | 0.71 |
+| HFresh frente al crecido y reorganizado | 16.3 veces | 51.5 |
+
+**La reorganización.** 458 s para los 10M de vectores (2 561 320 ya estaban en orden), más 60 s hasta que el almacén se queda quieto. El directorio pasa de 38.08 a 36.75 GB. El heap en uso al abrir, 1 426 y 1 405 MB. Abre en 5.2 a 5.8 s; en frío, tras desmontar, en 8.1 a 8.9 s.
+
+**Lo esperado y lo medido.**
+- Como quedó, en frío entre 1.5 y 3 veces el lote a 0.95: **1.65, se cumple.**
+- Reorganizado, a menos de 1.3 veces: **1.41, no se cumple.** A 1M fue 1.07. La diferencia con el lote que queda a 10M está en el rescore y en las filas, no en las cargas, que son menos que las del lote (19.5 frente a 20.7).
+
+**No comparable:** la celda del lote es de otra sesión y de otro arnés (el de v4.0), y su índice es otro, construido en lote; HFresh, también de la sesión de v4.0. El clon reorganizado no se guarda, contra lo que decía el pre-registro: su sitio hace falta para HFresh a 10M, y rehacerlo son 9 minutos.
+
+Datos: `testdata/bench/search-10m-grown/`.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

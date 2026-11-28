@@ -1,0 +1,30 @@
+{
+  "dir": "/Volumes/v40bench/grow10m/laid/index",
+  "cacheMode": "routing",
+  "vectorsLaidOutBefore": 2561320,
+  "vectorsLaidOutAfter": 10000000,
+  "live": 10000000,
+  "layoutSeconds": 458.025086416,
+  "waitSeconds": 60.035244833,
+  "segmentsStoodStill": true,
+  "segmentsBefore": {
+    "postingedge_deleted_main": 0,
+    "postingedge_edgedists_main": 3,
+    "postingedge_map_main": 3,
+    "postingedge_pending_main": 7,
+    "postingedge_postings_main": 3,
+    "postingedge_routing_main": 3,
+    "vectors_compressed_postingedge_centroids_main": 9
+  },
+  "segmentsAfter": {
+    "postingedge_deleted_main": 0,
+    "postingedge_edgedists_main": 2,
+    "postingedge_map_main": 2,
+    "postingedge_pending_main": 4,
+    "postingedge_postings_main": 1,
+    "postingedge_routing_main": 2,
+    "vectors_compressed_postingedge_centroids_main": 8
+  },
+  "dirBytesBefore": 38084202628,
+  "dirBytesAfter": 36754013942
+}
