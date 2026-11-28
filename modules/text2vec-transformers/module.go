@@ -24,9 +24,10 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer/batchtext"
 )
 
 const Name = "text2vec-transformers"
@@ -36,7 +37,7 @@ func New() *TransformersModule {
 }
 
 type TransformersModule struct {
-	vectorizer                   text2vecbase.TextVectorizer[[]float32]
+	vectorizer                   batchtext.Vectorizer[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher[[]float32]
@@ -118,15 +119,16 @@ func (m *TransformersModule) initVectorizer(ctx context.Context, timeout time.Du
 		waitForStartup = entcfg.Enabled(envWaitForStartup)
 	}
 
-	client := clients.New(uriPassage, uriQuery, timeout, logger)
+	// Use BatchVectorizer for native batch HTTP requests
+	batchClient := clients.NewBatchVectorizer(uriPassage, uriQuery, timeout, logger)
 	if waitForStartup {
-		if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
+		if err := batchClient.WaitForStartup(ctx, 1*time.Second); err != nil {
 			return errors.Wrap(err, "init remote vectorizer")
 		}
 	}
 
-	m.vectorizer = vectorizer.New(client)
-	m.metaProvider = client
+	m.vectorizer = batchtext.New[[]float32](m.Name(), false, batchClient)
+	m.metaProvider = batchClient
 
 	return nil
 }
@@ -142,26 +144,10 @@ func (m *TransformersModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
-// VectorizeBatch is _slower_ if many requests are done in parallel. So do all objects sequentially
+// VectorizeBatch vectorizes multiple objects using native batch HTTP requests.
+// Uses batch.VectorizeBatchObjects for proper batching, parallelization, and error isolation.
 func (m *TransformersModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	vecs := make([][]float32, len(objs))
-	addProps := make([]models.AdditionalProperties, len(objs))
-	// error should be the exception so dont preallocate
-	errs := make(map[int]error, 0)
-	for i, obj := range objs {
-		if skipObject[i] {
-			continue
-		}
-		vec, addProp, err := m.vectorizer.Object(ctx, obj, cfg)
-		if err != nil {
-			errs[i] = err
-			continue
-		}
-		addProps[i] = addProp
-		vecs[i] = vec
-	}
-
-	return vecs, addProps, errs
+	return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Objects, 32)
 }
 
 func (m *TransformersModule) MetaInfo() (map[string]interface{}, error) {
