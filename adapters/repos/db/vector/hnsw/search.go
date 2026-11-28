@@ -1393,6 +1393,8 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 		}
 	}
 
+	docVecs = h.normalizeVecs(docVecs)
+
 	similarity := float32(0.0)
 
 	var distancer distancer.Distancer
@@ -1420,6 +1422,9 @@ func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32,
 	docVecs, err := h.TempMultiVectorForIDWithViewThunk(ctx, docID, slice, view)
 	if err != nil {
 		return 0, errors.Wrap(err, "get vectors for docID")
+	}
+	for _, docVec := range docVecs {
+		h.normalizeVecInPlace(docVec)
 	}
 
 	similarity := float32(0.0)
