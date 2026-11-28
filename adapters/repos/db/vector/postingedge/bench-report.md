@@ -3588,6 +3588,34 @@ El mapa compacto, las hojas con solape, la poda del halo y los centroides en RQ1
 
 **Orden:** detrás de las medidas de la base en la cadena de la noche, y antes de las palancas.
 
+#### La puerta del insert en dos tiempos: veredicto a 10M, y lo que corté y moví (28 de noviembre a las 17:03)
+
+**A 10M tampoco pasa, y por mucho más.** wiki-dpr, 1 000 queries, rescore 150. Hoy: 19.53 cargas a 0.95 y 62.90 a 0.99. El lote del mismo tamaño: 20.70 y 88.87.
+
+| | cargas a 0.95 | cargas a 0.99 | CPU por vector |
+| --- | --- | --- | --- |
+| todo por eventos, grupos de 64 | 75.76 (+288.0 %) | 631.48 (+904.0 %) | 0.73 ms |
+| candidatos por vector, 64 dentro de 128 | 47.02 (+140.8 %) | 450.36 (+616.0 %) | 0.77 ms |
+| grupos de 128 | 44.22 (+126.5 %) | 434.14 (+590.3 %) | 1.38 ms |
+| provisionales solo de salida, 10 % pendiente | 27.08 (+38.7 %) | 190.21 (+202.4 %) | 0.05 ms |
+| sin aristas, 10 % pendiente | 27.00 (+38.2 %) | 189.92 (+202.0 %) | |
+
+- **Las configuraciones que cargan 256 postings no corrieron,** por la regla escrita: ninguna pasó a 1M.
+- **Lo que sí aguanta a 0.95 y no a 0.99,** con el 10 % pendiente sobre el índice de hoy: eventos encima de las provisionales, +4.7 % y +24.4 % (sin provisionales, +4.8 % y +32.6 %); candidatos por vector, 64 dentro de 128, +5.1 % y +16.8 %. Con el 25 %, +15.9 % y +89.0 %.
+- **Quitar las aristas al azar cuesta más que quitárselas a los recientes a 0.99:** con el 10 %, +39.4 % y +317.8 % contra +38.2 % y +202.0 %. A los recientes les llegan 5.98 aristas por vector y a uno al azar 10.34.
+- **El reparto de los recientes entre postings** es casi el del azar también a 10M (con el 10 %: p10 0.069 y p90 0.137, contra 0.075 y 0.125).
+- **Coste de una provisional a 10M:** 245 compañeros y 134 extremos por código, 47 µs.
+
+**Lo que corté y moví** (*mío*). La cadena tenía detrás una última pasada de 10M (el insert por oleadas y las provisionales que entran por código en sus vecinos), de hora y media, que ya no decide nada. La paré a las 16:56, al acabar la pasada de arriba, para no retrasar las medidas de la base, y la puse la última de la cadena de la noche con los mismos escenarios. No se pierde ninguna fila del pre-registro: cambia cuándo corre.
+
+**El hueco de las 16:56 a las 17:02** (nada cronometrado en marcha).
+- Compilan a la primera el simulador con lo nuevo, el árbol de las palancas, el árbol que las junta con los relojes del diagnóstico y el arnés del shard.
+- Los tests nuevos de las palancas pasan, con los de lotes y presupuesto que ya había. El paquete entero no lo he corrido: lo hago en el siguiente hueco, antes de subir la rama.
+- Humos, todos bien: la regla del lote, las búsquedas conjuntas, los avisos y el micro-benchmark a 100k; las palancas a 100k (la espera de una query baja de un p99 de 7.9 ms a 2.2 con trozos de 8, sin cronometrar); el shard con 20 000 filas y los dos índices; y la búsqueda en frío y en caliente sobre un clon del 10M.
+- **Un test rojo de producto, fuera del índice:** con el indexado en línea, el camino de lotes del shard vuelca los WAL y el índice antes de que corran los trabajos del índice vectorial. El test confirma un lote de 24 objetos, copia el directorio como lo dejaría una caída y reabre: los 24 objetos vuelven y ninguno se encuentra por su vector, con HNSW, con flat y con el nuestro. Con indexado asíncrono, que es el control, pasa. Está así desde v1.15.0. No lo he arreglado: queda escalado al usuario, con el test y un boceto del arreglo (volcar otra vez tras esperar a los trabajos).
+
+**La cadena de la noche,** en marcha desde las 17:02: las retenciones del cerrojo, HFresh a 10M, la reorganización del 10M con su búsqueda, el shard, la búsqueda a 1M, la búsqueda conjunta, los avisos, las palancas y la pasada de 10M que quedaba.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

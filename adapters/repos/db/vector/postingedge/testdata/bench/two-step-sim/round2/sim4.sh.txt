@@ -1,0 +1,68 @@
+#!/bin/bash
+# The event by joint search (bench-report.md of feat/posting-edge-index, "El
+# evento por búsqueda conjunta, y su puerta", pre-registered on 2026-11-28 by
+# the user's order): what the searches of the pending vectors of a posting
+# share at 1M and at 10M; the rule of the batch builder inside the simulator
+# at 1M; the parts of the search of an insert at 1M; and the micro-benchmark
+# of scoring the endpoints of a posting for m queries apart and together,
+# with tables of 1M and of 10M doc ids. Over clones, removed at the end;
+# nothing of an index is written. The binary is built before (lock/holds.test,
+# the diagnostic branch with the simulator); nothing here builds. Timed: the
+# micro-benchmark and the parts of the search are clocks.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/sim2
+B=$S/lock/holds.test
+P=$S/diag/src/adapters/repos/db/vector/postingedge
+D1=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+D10=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+mkdir -p $W/1m-joint $W/10m-joint $W/jointscore
+
+printf 'the event by joint search, a simulation and a micro-benchmark (sim2/sim4.sh), timed, since %s for about forty minutes; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+# The micro-benchmark first, with the machine as quiet as it gets: the codes
+# of the 100k index, tables of 1M and of 10M doc ids.
+mkdir -p $W/jointscore/clone
+cp -c -R $S/diag/i100k/index $W/jointscore/clone/index || exit 3
+date "+== %Y-%m-%d %H:%M:%S the micro-benchmark (idle $(hid_idle) s)"
+(cd $P && PE_DIR=$W/jointscore/clone/index PE_OUT=$W/jointscore/result.json \
+  PE_JOINTSCORE="1000000:1962:2048,10000000:1962:2048" \
+  $B -test.run '^TestDiagJointScore$' -test.v -test.timeout 0 > $W/jointscore/run.log 2>&1)
+echo "jointscore exit $?"
+find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/sim2/jointscore -type d -name index -prune -exec rm -rf {} +
+
+# 1M.
+mkdir -p /Volumes/v40bench/sim1m/clone
+cp -c -R /Volumes/v40bench/sim1m/index /Volumes/v40bench/sim1m/clone/index || exit 3
+find /Volumes/v40bench/sim1m/clone/index -type f -exec cat {} + > /dev/null
+date "+== %Y-%m-%d %H:%M:%S 1M, the parts of the search of an insert (idle $(hid_idle) s)"
+(cd $P && PE_DATASET=$D1 PE_DIR=/Volumes/v40bench/sim1m/clone/index PE_OUT=$W/1m-joint/search.json PE_NOMAINTENANCE=1 PE_SETTLE=15 \
+  PE_THREADS=1 PE_N=8000 $B -test.run '^TestDiagSearch$' -test.v -test.timeout 0 > $W/1m-joint/search.log 2>&1)
+echo "1M search exit $?"
+date "+== %Y-%m-%d %H:%M:%S 1M, the joint searches (idle $(hid_idle) s)"
+(cd $P && PE_DENSE=1 PE_DIR=/Volumes/v40bench/sim1m/clone/index PE_OUT=$W/1m-joint/joint.json PE_JOINT=8,16,32 PE_POSTINGS=200 \
+  $B -test.run '^TestSimJoint$' -test.v -test.timeout 0 > $W/1m-joint/joint.log 2>&1)
+echo "1M joint exit $?"
+date "+== %Y-%m-%d %H:%M:%S 1M, the rule of the batch builder (idle $(hid_idle) s)"
+(cd $P && PE_DENSE=1 PE_DATASET=$D1 PE_DIR=/Volumes/v40bench/sim1m/clone/index PE_OUT=$W/1m-joint/lote.json PE_QUERIES=1000 \
+  PE_SIM="base,lote:64,lote:128,lote:256" $B -test.run '^TestSimTwoStep$' -test.v -test.timeout 0 > $W/1m-joint/lote.log 2>&1)
+echo "1M lote exit $?"
+find /Volumes/v40bench/sim1m/clone -type d -name index -prune -exec rm -rf {} +
+
+# 10M.
+mkdir -p /Volumes/v40bench/grow10m/clones/sim4
+cp -c -R /Volumes/v40bench/grow10m/index /Volumes/v40bench/grow10m/clones/sim4/index || exit 3
+find /Volumes/v40bench/grow10m/clones/sim4/index -type f -exec cat {} + > /dev/null
+date "+== %Y-%m-%d %H:%M:%S 10M, the joint searches (idle $(hid_idle) s)"
+(cd $P && PE_DIR=/Volumes/v40bench/grow10m/clones/sim4/index PE_OUT=$W/10m-joint/joint.json PE_JOINT=8,16,32 PE_POSTINGS=200 \
+  $B -test.run '^TestSimJoint$' -test.v -test.timeout 0 > $W/10m-joint/joint.log 2>&1)
+echo "10M joint exit $?"
+find /Volumes/v40bench/grow10m/clones/sim4 -type d -name index -prune -exec rm -rf {} +
+
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $W/end-joint.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

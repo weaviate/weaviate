@@ -38,7 +38,7 @@ for path in paths:
         kind = name.split(":")[0]
         everything = kind in ("po", "pv") and name.split(":")[1] == "100"
         if not everything and name not in ("prov:10:16", "provi:10:16", "provn:10:16") and kind not in (
-                "evprov", "proto", "protop", "protoi", "protoip", "proton", "protonp"):
+                "evprov", "proto", "protop", "protoi", "protoip", "proton", "protonp", "lote", "provn"):
             continue
         deltas = []
         for target in (0.95, 0.99):

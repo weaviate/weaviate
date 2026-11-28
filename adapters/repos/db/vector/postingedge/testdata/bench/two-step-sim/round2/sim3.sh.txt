@@ -1,0 +1,47 @@
+#!/bin/bash
+# The provisional inverse edge kept as a notice (bench-report.md of
+# feat/posting-edge-index, "La inversa provisional como aviso", pre-registered
+# on 2026-11-28 by the user's order): the tolerance table with provisional
+# edges whose vector leaves each of its neighbors a notice that waits in
+# memory, read by no one at the insert and followed by a search when it loads
+# the posting of the neighbor. Over clones of the 1M and of the 10M index,
+# removed at the end; nothing of an index is written. The binary is built
+# before (lock/holds.test, the diagnostic branch with the simulator); nothing
+# here builds. The marker is up: the simulator counts its CPU.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/sim2
+B=$S/lock/holds.test
+P=$S/diag/src/adapters/repos/db/vector/postingedge
+D1=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+D10=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+mkdir -p $W/1m-notices $W/10m-notices
+
+printf 'the provisional inverse edge as a notice, a simulation (sim2/sim3.sh), since %s for about an hour; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+mkdir -p /Volumes/v40bench/sim1m/clone
+cp -c -R /Volumes/v40bench/sim1m/index /Volumes/v40bench/sim1m/clone/index || exit 3
+find /Volumes/v40bench/sim1m/clone/index -type f -exec cat {} + > /dev/null
+date "+== %Y-%m-%d %H:%M:%S 1M (idle $(hid_idle) s)"
+(cd $P && PE_DENSE=1 PE_DATASET=$D1 PE_DIR=/Volumes/v40bench/sim1m/clone/index PE_OUT=$W/1m-notices/result.json PE_QUERIES=1000 \
+  PE_SIM="base,provn:5:16,provn:10:16,provn:25:16,provn:50:16,protonp:10:16:a:64:0,protonp:10:16:a:128:64" \
+  $B -test.run '^TestSimTwoStep$' -test.v -test.timeout 0 > $W/1m-notices/run.log 2>&1)
+echo "1M exit $?"
+find /Volumes/v40bench/sim1m/clone -type d -name index -prune -exec rm -rf {} +
+
+mkdir -p /Volumes/v40bench/grow10m/clones/sim3
+cp -c -R /Volumes/v40bench/grow10m/index /Volumes/v40bench/grow10m/clones/sim3/index || exit 3
+find /Volumes/v40bench/grow10m/clones/sim3/index -type f -exec cat {} + > /dev/null
+date "+== %Y-%m-%d %H:%M:%S 10M (idle $(hid_idle) s)"
+(cd $P && PE_DATASET=$D10 PE_DIR=/Volumes/v40bench/grow10m/clones/sim3/index PE_OUT=$W/10m-notices/result.json \
+  PE_SIM="base,provn:5:16,provn:10:16,provn:25:16" $B -test.run '^TestSimTwoStep$' -test.v -test.timeout 0 > $W/10m-notices/run.log 2>&1)
+echo "10M exit $?"
+find /Volumes/v40bench/grow10m/clones/sim3 -type d -name index -prune -exec rm -rf {} +
+
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $W/end-notices.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

@@ -1,0 +1,31 @@
+== 14:54:45 waiting for 900 s of idle (now 13245 s)
+== 2026-11-28 14:54:45 idle for 13245 s
+== 2026-11-28 14:54:46 1M (idle 13246 s)
+1M exit 0
+prov:10:16             | 0.95 +16.1 % | 0.99 +53.5 % | 0.000 ms of CPU a vector (limit 1.88) | out | 1m
+po:100:a:64            | 0.95 +70.6 % | 0.99 +158.9 % | 0.812 ms of CPU a vector (limit 1.88) | out | 1m
+po:100:a:128           | 0.95 +25.2 % | 0.99 +106.2 % | 1.597 ms of CPU a vector (limit 1.88) | out | 1m
+po:100:a:256           | 0.95 +16.3 % | 0.99 +44.2 % | 3.152 ms of CPU a vector (limit 1.88) | out | 1m
+pv:100:a:128:64        | 0.95 +27.3 % | 0.99 +136.2 % | 0.860 ms of CPU a vector (limit 1.88) | out | 1m
+pv:100:a:256:64        | 0.95 +19.9 % | 0.99 +67.2 % | 0.910 ms of CPU a vector (limit 1.88) | out | 1m
+pv:100:a:256:128       | 0.95 +16.2 % | 0.99 +53.1 % | 1.718 ms of CPU a vector (limit 1.88) | out | 1m
+evprov:10:16:a:64:0    | 0.95 +92.4 % | 0.99 +202.3 % | 0.749 ms of CPU a vector (limit 1.88) | out | 1m
+evprov:10:16:a:128:0   | 0.95 +52.6 % | 0.99 +140.4 % | 1.444 ms of CPU a vector (limit 1.88) | out | 1m
+evprov:10:16:a:128:64  | 0.95 +57.4 % | 0.99 +151.8 % | 0.783 ms of CPU a vector (limit 1.88) | out | 1m
+evprov:10:16:a:256:64  | 0.95 +42.1 % | 0.99 +135.4 % | 0.837 ms of CPU a vector (limit 1.88) | out | 1m
+proto:10:16:a:64:0     | 0.95 +50.4 % | 0.99 +154.2 % | 0.486 ms of CPU a vector (limit 1.88) | out | 1m
+protop:10:16:a:64:0    | 0.95 +72.0 % | 0.99 +180.5 % | 0.448 ms of CPU a vector (limit 1.88) | out | 1m
+proto:10:16:a:128:64   | 0.95 +20.6 % | 0.99 +105.6 % | 0.534 ms of CPU a vector (limit 1.88) | out | 1m
+protop:10:16:a:128:64  | 0.95 +42.4 % | 0.99 +144.5 % | 0.496 ms of CPU a vector (limit 1.88) | out | 1m
+provi:10:16            | 0.95 +11.5 % | 0.99 +21.3 % | 0.000 ms of CPU a vector (limit 1.88) | out | 1m
+protoi:10:16:a:64:0    | 0.95 +50.1 % | 0.99 +143.3 % | 0.485 ms of CPU a vector (limit 1.88) | out | 1m
+protoip:10:16:a:64:0   | 0.95 +58.1 % | 0.99 +147.8 % | 0.448 ms of CPU a vector (limit 1.88) | out | 1m
+== 2026-11-28 15:42:55 10M, 10m: rdist,base,stripr:10,stripr:25,prov:10:16,prov:25:16,provpo:10:16:a:64,provpo:25:16:a:64,pv:10:a:128:64,po:100:a:64,pv:100:a:128:64,po:100:a:128 (idle 16136 s)
+10m exit 0
+prov:10:16             | 0.95 +38.7 % | 0.99 +202.4 % | 0.000 ms of CPU a vector (limit 2.90) | out | 10m
+po:100:a:64            | 0.95 +288.0 % | 0.99 +904.0 % | 0.734 ms of CPU a vector (limit 2.90) | out | 10m
+pv:100:a:128:64        | 0.95 +140.8 % | 0.99 +616.0 % | 0.772 ms of CPU a vector (limit 2.90) | out | 10m
+po:100:a:128           | 0.95 +126.5 % | 0.99 +590.3 % | 1.375 ms of CPU a vector (limit 2.90) | out | 10m
+10m-256 not run: nothing that loads 256 postings passes at 1M
+10m-evprov not run: nothing passes at 10M
+== 2026-11-28 16:56:34 10M, 10m-proto: base,proto:10:16:a:64:0,protop:10:16:a:64:0,proto:10:16:a:128:64,provi:10:16,provi:25:16,protoi:10:16:a:64:0,protoip:10:16:a:64:0 (idle 20554 s)

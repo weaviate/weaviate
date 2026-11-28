@@ -1,0 +1,968 @@
+{
+  "dataset": "/Users/abdel/Documents/datasets/wikidpr-10m-e5-inplace.bin",
+  "dense": false,
+  "dir": "/Volumes/v40bench/grow10m/clones/sim2/index",
+  "gomaxprocs": 10,
+  "k": 10,
+  "livePostings": 40284,
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 768,
+    "keys": 12499156,
+    "scanCodeWords": 13,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 0,
+    "postings": 80525,
+    "splits": 40241,
+    "splitsFailed": 0,
+    "live": 10000000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 5,
+    "vectorsLaidOut": 2561320,
+    "refreshedAt": 10000
+  },
+  "queries": 1000,
+  "recentSpread": [
+    {
+      "random": {
+        "share": 0.05,
+        "vectors": 499207,
+        "meanShareOfAPosting": 0.0499112747920375,
+        "min": 0,
+        "p1": 0.01904761904761905,
+        "p10": 0.03208556149732621,
+        "p25": 0.04,
+        "p50": 0.04926108374384237,
+        "p75": 0.05905511811023622,
+        "p90": 0.06837606837606838,
+        "p99": 0.08709677419354839,
+        "max": 0.13829787234042554,
+        "postingsWithNone": 7,
+        "postingsWithTwiceTheShare": 72,
+        "ofTheSetInThose": 0.0027123017105128732,
+        "outEdgesAVector": 11.479566592615889,
+        "inEdgesAVector": 10.927192527348375
+      },
+      "recent": {
+        "share": 0.05,
+        "vectors": 500000,
+        "meanShareOfAPosting": 0.051136285434316364,
+        "min": 0,
+        "p1": 0.01702127659574468,
+        "p10": 0.030042918454935622,
+        "p25": 0.03880597014925373,
+        "p50": 0.04964539007092199,
+        "p75": 0.06172839506172839,
+        "p90": 0.07391304347826087,
+        "p99": 0.1,
+        "max": 0.16993464052287582,
+        "postingsWithNone": 3,
+        "postingsWithTwiceTheShare": 407,
+        "ofTheSetInThose": 0.015788,
+        "outEdgesAVector": 11.766338,
+        "inEdgesAVector": 6.213156
+      },
+      "share": 0.05
+    },
+    {
+      "random": {
+        "share": 0.1,
+        "vectors": 1000197,
+        "meanShareOfAPosting": 0.1000224702136836,
+        "min": 0.021739130434782608,
+        "p1": 0.055944055944055944,
+        "p10": 0.07539682539682539,
+        "p25": 0.08666666666666667,
+        "p50": 0.09939759036144578,
+        "p75": 0.11267605633802817,
+        "p90": 0.1254355400696864,
+        "p99": 0.15,
+        "max": 0.2147239263803681,
+        "postingsWithNone": 0,
+        "postingsWithTwiceTheShare": 2,
+        "ofTheSetInThose": 0.00005498916713407459,
+        "outEdgesAVector": 11.480413358568361,
+        "inEdgesAVector": 10.338526310316867
+      },
+      "recent": {
+        "share": 0.1,
+        "vectors": 1000000,
+        "meanShareOfAPosting": 0.10178421234884051,
+        "min": 0.008658008658008658,
+        "p1": 0.0462046204620462,
+        "p10": 0.06910569105691057,
+        "p25": 0.08333333333333333,
+        "p50": 0.1,
+        "p75": 0.11827956989247312,
+        "p90": 0.13690476190476192,
+        "p99": 0.17518248175182483,
+        "max": 0.3333333333333333,
+        "postingsWithNone": 0,
+        "postingsWithTwiceTheShare": 83,
+        "ofTheSetInThose": 0.002934,
+        "outEdgesAVector": 11.760295,
+        "inEdgesAVector": 5.984159
+      },
+      "share": 0.1
+    },
+    {
+      "random": {
+        "share": 0.25,
+        "vectors": 2499240,
+        "meanShareOfAPosting": 0.2499706174285835,
+        "min": 0.1223021582733813,
+        "p1": 0.18461538461538463,
+        "p10": 0.21428571428571427,
+        "p25": 0.23109243697478993,
+        "p50": 0.25,
+        "p75": 0.26848249027237353,
+        "p90": 0.2863070539419087,
+        "p99": 0.32044198895027626,
+        "max": 0.38461538461538464,
+        "postingsWithNone": 0,
+        "postingsWithTwiceTheShare": 0,
+        "ofTheSetInThose": 0,
+        "outEdgesAVector": 11.483091659864598,
+        "inEdgesAVector": 8.612143691682272
+      },
+      "recent": {
+        "share": 0.25,
+        "vectors": 2500000,
+        "meanShareOfAPosting": 0.25175094908086226,
+        "min": 0.04672897196261682,
+        "p1": 0.14240506329113925,
+        "p10": 0.193717277486911,
+        "p25": 0.22040816326530613,
+        "p50": 0.25,
+        "p75": 0.2813852813852814,
+        "p90": 0.3114754098360656,
+        "p99": 0.3737704918032787,
+        "max": 0.5228215767634855,
+        "postingsWithNone": 0,
+        "postingsWithTwiceTheShare": 4,
+        "ofTheSetInThose": 0.0001824,
+        "outEdgesAVector": 11.7456764,
+        "inEdgesAVector": 5.2624356
+      },
+      "share": 0.25
+    },
+    {
+      "random": {
+        "share": 0.5,
+        "vectors": 4999589,
+        "meanShareOfAPosting": 0.4999541493444888,
+        "min": 0.32592592592592595,
+        "p1": 0.42272727272727273,
+        "p10": 0.4583333333333333,
+        "p25": 0.4782608695652174,
+        "p50": 0.5,
+        "p75": 0.5215686274509804,
+        "p90": 0.5415472779369628,
+        "p99": 0.5775862068965517,
+        "max": 0.6386554621848739,
+        "postingsWithNone": 0,
+        "postingsWithTwiceTheShare": 0,
+        "ofTheSetInThose": 0,
+        "outEdgesAVector": 11.482435056161616,
+        "inEdgesAVector": 5.74093070450391
+      },
+      "recent": {
+        "share": 0.5,
+        "vectors": 5000000,
+        "meanShareOfAPosting": 0.5008759681037119,
+        "min": 0.14285714285714285,
+        "p1": 0.3333333333333333,
+        "p10": 0.4198717948717949,
+        "p25": 0.4603174603174603,
+        "p50": 0.5016611295681063,
+        "p75": 0.5422222222222223,
+        "p90": 0.5814606741573034,
+        "p99": 0.6585365853658537,
+        "max": 0.8701298701298701,
+        "postingsWithNone": 0,
+        "postingsWithTwiceTheShare": 0,
+        "ofTheSetInThose": 0,
+        "outEdgesAVector": 11.7075048,
+        "inEdgesAVector": 3.8767686
+      },
+      "share": 0.5
+    }
+  ],
+  "rescore": 150,
+  "scenarios": [
+    {
+      "name": "base",
+      "edges": 114809099,
+      "vectorsWithNoEdge": 134133,
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8905,
+            "loads": 11.384
+          },
+          {
+            "ef": 20,
+            "recall": 0.9409,
+            "loads": 17.208
+          },
+          {
+            "ef": 40,
+            "recall": 0.9717,
+            "loads": 28.48
+          },
+          {
+            "ef": 80,
+            "recall": 0.9858,
+            "loads": 49.508
+          },
+          {
+            "ef": 160,
+            "recall": 0.9928,
+            "loads": 87.924
+          },
+          {
+            "ef": 320,
+            "recall": 0.9957,
+            "loads": 154.164
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 24,
+            "recall": 0.9514,
+            "loads": 19.528
+          },
+          {
+            "target": 0.99,
+            "ef": 106,
+            "recall": 0.9901,
+            "loads": 62.896
+          }
+        ]
+      },
+      "seconds": 11.556986583
+    },
+    {
+      "name": "stripr:10",
+      "pendingShare": 0.1,
+      "ownEdgesTakenAway": 11482675,
+      "inverseEdgesTakenAway": 10340563,
+      "edges": 92985861,
+      "vectorsWithNoEdge": 1130313,
+      "pendingAtRandom": true,
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8678,
+            "loads": 11.212
+          },
+          {
+            "ef": 20,
+            "recall": 0.9192,
+            "loads": 16.796
+          },
+          {
+            "ef": 40,
+            "recall": 0.9508,
+            "loads": 27.216
+          },
+          {
+            "ef": 80,
+            "recall": 0.9701,
+            "loads": 47.064
+          },
+          {
+            "ef": 160,
+            "recall": 0.9789,
+            "loads": 82.932
+          },
+          {
+            "ef": 320,
+            "recall": 0.9856,
+            "loads": 144.828
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 40,
+            "recall": 0.9508,
+            "loads": 27.216
+          },
+          {
+            "target": 0.99,
+            "ef": 675,
+            "recall": 0.99,
+            "loads": 262.752
+          }
+        ]
+      },
+      "seconds": 46.737359084
+    },
+    {
+      "name": "stripr:25",
+      "pendingShare": 0.25,
+      "ownEdgesTakenAway": 28699002,
+      "inverseEdgesTakenAway": 21523814,
+      "edges": 64586283,
+      "vectorsWithNoEdge": 2625196,
+      "pendingAtRandom": true,
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8263,
+            "loads": 10.936
+          },
+          {
+            "ef": 20,
+            "recall": 0.877,
+            "loads": 15.74
+          },
+          {
+            "ef": 40,
+            "recall": 0.918,
+            "loads": 25.292
+          },
+          {
+            "ef": 80,
+            "recall": 0.9395,
+            "loads": 42.672
+          },
+          {
+            "ef": 160,
+            "recall": 0.959,
+            "loads": 74.436
+          },
+          {
+            "ef": 320,
+            "recall": 0.9703,
+            "loads": 129.884
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 117,
+            "recall": 0.9501,
+            "loads": 57.772
+          },
+          {
+            "target": 0.99,
+            "ef": 2127,
+            "recall": 0.9901,
+            "loads": 582.416
+          }
+        ]
+      },
+      "seconds": 81.087369584
+    },
+    {
+      "name": "prov:10:16",
+      "pendingShare": 0.1,
+      "ownEdgesTakenAway": 11760295,
+      "inverseEdgesTakenAway": 5984159,
+      "edges": 112927080,
+      "vectorsWithNoEdge": 137137,
+      "provisional": {
+        "companions": 16,
+        "vectors": 1000000,
+        "companionsScoredByCode": 244819791,
+        "endpointsScoredByCode": 134005347,
+        "edges": 15862435,
+        "vectorsLeftWithNone": 6162,
+        "seconds": 5.300699708,
+        "cpuSeconds": 47.646012749
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8698,
+            "loads": 11.316
+          },
+          {
+            "ef": 20,
+            "recall": 0.9194,
+            "loads": 17.008
+          },
+          {
+            "ef": 40,
+            "recall": 0.9516,
+            "loads": 27.608
+          },
+          {
+            "ef": 80,
+            "recall": 0.9731,
+            "loads": 47.384
+          },
+          {
+            "ef": 160,
+            "recall": 0.9818,
+            "loads": 83.344
+          },
+          {
+            "ef": 320,
+            "recall": 0.9881,
+            "loads": 146.2
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 39,
+            "recall": 0.9503,
+            "loads": 27.076
+          },
+          {
+            "target": 0.99,
+            "ef": 445,
+            "recall": 0.99,
+            "loads": 190.212
+          }
+        ]
+      },
+      "seconds": 36.667071083
+    },
+    {
+      "name": "prov:25:16",
+      "pendingShare": 0.25,
+      "ownEdgesTakenAway": 29364191,
+      "inverseEdgesTakenAway": 13156089,
+      "edges": 111968754,
+      "vectorsWithNoEdge": 145262,
+      "provisional": {
+        "companions": 16,
+        "vectors": 2500000,
+        "companionsScoredByCode": 568027908,
+        "endpointsScoredByCode": 305139578,
+        "edges": 39679935,
+        "vectorsLeftWithNone": 15062,
+        "seconds": 11.410050209,
+        "cpuSeconds": 106.610546708
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8344,
+            "loads": 11.14
+          },
+          {
+            "ef": 20,
+            "recall": 0.8827,
+            "loads": 16.196
+          },
+          {
+            "ef": 40,
+            "recall": 0.9186,
+            "loads": 25.716
+          },
+          {
+            "ef": 80,
+            "recall": 0.9442,
+            "loads": 43.616
+          },
+          {
+            "ef": 160,
+            "recall": 0.9601,
+            "loads": 76.056
+          },
+          {
+            "ef": 320,
+            "recall": 0.9733,
+            "loads": 132.684
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 96,
+            "recall": 0.95,
+            "loads": 50.684
+          },
+          {
+            "target": 0.99,
+            "ef": 1795,
+            "recall": 0.9901,
+            "loads": 520.46
+          }
+        ]
+      },
+      "seconds": 102.7697065
+    },
+    {
+      "name": "provpo:10:16:a:64",
+      "pendingShare": 0.1,
+      "groupBy": "a",
+      "groupSize": 64,
+      "ownEdgesTakenAway": 11760295,
+      "inverseEdgesTakenAway": 5984159,
+      "edges": 108201096,
+      "vectorsWithNoEdge": 141172,
+      "provisional": {
+        "companions": 16,
+        "vectors": 1000000,
+        "companionsScoredByCode": 244819791,
+        "endpointsScoredByCode": 134005347,
+        "edges": 15862435,
+        "vectorsLeftWithNone": 6162,
+        "seconds": 5.114206708,
+        "cpuSeconds": 46.912825959
+      },
+      "events": {
+        "events": 40284,
+        "vectorsConnected": 1000000,
+        "postingsLoaded": 2618460,
+        "candidatesScoredByCode": 16597557116,
+        "exactDistances": 156045372,
+        "exactVectorsDistinctPerEvent": 12892126,
+        "ownEdges": 11136451,
+        "inverseChecks": 10817750,
+        "inverseEdges": 4697983,
+        "seconds": 113.175655208,
+        "cpuSeconds": 759.816196459,
+        "groupPostingsMean": 64,
+        "connectedPerEvent": 24.823751365306325
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8873,
+            "loads": 11.396
+          },
+          {
+            "ef": 20,
+            "recall": 0.9386,
+            "loads": 17.16
+          },
+          {
+            "ef": 40,
+            "recall": 0.9674,
+            "loads": 28.288
+          },
+          {
+            "ef": 80,
+            "recall": 0.983,
+            "loads": 48.956
+          },
+          {
+            "ef": 160,
+            "recall": 0.9903,
+            "loads": 86.352
+          },
+          {
+            "ef": 320,
+            "recall": 0.994,
+            "loads": 151.956
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 26,
+            "recall": 0.9514,
+            "loads": 20.452
+          },
+          {
+            "target": 0.99,
+            "ef": 141,
+            "recall": 0.9901,
+            "loads": 78.272
+          }
+        ]
+      },
+      "seconds": 130.500997791
+    },
+    {
+      "name": "provpo:25:16:a:64",
+      "pendingShare": 0.25,
+      "groupBy": "a",
+      "groupSize": 64,
+      "ownEdgesTakenAway": 29364191,
+      "inverseEdgesTakenAway": 13156089,
+      "edges": 100026142,
+      "vectorsWithNoEdge": 156163,
+      "provisional": {
+        "companions": 16,
+        "vectors": 2500000,
+        "companionsScoredByCode": 568027908,
+        "endpointsScoredByCode": 305139578,
+        "edges": 39679935,
+        "vectorsLeftWithNone": 15062,
+        "seconds": 12.225696792,
+        "cpuSeconds": 111.839769458
+      },
+      "events": {
+        "events": 40284,
+        "vectorsConnected": 2500000,
+        "postingsLoaded": 2618460,
+        "candidatesScoredByCode": 41498045938,
+        "exactDistances": 390784432,
+        "exactVectorsDistinctPerEvent": 26631911,
+        "ownEdges": 27737323,
+        "inverseChecks": 26026135,
+        "inverseEdges": 11134096,
+        "seconds": 227.064225375,
+        "cpuSeconds": 1861.684350375,
+        "groupPostingsMean": 64,
+        "connectedPerEvent": 62.05937841326581
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8799,
+            "loads": 11.468
+          },
+          {
+            "ef": 20,
+            "recall": 0.9322,
+            "loads": 17.196
+          },
+          {
+            "ef": 40,
+            "recall": 0.9597,
+            "loads": 27.836
+          },
+          {
+            "ef": 80,
+            "recall": 0.9775,
+            "loads": 47.916
+          },
+          {
+            "ef": 160,
+            "recall": 0.9863,
+            "loads": 84.616
+          },
+          {
+            "ef": 320,
+            "recall": 0.9925,
+            "loads": 148.72
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 30,
+            "recall": 0.9501,
+            "loads": 22.64
+          },
+          {
+            "target": 0.99,
+            "ef": 243,
+            "recall": 0.99,
+            "loads": 118.856
+          }
+        ]
+      },
+      "seconds": 256.378600625
+    },
+    {
+      "name": "pv:10:a:128:64",
+      "pendingShare": 0.1,
+      "groupBy": "a",
+      "groupSize": 128,
+      "ownEdgesTakenAway": 11760295,
+      "inverseEdgesTakenAway": 5984159,
+      "edges": 108158645,
+      "vectorsWithNoEdge": 142106,
+      "postingsScoredPerVector": 64,
+      "events": {
+        "events": 40284,
+        "vectorsConnected": 1000000,
+        "postingsLoaded": 5196636,
+        "candidatesScoredByCode": 16590491286,
+        "exactDistances": 150000000,
+        "exactVectorsDistinctPerEvent": 12936984,
+        "ownEdges": 11094000,
+        "inverseChecks": 10227333,
+        "inverseEdges": 4241646,
+        "seconds": 111.504015083,
+        "cpuSeconds": 793.296196792,
+        "groupPostingsMean": 128,
+        "connectedPerEvent": 24.823751365306325,
+        "centroidDistances": 128000000
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8859,
+            "loads": 11.352
+          },
+          {
+            "ef": 20,
+            "recall": 0.9392,
+            "loads": 17.276
+          },
+          {
+            "ef": 40,
+            "recall": 0.9675,
+            "loads": 28.32
+          },
+          {
+            "ef": 80,
+            "recall": 0.9835,
+            "loads": 49.2
+          },
+          {
+            "ef": 160,
+            "recall": 0.9905,
+            "loads": 86.656
+          },
+          {
+            "ef": 320,
+            "recall": 0.9942,
+            "loads": 152.072
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 26,
+            "recall": 0.9511,
+            "loads": 20.524
+          },
+          {
+            "target": 0.99,
+            "ef": 130,
+            "recall": 0.99,
+            "loads": 73.452
+          }
+        ]
+      },
+      "seconds": 125.275298625
+    },
+    {
+      "name": "po:100:a:64",
+      "pendingShare": 1,
+      "groupBy": "a",
+      "groupSize": 64,
+      "ownEdgesTakenAway": 114809099,
+      "edges": 110831238,
+      "vectorsWithNoEdge": 119781,
+      "events": {
+        "events": 40284,
+        "vectorsConnected": 10000000,
+        "postingsLoaded": 2618460,
+        "candidatesScoredByCode": 166013616398,
+        "exactDistances": 1500000000,
+        "exactVectorsDistinctPerEvent": 69372092,
+        "ownEdges": 110831238,
+        "inverseChecks": 31824255,
+        "inverseEdges": 3157254,
+        "seconds": 843.368133791,
+        "cpuSeconds": 7335.309933499,
+        "groupPostingsMean": 64,
+        "connectedPerEvent": 248.23751365306325
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8038,
+            "loads": 11.636
+          },
+          {
+            "ef": 20,
+            "recall": 0.8566,
+            "loads": 17.248
+          },
+          {
+            "ef": 40,
+            "recall": 0.899,
+            "loads": 27.332
+          },
+          {
+            "ef": 80,
+            "recall": 0.9288,
+            "loads": 45.892
+          },
+          {
+            "ef": 160,
+            "recall": 0.9517,
+            "loads": 78.592
+          },
+          {
+            "ef": 320,
+            "recall": 0.9667,
+            "loads": 135.928
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 153,
+            "recall": 0.9501,
+            "loads": 75.76
+          },
+          {
+            "target": 0.99,
+            "ef": 2249,
+            "recall": 0.99,
+            "loads": 631.484
+          }
+        ]
+      },
+      "seconds": 947.782256042
+    },
+    {
+      "name": "pv:100:a:128:64",
+      "pendingShare": 1,
+      "groupBy": "a",
+      "groupSize": 128,
+      "ownEdgesTakenAway": 114809099,
+      "edges": 113983146,
+      "vectorsWithNoEdge": 113236,
+      "postingsScoredPerVector": 64,
+      "events": {
+        "events": 40284,
+        "vectorsConnected": 10000000,
+        "postingsLoaded": 5196636,
+        "candidatesScoredByCode": 165936481449,
+        "exactDistances": 1500000000,
+        "exactVectorsDistinctPerEvent": 75567725,
+        "ownEdges": 113983146,
+        "inverseChecks": 31976132,
+        "inverseEdges": 3035677,
+        "seconds": 888.719691458,
+        "cpuSeconds": 7716.99743775,
+        "groupPostingsMean": 128,
+        "connectedPerEvent": 248.23751365306325,
+        "centroidDistances": 1280000000
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.8406,
+            "loads": 11.548
+          },
+          {
+            "ef": 20,
+            "recall": 0.8926,
+            "loads": 17.18
+          },
+          {
+            "ef": 40,
+            "recall": 0.926,
+            "loads": 27.528
+          },
+          {
+            "ef": 80,
+            "recall": 0.9502,
+            "loads": 47.02
+          },
+          {
+            "ef": 160,
+            "recall": 0.9664,
+            "loads": 81.336
+          },
+          {
+            "ef": 320,
+            "recall": 0.9779,
+            "loads": 141.504
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 80,
+            "recall": 0.9502,
+            "loads": 47.02
+          },
+          {
+            "target": 0.99,
+            "ef": 1392,
+            "recall": 0.99,
+            "loads": 450.36
+          }
+        ]
+      },
+      "seconds": 967.082036792
+    },
+    {
+      "name": "po:100:a:128",
+      "pendingShare": 1,
+      "groupBy": "a",
+      "groupSize": 128,
+      "ownEdgesTakenAway": 114809099,
+      "edges": 114497882,
+      "vectorsWithNoEdge": 111252,
+      "events": {
+        "events": 40284,
+        "vectorsConnected": 10000000,
+        "postingsLoaded": 5196636,
+        "candidatesScoredByCode": 328864604415,
+        "exactDistances": 1500000000,
+        "exactVectorsDistinctPerEvent": 75800316,
+        "ownEdges": 114497882,
+        "inverseChecks": 31661766,
+        "inverseEdges": 2756253,
+        "seconds": 1538.230441875,
+        "cpuSeconds": 13749.759078957,
+        "groupPostingsMean": 128,
+        "connectedPerEvent": 248.23751365306325
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.842,
+            "loads": 11.572
+          },
+          {
+            "ef": 20,
+            "recall": 0.8963,
+            "loads": 17.372
+          },
+          {
+            "ef": 40,
+            "recall": 0.9283,
+            "loads": 27.456
+          },
+          {
+            "ef": 80,
+            "recall": 0.9524,
+            "loads": 47.168
+          },
+          {
+            "ef": 160,
+            "recall": 0.9678,
+            "loads": 81.428
+          },
+          {
+            "ef": 320,
+            "recall": 0.9781,
+            "loads": 141.908
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 74,
+            "recall": 0.9502,
+            "loads": 44.224
+          },
+          {
+            "target": 0.99,
+            "ef": 1323,
+            "recall": 0.99,
+            "loads": 434.14
+          }
+        ]
+      },
+      "seconds": 1615.621727541
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+#!/bin/bash
+# The second round of the simulation of the insert in two steps, its last
+# pass at 10M (bench-report.md of feat/posting-edge-index, "La puerta del
+# insert en dos tiempos", the two amendments of 2026-11-28): the insert as it
+# would run, in 10 waves, and the provisional edges that enter the lists of
+# their neighbors by code. The scenarios are those of sim2.sh, which was
+# stopped before this pass so that the measures of the base would not wait
+# for it: it no longer decides the gate. Over a clone of the 10M index,
+# removed at the end. The binary is built before (lock/holds.test); nothing
+# here builds. The marker is up: the events count their CPU.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/sim2
+B=$S/lock/holds.test
+P=$S/diag/src/adapters/repos/db/vector/postingedge
+D10=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+mkdir -p $W/10m-proto
+
+printf 'the second round of the simulation, its last pass at 10M (sim2/sim2b.sh), since %s for about an hour and a half; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+mkdir -p /Volumes/v40bench/grow10m/clones/sim2b
+cp -c -R /Volumes/v40bench/grow10m/index /Volumes/v40bench/grow10m/clones/sim2b/index || exit 3
+find /Volumes/v40bench/grow10m/clones/sim2b/index -type f -exec cat {} + > /dev/null
+date "+== %Y-%m-%d %H:%M:%S 10M, 10m-proto (idle $(hid_idle) s)"
+(cd $P && PE_DATASET=$D10 PE_DIR=/Volumes/v40bench/grow10m/clones/sim2b/index PE_OUT=$W/10m-proto/result.json \
+  PE_SIM="base,proto:10:16:a:64:0,protop:10:16:a:64:0,proto:10:16:a:128:64,provi:10:16,provi:25:16,protoi:10:16:a:64:0,protoip:10:16:a:64:0" \
+  $B -test.run '^TestSimTwoStep$' -test.v -test.timeout 0 > $W/10m-proto/run.log 2>&1)
+echo "10m-proto exit $?"
+python3 -I -B $W/gate.py table 2.9 $W/10m-proto/result.json
+find /Volumes/v40bench/grow10m/clones/sim2b -type d -name index -prune -exec rm -rf {} +
+
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $W/end-10m-proto.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

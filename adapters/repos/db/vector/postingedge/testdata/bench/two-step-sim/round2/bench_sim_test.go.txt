@@ -79,8 +79,12 @@ type simIndex struct {
 	// normalized, by posting.
 	near      [][]uint32
 	centroids [][]float32
-	rounds    sync.Pool
-	logger    logrus.FieldLogger
+	// notices are, by doc id, the vectors that left it a notice: an inverse
+	// edge that waits in memory, which a search follows as one more edge of
+	// the vector when it loads its posting. Nil when there is none.
+	notices map[uint32][]uint32
+	rounds  sync.Pool
+	logger  logrus.FieldLogger
 }
 
 const simGroupMax = 320
@@ -293,6 +297,7 @@ func (s *simIndex) snapshot() *simState {
 }
 
 func (s *simIndex) restore(st *simState) {
+	s.notices = nil
 	copy(s.deg, st.deg)
 	copy(s.to, st.to)
 	copy(s.dist, st.dist)
@@ -315,6 +320,9 @@ func (s *simIndex) fetch(round *diskRound, picks []scored) error {
 		dp.edgeStart[0] = 0
 		for m, id := range ids {
 			dp.edges = append(dp.edges, s.edges(uint32(id))...)
+			if s.notices != nil {
+				dp.edges = append(dp.edges, s.notices[uint32(id)]...)
+			}
 			dp.edgeStart[m+1] = uint32(len(dp.edges))
 		}
 		dp.bytes, dp.took = [3]int{}, [3]time.Duration{}
@@ -585,8 +593,13 @@ type simProv struct {
 	NoEdge     int   `json:"vectorsLeftWithNone"`
 	// InverseChecks and InverseEdges are the lists of neighbors it looked
 	// at and those it entered, when it takes its place in them.
-	InverseChecks int64   `json:"inverseChecks,omitempty"`
-	InverseEdges  int64   `json:"inverseEdges,omitempty"`
+	InverseChecks int64 `json:"inverseChecks,omitempty"`
+	InverseEdges  int64 `json:"inverseEdges,omitempty"`
+	// Notices is the notices it left, NoticeTargets the vectors that hold
+	// some once it is done, and NoticeMax the most one of them holds.
+	Notices       int64   `json:"notices,omitempty"`
+	NoticeTargets int     `json:"vectorsWithNotices,omitempty"`
+	NoticeMax     int     `json:"mostNoticesOnAVector,omitempty"`
 	Seconds       float64 `json:"seconds"`
 	CPUSeconds    float64 `json:"cpuSeconds"`
 }
@@ -601,6 +614,8 @@ func (v *simProv) add(o simProv) {
 	v.NoEdge += o.NoEdge
 	v.InverseChecks += o.InverseChecks
 	v.InverseEdges += o.InverseEdges
+	v.Notices += o.Notices
+	v.NoticeTargets, v.NoticeMax = o.NoticeTargets, max(v.NoticeMax, o.NoticeMax)
 	v.Seconds += o.Seconds
 	v.CPUSeconds += o.CPUSeconds
 }
@@ -613,11 +628,13 @@ func (v *simProv) add(o simProv) {
 // with the distance the code tells. No exact vector is read. Without inverse
 // it enters the list of nobody: what a vector reads and writes is of its
 // posting, so the postings go in parallel, each in the order its vectors
-// came. With inverse it also takes its place in the lists of those
+// came. With inverse 1 it also takes its place in the lists of those
 // neighbors, by the distance the code tells against the distances they
-// hold, as an insert does (enterNeighbors); then the vectors go one after
-// another, in the order they came.
-func (s *simIndex) provisional(t *testing.T, pending []bool, k int, inverse bool) simProv {
+// hold, as an insert does (enterNeighbors); with inverse 2 it leaves each of
+// them a notice instead, with no list read: an edge that waits in memory and
+// that a search follows when it loads the posting of the neighbor. Then the
+// vectors go one after another, in the order they came.
+func (s *simIndex) provisional(t *testing.T, pending []bool, k int, inverse int) simProv {
 	t.Helper()
 	begin := time.Now()
 	usage, err := readDiagRusage()
@@ -683,8 +700,8 @@ func (s *simIndex) provisional(t *testing.T, pending []bool, k int, inverse bool
 		}
 		return true
 	}
-	var inverseChecks, inverseEdges int64
-	if !inverse {
+	var inverseChecks, inverseEdges, notices int64
+	if inverse == 0 {
 		s.parallel(len(s.live), func(_, from, to int) {
 			var byCode, nearest topK
 			seen := map[uint32]struct{}{}
@@ -723,6 +740,19 @@ func (s *simIndex) provisional(t *testing.T, pending []bool, k int, inverse bool
 			if !one(postingOf[v], v, &byCode, &nearest, seen) {
 				break
 			}
+			if inverse == 2 {
+				// A notice to each of its neighbors: nothing of theirs is
+				// read.
+				if s.notices == nil {
+					s.notices = map[uint32][]uint32{}
+				}
+				for j := 0; j < int(s.deg[v]); j++ {
+					u := s.to[int(v)*simNeighbors+j]
+					s.notices[u] = append(s.notices[u], v)
+					notices++
+				}
+				continue
+			}
 			// Its place in the lists of its neighbors, by what the code
 			// tells against the distances they hold.
 			for j := 0; j < int(s.deg[v]); j++ {
@@ -752,11 +782,18 @@ func (s *simIndex) provisional(t *testing.T, pending []bool, k int, inverse bool
 	}
 	after, err := readDiagRusage()
 	require.NoError(t, err)
-	return simProv{
+	out := simProv{
 		K: k, Vectors: int(vectors.Load()), Companions: companions.Load(), Endpoints: endpoints.Load(),
 		Edges: edges.Load(), NoEdge: int(noEdge.Load()), InverseChecks: inverseChecks, InverseEdges: inverseEdges,
-		Seconds: time.Since(begin).Seconds(), CPUSeconds: float64(after.UserNs+after.SystemNs-usage.UserNs-usage.SystemNs) / 1e9,
+		Notices: notices, Seconds: time.Since(begin).Seconds(),
+		CPUSeconds: float64(after.UserNs+after.SystemNs-usage.UserNs-usage.SystemNs) / 1e9,
 	}
+	// The vectors that hold notices now, and the most one holds.
+	out.NoticeTargets = len(s.notices)
+	for _, list := range s.notices {
+		out.NoticeMax = max(out.NoticeMax, len(list))
+	}
+	return out
 }
 
 // simCost is what a pass of events did.
@@ -1109,6 +1146,97 @@ func (s *simIndex) events(t *testing.T, def string, size, rescore int, pending [
 	return cost
 }
 
+// batchLike connects every vector by the rule of the batch builder
+// (buildEdges), in the copy: its candidates are the members of the group
+// postings whose centroids are nearest to the vector itself, ranked by code;
+// the best rescore of them are compared exactly, and of the simNeighbors
+// nearest those outside its posting are its edges. It enters the list of
+// nobody. Each vector writes its own list alone, so they go in parallel.
+func (s *simIndex) batchLike(t *testing.T, group, rescore int) simCost {
+	t.Helper()
+	begin := time.Now()
+	usage, err := readDiagRusage()
+	require.NoError(t, err)
+	ctx := context.Background()
+	postingOf := s.g.st.side.postingOf
+	quantizer := s.g.st.scanQuantizer
+	if quantizer == nil {
+		quantizer = s.g.st.quantizer
+	}
+	var connected, loads, scored, exact, edges atomic.Int64
+	var failed atomic.Pointer[error]
+	s.parallel(len(s.live), func(_, from, to int) {
+		var byCode, nearest topK
+		for i := from; i < to; i++ {
+			q := s.live[i]
+			for _, id := range s.members[q] {
+				v := uint32(id)
+				if postingOf[v] != q {
+					continue
+				}
+				vector := s.vec(v)
+				near, err := s.g.st.centroids.nearest(ctx, vector, group)
+				if err != nil {
+					failed.Store(&err)
+					return
+				}
+				estimator := quantizer.NewEstimator(vector)
+				byCode.reset(rescore)
+				scoredHere, loaded := 0, 0
+				for _, p := range near {
+					if int(p) >= len(s.members) || s.members[p] == nil {
+						continue
+					}
+					loaded++
+					codes := s.codes[p]
+					for m, candidate := range s.members[p] {
+						if uint32(candidate) == v {
+							continue
+						}
+						d, err := estimator.Distance(codes[m*s.words : (m+1)*s.words])
+						if err != nil {
+							failed.Store(&err)
+							return
+						}
+						byCode.push(candidate, d)
+						scoredHere++
+					}
+				}
+				nearest.reset(simNeighbors)
+				for _, candidate := range byCode.items {
+					d, _ := s.g.provider.SingleDist(vector, s.vec(uint32(candidate.id)))
+					nearest.push(candidate.id, d)
+				}
+				exact.Add(int64(len(byCode.items)))
+				n := 0
+				for _, nb := range nearest.sorted() {
+					if postingOf[nb.id] == q {
+						continue
+					}
+					s.to[int(v)*simNeighbors+n], s.dist[int(v)*simNeighbors+n] = uint32(nb.id), nb.dist
+					n++
+				}
+				s.deg[v] = uint8(n)
+				connected.Add(1)
+				loads.Add(int64(loaded))
+				scored.Add(int64(scoredHere))
+				edges.Add(int64(n))
+			}
+		}
+	})
+	if err := failed.Load(); err != nil {
+		require.NoError(t, *err)
+	}
+	after, err := readDiagRusage()
+	require.NoError(t, err)
+	return simCost{
+		Events: int(connected.Load()), Connected: int(connected.Load()), Loads: loads.Load(), Scored: scored.Load(),
+		Exact: exact.Load(), Edges: edges.Load(), Seconds: time.Since(begin).Seconds(),
+		CPUSeconds:    float64(after.UserNs+after.SystemNs-usage.UserNs-usage.SystemNs) / 1e9,
+		GroupPostings: float64(group), PendingPerEvnt: 1,
+	}
+}
+
 // simCoverage is, for one size of group, how many of the edges of today lead
 // to a posting of the group of the posting of their vector, by the two
 // definitions of group.
@@ -1385,6 +1513,8 @@ type simScenario struct {
 //	pv:X:D:G:P        events that connect the pending, each scoring its
 //	                  posting and the P of the G loaded nearest to itself
 //	wave:N:D:G        everything by events, in N waves by arrival
+//	lote:G            everything by the rule of the batch builder: the G
+//	                  postings nearest to each vector, no inverse edge
 //	proto:N:K:D:G:P   the insert in two steps as it would run, in N waves:
 //	                  provisional edges from K companions as a wave comes,
 //	                  then events over them; protop leaves the last wave
@@ -1515,19 +1645,21 @@ func TestSimTwoStep(t *testing.T) {
 			// The edges of a share of the vectors picked at random taken away.
 			sc.Pending, sc.Random = number(1)/100, true
 			sc.OwnGone, sc.InvGone = s.strip(s.random(sc.Pending))
-		case "prov", "provpo", "provi", "provipo":
+		case "prov", "provpo", "provi", "provipo", "provn", "provnpo":
 			// The pending get provisional edges; with provpo, events over
 			// them, which compare those edges exactly with their candidates.
 			sc.Pending = number(1) / 100
 			pending := s.recent(sc.Pending)
 			sc.OwnGone, sc.InvGone = s.strip(pending)
-			prov := s.provisional(t, pending, int(number(2)), strings.HasPrefix(parts[0], "provi"))
+			prov := s.provisional(t, pending, int(number(2)), simInverseOf(parts[0]))
 			sc.Prov = &prov
 			if strings.HasSuffix(parts[0], "po") {
 				require.Len(t, parts, 5, "scenario %s", name)
 				sc.Group, sc.Size = parts[3], int(number(4))
 				cost := s.events(t, sc.Group, sc.Size, rescore, pending, false, nil, simEventOpts{keepOwn: true})
 				sc.Cost = &cost
+				// Every pending vector is connected: its notices are done.
+				s.notices = nil
 			}
 		case "pv":
 			// Events that connect the pending, each scoring its posting and
@@ -1557,9 +1689,9 @@ func TestSimTwoStep(t *testing.T) {
 			boundary := uint32(float64(s.count) * (1 - sc.Pending))
 			cost := s.events(t, sc.Group, sc.Size, rescore, first, false, nil, simEventOpts{perVector: sc.Per, upTo: boundary})
 			sc.Cost = &cost
-			prov := s.provisional(t, last, int(number(2)), false)
+			prov := s.provisional(t, last, int(number(2)), 0)
 			sc.Prov = &prov
-		case "proto", "protop", "protoi", "protoip":
+		case "proto", "protop", "protoi", "protoip", "proton", "protonp":
 			// The insert in two steps as it would run: no vector has an edge
 			// of today, and the vectors come in N waves; those of a wave get
 			// provisional edges as they come, and then events connect them,
@@ -1579,15 +1711,25 @@ func TestSimTwoStep(t *testing.T) {
 				for id := range wave {
 					wave[id] = everyone[id] && s.place[id] >= from && s.place[id] < to
 				}
-				prov.add(s.provisional(t, wave, int(number(2)), strings.HasPrefix(parts[0], "protoi")))
+				prov.add(s.provisional(t, wave, int(number(2)), simInverseOf(parts[0])))
 				if strings.HasSuffix(parts[0], "p") && w == sc.Waves-1 {
 					sc.Pending = 1 / float64(sc.Waves)
 					break
 				}
 				total.add(s.events(t, sc.Group, sc.Size, rescore, wave, false, nil,
 					simEventOpts{keepOwn: true, perVector: sc.Per, upTo: to}))
+				// The wave is connected: its notices are done.
+				s.notices = nil
 			}
 			sc.Cost, sc.Prov = &total, &prov
+		case "lote":
+			// Everything connected by the rule of the batch builder: each
+			// vector looks at the G postings nearest to itself.
+			require.Len(t, parts, 2, "scenario %s", name)
+			sc.Pending, sc.Size = 1, int(number(1))
+			sc.OwnGone, sc.InvGone = s.strip(s.recent(1))
+			cost := s.batchLike(t, sc.Size, rescore)
+			sc.Cost = &cost
 		case "wave":
 			// Everything by events, in waves by the order of arrival: no
 			// vector has an edge, and each wave connects its vectors with
@@ -1627,7 +1769,7 @@ func TestSimTwoStep(t *testing.T) {
 				sc.Cost = &cost
 			}
 		default:
-			t.Fatalf("scenario %s: not one of cov, base, strip, po, ra, del, delra, rdist, stripr, prov, provpo, pv, wave, evprov, proto, protop (provi, provipo, protoi, protoip: the provisional edges also enter the lists of their neighbors)", name)
+			t.Fatalf("scenario %s: not one of cov, base, strip, po, ra, del, delra, rdist, stripr, prov, provpo, pv, wave, evprov, proto, protop (provi, provipo, protoi, protoip: the provisional edges also enter the lists of their neighbors; provn, provnpo, proton, protonp: they leave them notices)", name)
 		}
 		sc.Edges, sc.NoEdge = count()
 		sc.Curve = s.curve(t, queries, against)
@@ -1662,11 +1804,220 @@ func TestSimTwoStep(t *testing.T) {
 				strconv.FormatFloat(float64(v.Edges)/float64(v.Vectors), 'f', 2, 64) + " edges and " +
 				strconv.FormatFloat(1e6*v.CPUSeconds/float64(v.Vectors), 'f', 1, 64) + " us of CPU a vector, " +
 				strconv.Itoa(v.NoEdge) + " left with none, " +
-				strconv.FormatFloat(float64(v.InverseEdges)/float64(v.Vectors), 'f', 2, 64) + " lists entered a vector" + costLine
+				strconv.FormatFloat(float64(v.InverseEdges)/float64(v.Vectors), 'f', 2, 64) + " lists entered and " +
+				strconv.FormatFloat(float64(v.Notices)/float64(v.Vectors), 'f', 2, 64) + " notices a vector (" +
+				strconv.Itoa(v.NoticeTargets) + " vectors hold some, " + strconv.Itoa(v.NoticeMax) + " the most)" + costLine
 		}
 		t.Logf("%s: %d edges, %d vectors with none%s%s (%s)", name, sc.Edges, sc.NoEdge, line, costLine,
 			time.Since(begin).Round(time.Second))
 	}
+}
+
+// simInverseOf tells from the name of a scenario how its provisional edges
+// reach the neighbors: not at all (0), into their lists by code (1: provi,
+// protoi), or as notices (2: provn, proton).
+func simInverseOf(kind string) int {
+	switch {
+	case strings.HasPrefix(kind, "provi"), strings.HasPrefix(kind, "protoi"):
+		return 1
+	case strings.HasPrefix(kind, "provn"), strings.HasPrefix(kind, "proton"):
+		return 2
+	}
+	return 0
+}
+
+// simJointCell is what the searches of the pending vectors of a posting
+// share, for one count of pending a posting, summed over the postings
+// sampled: of the postings they load, of the members of those postings, of
+// the endpoints they score and of the exact vectors their rescores read, how
+// many in all and how many distinct within a posting's group.
+type simJointCell struct {
+	Pending           int   `json:"pending"`
+	Postings          int   `json:"postings"`
+	Searches          int   `json:"searches"`
+	LoadsTotal        int64 `json:"loadsTotal"`
+	LoadsDistinct     int64 `json:"loadsDistinct"`
+	MembersTotal      int64 `json:"membersTotal"`
+	MembersDistinct   int64 `json:"membersDistinct"`
+	EndpointsTotal    int64 `json:"endpointsTotal"`
+	EndpointsDistinct int64 `json:"endpointsDistinct"`
+	ExactTotal        int64 `json:"exactTotal"`
+	ExactDistinct     int64 `json:"exactDistinct"`
+}
+
+// TestSimJoint measures what an event by joint search would share
+// (bench-report.md, "El evento por búsqueda conjunta", pre-registered on
+// 2026-11-28 by the user's order): of PE_POSTINGS postings picked at random
+// from the copy of the index of PE_DIR, the most of PE_JOINT members each,
+// picked at random, are left with no edge, out or in, as a pending vector is;
+// the search of an insert runs for each as the index runs it (its entry
+// postings, its ef, its rescore), and what it loads, scores and reads is
+// kept. For every count of PE_JOINT, the first so many of a posting are its
+// pending.
+func TestSimJoint(t *testing.T) {
+	dir, out, spec := os.Getenv("PE_DIR"), os.Getenv("PE_OUT"), os.Getenv("PE_JOINT")
+	if dir == "" || out == "" || spec == "" {
+		t.Skip("no PE_DIR, PE_OUT and PE_JOINT given")
+	}
+	var counts []int
+	for _, field := range strings.Split(spec, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(field))
+		require.NoError(t, err, "PE_JOINT")
+		counts = append(counts, n)
+	}
+	slices.Sort(counts)
+	most := counts[len(counts)-1]
+	sample := int(nightEnvInt(t, "PE_POSTINGS", 200))
+	s := openSim(t, dir, os.Getenv("PE_DENSE") != "")
+	defer s.close(t)
+	ctx := context.Background()
+	postingOf := s.g.st.side.postingOf
+
+	// The postings and their pending vectors.
+	rng := rand.New(rand.NewPCG(21, 7))
+	var eligible []uint32
+	for _, q := range s.live {
+		if len(s.members[q]) >= 2*most {
+			eligible = append(eligible, q)
+		}
+	}
+	rng.Shuffle(len(eligible), func(i, j int) { eligible[i], eligible[j] = eligible[j], eligible[i] })
+	picked := eligible[:min(sample, len(eligible))]
+	chosen := make([][]uint32, len(picked))
+	gone := make([]bool, s.keys)
+	for i, q := range picked {
+		ids := s.members[q]
+		for _, m := range rng.Perm(len(ids)) {
+			id := uint32(ids[m])
+			if postingOf[id] != q {
+				continue
+			}
+			chosen[i] = append(chosen[i], id)
+			gone[id] = true
+			if len(chosen[i]) == most {
+				break
+			}
+		}
+	}
+	ownGone, inverseGone := s.strip(gone)
+
+	// The search of an insert for each.
+	type seen struct {
+		loads, endpoints, exact []uint32
+		members                 int
+	}
+	results := make([][]seen, len(picked))
+	entries := max(int(s.g.ix.entryPostings.Load()), 1)
+	var failed atomic.Pointer[error]
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	begin := time.Now()
+	for range runtime.GOMAXPROCS(0) {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(picked) {
+					return
+				}
+				results[i] = make([]seen, len(chosen[i]))
+				for j, v := range chosen[i] {
+					r := &results[i][j]
+					search := &fetchedSearch{
+						ix: s.g.ix, st: s.g.st, rounds: &s.rounds, fetch: s.fetch, grown: true,
+						haloWords: s.g.meta.RoutingCodeWords, ef: s.g.insertEF,
+						onEndpoints: func(slots []uint32) { r.endpoints = append(r.endpoints, slots...) },
+						onRescore: func(candidates []scored) {
+							for _, c := range candidates {
+								r.exact = append(r.exact, uint32(c.id))
+							}
+						},
+					}
+					vector := s.vec(v)
+					entry, err := s.g.st.centroids.nearest(ctx, vector, entries)
+					if err != nil {
+						failed.Store(&err)
+						return
+					}
+					stats := diskSearchStats{KeepLoaded: true}
+					if _, _, err := search.run(ctx, vector, s.g.meta.Neighbors, entry, &stats); err != nil {
+						failed.Store(&err)
+						return
+					}
+					for _, p := range entry {
+						r.loads = append(r.loads, uint32(p))
+					}
+					r.loads = append(r.loads, stats.Loaded...)
+					slices.Sort(r.loads)
+					r.loads = slices.Compact(r.loads)
+					for _, p := range r.loads {
+						r.members += len(s.members[p])
+					}
+				}
+			}
+		}, s.logger)
+	}
+	wg.Wait()
+	if err := failed.Load(); err != nil {
+		require.NoError(t, *err)
+	}
+	took := time.Since(begin)
+
+	var cells []simJointCell
+	for _, m := range counts {
+		cell := simJointCell{Pending: m}
+		loads, endpoints, exact := map[uint32]struct{}{}, map[uint32]struct{}{}, map[uint32]struct{}{}
+		for i := range picked {
+			if len(results[i]) < m {
+				continue
+			}
+			cell.Postings++
+			clear(loads)
+			clear(endpoints)
+			clear(exact)
+			for j := 0; j < m; j++ {
+				r := &results[i][j]
+				cell.Searches++
+				cell.LoadsTotal += int64(len(r.loads))
+				cell.MembersTotal += int64(r.members)
+				cell.EndpointsTotal += int64(len(r.endpoints))
+				cell.ExactTotal += int64(len(r.exact))
+				for _, p := range r.loads {
+					loads[p] = struct{}{}
+				}
+				for _, e := range r.endpoints {
+					endpoints[e] = struct{}{}
+				}
+				for _, x := range r.exact {
+					exact[x] = struct{}{}
+				}
+			}
+			cell.LoadsDistinct += int64(len(loads))
+			for p := range loads {
+				cell.MembersDistinct += int64(len(s.members[p]))
+			}
+			cell.EndpointsDistinct += int64(len(endpoints))
+			cell.ExactDistinct += int64(len(exact))
+		}
+		cells = append(cells, cell)
+		n := float64(max(cell.Searches, 1))
+		t.Logf("%d pending a posting, %d postings: a search loads %.1f postings, scans %.0f members, scores %.0f endpoints and "+
+			"reads %.0f exact vectors; a vector of a joint event, %.2f postings (%.1f times fewer), %.0f members, %.0f "+
+			"endpoints (%.1f) and %.1f exact vectors (%.1f)", m, cell.Postings, float64(cell.LoadsTotal)/n,
+			float64(cell.MembersTotal)/n, float64(cell.EndpointsTotal)/n, float64(cell.ExactTotal)/n,
+			float64(cell.LoadsDistinct)/n, float64(cell.LoadsTotal)/float64(max(cell.LoadsDistinct, 1)),
+			float64(cell.MembersDistinct)/n, float64(cell.EndpointsDistinct)/n,
+			float64(cell.EndpointsTotal)/float64(max(cell.EndpointsDistinct, 1)), float64(cell.ExactDistinct)/n,
+			float64(cell.ExactTotal)/float64(max(cell.ExactDistinct, 1)))
+	}
+	writeNightJSON(t, out, map[string]any{
+		"dir": dir, "meta": s.g.meta, "livePostings": len(s.live), "postingsSampled": len(picked), "counts": counts,
+		"insertEF": s.g.insertEF, "entryPostings": entries, "neighbors": s.g.meta.Neighbors,
+		"rescore": s.g.ix.rescoreLimitFor(s.g.meta.Neighbors), "ownEdgesTakenAway": ownGone,
+		"inverseEdgesTakenAway": inverseGone, "searchSeconds": took.Seconds(), "gomaxprocs": runtime.GOMAXPROCS(0),
+		"cells": cells,
+	})
 }
 
 // simStageHook reads the CPU of the process every time the batch builder
