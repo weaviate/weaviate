@@ -3837,7 +3837,7 @@ Datos: `testdata/bench/shard-e2e-1m/`.
 
 **La primera cadena acabó a las 18:50.** De sus sesiones: las retenciones a 10M, la reorganización del 10M con su búsqueda y el shard, medidas y con su sección. HFresh a 10M y la pasada del cerrojo a 100k no arrancaron (dicho arriba). **Y la búsqueda a 1M tampoco salió, por un tercer error mío:** su guion llamaba a un binario compilado antes de que el arnés supiera pasar los vecinos del dataset a doc ids densos, así que todo recall salió 0 y no encontró ningún punto. La reorganización de ese clon sí corrió (16 s, 990 000 vectores) y la celda del lote de v4.0 también; lo demás se repite.
 
-**Lo que falló por no pasar por un humo** son tres sesiones de siete. Desde ahora ninguna sesión entra en una cadena sin haber corrido antes su misma invocación en pequeño.
+**Lo que falló por no pasar por un humo** afecta a tres de las cinco sesiones que corrieron, a una de ellas solo en una pasada. Desde ahora ninguna sesión entra en una cadena sin haber corrido antes su misma invocación en pequeño.
 
 **El hueco, de las 18:51 a las 18:55.** Todo compiló a la primera.
 - **El micro-benchmark de miembros** (la enmienda del usuario), con su humo a 100k.
