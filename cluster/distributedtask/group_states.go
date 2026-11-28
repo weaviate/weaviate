@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -30,8 +31,9 @@ type TaskRules interface {
 	IndexOff(collection, property, indexType string, existing []*Task) (live uint64, covered EndRuling)
 	BornSwitched(task *Task) bool
 	// Units lists the units of a task submitted without any, from the sharding state at the task's log index,
-	// in an order that never follows a map, so every replica stores the same task.
-	Units(header TaskHeader, state *sharding.State) ([]UnitSpec, error)
+	// in an order that never follows a map, so every replica stores the same task. A group in switched,
+	// which a taken-over run already switched, gets none.
+	Units(header TaskHeader, state *sharding.State, switched map[string]time.Time) ([]UnitSpec, error)
 }
 
 // SwitchedByView is a header whose decisions every replica serves from its own
@@ -51,18 +53,15 @@ type EndRuling struct {
 	Remove  []*Task
 }
 
-// TakeOver costs one pass over the units.
+// TakeOver keeps the switched groups of the run it replaces; Units then builds none for them.
 func (t *Task) TakeOver(kept *Task) {
-	for group, at := range kept.SwapDecidedGroups {
-		if t.SwapDecidedGroups == nil {
-			t.SwapDecidedGroups = make(map[string]time.Time, len(kept.SwapDecidedGroups))
-		}
-		t.SwapDecidedGroups[group] = at
-		for _, id := range t.groups[group] {
-			delete(t.Units, id)
-		}
+	if len(kept.SwapDecidedGroups) == 0 {
+		return
 	}
-	t.IndexGroups()
+	if t.SwapDecidedGroups == nil {
+		t.SwapDecidedGroups = make(map[string]time.Time, len(kept.SwapDecidedGroups))
+	}
+	maps.Copy(t.SwapDecidedGroups, kept.SwapDecidedGroups)
 }
 
 func (t *Task) SetHeader(payload []byte, header TaskHeader) {

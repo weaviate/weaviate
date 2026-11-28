@@ -114,7 +114,7 @@ func TestReindexUnits_SameOnEveryNode(t *testing.T) {
 			for seed := int64(1); seed <= 5; seed++ {
 				state := shardingInOrder(seed, tenants, nil)
 				state.PartitioningEnabled = !tc.singleTenant
-				specs, err := ReindexTaskRules{}.Units(ReindexTaskHeader{tc.payload}, state)
+				specs, err := ReindexTaskRules{}.Units(ReindexTaskHeader{tc.payload}, state, nil)
 				require.NoError(t, err)
 				require.Len(t, specs, tc.units)
 				m := unitsManager(state)
@@ -198,7 +198,7 @@ func TestReindexUnits_TenantStatus(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			specs, err := ReindexTaskRules{}.Units(ReindexTaskHeader{titleRun(ReindexTypeEnableFilterable)}, shardingInOrder(1, tc.tenants, tc.status))
+			specs, err := ReindexTaskRules{}.Units(ReindexTaskHeader{titleRun(ReindexTypeEnableFilterable)}, shardingInOrder(1, tc.tenants, tc.status), nil)
 			if tc.wantCount == 0 {
 				require.NoError(t, err)
 				require.Len(t, specs, tc.wantUnits)

@@ -48,7 +48,9 @@ func (r *endRecordingRules) IndexOff(string, string, string, []*Task) (uint64, E
 	return 0, EndRuling{}
 }
 
-func (r *endRecordingRules) Units(TaskHeader, *sharding.State) ([]UnitSpec, error) { return nil, nil }
+func (r *endRecordingRules) Units(TaskHeader, *sharding.State, map[string]time.Time) ([]UnitSpec, error) {
+	return nil, nil
+}
 
 func newRulesTestManager(t *testing.T, rules *endRecordingRules, seed ...*Task) *Manager {
 	t.Helper()

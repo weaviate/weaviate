@@ -17,6 +17,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -155,8 +156,9 @@ func MigrationUnitID(shardName, nodeName string) string {
 
 // Units gives each replica of each shard in scope one unit, shards by name and replicas in their stored
 // order. Each tenant switches as its own group. A missing named tenant, or any shard in scope that
-// is not HOT, refuses the whole run.
-func (ReindexTaskRules) Units(header distributedtask.TaskHeader, state *sharding.State) ([]distributedtask.UnitSpec, error) {
+// is not HOT and not already switched, refuses the whole run.
+func (ReindexTaskRules) Units(header distributedtask.TaskHeader, state *sharding.State, switched map[string]time.Time,
+) ([]distributedtask.UnitSpec, error) {
 	h, ok := header.(ReindexTaskHeader)
 	if !ok {
 		return nil, fmt.Errorf("not a reindex task header: %T", header)
@@ -168,18 +170,21 @@ func (ReindexTaskRules) Units(header distributedtask.TaskHeader, state *sharding
 	specs := make([]distributedtask.UnitSpec, 0, 3*len(shards))
 	missing, notHot := false, 0
 	for _, name := range shards {
+		group := ""
+		if state.PartitioningEnabled {
+			group = name
+		}
 		physical, ok := state.Physical[name]
+		_, isSwitched := switched[group]
 		switch {
 		case !ok:
 			missing = true
 			continue
+		case isSwitched:
+			continue
 		case !isHotTenant(physical.Status):
 			notHot++
 			continue
-		}
-		group := ""
-		if state.PartitioningEnabled {
-			group = name
 		}
 		for _, node := range physical.BelongsToNodes {
 			if node != "" {

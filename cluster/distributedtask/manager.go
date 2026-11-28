@@ -605,6 +605,16 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		StartedAt:               time.UnixMilli(r.SubmittedAtUnixMillis),
 	}
 
+	newTask.header = header
+	rules := m.taskRules[r.Namespace]
+	var kept *Task
+	if rules != nil && header != nil {
+		var err error
+		if kept, err = rules.Admit(newTask, existing, m.classLive(header.Collection())); err != nil {
+			return err
+		}
+	}
+
 	if len(r.UnitSpecs) > 0 {
 		newTask.Units = make(map[string]*Unit, len(r.UnitSpecs))
 		for _, spec := range r.UnitSpecs {
@@ -624,9 +634,9 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 				Status: UnitStatusPending,
 			}
 		}
-	} else if rules := m.taskRules[r.Namespace]; rules != nil && header != nil {
-		specs, err := m.unitsFromSharding(rules, header)
-		if err != nil {
+	} else if rules != nil && header != nil {
+		specs, err := m.unitsFromSharding(rules, header, newTask.SwapDecidedGroups)
+		if err != nil && (kept == nil || !errors.Is(err, ErrTaskHasNoUnits)) {
 			return err
 		}
 		newTask.Units = make(map[string]*Unit, len(specs))
@@ -640,18 +650,11 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	}
 	newTask.IndexGroups()
 
-	newTask.header = header
-	if rules := m.taskRules[r.Namespace]; rules != nil && header != nil {
-		kept, err := rules.Admit(newTask, existing, m.classLive(header.Collection()))
-		if err != nil {
-			return err
-		}
-		if kept != nil {
-			delete(m.tasks[kept.Namespace], kept.ID)
-			m.markWithLock(kept.Namespace, kept.ID).addedOrRemoved = true
-			m.notifyStateWithLock(kept, nil)
-		}
-		if kept != nil && len(newTask.Units) == 0 {
+	if kept != nil {
+		delete(m.tasks[kept.Namespace], kept.ID)
+		m.markWithLock(kept.Namespace, kept.ID).addedOrRemoved = true
+		m.notifyStateWithLock(kept, nil)
+		if len(newTask.Units) == 0 {
 			// Nothing is left to build: a full run (born-switched tenants) still owes its flip, a scoped one is done.
 			if rules.BornSwitched(newTask) {
 				newTask.Status = TaskStatusSwapping
@@ -669,11 +672,11 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 }
 
 // unitsFromSharding reads the sharding state at this log index, so every replica builds the same units.
-func (m *Manager) unitsFromSharding(rules TaskRules, header TaskHeader) ([]UnitSpec, error) {
+func (m *Manager) unitsFromSharding(rules TaskRules, header TaskHeader, switched map[string]time.Time) ([]UnitSpec, error) {
 	var specs []UnitSpec
 	var rulesErr error
 	if err := m.readSharding(header.Collection(), func(state *sharding.State) {
-		specs, rulesErr = rules.Units(header, state)
+		specs, rulesErr = rules.Units(header, state, switched)
 	}); err != nil {
 		return nil, err
 	}

@@ -954,7 +954,7 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 			}}
 			specs, err := db.ReindexTaskRules{}.Units(db.ReindexTaskHeader{ReindexTaskPayload: db.ReindexTaskPayload{
 				Collection: "C", MigrationType: plan.migrationType, TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
-			}}, state)
+			}}, state, nil)
 			require.NoError(t, err)
 			require.Equal(t, []string{"a", "b"}, []string{specs[0].Shard, specs[1].Shard})
 			require.Len(t, specs, 2)

@@ -23,6 +23,8 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestReindexTaskRulesAdmit(t *testing.T) {
@@ -59,6 +61,7 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 		live     map[string]map[string]uint64
 		existing []*distributedtask.Task
 		legacy   bool // the new run's payload has no ViewServed, as a v1.39.x entry does
+		cold     []string
 		submit   ReindexTaskPayload
 
 		wantErr      error
@@ -86,6 +89,30 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 			submit:       titleTo(word, 0),
 			wantGen:      2,
 			wantSwitched: []string{"t1"},
+			wantGone:     []string{"old"},
+		},
+		{
+			name:         "a tenant the taken-over run switched may be COLD",
+			existing:     []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusCancelled, titleTo(word, 2), "t1")},
+			cold:         []string{"t1"},
+			submit:       titleTo(word, 0),
+			wantGen:      2,
+			wantSwitched: []string{"t1"},
+			wantGone:     []string{"old"},
+		},
+		{
+			name:     "a COLD tenant the taken-over run did not switch is refused",
+			existing: []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusCancelled, titleTo(word, 2), "t1")},
+			cold:     []string{"t2"},
+			submit:   titleTo(word, 0),
+			wantErr:  distributedtask.ErrTaskTenantsNotHot,
+		},
+		{
+			name:         "a run whose every tenant the taken-over run switched has no units",
+			existing:     []*distributedtask.Task{ended("old", 1, distributedtask.TaskStatusCancelled, titleTo(word, 2), "t1", "t2")},
+			submit:       titleTo(word, 0),
+			wantGen:      2,
+			wantSwitched: []string{"t1", "t2"},
 			wantGone:     []string{"old"},
 		},
 		{
@@ -145,12 +172,24 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: tc.existing}})
 			require.NoError(t, err)
+			state := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{}}
+			for _, tenant := range []string{"t1", "t2"} {
+				status := models.TenantActivityStatusHOT
+				if slices.Contains(tc.cold, tenant) {
+					status = models.TenantActivityStatusCOLD
+				}
+				state.Physical[tenant] = sharding.Physical{Name: tenant, BelongsToNodes: []string{"n1"}, Status: status}
+			}
 			logger, _ := test.NewNullLogger()
 			m := distributedtask.NewManager(distributedtask.ManagerParameters{
 				Logger:            logger,
 				ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: ReindexDetector{}},
 				TaskRules:         map[string]distributedtask.TaskRules{ReindexNamespace: ReindexTaskRules{}},
 				ClassLive:         func(string) map[string]map[string]uint64 { return tc.live },
+				ReadSharding: func(_ string, read func(*sharding.State)) error {
+					read(state)
+					return nil
+				},
 			})
 			require.NoError(t, m.Restore(snapshot))
 			before := taskIDs(m)
@@ -161,10 +200,6 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 			require.NoError(t, err)
 			raw, err := json.Marshal(&api.AddDistributedTaskRequest{
 				Namespace: ReindexNamespace, Id: "new", Payload: payload, SubmittedAtUnixMillis: 1,
-				UnitSpecs: []*api.UnitSpec{
-					{Id: "u1", GroupId: "t1", Shard: "t1", Node: "n1"},
-					{Id: "u2", GroupId: "t2", Shard: "t2", Node: "n1"},
-				},
 			})
 			require.NoError(t, err)
 			err = m.AddTask(&api.ApplyRequest{SubCommand: raw}, 10)
