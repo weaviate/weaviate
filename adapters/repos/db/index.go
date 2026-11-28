@@ -381,6 +381,17 @@ type Index struct {
 
 	// db is the owning *DB, set by the caller right after NewIndex returns.
 	db *DB
+
+	// buildOpenSampler bounds the load warning across a wave of shard loads.
+	buildOpenSampler     *logrusext.Sampler
+	buildOpenSamplerOnce sync.Once
+}
+
+func (i *Index) buildOpenWarnings() *logrusext.Sampler {
+	i.buildOpenSamplerOnce.Do(func() {
+		i.buildOpenSampler = logrusext.NewSampler(i.logger.WithField("action", "reindex_load"), maxReportedErrors, time.Minute)
+	})
+	return i.buildOpenSampler
 }
 
 func (i *Index) ID() string {

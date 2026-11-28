@@ -294,8 +294,9 @@ func (s *Shard) finishViewLoad(ctx context.Context, class *models.Class) error {
 	if _, err := s.resolveStaged(ctx, class, cur, next, &opened); err != nil {
 		s.closeUnpublished(opened[served:])
 		next.staged = nil
-		s.index.logger.WithField("action", "reindex_load").WithField("shard", s.name).
-			Warnf("cannot open a build folder at load, the refresh loop retries: %v", err)
+		s.index.buildOpenWarnings().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("shard", s.name).Warnf("cannot open a build folder at load, the refresh loop retries: %v", err)
+		})
 		s.notifyViewRefresh()
 	}
 	s.publishView(next)
