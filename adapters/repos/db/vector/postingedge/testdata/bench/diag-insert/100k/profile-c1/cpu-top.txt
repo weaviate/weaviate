@@ -1,0 +1,68 @@
+File: diag.test
+Type: cpu
+Time: 2026-11-28 02:58:05 CET
+Duration: 53.38s, Total samples = 91.69s (171.77%)
+Showing nodes accounting for 87.95s, 95.92% of 91.69s total
+Dropped 430 nodes (cum <= 0.46s)
+Showing top 60 nodes out of 113
+      flat  flat%   sum%        cum   cum%
+    38.63s 42.13% 42.13%     38.63s 42.13%  runtime.pthread_cond_signal
+    19.43s 21.19% 63.32%     19.43s 21.19%  syscall.rawsyscalln
+    17.08s 18.63% 81.95%     17.08s 18.63%  runtime.pthread_cond_wait
+     7.90s  8.62% 90.57%      7.90s  8.62%  runtime.usleep
+     1.73s  1.89% 92.45%      1.73s  1.89%  runtime.pthread_kill
+     1.25s  1.36% 93.82%      1.25s  1.36%  runtime.madvise
+     1.05s  1.15% 94.96%      1.44s  1.57%  runtime.tryDeferToSpanScan
+     0.47s  0.51% 95.47%      1.56s  1.70%  runtime.scanObjectsSmall
+     0.12s  0.13% 95.60%      2.14s  2.33%  runtime.scanSpan
+     0.07s 0.076% 95.68%      4.90s  5.34%  runtime.gcDrain
+     0.04s 0.044% 95.72%      2.92s  3.18%  runtime.runqgrab
+     0.03s 0.033% 95.76%      0.91s  0.99%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*postingSearch).visit
+     0.02s 0.022% 95.78%      6.36s  6.94%  runtime.lock2
+     0.02s 0.022% 95.80%      0.89s  0.97%  runtime.unlock2
+     0.01s 0.011% 95.81%     19.55s 21.32%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactDistance
+     0.01s 0.011% 95.82%     19.56s 21.33%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).rescore.func1
+     0.01s 0.011% 95.83%     17.19s 18.75%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readFile
+     0.01s 0.011% 95.84%     19.46s 21.22%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readVector
+     0.01s 0.011% 95.86%      2.05s  2.24%  runtime.(*gcControllerState).enlistWorker
+     0.01s 0.011% 95.87%      2.86s  3.12%  runtime.(*mheap).allocSpan
+     0.01s 0.011% 95.88%      2.93s  3.20%  runtime.runqsteal
+     0.01s 0.011% 95.89%     22.31s 24.33%  runtime.schedule
+     0.01s 0.011% 95.90%      2.98s  3.25%  runtime.stealWork
+     0.01s 0.011% 95.91%     45.17s 49.26%  runtime.systemstack
+     0.01s 0.011% 95.92%     37.85s 41.28%  runtime.wakep
+         0     0% 95.92%      5.05s  5.51%  _.goready.func1
+         0     0% 95.92%      0.56s  0.61%  bufio.(*Writer).Flush
+         0     0% 95.92%     19.55s 21.32%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactOrGone
+         0     0% 95.92%      3.30s  3.60%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).AddBatch
+         0     0% 95.92%      3.30s  3.60%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).addInBatches
+         0     0% 95.92%      2.13s  2.32%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyBatch
+         0     0% 95.92%      1.31s  1.43%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyBatch.func1
+         0     0% 95.92%      2.13s  2.32%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyIfDue
+         0     0% 95.92%      3.30s  3.60%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).searchWindow
+         0     0% 95.92%      1.31s  1.43%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).write
+         0     0% 95.92%      1.17s  1.28%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*fetchedSearch).run
+         0     0% 95.92%      1.15s  1.25%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*fetchedSearch).run.func2
+         0     0% 95.92%      1.31s  1.43%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).apply (inline)
+         0     0% 95.92%      1.31s  1.43%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).apply.func1
+         0     0% 95.92%      1.31s  1.43%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).applyWrites
+         0     0% 95.92%      0.82s  0.89%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).endStep
+         0     0% 95.92%     17.21s 18.77%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).exact
+         0     0% 95.92%      0.52s  0.57%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).hand
+         0     0% 95.92%      1.17s  1.28%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).plan
+         0     0% 95.92%      2.13s  2.32%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).step
+         0     0% 95.92%      0.83s  0.91%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).writeVector
+         0     0% 95.92%      3.30s  3.60%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.TestDiagInserts.func4
+         0     0% 95.92%      0.73s   0.8%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.timedRead
+         0     0% 95.92%      0.57s  0.62%  github.com/weaviate/weaviate/entities/diskio.(*MeteredWriter).Write
+         0     0% 95.92%     23.60s 25.74%  github.com/weaviate/weaviate/entities/errors.(*ErrorGroupWrapper).withRecovery.func1
+         0     0% 95.92%     23.60s 25.74%  golang.org/x/sync/errgroup.(*Group).Go.func1
+         0     0% 95.92%     17.18s 18.74%  internal/poll.(*FD).Pread
+         0     0% 95.92%     17.18s 18.74%  internal/poll.(*FD).Pread.func1 (inline)
+         0     0% 95.92%      1.43s  1.56%  internal/poll.(*FD).Pwrite
+         0     0% 95.92%      0.58s  0.63%  internal/poll.(*FD).Write
+         0     0% 95.92%     17.18s 18.74%  internal/poll.ignoringEINTR2[go.shape.int] (inline)
+         0     0% 95.92%      0.58s  0.63%  internal/poll.ignoringEINTRIO (inline)
+         0     0% 95.92%      1.20s  1.31%  internal/sync.(*Mutex).Lock (inline)
+         0     0% 95.92%      1.01s  1.10%  internal/sync.(*Mutex).Unlock (inline)
+         0     0% 95.92%      1.20s  1.31%  internal/sync.(*Mutex).lockSlow

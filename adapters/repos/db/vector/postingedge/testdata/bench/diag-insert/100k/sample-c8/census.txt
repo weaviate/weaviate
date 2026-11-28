@@ -1,0 +1,40 @@
+sample.txt: 14 threads, 6827 samples a thread
+  running                                           5.62 threads
+  parked (condition variable)                       5.01 threads
+  sleeping (usleep)                                 1.45 threads
+  netpoll (kevent)                                  0.95 threads
+  reading (pread, read)                             0.72 threads
+  memory calls (madvise, mmap)                      0.06 threads
+  waking a thread (cond signal)                     0.05 threads
+  kernel lock (mutex wait)                          0.03 threads
+  writing (pwrite, write)                           0.02 threads
+  syncing (fsync, fcntl)                            0.00 threads
+  files (open, close, rename, unlink, stat)         0.00 threads
+  = all                                            13.91
+  running, by what the leaf of the stack is:
+    traversal: following edges, the visited set, ranking       0.82 threads   14.7 %
+    scoring: codes of members and endpoints                    0.82 threads   14.7 %
+    GC (mark, sweep, stack scan)                               0.59 threads   10.6 %
+    map lookups and string keys                                0.58 threads   10.3 %
+    rows: decoding and joining what the store returned         0.54 threads    9.6 %
+    allocation                                                 0.46 threads    8.3 %
+    other (runtime, libc)                                      0.44 threads    7.9 %
+    copying bytes (memmove)                                    0.40 threads    7.2 %
+    exact vectors (float dot, the read)                        0.30 threads    5.4 %
+    scheduler and runtime locks                                0.20 threads    3.5 %
+    store: reads (segments, memtable, bloom)                   0.12 threads    2.2 %
+    clock reads                                                0.10 threads    1.9 %
+    on the way into or out of a libc call                      0.08 threads    1.3 %
+    centroid graph (RQ8 distances, the queue)                  0.04 threads    0.6 %
+    store, other                                               0.03 threads    0.5 %
+    plan: exact vectors (rescore)                              0.02 threads    0.4 %
+    index, other                                               0.02 threads    0.4 %
+    apply: the rest (rows written, inverse edges, journal)     0.01 threads    0.2 %
+    GC                                                         0.01 threads    0.1 %
+    plan: rows read from the store                             0.01 threads    0.1 %
+    runtime: scheduler                                         0.00 threads    0.1 %
+    plan: traversal of the postings                            0.00 threads    0.1 %
+    runtime: allocation                                        0.00 threads    0.0 %
+    plan: centroids                                            0.00 threads    0.0 %
+    apply: split                                               0.00 threads    0.0 %
+    plan: the rest                                             0.00 threads    0.0 %

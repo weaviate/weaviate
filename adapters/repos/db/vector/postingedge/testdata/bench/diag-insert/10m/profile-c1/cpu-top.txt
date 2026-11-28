@@ -1,0 +1,68 @@
+File: diag.test
+Type: cpu
+Time: 2026-11-28 03:40:22 CET
+Duration: 298.89s, Total samples = 328.28s (109.83%)
+Showing nodes accounting for 311.83s, 94.99% of 328.28s total
+Dropped 672 nodes (cum <= 1.64s)
+Showing top 60 nodes out of 93
+      flat  flat%   sum%        cum   cum%
+   219.99s 67.01% 67.01%    219.99s 67.01%  runtime.pthread_cond_signal
+    39.85s 12.14% 79.15%     39.85s 12.14%  syscall.rawsyscalln
+    31.63s  9.64% 88.79%     31.63s  9.64%  runtime.pthread_cond_wait
+     5.35s  1.63% 90.42%      6.56s  2.00%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*searchScratch).collectEndpoints
+     4.82s  1.47% 91.88%      4.82s  1.47%  runtime.usleep
+     4.16s  1.27% 93.15%      4.16s  1.27%  runtime.memmove
+     2.25s  0.69% 93.84%     16.42s  5.00%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*postingSearch).visit
+     1.37s  0.42% 94.25%      4.46s  1.36%  github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+     0.66s   0.2% 94.46%      2.29s   0.7%  runtime.scanObject
+     0.61s  0.19% 94.64%      2.21s  0.67%  github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm.HammingBitwise
+     0.48s  0.15% 94.79%      2.69s  0.82%  github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers.HammingDistSIMD (inline)
+     0.25s 0.076% 94.86%      6.17s  1.88%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*sidecar).score
+     0.13s  0.04% 94.90%      4.14s  1.26%  runtime.gcDrain
+     0.08s 0.024% 94.93%      2.02s  0.62%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).fetchMembers
+     0.07s 0.021% 94.95%     36.38s 11.08%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).exact
+     0.04s 0.012% 94.96%      4.67s  1.42%  runtime.lock2
+     0.02s 0.0061% 94.97%     36.67s 11.17%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readVector
+     0.01s 0.003% 94.97%     36.80s 11.21%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).rescore.func1
+     0.01s 0.003% 94.97%     36.10s 11.00%  internal/poll.(*FD).Pread
+     0.01s 0.003% 94.98%      3.37s  1.03%  runtime.(*mheap).alloc.func1
+     0.01s 0.003% 94.98%    226.64s 69.04%  runtime.systemstack
+     0.01s 0.003% 94.98%     36.08s 10.99%  syscall.pread
+     0.01s 0.003% 94.99%     37.69s 11.48%  syscall.syscall6
+     0.01s 0.003% 94.99%     39.91s 12.16%  syscall.syscalln
+         0     0% 94.99%     15.53s  4.73%  _.goready.func1
+         0     0% 94.99%      1.85s  0.56%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*Bucket).SetRawList
+         0     0% 94.99%      1.80s  0.55%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*Bucket).setRawListFromConsistentView
+         0     0% 94.99%      3.06s  0.93%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*SegmentGroup).compactOnceAbortable
+         0     0% 94.99%      1.84s  0.56%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*SegmentGroup).compactOnceAbortable.func4
+         0     0% 94.99%      3.15s  0.96%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*SegmentGroup).compactOrCleanup
+         0     0% 94.99%      3.06s  0.93%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*SegmentGroup).compactOrCleanup.func1
+         0     0% 94.99%      1.75s  0.53%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*SegmentGroup).getCollectionBytes
+         0     0% 94.99%      2.81s  0.86%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*segment).copyNode (inline)
+         0     0% 94.99%      1.74s  0.53%  github.com/weaviate/weaviate/adapters/repos/db/lsmkv.(*segment).getCollectionBytes
+         0     0% 94.99%     36.79s 11.21%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactDistance
+         0     0% 94.99%     36.79s 11.21%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactOrGone
+         0     0% 94.99%     21.99s  6.70%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).AddBatch
+         0     0% 94.99%     21.99s  6.70%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).addInBatches
+         0     0% 94.99%      3.29s  1.00%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyBatch
+         0     0% 94.99%      2.25s  0.69%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyBatch.func1
+         0     0% 94.99%      3.29s  1.00%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyIfDue
+         0     0% 94.99%     21.99s  6.70%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).searchWindow
+         0     0% 94.99%      2.25s  0.69%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).write
+         0     0% 94.99%     18.67s  5.69%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*fetchedSearch).run
+         0     0% 94.99%     17.28s  5.26%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*fetchedSearch).run.func2
+         0     0% 94.99%      1.85s  0.56%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growBucket).SetRawList
+         0     0% 94.99%      2.25s  0.69%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).apply (inline)
+         0     0% 94.99%      2.25s  0.69%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).apply.func1
+         0     0% 94.99%      2.25s  0.69%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).applyWrites
+         0     0% 94.99%      2.02s  0.62%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).fetch.func4
+         0     0% 94.99%      2.02s  0.62%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).fetch.func4.1
+         0     0% 94.99%     18.70s  5.70%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).plan
+         0     0% 94.99%     36.10s 11.00%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readFile
+         0     0% 94.99%      1.86s  0.57%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).row
+         0     0% 94.99%      3.29s  1.00%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).step
+         0     0% 94.99%     21.99s  6.70%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.TestDiagInserts.func4
+         0     0% 94.99%      3.14s  0.96%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.timedRead
+         0     0% 94.99%      3.43s  1.04%  github.com/weaviate/weaviate/entities/cyclemanager.(*cycleCallbackGroup).CycleCallback
+         0     0% 94.99%      3.45s  1.05%  github.com/weaviate/weaviate/entities/cyclemanager.(*cycleCallbackGroup).runOne
+         0     0% 94.99%      3.45s  1.05%  github.com/weaviate/weaviate/entities/cyclemanager.(*cycleCallbackGroup).runOne.func1

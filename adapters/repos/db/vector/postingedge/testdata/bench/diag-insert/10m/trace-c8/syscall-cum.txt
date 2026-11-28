@@ -1,0 +1,33 @@
+Type: delay
+Showing nodes accounting for 28.70s, 99.90% of 28.73s total
+Dropped 109 nodes (cum <= 0.14s)
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%     28.70s 99.91%  github.com/weaviate/weaviate/entities/errors.(*ErrorGroupWrapper).withRecovery.func1
+         0     0%     0%     28.70s 99.91%  golang.org/x/sync/errgroup.(*Group).Go.func1
+    28.70s 99.90% 99.90%     28.70s 99.90%  syscall.syscall6
+         0     0% 99.90%     28.68s 99.84%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).exact
+         0     0% 99.90%     28.68s 99.84%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readFile
+         0     0% 99.90%     28.68s 99.84%  internal/poll.(*FD).Pread
+         0     0% 99.90%     28.68s 99.84%  internal/poll.(*FD).Pread.func1
+         0     0% 99.90%     28.68s 99.84%  internal/poll.ignoringEINTR2[...]
+         0     0% 99.90%     28.68s 99.84%  os.(*File).ReadAt
+         0     0% 99.90%     28.68s 99.84%  os.(*File).pread
+         0     0% 99.90%     28.68s 99.84%  syscall.Pread
+         0     0% 99.90%     28.68s 99.84%  syscall.pread
+         0     0% 99.90%     28.40s 98.85%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactDistance
+         0     0% 99.90%     28.40s 98.85%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactOrGone
+         0     0% 99.90%     28.40s 98.85%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).rescore.func1
+         0     0% 99.90%     28.40s 98.85%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readVector
+         0     0% 99.90%      0.30s  1.06%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).AddBatch
+         0     0% 99.90%      0.30s  1.06%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).addInBatches
+         0     0% 99.90%      0.30s  1.06%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyBatch
+         0     0% 99.90%      0.30s  1.06%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyIfDue
+         0     0% 99.90%      0.30s  1.06%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).searchWindow
+         0     0% 99.90%      0.30s  1.06%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).step
+         0     0% 99.90%      0.30s  1.06%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.TestDiagInserts.func4
+         0     0% 99.90%      0.29s  1.02%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyBatch.func1
+         0     0% 99.90%      0.29s  1.02%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).write
+         0     0% 99.90%      0.29s  1.02%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).apply
+         0     0% 99.90%      0.29s  1.02%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).apply.func1
+         0     0% 99.90%      0.29s  1.02%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).applyWrites
+         0     0% 99.90%      0.28s  0.99%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).split

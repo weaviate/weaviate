@@ -1833,6 +1833,226 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 - **Una guarda que añadí a su cadena antes de lanzarla:** ninguna pasada empieza con menos de 10 GiB libres. Hay 19: la caché de compilación de Go ha vuelto a 14 GB con los tests de esta noche, y no la borro sin que el usuario lo diga.
 - Nada compila hasta que acabe.
 
+#### Pasada de diagnóstico del insert: resultado (28 de noviembre, cerrado a las 04:03)
+
+*Solo medidas. Ninguna propuesta: el encargo las deja para después de esta tabla.*
+
+**El insert se encarece con el tamaño sobre todo por el recorrido de su búsqueda:** con 1 llamador pasa de 2.66 ms a 100k a 15.42 ms a 10M, y de los 12.76 ms de más, 8.43 son recorrido. Hace 4.8 veces más aristas y puntúa 6.9 veces más extremos, y en tres sitios cada unidad cuesta más. El resto son filas (1.60 ms, el triple de filas) y vectores exactos (1.91 ms, lecturas de disco).
+
+**Ocho llamadores no rinden ocho veces por tres cosas medidas:** rinden 3.5 veces a 100k y 3.4 a 10M.
+- **Un llamador solo ya ocupa 1.86 cores a 100k.** La CPU por insert es la misma con 1 que con 8, y en esta máquina de 10 cores el techo son, como mucho, 5.4 veces.
+- **La búsqueda sola, sin aplicar nada, da 4.1 veces con 8 hilos a 100k,** con la máquina llena, y 5.1 a 10M.
+- **El 31 % del tiempo de los llamadores a 100k, y el 30 % a 10M, es espera alrededor de aplicar el lote.** Lo más grande, un 22 % y un 21 %: nadie empieza a buscar mientras un lote espera a que acaben las búsquedas en curso y se aplica.
+- **A 10M, además, los vectores exactos** pasan de 2.21 ms con 1 llamador a 9.33 con 8: 122 lecturas de disco por insert.
+
+**Qué se hizo.** La cadena corrió de 02:49 a 03:50 del 28: creció el índice de 100k y dio las 39 pasadas, todas con salida 0, sin que la máquina se durmiera. Tardó una hora y no las dos y media que estimé. Cada pasada, 20 000 inserts sobre un clon nuevo, con el protocolo de la enmienda 2.
+- **Dentro de una pasada el ritmo deriva al principio:** el clon de 100k empieza con 2 segmentos por bucket, y la compactación los junta en los primeros 4 000 inserts. Con 8 llamadores, el primer tramo da 1 124 inserts por segundo y los siguientes entre 1 181 y 1 471. Todas las pasadas lo llevan igual.
+
+**El control: medir no cambia lo medido.**
+
+| pasada con 8 llamadores | 100k: inserts/s | cargas | 10M: inserts/s | cargas | lecturas de disco por insert |
+|---|---:|---:|---:|---:|---:|
+| `m2` sin tocar | 1 336 | 35.9 | 234 | 108.6 | 113 |
+| diagnóstico, relojes apagados | 1 338 | 35.9 | 240 | 108.6 | 104 |
+| diagnóstico, relojes puestos | 1 332 | 35.9 | 233 | 108.6 | 114 |
+| fases, primera | 1 327 | 35.9 | 226 | 108.6 | 121 |
+| fases, segunda | 1 335 | 35.9 | 220 | 108.6 | 124 |
+| con los contadores de trabajo | 1 280 | 35.9 | 214 | 108.6 | 127 |
+| sin compactación | 1 013 | 35.9 | 228 | 108.6 | 118 |
+| las 1 000 queries | 780 | 46.5 | 182 | 87.8 | 145 |
+| filas 100 000 a 119 999 | 969 | 43.7 | — | — | — |
+
+- **A 100k,** `m2` sin tocar y el binario de diagnóstico con relojes difieren un 0.3 %, menos que las dos pasadas de fases entre sí (0.7 %).
+- **A 10M difieren un 0.6 %,** bajo el 3 %, y las pasadas iguales entre sí hasta un 5.5 % (233, 226 y 220). Las de después leen más de disco por insert: la caché de ficheros no está igual de una pasada a otra. Las cifras de 10M llevan ese margen.
+- **Contar el trabajo de cada plan** cuesta un 4 % a 100k y entre un 3 y un 8 % a 10M. Sus cifras son conteos, no tiempos.
+
+**Los vectores: una fila repetida cuesta lo que una fila nueva de la misma distribución.**
+- **A 10M:** las repetidas dan 108.6 cargas, 217.2 filas y 4.68 MB por insert. Las filas nuevas de la corrida de crecimiento, en su último tramo entero, 108.7, 217.4 y 4.69.
+- **A 100k el control pre-registrado no pasa el 5 %,** y la comprobación de la enmienda 3 dice por qué. Las filas nuevas de las mismas 100 000, en el último tramo de crecer el índice otra vez (de 81 200 a 100 000), dan 36.4 cargas por insert. Las repetidas, 35.9. Las filas 100 000 a 119 999 dan 43.7: son otra parte del dataset, que va en el orden de Wikipedia.
+  - Las aristas inversas sí cambian algo: 7.77 vecinos mirados y 4.76 aristas entradas con filas nuevas, 7.29 y 4.43 con repetidas, un 6 y un 7 % menos.
+- **Las 1 000 queries no sirven de control:** son otra distribución, con un 30 % más de cargas que las filas a 100k y un 19 % menos a 10M.
+
+**La tabla: dónde va el tiempo de un llamador,** por tamaño y por número de llamadores. Media de las dos pasadas de cada celda. El tiempo del llamador por insert es llamadores × reloj ÷ inserts.
+
+| ms por insert, y parte del tiempo del llamador | 100k, 1 | 100k, 2 | 100k, 4 | 100k, 8 | 10M, 1 | 10M, 2 | 10M, 4 | 10M, 8 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| plan: centroides | 0.04 (1 %) | 0.04 (1 %) | 0.04 (1 %) | 0.05 (1 %) | 0.09 (1 %) | 0.09 (0 %) | 0.09 (0 %) | 0.10 (0 %) |
+| plan: filas, pedirlas al store y decodificarlas | 1.00 (38 %) | 1.11 (34 %) | 1.24 (30 %) | 1.87 (31 %) | 2.60 (17 %) | 2.59 (14 %) | 2.88 (12 %) | 3.74 (10 %) |
+| plan: recorrido | 1.15 (43 %) | 1.22 (38 %) | 1.27 (31 %) | 1.38 (23 %) | 9.58 (62 %) | 9.84 (54 %) | 10.36 (44 %) | 10.94 (31 %) |
+| plan: vectores exactos | 0.30 (11 %) | 0.35 (11 %) | 0.45 (11 %) | 0.69 (12 %) | 2.21 (14 %) | 2.63 (14 %) | 3.74 (16 %) | 9.33 (26 %) |
+| plan: resto | 0.04 (2 %) | 0.04 (1 %) | 0.04 (1 %) | 0.05 (1 %) | 0.47 (3 %) | 0.54 (3 %) | 0.58 (2 %) | 0.63 (2 %) |
+| espera a empezar a buscar mientras un lote se aplica | 0.00 (0 %) | 0.10 (3 %) | 0.49 (12 %) | 1.31 (22 %) | 0.00 (0 %) | 0.52 (3 %) | 2.85 (12 %) | 7.41 (21 %) |
+| quien aplica: espera a que acaben las búsquedas en curso | 0.00 (0 %) | 0.15 (5 %) | 0.21 (5 %) | 0.22 (4 %) | 0.00 (0 %) | 0.89 (5 %) | 1.33 (6 %) | 1.36 (4 %) |
+| quien aplica: aplicar bajo el cerrojo | 0.12 (4 %) | 0.11 (3 %) | 0.11 (3 %) | 0.12 (2 %) | 0.46 (3 %) | 0.46 (3 %) | 0.45 (2 %) | 0.48 (1 %) |
+| espera a que su lote se aplique | 0.00 (0 %) | 0.03 (1 %) | 0.09 (2 %) | 0.12 (2 %) | 0.00 (0 %) | 0.16 (1 %) | 0.46 (2 %) | 0.64 (2 %) |
+| admisión del lote y `Flush` de la ronda | 0.01 (0 %) | 0.01 (0 %) | 0.01 (0 %) | 0.01 (0 %) | 0.01 (0 %) | 0.01 (0 %) | 0.01 (0 %) | 0.01 (0 %) |
+| fuera de `AddBatch`: la ronda del arnés espera a su llamador más lento | 0.00 (0 %) | 0.07 (2 %) | 0.13 (3 %) | 0.20 (3 %) | 0.00 (0 %) | 0.57 (3 %) | 0.99 (4 %) | 1.19 (3 %) |
+| **tiempo del llamador por insert** | **2.66** | **3.23** | **4.07** | **6.01** | **15.42** | **18.30** | **23.74** | **35.84** |
+| inserts por segundo, las dos pasadas | 374 y 379 | 617 y 621 | 982 y 981 | 1327 y 1335 | 67 y 63 | 110 y 108 | 170 y 168 | 226 y 220 |
+
+*Las cuatro partes del plan son de los relojes que la búsqueda ya tenía; las esperas y el aplicar, de los relojes nuevos de cada llamador. Lo que no cubre ningún reloj dentro de `AddBatch` es menos de 0.01 ms.*
+
+| por insert | 100k, 1 | 100k, 2 | 100k, 4 | 100k, 8 | 10M, 1 | 10M, 2 | 10M, 4 | 10M, 8 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| inserts por segundo | 377 | 619 | 982 | 1 331 | 65 | 109 | 169 | 223 |
+| cores ocupados | 1.86 | 3.28 | 5.11 | 6.58 | 1.12 | 1.96 | 3.12 | 4.14 |
+| ms de CPU por insert | 4.95 | 5.29 | 5.21 | 4.95 | 17.33 | 17.96 | 18.51 | 18.56 |
+| millones de instrucciones por insert | 35.9 | 36.6 | 35.3 | 34.0 | 132.2 | 132.9 | 132.2 | 131.6 |
+| instrucciones por ciclo | 2.38 | 2.29 | 2.27 | 2.34 | 2.48 | 2.42 | 2.35 | 2.34 |
+| Ps ociosos, según Go | 7.78 | 6.16 | 4.13 | 2.44 | 7.80 | 6.20 | 4.06 | 2.33 |
+| hilos listos sin core | 0.35 | 0.52 | 0.64 | 0.63 | 0.12 | 0.14 | 0.16 | 0.21 |
+| espera en mutex, ms por insert | 1.17 | 1.66 | 2.37 | 2.43 | 0.84 | 0.62 | 0.82 | 0.81 |
+| CPU del GC, ms por insert | 0.71 | 0.71 | 0.49 | 0.32 | 0.38 | 0.35 | 0.31 | 0.29 |
+| reservado, MB por insert | 5.15 | 5.70 | 5.62 | 5.85 | 9.41 | 9.64 | 9.97 | 10.43 |
+| leído de disco, KB por insert | 0 | 0 | 0 | 0 | 1 683 | 1 826 | 1 976 | 2 186 |
+| lecturas de disco por insert | 0.2 | 0.0 | 0.0 | 0.0 | 97.8 | 104.5 | 112.3 | 122.4 |
+| ms por lectura de disco | 0.26 | 0.29 | 0.31 | 0.32 | 0.19 | 0.17 | 0.20 | 0.21 |
+| hilos esperando al disco | 0.00 | 0.00 | 0.00 | 0.00 | 1.42 | 1.80 | 2.37 | 3.01 |
+| escrito a disco, KB por insert | 8.7 | 8.6 | 8.9 | 8.8 | 183.7 | 163.9 | 167.0 | 149.2 |
+| fallos de página por insert | 2.1 | 2.5 | 3.8 | 6.8 | 23.9 | 27.5 | 37.3 | 51.0 |
+| planes por lote aplicado | 4.0 | 27.3 | 37.8 | 54.8 | 4.0 | 26.1 | 36.8 | 55.7 |
+
+**Contadores por insert** (la pasada que cuenta el trabajo de cada plan; no dependen de cuántos llamadores haya).
+
+| por insert, 8 llamadores | 100k | 10M | veces |
+|---|---:|---:|---:|
+| cargas de posting | 35.9 | 108.6 | 3.03 |
+| rondas | 8.7 | 26.9 | 3.08 |
+| filas leídas del store | 71.8 | 217.2 | 3.03 |
+| MB de filas | 1.36 | 4.68 | 3.45 |
+| segmentos consultados por fila | 1.24 | 1.73 | 1.39 |
+| segmentos donde estaba la fila | 1.10 | 1.15 | 1.05 |
+| miembros recorridos | 9 033 | 28 235 | 3.13 |
+| aristas seguidas | 35 762 | 170 518 | 4.77 |
+| extremos dentro de un posting ya cargado | 8 949 | 25 720 | 2.87 |
+| extremos puntuados | 10 843 | 75 148 | 6.93 |
+| vectores exactos | 150.0 | 150.0 | 1.00 |
+| vecinos mirados para aristas inversas | 7.28 | 11.16 | 1.53 |
+| aristas inversas entradas | 4.43 | 6.17 | 1.40 |
+| splits por mil inserts | 4.45 | 4.25 | 0.96 |
+| filas escritas | 0.088 | 0.223 | 2.53 |
+| de ellas, por el presupuesto | 0.000 | 0.215 | — |
+| KB de diario | 3.27 | 8.39 | 2.57 |
+
+**Por qué se encarece con el tamaño: cada fase que crece, con su causa.** Con 1 llamador, de 100k a 10M.
+
+| fase | 100k, ms | 10M, ms | de los 12.76 ms de más | causa medida |
+|---|---:|---:|---:|---|
+| recorrido | 1.15 | 9.58 | 8.43, el 66 % | más trabajo, y más caro por unidad en tres sitios (abajo) |
+| vectores exactos | 0.30 | 2.21 | 1.91, el 15 % | E/S: de 0 a 98 lecturas de disco por insert, a 0.19 ms cada una. Son los mismos 150 vectores |
+| filas | 1.00 | 2.60 | 1.60, el 13 % | más trabajo: 3.0 veces las filas y 3.4 veces sus bytes. Por fila, de 13.9 a 12.0 µs |
+| resto del plan | 0.04 | 0.47 | 0.43 | sin separar |
+| aplicar bajo el cerrojo | 0.12 | 0.46 | 0.34 | más trabajo: aristas inversas (0.025 a 0.134 ms), split (0.015 a 0.108), escribir el miembro (0.030 a 0.114), el diario y sus escrituras (0.037 a 0.086) |
+| centroides | 0.04 | 0.09 | 0.05 | más centroides: 957 postings dados a 100k y 80 695 a 10M |
+
+- **En el conjunto del proceso es más trabajo, no caché:** 3.7 veces las instrucciones por insert (35.9 a 132.2 millones) para 3.5 veces la CPU (4.95 a 17.33 ms), con 2.38 y 2.48 instrucciones por ciclo.
+- **Los vectores exactos a 10M llevan la advertencia de la enmienda 2:** cada pasada empieza con los vectores en frío. En el crecimiento iban a disco 94 lecturas por insert; aquí, de 98 a 122.
+
+**El recorrido, por líneas.** De la muestra de fuera con 8 llamadores (`sample`, 10 s a 1 ms): CPU por insert de los hilos que estaban en cada función, y el trabajo que hace cada una según los contadores.
+
+| qué | funciones, y líneas donde se concentra | 100k, ms | 10M, ms | veces | unidades, de 100k a 10M | ns por unidad |
+|---|---|---:|---:|---:|---|---|
+| marcar el extremo como visto | `visited.(*SparseSet).CheckAndVisit`, `sparse_set.go:210` y `212` | 0.21 | 2.44 | 11.5 | aristas a extremos fuera de lo cargado: 26 813 a 144 798 | 7.9 a 16.8 |
+| seguir las aristas y mirar el posting de su extremo | `(*searchScratch).collectEndpoints`, `search.go:504` y `494` | 0.29 | 1.77 | 6.0 | aristas: 35 762 a 170 518 | 8.2 a 10.4 |
+| puntuar los miembros, con el código entero | `(*CenteredBinaryRQDistancer).Distance`, `rq1_weighted_hamming.go:28`, y `weightedHamming*` | 0.23 | 2.07 | 8.9 | miembros: 9 033 a 28 235 | 25.8 a 73.3 |
+| puntuar los extremos, con el código de ruteo y lectura adelantada | `(*CappedCenteredBinaryRQDistancer).Distance`, `hamming_bitwise`, `(*sidecar).score` | 0.47 | 2.89 | 6.2 | extremos: 10 843 a 75 148 | 43.2 a 38.5 |
+| elegir la tanda, el montículo y el bucle de `visit` | `selectBatch`, `visit`, `topK` | 0.19 | 1.19 | 6.3 | | |
+| **recorrido, por la muestra** | | **1.40** | **10.37** | 7.4 | | |
+| recorrido, por su reloj | | 1.38 | 10.94 | 7.9 | | |
+
+- **La muestra y el reloj coinciden,** a 100k y a 10M. Y la CPU que la muestra ve en código del binario, 4.61 y 17.04 ms por insert, queda a un 9 y un 4 % de la CPU de usuario que el sistema cuenta al proceso en esas pasadas, 4.22 y 16.42.
+- **Más trabajo:** con 3.1 veces los miembros, las aristas seguidas son 4.8 veces y los extremos puntuados 6.9 veces. A 100k, de cada 100 aristas, 25 llevan a un posting ya cargado y 30 a un extremo que hay que puntuar. A 10M, 15 y 44.
+- **Más caro por unidad en tres sitios:** marcar el extremo como visto (2.1 veces por arista), puntuar un miembro (2.8 veces) y, dentro de seguir aristas, la línea que lee el posting del extremo (`search.go:504`, de 4.4 a 7.6 ns por arista).
+  - Las dos primeras leen por doc id tablas que a 10M cubren diez millones de ids. **No tengo instrucciones por línea,** así que no puedo decir si ahí es fallo de caché o más instrucciones por unidad. El conjunto del proceso no lo señala.
+  - **Por qué un miembro cuesta 2.8 veces más no lo sé:** sus códigos vienen en la fila del posting, igual a los dos tamaños.
+- **Puntuar un extremo no se encarece por unidad:** 43 y 39 ns.
+- **Si cada unidad costara a 10M lo que a 100k,** el recorrido serían unos 7.7 ms de los 10.4: el encarecimiento por unidad son unos 2.7 ms, y el resto es más trabajo.
+- **El perfil de CPU de Go no sirve aquí, tampoco con 1 llamador,** y no lo uso, como decía el pre-registro. Su total cuadra con la CPU del sistema (91.7 s frente a 100.8 a 100k, 328 frente a 343 a 10M), pero pone el 42 % y el 67 % de las muestras en despertar hilos, y 0.9 s en el recorrido, donde su reloj da 23 s.
+
+**Por qué 8 llamadores no rinden 8 veces.**
+
+| la búsqueda del insert, ms | 100k: sola, 1 hilo | insert, 1 llamador | sola, 8 hilos | insert, 8 llamadores | 10M: sola, 1 hilo | insert, 1 llamador | sola, 8 hilos | insert, 8 llamadores |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| por segundo | 372 | 377 | 1 534 | 1 331 | 67 | 65 | 343 | 223 |
+| plan, ms | 2.68 | 2.53 | 5.21 | 4.03 | 15.02 | 14.95 | 23.34 | 24.75 |
+| filas | 1.13 | 1.00 | 2.86 | 1.87 | 2.74 | 2.60 | 4.42 | 3.74 |
+| recorrido | 1.19 | 1.15 | 1.48 | 1.38 | 9.70 | 9.58 | 11.38 | 10.94 |
+| vectores exactos | 0.29 | 0.30 | 0.76 | 0.69 | 2.02 | 2.21 | 6.75 | 9.33 |
+| cores ocupados | 1.92 | 1.86 | 8.24 | 6.58 | 1.17 | 1.12 | 6.34 | 4.14 |
+| ms de CPU | 5.16 | 4.95 | 5.37 | 4.95 | 17.64 | 17.33 | 18.51 | 18.56 |
+| millones de instrucciones | 39.5 | 35.9 | 37.2 | 34.0 | 132.6 | 132.2 | 129.8 | 131.6 |
+| leído de disco, KB | 0 | 0 | 0 | 0 | 1 576 | 1 683 | 1 453 | 2 186 |
+
+- **Un llamador no es un core.** Cada plan reparte sus lecturas de filas y sus 150 vectores exactos entre gorutinas, hasta 20 a la vez para los vectores. Con 1 llamador el proceso ya ocupa 1.86 cores a 100k y 1.12 a 10M.
+- **La CPU por insert no cambia con los llamadores:** 4.95 ms con 1 y con 8 a 100k, y 17.3 y 18.6 a 10M. Nadie gira en vacío. Lo que se pierde son cores sin usar.
+- **A 100k la búsqueda sola con 8 hilos llena la máquina:** 8.24 cores y 0.03 Ps ociosos según Go, para 1 534 búsquedas por segundo, 4.1 veces las de 1 hilo. La máquina tiene 8 cores de rendimiento y 2 de eficiencia.
+- **El insert con 8 llamadores ocupa 6.58 cores y deja 2.4 Ps ociosos.** Lo que le falta frente a la búsqueda sola es la alternancia entre buscar y aplicar:
+
+| con 8 llamadores | 100k | 10M |
+|---|---:|---:|
+| planes por lote aplicado | 54.8 | 55.7 |
+| lotes por segundo | 24.3 | 4.0 |
+| una ventana de 4 planes, ms | 16 | 99 |
+| quien aplica espera a que acaben las búsquedas en curso, ms por lote | 12 | 76 |
+| aplicar el lote, ms | 7 | 27 |
+| tiempo en que nadie puede empezar una ventana | 45 % | 41 % |
+| llamadores esperando a empezar, de media | 1.74 | 1.65 |
+| llamadores dentro del plan, de media | 5.36 | 5.52 |
+
+  - **Las líneas:** un llamador espera en `persistent_batches.go:128` mientras hay un lote aplicándose, y quien aplica espera en la `198` a que acaben las búsquedas en curso. En la traza de 8 s son 16.6 s de `sync.(*Cond).Wait` a 100k y 15.9 s a 10M: 1.59 y 8.30 ms por insert.
+  - **Esto es lo que no veía en la corrida de crecimiento:** allí había siempre unos 5 llamadores de 8 dentro del plan. Aquí, 5.4 y 5.5, con 1.7 esperando a empezar, 0.3 esperando para aplicar y 0.3 fuera, en la ronda del arnés.
+- **Dentro del plan, a 100k,** las gorutinas de los vectores exactos se bloquean en un cerrojo del plan: 17.4 s de `sync.(*Mutex).Lock` en 8 s de traza, todos en `(*growIndex).readVector` (`grow.go:1694` en la rama de diagnóstico), 1.67 ms por insert. Otros 10.2 s son gorutinas despertadas por ese cerrojo que esperan un P. La fase de vectores exactos pasa de 0.30 ms con 1 llamador a 0.69 con 8.
+  - A 10M ese cerrojo no aparece: las gorutinas están en sus lecturas.
+- **A 10M, los vectores exactos con 8 llamadores:** 9.33 ms por insert, el 26 % del tiempo del llamador.
+  - **Es E/S:** 122 lecturas de disco por insert a 0.21 ms, 27 300 por segundo, 2.2 MB leídos por insert. En la muestra hay 6.9 hilos dentro de una lectura, y 3.0 en espera no interrumpible.
+  - **Las lecturas de un plan van de unas 3 en 3, no de 20 en 20:** 122 lecturas de 0.21 ms en 9.33 ms. Con 1 llamador van de unas 8 en 8.
+  - **La latencia del planificador que da el runtime son 22.4 ms por insert,** con 3.7 esperas de más de 1 ms y 0.33 de más de 10 ms por insert, y 3.2 ms con 1 llamador. **La traza da 1.2 ms por insert para lo mismo.** No coinciden y no sé cuál cuenta lo que quiero: no la uso como causa.
+  - Go cuenta 7.8 Ps ocupados donde el sistema cuenta 4.1 cores. Lo leo como Ps retenidos por hilos que están dentro de una lectura; no lo he medido aparte.
+- **El recorrido y las filas se alargan con los llamadores sin más CPU:** el recorrido, de 1.15 a 1.38 ms a 100k y de 9.58 a 10.94 a 10M; las filas, de 1.00 a 1.87 y de 2.60 a 3.74. **Sin explicar.** Con 8 llamadores parte del trabajo cae en los dos cores de eficiencia; no lo he medido.
+- **El 3 % «fuera de `AddBatch`» es del arnés:** una ronda acaba cuando acaba su llamador más lento, y los demás esperan.
+
+**E/S por insert, y la pasada sin compactación.**
+
+| por insert, 8 llamadores | 100k | 100k sin compactación | 10M | 10M sin compactación |
+|---|---:|---:|---:|---:|
+| inserts por segundo | 1 331 | 1 013 | 223 | 228 |
+| escrito a disco por el proceso, KB | 8.8 | 5.8 | 149.2 | 23.1 |
+| vectores, KB | 3.02 | 3.03 | 3.06 | 3.07 |
+| WAL del store, KB | 3.12 | 3.16 | 8.34 | 8.34 |
+| volcados de memtable, KB | 2.59 | 0.54 | 11.34 | 8.05 |
+| compactación, KB | 2.5 | 0.0 | 267.3 | 0.0 |
+| diario, KB, por su contador | 3.28 | 3.28 | 8.39 | 8.39 |
+| escrituras de disco | 0.13 | 0.06 | 5.70 | 0.86 |
+| leído de disco, KB | 0 | 0 | 2 186 | 2 109 |
+| lecturas de disco | 0.0 | 0.0 | 122.4 | 117.5 |
+| fallos de página | 6.8 | 6.1 | 51.0 | 34.0 |
+| segmentos consultados por fila | 1.22 | 2.71 | 1.79 | 3.59 |
+| segmentos donde estaba la fila | 1.07 | 2.03 | 1.16 | 1.76 |
+| plan: filas, ms | 1.87 | 3.17 | 3.74 | 4.57 |
+| reservado, MB | 5.85 | 10.18 | 10.43 | 15.15 |
+
+*Los bytes por clase salen de vigilar los ficheros. El diario se vacía en cada sync y esa vigilancia lo cuenta de menos: doy su contador.*
+
+- **La compactación es casi todo lo escrito a 10M:** escribe 267 KB por insert en segmentos nuevos. A disco, de todo lo que el proceso escribió durante la pasada, llegaron 149 KB por insert; sin compactación, 23. En el crecimiento entero fueron 53 KB por insert: aquí cada pasada compacta los segmentos grandes de un clon recién hecho.
+- **Sin compactación el ritmo a 10M no cambia** (228 frente a 226 y 220) y las filas se leen de 3.6 segmentos y no de 1.8: 0.83 ms más por insert.
+- **A 100k sí cambia, un 24 % menos:** cada fila se consulta en 2.7 segmentos y está en 2.0 de ellos, y la fase de filas pasa de 1.87 a 3.17 ms. Se reserva 1.7 veces más memoria por insert.
+- **Segmentos por bucket, al empezar y al acabar la pasada,** con compactación: a 100k, 2 en cada uno y 3 en pendientes; pendientes y los códigos de centroides acaban en 1. A 10M, 3 en filas, 3 en distancias (acaba en 2), 2 en mapa y ruteo, 7 en pendientes (acaba en 5) y 8 en los códigos de centroides. Sin compactación a 10M acaban en 5, 4, 4, 4, 8 y 10.
+- **Los fallos de página son de 2 a 7 por insert a 100k y de 24 a 51 a 10M,** menores casi todos: 0.6 a 1.0 por insert llegan a disco a 10M.
+- **El `Flush` de cada ronda son 0.01 ms por insert** a los dos tamaños.
+
+**Contención, por `runtime/metrics`.** Está en la segunda tabla: la espera en mutex sube con los llamadores a 100k (1.17 a 2.43 ms por insert) y no a 10M (0.84 a 0.81); la CPU del GC baja con ellos (0.71 a 0.32 ms a 100k); los Ps ociosos van de 7.8 con 1 llamador a 2.4 con 8, a los dos tamaños.
+
+**Lo que no queda explicado.**
+- Por qué puntuar un miembro cuesta 2.8 veces más a 10M.
+- Si el encarecimiento por unidad del conjunto de visitados y de la línea que lee el posting del extremo es caché: faltan instrucciones por línea.
+- Por qué el recorrido y las filas tardan más con 8 llamadores con la misma CPU.
+- Cuál de las dos latencias del planificador es la buena a 10M.
+- El «resto del plan», 0.47 ms a 10M.
+
+**Lo que aclara de la corrida de crecimiento.** Los 7.4 ms por insert que no cubría ningún reloj eran estas esperas alrededor de aplicar, más la ronda del arnés y su lectura del dataset.
+
+**Datos.** `testdata/bench/diag-insert/`: la cadena y su salida; `summary-100k.tsv` y `summary-10m.tsv`, una línea por pasada, con `summary.py`, `table.py` y `report_tables.py`; `results.tar.gz` con el `result.json`, el log y el monitor de cada pasada; de la traza, los perfiles de bloqueo, de planificador y de llamadas al sistema; de la muestra de fuera, su recuento y `lines.txt`, con `lines.py`; el principio de los perfiles de CPU de Go, para que se vea el artefacto; y el crecimiento de 100k de la enmienda 3. Las trazas enteras (75 MB) no se archivan.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

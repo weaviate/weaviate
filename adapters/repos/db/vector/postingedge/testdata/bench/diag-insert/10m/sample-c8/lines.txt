@@ -1,0 +1,803 @@
+sample-c8: 6259 samples a thread; 25386 samples on frames of the binary itself, 4.06 threads
+  threads   ms/insert  function, by what was on the frame itself
+    0.578      2.435  visited.(*SparseSet).CheckAndVisit
+    0.421      1.773  postingedge.(*searchScratch).collectEndpoints
+    0.304      1.283  compressionhelpers.(*CenteredBinaryRQDistancer).Distance
+    0.260      1.094  runtime.memmove
+    0.252      1.061  asm.hamming_bitwise.abi0
+    0.214      0.902  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.128      0.540  compressionhelpers.weightedHammingNEON
+    0.127      0.535  postingedge.(*searchScratch).selectBatch
+    0.125      0.525  postingedge.(*postingSearch).visit
+    0.115      0.483  asm.HammingBitwise
+    0.109      0.461  postingedge.(*growBlock).decode
+    0.098      0.413  postingedge.(*growIndex).fetchMembers
+    0.073      0.308  postingedge.(*sidecar).score
+    0.071      0.298  runtime.mapaccess2_fast64
+    0.059      0.248  compressionhelpers.weightedHammingAsm.abi0
+    0.050      0.209  runtime.memclrNoHeapPointers
+    0.042      0.176  postingedge.(*growIndex).joinRows
+    0.041      0.171  maps.memHashAES
+    0.038      0.158  postingedge.(*growIndex).exact
+    0.036      0.151  runtime.tryDeferToSpanScan
+    0.036      0.151  segmentindex.(*DiskTree).descend
+    0.031      0.130  lsmkv.(*segment).collectionStratParseDataBytes
+    0.029      0.123  lsmkv.(*binarySearchNodeMulti).get
+    0.027      0.116  runtime.memequal
+    0.024      0.103  runtime.pcvalue
+    0.022      0.092  runtime.greyobject
+    0.021      0.088  runtime.scanObject
+    0.020      0.085  runtime.mallocgcSmallNoscan
+    0.019      0.081  runtime.(*sweepLocked).sweep
+    0.018      0.077  postingedge.(*topK).push
+    0.018      0.075  postingedge.(*sidecar).prefetch
+    0.015      0.063  runtime.mapaccess2_faststr
+    0.015      0.062  runtime.(*pallocBits).summarize
+    0.015      0.062  asm.PrefetchN.abi0
+    0.014      0.061  runtime.(*spanSet).pop
+    0.014      0.060  cmpbody
+    0.014      0.057  postingedge.(*topK).siftDown
+    0.013      0.055  runtime.(*mheap).allocSpan
+    0.011      0.046  bufio.(*Writer).Write
+    0.011      0.046  runtime.lock2
+    0.011      0.045  runtime.step
+    0.010      0.041  asm.dot_neon.abi0
+    0.009      0.039  runtime.asmcgocall.abi0
+    0.008      0.036  asm.dotByteUDOTAsm.abi0
+    0.008      0.034  v3.(*BloomFilter).Test
+    0.008      0.034  runtime.scanObjectsSmall
+    0.008      0.034  runtime.mapassign_faststr
+    0.008      0.032  io.ReadAtLeast
+    0.008      0.032  runtime.(*sysMemStat).add
+    0.007      0.030  runtime.(*fixalloc).alloc
+    0.007      0.030  runtime.findfunc
+    0.007      0.030  lsmkv.(*cacheReader).Read
+    0.007      0.030  v3.(*BloomFilter).Add
+    0.007      0.029  runtime.(*mheap).initSpan
+    0.007      0.028  runtime.libcCall
+    0.006      0.026  v3.(*digest128).sum128
+    0.006      0.026  runtime.(*stkframe).getStackMap
+    0.006      0.026  runtime.(*activeSweep).end
+    0.006      0.025  runtime.(*moduledata).textAddr
+    0.006      0.025  lsmkv.(*compactorReplace).writeKeys
+    0.006      0.024  runtime.mallocgc
+    0.006      0.024  runtime.newMarkBits
+    0.005      0.023  runtime.mallocgcSmallScanHeader
+    0.005      0.023  runtime.mallocgcSmallScanNoHeaderSC2
+    0.005      0.023  runtime.(*pageCache).alloc
+    0.005      0.022  runtime.adjustframe
+    0.005      0.022  runtime.findObject
+    0.005      0.021  runtime.typePointers.next
+    0.005      0.020  lsmkv.(*compactorReplace).writeIndividualNode
+    0.005      0.020  runtime.(*consistentHeapStats).release
+    0.005      0.020  lsmkv.ParseCollectionNodeInto
+    0.004      0.018  runtime.(*gcControllerState).update
+    0.004      0.018  lsmkv.segmentCollectionNode.KeyIndexAndWriteToRedux
+    0.004      0.018  runtime.(*unwinder).resolveInternal
+    0.004      0.017  runtime.unlock2
+    0.004      0.017  runtime.adjustpointers
+    0.004      0.017  runtime.(*atomicHeadTailIndex).incTail
+    0.004      0.017  v3.(*digest128).sum256
+    0.004      0.017  runtime.sweepone
+    0.004      0.016  runtime.save
+    0.004      0.016  runtime.(*gcControllerState).trigger
+    0.004      0.016  runtime.stealWork
+    0.004      0.015  runtime.deductSweepCredit
+    0.004      0.015  runtime.(*mcache).refill
+    0.004      0.015  runtime.(*pageAlloc).find
+    0.004      0.015  runtime.(*mheap).alloc.func1
+    0.003      0.014  runtime.(*sweepLocker).tryAcquire
+    0.003      0.014  runtime.(*gcControllerState).heapGoalInternal
+    0.003      0.013  f32.scaleNEON.abi0
+    0.003      0.013  runtime.mapassign_fast64
+    0.003      0.013  runtime.(*spanSet).push
+    0.003      0.013  segmentindex.(*DiskTree).KeyCount
+    0.003      0.013  bitset.(*BitSet).Set
+    0.003      0.013  maps.memHash64AES
+    0.003      0.013  runtime.casgstatus
+    0.003      0.013  runtime.gcDrain
+    0.003      0.012  runtime.(*mheap).allocMSpanLocked
+    0.003      0.012  runtime.stackfree
+    0.003      0.012  runtime.mallocgcSmallScanNoHeaderSC3
+    0.003      0.012  lsmkv.(*setDecoder).DoPartial
+    0.003      0.011  runtime.(*gcControllerState).memoryLimitHeapGoal
+    0.003      0.011  runtime.(*consistentHeapStats).acquire
+    0.003      0.011  runtime.(*pallocBits).findSmallN
+    0.002      0.010  runtime.mallocgcSmallScanNoHeaderSC5
+    0.002      0.010  runtime.systemstack.abi0
+    0.002      0.010  runtime.save_g.abi0
+    0.002      0.010  runtime.runqgrab
+    0.002      0.009  postingedge.(*growPlan).keep
+    0.002      0.009  compressionhelpers.(*CenteredBinaryRotationalQuantizer).encodeRotatedQuery
+    0.002      0.009  runtime.(*mheap).freeSpanLocked
+    0.002      0.009  runtime.gcTrigger.test
+    0.002      0.009  runtime.(*spanInlineMarkBits).tryAcquire
+    0.002      0.009  maps.(*Map).putSlotSmallFastStr
+    0.002      0.009  runtime.findRunnable
+    0.002      0.009  runtime.(*mheap).setSpans
+    0.002      0.009  runtime.wbBufFlush1
+    0.002      0.009  postingedge.(*state).returnScratch
+    0.002      0.009  runtime.(*mcentral).cacheSpan
+    0.002      0.009  runtime.(*mspan).nextFreeIndex
+    0.002      0.008  runtime.setBlockOnExitSyscall
+    0.002      0.008  compressionhelpers.(*quantizedCompressorDistancer[go.shape.uint8]).DistancesToNodes
+    0.002      0.008  context.(*backgroundCtx).Err
+    0.002      0.008  runtime.stkbucket
+    0.002      0.008  lsmkv.(*compactorSet).processKeyPair
+    0.002      0.007  runtime.slicebytetostring
+    0.002      0.007  runtime.(*mspan).writeHeapBitsSmall
+    0.002      0.007  runtime.markrootSpans
+    0.002      0.007  runtime.(*timers).check
+    0.002      0.007  runtime.popDefer
+    0.002      0.007  runtime.mallocgcSmallScanNoHeader
+    0.002      0.007  lsmkv.(*Bucket).SetList
+    0.002      0.007  segmentindex.vebPositions.func1
+    0.002      0.007  lsmkv.ParseReplaceNodeIntoMMAP
+    0.002      0.007  runtime.(*pageAlloc).find.func1
+    0.002      0.007  visited.(*Pool).Return
+    0.002      0.007  runtime.mapaccess1_faststr
+    0.001      0.006  runtime.mallocgcSmallScanNoHeaderSC4
+    0.001      0.006  runtime.(*_panic).nextDefer
+    0.001      0.006  kmeans.(*KMeans).updateCenters
+    0.001      0.006  postingedge.(*growIndex).readVector
+    0.001      0.006  runtime.spanSetScans
+    0.001      0.006  runtime.funcMaxSPDelta
+    0.001      0.006  gcWriteBarrier
+    0.001      0.005  runtime.mapaccess2_fast32
+    0.001      0.005  runtime.mergeSummaries
+    0.001      0.005  runtime.wakep
+    0.001      0.005  runtime.(*unwinder).next
+    0.001      0.005  runtime.tracebackPCs
+    0.001      0.005  postingedge.(*topK).sorted.func1
+    0.001      0.005  runtime.makeslice
+    0.001      0.005  postingedge.(*growIndex).fetch
+    0.001      0.005  segmentindex.MarshalSortedKeysFromKeys
+    0.001      0.005  runtime.(*mcache).allocLarge
+    0.001      0.005  postingedge.(*growIndex).fetch.func4
+    0.001      0.005  runtime.checkRunqsNoP
+    0.001      0.005  runtime.adjustctxt
+    0.001      0.005  bytealg.IndexByteString
+    0.001      0.005  runtime.mallocgcTinySC2
+    0.001      0.005  runtime.(*pageAlloc).update
+    0.001      0.005  lsmkv.(*SegmentGroup).getConsistentViewOfSegments
+    0.001      0.005  runtime.(*m).clearAllpSnapshot
+    0.001      0.005  runtime.procyieldAsm.abi0
+    0.001      0.004  runtime.retake
+    0.001      0.004  lsmkv.(*binarySearchNode).insert
+    0.001      0.004  priorityqueue.(*Queue[go.shape.interface {}]).heapify
+    0.001      0.004  runtime.(*pallocBits).find
+    0.001      0.004  runtime.(*mspan).init
+    0.001      0.004  postingedge.(*Index).exactDistance
+    0.001      0.004  postingedge.(*growIndex).listOf
+    0.001      0.004  packedconn.decodeInto
+    0.001      0.004  runtime.growslice
+    0.001      0.004  runtime.mapassign_fast32
+    0.001      0.004  sync.(*WaitGroup).Add
+    0.001      0.004  v3.(*digest128).bmix
+    0.001      0.004  runtime.copystack
+    0.001      0.004  runtime.gdestroy
+    0.001      0.004  sync.(*Pool).pin
+    0.001      0.004  maps.(*table).reset
+    0.001      0.004  errors.(*ErrorGroupWrapper).withRecovery.func1
+    0.001      0.004  runtime.(*unwinder).initAt
+    0.001      0.004  segmentindex.vebOffsets
+    0.001      0.003  runtime.deferreturn
+    0.001      0.003  time.runtimeNow
+    0.001      0.003  runtime.newproc1
+    0.001      0.003  runtime.scanSpan
+    0.001      0.003  gosave_systemstack_switch
+    0.001      0.003  compression.fwht256NEON.abi0
+    0.001      0.003  maps.(*Iter).Init
+    0.001      0.003  runtime.extractHeapBitsSmall
+    0.001      0.003  runtime.stackalloc
+    0.001      0.003  lsmkv.(*segment).getCollectionBytes
+    0.001      0.003  cache.(*shardedLockCache[go.shape.uint8]).PrefetchGet
+    0.001      0.003  postingedge.(*Index).exactOrGone
+    0.001      0.003  postingedge.(*growIndex).fetch.func5
+    0.001      0.003  runtime.(*mheap).allocNeedsZero
+    0.001      0.003  runtime.checkTimersNoP
+    0.001      0.003  errors.Wrapf
+    0.001      0.003  compression.(*FastRotation).RotateInto
+    0.001      0.003  v3.baseHashes
+    0.001      0.003  lsmkv.(*nodeReader).Release
+    0.001      0.003  maps.(*Iter).Next
+    0.001      0.003  lsmkv.(*segmentCursorReplaceReusable).parseInto
+    0.001      0.003  lsmkv.(*segmentReplaceNode).keyIndexAndWriteToWithBuf
+    0.001      0.003  runtime.(*mcache).nextFree
+    0.001      0.003  distancer.NormalizeInPlace
+    0.001      0.003  segmentindex.fillBFS
+    0.001      0.003  syscall.syscalln
+    0.001      0.003  runtime.mallocgcLarge
+    0.001      0.003  errgroup.(*Group).Go.func1
+    0.001      0.003  runtime.unlock2Wake
+    0.001      0.003  time.now
+    0.001      0.003  postingedge.(*Index).rescore.func1
+    0.001      0.003  runtime.pidlegetSpinning
+    0.001      0.003  runtime.typedslicecopy
+    0.001      0.003  runtime.pthread_cond_wait_trampoline.abi0
+    0.001      0.003  runtime.gostartcallfn
+    0.001      0.003  runtime.(*mheap).nextSpanForSweep
+    0.001      0.003  runtime.pidleget
+    0.001      0.003  runtime.deferprocStack
+    0.001      0.003  runtime.(*scavChunkData).alloc
+    0.001      0.003  lsmkv.(*segment).decRef
+    0.001      0.003  maps.(*Map).getWithoutKeySmallFastStr
+    0.001      0.003  lsmkv.(*SegmentGroup).getCollection
+    0.001      0.003  lsmkv.(*setDecoder).Do
+    0.001      0.003  os.(*File).ReadAt
+    0.001      0.003  lsmkv.(*segmentCursorReplaceReusable).next
+    0.001      0.003  compressionhelpers.(*CappedCenteredBinaryRQ).Encode
+    0.001      0.003  runtime.(*mspan).ensureSwept
+    0.001      0.003  runtime.startm
+    0.001      0.003  compressionhelpers.(*RQDistancer).Distance
+    0.001      0.003  runtime.schedule
+    0.000      0.002  runtime.getcallerfp
+    0.000      0.002  runtime.sysmon
+    0.000      0.002  runtime.syscallingThread.releaseP
+    0.000      0.002  runtime.(*mheap).alloc
+    0.000      0.002  syscall.Getenv.deferwrap1
+    0.000      0.002  compressionhelpers.(*CenteredBinaryRotationalQuantizer).Encode
+    0.000      0.002  hnsw.(*hnsw).searchLayerByVectorWithDistancerWithStrategy
+    0.000      0.002  asm.l2_neon.abi0
+    0.000      0.002  postingedge.dist float32 }]
+    0.000      0.002  runtime.walltime.abi0
+    0.000      0.002  runtime.(*semaRoot).queue
+    0.000      0.002  runtime.(*mcentral).uncacheSpan
+    0.000      0.002  runtime.nanotime1.abi0
+    0.000      0.002  runtime.ifaceeq
+    0.000      0.002  runtime.(*mheap).reclaim
+    0.000      0.002  runtime.(*scavengeIndex).alloc
+    0.000      0.002  time.Now
+    0.000      0.002  common.(*ShardedRWLocks).RLock
+    0.000      0.002  runtime.newproc
+    0.000      0.002  runtime.castogscanstatus
+    0.000      0.002  runtime.mallocgcSmallScanNoHeaderSC7
+    0.000      0.002  priorityqueue.(*Queue[go.shape.interface {}]).insert
+    0.000      0.002  runtime.stackpoolfree
+    0.000      0.002  runtime.bgsweep
+    0.000      0.002  postingedge.(*growIndex).readFile
+    0.000      0.002  runtime.(*pageCache).allocN
+    0.000      0.002  runtime.semrelease1
+    0.000      0.002  lsmkv.(*compactorSet).writeKeys
+    0.000      0.002  poll.(*FD).Pread
+    0.000      0.002  runtime.notesleep
+    0.000      0.002  runtime.globrunqgetbatch
+    0.000      0.002  syscall.pread
+    0.000      0.002  lsmkv.(*SegmentGroup).getCollectionBytes
+    0.000      0.002  runtime.exitsyscall
+    0.000      0.002  runtime.stopm
+    0.000      0.002  runtime.(*mspan).refillAllocCache
+    0.000      0.002  runtime.reentersyscall
+    0.000      0.002  runtime.(*_panic).start
+    0.000      0.002  runtime.(*mcache).prepareForSweep
+    0.000      0.002  syscall.syscall6
+    0.000      0.002  postingedge.(*growBucket).SetList
+    0.000      0.002  _.goready.func1
+    0.000      0.002  postingedge.timedRead
+    0.000      0.002  segmentindex.MarshalSortedKeysFromKeys.func1
+    0.000      0.002  lsmkv.(*compactorSet).cancelDeleted
+    0.000      0.002  lsmkv.(*segment).getCollection
+    0.000      0.002  runtime.gfget
+    0.000      0.002  runtime.mallocgcSmallScanNoHeaderSC6
+    0.000      0.002  syscall.Syscall.abi0
+    0.000      0.002  runtime.runqput
+    0.000      0.002  testlog.Getenv
+    0.000      0.001  runtime.checkdead
+    0.000      0.001  f32.scale
+    0.000      0.001  lsmkv.(*binarySearchNode).SetParent
+    0.000      0.001  sync.(*Mutex).lockSlow
+    0.000      0.001  runtime.pcdatavalue
+    0.000      0.001  errors.(*ErrorGroupWrapper).withRecovery.func1.deferwrap1
+    0.000      0.001  sync.(*Pool).Get
+    0.000      0.001  sync.(*poolChain).popTail
+    0.000      0.001  gogo
+    0.000      0.001  runtime.(*semaRoot).dequeue
+    0.000      0.001  runtime.semasleep
+    0.000      0.001  lsmkv.(*Bucket).GetConsistentView
+    0.000      0.001  lsmkv.(*segment).collectionStratParseData
+    0.000      0.001  runtime.adjustdefers
+    0.000      0.001  DYLD-STUB$$pipe
+    0.000      0.001  postingedge.dist float32 }]
+    0.000      0.001  runtime.(*pageAlloc).alloc
+    0.000      0.001  runtime.(*scavengeIndex).free
+    0.000      0.001  runtime.(*unwinder).cgoCallers
+    0.000      0.001  runtime.(*mspan).initHeapBits
+    0.000      0.001  postingedge.(*growIndex).fetch.func5.1
+    0.000      0.001  runtime.isSystemGoroutine
+    0.000      0.001  runtime.rand
+    0.000      0.001  runtime.stackpoolalloc
+    0.000      0.001  binary.(*bigEndian).PutUint64
+    0.000      0.001  postingedge.openGrowIndex.func6
+    0.000      0.001  runtime.newproc.func1
+    0.000      0.001  DYLD-STUB$$pthread_create
+    0.000      0.001  lsmkv.(*Bucket).GetConsistentView.deferwrap1
+    0.000      0.001  postingedge.(*fetchedSearch).run
+    0.000      0.001  runtime.pthread_cond_wait.abi0
+    0.000      0.001  cache.prefetchVector[go.shape.uint8]
+    0.000      0.001  runtime.gorecover
+    0.000      0.001  lsmkv.(*SegmentGroup).getConsistentViewOfSegments.func1
+    0.000      0.001  sync.(*Pool).Put
+    0.000      0.001  runtime.semacquire1
+    0.000      0.001  lsmkv.(*compactorSet).processKey
+    0.000      0.001  hnsw.(*hnsw).searchLayerByVectorWithDistancerWithStrategy.func3
+    0.000      0.001  postingedge.(*growIndex).setPending
+    0.000      0.001  postingedge.(*growIndex).write
+    0.000      0.001  runtime.gfput
+    0.000      0.001  postingedge.(*Index).exactDistance.deferwrap1
+    0.000      0.001  crc32.ieeeUpdate.abi0
+    0.000      0.001  runtime.notewakeup
+    0.000      0.001  lsmkv.(*Bucket).SetRawList
+    0.000      0.001  postingedge.(*growIndex).heldNeighbors
+    0.000      0.001  maps.(*table).grow
+    0.000      0.001  runtime.madvise.abi0
+    0.000      0.001  chacha8rand.block
+    0.000      0.001  runtime.findnull
+    0.000      0.001  runtime.fastexprand
+    0.000      0.001  runtime.(*_panic).nextFrame
+    0.000      0.001  postingedge.(*growIndex).row
+    0.000      0.001  postingedge.(*growPlan).keep-fm
+    0.000      0.001  postingedge.(*fetchedSearch).run.func2
+    0.000      0.001  compressionhelpers.(*CenteredBinaryRotationalQuantizer).NewDistancer
+    0.000      0.001  runtime.profilealloc
+    0.000      0.001  postingedge.(*growIndex).readVector-fm
+    0.000      0.001  lsmkv.(*Bucket).setListFromConsistentView
+    0.000      0.001  sync.(*poolDequeue).popHead
+    0.000      0.001  runtime.(*rwmutex).runlock
+    0.000      0.001  runtime.incidlelocked
+    0.000      0.001  runtime.usleep.abi0
+    0.000      0.001  lsmkv.(*compactorSet).writeIndividualNode
+    0.000      0.001  postingedge.(*growIndex).skipKey-fm
+    0.000      0.001  maps.(*table).rehash
+    0.000      0.001  runtime.exitsyscallNoP
+    0.000      0.001  runtime.mput
+    0.000      0.001  lsmkv.(*Memtable).getCollection.deferwrap2
+    0.000      0.001  lsmkv.(*segment).incRef
+    0.000      0.001  hnsw.(*hnsw).knnSearchByVector
+    0.000      0.001  runtime.convT64
+    0.000      0.001  runtime.adjustsudogs
+    0.000      0.001  logrus.(*Entry).WithFields
+    0.000      0.001  bytealg.Compare
+    0.000      0.001  asm.Dot_Neon
+    0.000      0.001  context.(*valueCtx).Value
+    0.000      0.001  runtime.(*listHeadManual).pop
+    0.000      0.001  runtime.mallocgcSmallScanNoHeaderSC1
+    0.000      0.001  runtime.(*spanQueue).put
+    0.000      0.001  fs.FileMode }]
+    0.000      0.001  runtime.pidleput
+    0.000      0.001  runtime.(*mspan).typePointersOfType
+    0.000      0.001  lsmkv.(*binarySearchNodeMulti).insert
+    0.000      0.001  runtime.runqputbatch
+    0.000      0.001  lsmkv.(*segmentCursorCollectionReusable).parseCollectionNodeInto
+    0.000      0.001  asm.DotByteUDOT
+    0.000      0.001  maps.memHash32AES
+    0.000      0.001  syscall.rawsyscalln
+    0.000      0.001  runtime.(*unwinder).finishInternal
+    0.000      0.001  runtime.syscallN_trampoline.abi0
+    0.000      0.001  maps.NewMap
+    0.000      0.001  logrus.(*Logger).newEntry
+    0.000      0.001  lsmkv.(*segment).newNodeReader
+    0.000      0.001  runtime.recordspan
+    0.000      0.001  asm.PrefetchN
+    0.000      0.001  hnsw.(*hnsw).isEmpty
+    0.000      0.001  runtime.pthread_mutex_unlock.abi0
+    0.000      0.001  runtime.efaceeq
+    0.000      0.001  runtime.scanObjectSmall
+    0.000      0.001  context.(*valueCtx).Err
+    0.000      0.001  priorityqueue.NewMin[go.shape.interface {}].func1
+    0.000      0.001  errgroup.(*Group).Go
+    0.000      0.001  lsmkv.(*Bucket).SetList.deferwrap1
+    0.000      0.001  runtime.unlock
+    0.000      0.001  runtime.pcdatavalue1
+    0.000      0.001  segmentindex.(*DiskTree).ForEachKey
+    0.000      0.001  runtime.makeslicecopy
+    0.000      0.001  priorityqueue.NewMin[go.shape.uint64].func1
+    0.000      0.001  os.openDirNolog
+    0.000      0.001  runtime.(*moduledata).funcName
+    0.000      0.001  maps.MemHash64
+    0.000      0.001  runtime.(*pageAlloc).free
+    0.000      0.001  runtime.gosched_m
+    0.000      0.001  postingedge.(*growIndex).applyWrites
+    0.000      0.001  postingedge.dist float32 }]
+    0.000      0.001  hnsw.(*hnsw).acornEnabled
+    0.000      0.001  runtime.gcmarknewobject
+  threads   ms/insert  line (approximate within a function)
+    0.307      1.295  search.go:504  postingedge.(*searchScratch).collectEndpoints
+    0.293      1.235  rq1_weighted_hamming.go:28  compressionhelpers.(*CenteredBinaryRQDistancer).Distance
+    0.261      1.102  sparse_set.go:210  visited.(*SparseSet).CheckAndVisit
+    0.255      1.073  sparse_set.go:212  visited.(*SparseSet).CheckAndVisit
+    0.116      0.491  memmove_arm64.s:176  runtime.memmove
+    0.098      0.412  search.go:494  postingedge.(*searchScratch).collectEndpoints
+    0.097      0.409  unsafe.go:30  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.087      0.368  rq1_weighted_hamming_arm64.go:30  compressionhelpers.weightedHammingNEON
+    0.075      0.314  grow.go:1747  postingedge.(*growIndex).fetchMembers
+    0.070      0.296  hamming_bitwise_arm64.s:59  asm.hamming_bitwise
+    0.070      0.296  hamming_bitwise_arm64.s:21  asm.hamming_bitwise
+    0.065      0.273  hamming_bitwise_arm64.s:45  asm.hamming_bitwise
+    0.060      0.255  search.go:519  postingedge.(*postingSearch).visit
+    0.056      0.236  hamming_stub_arm64.go:109  asm.HammingBitwise
+    0.054      0.228  grow_rows.go:315  postingedge.(*growBlock).decode
+    0.047      0.196  search.go:119  postingedge.(*searchScratch).selectBatch
+    0.044      0.186  postings.go:215  postingedge.(*sidecar).score
+    0.037      0.158  sparse_set.go:165  visited.(*SparseSet).CheckAndVisit
+    0.036      0.154  binary.go:91  postingedge.(*growBlock).decode
+    0.034      0.143  hamming_stub_arm64.go:118  asm.HammingBitwise
+    0.030      0.128  memmove_arm64.s:154  runtime.memmove
+    0.027      0.112  rq1_weighted_hamming_arm64.s:49  compressionhelpers.weightedHammingAsm
+    0.026      0.110  search.go:117  postingedge.(*searchScratch).selectBatch
+    0.026      0.109  memmove_arm64.s:175  runtime.memmove
+    0.025      0.106  binary_rq_centered_capped.go:128  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.025      0.104  hamming_stub_arm64.go:105  asm.HammingBitwise
+    0.025      0.104  grow.go:1674  postingedge.(*growIndex).exact
+    0.022      0.094  search.go:111  postingedge.(*searchScratch).selectBatch
+    0.021      0.087  rq1_weighted_hamming_arm64.go:32  compressionhelpers.weightedHammingNEON
+    0.021      0.087  memclr_arm64.s:179  runtime.memclrNoHeapPointers
+    0.020      0.083  group.go:299  runtime.mapaccess2_fast64
+    0.019      0.081  binary_rq_centered_capped.go:162  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.019      0.081  binary.go:117  postingedge.(*growIndex).fetchMembers
+    0.019      0.079  search.go:515  postingedge.(*postingSearch).visit
+    0.017      0.073  memclr_arm64.s:180  runtime.memclrNoHeapPointers
+    0.017      0.073  binary_rq_centered_capped.go:138  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.017      0.073  binary_rotational_quantization.go:389  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.017      0.071  table.go:1353  runtime.mapaccess2_fast64
+    0.015      0.065  binary.go:92  postingedge.(*growBlock).decode
+    0.015      0.063  search.go:110  postingedge.(*searchScratch).selectBatch
+    0.015      0.062  memmove_arm64.s:178  runtime.memmove
+    0.014      0.059  search.go:114  postingedge.(*searchScratch).selectBatch
+    0.014      0.058  hamming_bitwise_arm64.s:52  asm.hamming_bitwise
+    0.014      0.058  binary_search_tree_multi.go:224  lsmkv.(*binarySearchNodeMulti).get
+    0.013      0.056  grow_rows.go:416  postingedge.(*growIndex).joinRows
+    0.013      0.055  prefetch_n_arm64.s:25  asm.PrefetchN
+    0.013      0.054  hamming_bitwise_arm64.s:89  asm.hamming_bitwise
+    0.013      0.053  disk_tree.go:276  segmentindex.(*DiskTree).descend
+    0.012      0.052  binary_search_tree_multi.go:222  lsmkv.(*binarySearchNodeMulti).get
+    0.012      0.052  search.go:390  postingedge.(*postingSearch).visit
+    0.012      0.051  sparse_set.go:213  visited.(*SparseSet).CheckAndVisit
+    0.011      0.048  binary_rq_centered.go:189  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.011      0.048  disk_tree.go:278  segmentindex.(*DiskTree).descend
+    0.011      0.047  binary_rq_centered_capped.go:131  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.011      0.046  mgcmark_greenteagc.go:1250  runtime.scanObject
+    0.011      0.045  mgcmark.go:1686  runtime.greyobject
+    0.011      0.044  memmove_arm64.s:174  runtime.memmove
+    0.010      0.044  search.go:500  postingedge.(*searchScratch).collectEndpoints
+    0.010      0.041  binary.go:91  postingedge.(*growIndex).exact
+    0.010      0.040  equal_arm64.s:51  runtime.memequal
+    0.009      0.039  segment_collection_strategy.go:125  lsmkv.(*segment).collectionStratParseDataBytes
+    0.009      0.039  mheap.go:1405  runtime.(*mheap).allocSpan
+    0.009      0.037  postings.go:176  postingedge.(*sidecar).score
+    0.009      0.036  symtab.go:1046  runtime.pcvalue
+    0.009      0.036  grow_rows.go:388  postingedge.(*growIndex).joinRows
+    0.009      0.036  postings.go:233  postingedge.(*sidecar).prefetch
+    0.008      0.036  sparse_set.go:166  visited.(*SparseSet).CheckAndVisit
+    0.008      0.036  rq1_weighted_hamming_arm64.go:34  compressionhelpers.weightedHammingNEON
+    0.008      0.035  memmove_arm64.s:160  runtime.memmove
+    0.008      0.035  memmove_arm64.s:43  runtime.memmove
+    0.008      0.034  binary_rq_centered_capped.go:145  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.008      0.033  equal_arm64.s:42  runtime.memequal
+    0.007      0.031  types.go:344  runtime.(*sweepLocked).sweep
+    0.007      0.030  postings.go:207  postingedge.(*sidecar).score
+    0.007      0.029  hamming_bitwise_arm64.s:19  asm.hamming_bitwise
+    0.007      0.029  search.go:518  postingedge.(*postingSearch).visit
+    0.007      0.029  segment_collection_strategy.go:127  lsmkv.(*segment).collectionStratParseDataBytes
+    0.007      0.029  topk.go:100  postingedge.(*topK).siftDown
+    0.007      0.029  runtime_fast64.go:42  runtime.mapaccess2_fast64
+    0.007      0.029  mgcmark_greenteagc.go:283  runtime.tryDeferToSpanScan
+    0.007      0.029  rq1_weighted_hamming_arm64.go:36  compressionhelpers.weightedHammingNEON
+    0.007      0.028  postings.go:177  postingedge.(*sidecar).score
+    0.007      0.028  rq1_weighted_hamming_arm64.s:42  compressionhelpers.weightedHammingAsm
+    0.007      0.028  search.go:397  postingedge.(*postingSearch).visit
+    0.006      0.027  segment_collection_strategy.go:118  lsmkv.(*segment).collectionStratParseDataBytes
+    0.006      0.027  memhash_arm64.s:309  maps.memHashAES
+    0.006      0.027  lock_spinbit.go:174  runtime.lock2
+    0.006      0.026  postings.go:211  postingedge.(*sidecar).score
+    0.006      0.025  rq1_weighted_hamming_arm64.s:48  compressionhelpers.weightedHammingAsm
+    0.006      0.024  compare_arm64.s:97  cmpbody
+    0.006      0.024  bloom.go:127  v3.(*BloomFilter).Add
+    0.006      0.024  hamming_bitwise_arm64.s:60  asm.hamming_bitwise
+    0.006      0.023  grow_rows.go:391  postingedge.(*growIndex).joinRows
+    0.005      0.023  rq1_weighted_hamming_arm64.s:50  compressionhelpers.weightedHammingAsm
+    0.005      0.022  binary_rq_centered.go:367  compressionhelpers.(*CenteredBinaryRQDistancer).Distance
+    0.005      0.022  binary.go:117  lsmkv.(*segment).collectionStratParseDataBytes
+    0.005      0.022  malloc.go:974  runtime.mallocgcSmallNoscan
+    0.005      0.022  types.go:236  runtime.(*activeSweep).end
+    0.005      0.022  postings.go:222  postingedge.(*sidecar).prefetch
+    0.005      0.021  search.go:391  postingedge.(*postingSearch).visit
+    0.005      0.021  mfixalloc.go:87  runtime.(*fixalloc).alloc
+    0.005      0.021  mheap.go:774  runtime.tryDeferToSpanScan
+    0.005      0.021  mstats.go:660  runtime.(*sysMemStat).add
+    0.005      0.021  memhash_arm64.s:303  maps.memHashAES
+    0.005      0.021  compare_arm64.s:72  cmpbody
+    0.005      0.020  dot_neon_arm64.s:43  asm.dot_neon
+    0.005      0.020  dot_byte_udot_arm64.s:39  asm.dotByteUDOTAsm
+    0.005      0.020  memmove_arm64.s:172  runtime.memmove
+    0.005      0.019  search.go:522  postingedge.(*postingSearch).visit
+    0.005      0.019  equal_arm64.s:54  runtime.memequal
+    0.004      0.019  runtime_fast64.go:87  runtime.mapaccess2_fast64
+    0.004      0.019  memmove_arm64.s:33  runtime.memmove
+    0.004      0.018  topk.go:97  postingedge.(*topK).siftDown
+    0.004      0.018  memmove_arm64.s:169  runtime.memmove
+    0.004      0.018  topk.go:72  postingedge.(*topK).push
+    0.004      0.018  memmove_arm64.s:30  runtime.memmove
+    0.004      0.018  topk.go:62  postingedge.(*topK).push
+    0.004      0.018  postings.go:224  postingedge.(*sidecar).prefetch
+    0.004      0.017  bufio.go:659  bufio.(*Writer).Write
+    0.004      0.016  mgcmark.go:1692  runtime.greyobject
+    0.004      0.015  proc.go:4616  runtime.save
+    0.004      0.015  grow_rows.go:417  postingedge.(*growIndex).joinRows
+    0.004      0.015  postings.go:115  postingedge.(*searchScratch).collectEndpoints
+    0.004      0.015  rq1_weighted_hamming_arm64.s:30  compressionhelpers.weightedHammingAsm
+    0.004      0.015  types.go:291  runtime.(*consistentHeapStats).release
+    0.004      0.015  mheap.go:607  runtime.tryDeferToSpanScan
+    0.004      0.015  mheap.go:1002  runtime.(*mheap).alloc.func1
+    0.004      0.015  topk.go:63  postingedge.(*topK).push
+    0.004      0.015  mgcmark_greenteagc.go:274  runtime.tryDeferToSpanScan
+    0.003      0.014  runtime_fast64.go:105  runtime.mapaccess2_fast64
+    0.003      0.014  symtab.go:947  runtime.findfunc
+    0.003      0.014  dot_byte_udot_arm64.s:41  asm.dotByteUDOTAsm
+    0.003      0.014  grow_rows.go:398  postingedge.(*growIndex).joinRows
+    0.003      0.014  memmove_arm64.s:53  runtime.memmove
+    0.003      0.013  malloc.go:1401  runtime.mallocgcSmallNoscan
+    0.003      0.013  compactor_replace.go:295  lsmkv.(*compactorReplace).writeIndividualNode
+    0.003      0.013  mheap.go:1436  runtime.(*mheap).initSpan
+    0.003      0.013  unsafe.go:30  compressionhelpers.(*CenteredBinaryRQDistancer).Distance
+    0.003      0.013  symtab.go:1039  runtime.pcvalue
+    0.003      0.013  asm_arm64.s:795  runtime.asmcgocall
+    0.003      0.013  memmove_arm64.s:170  runtime.memmove
+    0.003      0.013  grow_rows.go:392  postingedge.(*growIndex).joinRows
+    0.003      0.013  symtab.go:716  runtime.(*moduledata).textAddr
+    0.003      0.013  mpagecache.go:48  runtime.(*pageCache).alloc
+    0.003      0.012  memhash_arm64.s:287  maps.memHashAES
+    0.003      0.012  runtime_fast64.go:102  runtime.mapaccess2_fast64
+    0.003      0.012  memclr_arm64.s:54  runtime.memclrNoHeapPointers
+    0.003      0.012  rq1_weighted_hamming_arm64.s:67  compressionhelpers.weightedHammingAsm
+    0.003      0.012  sparse_set.go:176  visited.(*SparseSet).CheckAndVisit
+    0.003      0.012  bloom.go:202  v3.(*BloomFilter).Test
+    0.003      0.012  bufio.go:677  bufio.(*Writer).Write
+    0.003      0.011  sys_libc.go:52  runtime.libcCall
+    0.003      0.011  types.go:344  runtime.(*gcControllerState).update
+    0.003      0.011  search.go:121  postingedge.(*searchScratch).selectBatch
+    0.003      0.011  mgcmark_greenteagc.go:1050  runtime.scanObjectsSmall
+    0.003      0.011  memhash_arm64.s:246  maps.memHashAES
+    0.003      0.011  mpallocbits.go:136  runtime.(*pallocBits).summarize
+    0.003      0.011  sys_libc.go:29  runtime.libcCall
+    0.003      0.011  binary_rq_centered.go:190  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.003      0.011  f32_arm64.s:364  f32.scaleNEON
+    0.003      0.011  mgcmark_greenteagc.go:1254  runtime.scanObject
+    0.003      0.011  malloc_generated.go:301  runtime.mallocgcSmallScanNoHeaderSC2
+    0.003      0.011  lock_spinbit.go:179  runtime.lock2
+    0.002      0.010  search.go:520  postingedge.(*postingSearch).visit
+    0.002      0.010  search.go:417  postingedge.(*postingSearch).visit
+    0.002      0.010  grow_rows.go:414  postingedge.(*growIndex).joinRows
+    0.002      0.010  memhash_arm64.s:40  maps.memHash64AES
+    0.002      0.010  memmove_arm64.s:90  runtime.memmove
+    0.002      0.010  symtab.go:1305  runtime.step
+    0.002      0.010  mgcmark_greenteagc.go:276  runtime.tryDeferToSpanScan
+    0.002      0.010  tls_arm64.s:42  runtime.save_g
+    0.002      0.010  mpagecache.go:46  runtime.(*pageCache).alloc
+    0.002      0.010  hamming_bitwise_arm64.s:31  asm.hamming_bitwise
+    0.002      0.010  compactor_replace.go:173  lsmkv.(*compactorReplace).writeKeys
+    0.002      0.010  murmur.go:105  v3.(*digest128).sum128
+    0.002      0.010  grow.go:1741  postingedge.(*growIndex).fetchMembers
+    0.002      0.010  types.go:359  runtime.(*spanSet).pop
+    0.002      0.010  mheap.go:1163  runtime.(*mheap).allocMSpanLocked
+    0.002      0.010  mgcpacer.go:1254  runtime.(*gcControllerState).trigger
+    0.002      0.010  bloom.go:204  v3.(*BloomFilter).Test
+    0.002      0.010  search.go:516  postingedge.(*postingSearch).visit
+    0.002      0.009  mspanset.go:399  runtime.(*atomicHeadTailIndex).incTail
+    0.002      0.009  symtab.go:698  runtime.(*moduledata).textAddr
+    0.002      0.009  memclr_arm64.s:183  runtime.memclrNoHeapPointers
+    0.002      0.009  mgcmark_greenteagc.go:264  runtime.tryDeferToSpanScan
+    0.002      0.009  mspanset.go:211  runtime.(*spanSet).pop
+    0.002      0.009  stubs.go:409  runtime.mallocgcSmallNoscan
+    0.002      0.009  mstats.go:659  runtime.(*sysMemStat).add
+    0.002      0.009  binary_rq_centered.go:357  compressionhelpers.(*CenteredBinaryRQDistancer).Distance
+    0.002      0.009  memmove_arm64.s:37  runtime.memmove
+    0.002      0.009  mcache.go:141  runtime.mallocgcSmallNoscan
+    0.002      0.009  mpallocbits.go:202  runtime.(*pallocBits).summarize
+    0.002      0.009  strategies_set.go:108  lsmkv.(*setDecoder).DoPartial
+    0.002      0.009  mspanset.go:163  runtime.(*spanSet).pop
+    0.002      0.009  symtab.go:1284  runtime.step
+    0.002      0.009  io.go:329  io.ReadAtLeast
+    0.002      0.009  memhash_arm64.s:59  maps.memHashAES
+    0.002      0.008  topk.go:73  postingedge.(*topK).push
+    0.002      0.008  mgcmark_greenteagc.go:1043  runtime.scanObjectsSmall
+    0.002      0.008  symtab.go:1311  runtime.step
+    0.002      0.008  rq1_weighted_hamming_arm64.go:35  compressionhelpers.weightedHammingNEON
+    0.002      0.008  symtab.go:1070  runtime.pcvalue
+    0.002      0.008  binary_rq_centered_capped.go:155  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.002      0.008  <autogenerated>:1  context.(*backgroundCtx).Err
+    0.002      0.008  grow_rows.go:307  postingedge.(*growBlock).decode
+    0.002      0.008  rq1_weighted_hamming_arm64.go:42  compressionhelpers.weightedHammingNEON
+    0.002      0.008  grow_rows.go:411  postingedge.(*growIndex).joinRows
+    0.002      0.008  symtab.go:1037  runtime.pcvalue
+    0.002      0.008  io.go:335  io.ReadAtLeast
+    0.002      0.008  memmove_arm64.s:99  runtime.memmove
+    0.002      0.008  mgcsweep.go:557  runtime.(*sweepLocked).sweep
+    0.002      0.008  group.go:195  runtime.mapaccess2_fast64
+    0.002      0.008  mgcmark_greenteagc.go:294  runtime.tryDeferToSpanScan
+    0.002      0.008  topk.go:75  postingedge.(*topK).push
+    0.002      0.008  topk.go:67  postingedge.(*topK).push
+    0.002      0.008  map.go:417  runtime.mapaccess2_fast64
+    0.002      0.008  cursor_segment_collection_reusable.go:96  lsmkv.(*cacheReader).Read
+    0.002      0.008  mgcmark_greenteagc.go:265  runtime.tryDeferToSpanScan
+    0.002      0.007  bufio.go:697  bufio.(*Writer).Write
+    0.002      0.007  mgcmark_greenteagc.go:287  runtime.tryDeferToSpanScan
+    0.002      0.007  mgcpacer.go:1005  runtime.(*gcControllerState).heapGoalInternal
+    0.002      0.007  search.go:91  postingedge.(*state).returnScratch
+    0.002      0.007  mheap.go:2896  runtime.newMarkBits
+    0.002      0.007  map.go:417  runtime.mapaccess2_faststr
+    0.002      0.007  mgcmark_greenteagc.go:295  runtime.tryDeferToSpanScan
+    0.002      0.007  rq1_weighted_hamming_arm64.s:29  compressionhelpers.weightedHammingAsm
+    0.002      0.007  asm_arm64.s:821  runtime.asmcgocall
+    0.002      0.007  stubs.go:391  runtime.tryDeferToSpanScan
+    0.002      0.007  mgcsweep.go:347  runtime.(*sweepLocker).tryAcquire
+    0.002      0.007  mbitmap.go:220  runtime.scanObject
+    0.002      0.007  mgcmark_greenteagc.go:290  runtime.tryDeferToSpanScan
+    0.002      0.007  table.go:1353  runtime.mapaccess2_faststr
+    0.002      0.007  disk_tree.go:248  segmentindex.(*DiskTree).descend
+    0.002      0.007  runtime_fast64.go:22  runtime.mapaccess2_fast64
+    0.002      0.007  stack.go:556  runtime.stackfree
+    0.002      0.007  compactor_set.go:321  lsmkv.(*compactorSet).processKeyPair
+    0.002      0.007  panic.go:621  runtime.popDefer
+    0.002      0.007  binary.go:92  segmentindex.(*DiskTree).KeyCount
+    0.002      0.007  mgcmark_greenteagc.go:105  runtime.(*spanInlineMarkBits).tryAcquire
+    0.002      0.007  mspanset.go:205  runtime.(*spanSet).pop
+    0.002      0.007  runtime_faststr.go:157  runtime.mapaccess2_faststr
+    0.002      0.007  memhash_arm64.s:55  maps.memHashAES
+    0.002      0.007  symtab.go:1288  runtime.step
+    0.002      0.006  mpallocbits.go:168  runtime.(*pallocBits).summarize
+    0.002      0.006  binary_rotational_quantization.go:282  compressionhelpers.(*CenteredBinaryRotationalQuantizer).encodeRotatedQuery
+    0.002      0.006  bitset.go:234  v3.(*BloomFilter).Test
+    0.002      0.006  symtab.go:951  runtime.findfunc
+    0.002      0.006  dot_neon_arm64.s:50  asm.dot_neon
+    0.002      0.006  memhash_arm64.s:201  maps.memHashAES
+    0.002      0.006  mgcsweep.go:393  runtime.sweepone
+    0.002      0.006  cursor_segment_collection_reusable.go:106  lsmkv.(*cacheReader).Read
+    0.002      0.006  mgcmark_greenteagc.go:1204  runtime.scanObject
+    0.002      0.006  mgcmark.go:1685  runtime.greyobject
+    0.002      0.006  segment_serialization.go:417  lsmkv.segmentCollectionNode.KeyIndexAndWriteToRedux
+    0.002      0.006  symtab.go:901  runtime.pcvalue
+    0.002      0.006  memmove_arm64.s:84  runtime.memmove
+    0.001      0.006  mgcsweep.go:914  runtime.deductSweepCredit
+    0.001      0.006  segment_serialization.go:598  lsmkv.ParseCollectionNodeInto
+    0.001      0.006  memmove_arm64.s:48  runtime.memmove
+    0.001      0.006  asm_arm64.s:796  runtime.asmcgocall
+    0.001      0.006  mprof.go:306  runtime.stkbucket
+    0.001      0.006  dot_neon_arm64.s:9  asm.dot_neon
+    0.001      0.006  bucket.go:1216  lsmkv.(*Bucket).SetList
+    0.001      0.006  murmur.go:241  v3.(*digest128).sum128
+    0.001      0.006  runtime_fast64.go:33  runtime.mapaccess2_fast64
+    0.001      0.006  mbitmap.go:245  runtime.typePointers.next
+    0.001      0.006  lock_spinbit.go:284  runtime.unlock2
+    0.001      0.006  grow_rows.go:306  postingedge.(*growBlock).decode
+    0.001      0.006  disk_tree.go:246  segmentindex.(*DiskTree).descend
+    0.001      0.006  mgcmark_greenteagc.go:1258  runtime.scanObject
+    0.001      0.006  topk.go:94  postingedge.(*topK).siftDown
+    0.001      0.006  memmove_arm64.s:173  runtime.memmove
+    0.001      0.006  group.go:339  runtime.mapaccess2_fast64
+    0.001      0.006  types.go:325  runtime.(*spanSet).pop
+    0.001      0.006  memmove_arm64.s:93  runtime.memmove
+    0.001      0.006  rq1_weighted_hamming_arm64.s:43  compressionhelpers.weightedHammingAsm
+    0.001      0.005  compression.go:1385  compressionhelpers.(*quantizedCompressorDistancer[go.shape.uint8]).DistancesToNodes
+    0.001      0.005  mpallocbits.go:169  runtime.(*pallocBits).summarize
+    0.001      0.005  mspanset.go:159  runtime.(*spanSet).pop
+    0.001      0.005  stack.go:670  runtime.adjustpointers
+    0.001      0.005  mpallocbits.go:189  runtime.(*pallocBits).summarize
+    0.001      0.005  io.go:333  io.ReadAtLeast
+    0.001      0.005  memhash_arm64.s:194  maps.memHashAES
+    0.001      0.005  memhash_arm64.s:299  maps.memHashAES
+    0.001      0.005  malloc.go:974  runtime.mallocgcSmallScanHeader
+    0.001      0.005  types.go:291  runtime.(*consistentHeapStats).acquire
+    0.001      0.005  mgcmark.go:420  runtime.markrootSpans
+    0.001      0.005  symtab.go:952  runtime.findfunc
+    0.001      0.005  runtime_fast64.go:205  runtime.mapassign_fast64
+    0.001      0.005  cursor_segment_collection_reusable.go:101  lsmkv.(*cacheReader).Read
+    0.001      0.005  murmur.go:164  v3.(*digest128).sum128
+    0.001      0.005  murmur.go:263  v3.(*digest128).sum256
+    0.001      0.005  memhash_arm64.s:292  maps.memHashAES
+    0.001      0.005  compare_arm64.s:94  cmpbody
+    0.001      0.005  memhash_arm64.s:62  maps.memHashAES
+    0.001      0.005  postings.go:122  postingedge.(*postingSearch).visit
+    0.001      0.005  io.go:330  io.ReadAtLeast
+    0.001      0.005  malloc.go:972  runtime.mallocgcSmallNoscan
+    0.001      0.005  runtime_fast64.go:69  runtime.mapaccess2_fast64
+    0.001      0.005  hamming_bitwise_arm64.s:14  asm.hamming_bitwise
+    0.001      0.005  hamming_bitwise_arm64.s:53  asm.hamming_bitwise
+    0.001      0.005  stack.go:796  runtime.adjustframe
+    0.001      0.005  mfixalloc.go:84  runtime.(*fixalloc).alloc
+    0.001      0.005  mgcmark_greenteagc.go:1268  runtime.scanObject
+    0.001      0.005  memmove_arm64.s:39  runtime.memmove
+    0.001      0.005  mgcsweep.go:351  runtime.(*sweepLocker).tryAcquire
+    0.001      0.005  runtime_fast64.go:83  runtime.mapaccess2_fast64
+    0.001      0.005  memclr_arm64.s:107  runtime.memclrNoHeapPointers
+    0.001      0.005  memhash_arm64.s:311  maps.memHashAES
+    0.001      0.005  group.go:299  maps.(*Map).putSlotSmallFastStr
+    0.001      0.005  segment_collection_strategy.go:119  lsmkv.(*segment).collectionStratParseDataBytes
+    0.001      0.005  types.go:309  runtime.deductSweepCredit
+    0.001      0.005  runtime_fast64.go:63  runtime.mapaccess2_fast64
+    0.001      0.005  disk_tree.go:207  segmentindex.(*DiskTree).descend
+    0.001      0.005  memclr_arm64.s:152  runtime.memclrNoHeapPointers
+    0.001      0.005  memhash_arm64.s:302  maps.memHashAES
+    0.001      0.005  binary.go:92  segmentindex.(*DiskTree).descend
+    0.001      0.005  kmeans.go:315  kmeans.(*KMeans).updateCenters
+    0.001      0.005  types.go:344  runtime.(*mcache).refill
+    0.001      0.005  mpagealloc.go:726  runtime.(*pageAlloc).find.func1
+    0.001      0.005  mheap.go:2918  runtime.newMarkBits
+    0.001      0.005  mpallocbits.go:191  runtime.(*pallocBits).summarize
+    0.001      0.005  symtab.go:1081  runtime.pcvalue
+    0.001      0.005  runtime1.go:614  runtime.pcvalue
+    0.001      0.005  unsafe.go:30  postingedge.(*growIndex).exact
+    0.001      0.005  bitset.go:268  bitset.(*BitSet).Set
+    0.001      0.005  murmur.go:261  v3.(*digest128).sum256
+    0.001      0.005  mgcpacer.go:1050  runtime.(*gcControllerState).memoryLimitHeapGoal
+    0.001      0.005  segment_serialization.go:604  lsmkv.ParseCollectionNodeInto
+    0.001      0.005  types.go:479  runtime.(*spanSet).pop
+    0.001      0.005  bloom.go:165  v3.(*BloomFilter).Add
+    0.001      0.005  memhash_arm64.s:270  maps.memHashAES
+    0.001      0.004  symtab.go:1280  runtime.(*stkframe).getStackMap
+    0.001      0.004  runtime_fast64.go:68  runtime.mapaccess2_fast64
+    0.001      0.004  runtime1.go:621  runtime.pcvalue
+    0.001      0.004  mheap.go:2900  runtime.newMarkBits
+    0.001      0.004  mpallocbits.go:198  runtime.(*pallocBits).summarize
+    0.001      0.004  mheap.go:1722  runtime.(*mheap).freeSpanLocked
+    0.001      0.004  runtime_faststr.go:136  runtime.mapaccess2_faststr
+    0.001      0.004  bitset.go:267  bitset.(*BitSet).Set
+    0.001      0.004  bitset.go:264  bitset.(*BitSet).Set
+    0.001      0.004  mpallocbits.go:199  runtime.(*pallocBits).summarize
+    0.001      0.004  runtime_faststr.go:146  runtime.mapaccess2_faststr
+    0.001      0.004  memhash_arm64.s:229  maps.memHashAES
+    0.001      0.004  runtime_faststr.go:331  runtime.mapassign_faststr
+    0.001      0.004  memhash_arm64.s:218  maps.memHashAES
+    0.001      0.004  dot_neon_arm64.s:51  asm.dot_neon
+    0.001      0.004  mgcsweep.go:772  runtime.(*sweepLocked).sweep
+    0.001      0.004  mgcsweep.go:509  runtime.(*sweepLocked).sweep
+    0.001      0.004  proc.go:6833  runtime.setBlockOnExitSyscall
+    0.001      0.004  proc.go:6699  runtime.retake
+    0.001      0.004  asm_arm64.s:842  runtime.asmcgocall
+    0.001      0.004  io.go:343  io.ReadAtLeast
+    0.001      0.004  memclr_arm64.s:175  runtime.memclrNoHeapPointers
+    0.001      0.004  segment_serialization.go:431  lsmkv.segmentCollectionNode.KeyIndexAndWriteToRedux
+    0.001      0.004  grow.go:1874  postingedge.(*growIndex).fetch.func4
+    0.001      0.004  mheap.go:519  runtime.findObject
+    0.001      0.004  mheap.go:1812  runtime.(*mspan).init
+    0.001      0.004  connections.go:248  packedconn.decodeInto
+    0.001      0.004  mpallocbits.go:398  runtime.(*pallocBits).findSmallN
+    0.001      0.004  murmur.go:67  v3.(*digest128).bmix
+    0.001      0.004  murmur.go:234  v3.(*digest128).sum128
+    0.001      0.004  equal_arm64.s:49  runtime.memequal
+    0.001      0.004  disk_tree.go:371  segmentindex.(*DiskTree).KeyCount
+    0.001      0.004  memmove_arm64.s:68  runtime.memmove
+    0.001      0.004  symtab.go:1266  runtime.(*stkframe).getStackMap
+    0.001      0.004  mbitmap.go:1119  runtime.(*mspan).nextFreeIndex
+    0.001      0.004  prefetch_n_arm64.s:29  asm.PrefetchN
+    0.001      0.004  mheap.go:1409  runtime.(*mheap).allocSpan
+    0.001      0.004  traceback.go:372  runtime.(*unwinder).resolveInternal
+    0.001      0.004  symtab.go:1227  runtime.funcMaxSPDelta
+    0.001      0.004  memhash_arm64.s:269  maps.memHashAES
+    0.001      0.004  bloom.go:122  v3.(*BloomFilter).Test
+    0.001      0.004  segment_serialization.go:426  lsmkv.segmentCollectionNode.KeyIndexAndWriteToRedux
+    0.001      0.004  segment_collection_strategy.go:117  lsmkv.(*segment).collectionStratParseDataBytes
+    0.001      0.004  symtab.go:1296  runtime.step
+    0.001      0.004  malloc.go:1445  runtime.mallocgcSmallNoscan
+    0.001      0.004  mgcsweep.go:780  runtime.(*sweepLocked).sweep
+    0.001      0.004  binary_search_tree_multi.go:227  lsmkv.(*binarySearchNodeMulti).get
+    0.001      0.004  mgcsweep.go:364  runtime.sweepone
+    0.001      0.004  hamming_bitwise_arm64.s:41  asm.hamming_bitwise
+    0.001      0.004  search.go:408  postingedge.(*postingSearch).visit
+    0.001      0.004  stkframe.go:182  runtime.(*stkframe).getStackMap
+    0.001      0.004  runtime_faststr.go:270  runtime.mapassign_faststr
+    0.001      0.004  equal_arm64.s:27  runtime.memequal
+    0.001      0.004  memhash_arm64.s:236  maps.memHashAES
+    0.001      0.004  binary_search_tree_multi.go:218  lsmkv.(*binarySearchNodeMulti).get
+    0.001      0.004  runtime_faststr.go:147  runtime.mapaccess2_faststr
+    0.001      0.004  io.go:354  lsmkv.ParseCollectionNodeInto
+    0.001      0.004  memmove_arm64.s:119  runtime.memmove
+    0.001      0.004  mbitmap.go:1367  runtime.findObject
+    0.001      0.004  cursor_segment_collection_reusable.go:93  lsmkv.(*cacheReader).Read
+    0.001      0.004  rq1_weighted_hamming_arm64.go:40  compressionhelpers.weightedHammingNEON
+    0.001      0.004  memhash_arm64.s:293  maps.memHashAES
+    0.001      0.003  types.go:194  runtime.setBlockOnExitSyscall
+    0.001      0.003  symtab.go:1295  runtime.step
+    0.001      0.003  binary_rq_centered_capped.go:133  compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+    0.001      0.003  stack.go:663  runtime.adjustpointers
+    0.001      0.003  grow.go:652  postingedge.(*growPlan).keep
+    0.001      0.003  types.go:291  runtime.(*spanSet).pop

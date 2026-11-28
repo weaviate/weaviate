@@ -1,0 +1,34 @@
+Type: delay
+Showing nodes accounting for 1431.95ms, 60.55% of 2364.99ms total
+Dropped 134 nodes (cum <= 11.82ms)
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%  1394.42ms 58.96%  golang.org/x/sync/errgroup.(*Group).Go.func1
+         0     0%     0%  1340.38ms 56.68%  github.com/weaviate/weaviate/entities/errors.(*ErrorGroupWrapper).withRecovery.func1
+         0     0%     0%  1293.09ms 54.68%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactDistance
+         0     0%     0%  1293.09ms 54.68%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactOrGone
+         0     0%     0%  1293.09ms 54.68%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).rescore.func1
+         0     0%     0%  1289.08ms 54.51%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readVector
+ 1280.35ms 54.14% 54.14%  1285.21ms 54.34%  sync.(*Mutex).Unlock
+         0     0% 54.14%    54.04ms  2.28%  golang.org/x/sync/errgroup.(*Group).done
+   54.04ms  2.28% 56.42%    54.04ms  2.28%  sync.(*WaitGroup).Add
+         0     0% 56.42%    54.04ms  2.28%  sync.(*WaitGroup).Done
+   43.92ms  1.86% 58.28%    43.92ms  1.86%  runtime.systemstack_switch
+         0     0% 58.28%    41.72ms  1.76%  runtime.gcBgMarkWorker
+         0     0% 58.28%    37.01ms  1.56%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).AddBatch
+         0     0% 58.28%    37.01ms  1.56%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.TestDiagInserts.func4
+         0     0% 58.28%    36.50ms  1.54%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).addInBatches
+         0     0% 58.28%    36.50ms  1.54%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).searchWindow
+         0     0% 58.28%    23.62ms     1%  runtime.bgsweep
+   23.62ms     1% 59.28%    23.62ms     1%  runtime.goschedIfBusy
+         0     0% 59.28%    21.35ms   0.9%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyIfDue
+   21.23ms   0.9% 60.18%    21.23ms   0.9%  sync.(*Cond).Broadcast
+         0     0% 60.18%    15.12ms  0.64%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).plan
+         0     0% 60.18%    14.78ms  0.62%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*fetchedSearch).run
+    0.08ms 0.0034% 60.18%    14.23ms   0.6%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*fetchedSearch).run.func2
+         0     0% 60.18%    13.13ms  0.56%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*postingSearch).visit
+    0.28ms 0.012% 60.19%     8.72ms  0.37%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).exact
+         0     0% 60.19%     8.43ms  0.36%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readFile
+         0     0% 60.19%     8.43ms  0.36%  internal/poll.(*FD).Pread
+         0     0% 60.19%     8.43ms  0.36%  os.(*File).ReadAt
+         0     0% 60.19%     8.43ms  0.36%  os.(*File).pread
+    8.43ms  0.36% 60.55%     8.43ms  0.36%  internal/poll.(*FD).decref

@@ -1,0 +1,129 @@
+== 02:49:15 waiting for 900 s of idle (now 21150 s)
+== 2026-11-28 02:49:15 idle for 21150 s
+== 02:49:15 grow 100k
+grow 100k exit 0
+== 02:50:50 100k control-m2: m2 TestDiagInserts PE_ROWS=100000 PE_CALLERS=8
+100k control-m2 exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:51:06 100k control-diag-off: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8 PE_CLOCKS=0
+100k control-diag-off exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:51:23 100k control-diag-on: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8
+100k control-diag-on exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:51:39 100k phases-c1-a: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=1
+100k phases-c1-a exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:52:33 100k phases-c2-a: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=2
+100k phases-c2-a exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:53:07 100k phases-c4-a: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=4
+100k phases-c4-a exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:53:30 100k phases-c8-a: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8
+100k phases-c8-a exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:53:46 100k phases-c8-b: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8
+100k phases-c8-b exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:54:02 100k phases-c4-b: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=4
+100k phases-c4-b exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:54:25 100k phases-c2-b: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=2
+100k phases-c2-b exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:54:59 100k phases-c1-b: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=1
+100k phases-c1-b exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:55:53 100k counters-c8: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8 PE_WORK=1
+100k counters-c8 exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:56:09 100k queries-c8: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8 PE_KIND=queries PE_N=1000 PE_EVERY=200
+100k queries-c8 exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:56:12 100k fresh-c8: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8 PE_KIND=fresh
+100k fresh-c8 exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:56:34 100k nocompaction-c8: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8 PE_COMPACTION=0
+100k nocompaction-c8 exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:56:56 100k search-t1: diag TestDiagSearch PE_ROWS=100000 PE_THREADS=1
+100k search-t1 exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:57:50 100k search-t8: diag TestDiagSearch PE_ROWS=100000 PE_THREADS=8
+100k search-t8 exit 0
+free after the pass, before removing its clone: 18 GiB
+== 02:58:05 100k profile-c1: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=1 PE_CPUPROFILE=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/runs/100k/profile-c1/cpu.prof
+100k profile-c1 exit 0
+free after the pass, before removing its clone: 17 GiB
+== 02:58:59 100k profile-c8: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8 PE_CPUPROFILE=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/runs/100k/profile-c8/cpu.prof
+100k profile-c8 exit 0
+free after the pass, before removing its clone: 17 GiB
+== 02:59:15 100k sample-c8: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8
+100k sample-c8 exit 0
+free after the pass, before removing its clone: 17 GiB
+== 02:59:34 100k trace-c8: diag TestDiagInserts PE_ROWS=100000 PE_CALLERS=8 PE_TRACE=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/runs/100k/trace-c8/trace.out
+100k trace-c8 exit 0
+free after the pass, before removing its clone: 17 GiB
+== 02:59:51 10m control-m2: m2 TestDiagInserts PE_CALLERS=8
+10m control-m2 exit 0
+free after the pass, before removing its clone: 13 GiB
+== 03:01:31 10m control-diag-off: diag TestDiagInserts PE_CALLERS=8 PE_CLOCKS=0
+10m control-diag-off exit 0
+free after the pass, before removing its clone: 13 GiB
+== 03:03:08 10m control-diag-on: diag TestDiagInserts PE_CALLERS=8
+10m control-diag-on exit 0
+free after the pass, before removing its clone: 13 GiB
+== 03:04:48 10m phases-c1-a: diag TestDiagInserts PE_CALLERS=1
+10m phases-c1-a exit 0
+free after the pass, before removing its clone: 14 GiB
+== 03:10:04 10m phases-c2-a: diag TestDiagInserts PE_CALLERS=2
+10m phases-c2-a exit 0
+free after the pass, before removing its clone: 8 GiB
+== 03:13:20 10m phases-c4-a: diag TestDiagInserts PE_CALLERS=4
+10m phases-c4-a exit 0
+free after the pass, before removing its clone: 8 GiB
+== 03:15:35 10m phases-c8-a: diag TestDiagInserts PE_CALLERS=8
+10m phases-c8-a exit 0
+free after the pass, before removing its clone: 8 GiB
+== 03:17:19 10m phases-c8-b: diag TestDiagInserts PE_CALLERS=8
+10m phases-c8-b exit 0
+free after the pass, before removing its clone: 8 GiB
+== 03:19:04 10m phases-c4-b: diag TestDiagInserts PE_CALLERS=4
+10m phases-c4-b exit 0
+free after the pass, before removing its clone: 9 GiB
+== 03:21:18 10m phases-c2-b: diag TestDiagInserts PE_CALLERS=2
+10m phases-c2-b exit 0
+free after the pass, before removing its clone: 9 GiB
+== 03:24:38 10m phases-c1-b: diag TestDiagInserts PE_CALLERS=1
+10m phases-c1-b exit 0
+free after the pass, before removing its clone: 8 GiB
+== 03:30:07 10m counters-c8: diag TestDiagInserts PE_CALLERS=8 PE_WORK=1
+10m counters-c8 exit 0
+free after the pass, before removing its clone: 9 GiB
+== 03:31:55 10m queries-c8: diag TestDiagInserts PE_CALLERS=8 PE_KIND=queries PE_N=1000 PE_EVERY=200
+10m queries-c8 exit 0
+free after the pass, before removing its clone: 10 GiB
+== 03:32:11 10m nocompaction-c8: diag TestDiagInserts PE_CALLERS=8 PE_COMPACTION=0
+10m nocompaction-c8 exit 0
+free after the pass, before removing its clone: 13 GiB
+== 03:33:51 10m search-t1: diag TestDiagSearch PE_THREADS=1
+10m search-t1 exit 0
+free after the pass, before removing its clone: 20 GiB
+== 03:39:02 10m search-t8: diag TestDiagSearch PE_THREADS=8
+10m search-t8 exit 0
+free after the pass, before removing its clone: 20 GiB
+== 03:40:12 10m profile-c1: diag TestDiagInserts PE_CALLERS=1 PE_CPUPROFILE=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/runs/10m/profile-c1/cpu.prof
+10m profile-c1 exit 0
+free after the pass, before removing its clone: 15 GiB
+== 03:45:25 10m profile-c8: diag TestDiagInserts PE_CALLERS=8 PE_CPUPROFILE=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/runs/10m/profile-c8/cpu.prof
+10m profile-c8 exit 0
+free after the pass, before removing its clone: 15 GiB
+== 03:47:02 10m sample-c8: diag TestDiagInserts PE_CALLERS=8
+10m sample-c8 exit 0
+free after the pass, before removing its clone: 15 GiB
+== 03:48:41 10m trace-c8: diag TestDiagInserts PE_CALLERS=8 PE_TRACE=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/runs/10m/trace-c8/trace.out
+10m trace-c8 exit 0
+free after the pass, before removing its clone: 15 GiB
+== 2026-11-28 03:50:17 passes done
+pmset exit 0

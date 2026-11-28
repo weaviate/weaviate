@@ -1,0 +1,111 @@
+sample.txt: 125 threads, 6259 samples a thread
+  parked (condition variable)                     108.84 threads
+  reading (pread, read)                             6.87 threads
+  running                                           4.10 threads
+  sleeping (usleep)                                 1.02 threads
+  netpoll (kevent)                                  0.80 threads
+  writing (pwrite, write)                           0.07 threads
+  memory calls (madvise, mmap)                      0.03 threads
+  waking a thread (cond signal)                     0.02 threads
+  syncing (fsync, fcntl)                            0.01 threads
+  kernel lock (mutex wait)                          0.01 threads
+  files (open, close, rename, unlink, stat)         0.01 threads
+  = all                                           121.78
+  running, by what the leaf of the stack is:
+    traversal: following edges, the visited set, ranking       1.28 threads   31.3 %
+    scoring: codes of members and endpoints                    1.18 threads   28.7 %
+    copying bytes (memmove)                                    0.26 threads    6.3 %
+    rows: decoding and joining what the store returned         0.26 threads    6.2 %
+    map lookups and string keys                                0.19 threads    4.7 %
+    GC (mark, sweep, stack scan)                               0.19 threads    4.7 %
+    allocation                                                 0.19 threads    4.6 %
+    other (runtime, libc)                                      0.15 threads    3.5 %
+    store: reads (segments, memtable, bloom)                   0.14 threads    3.4 %
+    scheduler and runtime locks                                0.05 threads    1.2 %
+    exact vectors (float dot, the read)                        0.05 threads    1.2 %
+    clock reads                                                0.04 threads    0.9 %
+    on the way into or out of a libc call                      0.03 threads    0.7 %
+    store, other                                               0.03 threads    0.7 %
+    store: compaction                                          0.02 threads    0.5 %
+    centroid graph (RQ8 distances, the queue)                  0.02 threads    0.4 %
+    index, other                                               0.01 threads    0.2 %
+    plan: rows read from the store                             0.00 threads    0.1 %
+    plan: exact vectors (rescore)                              0.00 threads    0.1 %
+    GC                                                         0.00 threads    0.1 %
+    runtime: scheduler                                         0.00 threads    0.1 %
+    plan: traversal of the postings                            0.00 threads    0.1 %
+    apply: the rest (rows written, inverse edges, journal)     0.00 threads    0.0 %
+    runtime: allocation                                        0.00 threads    0.0 %
+    plan: centroids                                            0.00 threads    0.0 %
+    apply: split                                               0.00 threads    0.0 %
+  running, by leaf function:
+      0.58  traversal: following edges, the visited  vector/hnsw/visited.(*SparseSet).CheckAndVisit
+      0.42  traversal: following edges, the visited  vector/postingedge.(*searchScratch).collectEndpoints
+      0.30  scoring: codes of members and endpoints  vector/compressionhelpers.(*CenteredBinaryRQDistancer).Distance
+      0.26  copying bytes (memmove)                  runtime.memmove
+      0.25  scoring: codes of members and endpoints  vector/hnsw/distancer/asm.hamming_bitwise.abi0
+      0.21  scoring: codes of members and endpoints  vector/compressionhelpers.(*CappedCenteredBinaryRQDistancer).Distance
+      0.13  scoring: codes of members and endpoints  vector/compressionhelpers.weightedHammingNEON
+      0.13  traversal: following edges, the visited  vector/postingedge.(*searchScratch).selectBatch
+      0.12  traversal: following edges, the visited  vector/postingedge.(*postingSearch).visit
+      0.11  scoring: codes of members and endpoints  vector/hnsw/distancer/asm.HammingBitwise
+      0.11  rows: decoding and joining what the stor vector/postingedge.(*growBlock).decode
+      0.10  rows: decoding and joining what the stor vector/postingedge.(*growIndex).fetchMembers
+      0.07  scoring: codes of members and endpoints  vector/postingedge.(*sidecar).score
+      0.07  map lookups and string keys              runtime.mapaccess2_fast64
+      0.06  scoring: codes of members and endpoints  vector/compressionhelpers.weightedHammingAsm.abi0
+      0.05  allocation                               runtime.memclrNoHeapPointers
+      0.04  rows: decoding and joining what the stor vector/postingedge.(*growIndex).joinRows
+      0.04  map lookups and string keys              internal/runtime/maps.memHashAES
+      0.04  exact vectors (float dot, the read)      vector/postingedge.(*growIndex).exact
+      0.04  GC (mark, sweep, stack scan)             runtime.tryDeferToSpanScan
+      0.04  store: reads (segments, memtable, bloom) lsmkv/segmentindex.(*DiskTree).descend
+      0.03  clock reads                              mach_absolute_time
+      0.03  store: reads (segments, memtable, bloom) lsmkv.(*segment).collectionStratParseDataBytes
+      0.03  store: reads (segments, memtable, bloom) lsmkv.(*binarySearchNodeMulti).get
+      0.03  map lookups and string keys              runtime.memequal
+      0.02  GC (mark, sweep, stack scan)             runtime.pcvalue
+      0.02  GC (mark, sweep, stack scan)             runtime.greyobject
+      0.02  GC (mark, sweep, stack scan)             runtime.scanObject
+      0.02  allocation                               runtime.mallocgcSmallNoscan
+      0.02  GC (mark, sweep, stack scan)             runtime.(*sweepLocked).sweep
+      0.02  traversal: following edges, the visited  vector/postingedge.(*topK).push
+      0.02  scoring: codes of members and endpoints  vector/postingedge.(*sidecar).prefetch
+      0.02  map lookups and string keys              runtime.mapaccess2_faststr
+      0.01  allocation                               runtime.(*pallocBits).summarize
+      0.01  scoring: codes of members and endpoints  vector/hnsw/distancer/asm.PrefetchN.abi0
+      0.01  GC (mark, sweep, stack scan)             runtime.(*spanSet).pop
+      0.01  map lookups and string keys              cmpbody
+      0.01  traversal: following edges, the visited  vector/postingedge.(*topK).siftDown
+      0.01  allocation                               runtime.(*mheap).allocSpan
+      0.01  other (runtime, libc)                    bufio.(*Writer).Write
+      0.01  scheduler and runtime locks              runtime.lock2
+      0.01  other (runtime, libc)                    runtime.step
+      0.01  exact vectors (float dot, the read)      vector/hnsw/distancer/asm.dot_neon.abi0
+      0.01  on the way into or out of a libc call    runtime.asmcgocall.abi0
+      0.01  centroid graph (RQ8 distances, the queue vector/hnsw/distancer/asm.dotByteUDOTAsm.abi0
+      0.01  store: reads (segments, memtable, bloom) github.com/bits-and-blooms/bloom/v3.(*BloomFilter).Test
+      0.01  GC (mark, sweep, stack scan)             runtime.scanObjectsSmall
+      0.01  map lookups and string keys              runtime.mapassign_faststr
+      0.01  other (runtime, libc)                    io.ReadAtLeast
+      0.01  other (runtime, libc)                    runtime.(*sysMemStat).add
+      0.01  allocation                               runtime.(*fixalloc).alloc
+      0.01  GC (mark, sweep, stack scan)             runtime.findfunc
+      0.01  store, other                             lsmkv.(*cacheReader).Read
+      0.01  store: reads (segments, memtable, bloom) github.com/bits-and-blooms/bloom/v3.(*BloomFilter).Add
+      0.01  allocation                               runtime.(*mheap).initSpan
+      0.01  on the way into or out of a libc call    runtime.libcCall
+      0.01  store: reads (segments, memtable, bloom) github.com/bits-and-blooms/bloom/v3.(*digest128).sum128
+      0.01  GC (mark, sweep, stack scan)             runtime.(*stkframe).getStackMap
+      0.01  other (runtime, libc)                    runtime.(*activeSweep).end
+      0.01  other (runtime, libc)                    runtime.(*moduledata).textAddr
+      0.01  store: compaction                        lsmkv.(*compactorReplace).writeKeys
+      0.01  allocation                               runtime.mallocgc
+      0.01  GC (mark, sweep, stack scan)             runtime.newMarkBits
+      0.01  allocation                               runtime.mallocgcSmallScanHeader
+      0.01  allocation                               runtime.mallocgcSmallScanNoHeaderSC2
+      0.01  other (runtime, libc)                    runtime.(*pageCache).alloc
+      0.01  other (runtime, libc)                    runtime.adjustframe
+      0.01  GC (mark, sweep, stack scan)             runtime.findObject
+      0.00  GC (mark, sweep, stack scan)             runtime.typePointers.next
+      0.00  store: compaction                        lsmkv.(*compactorReplace).writeIndividualNode

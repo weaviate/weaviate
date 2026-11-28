@@ -1,0 +1,38 @@
+Type: delay
+Showing nodes accounting for 10989647.41us, 97.03% of 11325647.18us total
+Dropped 316 nodes (cum <= 56628.24us)
+      flat  flat%   sum%        cum   cum%
+  160.70us 0.0014% 0.0014% 10862721.32us 95.91%  golang.org/x/sync/errgroup.(*Group).Go.func1
+   72.83us 0.00064% 0.0021% 10691588.28us 94.40%  github.com/weaviate/weaviate/entities/errors.(*ErrorGroupWrapper).withRecovery.func1
+    0.51us 4.5e-06% 0.0021% 10301853.77us 90.96%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).rescore.func1
+   27.20us 0.00024% 0.0023% 10301853.26us 90.96%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactOrGone
+ 1664.51us 0.015% 0.017% 10301826.06us 90.96%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Index).exactDistance
+         0     0% 0.017% 10295524.69us 90.90%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).readVector
+10175463.87us 89.84% 89.86% 10238962.24us 90.41%  sync.(*Mutex).Unlock
+333024.14us  2.94% 92.80% 333024.14us  2.94%  runtime.systemstack_switch
+         0     0% 92.80% 325045.90us  2.87%  runtime.gcBgMarkWorker
+         0     0% 92.80% 291784.53us  2.58%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).AddBatch
+         0     0% 92.80% 291784.53us  2.58%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.TestDiagInserts.func4
+         0     0% 92.80% 290365.84us  2.56%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).addInBatches
+         0     0% 92.80% 290358.80us  2.56%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).searchWindow
+         0     0% 92.80% 179680.51us  1.59%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).plan
+         0     0% 92.80% 175704.57us  1.55%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*fetchedSearch).run
+ 2499.01us 0.022% 92.82% 171768.89us  1.52%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*fetchedSearch).run.func2
+         0     0% 92.82% 170972.34us  1.51%  golang.org/x/sync/errgroup.(*Group).done
+170810.99us  1.51% 94.33% 170810.99us  1.51%  sync.(*WaitGroup).Add
+         0     0% 94.33% 170810.99us  1.51%  sync.(*WaitGroup).Done
+         0     0% 94.33% 110617.05us  0.98%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*Persistent).applyIfDue
+108209.18us  0.96% 95.29% 108209.18us  0.96%  sync.(*Cond).Broadcast
+         0     0% 95.29% 104391.26us  0.92%  runtime.mallocgc
+         0     0% 95.29% 93309.85us  0.82%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.timedRead
+         0     0% 95.29% 90277.29us   0.8%  runtime.bgsweep
+90277.29us   0.8% 96.08% 90277.29us   0.8%  runtime.goschedIfBusy
+   25.73us 0.00023% 96.08% 90127.04us   0.8%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*postingSearch).visit
+  304.26us 0.0027% 96.09% 75523.91us  0.67%  runtime.mallocgcSmallNoscan
+ 1715.58us 0.015% 96.10% 64581.64us  0.57%  runtime.semrelease1
+         0     0% 96.10% 63498.37us  0.56%  internal/sync.(*Mutex).Unlock
+  632.32us 0.0056% 96.11% 63498.37us  0.56%  internal/sync.(*Mutex).unlockSlow
+         0     0% 96.11% 62866.05us  0.56%  internal/sync.runtime_Semrelease
+61358.21us  0.54% 96.65% 61358.21us  0.54%  runtime.goyield
+         0     0% 96.65% 60956.80us  0.54%  github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge.(*growIndex).fetch
+43401.08us  0.38% 97.03% 57314.81us  0.51%  runtime.gcStart
