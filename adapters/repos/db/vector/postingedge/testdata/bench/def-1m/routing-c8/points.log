@@ -1,0 +1,26 @@
+=== RUN   TestNightPoints
+    bench_night_points_test.go:235: ef 10: recall 0.9160, 12.45 loads a query in 2.86 rounds, 3216 members, 64 vectors read, 809 KB of blocks (242ms)
+    bench_night_points_test.go:235: ef 20: recall 0.9487, 18.18 loads a query in 4.30 rounds, 4694 members, 64 vectors read, 1183 KB of blocks (315ms)
+    bench_night_points_test.go:235: ef 40: recall 0.9699, 28.09 loads a query in 6.77 rounds, 7232 members, 64 vectors read, 1825 KB of blocks (464ms)
+    bench_night_points_test.go:235: ef 30: recall 0.9613, 23.37 loads a query in 5.59 rounds, 6023 members, 64 vectors read, 1519 KB of blocks (401ms)
+    bench_night_points_test.go:235: ef 25: recall 0.9569, 20.82 loads a query in 4.96 rounds, 5375 members, 64 vectors read, 1356 KB of blocks (353ms)
+    bench_night_points_test.go:235: ef 22: recall 0.9518, 19.23 loads a query in 4.56 rounds, 4963 members, 64 vectors read, 1251 KB of blocks (332ms)
+    bench_night_points_test.go:235: ef 21: recall 0.9505, 18.74 loads a query in 4.43 rounds, 4838 members, 64 vectors read, 1220 KB of blocks (325ms)
+    bench_night_points_test.go:261: recall 0.95: ef 21, recall 0.9505, 18.74 loads a query
+    bench_night_points_test.go:235: ef 10: recall 0.9160, 12.45 loads a query in 2.86 rounds, 3216 members, 64 vectors read, 809 KB of blocks (229ms)
+    bench_night_points_test.go:235: ef 20: recall 0.9487, 18.18 loads a query in 4.30 rounds, 4694 members, 64 vectors read, 1183 KB of blocks (311ms)
+    bench_night_points_test.go:235: ef 40: recall 0.9699, 28.09 loads a query in 6.77 rounds, 7232 members, 64 vectors read, 1825 KB of blocks (467ms)
+    bench_night_points_test.go:235: ef 80: recall 0.9826, 44.25 loads a query in 10.81 rounds, 11368 members, 64 vectors read, 2870 KB of blocks (703ms)
+    bench_night_points_test.go:235: ef 160: recall 0.9898, 71.14 loads a query in 17.54 rounds, 18232 members, 64 vectors read, 4601 KB of blocks (1.101s)
+    bench_night_points_test.go:235: ef 320: recall 0.9939, 115.70 loads a query in 28.68 rounds, 29564 members, 64 vectors read, 7455 KB of blocks (1.754s)
+    bench_night_points_test.go:235: ef 240: recall 0.9930, 94.56 loads a query in 23.39 rounds, 24192 members, 64 vectors read, 6102 KB of blocks (1.454s)
+    bench_night_points_test.go:235: ef 200: recall 0.9918, 83.41 loads a query in 20.60 rounds, 21354 members, 64 vectors read, 5388 KB of blocks (1.278s)
+    bench_night_points_test.go:235: ef 180: recall 0.9907, 77.62 loads a query in 19.16 rounds, 19883 members, 64 vectors read, 5017 KB of blocks (1.192s)
+    bench_night_points_test.go:235: ef 170: recall 0.9902, 74.56 loads a query in 18.39 rounds, 19104 members, 64 vectors read, 4821 KB of blocks (1.154s)
+    bench_night_points_test.go:235: ef 165: recall 0.9901, 72.82 loads a query in 17.95 rounds, 18661 members, 64 vectors read, 4709 KB of blocks (1.116s)
+    bench_night_points_test.go:235: ef 162: recall 0.9899, 71.77 loads a query in 17.69 rounds, 18394 members, 64 vectors read, 4642 KB of blocks (1.113s)
+    bench_night_points_test.go:235: ef 163: recall 0.9899, 72.13 loads a query in 17.78 rounds, 18486 members, 64 vectors read, 4665 KB of blocks (1.107s)
+    bench_night_points_test.go:235: ef 164: recall 0.9901, 72.44 loads a query in 17.86 rounds, 18563 members, 64 vectors read, 4685 KB of blocks (1.122s)
+    bench_night_points_test.go:261: recall 0.99: ef 164, recall 0.9901, 72.44 loads a query
+--- PASS: TestNightPoints (16.88s)
+PASS

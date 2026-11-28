@@ -1,0 +1,52 @@
+#!/bin/bash
+# The control of the start of the 1M curve against the measure at 100k
+# (bench-report.md of feat/posting-edge-index, "Control: el arranque de la
+# curva de 1M frente a la medida de 100k", pre-registered on 2026-11-28).
+# The binary of the chain (base.test, m2 at 8ed921ed59 with the night
+# harness), nothing built here. From the base of 10 000 to 100 000 vectors of
+# dbpedia, in routing: A, dense, the first 100 000 rows (PE_ROWS); B, spread,
+# the first 100 000 of the shuffle of the 990 000 (PE_N). With 8 callers two
+# passes of each, alternated; with 1 caller one of each. Timed: marker, idle
+# wait, caffeinate. Each index is removed once its pass ends.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/def1m/control
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+BASE=$S/diag/m2/adapters/repos/db/vector/postingedge
+mkdir -p $W
+
+printf 'the control of the start of the 1M curve (def1m/control.sh), timed, since %s for about half an hour; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+clear_index() {
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/def1m/control -type d -name index -prune -exec rm -rf {} +
+}
+
+pass() { # name kind callers
+  local C=$W/$1 kind=$2 callers=$3 rows=0 n=0
+  if [ "$kind" = dense ]; then rows=100000; else n=100000; fi
+  mkdir -p $C
+  date "+== %Y-%m-%d %H:%M:%S $1: $kind, $callers callers (idle $(hid_idle) s)"
+  (cd $BASE && exec env PE_DATASET=$D PE_DIR=$C/index PE_OUT=$C/grow.json PE_CALLERS=$callers PE_CACHE=routing \
+    PE_ROWS=$rows PE_N=$n PE_STRETCH=60 PE_MINFREE=3 $S/def1m/base.test -test.run '^TestNightGrow$' -test.v -test.timeout 0 > $C/grow.log 2>&1) &
+  local pid=$!
+  python3 -I -B $S/def1m/monitor.py $pid $C/monitor.jsonl 10 > $C/monitor.err 2>&1 &
+  wait $pid
+  echo "$1 exit $?"
+  wait
+  clear_index
+}
+
+pass a8-1 dense 8
+pass b8-1 spread 8
+pass a8-2 dense 8
+pass b8-2 spread 8
+pass a1 dense 1
+pass b1 spread 1
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $W/end.txt
+pmset -g log 2>/dev/null | grep -E '^[0-9-]+ [0-9:]+ \+[0-9]+ (Sleep|Wake|DarkWake)' | tail -n 5 > $W/pmset-sleep-wake.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

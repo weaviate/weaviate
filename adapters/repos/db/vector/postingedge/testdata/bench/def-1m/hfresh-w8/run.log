@@ -1,0 +1,9 @@
+=== RUN   TestHFreshDiskInserts
+2026/11/28 05:12:30 pprof listening at http://127.0.0.1:6060/debug/pprof/
+    bench_disk_test.go:706: objects: 990000 vectors written in 23s. The timed inserts start: 8 writers, 9 background workers
+time="2026-11-28T05:12:55+01:00" level=warning msg="hfresh posting sizes configured" action=hfresh_configure component=HFresh id=hfresh maxPostingSize=227 maxPostingSizeKB=48 minPostingSize=75 singlePostingMax=0
+    bench_disk_test.go:762: inserts: 990000 vectors by 8 writers in 135.8 s to the last insert, 7289 a second, and 197.9 s to the background queues empty, 5002 a second | at the last insert there waited 906 splits, 0 merges, 631897 reassignments, 51103 to analyze
+    bench_disk_test.go:767: centroid graph, tombstone cleanup cycle false: 51475 nodes and 25737 tombstones at the last insert, 56327 and 28163 with the queues empty, for 28164 postings alive
+    bench_disk_test.go:783: it left 28164 postings and 5107592 entries, 5.16 per vector | recall 0.9697 with searchProbe 256 and rescoreLimit 350
+--- PASS: TestHFreshDiskInserts (229.18s)
+PASS

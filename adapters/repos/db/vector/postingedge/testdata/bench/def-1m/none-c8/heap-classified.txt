@@ -1,0 +1,18 @@
+edge changes waiting to consolidate                                          25.38
+lsmkv: bloom filters                                                          8.40
+centroid graph: codes (RQ8) and their cache                                   7.19
+docID -> slot                                                                 4.96
+docID -> posting                                                              4.96
+live per docID, size per posting                                              1.28
+tombstones (deleted per docID)                                                1.25
+centroid graph: nodes                                                         0.35
+centroid graph: connections                                                   0.18
+per posting: retired, halo and list sequences                                 0.17
+centroid graph: commit log and the rest                                       0.14
+(lsmkv in all)                                                                8.45
+the rest, each under 1 MB (51 groups)                                         0.26
+= in the profile                                                             54.56
++ allocated, not in the profile                                               5.53
+= HeapAlloc                                                                  60.08
++ free in spans in use                                                       11.74
+= HeapInuse (the figure reported)                                            71.82

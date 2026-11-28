@@ -2208,6 +2208,232 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 
 **Duración estimada:** unas tres horas y media.
 
+#### Medidas definitivas a 1M, primera parte: los inserts, resultado (28 de noviembre, cerrado a las 08:36)
+
+**A 1M de dbpedia la base inserta 663 vectores por segundo con 8 llamadores y 185 con 1, 3.59 veces. HFresh, con 8 escritores, hace 7 289 hasta su último insert y 5 002 hasta dejar vacías sus colas: 11.0 y 7.5 veces lo nuestro con 8. En `none` son 428 por segundo, un 36 % menos que en `routing`, con un heap de 60 MB frente a 150. Los tres índices crecidos cargan a 0.95 lo que el lote, de 17.9 a 18.7 postings por query frente a 18.6. A 0.99 quedan entre 63.5 y 78.4 frente a 76.3, y ese punto no los separa.**
+
+**Qué pasó.**
+- **De las 05:12:30 a las 07:49:12,** 2 h 37 min; estimé tres horas y media. Las cuatro pasadas acabaron sin error y ninguna paró por disco: el mínimo libre durante los crecimientos fueron 10.9 GiB.
+- **La máquina llevaba 29 746 s sin teclado ni trackpad al empezar;** durante la cadena no lo registré. El registro de energía no tiene ninguna entrada de sueño ni de despertar desde el 26 a las 21:53. No compilé ni ejecuté tests mientras corría.
+- **Todo se leyó de la caché de ficheros:** de 0.12 a 0.16 GB leídos de disco por crecimiento.
+- **Una corrida por celda:** no hay medida del ruido entre corridas.
+
+**Tres cosas del pre-registro que estaban mal** (*mías*; la corrida hizo lo que hace el índice, y lo que cambia es con qué se compara).
+1. **El rescore fue 64, no 150.** El test de los puntos no fija rescore: usa el automático del índice, que a 1 536 bits es 64. Los 150 son los de 768 bits, los de wiki-dpr, y los arrastré de la corrida de 10M. Las celdas en lote con las que comparo son, por tanto, las de rescore 64.
+2. **Los índices no acaban reorganizados.** Escribí que el `Settle` final cabía a este tamaño. Cabe, pero no toca: en reposo reorganiza cuando el índice dobla lo que tenía en la última pasada, y la última fue a 640 320 vectores. Durante la ingesta hubo tres, a 4 veces cada una: 40 000, 160 000 y 640 000. El 35 % de los vectores queda en orden de llegada.
+   - El heap, el recall y las cargas no dependen de eso. La búsqueda en frío sí: es de la segunda parte, y ahí hay que decidir si se mide como queda o reorganizado.
+3. **Las medidas anteriores de dbpedia usaron 5 000 queries, no 1 000.** Los puntos del lote de v4.0 y de la malla de parámetros se buscaron sobre 5 000. Estos, sobre las 1 000 primeras. No son las mismas queries.
+
+**Frente a lo que esperaba:**
+
+| | esperaba | salió | |
+|---|---|---|---|
+| 8 llamadores, al empezar | cerca de 1 100 por segundo | 834 en el primer tramo | fuera, por abajo: ver el control de abajo |
+| 8 llamadores, al acabar | entre 550 y 650 | 574 en el último tramo entero | sí |
+| 8 llamadores, duración | unos 30 minutos | 24.6 | |
+| 1 llamador, al acabar | entre 160 y 250 | 159 en el último tramo entero, 152 en el anterior | fuera, por abajo, por poco |
+| 1 llamador, duración | hora y media o algo más | 88 minutos | sí |
+| `none` frente a `routing` | un ritmo parecido | 428 frente a 663, un 36 % menos | fuera |
+| HFresh | varios miles por segundo, y de 5 a 10 minutos con sus colas | 7 289 por segundo, y 3.3 minutos con sus colas | más rápido |
+| heap en `routing` | unos 250 MB: 89 de códigos y hasta 128 de pendientes | 150.0 MB: 89.1 de códigos y 25.0 de pendientes | lo pendiente no se acerca a su tope |
+| heap en `none` | sin los códigos | 60.1 MB | sí |
+
+**HFresh, con 8 escritores** (`20e89f0873`, configuración por defecto, 9 workers de fondo).
+
+| | |
+|---|---:|
+| escribir los objetos, antes del reloj | 23.4 s |
+| hasta el último insert | 135.8 s, 7 289 por segundo |
+| hasta las colas vacías | 197.9 s, 5 002 por segundo |
+| con los objetos dentro del reloj | 6 216 y 4 472 por segundo |
+| esperando en el último insert | 631 897 reasignaciones, 906 splits y 51 103 por analizar |
+| postings, y entradas por vector | 28 164, y 5.16 |
+| recall con su configuración por defecto (`searchProbe` 256, rescore 350) | 0.9697 |
+| en disco | 11.1 GB: 6.22 de objetos y 4.67 de postings |
+| escrito por el proceso, hasta la última lectura del monitor | 26.3 GB, 4.3 veces los vectores |
+| CPU del proceso, hasta la última lectura del monitor | 0.39 h, 1.43 ms por vector |
+
+- **Frente a v5.0, con 1 escritor:** 2 089 por segundo entonces; con 8 escritores, 3.5 veces. En disco, 10.5 GB entonces.
+- **Frente al nuestro con 8 llamadores:** 11.0 veces hasta el último insert y 7.5 hasta las colas vacías. Con los objetos dentro del reloj, 9.4 y 6.7.
+- **Lo que no es igual,** además de lo que anoté en el pre-registro (vector a vector, sin lotes ni `Flush`, y los objetos antes del reloj):
+  - **Su grafo de centroides acaba con 28 163 tombstones para 28 164 postings.** El ciclo que los limpia no corre en este arnés, como en v5.0. En el nodo corre; no lo medí con él.
+  - **El recall no es un punto de operación comparable:** es el de su configuración por defecto, sin cargas contadas. El nuestro se da a 0.95 y a 0.99.
+  - **El CPU y lo escrito son del proceso entero,** con los objetos, las 1 000 queries y el arnés.
+
+**El nuestro: el ritmo.** `m2` en `8ed921ed59`, base de 10 000, lotes de 100 y un `Flush` por ronda.
+
+| | `routing`, 8 llamadores | `none`, 8 llamadores | `routing`, 1 llamador |
+|---|---:|---:|---:|
+| segundos de inserts tras la base | 1 478 | 2 292 | 5 306 |
+| inserts por segundo, media | 663 | 428 | 185 |
+| primer tramo | 834 | 644 | 320 |
+| último tramo entero | 574 | 373 | 159 |
+| cores ocupados, usuario y sistema | 6.38 | 6.95 | 1.40 |
+| ms de CPU por insert | 9.73 | 16.47 | 7.70 |
+| millones de instrucciones por insert | 61.9 | 104.4 | 60.3 |
+| instrucciones por ciclo | 2.16 | 2.16 | 2.52 |
+| búsqueda del plan, ms por insert (reloj del índice) | 7.76 | 13.08 | 5.18 |
+| cargas por insert | 62.06 | 62.08 | 62.09 |
+| filas leídas por insert, y sus MB | 124.1, 3.94 | 186.2, 12.55 | 124.2, 3.94 |
+| postings vivos al acabar | 4 070 | 4 097 | 4 094 |
+| escrito por el proceso, GB | 27.0 | 49.3 | 34.3 |
+| veces los 6.08 GB de vectores | 4.44 | 8.10 | 5.64 |
+| en disco, GB (el store y el directorio del índice) | 6.9 (0.75 y 6.16) | 7.5 (1.32 y 6.16) | 6.9 (0.73 y 6.17) |
+
+Los cores, el CPU y las instrucciones son del proceso entero y sin el primer tramo, que lleva abrir el índice y la base.
+
+- **8 llamadores dan 3.59 veces lo de 1.** El diagnóstico, en wiki-dpr, dio 3.5 a 100k y 3.4 a 10M.
+- **Son las cifras del prototipo:** v5.2, de noche, dio 184 con 1 y 663 con 8. No es el mismo código ni la misma sesión; lo anoto como coincidencia.
+- **El ritmo baja con el tamaño en los tres:** un 31 % del primer tramo al último entero en `routing` con 8, un 42 % en `none` y un 50 % con 1 llamador. El CPU por insert sube un 28, un 42 y un 26 % entre los 200 000 y el final.
+- **`none` es más lento porque su búsqueda hace más:** 13.08 ms frente a 7.76, con las mismas cargas. Por cada carga lee una fila más, la de los códigos de los endpoints, y en total 3.2 veces los bytes: 12.55 MB por insert frente a 3.94. Son un 69 % más de instrucciones, al mismo ritmo por ciclo.
+  - Este binario no lleva los relojes por fase del diagnóstico: no sé repartirlo entre pedir las filas, decodificarlas y puntuar.
+- **No paga el presupuesto de lo pendiente:** ninguna fila se escribió por él. Lo pendiente acaba en 22 MB, lejos de los 128.
+
+**Por tramos de unos 100 000 vectores** (los cortes caen en bordes de tramo; todos los tramos, con todas las columnas, en `testdata/bench/def-1m/<pasada>/stretches.tsv`). El CPU y los bytes son del proceso entero. El primer tramo no tiene CPU: el suyo lleva abrir el índice y la base.
+
+`routing`, 8 llamadores:
+
+| hora | miles dentro | inserts/s | cores usuario | cores sistema | ms de CPU por insert | escrito, KB por insert | veces el vector | diario, KB | filas de aristas y distancias, KB | postings vivos | GB en disco |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 05:18:34 | 107 | 792 | — | — | — | 15.8 | 2.56 | 3.32 | 0.98 | 440 | 0.79 |
+| 05:20:36 | 200 | 759 | 6.02 | 0.48 | 8.57 | 25.5 | 4.15 | 3.52 | 1.07 | 822 | 1.43 |
+| 05:22:37 | 288 | 726 | 6.00 | 0.46 | 8.89 | 16.7 | 2.72 | 3.64 | 1.12 | 1 193 | 2.04 |
+| 05:25:39 | 416 | 703 | 5.97 | 0.45 | 9.13 | 20.4 | 3.31 | 3.72 | 1.15 | 1 730 | 2.92 |
+| 05:27:40 | 497 | 673 | 5.94 | 0.44 | 9.47 | 21.3 | 3.47 | 3.78 | 1.18 | 2 066 | 3.49 |
+| 05:30:42 | 616 | 656 | 5.90 | 0.43 | 9.66 | 25.6 | 4.16 | 3.83 | 1.21 | 2 524 | 4.32 |
+| 05:32:44 | 692 | 626 | 5.82 | 0.47 | 10.04 | 80.6 | 13.12 | 3.95 | 1.24 | 2 868 | 4.84 |
+| 05:35:47 | 801 | 595 | 5.92 | 0.43 | 10.68 | 25.4 | 4.13 | 3.94 | 1.25 | 3 318 | 5.54 |
+| 05:38:49 | 908 | 588 | 5.92 | 0.42 | 10.78 | 28.4 | 4.62 | 3.98 | 1.27 | 3 748 | 6.31 |
+| 05:41:11 | 990 | 575 | 5.92 | 0.41 | 10.99 | 28.5 | 4.63 | 4.03 | 1.29 | 4 070 | 6.89 |
+| **todo** | 990 | 663 | — | — | — | 27.6 | 4.49 | 3.77 | 1.18 | 4 070 | 6.89 |
+
+`none`, 8 llamadores:
+
+| hora | miles dentro | inserts/s | cores usuario | cores sistema | ms de CPU por insert | escrito, KB por insert | veces el vector | diario, KB | filas de aristas y distancias, KB | postings vivos | GB en disco |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 05:44:35 | 116 | 577 | — | — | — | 23.1 | 3.76 | 6.01 | 0.99 | 470 | 0.91 |
+| 05:47:37 | 210 | 519 | 6.57 | 0.40 | 13.43 | 39.5 | 6.43 | 6.45 | 1.08 | 866 | 1.59 |
+| 05:50:42 | 300 | 489 | 6.57 | 0.38 | 14.21 | 38.7 | 6.30 | 6.69 | 1.12 | 1 231 | 2.24 |
+| 05:54:45 | 408 | 444 | 6.58 | 0.40 | 15.71 | 39.0 | 6.35 | 6.80 | 1.16 | 1 688 | 3.15 |
+| 05:58:49 | 510 | 417 | 6.61 | 0.41 | 16.84 | 48.3 | 7.86 | 7.10 | 1.20 | 2 117 | 3.78 |
+| 06:02:51 | 608 | 405 | 6.59 | 0.40 | 17.25 | 49.5 | 8.05 | 7.10 | 1.21 | 2 515 | 4.51 |
+| 06:06:56 | 703 | 387 | 6.42 | 0.41 | 17.67 | 91.7 | 14.93 | 7.12 | 1.24 | 2 897 | 5.84 |
+| 06:11:00 | 796 | 379 | 6.54 | 0.35 | 18.18 | 54.7 | 8.91 | 7.52 | 1.25 | 3 304 | 5.99 |
+| 06:16:06 | 910 | 374 | 6.55 | 0.38 | 18.50 | 64.1 | 10.43 | 7.27 | 1.27 | 3 785 | 6.74 |
+| 06:19:45 | 990 | 365 | 6.57 | 0.37 | 19.02 | 56.8 | 9.25 | 7.44 | 1.29 | 4 097 | 7.47 |
+| **todo** | 990 | 427 | — | — | — | 50.3 | 8.18 | 6.94 | 1.18 | 4 097 | 7.47 |
+
+`routing`, 1 llamador:
+
+| hora | miles dentro | inserts/s | cores usuario | cores sistema | ms de CPU por insert | escrito, KB por insert | veces el vector | diario, KB | filas de aristas y distancias, KB | postings vivos | GB en disco |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 06:26:32 | 102 | 254 | — | — | — | 16.8 | 2.74 | 3.41 | 0.99 | 426 | 0.73 |
+| 06:33:33 | 196 | 222 | 1.36 | 0.12 | 6.68 | 29.2 | 4.75 | 3.61 | 1.07 | 808 | 1.38 |
+| 06:41:35 | 296 | 208 | 1.32 | 0.11 | 6.84 | 26.6 | 4.33 | 3.73 | 1.12 | 1 236 | 2.06 |
+| 06:50:38 | 403 | 196 | 1.29 | 0.10 | 7.13 | 31.5 | 5.13 | 3.79 | 1.15 | 1 663 | 2.83 |
+| 06:59:39 | 502 | 183 | 1.32 | 0.10 | 7.78 | 33.0 | 5.37 | 3.87 | 1.18 | 2 080 | 3.47 |
+| 07:08:41 | 596 | 174 | 1.32 | 0.10 | 8.15 | 28.7 | 4.68 | 3.91 | 1.21 | 2 459 | 4.17 |
+| 07:18:44 | 698 | 169 | 1.30 | 0.11 | 8.28 | 71.2 | 11.60 | 4.00 | 1.23 | 2 905 | 4.90 |
+| 07:28:47 | 797 | 165 | 1.30 | 0.10 | 8.51 | 38.2 | 6.22 | 3.99 | 1.25 | 3 287 | 5.44 |
+| 07:39:51 | 905 | 161 | 1.24 | 0.09 | 8.26 | 33.0 | 5.37 | 4.09 | 1.27 | 3 748 | 6.29 |
+| 07:48:56 | 990 | 157 | 1.23 | 0.09 | 8.45 | 40.2 | 6.55 | 4.08 | 1.28 | 4 094 | 6.88 |
+| **todo** | 990 | 185 | — | — | — | 35.0 | 5.70 | 3.85 | 1.18 | 4 094 | 6.88 |
+
+**Lo escrito.**
+- **Por insert, en `routing` con 8 llamadores, 27.6 KB:** el vector (6.14), los tres layouts (5.32: 848 492 vectores reescritos, 5.2 GB), el diario (3.77), las filas de aristas con sus distancias (1.18) y el log de lo pendiente (0.47). Los 10.7 que faltan son los WAL del store, sus volcados y su compactación; no están separados.
+  - **El tramo del layout de 640 000 se ve en las tres tablas:** de 71 a 92 KB por insert, donde los vecinos tienen de 25 a 55.
+- **`none` escribe 1.8 veces lo de `routing`,** 50.3 KB por insert. Su diario es de 6.94 KB frente a 3.77, y cuenta además 3.0 KB de sus filas de códigos (añadidos, filas reescritas y recortes). El resto, hasta los 22.7 KB de diferencia, está en el store y no está separado.
+- **Con 1 llamador se escribe más que con 8,** 35.0 KB por insert frente a 27.6, con el mismo diario, las mismas filas y el mismo log de lo pendiente. No sé de dónde sale. Lo que cambia es que hay un `Flush` cada 100 inserts y no cada 800 (245 000 registros de diario frente a 17 974), y que la corrida dura 3.6 veces más con los ciclos del store corriendo.
+- **Escribir crece con el tamaño también aquí:** sin los tramos de layout, de 16 a 28 KB por insert en `routing` con 8.
+
+**El heap al abrir, por componente** (otro proceso, perfil con todas las reservas; abrir tardó de 2.2 a 2.5 s). En MB:
+
+| componente | `routing`, crecido con 8 | `none`, crecido con 8 | `routing`, crecido con 1 |
+|---|---:|---:|---:|
+| códigos de ruteo | 89.10 | — | 89.10 |
+| cambios de aristas pendientes | 25.02 | 25.38 | 25.32 |
+| `lsmkv` (filtros de bloom) | 9.01 | 8.45 | 9.03 |
+| centroides RQ8 y su caché | 7.74 | 7.19 | 6.96 |
+| docID → posting | 4.96 | 4.96 | 4.96 |
+| docID → slot | 4.96 | 4.96 | 4.96 |
+| vivos por docID y tamaños por posting | 1.28 | 1.28 | 1.28 |
+| tombstones | 1.25 | 1.25 | 1.25 |
+| grafo de los centroides | 0.70 | 0.67 | 0.70 |
+| por posting: retirados, halo y secuencias | 0.17 | 0.17 | 0.17 |
+| resto | 0.54 | 0.26 | 0.27 |
+| **en el perfil** | **144.71** | **54.56** | **144.00** |
+| reservado y fuera del perfil | 5.25 | 5.53 | 5.52 |
+| **reservado y en uso** | **149.96** | **60.08** | **149.51** |
+| libre dentro de páginas en uso | 16.93 | 11.74 | 17.10 |
+| heap en uso | 166.90 | 71.82 | 166.62 |
+
+- **Por vector, 151 B en `routing` y 61 B en `none`.** A 10M en `routing` eran 131: allí lo pendiente topa en su presupuesto y aquí pesa 25 B por vector.
+- **Las tablas van por `keys`, 1 237 381, no por los 990 000 vectores:** es el problema conocido de las tablas por doc id, con su holgura de 1.25 veces. Los códigos de ruteo serían 71.3 MB por vector presente.
+- **Lo pendiente es lo que no esperaba bien:** 25 MB, que el índice cuenta como 22.2 y el perfil un 13 % más, como a 10M.
+
+**El recall y las cargas** (`TestNightPoints`, sin cronometrar: las 1 000 primeras queries, k = 10, contra los vecinos exactos del dataset; rescore 64, que es el automático; 8 hilos, cada índice abierto en su modo).
+
+| | 0.95: ef | cargas | 0.99: ef | cargas |
+|---|---:|---:|---:|---:|
+| crecido en `routing` con 8 llamadores | 21 | 18.74 | 164 | 72.44 |
+| crecido en `none` con 8 llamadores | 20 | 18.44 | 183 | 78.36 |
+| crecido en `routing` con 1 llamador | 19 | 17.87 | 136 | 63.49 |
+| en lote, la celda de disco de v4.0, sobre 5 000 queries | 21 | 18.6 | 187 | 76.3 |
+| en lote, en memoria, la malla de parámetros del 21, sobre 5 000 queries | 20 | 18.0 | 188 | 76.9 |
+
+A igual ef, recall y cargas de los tres crecidos:
+
+| ef | `routing`, 8 | `none`, 8 | `routing`, 1 |
+|---:|---|---|---|
+| 10 | 0.9160, 12.45 | 0.9177, 12.59 | 0.9179, 12.50 |
+| 20 | 0.9487, 18.19 | 0.9503, 18.44 | 0.9518, 18.43 |
+| 40 | 0.9699, 28.09 | 0.9711, 28.43 | 0.9714, 28.28 |
+| 80 | 0.9826, 44.25 | 0.9829, 44.41 | 0.9832, 44.25 |
+| 160 | 0.9898, 71.14 | 0.9892, 71.23 | 0.9908, 71.21 |
+| 320 | 0.9939, 115.70 | 0.9945, 115.52 | sin medir |
+
+- **A 0.95 el crecido carga lo que el lote:** de 17.87 a 18.74 frente a 18.0 y 18.6.
+- **A igual ef los tres crecidos son el mismo índice:** las cargas se separan hasta un 1.4 % y el recall entre 0.0006 y 0.0031.
+- **El punto de 0.99 no los separa.** Va de ef 136 a ef 183, y de 63.5 a 78.4 cargas, porque ahí la curva es plana: a ef 160 los tres están entre 0.9892 y 0.9908, a una diezmilésima por acierto. En v5.2 dos corridas iguales ya se separaron un 13.3 % en cargas a 0.99.
+- **Frente al lote a igual ef,** hasta donde se puede comparar con otras queries: a ef 20 el crecido carga de 18.2 a 18.4 donde el lote carga 18.0, y a ef 180 a 190 carga de 77.6 a 80.4 donde el lote carga 76.9 a ef 188. Entre un 1 y un 4 % más de cargas, con el recall a 0.002 del lote o menos.
+- **Crecer con 8 llamadores no deja peor índice que con 1,** con lo que resuelve una corrida: a igual ef el de 1 llamador tiene de 0.0006 a 0.0031 más de recall que el de 8, y `none` con 8 queda entre los dos salvo a ef 160.
+- **Postings:** 4 070, 4 097 y 4 094 vivos, 242 a 243 vectores por posting. El lote tiene 4 195, 236 por posting.
+
+**Lo que no sé.**
+- **Por qué el arranque queda un 30 % por debajo de la medida de 100k.** Con 8 llamadores, 792 por segundo hasta los 107 000 vectores, donde la serie dio 1 180 creciendo hasta 100 000. Con 1, 254 frente a 322. No son las mismas condiciones: aquella medida eran las 100 000 primeras filas, con doc ids densos, y este arnés baraja las 990 000 y usa la fila como doc id, así que los doc ids caen por todo el rango desde el primer insert y las tablas por doc id tienen su tamaño final desde el principio. Tampoco es el mismo arnés ni el mismo commit. El control de abajo lo separa.
+  - **Si es por los doc ids repartidos, lo que queda tocado es el principio de la curva y la media, no el final:** con los 990 000 dentro las tablas son las mismas. En un shard los doc ids llegan en orden.
+- De dónde salen los 7.4 KB más por insert que se escriben con 1 llamador.
+- Cómo se reparte dentro de la búsqueda lo que `none` tarda de más.
+- El ruido entre corridas de cada cifra: hay una corrida por celda.
+- Lo que HFresh daría con el ciclo de limpieza de sus centroides corriendo.
+
+**Lo que queda,** como estaba dicho: la segunda parte (la búsqueda en frío y en caliente sobre el índice crecido, y la de punta a punta por un shard), y, cuando haya sitio, HFresh a 10M y la reorganización de nuestro índice de 10M.
+
+**Datos:** `testdata/bench/def-1m/`: por pasada, `grow.json`, `grow.log`, `stretches.tsv`, `groups.txt`, `heap.json`, `heap.heap`, `heap-classified.txt`, `points.json` y `monitor.jsonl.gz`; de HFresh, `result.json`, `run.log` y `monitor.jsonl.gz`; y `chain.out.txt`, `stretches.py`, `md.py` y `classify10m.py`.
+
+#### Control: el arranque de la curva de 1M frente a la medida de 100k (pre-registro, 28 de noviembre a las 08:36, antes de ejecutarlo)
+
+**La pregunta:** si los 792 inserts por segundo del principio de la curva, frente a los 1 180 de la medida de 100k, son del binario (una regresión entre la serie y `m2` en `8ed921ed59`), del arnés, o de que este arnés reparte los doc ids por todo el rango.
+
+**Cómo** (*mío*). El mismo binario de la cadena (`base.test`), sin compilar nada, con el arnés de la cadena y sus mismos parámetros (`routing`, lotes de 100, un `Flush` por ronda, tramos de 60 s), creciendo de la base de 10 000 hasta 100 000 vectores de dos maneras:
+- **A, denso:** las 100 000 primeras filas de dbpedia (`PE_ROWS`), que son las de la medida de 100k. Los doc ids van de 0 a 99 999.
+- **B, repartido:** las 100 000 primeras de la baraja de las 990 000 (`PE_N`), que es como empezó la cadena. Los doc ids caen por todo el rango.
+- Con 8 llamadores, dos pasadas de cada una, alternadas: A, B, A, B. Con 1 llamador, una de cada una.
+- De cada pasada: inserts por segundo, CPU por insert, y lo que el índice cuenta por insert (cargas, filas leídas, tiempo de la búsqueda del plan).
+- Cronometrado: marcador, espera de máquina libre y `caffeinate`. Unos 25 minutos. Cada índice se borra al acabar su pasada.
+
+**Lo que espero** (*mío*).
+- **A con 8 llamadores: entre 1 100 y 1 200 por segundo,** como la serie. Entre la serie y `m2` no hay cambios en el camino del insert que yo sepa.
+- **B con 8: cerca de 800,** como el principio de la cadena.
+- **Las cargas por insert, iguales en A y en B** con un 3 % de margen: las filas del fichero no están ordenadas, que yo sepa. Si no lo son, la diferencia es de qué filas y no de dónde caen sus doc ids, y lo digo.
+- **Con 1 llamador: A cerca de 320 y B cerca de 255.**
+
+**Cómo lo leo.**
+- **A como la serie y B por debajo, con las mismas cargas:** el arranque de la curva está deprimido por los doc ids repartidos. El final y el heap no cambian; la media de la corrida es pesimista para un shard, y digo en cuánto se puede acotar.
+- **A por debajo de 1 000:** hay una diferencia de binario o de arnés. Paro y la busco antes de dar las cifras por definitivas.
+- **A y B iguales y por debajo:** lo mismo.
+- No separa el tamaño de las tablas de qué filas entran si las cargas difieren: haría falta un tercer brazo que el arnés no tiene.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

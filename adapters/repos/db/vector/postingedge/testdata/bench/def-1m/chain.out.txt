@@ -1,0 +1,30 @@
+== 05:12:30 waiting for 900 s of idle (now 29746 s)
+== 2026-11-28 05:12:30 idle for 29746 s
+== 2026-11-28 05:12:30 hfresh-w8: HFresh, 8 writers
+hfresh-w8 exit 0
+index: 11.1 GB
+== 2026-11-28 05:16:31 routing-c8: grow, routing, 8 callers
+routing-c8 grow exit 0
+== 05:41:11 routing-c8: heap
+routing-c8 heap exit 0
+== 05:41:14 routing-c8: points
+routing-c8 points exit 0
+0.75 GB  index/lsm
+6.16 GB  index/main.postingedge.d
+== 2026-11-28 05:41:32 none-c8: grow, none, 8 callers
+none-c8 grow exit 0
+== 06:19:52 none-c8: heap
+none-c8 heap exit 0
+== 06:19:54 none-c8: points
+none-c8 points exit 0
+1.32 GB  index/lsm
+6.16 GB  index/main.postingedge.d
+== 2026-11-28 06:20:28 routing-c1: grow, routing, 1 callers
+routing-c1 grow exit 0
+== 07:48:59 routing-c1: heap
+routing-c1 heap exit 0
+== 07:49:01 routing-c1: points
+routing-c1 points exit 0
+0.73 GB  index/lsm
+6.17 GB  index/main.postingedge.d
+== 2026-11-28 07:49:12 done

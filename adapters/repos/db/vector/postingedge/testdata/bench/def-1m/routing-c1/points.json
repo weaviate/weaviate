@@ -1,0 +1,208 @@
+{
+  "dir": "/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/def1m/routing-c1/index",
+  "dataset": "/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.bin",
+  "cacheMode": "routing",
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1237381,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 0,
+    "postings": 8145,
+    "splits": 4051,
+    "splitsFailed": 0,
+    "live": 990000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 4,
+    "vectorsLaidOut": 640000,
+    "refreshedAt": 10000
+  },
+  "livePostings": 4094,
+  "deleted": 0,
+  "queries": 1000,
+  "k": 10,
+  "threads": 8,
+  "points": [
+    {
+      "target": 0.95,
+      "ef": 19,
+      "recall": 0.9506,
+      "loads": 17.866,
+      "rounds": 4.218,
+      "members": 4578.552,
+      "rescored": 64,
+      "blockBytes": 1153501.774
+    },
+    {
+      "target": 0.99,
+      "ef": 136,
+      "recall": 0.99,
+      "loads": 63.49,
+      "rounds": 15.623,
+      "members": 16194.198,
+      "rescored": 64,
+      "blockBytes": 4085864.176
+    }
+  ],
+  "tried": [
+    {
+      "ef": 10,
+      "recall": 0.9179,
+      "loads": 12.502,
+      "rounds": 2.877,
+      "members": 3203.908,
+      "rescored": 64,
+      "blockBytes": 806011.072
+    },
+    {
+      "ef": 20,
+      "recall": 0.9518,
+      "loads": 18.426,
+      "rounds": 4.358,
+      "members": 4723.094,
+      "rescored": 64,
+      "blockBytes": 1189851.058
+    },
+    {
+      "ef": 15,
+      "recall": 0.9402,
+      "loads": 15.722,
+      "rounds": 3.682,
+      "members": 4030.671,
+      "rescored": 64,
+      "blockBytes": 1015216.957
+    },
+    {
+      "ef": 17,
+      "recall": 0.9451,
+      "loads": 16.726,
+      "rounds": 3.933,
+      "members": 4286.959,
+      "rescored": 64,
+      "blockBytes": 1079979.741
+    },
+    {
+      "ef": 18,
+      "recall": 0.949,
+      "loads": 17.314,
+      "rounds": 4.08,
+      "members": 4438.012,
+      "rescored": 64,
+      "blockBytes": 1118161.122
+    },
+    {
+      "ef": 19,
+      "recall": 0.9506,
+      "loads": 17.866,
+      "rounds": 4.218,
+      "members": 4578.552,
+      "rescored": 64,
+      "blockBytes": 1153501.774
+    },
+    {
+      "ef": 10,
+      "recall": 0.9179,
+      "loads": 12.502,
+      "rounds": 2.877,
+      "members": 3203.908,
+      "rescored": 64,
+      "blockBytes": 806011.072
+    },
+    {
+      "ef": 20,
+      "recall": 0.9518,
+      "loads": 18.426,
+      "rounds": 4.358,
+      "members": 4723.094,
+      "rescored": 64,
+      "blockBytes": 1189851.058
+    },
+    {
+      "ef": 40,
+      "recall": 0.9714,
+      "loads": 28.278,
+      "rounds": 6.821,
+      "members": 7235.62,
+      "rescored": 64,
+      "blockBytes": 1824970.916
+    },
+    {
+      "ef": 80,
+      "recall": 0.9832,
+      "loads": 44.25,
+      "rounds": 10.814,
+      "members": 11294.744,
+      "rescored": 64,
+      "blockBytes": 2849917.869
+    },
+    {
+      "ef": 160,
+      "recall": 0.9908,
+      "loads": 71.206,
+      "rounds": 17.552,
+      "members": 18142.48,
+      "rescored": 64,
+      "blockBytes": 4576455.693
+    },
+    {
+      "ef": 120,
+      "recall": 0.9892,
+      "loads": 58.374,
+      "rounds": 14.344,
+      "members": 14894.319,
+      "rescored": 64,
+      "blockBytes": 3758195.905
+    },
+    {
+      "ef": 140,
+      "recall": 0.9904,
+      "loads": 64.81,
+      "rounds": 15.953,
+      "members": 16527.255,
+      "rescored": 64,
+      "blockBytes": 4169942.148
+    },
+    {
+      "ef": 130,
+      "recall": 0.9898,
+      "loads": 61.73,
+      "rounds": 15.183,
+      "members": 15749.418,
+      "rescored": 64,
+      "blockBytes": 3973762.399
+    },
+    {
+      "ef": 135,
+      "recall": 0.9899,
+      "loads": 63.274,
+      "rounds": 15.569,
+      "members": 16137.87,
+      "rescored": 64,
+      "blockBytes": 4071655.307
+    },
+    {
+      "ef": 137,
+      "recall": 0.9901,
+      "loads": 63.854,
+      "rounds": 15.714,
+      "members": 16285.701,
+      "rescored": 64,
+      "blockBytes": 4108905.409
+    },
+    {
+      "ef": 136,
+      "recall": 0.99,
+      "loads": 63.49,
+      "rounds": 15.623,
+      "members": 16194.198,
+      "rescored": 64,
+      "blockBytes": 4085864.176
+    }
+  ]
+}

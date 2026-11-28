@@ -1,0 +1,4 @@
+=== RUN   TestNightHeap
+    bench_night_grow_test.go:606: cache mode routing: opened in 2s, heap in use 166.9 MB, allocated and in use 150.0 MB
+--- PASS: TestNightHeap (2.23s)
+PASS

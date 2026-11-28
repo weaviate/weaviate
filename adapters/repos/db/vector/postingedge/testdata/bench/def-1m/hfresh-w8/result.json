@@ -1,0 +1,75 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "config": {
+    "maxPostingSizeKB": 48,
+    "replicas": 4,
+    "searchProbe": 256,
+    "distance": "cosine",
+    "rq": {
+      "enabled": true,
+      "bits": 1,
+      "rescoreLimit": 350,
+      "rescoreFactor": 0,
+      "centering": false,
+      "trainingLimit": 0
+    },
+    "multivector": {
+      "enabled": false,
+      "muvera": {
+        "enabled": false,
+        "ksim": 4,
+        "dprojections": 16,
+        "repetitions": 10
+      },
+      "aggregation": ""
+    }
+  },
+  "writers": 8,
+  "gomaxprocs": 10,
+  "backgroundWorkers": 9,
+  "objectsSeconds": 23.449391333,
+  "insertSeconds": 135.821922084,
+  "insertsPerSecond": 7288.955897618116,
+  "queueSeconds": 197.915466459,
+  "queuePerSecond": 5002.135597144388,
+  "pendingAtLastInsert": {
+    "analyze": 51103,
+    "merge": 0,
+    "reassign": 631897,
+    "split": 906
+  },
+  "cleanup": false,
+  "graphAtLastInsert": {
+    "nodes": 51475,
+    "tombstones": 25737,
+    "postings": 25746
+  },
+  "graphAtEmpty": {
+    "nodes": 56327,
+    "tombstones": 28163,
+    "postings": 28164
+  },
+  "postings": 28164,
+  "entries": 5107592,
+  "replication": 5.159183838383838,
+  "queries": 1000,
+  "k": 10,
+  "searchProbe": 256,
+  "rescoreLimit": 350,
+  "recall": 0.9697,
+  "files": {
+    "bucket hfresh_postings_hfresh": 4666845040,
+    "bucket hfresh_shared_hfresh": 68158959,
+    "bucket objects": 6221751328,
+    "bucket vectors_compressed": 91305561,
+    "centroids": 7611979
+  },
+  "segments": {
+    "bucket hfresh_postings_hfresh": 411,
+    "bucket hfresh_shared_hfresh": 1,
+    "bucket objects": 33,
+    "bucket vectors_compressed": 2
+  }
+}
