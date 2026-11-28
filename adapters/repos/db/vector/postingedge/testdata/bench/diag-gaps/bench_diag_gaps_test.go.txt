@@ -1,0 +1,772 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench
+
+package postingedge
+
+import (
+	"context"
+	"math"
+	"math/rand/v2"
+	"os"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
+)
+
+// The gaps of the diagnostic of the inserts (bench-report.md of
+// feat/posting-edge-index, "Huecos del diagnóstico", pre-registered on
+// 2026-11-28 by the user's order): measures only, over clones of the indexes
+// of the diagnostic.
+
+// diagPercentiles is the latencies of a set of durations, in ms.
+type diagPercentiles struct {
+	N    int     `json:"n"`
+	Mean float64 `json:"meanms"`
+	P50  float64 `json:"p50ms"`
+	P95  float64 `json:"p95ms"`
+	P99  float64 `json:"p99ms"`
+	P999 float64 `json:"p999ms"`
+	Max  float64 `json:"maxms"`
+}
+
+func diagPercentilesOf(samples []time.Duration) diagPercentiles {
+	out := diagPercentiles{N: len(samples)}
+	if len(samples) == 0 {
+		return out
+	}
+	sorted := make([]float64, len(samples))
+	for i, s := range samples {
+		sorted[i] = float64(s) / float64(time.Millisecond)
+		out.Mean += sorted[i] / float64(len(samples))
+	}
+	slices.Sort(sorted)
+	at := func(q float64) float64 {
+		return sorted[max(0, min(len(sorted)-1, int(math.Ceil(q*float64(len(sorted))))-1))]
+	}
+	out.P50, out.P95, out.P99, out.P999, out.Max = at(0.50), at(0.95), at(0.99), at(0.999), sorted[len(sorted)-1]
+	return out
+}
+
+// TestDiagPoint finds, untimed, the smallest ef at which an index grown from
+// the first PE_ROWS rows of the dataset reaches a recall of 0.95 for the
+// queries of the dataset, against their exact neighbors among those rows,
+// which it computes. It writes the point to PE_POINT.
+func TestDiagPoint(t *testing.T) {
+	datasetDir, dir, out := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_POINT")
+	if datasetDir == "" || dir == "" || out == "" {
+		t.Skip("no PE_DATASET, PE_DIR and PE_POINT given")
+	}
+	const k = 10
+	ctx := context.Background()
+	train, err := openNightTrain(datasetDir)
+	require.NoError(t, err)
+	defer train.file.Close()
+	nightRows(t, train)
+	queries, _, _ := readNightQueries(t, datasetDir, k)
+	provider := distancer.NewCosineDistanceProvider()
+
+	// The exact neighbors of every query among the rows of the index.
+	type best struct {
+		ids   [k]uint64
+		dists [k]float32
+		n     int
+	}
+	truth := make([]best, len(queries))
+	const chunk = 10000
+	var buf []byte
+	for from := 0; from < train.rows; from += chunk {
+		ids := make([]uint64, 0, chunk)
+		for row := from; row < min(from+chunk, train.rows); row++ {
+			ids = append(ids, uint64(row))
+		}
+		var vectors [][]float32
+		vectors, buf, err = train.read(ids, buf)
+		require.NoError(t, err)
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range runtime.GOMAXPROCS(0) {
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				for {
+					q := int(next.Add(1)) - 1
+					if q >= len(queries) {
+						return
+					}
+					b := &truth[q]
+					for i, vec := range vectors {
+						dist, _ := provider.SingleDist(queries[q], vec)
+						if b.n == k && dist >= b.dists[k-1] {
+							continue
+						}
+						at := b.n
+						if b.n < k {
+							b.n++
+						} else {
+							at = k - 1
+						}
+						for at > 0 && b.dists[at-1] > dist {
+							b.ids[at], b.dists[at] = b.ids[at-1], b.dists[at-1]
+							at--
+						}
+						b.ids[at], b.dists[at] = ids[i], dist
+					}
+				}
+			}, logrus.New())
+		}
+		wg.Wait()
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	st := openNightStore(t, dir, logger, false)
+	cfg := st.config(dir, logger, 0)
+	cfg.noMaintenance = true
+	p, err := Open(cfg, uc, st.store)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, p.Shutdown(ctx))
+		require.NoError(t, st.store.Shutdown(ctx))
+	}()
+	p.mu.RLock()
+	live := p.g.meta.Live
+	p.mu.RUnlock()
+	require.Equal(t, train.rows, live, "the index holds the rows the neighbors were computed over")
+
+	at := func(ef int) (float64, float64) {
+		searching := uc
+		searching.EF = ef
+		require.NoError(t, p.UpdateUserConfig(searching, func() {}))
+		var next, hits, loads atomic.Int64
+		var wg sync.WaitGroup
+		errs := make([]error, 8)
+		for worker := range 8 {
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				for {
+					q := int(next.Add(1)) - 1
+					if q >= len(queries) {
+						return
+					}
+					var stats diskSearchStats
+					p.mu.RLock()
+					found, _, err := p.g.search(ctx, queries[q], k, &stats)
+					p.mu.RUnlock()
+					if err != nil {
+						errs[worker] = err
+						return
+					}
+					for _, want := range truth[q].ids[:truth[q].n] {
+						if slices.Contains(found, want) {
+							hits.Add(1)
+						}
+					}
+					loads.Add(int64(stats.Postings))
+				}
+			}, logger)
+		}
+		wg.Wait()
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+		recall := float64(hits.Load()) / float64(len(queries)*k)
+		t.Logf("ef %d: recall %.4f, %.2f loads", ef, recall, float64(loads.Load())/float64(len(queries)))
+		return recall, float64(loads.Load()) / float64(len(queries))
+	}
+	const target = 0.95
+	low, high := k-1, k
+	recall, loads := at(high)
+	for recall < target {
+		low, high = high, 2*high
+		require.LessOrEqual(t, high, 4096, "the index does not reach recall %.2f", target)
+		recall, loads = at(high)
+	}
+	for high-low > 1 {
+		mid := (low + high) / 2
+		if r, l := at(mid); r >= target {
+			high, recall, loads = mid, r, l
+		} else {
+			low = mid
+		}
+	}
+	writeNightJSON(t, out, map[string]any{
+		"dir": dir, "dataset": datasetDir, "rows": train.rows, "queries": len(queries), "k": k, "target": target,
+		"ef": high, "recall": recall, "loads": loads,
+	})
+}
+
+// TestDiagQueries times read-only queries over a clone of an index, alone
+// or next to callers that insert, for PE_SECONDS: PE_QTHREADS goroutines
+// search the queries of the dataset one after another at PE_EF, each query
+// admitted as in a shard, and PE_CALLERS callers add batches of 100 with a
+// flush after every round, as TestDiagInserts does (0 for none). Of every
+// query it keeps its latency, and how much of it was the wait for the index
+// (its lock for reading) and how much the search. The store has its cycles.
+func TestDiagQueries(t *testing.T) {
+	datasetDir, dir, out := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_OUT")
+	if datasetDir == "" || dir == "" || out == "" || os.Getenv("PE_EF") == "" {
+		t.Skip("no PE_DATASET, PE_DIR, PE_OUT and PE_EF given")
+	}
+	const k = 10
+	ctx := context.Background()
+	ef := int(nightEnvInt(t, "PE_EF", 0))
+	queryThreads := int(nightEnvInt(t, "PE_QTHREADS", 1))
+	callers := int(nightEnvInt(t, "PE_CALLERS", 0))
+	lasting := time.Duration(nightEnvInt(t, "PE_SECONDS", 60)) * time.Second
+	n := int(nightEnvInt(t, "PE_NVECTORS", 60000))
+	seed := uint64(nightEnvInt(t, "PE_SEED", 7))
+	train, err := openNightTrain(datasetDir)
+	require.NoError(t, err)
+	defer train.file.Close()
+	datasetRows := nightRows(t, train)
+	queries, _, _ := readNightQueries(t, datasetDir, k)
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	uc.EF = ef
+	st := openDiagStore(t, dir, logger, true)
+	cfg := st.config(dir, logger, 0)
+	clocks, hooksOff := diagHooks(&cfg, true, false)
+	defer hooksOff()
+	p, err := Open(cfg, uc, st.store)
+	require.NoError(t, err)
+	shut := func() {
+		if p == nil {
+			return
+		}
+		require.NoError(t, p.Flush())
+		require.NoError(t, p.Shutdown(ctx))
+		st.stopCycles(ctx)
+		require.NoError(t, st.store.Shutdown(ctx))
+		p = nil
+	}
+	defer shut()
+	var ids []uint64
+	var vectors [][]float32
+	if callers > 0 {
+		ids, vectors = diagVectors(t, p, train, datasetRows, datasetDir, "repeated", n, seed)
+	}
+	p.mu.RLock()
+	meta := p.g.meta
+	p.mu.RUnlock()
+
+	limiter := queryadmission.New(prometheus.NewRegistry(), queryadmission.Config{})
+	type sample struct{ total, wait, search time.Duration }
+	// search runs one query and tells its latency, the part of it that was
+	// the wait for the lock of the index, and the postings it loaded.
+	search := func(q int) (sample, int, error) {
+		var stats diskSearchStats
+		start := time.Now()
+		searchCtx, release, err := limiter.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+		if err != nil {
+			return sample{}, 0, err
+		}
+		asked := time.Now()
+		p.mu.RLock()
+		held := time.Now()
+		_, _, err = p.g.search(searchCtx, queries[q], k, &stats)
+		p.mu.RUnlock()
+		end := time.Now()
+		release()
+		return sample{total: end.Sub(start), wait: held.Sub(asked), search: end.Sub(held)}, stats.Postings, err
+	}
+	// Warm: every query once, with 8 threads, before anything is timed.
+	{
+		var next atomic.Int64
+		warming := enterrors.NewErrorGroupWrapper(logger)
+		for range 8 {
+			warming.Go(func() error {
+				for {
+					q := int(next.Add(1)) - 1
+					if q >= len(queries) {
+						return nil
+					}
+					if _, _, err := search(q); err != nil {
+						return err
+					}
+				}
+			})
+		}
+		require.NoError(t, warming.Wait())
+	}
+
+	require.NoError(t, os.WriteFile(out+".started", []byte(time.Now().Format("15:04:05")+"\n"), 0o644))
+	usageBefore, err := readDiagRusage()
+	require.NoError(t, err)
+	runtimeBefore := readDiagMetrics()
+	var clocksBefore map[string]int64
+	if clocks != nil {
+		clocksBefore = clocks()
+	}
+	var gcBefore runtime.MemStats
+	runtime.ReadMemStats(&gcBefore)
+	begin := time.Now()
+	deadline := begin.Add(lasting)
+
+	var wg sync.WaitGroup
+	var failMu sync.Mutex
+	var failure error
+	fail := func(err error) {
+		failMu.Lock()
+		if failure == nil {
+			failure = err
+		}
+		failMu.Unlock()
+	}
+	inserted, insertSeconds, rounds := 0, 0.0, 0
+	if callers > 0 {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			const batch = 100
+			for at := 0; at < n && time.Now().Before(deadline); {
+				to := min(at+batch*callers, n)
+				adding := enterrors.NewErrorGroupWrapper(logger)
+				for start := at; start < to; start += batch {
+					end := min(start+batch, to)
+					adding.Go(func() error { return p.AddBatch(ctx, ids[start:end], vectors[start:end]) })
+				}
+				err := adding.Wait()
+				if err == nil {
+					err = p.Flush()
+				}
+				if err != nil {
+					fail(err)
+					return
+				}
+				at = to
+				inserted, rounds = to, rounds+1
+				insertSeconds = time.Since(begin).Seconds()
+			}
+		}, logger)
+	}
+	perThread := make([][]sample, queryThreads)
+	var loads atomic.Int64
+	var next atomic.Int64
+	for worker := range queryThreads {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			for time.Now().Before(deadline) {
+				q := int(next.Add(1)-1) % len(queries)
+				s, loaded, err := search(q)
+				if err != nil {
+					fail(err)
+					return
+				}
+				loads.Add(int64(loaded))
+				perThread[worker] = append(perThread[worker], s)
+			}
+		}, logger)
+	}
+	wg.Wait()
+	took := time.Since(begin)
+	require.NoError(t, failure, "the pass failed")
+	usage, err := readDiagRusage()
+	require.NoError(t, err)
+	var gcAfter runtime.MemStats
+	runtime.ReadMemStats(&gcAfter)
+	var clocksAfter map[string]int64
+	if clocks != nil {
+		clocksAfter = clocks()
+	}
+
+	var totals, waits, searches []time.Duration
+	for _, samples := range perThread {
+		for _, s := range samples {
+			totals, waits, searches = append(totals, s.total), append(waits, s.wait), append(searches, s.search)
+		}
+	}
+	// How many queries waited for the lock of the index longer than 1 ms and
+	// longer than 10 ms.
+	over1, over10 := 0, 0
+	for _, w := range waits {
+		if w > time.Millisecond {
+			over1++
+		}
+		if w > 10*time.Millisecond {
+			over10++
+		}
+	}
+	result := map[string]any{
+		"dir": dir, "dataset": datasetDir, "rows": train.rows, "cacheMode": uc.RQ.CacheMode, "meta": meta,
+		"ef": ef, "k": k, "queryThreads": queryThreads, "callers": callers, "seconds": took.Seconds(),
+		"gomaxprocs": runtime.GOMAXPROCS(0), "pid": os.Getpid(),
+		"queries": len(totals), "qps": float64(len(totals)) / took.Seconds(),
+		"latency": diagPercentilesOf(totals), "lockWait": diagPercentilesOf(waits), "search": diagPercentilesOf(searches),
+		"lockWaitsOver1ms": over1, "lockWaitsOver10ms": over10,
+		"loadsPerQuery": float64(loads.Load()) / float64(max(len(totals), 1)),
+		"inserted":      inserted, "insertRounds": rounds, "insertSeconds": insertSeconds,
+		"numGC":        gcAfter.NumGC - gcBefore.NumGC,
+		"clocksBefore": clocksBefore, "clocksAfter": clocksAfter,
+		"rusageBefore": usageBefore, "rusageAfter": usage,
+		"runtimeBefore": runtimeBefore, "runtimeAfter": readDiagMetrics(),
+	}
+	if insertSeconds > 0 {
+		result["insertsPerSecond"] = float64(inserted) / insertSeconds
+	}
+	writeNightJSON(t, out, result)
+	latency, wait := diagPercentilesOf(totals), diagPercentilesOf(waits)
+	t.Logf("%d query threads, %d callers inserting, %s: %d queries, p50 %.3f ms, p99 %.3f, max %.1f | the wait for the "+
+		"index: p50 %.3f ms, p99 %.3f, max %.1f, %d over 1 ms | %d inserted in %.1f s", queryThreads, callers,
+		took.Round(time.Second), len(totals), latency.P50, latency.P99, latency.Max, wait.P50, wait.P99, wait.Max, over1,
+		inserted, insertSeconds)
+}
+
+// TestDiagDegree counts the edges of an index: of every posting that is
+// alive, as a search fetches it, how many edges each of its members has,
+// how many of them lead to a member of the same posting, and how many
+// endpoints they lead to in all. It opens the index with no cycle and no
+// maintenance, and writes nothing.
+func TestDiagDegree(t *testing.T) {
+	dir, out := os.Getenv("PE_DIR"), os.Getenv("PE_OUT")
+	if dir == "" || out == "" || os.Getenv("PE_DEGREE") == "" {
+		t.Skip("no PE_DIR, PE_OUT and PE_DEGREE given")
+	}
+	ctx := context.Background()
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	st := openNightStore(t, dir, logger, false)
+	cfg := st.config(dir, logger, 0)
+	cfg.noMaintenance = true
+	p, err := Open(cfg, uc, st.store)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, p.Shutdown(ctx))
+		require.NoError(t, st.store.Shutdown(ctx))
+	}()
+
+	begin := time.Now()
+	p.mu.RLock()
+	g := p.g
+	postingOf := g.st.side.postingOf
+	var postings, members, edges, same, distinct, noEdges int
+	histogram := make([]int, 65)
+	maxDegree := 0
+	seen := map[uint32]struct{}{}
+	var round diskRound
+	var problem error
+	const chunk = 32
+	picks := make([]scored, 0, chunk)
+	flush := func() {
+		if len(picks) == 0 || problem != nil {
+			picks = picks[:0]
+			return
+		}
+		if err := g.fetch(&round, picks); err != nil {
+			problem = err
+			return
+		}
+		for i, pick := range picks {
+			post := &round.postings[i].post
+			postings++
+			members += len(post.docIDs)
+			clear(seen)
+			for m := range post.docIDs {
+				list := post.edgesOf(m)
+				edges += len(list)
+				maxDegree = max(maxDegree, len(list))
+				histogram[min(len(list), len(histogram)-1)]++
+				if len(list) == 0 {
+					noEdges++
+				}
+				for _, endpoint := range list {
+					if postingOf[endpoint] == uint32(pick.id) {
+						same++
+					}
+					seen[endpoint] = struct{}{}
+				}
+			}
+			distinct += len(seen)
+		}
+		picks = picks[:0]
+	}
+	for q := 0; q < g.meta.Postings; q++ {
+		if g.retired[q] || g.size[q] == 0 {
+			continue
+		}
+		picks = append(picks, scored{id: uint64(q)})
+		if len(picks) == chunk {
+			flush()
+		}
+	}
+	flush()
+	meta := g.meta
+	p.mu.RUnlock()
+	require.NoError(t, problem)
+
+	writeNightJSON(t, out, map[string]any{
+		"dir": dir, "meta": meta, "postings": postings, "members": members, "edges": edges,
+		"edgesPerVector":              float64(edges) / float64(max(members, 1)),
+		"membersPerPosting":           float64(members) / float64(max(postings, 1)),
+		"edgesToTheSamePosting":       float64(same) / float64(max(edges, 1)),
+		"distinctEndpointsPerPosting": float64(distinct) / float64(max(postings, 1)),
+		"membersWithNoEdge":           noEdges, "maxDegree": maxDegree, "histogram": histogram,
+		"seconds": time.Since(begin).Seconds(),
+	})
+	t.Logf("%d postings, %d members, %d edges: %.2f edges a vector (most %d), %.1f %% of them to the same posting, "+
+		"%.0f distinct endpoints a posting", postings, members, edges, float64(edges)/float64(max(members, 1)), maxDegree,
+		100*float64(same)/float64(max(edges, 1)), float64(distinct)/float64(max(postings, 1)))
+}
+
+// TestDiagTables times, with no index, what the traversal of a search reads
+// by doc id, at the sizes of the two indexes of the diagnostic: for every
+// edge the posting of its endpoint and whether that posting is loaded, and
+// the visited set (the loop of collectEndpoints); and for every member the
+// mark of a deleted vector. PE_TABLES lists the cases as keys:edges:members,
+// with commas: how many doc ids the tables cover, and the edges and the
+// members of one search. The doc ids are drawn at random over the keys.
+func TestDiagTables(t *testing.T) {
+	out, cases := os.Getenv("PE_OUT"), os.Getenv("PE_TABLES")
+	if out == "" || cases == "" {
+		t.Skip("no PE_OUT and PE_TABLES given")
+	}
+	searches := int(nightEnvInt(t, "PE_SEARCHES", 64))
+	var threadCounts []int
+	for _, field := range strings.Split(nightEnv("PE_TABLETHREADS", "1,8"), ",") {
+		threads, err := strconv.Atoi(strings.TrimSpace(field))
+		require.NoError(t, err, "PE_TABLETHREADS")
+		threadCounts = append(threadCounts, threads)
+	}
+	var results []map[string]any
+	for _, field := range strings.Split(cases, ",") {
+		parts := strings.Split(strings.TrimSpace(field), ":")
+		require.Len(t, parts, 3, "PE_TABLES is keys:edges:members")
+		keys, err := strconv.Atoi(parts[0])
+		require.NoError(t, err)
+		edgesPer, err := strconv.Atoi(parts[1])
+		require.NoError(t, err)
+		membersPer, err := strconv.Atoi(parts[2])
+		require.NoError(t, err)
+		postings := max(keys/250, 1)
+		rng := rand.New(rand.NewPCG(uint64(keys), uint64(edgesPer)))
+		postingOf := make([]uint32, keys)
+		for i := range postingOf {
+			postingOf[i] = uint32(rng.IntN(postings))
+		}
+		deleted := make([]bool, keys)
+		for _, threads := range threadCounts {
+			pool := visited.NewPool(keys)
+			type own struct {
+				edges, members           []uint32
+				loaded                   []bool
+				unscored                 []uint32
+				visitNs, markNs, resetNs int64
+				kept, gone               int
+			}
+			workers := make([]*own, threads)
+			for w := range workers {
+				o := &own{loaded: make([]bool, postings)}
+				local := rand.New(rand.NewPCG(uint64(w+1), uint64(keys)))
+				// A search has about 100 postings loaded at the end.
+				for range 100 {
+					o.loaded[local.IntN(postings)] = true
+				}
+				o.edges = make([]uint32, searches*edgesPer)
+				for i := range o.edges {
+					o.edges[i] = uint32(local.IntN(keys))
+				}
+				o.members = make([]uint32, searches*membersPer)
+				for i := range o.members {
+					o.members[i] = uint32(local.IntN(keys))
+				}
+				workers[w] = o
+			}
+			var wg sync.WaitGroup
+			begin := time.Now()
+			for _, o := range workers {
+				wg.Add(1)
+				enterrors.GoWrapper(func() {
+					defer wg.Done()
+					// Twice: the first round only warms the tables and the set.
+					for round := range 2 {
+						var visitNs, markNs, resetNs int64
+						kept, gone := 0, 0
+						for s := range searches {
+							set := pool.Borrow()
+							clock := time.Now()
+							o.unscored = o.unscored[:0]
+							for _, endpoint := range o.edges[s*edgesPer : (s+1)*edgesPer] {
+								if o.loaded[postingOf[endpoint]] || set.CheckAndVisit(uint64(endpoint)) {
+									continue
+								}
+								o.unscored = append(o.unscored, endpoint)
+							}
+							visitNs += int64(time.Since(clock))
+							kept += len(o.unscored)
+							clock = time.Now()
+							for _, member := range o.members[s*membersPer : (s+1)*membersPer] {
+								if deleted[member] {
+									gone++
+								}
+							}
+							markNs += int64(time.Since(clock))
+							clock = time.Now()
+							pool.Return(set)
+							resetNs += int64(time.Since(clock))
+						}
+						if round == 1 {
+							o.visitNs, o.markNs, o.resetNs, o.kept, o.gone = visitNs, markNs, resetNs, kept, gone
+						}
+					}
+				}, logrus.New())
+			}
+			wg.Wait()
+			var visitNs, markNs, resetNs int64
+			kept := 0
+			for _, o := range workers {
+				visitNs, markNs, resetNs, kept = visitNs+o.visitNs, markNs+o.markNs, resetNs+o.resetNs, kept+o.kept
+			}
+			all := float64(threads * searches)
+			result := map[string]any{
+				"keys": keys, "postings": postings, "edgesPerSearch": edgesPer, "membersPerSearch": membersPer,
+				"threads": threads, "searches": searches,
+				"nsPerEdge":        float64(visitNs) / (all * float64(edgesPer)),
+				"nsPerMemberMark":  float64(markNs) / (all * float64(membersPer)),
+				"resetNsPerSearch": float64(resetNs) / all,
+				"resetNsPerEdge":   float64(resetNs) / (all * float64(edgesPer)),
+				"keptPerSearch":    float64(kept) / all, "seconds": time.Since(begin).Seconds(),
+			}
+			results = append(results, result)
+			t.Logf("%d keys, %d edges and %d members a search, %d threads: %.2f ns an edge (posting of the endpoint, "+
+				"loaded, visited), %.2f ns the mark of a member alone, the reset %.2f ns an edge", keys, edgesPer,
+				membersPer, threads, result["nsPerEdge"], result["nsPerMemberMark"], result["resetNsPerEdge"])
+		}
+	}
+	writeNightJSON(t, out, results)
+}
+
+// TestDiagReads times positional reads of one record each at random places
+// of a file, as the rescore reads the exact vectors: PE_READTHREADS
+// goroutines at once (1,2,4,8,16,32,64), each cell at most PE_READS reads or
+// PE_READSECONDS seconds, in three ways: as the index reads (goroutines and
+// ReadAt), with every goroutine tied to a thread of its own, and with the
+// cache of the files of the system left out (F_NOCACHE). No two reads of the
+// whole test touch the same 16 KiB of the file, so that none finds what
+// another brought to the cache: give it a file whose cache is cold.
+func TestDiagReads(t *testing.T) {
+	path, out := os.Getenv("PE_FILE"), os.Getenv("PE_OUT")
+	if path == "" || out == "" {
+		t.Skip("no PE_FILE and PE_OUT given")
+	}
+	record := int(nightEnvInt(t, "PE_RECORD", 3072))
+	perCell := int(nightEnvInt(t, "PE_READS", 20000))
+	lasting := time.Duration(nightEnvInt(t, "PE_READSECONDS", 3)) * time.Second
+	var threadCounts []int
+	for _, field := range strings.Split(nightEnv("PE_READTHREADS", "1,2,4,8,16,32,64"), ",") {
+		threads, err := strconv.Atoi(strings.TrimSpace(field))
+		require.NoError(t, err, "PE_READTHREADS")
+		threadCounts = append(threadCounts, threads)
+	}
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	const page = 16 << 10
+	pages := int(info.Size() / page)
+	modes := []string{"goroutines", "threads", "nocache"}
+	require.GreaterOrEqual(t, pages, len(modes)*len(threadCounts)*perCell, "the file has a page for every read")
+	// The pages of the file in a random order: every read takes the next.
+	order := rand.New(rand.NewPCG(11, 13)).Perm(pages)
+	var nextPage atomic.Int64
+
+	var results []map[string]any
+	for _, mode := range modes {
+		file, err := os.Open(path)
+		require.NoError(t, err)
+		if mode == "nocache" {
+			_, _, errno := syscall.Syscall(syscall.SYS_FCNTL, file.Fd(), syscall.F_NOCACHE, 1)
+			require.Zero(t, errno, "F_NOCACHE")
+		}
+		for _, threads := range threadCounts {
+			var done atomic.Int64
+			latencies := make([][]time.Duration, threads)
+			errs := make([]error, threads)
+			var wg sync.WaitGroup
+			begin := time.Now()
+			deadline := begin.Add(lasting)
+			for worker := range threads {
+				wg.Add(1)
+				enterrors.GoWrapper(func() {
+					defer wg.Done()
+					if mode == "threads" {
+						runtime.LockOSThread()
+						defer runtime.UnlockOSThread()
+					}
+					buf := make([]byte, record)
+					for done.Add(1) <= int64(perCell) && time.Now().Before(deadline) {
+						at := int64(order[nextPage.Add(1)-1]) * page
+						clock := time.Now()
+						if _, err := file.ReadAt(buf, at); err != nil {
+							errs[worker] = err
+							return
+						}
+						latencies[worker] = append(latencies[worker], time.Since(clock))
+					}
+				}, logrus.New())
+			}
+			wg.Wait()
+			took := time.Since(begin)
+			for _, err := range errs {
+				require.NoError(t, err)
+			}
+			var all []time.Duration
+			for _, own := range latencies {
+				all = append(all, own...)
+			}
+			// A read that took under 20 us did not reach the disk.
+			cached := 0
+			var busy time.Duration
+			for _, l := range all {
+				busy += l
+				if l < 20*time.Microsecond {
+					cached++
+				}
+			}
+			result := map[string]any{
+				"mode": mode, "threads": threads, "reads": len(all), "seconds": took.Seconds(),
+				"readsPerSecond": float64(len(all)) / took.Seconds(), "latency": diagPercentilesOf(all),
+				"inFlight": busy.Seconds() / took.Seconds(), "under20us": cached,
+			}
+			results = append(results, result)
+			l := diagPercentilesOf(all)
+			t.Logf("%s, %d at once: %d reads in %s, %.0f a second | p50 %.3f ms, p99 %.3f | %.2f in flight on "+
+				"average | %d under 20 us", mode, threads, len(all), took.Round(time.Millisecond),
+				float64(len(all))/took.Seconds(), l.P50, l.P99, busy.Seconds()/took.Seconds(), cached)
+		}
+		require.NoError(t, file.Close())
+	}
+	writeNightJSON(t, out, map[string]any{"file": path, "bytes": info.Size(), "record": record, "cells": results})
+}

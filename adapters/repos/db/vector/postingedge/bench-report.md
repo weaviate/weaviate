@@ -2630,6 +2630,50 @@ A igual ef, recall y cargas de los tres crecidos:
 - **Entre las dos corridas, menos de un 2 % en la media.**
 - **El recall y las cargas, como en la primera parte:** 0.95 con ef 19 a 21 y de 17.9 a 18.7 cargas.
 
+#### Huecos del diagnóstico (pre-registro, 28 de noviembre a las 10:15, antes de compilar)
+
+**El encargo** (del usuario, punto 3 del orden de las 10:00): cuatro huecos, sobre los clones y antes de reorganizar el 10M. Solo medir.
+
+**1. La puerta del lote.**
+
+Leído en el código, sin medir (`persistent_batches.go`, `persistent.go`):
+- **Qué cerrojo es:** `insertBatches.mu`, un `sync.Mutex` con su condición, que guarda dos cosas: `planning`, cuántos llamadores están buscando, y `applying`, que hay un lote aplicándose o a punto. No es un cerrojo del índice. El índice tiene los suyos: `writeMu`, un escritor a la vez, y `mu`, de lectores y un escritor, que las búsquedas tienen para leer y lo que cambia lo que leen tiene para escribir.
+- **Por qué quien aplica espera a las búsquedas en curso:** por dos cosas.
+  - **Por la regla de la puerta:** un lote se aplica solo cuando nadie busca, y nadie empieza a buscar mientras se aplica, para que todos los planes de un lote hayan buscado el índice como lo dejó el lote anterior. Quien aplica pone `applying`, espera a que `planning` llegue a 0 y entonces aplica. Es la regla de v5.2.
+  - **Por el cerrojo del índice:** aplicar pide `mu` para escribir, y la búsqueda de un insert lo tiene para leer durante su ventana de 4 planes. Sin la regla esperaría ahí igual.
+- **Una query de solo lectura no pasa por la puerta:** `SearchByVector` solo pide `mu` para leer.
+  - Mientras quien aplica espera a las búsquedas de los inserts todavía no ha pedido `mu`, y la query entra.
+  - **Se queda fuera mientras quien aplica tiene `mu` para escribir,** lo que dura aplicar el lote, y mientras lo espera: en Go, en cuanto un escritor espera, los lectores nuevos esperan detrás de él.
+  - Al revés también: las queries en curso retrasan a quien aplica.
+
+La medida (`TestDiagQueries`, nuevo), a 100k y a 10M, cada pasada sobre un clon suyo:
+- **Las queries:** las 1 000 del dataset, en bucle, k = 10, con el `ef` de 0.95 de cada índice: 24 a 10M, medido el 28; el de 100k se busca antes, sin cronometrar, contra los vecinos exactos entre sus 100 000 filas (`TestDiagPoint`). Presupuesto del limitador de un nodo. Una pasada de todas antes de cronometrar.
+- **Cinco pasadas por tamaño:** queries solas con 1 hilo y con 8; inserts solos con 8 llamadores; y queries con 1 hilo y con 8 junto a los 8 llamadores. De 20 s a 100k y 90 s a 10M.
+- **De cada query:** su latencia, cuánto de ella fue esperar el cerrojo del índice y cuánto la búsqueda. Doy p50, p95, p99 y máximo, las queries por segundo y los inserts por segundo con y sin queries.
+- **Espero** (*mío*): con inserts, el p50 de la espera del cerrojo en 0 y su p99 del orden de lo que dura aplicar un lote, de 7 a 30 ms. El cerrojo está tomado para escribir entre el 10 y el 20 % del tiempo (24 lotes por segundo de 7 ms a 100k; 4 de 27 ms a 10M). El p50 de la latencia sube además por la CPU: 8 llamadores ocupan 6 cores.
+
+**2. Los vectores exactos: dónde se quedan las lecturas de 3 en 3.**
+
+Leído en el código y en lo ya medido:
+- **El rescore pide cada vector con una lectura posicional** (`ReadAt`) sobre el único fichero de vectores, desde hasta 20 gorutinas por rescore, sin ningún cerrojo nuestro alrededor de la lectura.
+- **Las lecturas se piden de más de 3 en 3:** en la muestra del diagnóstico a 10M con 8 llamadores había 6.87 hilos dentro de `pread` de media, mientras el disco tenía unas 3 lecturas en vuelo. La cola está entre la llamada y el disco.
+
+La medida (`TestDiagReads`, nuevo): lecturas de 3 072 B en sitios al azar de un clon del fichero de vectores del 10M, con la caché fría y sin que dos lecturas caigan en los mismos 16 KiB; con 1, 2, 4, 8, 16, 32 y 64 a la vez; de tres maneras: como el índice (gorutinas y `ReadAt`), con un hilo propio por gorutina, y sin la caché de ficheros del sistema (`F_NOCACHE`). Lecturas por segundo, latencia y lecturas en vuelo.
+- **Cómo lo leo:** si las lecturas por segundo dejan de crecer hacia las 3 en vuelo de las dos primeras maneras y no con `F_NOCACHE`, el límite es el camino de la caché de ficheros del sistema para un mismo fichero. Si se para en las tres, es el disco o el volumen. Si crece mucho más allá de 3 en las tres, no hay tal límite debajo del índice, y el 3 es la media de una demanda a ráfagas: entonces lo saco de las fases.
+- **Espero** (*mío*, con poca seguridad): que con caché se sature entre 25 000 y 35 000 lecturas por segundo y sin ella llegue más lejos.
+
+**3. El recorrido.**
+- **El grado medio** (`TestDiagDegree`, nuevo): de cada posting vivo, como lo trae una búsqueda, las aristas de cada miembro. Aristas por vector, su reparto, cuántas llevan al mismo posting y a cuántos extremos distintos lleva un posting. A 100k y a 10M.
+- **Marcar el extremo como visto** (`TestDiagTables`, nuevo, sin índice): el bucle que sigue las aristas (el posting del extremo, si está cargado, y el conjunto de visitados), con tablas de 125 000 y de 12.5 millones de doc ids y con las aristas de una búsqueda de cada tamaño (26 813 y 144 798), con 1 hilo y con 8. **Espero** que el tamaño solo reproduzca el paso de unos 8 a unos 17 ns por arista, y que con 8 hilos a 12.5 millones suba más.
+- **Puntuar un miembro:** el bucle lee por cada miembro la marca de borrado, por doc id, en una tabla de un byte por doc id: 125 KB a 100k y 12.5 MB a 10M. Repito la búsqueda de un insert con 1 hilo (`TestDiagSearch`) sobre un clon, con la tabla y sin ella, dos pasadas de cada una alternadas, a los dos tamaños. Los índices no tienen ningún borrado: los resultados son los mismos. **Espero** que a 10M el recorrido baje entre 1.0 y 1.5 ms por plan, de 35 a 50 ns por miembro, y que a 100k no cambie. Si baja menos, la marca explica solo esa parte.
+
+**4. La pasada sin compactación, y el reparto de la CPU.**
+- **La pasada sin compactación** ya está corrida, en el diagnóstico: doy su tabla, que no di entera.
+- **El reparto de la CPU del proceso,** sin corrida nueva: de las trazas de ejecución del diagnóstico (8 s con 8 llamadores, a los dos tamaños), el tiempo de ejecución de las gorutinas agrupadas por dónde nacen: los llamadores y sus lecturas (los planes y aplicar), los ciclos del store (compactación y volcado) y el recolector. Junto a las clases de CPU que da el propio runtime y la CPU del proceso según el sistema: lo que quede sin gorutina es runtime y kernel.
+  - Si la herramienta de trazas no lo da agrupado, lo digo y doy las cotas de la muestra de pilas.
+
+**Duración estimada:** unos 45 minutos cronometrados, detrás de las dos corridas densas.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
