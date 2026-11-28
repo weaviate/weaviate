@@ -3206,6 +3206,18 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 - Mientras corren escribo el prototipo sin compilar, en un árbol aparte sobre `m2` `8ed921ed59`. La rama `feat/posting-edge-next` se crea desde la base cuando quede congelada.
 - **El troceo del volcado por presupuesto no entra en la base:** el encargo pide proponerlo, y la base solo recibe arreglos. Queda en la lista de la rama nueva.
 
+#### HFresh a 10M en el arnés de inserts, con 8 escritores y hasta vaciar sus colas (pre-registro, 28 de noviembre a las 14:42, por encargo del usuario)
+
+**Qué es.** La medida de HFresh de las definitivas de 1M, a 10M: el mismo arnés (`TestHFreshDiskInserts`), el mismo binario (el de las 05:10, de integración `20e89f0873`), wiki-dpr de 768 dimensiones, **8 escritores**, sus 9 workers de fondo por defecto. Dos relojes: hasta que vuelve el último insert, y hasta que sus colas quedan vacías. Al final, su recall con 1 000 queries y la configuración del arnés (256 postings, rescore 350).
+
+**Con qué se compara.** Con nuestro crecimiento de 10M con 8 llamadores, y el lunes con el del prototipo. Lo que **no es igual**, como a 1M: el arnés de HFresh escribe los vectores exactos como objetos antes de arrancar el reloj (lo da aparte), y nuestro insert escribe el suyo dentro.
+
+**Lo que espero** (*mío*): entre 3 000 y 4 000 inserts por segundo hasta el último insert (3 457 con 10 escritores en la sesión de v4.0, con la máquina compartida) y unos 2 000 hasta vaciar las colas.
+
+**Disco.** Los objetos son 31 GB y los postings unos 25 GB, más lo que compacte. No arranca con menos de 70 GiB libres; el índice va al volumen de pruebas y se borra en cuanto se lee su tamaño. Si no arranca por sitio, lo digo y busco el sitio antes de repetir.
+
+**Orden.** Detrás de la segunda tanda de la simulación y de las retenciones del cerrojo, en la misma cadena.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
