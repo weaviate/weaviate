@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -692,8 +693,10 @@ func (s *Shard) beginScan(ctx context.Context, name string) (end func(), err err
 		defer s.reindexScans.Add(-1)
 		s.whenNotHalted(context.Background(), func() {
 			if err := s.dropScratch(name); err != nil {
-				s.index.logger.WithField("action", "reindex_build").WithField("bucket", name).
-					Errorf("cannot delete the scan scratch: %v", err)
+				s.scratchDropSampler.WithSampling(func(l logrus.FieldLogger) {
+					l.WithField("action", "reindex_build").WithField("bucket", name).
+						Errorf("cannot delete the scan scratch: %v", err)
+				})
 			}
 		})
 	}, nil

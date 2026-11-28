@@ -402,6 +402,8 @@ type Shard struct {
 	// unreadableRowSampler rate-limits FindUUIDs' warning about rows with no readable id.
 	// Such a row is never pruned or deleted, so every later call would warn about it again.
 	unreadableRowSampler *logrusext.Sampler
+	// scratchDropSampler rate-limits the warning about a scan scratch that cannot be deleted.
+	scratchDropSampler *logrusext.Sampler
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
