@@ -12,7 +12,6 @@
 package reindex_singlenode
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -612,27 +611,11 @@ func requireTokenizationEquals(t *testing.T, class, prop, expected string) {
 // outcome and any terminal state is acceptable.
 func awaitTerminal(t *testing.T, restURI, taskID string) {
 	t.Helper()
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
-		}
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			return false
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID == taskID {
-				t.Logf("task %s status: %s", taskID, task.Status)
-				return task.Status == "FINISHED" || task.Status == "FAILED" || task.Status == "CANCELLED"
-			}
-		}
-		return false
+		status := poller.Status()
+		t.Logf("task %s status: %s", taskID, status)
+		return status == "FINISHED" || status == "FAILED" || status == "CANCELLED"
 	}, 120*time.Second, 50*time.Millisecond, "task %s should reach a terminal state", taskID)
 }
 

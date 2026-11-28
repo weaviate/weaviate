@@ -250,23 +250,11 @@ func awaitTaskTerminal(t *testing.T, restURI, taskID string, timeout time.Durati
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	for {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err == nil {
-			body, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			var tasks models.DistributedTasks
-			if err := json.Unmarshal(body, &tasks); err == nil {
-				for _, task := range tasks["reindex"] {
-					if task.ID != taskID {
-						continue
-					}
-					switch task.Status {
-					case "FINISHED", "FAILED", "CANCELLED":
-						return task.Status
-					}
-				}
-			}
+		switch status := poller.Status(); status {
+		case "FINISHED", "FAILED", "CANCELLED":
+			return status
 		}
 		require.Truef(t, time.Now().Before(deadline),
 			"task %s should reach a terminal status within %s", taskID, timeout)

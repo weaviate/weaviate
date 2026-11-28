@@ -1607,7 +1607,7 @@ with the modern testcontainer style.
 - `scope_assertion_test` — blast-radius bounds: a migration on one
   property never mutates buckets on any other property.
 - `api_validation_test` — REST contract.
-- `repair_rangeable_test` / `finished_race_test`.
+- `repair_rangeable_test`.
 
 **Acceptance — multi-node** ([`test/acceptance/reindex_multinode/`](../test/acceptance/reindex_multinode/)):
 

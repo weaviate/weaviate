@@ -329,17 +329,15 @@ func cancelEnableRangeableInFlight(t *testing.T, restURI string) string {
 	t.Logf("submitted enable-rangeable %s to cancel in flight", taskID)
 
 	live := false
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		task, ok := fetchTask(restURI, taskID)
-		if ok {
-			switch task.Status {
-			case "STARTED", "PREPARING", "SWAPPING":
-				live = true
-			case "FINISHED", "FAILED", "CANCELLED":
-				t.Logf("task %s reached %s before the cancel could be issued", taskID, task.Status)
-				return awaitTerminalTask(t, restURI, taskID)
-			}
+		switch status := poller.Status(); status {
+		case "STARTED", "PREPARING", "SWAPPING":
+			live = true
+		case "FINISHED", "FAILED", "CANCELLED":
+			t.Logf("task %s reached %s before the cancel could be issued", taskID, status)
+			return awaitTerminalTask(t, poller, taskID)
 		}
 		if live {
 			break
@@ -359,32 +357,15 @@ func cancelEnableRangeableInFlight(t *testing.T, restURI string) string {
 	default:
 		t.Fatalf("unexpected status %d cancelling task %s: %s", resp.StatusCode, taskID, resp.Body)
 	}
-	return awaitTerminalTask(t, restURI, taskID)
-}
-
-func fetchTask(restURI, taskID string) (models.DistributedTask, bool) {
-	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
-	if !ok {
-		return models.DistributedTask{}, false
-	}
-	for _, task := range tasks["reindex"] {
-		if task.ID == taskID {
-			return task, true
-		}
-	}
-	return models.DistributedTask{}, false
+	return awaitTerminalTask(t, poller, taskID)
 }
 
 // awaitTerminalTask waits for the task to settle and returns its terminal state.
-func awaitTerminalTask(t *testing.T, restURI, taskID string) string {
+func awaitTerminalTask(t *testing.T, poller *reindexhelpers.RunPoller, taskID string) string {
 	t.Helper()
 	var terminal string
 	require.Eventually(t, func() bool {
-		task, ok := fetchTask(restURI, taskID)
-		if !ok {
-			return false
-		}
-		terminal = task.Status
+		terminal = poller.Status()
 		return terminal == "FINISHED" || terminal == "FAILED" || terminal == "CANCELLED"
 	}, 120*time.Second, 100*time.Millisecond, "task %s should reach a terminal state", taskID)
 	return terminal

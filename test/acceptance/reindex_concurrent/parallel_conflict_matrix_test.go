@@ -1010,26 +1010,13 @@ func awaitTerminalP(t *testing.T, restURI string, r *parallelResult) {
 	if !r.accepted || r.taskID == "" {
 		return
 	}
+	poller := reindexhelpers.NewRunPoller(restURI, r.taskID)
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			return false
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			return false
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID == r.taskID {
-				switch task.Status {
-				case "FINISHED", "FAILED", "CANCELLED":
-					r.terminal = task.Status
-					t.Logf("task %s reached terminal=%s", r.taskID, task.Status)
-					return true
-				}
-			}
+		switch status := poller.Status(); status {
+		case "FINISHED", "FAILED", "CANCELLED":
+			r.terminal = status
+			t.Logf("task %s reached terminal=%s", r.taskID, status)
+			return true
 		}
 		return false
 	}, 3*time.Minute, 50*time.Millisecond,

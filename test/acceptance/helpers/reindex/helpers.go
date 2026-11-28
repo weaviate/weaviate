@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -266,19 +267,85 @@ func TryGetIndexes(restURI, collection string) (*IndexesResponse, bool) {
 	return &out, true
 }
 
-// fetchReindexTask returns the reindex task with the given ID; ok=false
-// means keep polling.
-func fetchReindexTask(restURI, taskID string) (models.DistributedTask, bool) {
-	tasks, ok := TryFetchTasks(restURI)
+// RunPoller reads one reindex task across polls. A successful full run is
+// removed in the apply that flips it, so the poller remembers the task's
+// payload and reports FINISHED once the task is gone and its indexes show
+// the target settings.
+type RunPoller struct {
+	restURI string
+	taskID  string
+	payload *db.ReindexTaskPayload
+}
+
+func NewRunPoller(restURI, taskID string) *RunPoller {
+	return &RunPoller{restURI: restURI, taskID: taskID}
+}
+
+// Poll returns the task, with Status FINISHED for a finished run that is
+// gone; ok=false means keep polling.
+func (p *RunPoller) Poll() (models.DistributedTask, bool) {
+	tasks, ok := TryFetchTasks(p.restURI)
 	if !ok {
 		return models.DistributedTask{}, false
 	}
 	for _, task := range tasks["reindex"] {
-		if task.ID == taskID {
+		if task.ID == p.taskID {
+			p.remember(task)
 			return task, true
 		}
 	}
-	return models.DistributedTask{}, false
+	if p.payload == nil || !p.indexesShowTarget() {
+		return models.DistributedTask{}, false
+	}
+	return models.DistributedTask{ID: p.taskID, Status: "FINISHED"}, true
+}
+
+func (p *RunPoller) remember(task models.DistributedTask) {
+	if p.payload != nil {
+		return
+	}
+	raw, err := json.Marshal(task.Payload)
+	if err != nil {
+		return
+	}
+	var payload db.ReindexTaskPayload
+	if json.Unmarshal(raw, &payload) == nil && payload.Collection != "" {
+		p.payload = &payload
+	}
+}
+
+// indexesShowTarget reports whether every index the run builds is ready,
+// driven by no task, at the run's target tokenization.
+func (p *RunPoller) indexesShowTarget() bool {
+	resp, ok := TryGetIndexes(p.restURI, p.payload.Collection)
+	if !ok {
+		return false
+	}
+	indexTypes, _ := db.ReindexIndexTypes(p.payload.MigrationType)
+	for _, prop := range p.payload.Properties {
+		for _, indexType := range indexTypes {
+			if indexType == "rangeable" {
+				indexType = models.IndexStatusTypeRangeFilters
+			}
+			e, found := resp.find(prop, indexType)
+			if !found || e.Status != "ready" || e.TaskID != "" {
+				return false
+			}
+			if p.payload.TargetTokenization != "" && e.Tokenization != p.payload.TargetTokenization {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Status does one poll and returns the task's status, or "" while unknown.
+func (p *RunPoller) Status() string {
+	task, ok := p.Poll()
+	if !ok {
+		return ""
+	}
+	return task.Status
 }
 
 // AwaitReindexLive blocks until the task reaches a live status.
@@ -293,8 +360,9 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	// safe today, but a switch to assert.Eventually (returns on timeout)
 	// would make a plain capture a live race.
 	var terminalErr atomic.Pointer[error]
+	poller := NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		task, ok := fetchReindexTask(restURI, taskID)
+		task, ok := poller.Poll()
 		if !ok {
 			return false
 		}
@@ -323,22 +391,24 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	}
 }
 
-// AwaitReindexFinished polls /v1/tasks until the named reindex task
-// reaches FINISHED. Fails on FAILED or on timeout (default 120s).
+// AwaitReindexFinished polls until the named reindex task reaches FINISHED,
+// or is gone with its indexes at the target (RunPoller). Fails on FAILED,
+// CANCELLED or on timeout (default 120s).
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
 	// atomic.Pointer for the same future-proofing as AwaitReindexLive.
 	var terminalErr atomic.Pointer[error]
+	poller := NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		task, ok := fetchReindexTask(restURI, taskID)
+		task, ok := poller.Poll()
 		if !ok {
 			return false
 		}
 		t.Logf("task %s status: %s", taskID, task.Status)
-		if task.Status == "FAILED" {
-			err := fmt.Errorf("reindex task failed: %s", task.Error)
+		if task.Status == "FAILED" || task.Status == "CANCELLED" {
+			err := fmt.Errorf("reindex task %s: %s", task.Status, task.Error)
 			terminalErr.Store(&err)
 			return true // exit Eventually; Fatalf below on the test goroutine
 		}

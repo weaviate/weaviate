@@ -226,40 +226,16 @@ func collectTaskStatusTransitions(t *testing.T, restURI, taskID string, timeout 
 	defer ticker.Stop()
 	var transitions []string
 	var lastSeen string
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	for {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			select {
-			case <-ctx.Done():
+		if task, ok := poller.Poll(); ok && task.Status != lastSeen {
+			transitions = append(transitions, task.Status)
+			lastSeen = task.Status
+			if task.Status == "FAILED" {
+				t.Fatalf("reindex task failed: %s", task.Error)
+			}
+			if task.Status == "FINISHED" {
 				return transitions
-			case <-ticker.C:
-				continue
-			}
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			select {
-			case <-ctx.Done():
-				return transitions
-			case <-ticker.C:
-				continue
-			}
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID != taskID {
-				continue
-			}
-			if task.Status != lastSeen {
-				transitions = append(transitions, task.Status)
-				lastSeen = task.Status
-				if task.Status == "FAILED" {
-					t.Fatalf("reindex task failed: %s", task.Error)
-				}
-				if task.Status == "FINISHED" {
-					return transitions
-				}
 			}
 		}
 		select {
