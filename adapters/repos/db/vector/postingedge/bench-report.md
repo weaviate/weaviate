@@ -3063,6 +3063,39 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 - **Aparte, en el almacén:** que reemplazar una fila no lleve al diario su valor anterior entero quita la mitad de los 67 MB y de su entrega. Va con la propuesta del almacén bajo los postings.
 - **Cómo se mediría cada uno:** las pasadas de queries junto a 8 llamadores a 10M, antes y después: p99, p99.9 y máximo de la espera, ritmo de inserts, y el pico de lo que espera frente al presupuesto.
 
+#### Insert en dos tiempos, segunda tanda: aristas provisionales, todo por eventos, candidatos por vector y el reparto de los recientes (pre-registro, 28 de noviembre a las 13:47, antes de escribir los escenarios)
+
+**El encargo** (del usuario, con la primera tanda a medias: la matriz de 1M hecha, la de 10M en curso).
+1. **Aristas provisionales en el insert:** el vector nuevo carga solo su posting, toma los extremos de las aristas de sus k compañeros más cercanos (por código) y se queda con los 16 mejores por código, sin lecturas exactas. Repetir la tabla de tolerancia (5, 10, 25 y 50 %) con provisionales en vez de sin aristas, y después con eventos encima.
+2. **Todo por eventos:** reconectar el 100 % de los vectores con grupos de 64, 128 y 256. Recall y cargas frente al índice de hoy.
+3. **Candidatos por vector:** dentro del grupo cargado, cada pendiente puntúa los postings más cercanos a él, no al centroide de su posting. Mismo presupuesto de cálculo; medir las cargas resultantes.
+4. **Reparto de los recientes:** cómo se distribuye el X % más reciente entre postings, y la tolerancia con un X % elegido al azar, para comparar.
+
+**Lo que fijo yo** (*mío* todo este bloque; el encargo no lo dice).
+- **Provisionales, al detalle.** Los pendientes entran en el orden en que llegaron. Cada uno ve de su posting solo a los que llegaron antes que él, los ordena por el código de la fila (el que trae la carga del posting) y toma los k más cercanos. Los extremos de las aristas de esos k se ordenan por el código de enrutado que el índice tiene en memoria por doc id, sin cargar nada más, y se queda con los 16 mejores; la distancia que guarda es la estimada. **No entra en la lista de nadie:** el encargo solo le da aristas de salida. **k = 16**; con el 10 % también k = 4 y k = 64.
+- **Eventos encima de las provisionales:** eventos que conectan a los pendientes con grupos de 64 por centroides, y que además comparan exactamente las aristas provisionales del vector (hasta 16 lecturas exactas más): se quedan las que sigan entre sus 16 más cercanas. Al lado va lo ya medido, los mismos eventos sin provisionales.
+- **Todo por eventos:** se quitan todas las aristas y una pasada de eventos conecta a todos, posting a posting, con grupos de 64, 128 y 256 por centroides (la otra definición de grupo necesita aristas y no las hay). Añado una variante en 10 oleadas por orden de llegada, con grupos de 64: en cada oleada solo existen los vectores llegados hasta ella, para ver cuánto pesa que las aristas inversas solo entran en listas que ya existen.
+- **Candidatos por vector:** el evento carga un grupo de 128 o de 256 postings y cada pendiente puntúa su posting y los 64 de ese grupo cuyo centroide le queda más cerca a él. Son las mismas distancias por código que con grupos de 64, más una distancia a cada centroide del grupo, que cuento. Con el 10, el 25 y el 100 % de pendientes; a 100 % también 128 dentro de 256. Se compara con grupos de 64 (mismo cálculo) y con grupos de 128 y 256 (mismas cargas del evento).
+- **Reparto:** por posting, qué fracción de sus miembros está entre el X % más reciente (5, 10, 25 y 50 %): percentiles entre postings, cuántos postings no tienen ninguno, y qué parte de los recientes vive en postings con el doble de X o más. Lo mismo con un X % al azar, que es el reparto uniforme a ese tamaño de posting. Y de las aristas que se quitan en cada caso, cuántas son de salida y cuántas inversas.
+- **Tolerancia al azar:** la tabla de quitar aristas al 5, 10, 25 y 50 %, con los vectores elegidos al azar (semilla fija) en vez de los más recientes.
+
+**Los índices y la referencia.** Los dos de la primera tanda, desde clones: 1M (dbpedia, 1 536 dimensiones, doc ids densos) y 10M (wiki-dpr, 768). La referencia es el índice de hoy medido en la misma corrida. «Dentro» es la regla de v5.2: cargas a 0.95 y a 0.99 a menos del 5 % de las de hoy.
+- **A 1M, todo.**
+- **A 10M, reducido:** el reparto; al azar con el 10 y el 25 %; provisionales con el 10 y el 25 %, solas y con eventos encima; todo por eventos con grupos de 64 y de 128; candidatos por vector con 64 dentro de 128, al 10 y al 100 %. Los grupos de 256 a 10M cuestan una hora: van solo si a 1M los de 128 quedan fuera y los de 256 dentro.
+
+**Lo que espero** (*mío*).
+- **Provisionales:** mucho más cerca de hoy que sin aristas. Con el 10 %, +5 % de cargas o menos a 0.95 (sin aristas +18.4 %) y +15 % o menos a 0.99 (sin aristas +53.2 %). Con eventos encima, igual o mejor que los eventos solos (+4.1 % y +8.6 %).
+- **Todo por eventos:** fuera con grupos de 64 y de 128 (conectar así al 50 % ya dio +34 % y +91 %); con 256, entre +5 y +15 %.
+- **Candidatos por vector:** 64 dentro de 256 cierra al menos la mitad de lo que separa a los grupos de 64 de los de 256.
+- **Reparto:** no tengo una expectativa firme. Apunto que es casi uniforme y que quitar al azar cuesta parecido a quitar los recientes.
+
+**Lo que no es comparable, dicho antes.**
+- El posting de cada vector es el de hoy, tras los splits: no simulo en qué posting estaba al llegar.
+- Las provisionales cuentan con los códigos de enrutado en memoria (modo `routing`); en `none` harían falta las filas del halo.
+- El coste de una provisional es CPU del simulador, sin las escrituras de un insert.
+
+**Orden.** Cuando acabe la cadena en curso: compilar (el mismo binario lleva la medida del cerrojo), humo a 100k, la medida de las retenciones del cerrojo, y esta tanda: 1M y después 10M.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
