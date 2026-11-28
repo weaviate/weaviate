@@ -1786,6 +1786,44 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 
 **Datos.** En `testdata/bench/night-10m-grown/series/`: `grow.json` y `grow.log`; `heap-routing.*` con su perfil, `classify10m.py` y lo que da; `points-routing.*` y `points.sh.txt`. En `testdata/bench/night-10m-grown/monitor/`: `stretches-all.tsv` con `full.py`, que lo genera; las lecturas del monitor (`monitor.jsonl.gz`); las copias de `grow.json` por tramo (`grow-snap.tar.gz`); las diez muestras (`samples.tar.gz`) y sus recuentos (`census-*.txt`). El registro de energía no se archiva: nombra otras aplicaciones de la máquina.
 
+#### La propagación de la serie (28 de noviembre, a las 02:49)
+
+**La serie está en integración,** la rama de Rodrigo (`feat/posting-edge-integration`, #14023): `6126bb00a2` a las 02:29, y `20e89f0873` a las 02:37 con el arreglo de abajo.
+- **Por fusión de `m2`,** como estaba preparada: el arnés de benchmarks se queda en integración, y la reentrega y el test de la base son los de `m2`.
+- **Tests antes de subir:** el paquete entero con `-race`, los tests por un shard, configuración y esquema, el linter con sus tres juegos de etiquetas y el de gorutinas.
+- **Lo que la fusión necesitó para compilar y pasar,** además de los 9 conflictos:
+  - `bench_disk_test.go` llama a `diskDifference` como lo dejó `m2`;
+  - el arnés de HFresh lee el grafo de centroides por el estado que `main` dio al índice de centroides, donde antes era un campo;
+  - `persistent_base_test.go` usa el contexto del fixture;
+  - `persistent_meta_test.go`, que solo tiene integración, llevaba escrito «600 vectores», la base del fixture de antes. Ahora la toma del fixture, que son 200.
+
+**Un fallo mío en `m2` que encontró el CI de #14023.** Los dos ficheros nuevos que leen el espacio libre del disco (`disk_free_unix.go` y `disk_free_windows.go`, de `44c35ee9b9`) llevaban la restricción de compilación pegada a la cabecera de licencia.
+- La herramienta que escribe las cabeceras la toma por parte de la cabecera y la borra. La comprobación del código generado fallaba en los dos ficheros.
+- **Arreglado en `m2`** (`8ed921ed59`) **y fusionado en integración** (`20e89f0873`): con una línea en blanco delante, la herramienta no los toca. El paquete pasa `vet` para Windows y para Linux.
+- Mis comprobaciones locales no pasaban esa herramienta. Desde ahora la paso.
+- **Las otras dos comprobaciones en rojo de #14023 son las de antes:** `hidden unicode characters` y `protolint`, por el límite de 20 000 líneas de diff.
+
+**backup** (`feat/posting-edge-backup`, #14013): `ed1600de96`, a las 02:41. Fusión de integración, con los mismos tests en verde antes de subir.
+- **4 conflictos, de lo que cambiaron las dos ramas:**
+  - lo que un índice dice haber encontrado al abrir lleva los vectores que faltaban, de la serie, y los doc ids que colocó el diario, de backup;
+  - la configuración con la que abre lleva la comprobación de los objetos y su log, de backup, y el presupuesto de lo pendiente y la tabla de cuándo se hicieron las aristas, de la serie;
+  - si toca un layout va por la regla de la serie, en reposo o ingiriendo, y nunca mientras un backup sostiene el índice, que es lo de backup.
+- **Dos tests de backup no compilaban:** uno llamaba a `maintain` sin la regla, y otro usaba una ayuda que la serie quitó.
+
+**`none-direct`** (`feat/posting-edge-none-direct`, sin PR): `35b9292c3f`, a las 02:48. Fusionó sola, y pasó los mismos tests antes de subir.
+
+**El CI de las tres ramas corre con estos commits.** A las 02:42, lo único en rojo eran las dos comprobaciones por tamaño de diff. No lo he vuelto a mirar.
+
+**El borrado de `tenm` y de `codes/` me lo denegaron** a las 02:12, como la otra vez: es una comprobación de seguridad sobre carpetas de primer nivel de un disco montado. El comando exacto lo tiene el usuario. Hasta entonces hay 32 GiB libres: no caben HFresh a 10M, la reorganización de nuestro índice ni moverlo a ese volumen.
+
+**Las tablas por docID compilan y pasan,** en local: el paquete con `-race`, los tests por un shard, configuración y los linters. Están sobre el `m2` de ahora (`0e69426e81` sobre `8ed921ed59`).
+- Lo que hubo que corregir fue un test nuevo, no el código: esperaba que un tercio de los vectores borrados siguiera marcado tras el `Delete`, y un `Delete` paga su parte de la limpieza en cuanto esta toca.
+- Falta la serie en limpio y sus dos medidas, que van detrás de la pasada de diagnóstico.
+
+**La pasada de diagnóstico corre desde las 02:49.** Sus dos binarios se compilaron antes, la rama de diagnóstico pasa el paquete y `lsmkv` con `-race`, y el arnés pasó una prueba de punta a punta sobre un índice de 20 000 vectores.
+- **Una guarda que añadí a su cadena antes de lanzarla:** ninguna pasada empieza con menos de 10 GiB libres. Hay 19: la caché de compilación de Go ha vuelto a 14 GB con los tests de esta noche, y no la borro sin que el usuario lo diga.
+- Nada compila hasta que acabe.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

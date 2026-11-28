@@ -34,6 +34,13 @@ run() {
   local C=$X/runs/$size/$name
   local tree=$X/src
   [ $bin = m2 ] && tree=$X/m2
+  # A pass writes to its clone what it adds and what the store compacts, a
+  # few GB at 10M: none starts with less than 10 GiB free on the disk.
+  local free=$(df -k $X | tail -n 1 | awk '{print int($4/1048576)}')
+  if [ "$free" -lt 10 ]; then
+    date "+== %H:%M:%S $size $name NOT RUN: $free GiB free, under 10"
+    return
+  fi
   mkdir -p $C
   if [ $size = 100k ]; then
     cp -c -R $X/i100k/index $C/index || exit 3

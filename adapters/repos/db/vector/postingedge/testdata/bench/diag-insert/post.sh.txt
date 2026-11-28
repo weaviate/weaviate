@@ -1,0 +1,38 @@
+#!/bin/bash
+# What is read of the passes of the diagnostic once they are over: the table
+# of every size, the profiles of the trace (where the goroutines block on
+# sync, wait for a core, and sit in system calls), the CPU profiles by line,
+# and the census of the sample from outside. Untimed; it builds the tools of
+# Go it needs, so it runs after the chain, never next to it.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+X=$S/diag
+for size in 100k 10m; do
+  R=$X/runs/$size
+  [ -d $R ] || continue
+  python3 -I -B $X/summary.py $R tsv > $X/summary-$size.tsv
+  python3 -I -B $X/summary.py $R > $X/summary-$size.txt
+  T=$R/trace-c8
+  if [ -s $T/trace.out ]; then
+    for kind in sync sched syscall; do
+      go tool trace -pprof=$kind $T/trace.out > $T/$kind.pprof 2> $T/$kind.err
+      go tool pprof -top -nodecount=50 $T/$kind.pprof > $T/$kind-top.txt 2>> $T/$kind.err
+      go tool pprof -top -cum -nodecount=80 $T/$kind.pprof > $T/$kind-cum.txt 2>> $T/$kind.err
+      go tool pprof -traces $T/$kind.pprof > $T/$kind-traces.txt 2>> $T/$kind.err
+    done
+  fi
+  for c in 1 8; do
+    Q=$R/profile-c$c
+    if [ -s $Q/cpu.prof ]; then
+      go tool pprof -top -nodecount=60 $X/diag.test $Q/cpu.prof > $Q/cpu-top.txt 2> $Q/cpu.err
+      go tool pprof -top -cum -nodecount=100 $X/diag.test $Q/cpu.prof > $Q/cpu-cum.txt 2>> $Q/cpu.err
+      go tool pprof -lines -top -nodecount=100 $X/diag.test $Q/cpu.prof > $Q/cpu-lines.txt 2>> $Q/cpu.err
+    fi
+  done
+  if [ -s $R/sample-c8/sample.txt ]; then
+    python3 -I -B $S/grow10m/mon/census.py $R/sample-c8/sample.txt > $R/sample-c8/census.txt
+    python3 -I -B $S/grow10m/mon/census.py -functions $R/sample-c8/sample.txt > $R/sample-c8/census-functions.txt
+  fi
+done
+[ -s $X/summary-100k.tsv ] && [ -s $X/summary-10m.tsv ] && python3 -I -B $X/table.py $X/summary-100k.tsv $X/summary-10m.tsv > $X/table.md
+date "+== %H:%M:%S post done"

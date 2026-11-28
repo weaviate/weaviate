@@ -1,0 +1,28 @@
+#!/bin/bash
+# The checks of a branch the series was merged into: the tests of the
+# package with the race detector, the tests through a shard, the config, and
+# the linters with their three sets of tags. Untimed. Usage: check.sh <worktree> <out dir>
+set -u
+W=$1
+O=$2
+mkdir -p $O
+cd $W || exit 2
+date "+== %H:%M:%S package, -race" | tee $O/summary.txt
+go test -race -count 1 -timeout 60m ./adapters/repos/db/vector/postingedge/ > $O/pkg.log 2>&1
+echo "package exit $?" | tee -a $O/summary.txt
+date "+== %H:%M:%S through a shard" | tee -a $O/summary.txt
+go test -tags integrationTest -race -count 1 -timeout 60m -run 'PostingEdge|Postingedge|postingedge' ./adapters/repos/db/ > $O/shard.log 2>&1
+echo "shard exit $?" | tee -a $O/summary.txt
+date "+== %H:%M:%S config and schema" | tee -a $O/summary.txt
+go test -race -count 1 ./entities/vectorindex/... ./usecases/schema/ > $O/config.log 2>&1
+echo "config exit $?" | tee -a $O/summary.txt
+date "+== %H:%M:%S lint" | tee -a $O/summary.txt
+~/go/bin/golangci-lint run ./adapters/repos/db/vector/... ./entities/vectorindex/... > $O/lint.log 2>&1
+echo "lint exit $?" | tee -a $O/summary.txt
+~/go/bin/golangci-lint run --build-tags postingedgebench ./adapters/repos/db/vector/... > $O/lint-bench.log 2>&1
+echo "lint bench exit $?" | tee -a $O/summary.txt
+~/go/bin/golangci-lint run --build-tags integrationTest ./adapters/repos/db/ > $O/lint-integration.log 2>&1
+echo "lint integration exit $?" | tee -a $O/summary.txt
+./tools/linter_go_routines.sh > $O/lint-goroutines.log 2>&1
+echo "goroutines exit $?" | tee -a $O/summary.txt
+date "+== %H:%M:%S done" | tee -a $O/summary.txt
