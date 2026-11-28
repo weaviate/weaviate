@@ -2484,6 +2484,41 @@ A igual ef, recall y cargas de los tres crecidos:
 
 **Datos del control:** `testdata/bench/def-1m/control/` (por pasada, `grow.json`, `grow.log` y `monitor.jsonl.gz`; `chain.out.txt`, `control.sh.txt`, `control.py`) y, de la enmienda, `control2.sh.txt`.
 
+#### Control del arranque, enmienda 1: resultado, y enmienda 2 (28 de noviembre a las 09:11, antes de compilar)
+
+**El recolector explica un tercio de la diferencia. Con `GOGC=500` el denso da 955 inserts por segundo con 8 llamadores, entre los 857 de este arnés y los 1 198 de la medida de 100k. Por la regla, no basta: mido el arnés de aquella medida con el código de hoy.**
+
+**La corrida,** de 08:59:31 a 09:09:42, cuatro pasadas sin error.
+- **Hubo teclado o trackpad hacia las 09:04:17,** al final de la segunda pasada con `GOGC=500`. Las dos primeras pasadas están limpias; la tercera lleva el toque dentro y la de 1 llamador va después.
+
+| pasada | `GOGC` | llamadores | inserts/s | ms de CPU por insert | búsqueda del plan, ms por insert | cargas por insert | recolecciones por segundo | heap en uso, máximo | |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| D | 500 | 8 | 971 | 6.16 | 5.12 | 43.17 | 1.2 | 13.5 GB | limpia |
+| A | 100 | 8 | 870 | 7.41 | 5.93 | 43.24 | 17.4 | 1.2 GB | limpia |
+| D | 500 | 8 | 940 | 6.37 | 5.26 | 43.18 | 1.2 | 11.5 GB | con un toque de teclado dentro |
+| D | 500 | 1 | 305 | 5.33 | 3.07 | 43.31 | 1.7 | 1.8 GB | tras el toque |
+
+- **Con 8 llamadores, un 11 % más:** 955 de media frente a 857 de las tres A (862, 839 y 870). La búsqueda del plan baja de 5.9–6.2 ms a 5.1–5.3, y el CPU por insert un 15 %.
+- **Con 1 llamador, un 6 % más:** 305 frente a 289.
+- **Sigue lejos de la medida de 100k:** 955 frente a 1 198 con 8, y la búsqueda del plan en 5.1–5.3 ms frente a 3.94. Con 1, 305 frente a 324.
+- **El recolector corrió menos de lo que esperaba,** 1.2 veces por segundo y no 3 o 4: lo vivo es más de lo que estimé, y el heap llegó a 13 GB.
+- **La pasada de 1M no tocaba,** por su regla: D con 8 no pasó de 1 100. No se hizo.
+
+**Lo que difiere entre los dos arneses, leído en el código** (sin medir).
+- **Los ciclos del store.** El arnés de la medida de 100k (`TestIntegrationScale`) no los tiene en sus relojes: llama a mano al volcado y a la compactación cada cierto número de inserts, entre rondas, con una gorutina y fuera del reloj de los inserts. El de la noche los tiene en los relojes de un nodo, corriendo a la vez que los inserts.
+- **Las opciones de los buckets.** El de 100k abre los buckets con las de por defecto de `lsmkv`. El de la noche, con las de un shard: memtable de tamaño dinámico de 10 a 200 MB, volcado a los 60 s de estar sucio, y lo demás.
+- **De dónde salen las filas.** El de 100k tiene el dataset en memoria; el de la noche lo lee del fichero, dentro de cada llamador.
+
+**Enmienda 2** (*mía*): el arnés de la medida de 100k con el código de hoy.
+- **C:** `TestIntegrationScale` compilado de integración en `20e89f0873`, que lleva la serie y el merge de `main`, con las mismas opciones que el 27 (`steps.sh`): las 100 000 primeras filas, base de 10 000, ciclos, sin deletes ni reapertura. Dos pasadas con 8 llamadores, una más con `GODEBUG=gctrace=1` para contar las recolecciones, y una con 1 llamador. Unos 12 minutos.
+- **Espero:** con 8, entre 1 150 y 1 220 por segundo, y de 3 a 5 recolecciones por segundo; con 1, entre 315 y 330.
+- **Cómo lo leo:**
+  - **C con 8 por encima de 1 100:** el código de hoy va como el del 27 en aquel arnés, y la diferencia es de arnés: un tercio el recolector, y el resto lo que queda de la lista de arriba. El arnés de la noche es el que hace lo que un shard. Las cifras de 1M valen como están, con la nota de que son las de un proceso sin nada más en el heap, y la de 100k del 27 era optimista para un nodo.
+  - **C con 8 por debajo de 1 000:** el código de hoy es más lento en el mismo arnés. Es una regresión entre los pasos de la serie medidos el 27 y la cabeza de integración, y la busco por commits antes de congelar nada.
+  - **Entre los dos:** las dos cosas, y lo digo con sus partes.
+
+**Datos:** `testdata/bench/def-1m/control2/`.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

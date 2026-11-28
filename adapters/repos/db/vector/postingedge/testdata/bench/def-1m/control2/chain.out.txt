@@ -1,0 +1,13 @@
+== 08:59:31 waiting for 900 s of idle (now 1071 s)
+== 2026-11-28 08:59:31 idle for 1071 s
+== 2026-11-28 08:59:31 d8-1: rows 100000 (0 is all), 8 callers, GOGC 500 (idle 1071 s)
+d8-1 exit 0
+== 2026-11-28 09:01:11 a8-3: rows 100000 (0 is all), 8 callers, GOGC 100 (idle 1171 s)
+a8-3 exit 0
+== 2026-11-28 09:03:02 d8-2: rows 100000 (0 is all), 8 callers, GOGC 500 (idle 1282 s)
+d8-2 exit 0
+== 2026-11-28 09:04:42 d1: rows 100000 (0 is all), 1 callers, GOGC 500 (idle 25 s)
+d1 exit 0
+== 09:09:42 D with 8 callers: 955 inserts a second on average
+== 09:09:42 the 1M pass not due
+== 2026-11-28 09:09:42 done (idle 325 s)

@@ -1,0 +1,9 @@
+=== RUN   TestNightGrow
+    bench_night_grow_test.go:528: the base: 10000 vectors in 43 postings, built in 1s
+    bench_night_grow_test.go:480: 09:00:33 70800 of 100000 in (70.8 %): 1002 inserts a second | 296 postings live, 549 given out | rows of edges 792 B an insert so far, 0 by the budget | waiting 1.5 MB | written 2.84 times the vectors | heap 8741 MB | 0.5 GB on disk, 18.4 GB free
+    bench_night_grow_test.go:480: 09:01:05 100000 of 100000 in (100.0 %): 912 inserts a second | 419 postings live, 795 given out | rows of edges 807 B an insert so far, 0 by the budget | waiting 2.2 MB | written 2.22 times the vectors | heap 13443 MB | 0.7 GB on disk, 18.3 GB free
+    bench_night_grow_test.go:480: 09:01:06 100000 of 100000 in (100.0 %): 0 inserts a second | 419 postings live, 795 given out | rows of edges 807 B an insert so far, 0 by the budget | waiting 2.2 MB | written 0.00 times the vectors | heap 13449 MB | 0.7 GB on disk, 18.2 GB free
+    bench_night_grow_test.go:424: shut in 0s
+    bench_night_grow_test.go:550: done: 100000 vectors, 93 s of inserts after the base, 0.7 GB on disk
+--- PASS: TestNightGrow (94.92s)
+PASS

@@ -7,7 +7,9 @@ import json, os, sys
 
 root = sys.argv[1]
 md = len(sys.argv) > 2 and sys.argv[2] == "md"
-names = ["a8-1", "a8-2", "b8-1", "b8-2", "a1", "b1"]
+# Every pass of the directory, in the order they ran.
+names = sorted((d for d in os.listdir(root) if os.path.exists(os.path.join(root, d, "grow.json"))),
+               key=lambda d: os.path.getmtime(os.path.join(root, d, "grow.json")))
 rows = []
 for name in names:
     path = os.path.join(root, name, "grow.json")
@@ -19,7 +21,7 @@ for name in names:
     ins = st["inserted"]
     first = g["stretches"][0]
     rows.append({
-        "pass": name, "kind": "dense" if name.startswith("a") else "spread", "callers": g["callers"],
+        "pass": name, "vectors": g["rows"], "callers": g["callers"],
         "keys": g["meta"]["keys"], "s": "%.1f" % g["seconds"], "ins/s": "%.0f" % (n / g["seconds"]),
         "first stretch": "%.0f" % first["perSecond"],
         "ms CPU/ins": "%.2f" % ((last["rusage"]["userNs"] + last["rusage"]["systemNs"]) / 1e6 / n),
@@ -29,6 +31,7 @@ for name in names:
         "rows": "%.1f" % (st["searchRows"]["n"] / ins), "rows MB": "%.2f" % (st["searchRows"]["bytes"] / 1e6 / ins),
         "wr KB/ins": "%.1f" % (last["rusage"]["diskBytesWritten"] / 1e3 / n),
         "postings": last["livePostings"], "splits": st["splits"], "numGC": last["numGC"],
+        "GC/s": "%.1f" % (last["numGC"] / last["seconds"]),
         "heap GB max": "%.2f" % max(s["heapInuse"] / 1e9 for s in g["stretches"]), "done": g.get("done"),
     })
 if not rows:
