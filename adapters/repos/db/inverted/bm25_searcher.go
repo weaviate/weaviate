@@ -160,16 +160,24 @@ func (b *BM25Searcher) WithSearchableBucketPinningResolver(
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
 	className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	// WEAVIATE-471 - If a property is not searchable, return an error
-	for _, property := range keywordRanking.Properties {
-		if !PropertyHasSearchableIndex(b.getClass(className.String()), property) {
-			return nil, nil, inverted.NewMissingSearchableIndexError(property)
-		}
-	}
-
+	// A missing class must not be reported as "indexSearchable is disabled":
+	// PropertyHasSearchableIndex is false for a nil class.
 	class := b.getClass(className.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
+	}
+	// WEAVIATE-471 - If a property is not searchable, return an error.
+	// An unknown name is not the same failure: it must not tell the caller
+	// to flip indexSearchable on a property that is not in the schema.
+	for _, property := range keywordRanking.Properties {
+		name := strings.Split(property, "^")[0]
+		prop, err := schema.GetPropertyByName(class, name)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !HasSearchableIndex(prop) {
+			return nil, nil, inverted.NewMissingSearchableIndexError(name)
+		}
 	}
 
 	var objs []*storobj.Object
