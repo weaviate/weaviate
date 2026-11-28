@@ -1084,6 +1084,65 @@ func TestReactiveFiring_WokenTicksKeepTheMinimumGap(t *testing.T) {
 	}
 }
 
+// Two nodes whose last ticks are 1 s apart get the same RAFT apply at the same instant; both must act on it promptly.
+func TestReactiveFiring_SameWakeTicksAllNodesTogether(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	const step = 100 * time.Millisecond
+	a := newTestHarness(t)
+	b := newTestHarness(t)
+	b.clock = a.clock
+	nodes := []*testHarness{a.init(t), b.init(t)}
+	for _, h := range nodes {
+		h.manager.SetSchedulerNotifier(h.scheduler)
+		h.startScheduler(t)
+		defer h.Close()
+	}
+
+	addTaskWithUnits(t, a, a.tasksNamespace, "first", 10, []string{"su-1"})
+	require.Equal(t, "first", recvWithTimeout(t, a.provider.startedCh).ID)
+	a.clock.Advance(time.Second)
+	addTaskWithUnits(t, b, b.tasksNamespace, "first", 10, []string{"su-1"})
+	require.Equal(t, "first", recvWithTimeout(t, b.provider.startedCh).ID)
+
+	wokenAt := a.clock.Now()
+	for _, h := range nodes {
+		addTaskWithUnits(t, h, h.tasksNamespace, "second", 11, []string{"su-2"})
+	}
+
+	startedAfter := make([]time.Duration, len(nodes))
+	pending := len(nodes)
+	collect := func() {
+		for i, h := range nodes {
+			if startedAfter[i] != 0 {
+				continue
+			}
+			select {
+			case task := <-h.provider.startedCh:
+				require.Equal(t, "second", task.ID)
+				startedAfter[i] = a.clock.Since(wokenAt) + time.Nanosecond
+				pending--
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+	}
+	collect()
+	if pending > 0 {
+		// Every loop's ticker, plus the delay timer of each node still waiting.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, a.clock.BlockUntilContext(ctx, len(nodes)+pending))
+	}
+	for elapsed := time.Duration(0); pending > 0 && elapsed < 3*time.Second; elapsed += step {
+		a.clock.Advance(step)
+		collect()
+	}
+	require.Zero(t, pending, "a node never acted on the wake")
+	for i, after := range startedAfter {
+		assert.LessOrEqualf(t, after, 2*step, "node %d acted %v after the wake; all nodes: %v", i, after, startedAfter)
+	}
+}
+
 // TestReactiveFiring_NilNotifierIsSafe verifies that the Manager can be
 // used without a wired notifier (the legacy path: tick-only scheduling
 // works even when reactive firing is not configured). Most existing
