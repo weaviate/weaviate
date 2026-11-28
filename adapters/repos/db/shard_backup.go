@@ -209,6 +209,13 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		}
 	}()
 
+	return s.stageBackupSnapshot(ctx, sd, shardStaging)
+}
+
+// stageBackupSnapshot is CreateBackupSnapshot once the shard is halted for
+// the transfer: it lists the files, has the vector indexes copy those they
+// change in place and hardlinks the rest into the staging directory.
+func (s *Shard) stageBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, shardStaging backup.ShardStaging) (files []string, err error) {
 	files, err = s.ListBackupFiles(ctx, sd)
 	if err != nil {
 		return nil, fmt.Errorf("list backup files: %w", err)

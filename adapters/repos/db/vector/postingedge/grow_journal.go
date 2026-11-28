@@ -70,6 +70,10 @@ const (
 	// growJournalLimit is the size past which the index empties its journal
 	// by itself, without waiting for whoever syncs it.
 	growJournalLimit = 64 << 20
+	// growCheckFile holds the doc ids the journal put back when the index
+	// opened, from before the journal is emptied until whoever opened it has
+	// asked the shard whether their objects are there (growOpen.checkObjects).
+	growCheckFile = "objects.check"
 )
 
 // growTarget is where a write of a step goes: a bucket or a file.
@@ -660,7 +664,7 @@ func (g *growIndex) endStep() error {
 			j.crash("after a write", i+1)
 		}
 	}
-	if j.size > growJournalLimit {
+	if j.size > growJournalLimit && !g.keepJournal {
 		return g.sync()
 	}
 	return nil
@@ -789,6 +793,93 @@ type growRecovered struct {
 	// VectorsLeftOut those of them the index held and left out (loseVector).
 	VectorsMissing int `json:"vectorsMissing,omitempty"`
 	VectorsLeftOut int `json:"vectorsLeftOut,omitempty"`
+	// Placed is the doc ids the journal put in the posting map when the
+	// index opened, with those of growCheckFile.
+	Placed []uint64 `json:"-"`
+}
+
+// placedBy returns the doc ids that records put in the posting map, once
+// each, in the order they first come.
+func placedBy(records []growRecord) []uint64 {
+	seen := map[uint64]struct{}{}
+	var out []uint64
+	for r := range records {
+		for e := range records[r].entries {
+			entry := &records[r].entries[e]
+			if entry.target != growTargetMap || entry.kind != growEntryPut || len(entry.key) != 4 {
+				continue
+			}
+			id := uint64(binary.BigEndian.Uint32(entry.key))
+			if _, dup := seen[id]; !dup {
+				seen[id] = struct{}{}
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+// unionIDs returns the ids of a, then those of b that a does not have.
+func unionIDs(a, b []uint64) []uint64 {
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[uint64]struct{}, len(a))
+	for _, id := range a {
+		seen[id] = struct{}{}
+	}
+	for _, id := range b {
+		if _, dup := seen[id]; !dup {
+			seen[id] = struct{}{}
+			a = append(a, id)
+		}
+	}
+	return a
+}
+
+// readGrowCheck reads the doc ids of growCheckFile, none if there is none.
+func readGrowCheck(path string) ([]uint64, error) {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "read the doc ids left to check")
+	}
+	if len(raw)%8 != 0 {
+		return nil, errors.Errorf("%s holds %d bytes, not a whole number of doc ids", filepath.Base(path), len(raw))
+	}
+	ids := make([]uint64, len(raw)/8)
+	for i := range ids {
+		ids[i] = binary.LittleEndian.Uint64(raw[8*i:])
+	}
+	return ids, nil
+}
+
+// writeGrowCheck writes the doc ids to growCheckFile, whole and synced, or
+// leaves the one that was there.
+func writeGrowCheck(path string, ids []uint64) error {
+	raw := make([]byte, 8*len(ids))
+	for i, id := range ids {
+		binary.LittleEndian.PutUint64(raw[8*i:], id)
+	}
+	tmp := path + ".tmp"
+	file, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return errors.Wrap(err, "write the doc ids left to check")
+	}
+	if _, err := file.Write(raw); err != nil {
+		_ = file.Close()
+		return errors.Wrap(err, "write the doc ids left to check")
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return errors.Wrap(err, "sync the doc ids left to check")
+	}
+	if err := file.Close(); err != nil {
+		return errors.Wrap(err, "write the doc ids left to check")
+	}
+	return errors.Wrap(os.Rename(tmp, path), "write the doc ids left to check")
 }
 
 // openJournal ends the opening of an index. If its journal held records, or
@@ -798,6 +889,13 @@ type growRecovered struct {
 // index was asked to keep one, and otherwise removed.
 func (g *growIndex) openJournal(ctx context.Context, opts growOpen, replayed int) error {
 	path := filepath.Join(g.dir, growJournalFile)
+	// The doc ids the journal put back outlive it until they are asked
+	// about.
+	if opts.checkObjects && len(g.recovered.Placed) > 0 {
+		if err := writeGrowCheck(filepath.Join(g.dir, growCheckFile), g.recovered.Placed); err != nil {
+			return err
+		}
+	}
 	marked := false
 	if _, err := os.Stat(filepath.Join(g.dir, growGraphMark)); err == nil {
 		marked = true

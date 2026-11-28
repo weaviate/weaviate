@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	stderrors "errors"
 	"fmt"
 	"maps"
@@ -408,6 +409,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			CommitLogCallbacks: s.cycleCallbacks.vectorCommitLoggerCallbacks,
 			CommitLogThreshold: s.index.Config.HNSWMaxLogSize / 5,
+			// The store of objects is open already (initNonVector runs
+			// before the vector indexes): the index asks it, when it opens,
+			// about the vectors its journal puts back. And it has the store
+			// write the log of the objects before it empties its journal:
+			// updateVectorIndex flushes the index before putOne writes the
+			// logs of the store.
+			ObjectExists:    s.objectExistsByDocID,
+			WriteObjectsLog: s.writeObjectsLog,
 		}, userConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: postingedge index", s.ID())
@@ -419,6 +428,37 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	}
 	defer vectorIndex.PostStartup(s.shutCtx)
 	return vectorIndex, nil
+}
+
+// objectExistsByDocID tells whether the store of the shard holds the object of
+// a doc id. A vector index asks it when it opens, about the vectors it put
+// back from what it logged: their objects may not have reached the store.
+func (s *Shard) objectExistsByDocID(ctx context.Context, docID uint64) (bool, error) {
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	var key [8]byte
+	binary.LittleEndian.PutUint64(key[:], docID)
+	obj, err := bucket.GetBySecondary(ctx, 0, key[:])
+	if err != nil {
+		return false, errors.Wrapf(err, "get the object of doc %d", docID)
+	}
+	return obj != nil, nil
+}
+
+// writeObjectsLog hands the log of the bucket of objects to the system, as
+// the store does for every bucket after a put. A vector index calls it before
+// it lets go of what it logged of its own: the vectors of objects whose log
+// has not reached the system.
+func (s *Shard) writeObjectsLog() error {
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return errors.Wrap(bucket.WriteWAL(), "write the log of the objects")
 }
 
 // initTargetVector creates the named vector's index and queue under the

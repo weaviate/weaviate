@@ -1454,6 +1454,7 @@ func generatedIDsVectors() (legacy schemaConfig.VectorIndexConfig, named map[str
 		"zebrafresh":   enthfresh.NewDefaultUserConfig(),
 		"zebramuvera":  muvera,
 		"zebramulti":   enthnsw.NewDefaultMultiVectorUserConfig(),
+		"zebraedge":    entpostingedge.NewDefaultUserConfig(),
 	}
 }
 

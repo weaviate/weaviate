@@ -69,7 +69,7 @@ import (
 // opens as what it is and stays so.
 //
 // What it does not do says so with an error: a filtered search, a search by
-// distance, a backup. Multi-vectors and distances other than cosine are
+// distance. Multi-vectors and distances other than cosine are
 // refused before an index exists, where a class is parsed.
 type Persistent struct {
 	cfg      PersistentConfig
@@ -151,6 +151,11 @@ type Persistent struct {
 	// plans has the plans of the inserts, which every caller takes for the
 	// vectors it is adding and gives back.
 	plans sync.Pool
+	// backupHeld tells that a backup holds the index (persistent_backup.go),
+	// and resumed is closed when it lets go. Whoever holds writeMu and mu
+	// changes them, and either lock is enough to read them.
+	backupHeld bool
+	resumed    chan struct{}
 	// lastInsert is when the last insert was applied, in nanoseconds of the
 	// clock of the config: zero for none since the index was opened.
 	lastInsert atomic.Int64
@@ -234,6 +239,23 @@ type PersistentConfig struct {
 	// MakeBucketOptions gives the options of the buckets the index keeps in
 	// the store of the shard.
 	MakeBucketOptions lsmkv.MakeBucketOptions
+	// ObjectExists tells whether the store of the shard holds the object of a
+	// doc id. When the index opens it asks, for every vector its journal put
+	// back, and drops those whose objects are not there (dropOrphans): what a
+	// transfer that writes after the flush of the store copies with the
+	// journal, or a process that dies between the put of a vector and the
+	// write of the logs of the store leaves. The shard opens its store of
+	// objects before its vector indexes. Nil asks nothing.
+	ObjectExists func(ctx context.Context, docID uint64) (bool, error)
+	// WriteObjectsLog hands the log of the store of objects to the system,
+	// as the store does after a put. The index calls it before what its
+	// journal tells leaves the journal (a sync, and the flush of the vectors
+	// kept aside), so that a vector reaches the system by its own way only
+	// after its object: a shard flushes its vector indexes before it writes
+	// the logs of its store, and a process that dies in between would leave
+	// the vector without its object and outside the journal, where
+	// dropOrphans does not look. Nil calls nothing.
+	WriteObjectsLog func() error
 	// BaseSize is how many vectors the index gathers before it builds its
 	// first postings, DefaultBaseSize when 0.
 	BaseSize int
@@ -302,6 +324,10 @@ type PersistentConfig struct {
 	// writeHook, in the tests, is called at the points of the write of the
 	// base (writeGrowIndex). What it answers is the write failing there.
 	writeHook func(point string) error
+	// layoutHook, in the tests, is called before every step of a pass over
+	// the vectors that runs next to the searches and the inserts, with how
+	// many steps it took before, and holding none of the locks of the index.
+	layoutHook func(step int)
 	// drainHook, in the tests, is called before the index takes a vector
 	// kept aside, with no lock held: a test that holds it searches an index
 	// with a base and vectors still aside. baseHook is called with the lock
@@ -404,10 +430,19 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 			_ = p.g.release(ctx)
 			return nil, errors.Wrap(err, "open the vectors kept aside")
 		}
+		if err := p.dropOrphans(ctx); err != nil {
+			_ = p.closeStaging(ctx)
+			_ = p.g.release(ctx)
+			return nil, errors.Wrap(err, "drop the vectors whose objects are not in the store")
+		}
 	case os.IsNotExist(statErr):
 		// Without a meta there is no base, and the vectors are kept aside.
 		if err := p.openWithoutMeta(ctx); err != nil {
 			return nil, err
+		}
+		if err := p.dropOrphans(ctx); err != nil {
+			_ = p.closeStaging(ctx)
+			return nil, errors.Wrap(err, "drop the vectors whose objects are not in the store")
 		}
 	default:
 		return nil, errors.Wrap(statErr, "look for the meta of the index")
@@ -441,10 +476,12 @@ func (p *Persistent) growOpen() growOpen {
 		// A shard flushes its indexes and may stop without closing them:
 		// what waits in memory of the edges is on disk too. And it may die
 		// in the middle of a write: every write goes through the journal.
-		keepPending: true,
-		journal:     true,
-		noCodes:     p.noCodes,
-		centroidsID: p.centroidsID(),
+		keepPending:  true,
+		journal:      true,
+		noCodes:      p.noCodes,
+		centroidsID:  p.centroidsID(),
+		checkObjects: p.cfg.ObjectExists != nil,
+		objectsFirst: p.cfg.WriteObjectsLog,
 		// What waits of the edges takes at most its budget of heap, and no
 		// table of when the edges were built is kept while nothing refreshes
 		// them.
@@ -1408,6 +1445,11 @@ func (p *Persistent) Flush() error {
 		return nil
 	}
 	if p.staging != nil {
+		// Nothing journals the vectors kept aside: their objects reach the
+		// system first.
+		if err := p.writeObjectsLog(); err != nil {
+			return err
+		}
 		if err := p.staging.WriteWAL(); err != nil {
 			return errors.Wrap(err, "write the log of the vectors kept aside")
 		}
@@ -1419,27 +1461,6 @@ func (p *Persistent) Flush() error {
 	}
 	p.dirty = false
 	return nil
-}
-
-// ListFiles is of a backup, which the index does not take part in.
-func (p *Persistent) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	return nil, errors.Wrap(ErrNotSupported, "backup")
-}
-
-// PrepareForBackup fails rather than let a backup complete without the files
-// of the index in it.
-func (p *Persistent) PrepareForBackup(ctx context.Context) error {
-	return errors.Wrap(ErrNotSupported, "backup")
-}
-
-// ResumeAfterBackup has nothing to resume, PrepareForBackup never succeeds.
-func (p *Persistent) ResumeAfterBackup(ctx context.Context) error {
-	return nil
-}
-
-// SnapshotMutableFiles fails for the same reason PrepareForBackup does.
-func (p *Persistent) SnapshotMutableFiles(ctx context.Context, basePath string, dstFor func(relPath string) string) ([]string, error) {
-	return nil, errors.Wrap(ErrNotSupported, "backup")
 }
 
 // Shutdown writes what the index has not written yet and releases it. Its
@@ -1488,6 +1509,8 @@ func (p *Persistent) teardown(ctx context.Context) error {
 		return nil
 	}
 	p.closed = true
+	// A pass that waits for a backup to let go ends: the index is closed.
+	p.releaseBackup()
 	var first error
 	keep := func(err error) {
 		if first == nil {

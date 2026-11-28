@@ -64,7 +64,9 @@ const drainPerInsert = 2
 // and nobody is building it. After a build that failed it is not due until
 // more have come. The caller holds mu.
 func (p *Persistent) baseDue() bool {
-	return p.g == nil && !p.building && len(p.staged) >= p.cfg.BaseSize && len(p.staged) > p.buildFailed
+	// No build starts while a backup holds the index: the vectors wait aside.
+	return p.g == nil && !p.building && !p.backupHeld && len(p.staged) >= p.cfg.BaseSize &&
+		len(p.staged) > p.buildFailed
 }
 
 // baseOn tells whether the base is due or being built, or the index has one
