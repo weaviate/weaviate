@@ -20,6 +20,7 @@ const (
 // ReindexFlipRequest makes generation Gen of Prop's IndexTypes the class's own,
 // with the run's target settings, once every tenant serves it.
 type ReindexFlipRequest struct {
+	Run          MigrationRun // the run that built Gen; the apply changes nothing unless it is SWAPPING
 	Prop         string
 	Gen          uint64
 	Tokenization string // empty keeps the property's

@@ -12,11 +12,13 @@
 package schema_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
 )
@@ -98,6 +100,42 @@ func TestReindexFlip(t *testing.T) {
 			require.Equal(t, tt.wantStamped, stamped)
 			require.Equal(t, tt.wantTok, stored.Properties[0].Tokenization)
 			require.Equal(t, tt.wantFilter, *stored.Properties[1].IndexFilterable)
+		})
+	}
+}
+
+// runGuard answers only the flip's run check.
+type runGuard struct {
+	schema.MutationGuard
+	err error
+}
+
+func (g runGuard) CheckMigrationPropertyUpdate(string, string, command.MigrationRun) error {
+	return g.err
+}
+
+// A flip applies only while its run is SWAPPING, so a late flip of a removed
+// run leaves a class created again under the same name untouched.
+func TestReindexFlipNeedsItsRun(t *testing.T) {
+	flip := command.ReindexFlipRequest{
+		Run:  command.MigrationRun{Namespace: "reindex", ID: "run", Version: 1},
+		Prop: "p1", Gen: 1, IndexTypes: []string{command.ReindexFilterable},
+	}
+	tests := []struct {
+		name     string
+		runErr   error
+		wantLive map[string]map[string]uint64
+	}{
+		{name: "the run is swapping", wantLive: map[string]map[string]uint64{"p1": {command.ReindexFilterable: 1}}},
+		{name: "the run is gone", runErr: errors.New("no reindex run is completing")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newSchemaManagerWithModules(t, fakes.NewMockSchemaExecutor())
+			sm.SetMutationGuard(runGuard{err: tt.runErr})
+			require.NoError(t, sm.AddClass(addClassRequest(t, maskedTestClass(1.2, 100)), "node1", true, false))
+			require.NoError(t, sm.ReindexFlip(applyRequest(t, command.ApplyRequest_TYPE_REINDEX_FLIP, className, 2, flip), true))
+			require.Equal(t, tt.wantLive, sm.NewSchemaReader().ClassLive(className))
 		})
 	}
 }

@@ -182,6 +182,7 @@ func (p *ReindexProvider) completeGenerationRun(task *distributedtask.Task, h Re
 	}
 	for _, prop := range h.Properties {
 		if _, err := flipper.ReindexFlip(p.serverCtx, h.Collection(), api.ReindexFlipRequest{
+			Run:  api.MigrationRun{Namespace: task.Namespace, ID: task.ID, Version: task.Version},
 			Prop: prop, Gen: h.Generation, Tokenization: target.tokenization, IndexTypes: target.indexTypes,
 			Enable: target.enable, Blockmax: target.blockmax,
 		}); err != nil {
