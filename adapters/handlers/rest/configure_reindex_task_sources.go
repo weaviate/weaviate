@@ -26,15 +26,7 @@ import (
 
 const catchUpRetryBudget = 2 * time.Second
 
-// catchUpRetryLister retries a new leader's refusal, which also starts the catch-up nothing else starts without writes.
-type catchUpRetryLister struct {
-	distributedtask.TaskHeaderLister
-}
-
-func (l catchUpRetryLister) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	return listTaskHeaders(ctx, l.TaskHeaderLister)
-}
-
+// listTaskHeaders retries a new leader's refusal, which also starts the catch-up nothing else starts without writes.
 func listTaskHeaders(ctx context.Context, lister distributedtask.TaskHeaderLister) (map[string][]*distributedtask.Task, error) {
 	return listRetryingCatchUp(ctx, lister.ListDistributedTaskHeaders)
 }

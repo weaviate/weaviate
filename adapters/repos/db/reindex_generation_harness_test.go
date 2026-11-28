@@ -100,6 +100,9 @@ type genNode struct {
 	lose func(req *api.RecordDistributedTaskUnitCompletionRequest) bool
 	// panicOnStart, when set, panics the provider's start claim of a unit.
 	panicOnStart func(unit string) bool
+	// panicOnFailure panics the provider's FAILED write.
+	panicOnFailure bool
+	prov           *ReindexProvider
 
 	applied uint64 // the last entry in this node's log
 	down    bool   // crashed: gets no entries and proposes nothing new
@@ -290,6 +293,7 @@ func (c *genCluster) newNode(name, root string) *genNode {
 	client := &genClient{c: c, n: n}
 	prov := NewReindexProvider(db, logger, name, func() int { return 4 }, c.ctx)
 	prov.SetReindexFlipper(client)
+	n.prov = prov
 	n.sched = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: client, TaskSource: n.dtm, TaskCleaner: client, TaskFinalizer: client,
 		AckRecorder: client, Providers: map[string]distributedtask.Provider{ReindexNamespace: prov},
@@ -506,6 +510,9 @@ func (r *genClient) RecordDistributedTaskUnitCompletion(_ context.Context, ns, i
 }
 
 func (r *genClient) RecordDistributedTaskUnitFailure(_ context.Context, ns, id string, v uint64, node, unit, msg string) error {
+	if r.n.panicOnFailure {
+		panic("failure write panicked")
+	}
 	return r.dt(api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &api.RecordDistributedTaskUnitCompletionRequest{
 		Namespace: ns, Id: id, Version: v, NodeId: node, UnitId: unit, Error: msg, FinishedAtUnixMillis: time.Now().UnixMilli(),
 	})

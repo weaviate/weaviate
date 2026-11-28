@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"sync"
 	"time"
@@ -24,7 +23,6 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/logrusext"
@@ -86,7 +84,11 @@ func (p *ReindexProvider) buildGenerationUnit(ctx context.Context, task *distrib
 ) {
 	defer func() {
 		if r := recover(); r != nil {
-			p.failPanickedUnit(ctx, task, u.ID, r)
+			defer panic(r)
+			// Unrecorded, the task stays STARTED and relaunches the panicking unit every retryFloor.
+			if ctx.Err() == nil && p.serverCtx.Err() == nil {
+				p.failUnit(ctx, task, u.ID, p.recorder, fmt.Sprintf("panic: %v", r))
+			}
 		}
 	}()
 	err := p.runGenerationUnit(ctx, task, h, idx, u)
@@ -104,17 +106,6 @@ func (p *ReindexProvider) buildGenerationUnit(ctx context.Context, task *distrib
 			})
 		}
 	}
-}
-
-// failPanickedUnit fails the unit, or every relaunch would panic on it again.
-func (p *ReindexProvider) failPanickedUnit(ctx context.Context, task *distributedtask.Task, unitID string, r any) {
-	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
-		panic(r)
-	}
-	p.unitDoneSampler().WithSampling(func(l logrus.FieldLogger) {
-		enterrors.PrintStack(l.WithField("taskID", task.ID).WithField("unit", unitID))
-	})
-	p.failUnit(ctx, task, unitID, p.recorder, fmt.Sprintf("panic: %v", r))
 }
 
 func (p *ReindexProvider) unitDoneSampler() *logrusext.Sampler {

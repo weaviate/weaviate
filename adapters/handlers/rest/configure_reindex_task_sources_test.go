@@ -63,6 +63,11 @@ func TestTaskListCallersRetryANewLeadersRefusal(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, active)
 		}},
+		{name: "property index DELETE's run check", call: func(t *testing.T, refusals *atomic.Int32) {
+			h := &schemaHandlers{reindexTaskLister: fakeTaskLister{tasks: tasks, err: notCaughtUp, refusals: refusals}}
+			require.False(t, h.reindexRunServesIndex(context.Background(), "C", "title", "filterable"),
+				"a refusal answers that a run serves the index")
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			refusals := &atomic.Int32{}

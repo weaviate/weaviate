@@ -297,25 +297,77 @@ func TestReindexGenerationCrash_LateCompletion(t *testing.T) {
 	}
 }
 
-// A panicking unit fails the run once, instead of panicking again on every relaunch.
+func recoveredPanics(n *genNode, value string) int {
+	count := 0
+	for _, e := range n.logs.AllEntries() {
+		if strings.HasPrefix(e.Message, "Recovered from panic: "+value) {
+			count++
+		}
+	}
+	return count
+}
+
+// A panicking unit fails the run once, instead of panicking again on every relaunch, and
+// its panic reaches GoWrapper, which reports it to Sentry.
 func TestReindexGenerationCrash_PanickingUnitFails(t *testing.T) {
 	// The integration job re-raises recovered panics, which would crash the binary.
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
-	c := newGenCluster(t, genDefaultOpts(), 1)
-	c.addTenants("t1")
-	c.write("t1", 3)
-	unit := MigrationUnitID("t1", "node1")
-	var panics atomic.Int32
-	c.nodes[0].panicOnStart = func(u string) bool { return u == unit && panics.Add(1) > 0 }
-	id, err := c.submit(ReindexTypeChangeTokenization, models.PropertyTokenizationField)
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		task := c.task(id)
-		return task != nil && task.Status == distributedtask.TaskStatusFailed
-	}, 10*time.Second, 10*time.Millisecond, "the run never failed")
-	require.Equal(t, 1, unitFailures(c, unit))
-	require.True(t, c.nodes[0].hasError("unit failed: panic"))
-	require.Equal(t, int32(1), panics.Load())
+	const startPanic = "start claim panicked"
+	for _, tc := range []struct {
+		name string
+		// failurePanics panics the FAILED write too, so nothing is recorded.
+		failurePanics bool
+		// terminate ends the handle before the unit panics, which also stops the FAILED write.
+		terminate bool
+	}{
+		{name: "unit panics"},
+		{name: "unit panics, failure write panics too", failurePanics: true},
+		{name: "handle terminated, then unit panics", terminate: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newGenCluster(t, genDefaultOpts(), 1)
+			c.addTenants("t1")
+			c.write("t1", 3)
+			unit := MigrationUnitID("t1", "node1")
+			n := c.nodes[0]
+			n.panicOnFailure = tc.failurePanics
+			var panics atomic.Int32
+			n.panicOnStart = func(u string) bool {
+				if u != unit || (tc.terminate && panics.Load() > 0) {
+					return false
+				}
+				panics.Add(1)
+				if tc.terminate {
+					n.prov.mu.Lock()
+					for _, h := range n.prov.runningHandles {
+						h.Terminate()
+					}
+					n.prov.mu.Unlock()
+				}
+				return true
+			}
+			id, err := c.submit(ReindexTypeChangeTokenization, models.PropertyTokenizationField)
+			require.NoError(t, err)
+			if tc.failurePanics || tc.terminate {
+				require.Never(t, func() bool { return unitFailures(c, unit) > 0 }, 2*time.Second, 20*time.Millisecond,
+					"no FAILED record lands")
+				require.Zero(t, recoveredPanics(n, "failure write panicked"), "GoWrapper reports the unit's own panic")
+			}
+			require.Eventually(t, func() bool { return recoveredPanics(n, startPanic) > 0 },
+				10*time.Second, 10*time.Millisecond, "the unit's panic never reached GoWrapper")
+			if tc.failurePanics || tc.terminate {
+				return
+			}
+			require.Eventually(t, func() bool {
+				task := c.task(id)
+				return task != nil && task.Status == distributedtask.TaskStatusFailed
+			}, 10*time.Second, 10*time.Millisecond, "the run never failed")
+			require.Equal(t, 1, unitFailures(c, unit))
+			require.True(t, n.hasError("unit failed: panic"))
+			require.Equal(t, int32(1), panics.Load())
+			require.Equal(t, 1, recoveredPanics(n, startPanic))
+		})
+	}
 }
 
 // A unit of a run that took over a dead run's generation starts only once its
