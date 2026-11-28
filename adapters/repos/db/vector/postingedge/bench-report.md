@@ -3782,6 +3782,25 @@ Datos: `testdata/bench/lock-holds/`.
 
 Datos: `testdata/bench/search-10m-grown/`.
 
+#### Plan B, palanca D: el split lee sus vectores antes de tomar el índice (pre-registro, 28 de noviembre a las 18:36; sin escribir ni compilar)
+
+**De dónde sale.** De la medida del cerrojo de esta tarde: cada split retiene el índice 17.2 ms, y 14.0 de ellos son leer los 361 vectores exactos del posting, uno a uno, con el índice tomado. Hay un split cada 240 inserts, y son los lotes con split los que hacen el p99 de las retenciones (64 ms). El que tardó 165 ms en leer retuvo el índice 184 ms.
+
+**La palanca** (*mía*; apagada por defecto, como las otras; va solo a `next`).
+- Quien aplica un lote ya tiene el cerrojo de los escritores, así que nadie más cambia el índice. Antes de tomar el índice para escribir, mira qué postings pasarán del umbral con los planes del lote y lee los vectores exactos de sus miembros, varios a la vez, a una caché del lote.
+- El split, ya con el índice tomado, coge de la caché los vectores que estén y lee los que falten. La caché es solo un adelanto: si la predicción falla, el split hace lo de hoy.
+- No cambia lo que se escribe ni el diario: el resultado de un split es el mismo con la palanca y sin ella.
+
+**Tests,** antes de medir: un lote que parte un posting deja lo mismo con la palanca y sin ella; un split que la predicción no vio lee como hoy; los del paquete en verde.
+
+**La medida.** La pasada de las retenciones a 10M (1 hilo de queries y 8 llamadores, 180 s, sobre un clon), con el mismo binario, apagada y encendida, dos de cada una alternadas; y los inserts solos con 8 llamadores, apagada y encendida.
+
+**Regla** (*mía*): se sostiene si el p99 de las retenciones sin filas por presupuesto baja a la mitad o menos y los inserts solos no pierden más de un 5 %.
+
+**Lo que espero** (*mío*): el split, de 17 ms a 3 o 4 con el índice tomado; el p99 de las retenciones, de 64 ms a menos de 30; el p99 de la espera de una query, de 5.9 a unos 4 ms; los inserts, igual.
+
+**Orden.** Se escribe ahora sin compilar, en una copia del árbol de las palancas. Se compila y se prueba en un hueco, y se mide detrás de la segunda cadena.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
