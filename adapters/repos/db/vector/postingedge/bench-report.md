@@ -2950,6 +2950,68 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 
 **Datos:** `testdata/bench/diag-gaps/`: `chain1` (100k, tablas y lecturas), `chain2` (enmienda 1), `chain3` (enmienda 2), `tracecpu` (el lector y sus salidas), los guiones y los tests.
 
+#### Insert en dos tiempos: simulación (pre-registro, 28 de noviembre a las 12:24, antes de escribir el simulador)
+
+**El encargo** (del usuario, a las 12:15): evaluar una idea, solo con simulación y sin tocar la base, detrás de la cadena de los huecos, y meterla en la lista de propuestas con sus datos.
+- **La idea:** el insert en dos tiempos. (1) Asignar al centroide más cercano y escribir en el posting, sin búsqueda. (2) Eventos por posting, que cargan una vez su grupo de postings vecinos y conectan en memoria todos sus vectores pendientes, con las aristas inversas.
+- **Qué medir, sobre el índice de 10M y uno de 1M:**
+  1. **Cobertura:** de las aristas que hoy tiene cada vector, qué fracción apunta a un posting dentro del grupo de su posting, con grupos de 32, 64, 128, 256 y 320. Dos definiciones de grupo: por distancia entre centroides, y por los postings a los que más apuntan las aristas de sus compañeros.
+  2. **Tolerancia:** recall y cargas a 0.95 y 0.99 quitando las aristas, las de salida y las inversas hacia ellos, al 5, 10, 25 y 50 % de los vectores más recientes.
+  3. **Referencia:** cuánto cuesta hoy por vector la fase de aristas del constructor en lote (cargas, CPU, vectores por segundo), separada de la asignación.
+  4. **Estimación:** cargas, lecturas y CPU por vector con 16, 32 y 64 pendientes por evento, y qué habría que prototipar primero.
+  5. **Autorreparación,** dentro de la misma propuesta: diseñar el estado «pendiente» para que se derive del propio índice, sin cola aparte, y los eventos para que se puedan repetir sin daño; decir qué pasa si el proceso cae a mitad de un evento; los disparadores (por número de pendientes, por edad, en ocioso y por demanda de las queries); y medir en la simulación qué gana un evento que reconecta también los miembros antiguos del posting frente a uno que conecta solo los pendientes, en recall, cargas y coste de cálculo, incluido el caso tras borrados y tras un split.
+
+**Los índices** (*mío*).
+- **10M:** el crecido con la serie, wiki-dpr de 768 dimensiones, desde un clon en el volumen de pruebas. «Más reciente» es el puesto en el orden en que entraron las filas.
+- **1M:** dbpedia de 1 536 dimensiones, crecido ahora con 8 llamadores y doc ids densos, como la celda principal de las definitivas. «Más reciente» es el doc id. Es otro dataset y otra dimensión que el de 10M, a propósito.
+- **Nada se escribe en ellos:** el simulador carga en memoria los postings (miembros, códigos y aristas) de un clon abierto sin ciclos ni mantenimiento, cambia las aristas en esa copia, y busca con la búsqueda del índice dándole los postings de la copia. El rescore lee los vectores de verdad.
+
+**Qué hace hoy cada camino,** leído en el código, que es lo que la simulación imita.
+- **El constructor en lote** (`buildEdges`): los candidatos de un vector son los miembros de los postings de sus 256 centroides más cercanos (320 en la construcción de 10M); se ordenan por código, los 64 mejores se comparan exactos (256 a 10M), y de los 16 más cercanos, los que están fuera de su posting son sus aristas. No hay aristas inversas.
+- **El insert:** sus vecinos son los 16 primeros de su búsqueda; sus aristas, los de fuera de su posting. Y entra en la lista de cada vecino de fuera cuya peor arista mejora: la lista no crece, y una lista vacía no recibe a nadie.
+- **Un split no cambia ninguna arista.**
+
+**1. Cobertura.** Para cada vector, sus aristas de hoy y el posting donde está hoy cada extremo.
+- **Grupo por centroides:** los G postings vivos más cercanos al suyo, por coseno entre centroides, el suyo aparte.
+- **Grupo por aristas:** los G postings a los que apuntan más aristas de sus compañeros de posting, sin contar las del propio vector, que el evento no tendría.
+- **Doy,** por tamaño y definición: la fracción de las aristas cubiertas, la media por vector, y cuántos vectores tienen el 90 % o más y cuántos todas.
+
+**2. Tolerancia.** A los vectores del X % más reciente se les quitan sus aristas y se les saca de las listas de los demás; siguen en su posting, y una búsqueda que lo carga los puntúa.
+- **Recall@10 y cargas** con las queries del dataset (1 000; a 1M, las 1 000 primeras), en la malla de `ef` 10, 20, 40, 80, 160 y 320, y en los puntos de 0.95 y 0.99, buscados como siempre. Junto al índice de hoy.
+
+**3. Referencia: la fase de aristas del lote.**
+- **De lo archivado:** a 1M, 256 postings por vector, 51 523 candidatos ordenados por código y 64 comparados exactos; a 10M, 320, 66 060 y 256.
+- **Una construcción en lote nueva a 1M,** cronometrada, con la CPU del proceso leída al acabar cada fase: segundos, CPU y vectores por segundo de las aristas, aparte de la partición y la asignación. A 10M no la repito: fueron 3.8 horas; doy sus cuentas.
+
+**5. Los eventos, en la simulación** (*mío* el cómo; lo pongo antes que la estimación porque la alimenta).
+- **Conectar un vector de un posting P con su grupo:** sus candidatos son los miembros de P y de los postings del grupo. Se ordenan por código contra su vector exacto, los R mejores se comparan exactos (R es el rescore del índice: 150 a 768 dimensiones y 64 a 1 536), los 16 más cercanos son sus vecinos y los de fuera de P sus aristas. Después entra en las listas de sus vecinos con la regla del insert.
+- **Evento que conecta solo los pendientes:** eso, para los pendientes de P.
+- **Evento que reconecta también los antiguos:** eso para todos los miembros de P. A un miembro antiguo se le comparan además exactos los extremos de sus aristas de hoy: no pierde un vecino bueno por estar fuera del grupo.
+- **Una pasada de eventos:** los postings por su número, cada uno una vez.
+- **Los estados que comparo,** en recall y cargas como en la tolerancia, y en coste (candidatos ordenados por código, distancias exactas y postings cargados, por vector conectado, y CPU de la pasada):
+  - el índice de hoy;
+  - sin las aristas del X % más reciente (lo de la tolerancia);
+  - tras eventos de solo pendientes, y tras eventos que reconectan todo, con el X % más reciente pendiente;
+  - **el índice de hoy reconectado entero,** sin ningún pendiente: lo que ganaría reparar un índice que ha crecido por splits sin tocar aristas;
+  - **tras borrados:** con el 10 y el 30 % de los vectores quitados al azar, de sus postings y de las listas de los demás, sin reparar y reconectado. El recall, contra los vecinos exactos entre los que quedan;
+  - **tras un split:** el 10 % de los postings partidos con el split del propio índice, sobre un clon, sin reparar, reconectando solo las dos mitades, y reconectando todo. Si el split del índice no se deja llamar desde el simulador, lo digo y queda lo anterior.
+- **La matriz.** A 1M: pendientes del 5, 10, 25 y 50 % con el grupo por centroides de 64; y del 10 y el 25 % con las dos definiciones y grupos de 32, 64 y 128. A 10M, reducida por coste: pendientes del 10 % con las dos definiciones y grupo de 64, del 25 % con centroides y 64, el índice de hoy reconectado con centroides y 64, y los borrados del 10 %.
+
+**4. Estimación.** Con las cuentas de los eventos: por vector conectado, las cargas son (1 + G) entre los pendientes del evento; las filas, el doble; los candidatos por código, los miembros del grupo; las lecturas de vectores exactos, las que no comparte con los otros pendientes del evento. Doy la tabla para 16, 32 y 64 pendientes y cada tamaño de grupo, con el coste por unidad medido, junto al insert de hoy. Los pendientes del 5, 10 y 25 % dan unos 12, 25 y 62 por posting.
+
+**El diseño de la autorreparación** (estado pendiente, eventos repetibles, caída a mitad, disparadores) va escrito con el resultado, no medido.
+
+**Lo que espero** (*mío*, antes de ningún dato).
+- **Cobertura:** por centroides, un 75 a 85 % con 64 y más del 90 % con 128; por aristas, más con el mismo tamaño, sobre el 90 % ya con 64.
+- **Tolerancia:** sin las aristas del 5 y el 10 % más reciente, las cargas a 0.95 suben menos de un 5 %; con el 25 %, de un 5 a un 15 %; con el 50 %, más de un 20 % o no se llega a 0.99.
+- **Eventos de solo pendientes** con grupo de 64: cargas a 0.95 a menos de un 5 % de las de hoy; a 0.99, a menos de un 10 %.
+- **Reconectar todo el índice de hoy:** de un 3 a un 10 % menos de cargas.
+- **Coste:** un evento con 32 pendientes y grupo de 64 carga 2 postings por vector, donde el insert de hoy carga de 62 a 109.
+
+**Lo que no mide:** un prototipo. No hay escrituras, ni concurrencia, ni el store, ni cuánto tarda un evento con sus lecturas en frío. Los pendientes de la simulación son los últimos en llegar; en un índice real también habría pendientes de postings que se están partiendo.
+
+**Duración estimada:** una hora y media de escribir el simulador; después, unos 25 minutos de crecer el índice de 1M, 10 de la construcción en lote, 45 de la simulación a 1M y hora y media a 10M.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
