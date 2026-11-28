@@ -2562,6 +2562,42 @@ A igual ef, recall y cargas de los tres crecidos:
 
 **Datos:** `testdata/bench/def-1m/control3/` (por pasada, `result.json`, `run.log` y `monitor.jsonl.gz`; `chain.out.txt`, `control3.sh.txt`, `control3.py`).
 
+#### Medidas definitivas a 1M, segunda parte (a): la búsqueda en frío y en caliente sobre el índice crecido (pre-registro, 28 de noviembre a las 09:35, antes de escribir el arnés)
+
+**El encargo (del usuario, plan del 27, punto 2):** la búsqueda en frío y en caliente de v4.0 sobre el índice crecido.
+
+**Qué índices** (*mío*).
+- **La base, `m2` en `8ed921ed59`, crecida a 1M de dbpedia con 8 llamadores** por el arnés de la noche, como en la primera parte: una vez en `routing` y otra en `none`. En `/Volumes/v40bench/def1m/`, que es el volumen que se desmonta para el frío. Su crecimiento no se cronometra aquí: sus cifras son las de la primera parte.
+- **Dos estados de cada uno:**
+  1. **Como lo deja la ingesta:** el 65 % de los vectores en orden de posting y el store como lo dejaron sus ciclos. Es lo que tiene un nodo al acabar de importar.
+  2. **Reorganizado:** tras una pasada de layout forzada (la regla no la da hasta 1.28M) y con los ciclos del store corriendo hasta que el número de segmentos de sus buckets lleve 60 s sin cambiar, con un tope de 15 minutos. Doy los segmentos de cada bucket en los dos estados.
+
+**Cómo se mide: el método de v4.0** (`TestDiskTimed`), sobre el índice integrado.
+- **k = 10, el rescore automático (64) y el presupuesto de concurrencia del limitador de un nodo,** que pide 2 × GOMAXPROCS como un shard. El índice se abre sin ciclos ni mantenimiento.
+- **Las 5 000 primeras queries,** como v4.0, contra los vecinos exactos del dataset. Los puntos de 0.95 y 0.99 se buscan otra vez sobre esas 5 000, sin cronometrar; los de la primera parte eran sobre 1 000.
+- **En caliente:** una pasada sin cronometrar y 3 cronometradas, con 1 thread y con 8. Doy la pasada mediana.
+- **En frío:** las 500 primeras queries en lotes de 10, o de 16 con 8 threads. Antes de cada lote se cierra el índice, se desmonta y se monta el volumen, se abre y se leen los índices de los segmentos.
+- **El arnés es nuevo:** un test sobre el arnés de la noche que copia el bucle de `TestDiskTimed`. Antes de cronometrar, un ensayo a 100k.
+
+**Con qué se compara.**
+- **Las celdas en lote de v4.0, en la misma sesión:** `r512` (códigos de ruteo en memoria) y `halo512` (sin códigos), cronometradas con el `TestDiskTimed` del binario de integración (`20e89f0873`), con el limitador y el mismo frío. Sobre clones APFS de las celdas, en el mismo volumen: las originales no se abren.
+  - Si los clones no abren con el código de hoy, lo digo y comparo con las cifras de la sesión de v4.0 con el limitador, que no son de la misma sesión.
+- **Los límites de v5.x, como referencia y no como criterio nuevo:** a 0.95 con 1 thread, 1.20 veces el lote en frío y 1.25 en caliente.
+- **Lo que no es igual:** el lote es el prototipo de v4.0, con su formato y su camino de lectura; el crecido es el índice integrado. El lote tiene 4 195 postings y el crecido unos 4 080.
+
+**El orden,** una cosa a la vez y borrando cada índice al acabar: crecer `routing`; sus puntos; cronometrarlo como queda; reorganizarlo; sus puntos otra vez, que deben dar lo mismo; cronometrarlo reorganizado; la celda `r512`. Después lo mismo con `none` y `halo512`.
+
+**Lo que espero** (*mío*).
+- **Como queda, en frío a 0.95 con 1 thread:** entre 1.2 y 1.6 veces el lote. En v5.0 el crecido sin reorganizar quedaba a 1.43.
+- **Reorganizado, en frío:** entre 1.05 y 1.25 veces. En v5.3 quedaba a 1.10.
+- **En caliente:** entre 1.15 y 1.4 veces en los dos estados; reorganizar no lo toca.
+- **Los puntos sobre 5 000 queries:** ef 20 a 22 a 0.95, y entre 140 y 190 a 0.99.
+- **`none` frente a `routing`:** más lento en frío y en caliente, como en v4.0.
+
+**Duración estimada:** unas 3 horas: 65 minutos de crecer y el resto cronometrado.
+
+**Disco:** 17 GiB libres. Un índice son 7 GB y su layout pide 7.6 libres: cabe de uno en uno.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
