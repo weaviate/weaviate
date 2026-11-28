@@ -1,0 +1,527 @@
+diff --git a/adapters/repos/db/lsmkv/diag.go b/adapters/repos/db/lsmkv/diag.go
+new file mode 100644
+index 0000000000..4cd0a74010
+--- /dev/null
++++ b/adapters/repos/db/lsmkv/diag.go
+@@ -0,0 +1,37 @@
++//                           _       _
++// __      _____  __ ___   ___  __ _| |_ ___
++// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
++//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
++//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
++//
++//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
++//
++//  CONTACT: hello@weaviate.io
++//
++
++package lsmkv
++
++import "sync/atomic"
++
++// Diag counts what the reads of a collection bucket consult, for the
++// diagnostic of the inserts of the posting-edge index (bench-report.md of
++// feat/posting-edge-index, "Pasada de diagnóstico del insert"). It counts
++// nothing unless On is set, which only that harness does, and it is on the
++// diagnostic branch alone.
++var Diag struct {
++	On atomic.Bool
++	// Reads counts the reads of a key from the segments of a bucket, Held
++	// the segments the bucket had at each of them, added up, and Found
++	// those that held the key. BloomFalse counts the segments whose Bloom
++	// filter let through a key they did not hold.
++	Reads, Held, Found, BloomFalse atomic.Int64
++}
++
++// diagRead counts one read of a key from the segments of a bucket.
++func diagRead(held, found int) {
++	if Diag.On.Load() {
++		Diag.Reads.Add(1)
++		Diag.Held.Add(int64(held))
++		Diag.Found.Add(int64(found))
++	}
++}
+diff --git a/adapters/repos/db/lsmkv/segment_collection_strategy.go b/adapters/repos/db/lsmkv/segment_collection_strategy.go
+index 94c401f0d3..e58cae5917 100644
+--- a/adapters/repos/db/lsmkv/segment_collection_strategy.go
++++ b/adapters/repos/db/lsmkv/segment_collection_strategy.go
+@@ -33,6 +33,9 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
+ 
+ 	start, end, err := s.index.GetOffsets(key)
+ 	if err != nil {
++		if s.useBloomFilter && lsmkv.IsNotFound(err) && Diag.On.Load() {
++			Diag.BloomFalse.Add(1)
++		}
+ 		return nil, s.reportIndexErr(err)
+ 	}
+ 
+@@ -72,6 +75,9 @@ func (s *segment) getCollectionBytes(key []byte) ([][]byte, error) {
+ 
+ 	start, end, err := s.index.GetOffsets(key)
+ 	if err != nil {
++		if s.useBloomFilter && lsmkv.IsNotFound(err) && Diag.On.Load() {
++			Diag.BloomFalse.Add(1)
++		}
+ 		return nil, s.reportIndexErr(err)
+ 	}
+ 
+diff --git a/adapters/repos/db/lsmkv/segment_group.go b/adapters/repos/db/lsmkv/segment_group.go
+index ad665167aa..4adf69c3b2 100644
+--- a/adapters/repos/db/lsmkv/segment_group.go
++++ b/adapters/repos/db/lsmkv/segment_group.go
+@@ -1192,6 +1192,7 @@ func (sg *SegmentGroup) logSlowSegmentProbe(start time.Time, segmentPos int, act
+ 
+ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
+ 	var out []value
++	found := 0
+ 
+ 	// start with first and do not exit
+ 	for _, segment := range segments {
+@@ -1203,6 +1204,7 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value,
+ 
+ 			return nil, fmt.Errorf("SegmentGroup::getCollection() %q: %w", segment.getPath(), err)
+ 		}
++		found++
+ 
+ 		if len(out) == 0 {
+ 			out = v
+@@ -1210,12 +1212,14 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value,
+ 			out = append(out, v...)
+ 		}
+ 	}
++	diagRead(len(segments), found)
+ 
+ 	return out, nil
+ }
+ 
+ func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]byte, error) {
+ 	var out [][]byte
++	found := 0
+ 
+ 	// start with first and do not exit
+ 	for _, segment := range segments {
+@@ -1227,6 +1231,7 @@ func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]
+ 
+ 			return nil, fmt.Errorf("SegmentGroup::getCollectionBytes() %q: %w", segment.getPath(), err)
+ 		}
++		found++
+ 
+ 		if len(out) == 0 {
+ 			out = v
+@@ -1234,6 +1239,7 @@ func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]
+ 			out = append(out, v...)
+ 		}
+ 	}
++	diagRead(len(segments), found)
+ 
+ 	return out, nil
+ }
+diff --git a/adapters/repos/db/vector/postingedge/grow.go b/adapters/repos/db/vector/postingedge/grow.go
+index 036d0caf8f..8e7fe32fde 100644
+--- a/adapters/repos/db/vector/postingedge/grow.go
++++ b/adapters/repos/db/vector/postingedge/grow.go
+@@ -331,6 +331,42 @@ type growStats struct {
+ 	PlansReassign int `json:"plansReassigned,omitempty"`
+ 	PlansStale    int `json:"plansWithStaleLists,omitempty"`
+ 	StaleLists    int `json:"staleLists,omitempty"`
++
++	// For the diagnostic of the inserts (bench-report.md of
++	// feat/posting-edge-index, "Pasada de diagnóstico del insert"), on its
++	// branch alone. The parts of the search of every insert, by the clocks
++	// the search has for a query (diskSearchStats): waiting for the rows of
++	// a round, visiting them, and reading the exact vectors; the reads of
++	// the rows of members and of edges, which run at once and add up to
++	// more than the wait; the members of the postings loaded and the exact
++	// vectors asked for.
++	SearchFetchTime   time.Duration `json:"searchFetchNs"`
++	SearchVisitTime   time.Duration `json:"searchVisitNs"`
++	SearchRescoreTime time.Duration `json:"searchRescoreNs"`
++	SearchMemberTime  time.Duration `json:"searchMemberReadNs"`
++	SearchEdgeTime    time.Duration `json:"searchEdgeReadNs"`
++	SearchMembers     int           `json:"searchMembers"`
++	SearchRescored    int           `json:"searchRescored"`
++	// Where the plans collected the counts of their work (planWork): the
++	// plans that did, the members scored, the edges followed, those whose
++	// endpoint was in a posting already loaded, and the endpoints scored.
++	WorkPlans     int `json:"workPlans,omitempty"`
++	WorkScanned   int `json:"workVectorsScanned,omitempty"`
++	WorkEdges     int `json:"workEdgesFollowed,omitempty"`
++	WorkInLoaded  int `json:"workEndpointsInLoaded,omitempty"`
++	WorkEndpoints int `json:"workEndpointsScored,omitempty"`
++	// The journal: JournalTime is its records encoded and written, and
++	// HandTime their writes handed to the buckets and the files. Syncs
++	// counts the syncs of the index, and the four times after it their
++	// parts: the log of the centroid graph, the logs of the buckets, the
++	// meta, and the journal emptied.
++	JournalTime     time.Duration `json:"journalNs"`
++	HandTime        time.Duration `json:"handNs"`
++	Syncs           int           `json:"syncs"`
++	SyncGraphTime   time.Duration `json:"syncGraphNs"`
++	SyncWALTime     time.Duration `json:"syncWalNs"`
++	SyncMetaTime    time.Duration `json:"syncMetaNs"`
++	SyncJournalTime time.Duration `json:"syncJournalNs"`
+ }
+ 
+ // growPending is what waits in memory of a posting with consolidated edges:
+@@ -1511,22 +1547,32 @@ func growScan(bucket *lsmkv.Bucket, visit func(key, value []byte) error) error {
+ // commit log of the centroid graph and the meta. The store logs its writes
+ // as they come.
+ func (g *growIndex) sync() error {
++	clock := time.Now()
++	g.stats.Syncs++
+ 	if err := g.st.centroids.graph.Flush(); err != nil {
+ 		return errors.Wrap(err, "flush the centroid graph")
+ 	}
++	g.stats.SyncGraphTime += time.Since(clock)
++	clock = time.Now()
+ 	for _, bucket := range g.buckets() {
+ 		if err := bucket.WriteWAL(); err != nil {
+ 			return errors.Wrap(err, "write the log of a bucket")
+ 		}
+ 	}
++	g.stats.SyncWALTime += time.Since(clock)
++	clock = time.Now()
+ 	if err := g.writeMeta(); err != nil {
+ 		return err
+ 	}
++	g.stats.SyncMetaTime += time.Since(clock)
++	clock = time.Now()
+ 	// Everything the journal tells is now in the system by its own way.
+ 	if err := g.emptyJournal(); err != nil {
+ 		return err
+ 	}
+-	return g.graphSynced()
++	err := g.graphSynced()
++	g.stats.SyncJournalTime += time.Since(clock)
++	return err
+ }
+ 
+ // close syncs the index and releases what it holds. It must not run next to
+@@ -2283,6 +2329,20 @@ func (g *growIndex) applyWrites(ctx context.Context, plan *growPlan) error {
+ 	g.stats.SearchVectors.add(plan.vectorReads, plan.vectorReads*4*g.meta.Dims)
+ 	g.stats.RoutingReads.add(int(plan.codeReads.N), int(plan.codeReads.Bytes))
+ 	g.stats.SearchTime += plan.searchTime
++	g.stats.SearchFetchTime += searched.FetchTime
++	g.stats.SearchVisitTime += searched.VisitTime
++	g.stats.SearchRescoreTime += searched.RescoreTime
++	g.stats.SearchMemberTime += searched.MemberTime
++	g.stats.SearchEdgeTime += searched.EdgeTime
++	g.stats.SearchMembers += searched.Members
++	g.stats.SearchRescored += searched.Rescored
++	if work := searched.Work; work != nil {
++		g.stats.WorkPlans++
++		g.stats.WorkScanned += work.VectorsScanned
++		g.stats.WorkEdges += work.EdgesFollowed
++		g.stats.WorkInLoaded += work.EndpointsInLoaded
++		g.stats.WorkEndpoints += work.EndpointsScored
++	}
+ 	reads, bytes, err := g.counted()
+ 	if err != nil {
+ 		return err
+diff --git a/adapters/repos/db/vector/postingedge/grow_journal.go b/adapters/repos/db/vector/postingedge/grow_journal.go
+index 0b38578578..b920c87530 100644
+--- a/adapters/repos/db/vector/postingedge/grow_journal.go
++++ b/adapters/repos/db/vector/postingedge/grow_journal.go
+@@ -20,6 +20,7 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"slices"
++	"time"
+ 
+ 	"github.com/pkg/errors"
+ 
+@@ -635,6 +636,7 @@ func (g *growIndex) endStep() error {
+ 	if len(j.entries) == 0 && bytes.Equal(meta, j.meta) {
+ 		return nil
+ 	}
++	clock := time.Now()
+ 	record := growRecord{meta: meta, entries: j.entries}
+ 	j.buf = record.encode(j.buf[:0])
+ 	if j.crash != nil {
+@@ -652,6 +654,8 @@ func (g *growIndex) endStep() error {
+ 	if j.crash != nil {
+ 		j.crash("after its record", 0)
+ 	}
++	g.stats.JournalTime += time.Since(clock)
++	clock = time.Now()
+ 	for i := range j.entries {
+ 		if err := g.hand(&j.entries[i]); err != nil {
+ 			return err
+@@ -660,6 +664,7 @@ func (g *growIndex) endStep() error {
+ 			j.crash("after a write", i+1)
+ 		}
+ 	}
++	g.stats.HandTime += time.Since(clock)
+ 	if j.size > growJournalLimit {
+ 		return g.sync()
+ 	}
+diff --git a/adapters/repos/db/vector/postingedge/persistent.go b/adapters/repos/db/vector/postingedge/persistent.go
+index bd48c97883..dc1d88f6f2 100644
+--- a/adapters/repos/db/vector/postingedge/persistent.go
++++ b/adapters/repos/db/vector/postingedge/persistent.go
+@@ -293,6 +293,12 @@ type PersistentConfig struct {
+ 	// baseHook, in the tests, is called at every point of the build of the
+ 	// base and of what follows it, with what has just happened.
+ 	baseHook func(point string) error
++	// clocks, if set, add up where the time of the callers of AddBatch goes
++	// (persistent_clocks.go), and planWork has the search of every insert
++	// collect the counts of its work, which costs it a second pass over
++	// every posting: for the diagnostic of the inserts.
++	clocks   *insertClocks
++	planWork bool
+ }
+ 
+ func (c *PersistentConfig) validate() error {
+@@ -658,7 +664,10 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
+ 		return errors.Errorf("addBatch called with empty lists")
+ 	}
+ 
++	clocks := p.cfg.clocks
++	began := clocks.start()
+ 	p.writeMu.Lock()
++	admitted := clocks.lap(clockAdmitWait, began)
+ 	based, err := p.admit(ids, vectors)
+ 	if err == nil {
+ 		// A doc id the index holds is left out: the batch is a replay of the
+@@ -692,7 +701,13 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
+ 		return nil
+ 	}
+ 	p.writeMu.Unlock()
+-	return p.addInBatches(ctx, ids, vectors)
++	clocks.lap(clockAdmit, admitted)
++	err = p.addInBatches(ctx, ids, vectors)
++	if clocks != nil {
++		clocks.calls.Add(1)
++		clocks.total.Add(int64(time.Since(began)))
++	}
++	return err
+ }
+ 
+ // insertWindow is how many inserts of a caller search before it leaves their
+diff --git a/adapters/repos/db/vector/postingedge/persistent_batches.go b/adapters/repos/db/vector/postingedge/persistent_batches.go
+index dc6a1713e5..68a5cb5366 100644
+--- a/adapters/repos/db/vector/postingedge/persistent_batches.go
++++ b/adapters/repos/db/vector/postingedge/persistent_batches.go
+@@ -99,6 +99,7 @@ func (p *Persistent) addInBatches(ctx context.Context, ids []uint64, vectors [][
+ 	// What this caller left in a batch is applied whatever happens to the
+ 	// rest of its vectors: it waits for it, and gives its plans back after.
+ 	b := &p.batches
++	waiting := p.cfg.clocks.start()
+ 	b.mu.Lock()
+ 	for _, e := range entries {
+ 		for !e.done {
+@@ -106,6 +107,7 @@ func (p *Persistent) addInBatches(ctx context.Context, ids []uint64, vectors [][
+ 		}
+ 	}
+ 	b.mu.Unlock()
++	p.cfg.clocks.lap(clockAppliedWait, waiting)
+ 	for _, e := range entries {
+ 		p.plans.Put(e.plan)
+ 		if err == nil && e.err != nil {
+@@ -120,6 +122,8 @@ func (p *Persistent) addInBatches(ctx context.Context, ids []uint64, vectors [][
+ // gathers, and applies the batch if it is due.
+ func (p *Persistent) searchWindow(ctx context.Context, ids []uint64, vectors [][]float32) ([]*batchEntry, error) {
+ 	b := &p.batches
++	clocks := p.cfg.clocks
++	at := clocks.start()
+ 	b.mu.Lock()
+ 	for b.applying {
+ 		b.cond.Wait()
+@@ -129,6 +133,7 @@ func (p *Persistent) searchWindow(ctx context.Context, ids []uint64, vectors [][
+ 	if b.joined != nil {
+ 		b.joined()
+ 	}
++	at = clocks.lap(clockEnterWait, at)
+ 
+ 	// The search of an insert reads as the budget of its caller allows, as
+ 	// that of a query does. A budget of one for every insert was worth 3 to
+@@ -138,11 +143,15 @@ func (p *Persistent) searchWindow(ctx context.Context, ids []uint64, vectors [][
+ 	entries := make([]*batchEntry, 0, len(ids))
+ 	var err error
+ 	p.mu.RLock()
++	at = clocks.lap(clockReadWait, at)
+ 	if err = p.usable(); err == nil {
+ 		g := p.g
+ 		for i, id := range ids {
+ 			plan := p.plans.Get().(*growPlan)
+ 			plan.work = nil
++			if p.cfg.planWork {
++				plan.work = &SearchStats{}
++			}
+ 			if err = g.plan(ctx, plan, id, distancer.Normalize(vectors[i])); err != nil {
+ 				p.plans.Put(plan)
+ 				err = errors.Wrapf(err, "add vector of id %d", id)
+@@ -152,12 +161,18 @@ func (p *Persistent) searchWindow(ctx context.Context, ids []uint64, vectors [][
+ 		}
+ 	}
+ 	p.mu.RUnlock()
++	at = clocks.lap(clockPlans, at)
+ 
+ 	b.mu.Lock()
++	clocks.lap(clockLeaveWait, at)
+ 	b.planning--
+ 	b.ready = append(b.ready, entries...)
+ 	p.applyIfDue(ctx)
+ 	b.mu.Unlock()
++	if clocks != nil {
++		clocks.windows.Add(1)
++		clocks.plans.Add(int64(len(entries)))
++	}
+ 	return entries, err
+ }
+ 
+@@ -179,9 +194,11 @@ func (p *Persistent) applyIfDue(ctx context.Context) {
+ 		b.applying = true
+ 		// The searches that run end on the index as it is, and their plans
+ 		// join this batch: nobody starts one until it is applied.
++		draining := p.cfg.clocks.start()
+ 		for b.planning > 0 {
+ 			b.cond.Wait()
+ 		}
++		p.cfg.clocks.lap(clockDrainWait, draining)
+ 		batch := b.ready
+ 		b.ready = nil
+ 		if b.onApply != nil {
+@@ -217,9 +234,12 @@ func (p *Persistent) applyIfDue(ctx context.Context) {
+ // deletes, or with vectors that came while the base was built.
+ func (p *Persistent) applyBatch(ctx context.Context, batch []*batchEntry) {
+ 	applyCtx := context.WithoutCancel(ctx)
++	clocks := p.cfg.clocks
++	at := clocks.start()
+ 	p.writeMu.Lock()
+ 	defer p.writeMu.Unlock()
+ 	p.mu.Lock()
++	at = clocks.lap(clockApplyLockWait, at)
+ 	g := p.g
+ 	for at := 0; at < len(batch); {
+ 		from, owes := at, false
+@@ -253,7 +273,13 @@ func (p *Persistent) applyBatch(ctx context.Context, batch []*batchEntry) {
+ 		}
+ 	}
+ 	p.mu.Unlock()
++	at = clocks.lap(clockApply, at)
+ 	p.wakeIfDue()
++	clocks.lap(clockApplyAfter, at)
++	if clocks != nil {
++		clocks.batches.Add(1)
++		clocks.batchPlans.Add(int64(len(batch)))
++	}
+ }
+ 
+ // owesInLine tells whether an insert has a share to pay in line
+diff --git a/adapters/repos/db/vector/postingedge/persistent_clocks.go b/adapters/repos/db/vector/postingedge/persistent_clocks.go
+new file mode 100644
+index 0000000000..c203200652
+--- /dev/null
++++ b/adapters/repos/db/vector/postingedge/persistent_clocks.go
+@@ -0,0 +1,110 @@
++//                           _       _
++// __      _____  __ ___   ___  __ _| |_ ___
++// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
++//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
++//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
++//
++//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
++//
++//  CONTACT: hello@weaviate.io
++//
++
++package postingedge
++
++import (
++	"sync/atomic"
++	"time"
++)
++
++// The clocks of the inserts, for the diagnostic of where the time of a caller
++// goes (bench-report.md of feat/posting-edge-index, "Pasada de diagnóstico
++// del insert"). There are none unless the config of the index brings them,
++// which only that harness does. They are on the diagnostic branch alone.
++
++// insertClock names a part of the time a caller spends in AddBatch once the
++// index has its base. What no part covers is the rest of the call.
++type insertClock int
++
++const (
++	// clockAdmitWait is the wait for the write lock of the index to check
++	// the batch, and clockAdmit the check.
++	clockAdmitWait insertClock = iota
++	clockAdmit
++	// clockEnterWait is the wait to start the searches of a window while a
++	// batch is applied, and clockReadWait the wait for the index for
++	// reading.
++	clockEnterWait
++	clockReadWait
++	// clockPlans is the plans of a window: the centroids and the search of
++	// every one of its vectors, whose parts growStats has.
++	clockPlans
++	// clockLeaveWait is the wait for the lock of the batches to leave the
++	// plans of a window.
++	clockLeaveWait
++	// Of the caller that applies a batch: the wait for the searches that
++	// run to end, the wait for the index for writing, the writes of the
++	// batch with their record of the journal, and what follows them.
++	clockDrainWait
++	clockApplyLockWait
++	clockApply
++	clockApplyAfter
++	// clockAppliedWait is the wait of a caller for the plans it left to be
++	// applied.
++	clockAppliedWait
++	insertClockCount
++)
++
++var insertClockNames = [insertClockCount]string{
++	clockAdmitWait:     "admitWaitNs",
++	clockAdmit:         "admitNs",
++	clockEnterWait:     "enterWaitNs",
++	clockReadWait:      "readWaitNs",
++	clockPlans:         "plansNs",
++	clockLeaveWait:     "leaveWaitNs",
++	clockDrainWait:     "drainWaitNs",
++	clockApplyLockWait: "applyLockWaitNs",
++	clockApply:         "applyNs",
++	clockApplyAfter:    "applyAfterNs",
++	clockAppliedWait:   "appliedWaitNs",
++}
++
++// insertClocks adds up, over every caller, the parts of their calls.
++type insertClocks struct {
++	ns [insertClockCount]atomic.Int64
++	// total is the time of the calls of AddBatch that went in batches,
++	// start to end, and calls how many they were. windows counts their
++	// windows and plans the plans of those; batches the batches applied and
++	// batchPlans the plans they had.
++	total, calls, windows, plans, batches, batchPlans atomic.Int64
++}
++
++// start reads the clock, where there are clocks.
++func (c *insertClocks) start() time.Time {
++	if c == nil {
++		return time.Time{}
++	}
++	return time.Now()
++}
++
++// lap adds to a clock the time since the reading it is given, and returns a
++// new one.
++func (c *insertClocks) lap(which insertClock, since time.Time) time.Time {
++	if c == nil {
++		return since
++	}
++	now := time.Now()
++	c.ns[which].Add(int64(now.Sub(since)))
++	return now
++}
++
++// snapshot returns what the clocks have added up so far.
++func (c *insertClocks) snapshot() map[string]int64 {
++	out := map[string]int64{
++		"totalNs": c.total.Load(), "calls": c.calls.Load(), "windows": c.windows.Load(), "plans": c.plans.Load(),
++		"batches": c.batches.Load(), "batchPlans": c.batchPlans.Load(),
++	}
++	for i := range c.ns {
++		out[insertClockNames[i]] = c.ns[i].Load()
++	}
++	return out
++}

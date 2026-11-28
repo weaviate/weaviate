@@ -1,0 +1,9 @@
+== 17:12:00 waiting for 900 s of idle (now 1517 s)
+== 17:12:00 idle for 1517 s
+== 2026-11-27 17:12:00 grow
+grow exit 0
+== 02:01:47 heap routing
+heap exit 0
+raw exit 0
+== 2026-11-28 02:02:11 done
+pmset exit 0

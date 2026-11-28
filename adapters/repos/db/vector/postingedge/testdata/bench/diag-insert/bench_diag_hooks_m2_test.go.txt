@@ -1,0 +1,28 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package postingedge
+
+// The twin of bench_diag_hooks_test.go for m2 as it is, which has neither the
+// clocks of the callers nor the counters of the store: with it the harness of
+// the diagnostic of the inserts builds over m2 untouched, for the control of
+// what the clocks cost.
+
+// diagBranch tells that this is not the diagnostic branch.
+const diagBranch = false
+
+func diagHooks(cfg *PersistentConfig, clocksOn, work bool) (func() map[string]int64, func()) {
+	return nil, func() {}
+}
+
+func diagStore() map[string]int64 { return map[string]int64{} }

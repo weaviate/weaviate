@@ -1,0 +1,5 @@
+=== RUN   TestNightHeap
+time="2026-11-28T02:02:04+01:00" level=warning msg="the vectors of the index stay in the order they are in: 36497813504 bytes free in /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/grow10m/index/main.postingedge.d, and the pass writes 30769996624: the disk has no room to lay the vectors out again" action=postingedge_layout id=main
+    bench_night_grow_test.go:596: cache mode routing: opened in 17s, heap in use 1419.3 MB, allocated and in use 1308.2 MB
+--- PASS: TestNightHeap (17.90s)
+PASS

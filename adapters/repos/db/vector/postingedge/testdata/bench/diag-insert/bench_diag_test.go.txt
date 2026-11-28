@@ -1,0 +1,698 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package postingedge
+
+import (
+	"context"
+	"encoding/binary"
+	"math"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/metrics"
+	"runtime/pprof"
+	"runtime/trace"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
+	"unsafe"
+
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+)
+
+// The diagnostic of the inserts (bench-report.md of feat/posting-edge-index,
+// "Pasada de diagnóstico del insert"): where the time of an insert goes, by
+// the size of the index and by how many callers add at once. It measures and
+// changes nothing of what an insert does.
+//
+// TestDiagInserts adds PE_N vectors to a clone of an index TestNightGrow
+// left, as TestNightContinue does, with the vectors in memory before the
+// clock starts, and writes to PE_OUT, at the start and after every PE_EVERY
+// inserts, what has added up so far: the clocks of the callers, the counters
+// and the clocks of the index, what the system accounts to the process, the
+// metrics of the runtime, what the reads of the store consulted, the
+// segments of every bucket and the bytes the files of the index grew by.
+// TestDiagSearch runs the plans of the same vectors and applies none.
+//
+// Parameters, from the environment, besides PE_DATASET, PE_DIR, PE_OUT and
+// PE_CACHE:
+//   - PE_N: how many vectors (20 000).
+//   - PE_CALLERS: how many callers add at once (8); PE_THREADS for
+//     TestDiagSearch.
+//   - PE_ROWS: the rows of the dataset the index was grown from, as given
+//     to TestNightGrow (all of them).
+//   - PE_KIND: which vectors. "repeated" (the default) are rows the index
+//     holds, at random by PE_SEED, under new doc ids from PE_ROWS on; "fresh"
+//     are the rows of the dataset from PE_ROWS on, which the index does not
+//     hold, under their own; "queries" are the queries of the dataset, under
+//     new doc ids.
+//   - PE_EVERY: the inserts of a stretch (2 000).
+//   - PE_CLOCKS: 0 leaves the clocks of the callers and the counters of the
+//     store out (1).
+//
+// What only the diagnostic branch has, those clocks and counters and the
+// counts of the work of a plan, is behind diagHooks, in a file of its own
+// with a twin that does nothing: with the twin this harness builds over m2
+// as it is, for the control of what the clocks cost.
+//   - PE_WORK: 1 has every plan collect the counts of its work (0).
+//   - PE_COMPACTION: 0 leaves the compaction cycle of the store unstarted
+//     (1).
+//   - PE_CPUPROFILE: a CPU profile of the inserts, from the first to the
+//     last.
+//   - PE_TRACE: an execution trace of PE_TRACE_SECONDS (8) from the middle
+//     of the inserts.
+
+// diagRusage is what the system accounts to this process so far:
+// proc_pid_rusage with RUSAGE_INFO_V4, and getrusage for its faults and its
+// context switches.
+type diagRusage struct {
+	UserNs        uint64 `json:"userNs"`
+	SystemNs      uint64 `json:"systemNs"`
+	RunnableNs    uint64 `json:"runnableNs"`
+	Pageins       uint64 `json:"pageins"`
+	Footprint     uint64 `json:"physFootprint"`
+	BytesRead     uint64 `json:"diskBytesRead"`
+	BytesWritten  uint64 `json:"diskBytesWritten"`
+	LogicalWrites uint64 `json:"logicalWrites"`
+	Instructions  uint64 `json:"instructions"`
+	Cycles        uint64 `json:"cycles"`
+	MajorFaults   int64  `json:"majorFaults"`
+	MinorFaults   int64  `json:"minorFaults"`
+	Voluntary     int64  `json:"voluntarySwitches"`
+	Involuntary   int64  `json:"involuntarySwitches"`
+}
+
+func readDiagRusage() (diagRusage, error) {
+	const procInfoCallPidRusage, rusageInfoV4 = 9, 4
+	var buf [512]byte
+	_, _, errno := syscall.Syscall6(syscall.SYS_PROC_INFO, procInfoCallPidRusage, uintptr(os.Getpid()), rusageInfoV4, 0,
+		uintptr(unsafe.Pointer(&buf[0])), 0)
+	if errno != 0 {
+		return diagRusage{}, errors.Wrap(errno, "read the resource usage of the process")
+	}
+	// The uint64 of index i of rusage_info_v4, after its uuid of 16 bytes.
+	word := func(i int) uint64 { return binary.LittleEndian.Uint64(buf[16+8*i:]) }
+	// Its times are in units of mach_absolute_time: 125/3 ns on Apple silicon.
+	ns := func(i int) uint64 {
+		if runtime.GOARCH == "arm64" {
+			return word(i) * 125 / 3
+		}
+		return word(i)
+	}
+	var self syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &self); err != nil {
+		return diagRusage{}, errors.Wrap(err, "getrusage")
+	}
+	return diagRusage{
+		UserNs: ns(0), SystemNs: ns(1), RunnableNs: ns(34), Pageins: word(4), Footprint: word(7),
+		BytesRead: word(16), BytesWritten: word(17), LogicalWrites: word(27), Instructions: word(29), Cycles: word(30),
+		MajorFaults: self.Majflt, MinorFaults: self.Minflt, Voluntary: self.Nvcsw, Involuntary: self.Nivcsw,
+	}, nil
+}
+
+var diagMetricNames = []string{
+	"/sync/mutex/wait/total:seconds",
+	"/cpu/classes/gc/total:cpu-seconds",
+	"/cpu/classes/gc/mark/assist:cpu-seconds",
+	"/cpu/classes/idle:cpu-seconds",
+	"/cpu/classes/user:cpu-seconds",
+	"/cpu/classes/scavenge/total:cpu-seconds",
+	"/cpu/classes/total:cpu-seconds",
+	"/gc/cycles/total:gc-cycles",
+	"/gc/heap/allocs:bytes",
+	"/gc/heap/allocs:objects",
+	"/sched/goroutines:goroutines",
+	"/sched/latencies:seconds",
+	"/sched/pauses/total/gc:seconds",
+}
+
+// readDiagMetrics reads the metrics of the runtime so far. Of a histogram it
+// keeps how many events it has, their sum by the middle of every bucket, and
+// how many took 100 µs, 1 ms and 10 ms or more.
+func readDiagMetrics() map[string]float64 {
+	samples := make([]metrics.Sample, len(diagMetricNames))
+	for i, name := range diagMetricNames {
+		samples[i].Name = name
+	}
+	metrics.Read(samples)
+	out := map[string]float64{}
+	for _, s := range samples {
+		switch s.Value.Kind() {
+		case metrics.KindUint64:
+			out[s.Name] = float64(s.Value.Uint64())
+		case metrics.KindFloat64:
+			out[s.Name] = s.Value.Float64()
+		case metrics.KindFloat64Histogram:
+			h := s.Value.Float64Histogram()
+			var count, sum, over100us, over1ms, over10ms float64
+			for i, c := range h.Counts {
+				low, high := h.Buckets[i], h.Buckets[i+1]
+				mid := (low + high) / 2
+				if math.IsInf(low, -1) {
+					mid = high
+				} else if math.IsInf(high, 1) {
+					mid = low
+				}
+				count += float64(c)
+				sum += float64(c) * mid
+				if low >= 100e-6 {
+					over100us += float64(c)
+				}
+				if low >= 1e-3 {
+					over1ms += float64(c)
+				}
+				if low >= 10e-3 {
+					over10ms += float64(c)
+				}
+			}
+			out[s.Name+":count"], out[s.Name+":sum"] = count, sum
+			out[s.Name+":over100us"], out[s.Name+":over1ms"], out[s.Name+":over10ms"] = over100us, over1ms, over10ms
+		case metrics.KindBad:
+			// This runtime does not have the metric.
+		}
+	}
+	return out
+}
+
+// diagSegments counts the segments of every bucket of the store under dir.
+func diagSegments(dir string) (map[string]int, error) {
+	out := map[string]int{}
+	root := filepath.Join(dir, "lsm")
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".db") {
+			rel, err := filepath.Rel(root, filepath.Dir(path))
+			if err != nil {
+				return err
+			}
+			out[rel]++
+		}
+		return nil
+	})
+	return out, err
+}
+
+// byClass adds up by class of file what the files grew by so far.
+func (w *dirWatch) byClass(gen int) map[string]int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := map[string]int64{}
+	for path, bytes := range w.grown {
+		out[classOf(path, gen)] += bytes
+	}
+	return out
+}
+
+// openDiagStore is openNightStore with the cycles of a node, and without the
+// compaction one where compaction is false: its callbacks are registered and
+// nobody calls them, so the segments the flushes write stay as they are.
+func openDiagStore(t *testing.T, dir string, logger logrus.FieldLogger, compaction bool) *nightStore {
+	s := &nightStore{}
+	routines := 2 * runtime.GOMAXPROCS(0)
+	s.compaction = cyclemanager.NewCallbackGroup("night/compaction", logger, routines)
+	s.flush = cyclemanager.NewCallbackGroup("night/flush", logger, routines)
+	s.tombstones = cyclemanager.NewCallbackGroup("night/tombstones", logger, routines)
+	s.commitLogs = cyclemanager.NewCallbackGroup("night/commitlogs", logger, routines)
+	s.managers = []cyclemanager.CycleManager{
+		cyclemanager.NewManager("night/flush", cyclemanager.MemtableFlushCycleTicker(true), s.flush.CycleCallback, logger),
+		cyclemanager.NewManager("night/commitlogs", cyclemanager.HnswCommitLoggerCycleTicker(true), s.commitLogs.CycleCallback, logger),
+		cyclemanager.NewManager("night/tombstones", cyclemanager.NewFixedTicker(300*time.Second), s.tombstones.CycleCallback, logger),
+	}
+	if compaction {
+		s.managers = append(s.managers, cyclemanager.NewManager("night/compaction",
+			cyclemanager.CompactionCycleTicker(true), s.compaction.CycleCallback, logger))
+	}
+	var err error
+	s.store, err = lsmkv.New(filepath.Join(dir, "lsm"), dir, logger, nil, nil, s.compaction,
+		cyclemanager.NewCallbackGroupNoop(), s.flush)
+	require.NoError(t, err)
+	for _, m := range s.managers {
+		m.Start()
+	}
+	return s
+}
+
+// diagVectors picks the vectors of a pass and their doc ids (PE_KIND), and
+// reads them into memory. total is the rows of the dataset, and train.rows
+// those the index was grown from. The caller holds nothing of the index.
+func diagVectors(t *testing.T, p *Persistent, train *nightTrain, total int, datasetDir, kind string, n int,
+	seed uint64,
+) ([]uint64, [][]float32) {
+	t.Helper()
+	var rows []uint64
+	// What is wrong is told once the index is let go: a failed require ends
+	// the goroutine of the test, and the shutdown it defers takes the lock.
+	problem := ""
+	p.mu.RLock()
+	g := p.g
+	switch {
+	case g == nil:
+		problem = "the index has no base"
+	case kind == "repeated" && g.meta.Live < 2*n:
+		problem = "the index does not hold enough rows to pick from"
+	case kind == "repeated":
+		rng := rand.New(rand.NewPCG(seed, seed))
+		seen := map[uint64]bool{}
+		for len(rows) < n {
+			row := uint64(rng.IntN(train.rows))
+			if seen[row] || !g.holds(row) {
+				continue
+			}
+			seen[row] = true
+			rows = append(rows, row)
+		}
+	case kind == "fresh" && train.rows+n > total:
+		problem = "the dataset has no rows left after those the index was grown from"
+	case kind == "fresh":
+		for i := range n {
+			rows = append(rows, uint64(train.rows+i))
+		}
+	case kind == "queries":
+	default:
+		problem = "PE_KIND is repeated, fresh or queries, not " + kind
+	}
+	p.mu.RUnlock()
+	require.Empty(t, problem)
+
+	var ids []uint64
+	var vectors [][]float32
+	if kind == "queries" {
+		queries, _, _ := readNightQueries(t, datasetDir, 10)
+		require.GreaterOrEqual(t, len(queries), n, "the dataset has that many queries")
+		vectors = queries[:n]
+	} else {
+		var err error
+		vectors, _, err = train.read(rows, nil)
+		require.NoError(t, err)
+	}
+	if kind == "fresh" {
+		ids = rows
+	} else {
+		ids = make([]uint64, n)
+		for i := range ids {
+			ids[i] = uint64(train.rows) + uint64(i)
+		}
+	}
+	held := -1
+	p.mu.RLock()
+	for i, id := range ids {
+		if p.g.holds(id) {
+			held = i
+			break
+		}
+	}
+	p.mu.RUnlock()
+	require.Negative(t, held, "one of the doc ids of the pass is in the index already")
+	return ids, vectors
+}
+
+// diagStretch is everything that has added up when a stretch ends: all of it
+// since the process or the index started, so that a stretch is the
+// difference between two.
+type diagStretch struct {
+	At       string  `json:"at"`
+	Inserted int     `json:"inserted"`
+	Seconds  float64 `json:"seconds"`
+	// AddSeconds is the time of the rounds of AddBatch by the clock, and
+	// FlushSeconds that of the Flush after each.
+	AddSeconds   float64            `json:"addSeconds"`
+	FlushSeconds float64            `json:"flushSeconds"`
+	Clocks       map[string]int64   `json:"clocks,omitempty"`
+	Stats        growStats          `json:"stats"`
+	Rusage       diagRusage         `json:"rusage"`
+	Runtime      map[string]float64 `json:"runtime"`
+	Store        map[string]int64   `json:"store"`
+	Segments     map[string]int     `json:"segments"`
+	FilesGrown   map[string]int64   `json:"filesGrownByClass"`
+	Journal      growIO             `json:"journal"`
+	Live         int                `json:"live"`
+	Postings     int                `json:"postings"`
+	HeapInuse    uint64             `json:"heapInuse"`
+	HeapAlloc    uint64             `json:"heapAlloc"`
+	NumGC        uint32             `json:"numGC"`
+}
+
+type diagResult struct {
+	Dir         string        `json:"dir"`
+	Dataset     string        `json:"dataset"`
+	Kind        string        `json:"kind"`
+	Rows        int           `json:"rows"`
+	Seed        uint64        `json:"seed"`
+	N           int           `json:"n"`
+	Callers     int           `json:"callers"`
+	Every       int           `json:"every"`
+	Branch      bool          `json:"diagnosticBranch"`
+	Clocks      bool          `json:"clocksOn"`
+	Work        bool          `json:"planWork"`
+	Compaction  bool          `json:"compaction"`
+	CacheMode   string        `json:"cacheMode"`
+	Procs       int           `json:"gomaxprocs"`
+	Pid         int           `json:"pid"`
+	OpenSeconds float64       `json:"openSeconds"`
+	Meta        growMeta      `json:"metaAtStart"`
+	Generation  int           `json:"generation"`
+	Traced      string        `json:"tracedFrom,omitempty"`
+	Stretches   []diagStretch `json:"stretches"`
+	Done        bool          `json:"done"`
+}
+
+func TestDiagInserts(t *testing.T) {
+	datasetDir, dir, out := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_OUT")
+	if datasetDir == "" || dir == "" || out == "" || os.Getenv("PE_THREADS") != "" {
+		t.Skip("no PE_DATASET, PE_DIR and PE_OUT given, or PE_THREADS given")
+	}
+	ctx := context.Background()
+	train, err := openNightTrain(datasetDir)
+	require.NoError(t, err)
+	defer train.file.Close()
+	datasetRows := nightRows(t, train)
+	n := int(nightEnvInt(t, "PE_N", 20000))
+	callers := int(nightEnvInt(t, "PE_CALLERS", 8))
+	every := int(nightEnvInt(t, "PE_EVERY", 2000))
+	seed := uint64(nightEnvInt(t, "PE_SEED", 7))
+	kind := nightEnv("PE_KIND", "repeated")
+	clocksOn := nightEnv("PE_CLOCKS", "1") != "0"
+	work := nightEnv("PE_WORK", "0") == "1"
+	compaction := nightEnv("PE_COMPACTION", "1") != "0"
+	profilePath, tracePath := os.Getenv("PE_CPUPROFILE"), os.Getenv("PE_TRACE")
+	traceFor := time.Duration(nightEnvInt(t, "PE_TRACE_SECONDS", 8)) * time.Second
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	openedAt := time.Now()
+	st := openDiagStore(t, dir, logger, compaction)
+	cfg := st.config(dir, logger, 0)
+	clocks, hooksOff := diagHooks(&cfg, clocksOn, work)
+	defer hooksOff()
+	p, err := Open(cfg, uc, st.store)
+	require.NoError(t, err)
+	opened := time.Since(openedAt)
+	shut := func() {
+		if p == nil {
+			return
+		}
+		require.NoError(t, p.Flush())
+		require.NoError(t, p.Shutdown(ctx))
+		st.stopCycles(ctx)
+		require.NoError(t, st.store.Shutdown(ctx))
+		p = nil
+	}
+	defer shut()
+
+	ids, vectors := diagVectors(t, p, train, datasetRows, datasetDir, kind, n, seed)
+	p.mu.RLock()
+	result := &diagResult{
+		Dir: dir, Dataset: datasetDir, Kind: kind, Rows: train.rows, Seed: seed, N: n, Callers: callers, Every: every,
+		Branch: diagBranch, Clocks: clocksOn && diagBranch, Work: work && diagBranch, Compaction: compaction, CacheMode: uc.RQ.CacheMode, Procs: runtime.GOMAXPROCS(0), Pid: os.Getpid(),
+		OpenSeconds: opened.Seconds(), Meta: p.g.meta, Generation: int(p.g.meta.VectorGen),
+	}
+	p.mu.RUnlock()
+	t.Logf("opened in %s: %d vectors, %d postings given out; %d %s vectors with %d callers",
+		opened.Round(time.Millisecond), result.Meta.Live, result.Meta.Postings, n, kind, callers)
+
+	watch := newDirWatch(t, dir, logger)
+	var addTime, flushTime time.Duration
+	var begin time.Time
+	stretch := func(inserted int) {
+		t.Helper()
+		usage, err := readDiagRusage()
+		require.NoError(t, err)
+		segments, err := diagSegments(dir)
+		require.NoError(t, err)
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		s := diagStretch{
+			At: time.Now().Format("15:04:05"), Inserted: inserted, Seconds: time.Since(begin).Seconds(),
+			AddSeconds: addTime.Seconds(), FlushSeconds: flushTime.Seconds(), Rusage: usage,
+			Runtime: readDiagMetrics(), Store: diagStore(), Segments: segments,
+			FilesGrown: watch.byClass(result.Generation), HeapInuse: mem.HeapInuse, HeapAlloc: mem.HeapAlloc,
+			NumGC: mem.NumGC,
+		}
+		if clocks != nil {
+			s.Clocks = clocks()
+		}
+		p.mu.RLock()
+		g := p.g
+		s.Stats, s.Live, s.Postings = g.stats, g.meta.Live, g.meta.Postings
+		s.Journal = growIO{N: int64(g.journal.records), Bytes: int64(g.journal.bytes)}
+		p.mu.RUnlock()
+		result.Stretches = append(result.Stretches, s)
+		writeNightJSON(t, out, result)
+	}
+
+	var stopTrace sync.Once
+	var traceFile *os.File
+	endTrace := func() {
+		stopTrace.Do(func() {
+			if traceFile != nil {
+				trace.Stop()
+				_ = traceFile.Close()
+			}
+		})
+	}
+	defer endTrace()
+	if profilePath != "" {
+		file, err := os.Create(profilePath)
+		require.NoError(t, err)
+		defer file.Close()
+		require.NoError(t, pprof.StartCPUProfile(file))
+		defer pprof.StopCPUProfile()
+	}
+
+	// Whoever samples the process from outside waits for this file.
+	require.NoError(t, os.WriteFile(out+".started", []byte(time.Now().Format("15:04:05")+"\n"), 0o644))
+	const batch = 100
+	begin = time.Now()
+	stretch(0)
+	next := every
+	for at := 0; at < n; {
+		to := min(at+batch*callers, n)
+		if tracePath != "" && traceFile == nil && at >= n/2 {
+			traceFile, err = os.Create(tracePath)
+			require.NoError(t, err)
+			require.NoError(t, trace.Start(traceFile))
+			result.Traced = time.Now().Format("15:04:05")
+			time.AfterFunc(traceFor, endTrace)
+		}
+		clock := time.Now()
+		adding := enterrors.NewErrorGroupWrapper(logger)
+		for start := at; start < to; start += batch {
+			end := min(start+batch, to)
+			adding.Go(func() error { return p.AddBatch(ctx, ids[start:end], vectors[start:end]) })
+		}
+		require.NoError(t, adding.Wait())
+		addTime += time.Since(clock)
+		clock = time.Now()
+		require.NoError(t, p.Flush())
+		flushTime += time.Since(clock)
+		at = to
+		if at >= next || at == n {
+			stretch(at)
+			for next <= at {
+				next += every
+			}
+		}
+	}
+	took := time.Since(begin)
+	endTrace()
+	watch.stop()
+	result.Done = true
+	writeNightJSON(t, out, result)
+	t.Logf("%d inserts in %s, %.1f a second: %s adding and %s in the flush of every round", n,
+		took.Round(time.Millisecond), float64(n)/took.Seconds(), addTime.Round(time.Millisecond),
+		flushTime.Round(time.Millisecond))
+}
+
+// diagPlans is what the plans of a pass of TestDiagSearch added up to.
+type diagPlans struct {
+	Plans        int   `json:"plans"`
+	AssignNs     int64 `json:"assignNs"`
+	SearchNs     int64 `json:"searchNs"`
+	FetchNs      int64 `json:"searchFetchNs"`
+	VisitNs      int64 `json:"searchVisitNs"`
+	RescoreNs    int64 `json:"searchRescoreNs"`
+	MemberReadNs int64 `json:"searchMemberReadNs"`
+	EdgeReadNs   int64 `json:"searchEdgeReadNs"`
+	Loads        int   `json:"searchLoads"`
+	Rounds       int   `json:"searchRounds"`
+	Rows         int   `json:"searchRows"`
+	RowBytes     int   `json:"searchRowBytes"`
+	Members      int   `json:"searchMembers"`
+	Rescored     int   `json:"searchRescored"`
+	VectorReads  int   `json:"searchVectorReads"`
+}
+
+func (d *diagPlans) add(plan *growPlan) {
+	searched := &plan.searched
+	d.Plans++
+	d.AssignNs += int64(plan.assignTime)
+	d.SearchNs += int64(plan.searchTime)
+	d.FetchNs += int64(searched.FetchTime)
+	d.VisitNs += int64(searched.VisitTime)
+	d.RescoreNs += int64(searched.RescoreTime)
+	d.MemberReadNs += int64(searched.MemberTime)
+	d.EdgeReadNs += int64(searched.EdgeTime)
+	d.Loads += searched.Postings
+	d.Rounds += searched.Rounds
+	d.Rows += searched.Blocks
+	d.RowBytes += searched.BlockBytes
+	d.Members += searched.Members
+	d.Rescored += searched.Rescored
+	d.VectorReads += plan.vectorReads
+}
+
+func (d *diagPlans) merge(o *diagPlans) {
+	d.Plans += o.Plans
+	d.AssignNs += o.AssignNs
+	d.SearchNs += o.SearchNs
+	d.FetchNs += o.FetchNs
+	d.VisitNs += o.VisitNs
+	d.RescoreNs += o.RescoreNs
+	d.MemberReadNs += o.MemberReadNs
+	d.EdgeReadNs += o.EdgeReadNs
+	d.Loads += o.Loads
+	d.Rounds += o.Rounds
+	d.Rows += o.Rows
+	d.RowBytes += o.RowBytes
+	d.Members += o.Members
+	d.Rescored += o.Rescored
+	d.VectorReads += o.VectorReads
+}
+
+// TestDiagSearch runs the plans of the vectors of a pass and applies none of
+// them: the search of an insert as a query, with the ef and the neighbors of
+// an insert, over the index as it is. PE_THREADS goroutines take the vectors
+// a window at a time and hold the index for reading over each window, as the
+// callers of AddBatch do. It opens the index with no cycle and no
+// maintenance: nothing is written.
+func TestDiagSearch(t *testing.T) {
+	datasetDir, dir, out := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_OUT")
+	if datasetDir == "" || dir == "" || out == "" || os.Getenv("PE_THREADS") == "" {
+		t.Skip("no PE_DATASET, PE_DIR, PE_OUT and PE_THREADS given")
+	}
+	ctx := context.Background()
+	train, err := openNightTrain(datasetDir)
+	require.NoError(t, err)
+	defer train.file.Close()
+	datasetRows := nightRows(t, train)
+	n := int(nightEnvInt(t, "PE_N", 20000))
+	threads := int(nightEnvInt(t, "PE_THREADS", 1))
+	seed := uint64(nightEnvInt(t, "PE_SEED", 7))
+	kind := nightEnv("PE_KIND", "repeated")
+	profilePath := os.Getenv("PE_CPUPROFILE")
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	st := openNightStore(t, dir, logger, false)
+	cfg := st.config(dir, logger, 0)
+	cfg.noMaintenance = true
+	_, hooksOff := diagHooks(&cfg, true, false)
+	defer hooksOff()
+	p, err := Open(cfg, uc, st.store)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, p.Shutdown(ctx))
+		require.NoError(t, st.store.Shutdown(ctx))
+	}()
+	ids, vectors := diagVectors(t, p, train, datasetRows, datasetDir, kind, n, seed)
+	p.mu.RLock()
+	meta := p.g.meta
+	p.mu.RUnlock()
+
+	if profilePath != "" {
+		file, err := os.Create(profilePath)
+		require.NoError(t, err)
+		defer file.Close()
+		require.NoError(t, pprof.StartCPUProfile(file))
+		defer pprof.StopCPUProfile()
+	}
+	require.NoError(t, os.WriteFile(out+".started", []byte(time.Now().Format("15:04:05")+"\n"), 0o644))
+	usageBefore, err := readDiagRusage()
+	require.NoError(t, err)
+	runtimeBefore, storeBefore := readDiagMetrics(), diagStore()
+	var next atomic.Int64
+	var mu sync.Mutex
+	var total diagPlans
+	begin := time.Now()
+	searching := enterrors.NewErrorGroupWrapper(logger)
+	for range threads {
+		searching.Go(func() error {
+			var own diagPlans
+			defer func() {
+				mu.Lock()
+				total.merge(&own)
+				mu.Unlock()
+			}()
+			for {
+				from := int(next.Add(insertWindow)) - insertWindow
+				if from >= n {
+					return nil
+				}
+				to := min(from+insertWindow, n)
+				p.mu.RLock()
+				for i := from; i < to; i++ {
+					plan := p.plans.Get().(*growPlan)
+					plan.work = nil
+					err := p.g.plan(ctx, plan, ids[i], distancer.Normalize(vectors[i]))
+					if err == nil {
+						own.add(plan)
+					}
+					p.plans.Put(plan)
+					if err != nil {
+						p.mu.RUnlock()
+						return err
+					}
+				}
+				p.mu.RUnlock()
+			}
+		})
+	}
+	require.NoError(t, searching.Wait())
+	took := time.Since(begin)
+	usage, err := readDiagRusage()
+	require.NoError(t, err)
+	writeNightJSON(t, out, map[string]any{
+		"dir": dir, "dataset": datasetDir, "kind": kind, "rows": train.rows, "seed": seed, "n": n, "threads": threads,
+		"cacheMode": uc.RQ.CacheMode, "gomaxprocs": runtime.GOMAXPROCS(0), "pid": os.Getpid(), "meta": meta,
+		"diagnosticBranch": diagBranch,
+		"seconds":          took.Seconds(), "plans": total,
+		"rusageBefore": usageBefore, "rusageAfter": usage,
+		"runtimeBefore": runtimeBefore, "runtimeAfter": readDiagMetrics(),
+		"storeBefore": storeBefore, "storeAfter": diagStore(),
+	})
+	t.Logf("%d plans with %d threads in %s: %.3f ms a plan by its clock, %.1f loads", total.Plans, threads,
+		took.Round(time.Millisecond), float64(total.AssignNs+total.SearchNs)/1e6/float64(max(total.Plans, 1)),
+		float64(total.Loads)/float64(max(total.Plans, 1)))
+}

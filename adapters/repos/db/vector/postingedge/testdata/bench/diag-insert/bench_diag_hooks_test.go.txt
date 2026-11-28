@@ -1,0 +1,48 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package postingedge
+
+import (
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+)
+
+// What the harness of the diagnostic of the inserts asks of the diagnostic
+// branch (bench_diag_test.go): the clocks of the callers, the counts of the
+// work of every plan, and the counters of the reads of the store. Its twin
+// for m2 as it is does nothing.
+
+// diagBranch tells that this is the diagnostic branch.
+const diagBranch = true
+
+// diagHooks turns on what was asked for, in the config of an index that is
+// about to open. It returns what reads the clocks of the callers, nil
+// without them, and what turns the counters of the store off again.
+func diagHooks(cfg *PersistentConfig, clocksOn, work bool) (func() map[string]int64, func()) {
+	cfg.planWork = work
+	if !clocksOn {
+		return nil, func() {}
+	}
+	clocks := &insertClocks{}
+	cfg.clocks = clocks
+	lsmkv.Diag.On.Store(true)
+	return clocks.snapshot, func() { lsmkv.Diag.On.Store(false) }
+}
+
+// diagStore is what the reads of the store consulted so far (lsmkv.Diag).
+func diagStore() map[string]int64 {
+	return map[string]int64{
+		"reads": lsmkv.Diag.Reads.Load(), "segmentsHeld": lsmkv.Diag.Held.Load(),
+		"segmentsFound": lsmkv.Diag.Found.Load(), "bloomFalse": lsmkv.Diag.BloomFalse.Load(),
+	}
+}

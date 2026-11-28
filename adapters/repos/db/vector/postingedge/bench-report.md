@@ -1581,6 +1581,23 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 - **Se añade a 100k una pasada con 20 000 filas nuevas,** que a ese tamaño sí hay, junto a la de filas repetidas. Es la comparación directa de lo que cuesta insertar una fila repetida frente a una nueva, con el mismo umbral del 5 %.
 - **Del monitor de fuera:** el tiempo «ejecutable» que el sistema cuenta al proceso incluye el tiempo corriendo (comprobado con un hilo ocupado: 2.49 s de usuario y 2.50 ejecutables). Los hilos listos sin core son esa cifra menos la CPU de usuario y de sistema: 0.29 hilos en el tramo de las 21:27.
 
+**Enmienda 2 (28 de noviembre a las 02:21, con los dos binarios compilados y antes de ejecutar nada).**
+- **El índice de 100k se crece de las primeras 100 000 filas del dataset,** con doc ids de 0 a 99 999, y no de las primeras 100 000 del orden del 10M.
+  - Con las del orden del 10M sus doc ids caerían por todo el rango de 10M, y sus tablas por docID tendrían el tamaño de las de 10M: 900 MB de códigos de ruteo para 100 000 vectores. Un índice de 100k de un shard no es así, y la comparación entre tamaños mediría otra cosa.
+  - El arnés lleva para eso un parámetro nuevo, `PE_ROWS`. Sin él hace lo de antes.
+  - Los ids nuevos de las filas repetidas y de las queries van de 100 000 en adelante a 100k, y de 10 000 000 en adelante a 10M. Las filas nuevas de la pasada de 100k son las filas 100 000 a 119 999 del dataset.
+- **La caché de ficheros al empezar cada pasada.** Un clon es otro fichero para la caché: recién hecho, nada suyo está en memoria. Esto sustituye a «las pasadas a 10M van seguidas, sin vaciarla», que no contaba con eso.
+  - **A 100k** (medio GB), todos los ficheros del clon se leen una vez antes de abrir, como en las pasadas «en caliente» del 27.
+  - **A 10M se lee una vez el store** (7 GB). Las filas quedan en caché, como estaban durante el crecimiento, donde los fallos de página eran de 2 a 14 por insert.
+  - **Los vectores de 10M** (30.72 GB) **no caben al lado y se quedan como en un clon nuevo:** casi cada vector exacto se leerá de disco. En el crecimiento a 10M iban a disco 94 lecturas por insert. Doy las lecturas de disco por insert de cada pasada junto a esa cifra, y la fase de vectores exactos se lee con esa advertencia.
+- **El índice de 100k acaba reorganizado y el de 10M no:** el `Settle` final de 100k cabe. A 100k todo está en memoria; lo anoto por si alguna cifra depende de ello.
+- **`sample` desde fuera va en una pasada propia** con 8 llamadores, 10 s a 1 ms entre muestras, y no en la del perfil de Go: suspende el proceso en cada muestra, y no quiero las dos cosas en el mismo perfil.
+- **El monitor de fuera corre en cada pasada,** cada 2 s.
+- **El control son tres pasadas seguidas con 8 llamadores:** `m2` sin tocar, el binario de diagnóstico con los relojes apagados y con ellos puestos. La variación entre pasadas iguales sale de las dos de fases con 8 llamadores y de la de control con relojes. Si el control difiere menos que ellas entre sí, digo que no se distingue, además de aplicar el 3 %.
+- **Los vectores de los inserts son filas repetidas con ids nuevos,** como en el pre-registro. Pregunté al usuario si prefería añadirles ruido; sin respuesta, corre lo pre-registrado, con sus controles.
+- **Duración estimada:** unas dos horas y media. Crecer el índice de 100k, 20 pasadas a 100k y 19 a 10M.
+- **Dónde va en el orden:** detrás de la propagación, que compila y corre tests. Nada compila mientras corre.
+
 #### El 10M crecido con la serie: resultado (28 de noviembre, cerrado a las 02:10)
 
 **Los 10 000 000 de vectores entraron en 8 h 49 min 45 s, a 314 inserts por segundo de media: 619 en el primer tramo y 233 en el último entero. El índice queda sin reorganización final, por falta de sitio, y no se usa para búsqueda en frío hasta reorganizarlo. A 0.95 carga 19.53 postings por query y a 0.99 carga 62.90. Abierto en `routing`, su heap son 1 308 MB.**
