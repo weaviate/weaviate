@@ -1,0 +1,51 @@
+{
+  "builtAtLen": 0,
+  "cacheMode": "routing",
+  "centroidGraph": {
+    "cacheSize": 82525,
+    "compressed": true,
+    "layers": {
+      "0": 39264,
+      "1": 1219,
+      "2": 45,
+      "3": 1
+    },
+    "tombstones": 245,
+    "type": "rq"
+  },
+  "deleted": 0,
+  "deletedLen": 12499156,
+  "heapAlloc": 1308172264,
+  "heapInuse": 1419296768,
+  "heapSys": 1538621440,
+  "livePostings": 40284,
+  "liveSlots": 12499156,
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 768,
+    "keys": 12499156,
+    "scanCodeWords": 13,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 0,
+    "postings": 80525,
+    "splits": 40241,
+    "splitsFailed": 0,
+    "live": 10000000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 5,
+    "vectorsLaidOut": 2561320,
+    "refreshedAt": 10000
+  },
+  "noCodes": false,
+  "openSeconds": 17.406793,
+  "pendingBytes": 52119488,
+  "pendingHeap": 121734708,
+  "pendingMembers": 571285,
+  "pendingPostings": 37542,
+  "sys": 1651100280
+}

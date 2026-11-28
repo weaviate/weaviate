@@ -1581,6 +1581,194 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 - **Se añade a 100k una pasada con 20 000 filas nuevas,** que a ese tamaño sí hay, junto a la de filas repetidas. Es la comparación directa de lo que cuesta insertar una fila repetida frente a una nueva, con el mismo umbral del 5 %.
 - **Del monitor de fuera:** el tiempo «ejecutable» que el sistema cuenta al proceso incluye el tiempo corriendo (comprobado con un hilo ocupado: 2.49 s de usuario y 2.50 ejecutables). Los hilos listos sin core son esa cifra menos la CPU de usuario y de sistema: 0.29 hilos en el tramo de las 21:27.
 
+#### El 10M crecido con la serie: resultado (28 de noviembre, cerrado a las 02:10)
+
+**Los 10 000 000 de vectores entraron en 8 h 49 min 45 s, a 314 inserts por segundo de media: 619 en el primer tramo y 233 en el último entero. El índice queda sin reorganización final, por falta de sitio, y no se usa para búsqueda en frío hasta reorganizarlo. A 0.95 carga 19.53 postings por query y a 0.99 carga 62.90. Abierto en `routing`, su heap son 1 308 MB.**
+
+**Qué pasó.**
+- **De las 17:12:00 del 27 a las 02:01:46 del 28,** 31 785 s de inserts tras la base de 10 000, con 8 llamadores. No paró por disco.
+- **La máquina no se durmió:** `caffeinate` sostuvo sus dos aserciones las 8 h 50 min, y el registro de energía no tiene ninguna entrada de sueño ni de despertar desde las 17:12.
+- **La reorganización final se saltó, como estaba previsto.** El `Settle` del final pedía libres 38.5 GB, los 30.77 que escribe más un cuarto, y había 36.5. Lo dice el log.
+  - El índice queda con su último layout a 2 561 320 vectores: 3 de cada 4 vectores están en orden de llegada.
+  - **No se mide búsqueda en frío sobre él hasta reorganizarlo** (del usuario). El heap, el recall y las cargas no dependen de eso.
+- **En disco: 38.2 GB.** El directorio del índice son 31.1 (los vectores, 30.72) y el store 7.0: 2.2 de filas de postings, 1.6 de distancias de aristas, 1.3 de códigos de ruteo, 1.0 de cambios pendientes y 0.9 del mapa.
+  - Segmentos por bucket al acabar: 3 en filas, distancias, mapa y ruteo; 7 en pendientes; 9 en los códigos de los centroides.
+- **CPU del proceso entero:** 44.3 h de usuario y 3.8 de sistema, 17.3 ms por insert.
+
+**Frente a lo que esperaba** (pre-registro de las 17:10):
+
+| | esperaba | salió |
+|---|---|---|
+| duración | unas 8 h, entre 7 y 9 | 8 h 50 min |
+| ritmo al empezar | cerca de 900 por segundo | 619 en el primer tramo |
+| ritmo al acabar | unos 300 | 233 en el último tramo entero |
+| layouts | cuatro, unos 10.4 GB reescritos | cuatro, 3 411 220 vectores, 10.48 GB |
+| lo escrito | algo menos que los 49 KB por insert de la noche del 26, que eran hasta 3.3M | 34.8 KB por insert hasta 3.28M, un 29 % menos; 53.0 hasta 10M |
+| si la caché de disco no alcanza, el final va más lento | — | pasó: desde 4.5M las lecturas de disco por insert crecen sin parar |
+
+- **El ritmo quedó por debajo en los dos extremos.** A 3.3M, donde había medida sobre el índice de la noche del 26 (323 por segundo en frío y 373 en caliente), salieron 351 y 344. Lo que falló es la extrapolación desde ahí hacia los dos lados.
+
+**Por cuartos de la corrida** (los cortes caen en bordes de tramo):
+
+| millones dentro | horas | inserts/s | cores ocupados | ms de CPU por insert | leído de disco, KB por insert | escrito, KB por insert | veces el vector |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0.01 a 2.52 | 1.59 | 439 | 6.17 | 14.0 | 24 | 30.2 | 9.8 |
+| 2.52 a 4.99 | 2.01 | 342 | 5.97 | 17.5 | 61 | 47.6 | 15.5 |
+| 4.99 a 7.50 | 2.43 | 287 | 5.31 | 18.5 | 508 | 56.9 | 18.5 |
+| 7.50 a 10.00 | 2.80 | 247 | 4.76 | 19.2 | 1 243 | 77.4 | 25.2 |
+| **todo** | **8.83** | **314** | **5.44** | **17.3** | **459** | **53.0** | **17.3** |
+
+**Por tramo, cada medio millón** (los 106 tramos, con todas las columnas, en `testdata/bench/night-10m-grown/monitor/stretches-all.tsv`). La CPU y los bytes son del proceso entero: los inserts, y también la compactación, los volcados, el GC y el arnés.
+
+| hora | millones dentro | inserts/s | cores usuario | cores sistema | ms de CPU por insert | leído KB por insert | escrito KB por insert | veces el vector | postings vivos | GB en disco | heap en uso GB |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 17:17:02 | 0.20 | 619 | — | — | — | 15 | 16 | 5.3 | 788 | 0.9 | 4.6 |
+| 17:27:04 | 0.51 | 505 | 5.61 | 0.47 | 12.0 | 27 | 18 | 5.8 | 2 059 | 2.1 | 4.5 |
+| 17:42:07 | 0.95 | 462 | 5.75 | 0.45 | 13.4 | 17 | 28 | 9.0 | 3 795 | 3.8 | 5.6 |
+| 18:02:11 | 1.47 | 419 | 5.80 | 0.46 | 15.0 | 19 | 34 | 11.0 | 5 893 | 5.7 | 4.3 |
+| 18:22:13 | 1.95 | 394 | 5.67 | 0.43 | 15.5 | 29 | 46 | 15.0 | 7 833 | 7.4 | 8.4 |
+| 18:47:17 | 2.52 | 373 | 5.64 | 0.47 | 16.4 | 32 | 40 | 13.0 | 10 080 | 9.7 | 5.9 |
+| 19:07:21 | 2.96 | 356 | 5.54 | 0.45 | 16.8 | 36 | 42 | 13.6 | 11 917 | 11.6 | 6.2 |
+| 19:32:29 | 3.49 | 349 | 5.53 | 0.47 | 17.2 | 35 | 44 | 14.2 | 14 069 | 13.3 | 7.8 |
+| 19:57:35 | 4.01 | 343 | 5.61 | 0.47 | 17.7 | 35 | 54 | 17.7 | 16 138 | 15.6 | 10.8 |
+| 20:22:40 | 4.51 | 330 | 5.48 | 0.43 | 17.9 | 63 | 47 | 15.2 | 18 121 | 17.4 | 10.0 |
+| 20:47:47 | 4.99 | 307 | 5.08 | 0.39 | 17.8 | 289 | 54 | 17.5 | 20 035 | 19.4 | 9.6 |
+| 21:17:55 | 5.53 | 309 | 5.16 | 0.41 | 18.0 | 241 | 62 | 20.2 | 22 216 | 21.5 | 10.6 |
+| 21:43:02 | 5.98 | 295 | 4.91 | 0.39 | 18.0 | 482 | 55 | 18.0 | 24 057 | 22.3 | 10.7 |
+| 22:13:11 | 6.50 | 282 | 4.87 | 0.40 | 18.7 | 558 | 62 | 20.2 | 26 225 | 24.7 | 14.0 |
+| 22:43:22 | 7.01 | 276 | 4.84 | 0.40 | 19.0 | 626 | 55 | 18.0 | 28 290 | 27.1 | 5.8 |
+| 23:13:30 | 7.50 | 263 | 4.65 | 0.40 | 19.2 | 809 | 67 | 21.8 | 30 263 | 29.0 | 10.9 |
+| 23:43:43 | 7.98 | 260 | 4.53 | 0.40 | 19.0 | 995 | 51 | 16.6 | 32 164 | 30.6 | 6.8 |
+| 00:18:55 | 8.51 | 247 | 4.35 | 0.42 | 19.3 | 1 273 | 75 | 24.4 | 34 256 | 32.2 | 9.4 |
+| 00:54:08 | 9.03 | 251 | 4.31 | 0.41 | 18.9 | 1 245 | 50 | 16.2 | 36 426 | 35.0 | 10.4 |
+| 01:24:15 | 9.47 | 241 | 4.23 | 0.43 | 19.3 | 1 372 | 96 | 31.2 | 38 164 | 36.5 | 10.0 |
+| 01:59:23 | 9.97 | 233 | 4.05 | 0.44 | 19.3 | 1 637 | 89 | 29.1 | 40 158 | 38.6 | 12.0 |
+| 02:01:46 | 10.00 | 222 | 3.95 | 0.42 | 19.7 | 1 739 | 218 | 70.8 | 40 284 | 38.1 | 10.2 |
+
+- **El último tramo es de 143 s y 31 600 inserts,** no de 5 minutos. En él el proceso escribió 6.9 GB mientras el directorio encogía de 38.6 a 38.1 GB. No sé qué lo escribió: no hay contador que lo separe.
+- **El primer tramo no tiene CPU:** la suya incluye abrir el índice y la base.
+
+**Postings.** 40 284 vivos, de 80 525 dados; 40 241 splits, ninguno fallido. Son 248 vectores por posting. El lote de v4.0 a 10M tenía 42 373, 236 por posting; lo estimado para el crecido eran unos 42 000.
+
+**Lo escrito.** 529.7 GB en total, 17.3 veces los 30.72 GB de vectores.
+- **Crece con el tamaño durante toda la corrida.** De 16 KB por insert en el primer tramo a entre 75 y 102 en la última hora y media, salvo tres tramos de 50 a 55.
+  - **Corrijo lo que escribí con la corrida a 5.6M,** que las escrituras no crecían con el tamaño. Entonces iban de 16 a 62 KB por insert y lo leí como ruido. Por cuartos es 30, 48, 57 y 77.
+- **Lo que el índice cuenta de sus propias escrituras, por insert:**
+
+| millones dentro | diario, KB | filas de aristas y sus distancias, KB | log de lo pendiente, KB | filas escritas por insert | de ellas, por el presupuesto |
+|---|---:|---:|---:|---:|---:|
+| 0.01 a 2.52 | 4.77 | 1.72 | 0.65 | 0.113 | 0 |
+| 2.52 a 4.99 | 5.05 | 1.84 | 0.70 | 0.116 | 0 |
+| 4.99 a 7.50 | 6.02 | 2.32 | 0.72 | 0.145 | 0.097 |
+| 7.50 a 10.00 | 8.08 | 3.34 | 0.73 | 0.214 | 0.204 |
+
+  - **El presupuesto de 128 MB de cambios pendientes se llenó a 5.53M** (132 MB en ese tramo). Desde el tramo siguiente se escriben filas porque el presupuesto lo pide: 751 893 de las 1 467 649 filas de toda la corrida, 0.17 por insert desde entonces. Antes eran 0.11 por insert, todas por posting lleno o por split.
+  - Cada fila escrita son 13.6 KB, y va también al diario: por eso el diario pasa de 5.1 a 8.1 KB por insert.
+- **El resto, hasta los 53 KB por insert del proceso,** son los vectores (3.07 KB), los WAL del store, sus volcados, su compactación y los cuatro layouts (10.48 GB, 1.05 KB por insert). No están separados aquí; la pasada de diagnóstico los separa por clase de fichero.
+
+**Lo leído de disco.** 4 589 GB en total, 459 KB por insert.
+- **Plano hasta 4.2M** (17 a 38 KB por insert, salvo cuatro tramos) **y creciendo desde 4.5M sin parar:** 63 a 4.5M, 482 a 6M, 809 a 7.5M, 1 273 a 8.5M y 1 637 a 9.97M.
+- **La caché de ficheros estuvo entre 20 y 24 GB toda la segunda mitad,** para un índice que acaba en 38 GB y un dataset de 31 GB que el arnés lee al azar. La memoria anónima fueron de 25 a 29 GB, el compresor ocupó entre 13.7 y 14.9 GB y el swap no se movió de 3.5 GB. El nivel de presión de memoria fue el normal en todas las lecturas.
+
+**El heap, abierto en `routing`** (otro proceso, perfil con todas las reservas; abrir tardó 17.4 s). 1 308.2 MB reservados y en uso; 1 419.3 MB de heap en uso con lo libre dentro de sus páginas.
+
+| componente | estimado el 26, MB | medido, MB | |
+|---|---:|---:|---|
+| códigos de ruteo | 720 | 899.9 | la tabla tiene una fila por `keys`, 12 499 156, no por vector vivo: 72 B × 1.25 veces los doc ids dados |
+| cambios de aristas pendientes | ≤ 64 | 139.1 | el tope es ahora de 128 MB; el índice cuenta 121.7, y el perfil un 14 % más |
+| `lsmkv` | ≈ 105, no fiable | 93.6 | casi todo filtros de bloom, 93.5 |
+| docID → posting | 50 | 50.0 | |
+| docID → slot | 50 | 50.0 | |
+| centroides RQ8 y su caché | ≈ 35 | 34.1 | |
+| vivos por docID y tamaños por posting | ≈ 13 | 12.8 | |
+| tombstones | 12.5 | 12.5 | |
+| grafo de los centroides | ≈ 5.3 | 8.6 | conexiones 5.0, nodos 3.2 |
+| por posting: retirados, halo y secuencias | (arriba) | 1.7 | |
+| docID → cuándo se hicieron sus aristas | 0 | 0 | ya no se carga |
+| resto | ≈ 2 | 0.4 | |
+| **en el perfil** | **≈ 1 057** | **1 302.8** | |
+| reservado y fuera del perfil | | 5.4 | |
+| libre dentro de páginas en uso | | 111.1 | |
+
+- **La diferencia con lo estimado son dos filas.** Los códigos de ruteo, 180 MB más: los estimé por vector vivo y la tabla va por `keys`. Y lo pendiente, 75 MB más: el tope pasó de 64 a 128 MB después de la estimación.
+- **`lsmkv`, que era la fila no fiable, sale un 11 % por debajo.**
+- **No se midió en `none`:** la cadena de esta corrida solo abre en `routing`.
+
+**El recall y las cargas** (`TestNightPoints`, sin cronometrar: 1 000 queries, k = 10, contra los vecinos exactos del dataset sobre las 10M filas; rescore 150, 8 hilos, el índice abierto en `routing` y sin mantenimiento).
+
+| objetivo | ef | recall | cargas por query | rondas | miembros recorridos | vectores exactos | bloques leídos |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0.95 | 24 | 0.9514 | 19.53 | 4.63 | 5 107 | 150 | 0.84 MB |
+| 0.99 | 106 | 0.9901 | 62.90 | 15.47 | 16 381 | 150 | 2.71 MB |
+
+- **La curva entera:** ef 10 da 0.8905 con 11.38 cargas; ef 20, 0.9409 con 17.21; ef 40, 0.9717 con 28.48; ef 80, 0.9858 con 49.51; ef 160, 0.9928 con 87.92.
+- **Junto a los índices de 10M de v4.0, que no son el mismo índice:**
+
+| índice | 0.95 | 0.99 |
+|---|---|---|
+| este, el integrado, crecido por inserts con la serie | 19.53 cargas (ef 24) | 62.90 cargas (ef 106) |
+| la celda de v4.0, el prototipo construido en lote, con rescore 150 | 20.70 cargas (ef 28) | 88.87 cargas (ef 177) |
+| HFresh como en un nodo, en su mejor configuración | 399.9 postings leídos, 749.9 lecturas con el rescore | 3 407.8 postings leídos, 4 607.8 lecturas |
+
+  - **Qué no es comparable:** la celda de v4.0 es otro código y otra construcción, y sus aristas no se hicieron como las de un insert. Lo que la fila dice es que el índice crecido no carga más que el de lote: un 5.7 % menos a 0.95 y un 29 % menos a 0.99.
+  - Las cargas de HFresh son postings suyos, de otro tamaño. Van por el orden de magnitud.
+- **No hay latencia:** nada de esto se cronometró, y en frío no se mide hasta reorganizar.
+- **No doy cifra esperada en el pre-registro, y no la había.**
+
+**La vigilancia de fuera, de 5.7M a 10M.** *Medido, sin interpretar más allá de las cifras; la causa de cada cosa la tiene que dar la pasada de diagnóstico.*
+
+| hora | millones dentro | inserts/s | reloj del plan, ms | llamadores dentro del plan | cargas | filas leídas, MB | lecturas de disco por insert | ms por lectura | hilos corriendo o listos | hilos esperando al disco | listos sin core | M de instrucciones por insert | instrucciones por ciclo | cambios de contexto por insert | caché de ficheros GB |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 21:27:58 | 5.71 | 299 | 16.79 | 5.02 | 101.6 | 4.34 | 28.5 | 0.14 | 6.9 | 0.9 | 0.29 | 113 | 2.11 | 134 | 21.0 |
+| 21:43:02 | 5.98 | 295 | 16.98 | 5.01 | 101.9 | 4.36 | 29.9 | 0.16 | 6.8 | 1.0 | 0.30 | 114 | 2.11 | 137 | 21.3 |
+| 22:13:11 | 6.50 | 282 | 17.81 | 5.02 | 103.3 | 4.42 | 34.2 | 0.16 | 6.2 | 0.7 | 0.30 | 118 | 2.10 | 145 | 22.1 |
+| 22:43:22 | 7.01 | 276 | 18.23 | 5.03 | 104.5 | 4.48 | 37.3 | 0.14 | 4.8 | 0.8 | 0.27 | 120 | 2.11 | 152 | 23.0 |
+| 23:13:30 | 7.50 | 263 | 19.27 | 5.07 | 105.2 | 4.51 | 49.3 | 0.17 | 6.0 | 1.5 | 0.33 | 122 | 2.11 | 154 | 23.2 |
+| 23:43:43 | 7.98 | 260 | 19.66 | 5.11 | 105.3 | 4.52 | 58.4 | 0.16 | 5.5 | 1.9 | 0.26 | 123 | 2.15 | 162 | 22.5 |
+| 00:18:55 | 8.51 | 247 | 20.99 | 5.18 | 107.1 | 4.61 | 73.9 | 0.14 | 4.6 | 2.5 | 0.21 | 127 | 2.17 | 177 | 21.4 |
+| 00:54:08 | 9.03 | 251 | 20.65 | 5.18 | 107.8 | 4.64 | 72.4 | 0.14 | 4.5 | 2.6 | 0.21 | 126 | 2.21 | 171 | 22.4 |
+| 01:24:15 | 9.47 | 241 | 21.42 | 5.16 | 107.8 | 4.65 | 79.1 | 0.14 | 5.7 | 2.0 | 0.20 | 128 | 2.20 | 181 | 22.3 |
+| 01:59:23 | 9.97 | 233 | 22.61 | 5.27 | 108.7 | 4.69 | 93.6 | 0.15 | 5.0 | 2.8 | 0.18 | 130 | 2.23 | 192 | 20.3 |
+
+*El reloj del plan, las cargas y las filas son del índice (`growStats`, la diferencia entre las copias de dos tramos). Las lecturas de disco son las del disco entero entre los inserts del tramo. Los hilos son la media de las lecturas de `ps -M` cada 10 s: `R` es corriendo o listo, `U` es en espera no interrumpible. «Llamadores dentro del plan» es el ritmo por el reloj del plan.*
+
+- **De 5.7M a 10M el ritmo baja un 22 %,** de 299 a 233. La CPU por insert sube un 8 %, de 17.8 a 19.3 ms, y los cores ocupados bajan un 16 %, de 5.33 a 4.49.
+- **El reloj del plan sube un 35 %,** de 16.79 a 22.61 ms, **con un 7 % más de cargas y un 8 % más de bytes de filas.** Los vectores exactos son 150 en todos los tramos.
+- **Las lecturas de disco por insert se triplican,** de 28.5 a 93.6, a 0.14 ms cada una, y de unos 17 KB.
+  - **Los fallos de página del proceso son de 2 a 14 por insert:** la mayor parte de las lecturas de disco no entra por ahí. Las filas del store se leen de segmentos mapeados; los vectores exactos, con una llamada de lectura cada uno.
+- **Los hilos en espera no interrumpible pasan de 0.9 a 2.8** y los que corren o están listos de 6.9 a 5.0. Los listos sin core son de 0.18 a 0.33 hilos: no falta CPU.
+- **Dentro del reloj del plan hay siempre unos 5 llamadores de los 8:** de 4.97 a 5.27 en los 56 tramos, 5.11 de media. Los otros 3 están fuera de ese reloj en todos los tamaños medidos.
+- **Aplicar bajo el cerrojo** pasa de 0.15 a 0.22 ms por insert, y asignar de 0.11 a 0.13.
+- **Las instrucciones por insert suben un 15 %,** de 113 a 130 millones, a entre 2.09 y 2.24 por ciclo.
+- **Las llamadas al sistema fueron de 262 a 293 por insert** hasta las 23:22. Ahí el contador del sistema, de 32 bits con signo, llegó a su tope y dejó de contar.
+- **Media de toda la corrida, por insert** (`growStats`): 16.33 ms de plan de los 16.58 que suman los relojes; 95.8 cargas en 23.7 rondas; 191.6 filas, 4.08 MB; 150.0 vectores exactos; 11.4 vecinos mirados y 6.23 aristas inversas entradas; 4.03 splits por mil.
+
+**Las diez muestras de pilas** (10 s cada una, 838 a 854 muestras por hilo, 164 hilos).
+
+| hora | millones dentro | aparcados | corriendo | leyendo (`pread`) | escribiendo | durmiendo (`usleep`) | en `kevent` |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 21:22 | 5.6 | 155.48 | 5.01 | 1.29 | 0.06 | 1.10 | 1.00 |
+| 21:52 | 6.1 | 155.59 | 4.79 | 1.40 | 0.07 | 1.05 | 0.99 |
+| 22:21 | 6.7 | 154.84 | 5.01 | 1.81 | 0.14 | 1.08 | 0.97 |
+| 22:51 | 7.2 | 155.67 | 4.72 | 1.40 | 0.06 | 1.08 | 0.99 |
+| 23:21 | 7.6 | 155.47 | 4.58 | 1.76 | 0.05 | 1.09 | 0.99 |
+| 23:51 | 8.1 | 155.25 | 4.67 | 1.93 | 0.04 | 1.05 | 0.99 |
+| 00:21 | 8.5 | 154.96 | 4.44 | 2.47 | 0.06 | 1.05 | 0.97 |
+| 00:51 | 9.0 | 154.93 | 4.51 | 2.39 | 0.06 | 1.08 | 0.98 |
+| 01:21 | 9.4 | 154.91 | 4.23 | 2.72 | 0.06 | 1.04 | 0.98 |
+| 01:51 | 9.9 | 152.29 | 4.37 | 5.05 | 0.23 | 1.07 | 0.88 |
+
+- **Los hilos que corren bajan de 5.0 a 4.2–4.4 y los que leen suben de 1.3 a 2.7.** La suma va de 6.3 a 7.0.
+- **La última muestra tiene 5.05 hilos leyendo y 2.6 aparcados menos.** No sé qué leían esos hilos de más: de un hilo dentro de una lectura no se ve la pila Go.
+- **Los que corren, por la función en que estaban, de la primera muestra a la penúltima:** siguiendo aristas y el conjunto de visitados, de 1.43 a 1.33; puntuando códigos, de 1.39 a 1.28; decodificando y juntando filas, de 0.51 a 0.39; búsquedas en mapas, de 0.36 a 0.20; reservando memoria, de 0.24 a 0.18; copiando bytes, de 0.24 a 0.19; lecturas del store, de 0.17 a 0.14; el GC, de 0.16 a 0.14.
+- **Los tramos muestreados no se distinguen de sus vecinos.** El ritmo del tramo anterior, el del muestreado y el del siguiente: 309, 303, 299; 293, 292, 291; 286, 283, 284; 275, 277, 272; 267, 265, 262; 258, 253, 248; 247, 249, 251; 248, 251, 245; 242, 241, 238; 236, 235, 233.
+
+**Lo que esto no dice,** y queda para la pasada de diagnóstico: dónde están los 3 llamadores que no están en el plan; qué parte del reloj del plan es espera de disco y cuál cálculo; y qué escribe el store por cada insert.
+
+**El índice se conserva** en el directorio de trabajo de la sesión, que el sistema puede limpiar. Lo paso a `/Volumes/v40bench` en cuanto `tenm` deje sitio (*mío*).
+
+**Datos.** En `testdata/bench/night-10m-grown/series/`: `grow.json` y `grow.log`; `heap-routing.*` con su perfil, `classify10m.py` y lo que da; `points-routing.*` y `points.sh.txt`. En `testdata/bench/night-10m-grown/monitor/`: `stretches-all.tsv` con `full.py`, que lo genera; las lecturas del monitor (`monitor.jsonl.gz`); las copias de `grow.json` por tramo (`grow-snap.tar.gz`); las diez muestras (`samples.tar.gz`) y sus recuentos (`census-*.txt`). El registro de energía no se archiva: nombra otras aplicaciones de la máquina.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

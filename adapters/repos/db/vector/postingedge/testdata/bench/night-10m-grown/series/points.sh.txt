@@ -1,0 +1,16 @@
+#!/bin/bash
+# The recall and the loads of the 10M index grown with the series, at 0.95
+# and 0.99 (bench-report.md of feat/posting-edge-index, amendment of 21:00 of
+# 2026-11-27): TestNightPoints, untimed, with points.test built from
+# grow10m/src (44c35ee9b9, the night harness and bench_night_points_test.go).
+# Nothing here is timed: no marker and no wait.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+G=$S/grow10m
+cd $G/src/adapters/repos/db/vector/postingedge || exit 2
+date "+== %Y-%m-%d %H:%M:%S points"
+PE_DATASET=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin PE_DIR=$G/index PE_CACHE=routing \
+  PE_POINTS=$G/points-routing.json PE_THREADS=8 \
+  $G/points.test -test.run '^TestNightPoints$' -test.v -test.timeout 0 > $G/points-routing.log 2>&1
+echo "points exit $?"
+date "+== %H:%M:%S done"

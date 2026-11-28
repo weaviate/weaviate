@@ -1,0 +1,33 @@
+sample-225152.txt: 164 threads, 854 samples a thread
+  parked (condition variable)                     155.67 threads
+  running                                           4.72 threads
+  reading (pread, read)                             1.40 threads
+  sleeping (usleep)                                 1.08 threads
+  netpoll (kevent)                                  0.99 threads
+  writing (pwrite, write)                           0.06 threads
+  waking a thread (cond signal)                     0.05 threads
+  kernel lock (mutex wait)                          0.02 threads
+  syncing (fsync, fcntl)                            0.00 threads
+  = all                                           164.00
+  running, by what the leaf of the stack is:
+    traversal: following edges, the visited set, ranking       1.46 threads   30.9 %
+    scoring: codes of members and endpoints                    1.35 threads   28.6 %
+    rows: decoding and joining what the store returned         0.42 threads    8.9 %
+    map lookups and string keys                                0.29 threads    6.1 %
+    copying bytes (memmove)                                    0.22 threads    4.7 %
+    allocation                                                 0.22 threads    4.6 %
+    GC (mark, sweep, stack scan)                               0.20 threads    4.2 %
+    store: reads (segments, memtable, bloom)                   0.14 threads    3.0 %
+    other (runtime, libc)                                      0.14 threads    2.9 %
+    scheduler and runtime locks                                0.07 threads    1.4 %
+    clock reads                                                0.07 threads    1.4 %
+    exact vectors (float dot, the read)                        0.04 threads    0.8 %
+    centroid graph (RQ8 distances, the queue)                  0.03 threads    0.7 %
+    on the way into or out of a libc call                      0.03 threads    0.6 %
+    store, other                                               0.02 threads    0.3 %
+    index, other                                               0.01 threads    0.3 %
+    plan: rows read from the store                             0.01 threads    0.1 %
+    plan: exact vectors (rescore)                              0.00 threads    0.1 %
+    plan: traversal of the postings                            0.00 threads    0.1 %
+    apply: the rest (rows written, inverse edges, journal)     0.00 threads    0.1 %
+    plan: the rest                                             0.00 threads    0.0 %
