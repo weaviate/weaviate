@@ -14,12 +14,16 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
@@ -149,7 +153,12 @@ func TestRemoveRefusesNamespaceHomeNode(t *testing.T) {
 func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 	ctx := context.Background()
 
-	m := NewMockStore(t, "node-1", utils.MustGetFreeTCPPort())
+	m := NewMockStore(t, "node-1", utils.MustGetFreeTCPPort(), func(c *Config) {
+		c.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{
+			exclusionNamespace: decodeCollection(func([]byte) (string, bool) { return "Busy", true }),
+		}
+	})
+	logs := logrustest.NewLocal(m.logger)
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 	m.indexer.On("Open", mock.Anything).Return(nil)
@@ -235,34 +244,63 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			physical := make(map[string]sharding.Physical, len(tt.shards))
-			virtual := make([]sharding.Virtual, 0, len(tt.shards))
-			for shard, nodes := range tt.shards {
-				physical[shard] = sharding.Physical{Name: shard, BelongsToNodes: nodes}
-				virtual = append(virtual, sharding.Virtual{Name: shard + "_v", AssignedToPhysical: shard})
-			}
-			_, err := r.AddClass(ctx,
-				&models.Class{
-					Class:             tt.className,
-					ReplicationConfig: &models.ReplicationConfig{Factor: tt.factor},
-				},
-				&sharding.State{ReplicationFactor: tt.factor, Physical: physical, Virtual: virtual},
-			)
+	addClass := func(t *testing.T, className string, factor int64, shards map[string][]string) {
+		t.Helper()
+		physical := make(map[string]sharding.Physical, len(shards))
+		virtual := make([]sharding.Virtual, 0, len(shards))
+		for shard, nodes := range shards {
+			physical[shard] = sharding.Physical{Name: shard, BelongsToNodes: nodes}
+			virtual = append(virtual, sharding.Virtual{Name: shard + "_v", AssignedToPhysical: shard})
+		}
+		_, err := r.AddClass(ctx,
+			&models.Class{
+				Class:             className,
+				ReplicationConfig: &models.ReplicationConfig{Factor: factor},
+			},
+			&sharding.State{ReplicationFactor: factor, Physical: physical, Virtual: virtual},
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, err := r.DeleteClass(ctx, className)
 			require.NoError(t, err)
-			defer func() {
-				_, err := r.DeleteClass(ctx, tt.className)
-				require.NoError(t, err)
-			}()
-
-			require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode))
-
-			for shard, want := range tt.want {
-				got, err := r.SchemaReader().ShardReplicas(tt.className, shard)
-				require.NoError(t, err)
-				require.ElementsMatch(t, want, got)
-			}
 		})
 	}
+	requireReplicas := func(t *testing.T, className string, want map[string][]string) {
+		t.Helper()
+		for shard, nodes := range want {
+			got, err := r.SchemaReader().ShardReplicas(className, shard)
+			require.NoError(t, err)
+			require.ElementsMatch(t, nodes, got)
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addClass(t, tt.className, tt.factor, tt.shards)
+			require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode))
+			requireReplicas(t, tt.className, tt.want)
+		})
+	}
+
+	t.Run("a class with a running task keeps the removed node, the other classes still rebalance", func(t *testing.T) {
+		addClass(t, "Busy", 2, map[string][]string{"S1": {"node-1", "node-2"}, "S2": {"node-1", "node-2"}})
+		addClass(t, "Free", 2, map[string][]string{"S1": {"node-1", "node-2"}})
+		seedExclusionTask(t, r.store)
+		logs.Reset()
+
+		require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, "node-1"))
+
+		requireReplicas(t, "Busy", map[string][]string{"S1": {"node-1", "node-2"}, "S2": {"node-1", "node-2"}})
+		requireReplicas(t, "Free", map[string][]string{"S1": {"node-2", "node-3"}})
+		require.True(t, slices.ContainsFunc(logs.AllEntries(), func(e *logrus.Entry) bool {
+			return e.Level == logrus.WarnLevel && e.Data["collection"] == "Busy" && e.Data["skipped_shards"] == 2
+		}), "the skipped shards must be logged once, with their count")
+
+		logs.Reset()
+		err := r.rebalanceCollectionShards(ctx, r.SchemaReader(), "Busy", []string{"S1", "Missing"}, "node-1", 2)
+		require.ErrorContains(t, err, `get replicas for shard "Missing"`)
+		require.True(t, slices.ContainsFunc(logs.AllEntries(), func(e *logrus.Entry) bool {
+			return e.Level == logrus.WarnLevel && e.Data["skipped_shards"] == 1
+		}), "a later shard's error must not drop the warning for the shard skipped before it")
+	})
 }

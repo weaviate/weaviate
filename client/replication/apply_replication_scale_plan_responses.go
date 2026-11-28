@@ -423,7 +423,7 @@ func NewApplyReplicationScalePlanConflict() *ApplyReplicationScalePlanConflict {
 /*
 ApplyReplicationScalePlanConflict describes a response with status code 409, with default header values.
 
-The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.
+The collection has a reindex or vector-index-drop task that has not reached a terminal state, so the plan was refused before its first step: a replica copy, move, removal or empty addition cannot run alongside it. GET /tasks reports the task and its status to callers who can read the collection. A task that starts while the plan is being applied can still refuse a later step after earlier steps committed, so re-read the sharding state.
 */
 type ApplyReplicationScalePlanConflict struct {
 	Payload *models.ErrorResponse

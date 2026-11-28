@@ -1749,6 +1749,15 @@ func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
 	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
 }
 
+func exclusionReplicaCommand(cmdType cmd.ApplyRequest_Type) func(*testing.T) *cmd.ApplyRequest {
+	return func(t *testing.T) *cmd.ApplyRequest {
+		t.Helper()
+		sub, err := json.Marshal(&cmd.DeleteReplicaFromShard{Class: exclusionCollection, Shard: "shard1", TargetNode: "node3"})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{Type: cmdType, Class: exclusionCollection, SubCommand: sub}
+	}
+}
+
 func exclusionTaskCommand(t *testing.T, namespace string) *cmd.ApplyRequest {
 	t.Helper()
 	sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
@@ -1832,6 +1841,8 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 	movement := exclusionMovementCommand
 	reindexTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, exclusionNamespace) }
 	unregisteredTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, "other") }
+	removal := exclusionReplicaCommand(cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD)
+	addition := exclusionReplicaCommand(cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD)
 	// ErrPermanentRejection lets a follower recover the sentinel after the gRPC hop, so it still answers 409.
 	taskRefused := []error{distributedtask.ErrTaskBlockedByReplicaMovement, distributedtask.ErrPermanentRejection}
 
@@ -1842,6 +1853,15 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		wantErrs []error
 	}{
 		{name: "a movement is admitted when no task runs", command: movement},
+		{name: "a replica removal is admitted when no task runs", command: removal},
+		{
+			name: "a replica removal is refused while a task runs on the collection", command: removal,
+			seed: seedExclusionTask, wantErrs: []error{replicationTypes.ErrMovementBlockedByTask},
+		},
+		{
+			name: "a replica addition is refused while a task runs on the collection", command: addition,
+			seed: seedExclusionTask, wantErrs: []error{replicationTypes.ErrMovementBlockedByTask},
+		},
 		{
 			name: "a task is refused while a movement runs on the collection", command: reindexTask,
 			seed: seedExclusionMovement, wantErrs: taskRefused,

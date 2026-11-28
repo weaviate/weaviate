@@ -86,8 +86,13 @@ together into a small REST surface rooted at
 > the flag on, except recovery at shard load (§6.2), which re-arms or
 > stamps an in-flight migration whatever the flag says.
 
-A replica movement requested while a migration runs on its collection is
-refused with 409. One that reaches a shard still being cleaned up after a
+A replica copy or move, or a scale plan that removes a replica or adds one
+with no source node, requested while a migration runs on its collection is
+refused with 409. Removing a node from the cluster skips that collection's
+shards with a warning, which keeps the removed node as one of their replicas,
+and rebalances the other collections. Once the migration finishes, remove the
+node again or apply a scale plan whose `removeNodes` lists it. A movement that
+reaches a shard still being cleaned up after a
 cancelled or failed migration waits for the cleanup to finish.
 
 ### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
