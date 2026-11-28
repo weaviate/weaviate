@@ -16,6 +16,7 @@ package credentialtest
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,6 +59,23 @@ func (s *Server) Requests() []*http.Request {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]*http.Request(nil), s.requests...)
+}
+
+// ClientForAnyHost returns a client that sends every request to the server,
+// whatever host its URL names. The server sees the host the URL named in
+// Request.Host, so a test can follow a URL built for a provider host such as
+// corp.openai.azure.com and check where the request was meant to go.
+func (s *Server) ClientForAnyHost() *http.Client {
+	transport := s.Client().Transport.(*http.Transport).Clone()
+	addr := s.Listener.Addr().String()
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, network, addr)
+	}
+	// The httptest certificate is valid for example.com, not for the host the
+	// URL names.
+	transport.TLSClientConfig.ServerName = "example.com"
+	return &http.Client{Transport: transport}
 }
 
 // HostPort is the server address without the scheme.

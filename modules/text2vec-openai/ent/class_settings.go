@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -192,7 +193,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	if cs.IsAzure() {
-		err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
+		err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion(), cs.BaseURL())
 		if err != nil {
 			return err
 		}
@@ -235,9 +236,19 @@ func (cs *classSettings) validateModelVersion(version, model, docType string) er
 	return nil
 }
 
-func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVersion string) error {
+func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVersion, baseURL string) error {
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
+	}
+	if err := modulecomponents.ValidateAzureDeploymentID(deploymentId); err != nil {
+		return err
+	}
+	// The vectorizer client builds the host from the resource name only when
+	// baseURL is unset or the OpenAI default.
+	if resourceName != "" && (baseURL == "" || baseURL == DefaultBaseURL) {
+		if err := modulecomponents.ValidateAzureResourceName(resourceName); err != nil {
+			return err
+		}
 	}
 	if !basesettings.ValidateSetting(apiVersion, availableApiVersions) {
 		return errors.Errorf("wrong Azure OpenAI apiVersion setting, available api versions are: %v", availableApiVersions)

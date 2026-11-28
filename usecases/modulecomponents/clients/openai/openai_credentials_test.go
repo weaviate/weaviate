@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
 
@@ -27,7 +28,6 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 		callerKey      = "caller-key"
 	)
 	server := credentialtest.NewServer(t, embedding{Data: []embeddingData{{Embedding: []float32{0.1, 0.2}}}})
-
 	tests := []struct {
 		name         string
 		settings     Settings
@@ -35,6 +35,7 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 		wantErr      string
 		wantAuth     string
 		wantAzureKey string
+		wantHost     string
 	}{
 		{
 			name:     "baseURL header without a request key",
@@ -47,11 +48,13 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			settings: Settings{BaseURL: "https://api.openai.com"},
 			headers:  map[string]string{"X-Openai-Baseurl": server.URL, "X-Openai-Api-Key": callerKey},
 			wantAuth: "Bearer " + callerKey,
+			wantHost: server.HostPort(),
 		},
 		{
 			name:     "class baseURL gets the server key",
 			settings: Settings{BaseURL: server.URL},
 			wantAuth: "Bearer " + serverKey,
+			wantHost: server.HostPort(),
 		},
 		{
 			name:     "Azure baseURL header without a request key",
@@ -59,12 +62,31 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			headers:  map[string]string{"X-Openai-Baseurl": server.URL},
 			wantErr:  "X-Openai-Baseurl needs X-Azure-Api-Key",
 		},
+		{
+			name:     "Azure resourceName header without a request key",
+			settings: Settings{IsAzure: true, ResourceName: "classResource", DeploymentID: "d"},
+			headers:  map[string]string{"X-Azure-Resource-Name": "other"},
+			wantErr:  "X-Azure-Resource-Name needs X-Azure-Api-Key",
+		},
+		{
+			name:         "Azure resourceName header with a request key",
+			settings:     Settings{IsAzure: true, ResourceName: "classResource", DeploymentID: "d"},
+			headers:      map[string]string{"X-Azure-Resource-Name": "callers-resource", "X-Azure-Api-Key": callerKey},
+			wantAzureKey: callerKey,
+			wantHost:     "callers-resource.openai.azure.com",
+		},
+		{
+			name:         "Azure class resourceName gets the server key",
+			settings:     Settings{IsAzure: true, ResourceName: "corp", DeploymentID: "d"},
+			wantAzureKey: serverAzureKey,
+			wantHost:     "corp.openai.azure.com",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			before := len(server.Requests())
 			c := New(serverKey, "", serverAzureKey, 0, nullLogger())
-			c.httpClient = server.Client()
+			c.httpClient = server.ClientForAnyHost()
 			settings := tt.settings
 			settings.Model, settings.Type = "ada", "text"
 
@@ -79,6 +101,7 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Len(t, got, 1)
+			assert.Equal(t, tt.wantHost, got[0].Host)
 			assert.Equal(t, tt.wantAuth, got[0].Header.Get("Authorization"))
 			assert.Equal(t, tt.wantAzureKey, got[0].Header.Get("api-key"))
 		})
@@ -115,5 +138,95 @@ func TestAzureDefaultBaseURLVariantsKeepTheResourceHost(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, strings.HasPrefix(endpoint, "https://corp.openai.azure.com/"), endpoint)
 		})
+	}
+}
+
+func TestResourceNameThatIsNotAHostLabelSendsNoRequest(t *testing.T) {
+	server := credentialtest.NewServer(t, embedding{Data: []embeddingData{{Embedding: []float32{0.1, 0.2}}}})
+
+	for _, resourceName := range []string{"attacker.example#", "attacker.example/", "attacker.example?", "10.0.0.5:8443/x#"} {
+		tests := []struct {
+			name     string
+			settings Settings
+			headers  map[string]string
+		}{
+			{
+				name:     "class resourceName",
+				settings: Settings{IsAzure: true, ResourceName: resourceName, DeploymentID: "d"},
+			},
+			{
+				name:     "resourceName header with a request key",
+				settings: Settings{IsAzure: true, ResourceName: "corp", DeploymentID: "d"},
+				headers:  map[string]string{"X-Azure-Resource-Name": resourceName, "X-Azure-Api-Key": "caller-key"},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name+" "+resourceName, func(t *testing.T) {
+				before := len(server.Requests())
+				c := New("server-openai-key", "", "server-azure-key", 0, nullLogger())
+				c.httpClient = server.ClientForAnyHost()
+				settings := tt.settings
+				settings.Model, settings.Type = "ada", "text"
+
+				_, _, _, err := c.Vectorize(credentialtest.Context(tt.headers), []string{"text"}, settings)
+
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "resourceName must be 1 to 63 letters, digits or hyphens")
+				var precondition enterrors.ErrModulePrecondition
+				assert.ErrorAs(t, err, &precondition, "REST search returns the reason with a 422 only for this type")
+				assert.Empty(t, server.Requests()[before:], "no request may leave Weaviate")
+			})
+		}
+	}
+}
+
+// With an Azure gateway base URL such as https://gw.example/team-a, a
+// deployment ID of ../team-b would reach another team's path with the server's
+// Azure key.
+func TestDeploymentIDThatIsNotOnePathSegmentSendsNoRequest(t *testing.T) {
+	server := credentialtest.NewServer(t, embedding{Data: []embeddingData{{Embedding: []float32{0.1, 0.2}}}})
+	gateway := server.URL + "/team-a"
+
+	for _, deploymentID := range []string{"gpt-4.1-mini", "../../../team-b/x", "%2e%2e/%2e%2e/%2e%2e/team-b/x", "..", "..;/team-b", "d?x"} {
+		valid := deploymentID == "gpt-4.1-mini"
+		tests := []struct {
+			name     string
+			settings Settings
+			headers  map[string]string
+		}{
+			{
+				name:     "class deploymentId",
+				settings: Settings{IsAzure: true, BaseURL: gateway, DeploymentID: deploymentID},
+			},
+			{
+				name:     "deployment header",
+				settings: Settings{IsAzure: true, BaseURL: gateway, DeploymentID: "d"},
+				headers:  map[string]string{"X-Azure-Deployment-Id": deploymentID},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name+" "+deploymentID, func(t *testing.T) {
+				before := len(server.Requests())
+				c := New("server-openai-key", "", "server-azure-key", 0, nullLogger())
+				c.httpClient = server.ClientForAnyHost()
+				settings := tt.settings
+				settings.Model, settings.Type, settings.ApiVersion = "ada", "text", "v"
+
+				_, _, _, err := c.Vectorize(credentialtest.Context(tt.headers), []string{"text"}, settings)
+
+				got := server.Requests()[before:]
+				if valid {
+					require.NoError(t, err)
+					require.Len(t, got, 1)
+					assert.Equal(t, "/team-a/openai/deployments/"+deploymentID+"/embeddings", got[0].URL.Path)
+					return
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "deploymentId must be letters, digits, hyphens, underscores, periods or tildes")
+				var precondition enterrors.ErrModulePrecondition
+				assert.ErrorAs(t, err, &precondition, "REST search returns the reason with a 422 only for this type")
+				assert.Empty(t, got, "no request may leave Weaviate")
+			})
+		}
 	}
 }

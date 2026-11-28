@@ -12,6 +12,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -289,6 +290,61 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func Test_classSettings_ValidateAzureResourceName(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceName string
+		wantErr      bool
+	}{
+		{name: "resource name", resourceName: "corp"},
+		{name: "digits and hyphens", resourceName: "my-resource-01"},
+		{name: "fragment", resourceName: "attacker.example#", wantErr: true},
+		{name: "path", resourceName: "attacker.example/", wantErr: true},
+		{name: "query", resourceName: "attacker.example?", wantErr: true},
+		{name: "address with a port and a path", resourceName: "10.0.0.5:8443/x#", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ic := NewClassSettings(fakeClassConfig{classConfig: map[string]interface{}{"resourceName": tt.resourceName, "deploymentId": "d"}})
+
+			err := ic.Validate(nil)
+			if tt.wantErr {
+				assert.EqualError(t, err, fmt.Sprintf(
+					"resourceName must be 1 to 63 letters, digits or hyphens, with no hyphen at either end, got %q", tt.resourceName))
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func Test_classSettings_ValidateAzureDeploymentID(t *testing.T) {
+	tests := []struct {
+		name         string
+		deploymentID string
+		wantErr      bool
+	}{
+		{name: "model name", deploymentID: "gpt-4.1-mini"},
+		{name: "parent directories", deploymentID: "../team-b/x", wantErr: true},
+		{name: "percent-encoded parent directory", deploymentID: "%2e%2e", wantErr: true},
+		{name: "parent directory", deploymentID: "..", wantErr: true},
+		{name: "query", deploymentID: "d?x", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ic := NewClassSettings(fakeClassConfig{classConfig: map[string]interface{}{"resourceName": "corp", "deploymentId": tt.deploymentID}})
+
+			err := ic.Validate(nil)
+			if tt.wantErr {
+				assert.EqualError(t, err, fmt.Sprintf(
+					`deploymentId must be letters, digits, hyphens, underscores, periods or tildes, and not "." or "..", got %q`, tt.deploymentID))
+				return
+			}
+			assert.NoError(t, err)
 		})
 	}
 }

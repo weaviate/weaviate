@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -67,6 +68,38 @@ func TestBuildUrlFn(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "customBaseURL/openai/deployments/deploymentID/chat/completions?api-version=2024-06-01", url)
 	})
+}
+
+func TestBuildUrlFnAzureResourceName(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceName string
+		wantErr      bool
+	}{
+		{name: "resource name", resourceName: "corp"},
+		{name: "digits and hyphens", resourceName: "my-resource-01"},
+		{name: "empty", resourceName: "", wantErr: true},
+		{name: "fragment", resourceName: "attacker.example#", wantErr: true},
+		{name: "path", resourceName: "attacker.example/", wantErr: true},
+		{name: "query", resourceName: "attacker.example?", wantErr: true},
+		{name: "address with a port and a path", resourceName: "10.0.0.5:8443/x#", wantErr: true},
+	}
+	for _, tt := range tests {
+		// The Azure host comes from the resource name for both base URLs.
+		for _, baseURL := range []string{"", config.DefaultOpenAIBaseURL} {
+			t.Run(tt.name+" baseURL="+baseURL, func(t *testing.T) {
+				endpoint, err := buildUrlFn(false, true, tt.resourceName, "d", baseURL, config.DefaultApiVersion)
+				if tt.wantErr {
+					assert.ErrorContains(t, err, "resourceName must be 1 to 63 letters, digits or hyphens")
+					return
+				}
+				require.NoError(t, err)
+				u, err := url.Parse(endpoint)
+				require.NoError(t, err)
+				assert.Equal(t, tt.resourceName+".openai.azure.com", u.Host)
+			})
+		}
+	}
 }
 
 func TestGetAnswer(t *testing.T) {
@@ -182,6 +215,7 @@ func TestGetAnswer(t *testing.T) {
 			"X-Azure-Deployment-Id", []string{"headerDeploymentId"})
 		ctxWithValue = context.WithValue(ctxWithValue,
 			"X-Azure-Resource-Name", []string{"headerResourceName"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Azure-Api-Key", []string{"callerKey"})
 
 		buildURL, _, err := c.buildOpenAIUrl(ctxWithValue, params, settings)
 		require.NoError(t, err)

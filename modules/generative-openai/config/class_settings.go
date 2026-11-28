@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -184,7 +185,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	if ic.IsAzure() {
-		err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
+		err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID(), ic.BaseURL())
 		if err != nil {
 			return err
 		}
@@ -275,9 +276,17 @@ func (ic *classSettings) Verbosity() *string {
 	return ic.getStringPropertyOrNil(verbosityProperty)
 }
 
-func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
+func (ic *classSettings) validateAzureConfig(resourceName, deploymentId, baseURL string) error {
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
+	}
+	if err := modulecomponents.ValidateAzureDeploymentID(deploymentId); err != nil {
+		return err
+	}
+	// The client builds the host from the resource name only when baseURL is
+	// unset or the OpenAI default.
+	if resourceName != "" && (baseURL == "" || baseURL == DefaultOpenAIBaseURL) {
+		return modulecomponents.ValidateAzureResourceName(resourceName)
 	}
 	return nil
 }

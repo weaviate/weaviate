@@ -39,8 +39,14 @@ func buildUrlFn(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, api
 	if isAzure {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
+			if err := modulecomponents.ValidateAzureResourceName(resourceName); err != nil {
+				return "", err
+			}
 			// Fall back to old assumption
 			host = "https://" + resourceName + ".openai.azure.com"
+		}
+		if err := modulecomponents.ValidateAzureDeploymentID(deploymentID); err != nil {
+			return "", err
 		}
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
 		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
@@ -306,6 +312,12 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params,
 	// server's Azure key to the collection's host.
 	if isAzure && !settings.IsAzure() {
 		if err := modulecomponents.RequireRequestAPIKey(ctx, "a request that turns on Azure", v.apiKeyHeader(isAzure)); err != nil {
+			return "", false, err
+		}
+	}
+
+	if isAzure {
+		if resourceName, err = modulecomponents.RequestAzureResourceName(ctx, params.ResourceName, settings.ResourceName()); err != nil {
 			return "", false, err
 		}
 	}

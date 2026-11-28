@@ -90,10 +90,16 @@ func buildUrl(baseURL, resourceName, deploymentID, apiVersion, endpoint string, 
 	if isAzure {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
+			if err := modulecomponents.ValidateAzureResourceName(resourceName); err != nil {
+				return "", err
+			}
 			// Fall back to old assumption
 			host = "https://" + resourceName + ".openai.azure.com"
 		}
 
+		if err := modulecomponents.ValidateAzureDeploymentID(deploymentID); err != nil {
+			return "", err
+		}
 		path := "openai/deployments/" + deploymentID + "/embeddings"
 		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
@@ -269,8 +275,10 @@ func (v *Client) buildURL(ctx context.Context, config Settings) (string, error) 
 	}
 
 	resourceName := config.ResourceName
-	if headerResourceName := modulecomponents.GetValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
-		resourceName = headerResourceName
+	if config.IsAzure {
+		if resourceName, err = modulecomponents.RequestAzureResourceName(ctx, "", config.ResourceName); err != nil {
+			return "", err
+		}
 	}
 
 	return v.buildUrlFn(baseURL, resourceName, deploymentID, config.ApiVersion, config.Endpoint, config.IsAzure)

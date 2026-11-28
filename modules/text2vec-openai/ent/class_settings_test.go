@@ -637,3 +637,82 @@ func TestClassSettings_Endpoint(t *testing.T) {
 		})
 	}
 }
+
+func Test_classSettings_ValidateAzureResourceName(t *testing.T) {
+	class := &models.Class{
+		Class:      "test",
+		Properties: []*models.Property{{DataType: []string{schema.DataTypeText.String()}, Name: "test"}},
+	}
+	tests := []struct {
+		name         string
+		resourceName string
+		baseURL      string
+		wantErr      bool
+	}{
+		{name: "resource name", resourceName: "corp"},
+		{name: "digits and hyphens", resourceName: "my-resource-01"},
+		{name: "fragment", resourceName: "attacker.example#", wantErr: true},
+		{name: "path", resourceName: "attacker.example/", wantErr: true},
+		{name: "query", resourceName: "attacker.example?", wantErr: true},
+		{name: "address with a port and a path", resourceName: "10.0.0.5:8443/x#", wantErr: true},
+		{name: "fragment with the OpenAI default baseURL", resourceName: "attacker.example#", baseURL: "https://api.openai.com", wantErr: true},
+		// The host comes from a custom baseURL, so the name is not used.
+		{name: "host name with a custom baseURL", resourceName: "corp.openai.azure.com", baseURL: "https://gw.example.com"},
+		{name: "fragment with a custom baseURL", resourceName: "attacker.example#", baseURL: "https://gw.example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := map[string]interface{}{"resourceName": tt.resourceName, "deploymentId": "d"}
+			if tt.baseURL != "" {
+				cfg["baseURL"] = tt.baseURL
+			}
+			cs := NewClassSettings(&fakeClassConfig{classConfig: cfg})
+
+			err := cs.Validate(class)
+			if tt.wantErr {
+				assert.EqualError(t, err, fmt.Sprintf(
+					"resourceName must be 1 to 63 letters, digits or hyphens, with no hyphen at either end, got %q", tt.resourceName))
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func Test_classSettings_ValidateAzureDeploymentID(t *testing.T) {
+	class := &models.Class{
+		Class:      "test",
+		Properties: []*models.Property{{DataType: []string{schema.DataTypeText.String()}, Name: "test"}},
+	}
+	tests := []struct {
+		name         string
+		deploymentID string
+		baseURL      string
+		wantErr      bool
+	}{
+		{name: "model name", deploymentID: "gpt-4.1-mini"},
+		{name: "model name with a custom baseURL", deploymentID: "gpt-4.1-mini", baseURL: "https://gw.example.com/team-a"},
+		{name: "parent directories with a custom baseURL", deploymentID: "../team-b/x", baseURL: "https://gw.example.com/team-a", wantErr: true},
+		{name: "parent directories", deploymentID: "../team-b/x", wantErr: true},
+		{name: "percent-encoded parent directory", deploymentID: "%2e%2e", wantErr: true},
+		{name: "parent directory", deploymentID: "..", wantErr: true},
+		{name: "query", deploymentID: "d?x", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := map[string]interface{}{"resourceName": "corp", "deploymentId": tt.deploymentID}
+			if tt.baseURL != "" {
+				cfg["baseURL"] = tt.baseURL
+			}
+			cs := NewClassSettings(&fakeClassConfig{classConfig: cfg})
+
+			err := cs.Validate(class)
+			if tt.wantErr {
+				assert.EqualError(t, err, fmt.Sprintf(
+					`deploymentId must be letters, digits, hyphens, underscores, periods or tildes, and not "." or "..", got %q`, tt.deploymentID))
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

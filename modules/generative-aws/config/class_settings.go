@@ -16,8 +16,10 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -101,6 +103,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	service := ic.Service()
 	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {
 		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", serviceProperty, availableAWSServices))
+	}
+	if err := ValidateRegion(ic.Region()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
 	}
 
 	if isBedrock(service) {
@@ -310,6 +315,18 @@ func (ic *classSettings) TargetModel() string {
 
 func (ic *classSettings) TargetVariant() string {
 	return ic.getStringProperty(targetVariantProperty, "")
+}
+
+// ValidateRegion rejects a region that is not a plain AWS region name. The
+// SageMaker request host is runtime.sagemaker.<region>.amazonaws.com, so a
+// region carrying "/", "@" or "#" sends the signed request, with the server's
+// access key ID, to another host. A GraphQL or gRPC request can set the region,
+// so it is checked at query time as well as in the class settings.
+func ValidateRegion(region string) error {
+	if region != "" && !modulecomponents.IsHostLabel(region) {
+		return enterrors.NewErrModulePrecondition(fmt.Errorf("%s must be an AWS region name, got %q", regionProperty, region))
+	}
+	return nil
 }
 
 func isSagemaker(service string) bool {
