@@ -1,0 +1,13 @@
+=== RUN   TestNightGrow
+    bench_night_grow_test.go:528: the base: 10000 vectors in 43 postings, built in 1s
+    bench_night_grow_test.go:480: 08:45:30 30600 of 100000 in (30.6 %): 342 inserts a second | 128 postings live, 213 given out | rows of edges 749 B an insert so far, 0 by the budget | waiting 0.7 MB | written 2.98 times the vectors | heap 235 MB | 0.2 GB on disk, 18.8 GB free
+    bench_night_grow_test.go:480: 08:46:30 47800 of 100000 in (47.8 %): 285 inserts a second | 197 postings live, 351 given out | rows of edges 767 B an insert so far, 0 by the budget | waiting 1.0 MB | written 4.06 times the vectors | heap 278 MB | 0.4 GB on disk, 18.7 GB free
+    bench_night_grow_test.go:480: 08:47:30 64600 of 100000 in (64.6 %): 280 inserts a second | 272 postings live, 501 given out | rows of edges 784 B an insert so far, 0 by the budget | waiting 1.4 MB | written 1.88 times the vectors | heap 283 MB | 0.5 GB on disk, 18.5 GB free
+    bench_night_grow_test.go:480: 08:48:30 81300 of 100000 in (81.3 %): 278 inserts a second | 337 postings live, 631 given out | rows of edges 795 B an insert so far, 0 by the budget | waiting 1.8 MB | written 2.19 times the vectors | heap 349 MB | 0.6 GB on disk, 18.4 GB free
+    bench_night_grow_test.go:480: 08:49:30 97200 of 100000 in (97.2 %): 265 inserts a second | 403 postings live, 763 given out | rows of edges 802 B an insert so far, 0 by the budget | waiting 2.1 MB | written 2.30 times the vectors | heap 346 MB | 0.7 GB on disk, 18.3 GB free
+    bench_night_grow_test.go:480: 08:49:41 100000 of 100000 in (100.0 %): 268 inserts a second | 412 postings live, 781 given out | rows of edges 804 B an insert so far, 0 by the budget | waiting 2.2 MB | written 0.98 times the vectors | heap 304 MB | 0.7 GB on disk, 18.3 GB free
+    bench_night_grow_test.go:480: 08:49:41 100000 of 100000 in (100.0 %): 0 inserts a second | 412 postings live, 781 given out | rows of edges 804 B an insert so far, 0 by the budget | waiting 2.2 MB | written 0.00 times the vectors | heap 310 MB | 0.7 GB on disk, 18.3 GB free
+    bench_night_grow_test.go:424: shut in 0s
+    bench_night_grow_test.go:550: done: 100000 vectors, 311 s of inserts after the base, 0.7 GB on disk
+--- PASS: TestNightGrow (313.31s)
+PASS

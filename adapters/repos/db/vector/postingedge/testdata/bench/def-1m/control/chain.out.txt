@@ -1,0 +1,15 @@
+== 08:36:47 waiting for 900 s of idle (now 39855 s)
+== 2026-11-28 08:36:47 idle for 39855 s
+== 2026-11-28 08:36:47 a8-1: dense, 8 callers (idle 39855 s)
+a8-1 exit 0
+== 2026-11-28 08:38:38 b8-1: spread, 8 callers (idle 39965 s)
+b8-1 exit 0
+== 2026-11-28 08:40:38 a8-2: dense, 8 callers (idle 40085 s)
+a8-2 exit 0
+== 2026-11-28 08:42:28 b8-2: spread, 8 callers (idle 48 s)
+b8-2 exit 0
+== 2026-11-28 08:44:28 a1: dense, 1 callers (idle 168 s)
+a1 exit 0
+== 2026-11-28 08:49:48 b1: spread, 1 callers (idle 488 s)
+b1 exit 0
+== 2026-11-28 08:55:49 done (idle 849 s)

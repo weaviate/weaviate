@@ -1,0 +1,65 @@
+#!/bin/bash
+# Amendment 1 of the control of the start of the 1M curve (bench-report.md of
+# feat/posting-edge-index, "Control del arranque: resultado, y enmienda 1",
+# pre-registered on 2026-11-28): the dense growth to 100 000 with GOGC=500
+# (D), two passes with 8 callers and a plain one (A) in between, and one pass
+# with 1 caller. If D with 8 callers gives more than 1 100 inserts a second
+# on average, one growth to 1M in routing with 8 callers and GOGC=500.
+# The binary of the chain (base.test), nothing built here. Timed: marker,
+# idle wait, caffeinate. Each index is removed once its pass ends.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/def1m/control2
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+BASE=$S/diag/m2/adapters/repos/db/vector/postingedge
+mkdir -p $W
+
+printf 'amendment 1 of the control of the start of the 1M curve (def1m/control2.sh), timed, since %s for up to 40 minutes; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+clear_index() {
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/def1m/control2 -type d -name index -prune -exec rm -rf {} +
+}
+
+pass() { # name rows callers gogc
+  local C=$W/$1 rows=$2 callers=$3 gogc=$4
+  mkdir -p $C
+  date "+== %Y-%m-%d %H:%M:%S $1: rows $rows (0 is all), $callers callers, GOGC $gogc (idle $(hid_idle) s)"
+  (cd $BASE && exec env GOGC=$gogc PE_DATASET=$D PE_DIR=$C/index PE_OUT=$C/grow.json PE_CALLERS=$callers PE_CACHE=routing \
+    PE_ROWS=$rows PE_STRETCH=60 PE_MINFREE=3 $S/def1m/base.test -test.run '^TestNightGrow$' -test.v -test.timeout 0 > $C/grow.log 2>&1) &
+  local pid=$!
+  python3 -I -B $S/def1m/monitor.py $pid $C/monitor.jsonl 10 > $C/monitor.err 2>&1 &
+  wait $pid
+  echo "$1 exit $?"
+  wait
+  clear_index
+}
+
+pass d8-1 100000 8 500
+pass a8-3 100000 8 100
+pass d8-2 100000 8 500
+pass d1 100000 1 500
+MEAN=$(python3 -I -B -c "
+import json
+r=[]
+for n in ('d8-1','d8-2'):
+    g=json.load(open('$W/'+n+'/grow.json')); r.append((g['inserted']-g['base'])/g['seconds'])
+print(int(sum(r)/len(r)))")
+date "+== %H:%M:%S D with 8 callers: $MEAN inserts a second on average"
+if [ "${MEAN:-0}" -gt 1100 ]; then
+  free=$(df -k $W | tail -n 1 | awk '{print int($4/1048576)}')
+  if [ "$free" -lt 16 ]; then
+    date "+== %H:%M:%S the 1M pass NOT RUN: $free GiB free, under 16"
+  else
+    pass m8-gogc500 0 8 500
+  fi
+else
+  date "+== %H:%M:%S the 1M pass not due"
+fi
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $W/end.txt
+pmset -g log 2>/dev/null | grep -E '^[0-9-]+ [0-9:]+ \+[0-9]+ (Sleep|Wake|DarkWake)' | tail -n 5 > $W/pmset-sleep-wake.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

@@ -2434,6 +2434,56 @@ A igual ef, recall y cargas de los tres crecidos:
 - **A y B iguales y por debajo:** lo mismo.
 - No separa el tamaño de las tablas de qué filas entran si las cargas difieren: haría falta un tercer brazo que el arnés no tiene.
 
+#### Control del arranque: resultado, y enmienda 1 (28 de noviembre a las 09:00, antes de ejecutar la enmienda)
+
+**Repartir los doc ids cuesta de un 7 a un 13 % a 100k, y no es lo que explica la diferencia: con los doc ids densos el mismo binario da 850 inserts por segundo con 8 llamadores, no los 1 180 de la medida de 100k, con las mismas cuentas por insert. Por la regla del pre-registro, paro y busco la diferencia antes de dar las cifras de 1M por definitivas.**
+
+**La corrida,** de 08:36:47 a 08:55:49, seis pasadas sin error.
+- **Hubo teclado o trackpad hacia las 08:41:40,** durante la segunda pasada densa. Al empezar la máquina llevaba 39 855 s sin tocar; al empezar la cuarta pasada, 48 s. Solo el primer par (A y B con 8 llamadores) está limpio; lo demás lo doy marcado.
+- El registro de energía tiene un despertar de pantalla a las 08:41:05, por teclado o trackpad, y ninguna entrada de sueño durante la corrida.
+
+| pasada | doc ids | llamadores | inserts/s | ms de CPU por insert | búsqueda del plan, ms por insert | cargas por insert | filas leídas, y sus MB | recolecciones del GC por segundo | |
+|---|---|---:|---:|---:|---:|---:|---|---:|---|
+| A | densos | 8 | 862 | 7.40 | 5.98 | 43.23 | 86.5, 2.65 | 17.6 | limpia |
+| B | repartidos | 8 | 805 | 8.02 | 6.41 | 43.06 | 86.1, 2.64 | 13.1 | limpia |
+| A | densos | 8 | 839 | 7.30 | 6.17 | 43.35 | 86.7, 2.65 | 16.3 | con un toque de teclado dentro |
+| B | repartidos | 8 | 786 | 8.17 | 6.57 | 43.00 | 86.0, 2.64 | 12.9 | tras el toque |
+| A | densos | 1 | 289 | 7.26 | 3.24 | 43.32 | 86.6, 2.65 | 22.0 | tras el toque |
+| B | repartidos | 1 | 255 | 6.43 | 3.72 | 43.08 | 86.2, 2.65 | 9.0 | tras el toque |
+| la serie en la medida de 100k (`s5`, el 27) | densos | 8 | 1 198 | | 3.94 | 43.22 | 86.4, 2.65 | sin contar | otro arnés |
+| la serie en la medida de 100k (`s5`, el 27) | densos | 1 | 324 | | 2.89 | 43.14 | 86.3, 2.65 | sin contar | otro arnés |
+
+**Frente a lo que esperaba:**
+
+| | esperaba | salió | |
+|---|---|---|---|
+| A con 8 | entre 1 100 y 1 200 | 862 y 839 | fuera, por abajo |
+| B con 8 | cerca de 800 | 805 y 786 | sí |
+| cargas iguales en A y en B | con un 3 % de margen | 43.2 a 43.4 frente a 43.0 a 43.1 | sí |
+| con 1 llamador | A cerca de 320 y B cerca de 255 | 289 y 255 | A fuera, por abajo |
+
+- **Los doc ids repartidos cuestan un 7 % con 8 llamadores** (805 frente a 862, y 786 frente a 839) **y un 13 % con 1,** con las mismas cargas. La búsqueda del plan tarda un 7 % más con 8 y un 15 % con 1.
+- **Lo que queda por explicar es mayor:** el denso, con este arnés, queda un 29 % por debajo de la medida de 100k con 8 llamadores y un 11 % con 1. El trabajo por insert es el mismo (cargas, filas y bytes), y la búsqueda del plan tarda 5.98 ms donde tardaba 3.94.
+- **Las dos medidas difieren en el arnés y en el commit.** La de 100k usó `TestIntegrationScale`, que tiene el dataset cargado en memoria, y los binarios de los pasos de la serie; esta usa el arnés de la noche, que lee las filas del fichero, y `m2` en `8ed921ed59`.
+
+**La hipótesis** (*mía*, sin probar): la frecuencia del recolector de memoria de Go.
+- **Cada insert reserva 2.65 MB solo en filas leídas del store,** unos 2.2 GB por segundo con 8 llamadores. El recolector arranca cuando lo reservado iguala a lo vivo, y en este arnés lo vivo es poco: corre 17 veces por segundo a 100k.
+- **En el arnés de la medida de 100k lo vivo eran al menos 614 MB más,** las 100 000 filas del dataset: unas 5 veces menos recolecciones. No las contó.
+- **Cuadra con que el efecto sea mayor con 8 llamadores que con 1:** con 8 no sobran cores para el trabajo del recolector.
+- **En la cadena de 1M el recolector corrió menos según crecía el índice:** 14.4 veces por segundo en el primer tramo de `routing` con 8 y 5.4 en el último; con 1 llamador, de 11.5 a 0.8.
+
+**Enmienda 1: probarla sin compilar** (*mía*).
+- **D, denso, con `GOGC=500`:** el mismo binario y el mismo arnés que A, con el recolector arrancando cuando lo reservado es 5 veces lo vivo. Dos pasadas con 8 llamadores, con una A normal en medio, y una con 1 llamador.
+- **Espero:** D con 8 entre 1 050 y 1 200 por segundo, con 3 a 4 recolecciones por segundo; con 1 llamador, entre 315 y 330.
+- **Cómo lo leo:**
+  - **D con 8 por encima de 1 100:** la diferencia con la medida de 100k es cada cuánto corre el recolector, que depende de qué más hay vivo en el heap del proceso. El binario no es más lento. Las cifras de 1M valen para un proceso sin nada más en el heap, y hay que decir cuánto cambian con más.
+  - **D con 8 por debajo de 1 000:** no es el recolector. Compilo el binario de integración, que tiene los dos arneses, y mido el arnés de 100k con el código de hoy.
+  - **Entre los dos:** lo explica en parte, y hago las dos cosas.
+- **Si D con 8 pasa de 1 100, una pasada más a 1M:** `routing` con 8 llamadores y `GOGC=500`, sin heap ni puntos, para acotar cuánto de la curva de 1M es del recolector. Unos 25 minutos. Espero que la diferencia sea grande al principio y pequeña al final, donde el recolector ya corría 5 veces por segundo.
+- **Lo que no dice:** qué `GOGC` o qué heap tiene un nodo de verdad. Es una cota, no la cifra de un nodo.
+
+**Datos del control:** `testdata/bench/def-1m/control/` (por pasada, `grow.json`, `grow.log` y `monitor.jsonl.gz`; `chain.out.txt`, `control.sh.txt`, `control.py`) y, de la enmienda, `control2.sh.txt`.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
