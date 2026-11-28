@@ -636,7 +636,20 @@ func TestAnalyzeObject(t *testing.T) {
 				},
 			}
 
-			require.Len(t, res, 2)
+			// name, the ref count and the id: an empty []interface{} is "no
+			// refs" and indexes a ref count of 0 like an empty
+			// models.MultipleRef does (weaviate/weaviate#6701)
+			require.Len(t, res, 3)
+			var actualRefCount []Countable
+			for _, elem := range res {
+				if elem.Name == helpers.MetaCountProp("reference") {
+					actualRefCount = elem.Items
+				}
+			}
+			zero, err := ent.LexicographicallySortableUint64(0)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []Countable{{Data: zero}}, actualRefCount)
+
 			var actualUUID []Countable
 			var actualName []Countable
 

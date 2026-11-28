@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -305,10 +306,13 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object, ref objects.BatchRef
 	if !ok {
 		refs = make(models.MultipleRef, 0) // explicitly mark as length zero
 	} else {
-		parsed, ok := refProp.(models.MultipleRef)
-		if !ok {
-			return nil, errors.Errorf("prop %s is present, but not a ref, got: %T",
-				ref.From.Property.String(), refProp)
+		// an emptied reference property is stored and read back as an empty
+		// []any; it must count as zero references like a typed empty one, or
+		// adding a reference to it fails (weaviate/weaviate#6701)
+		parsed, err := crossref.AsMultipleRef(refProp)
+		if err != nil {
+			return nil, errors.Errorf("prop %s is present, but not a ref: %v",
+				ref.From.Property.String(), err)
 		}
 		refs = parsed
 	}

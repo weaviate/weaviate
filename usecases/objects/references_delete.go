@@ -234,10 +234,11 @@ func removeReferenceStructural(obj *models.Object, prop, sourceClass string,
 	if properties == nil || properties[prop] == nil {
 		return false, ""
 	}
-	refs, ok := properties[prop].(models.MultipleRef)
-	if !ok {
-		// %T on properties[prop] — refs is the zero MultipleRef on a
-		// failed assertion and would misreport the stored type.
+	// an emptied reference property is read back from storage as an empty
+	// []interface{}: it holds no reference to remove, like an empty
+	// MultipleRef, and must not fail the request (weaviate/weaviate#6701)
+	refs, err := crossref.AsMultipleRef(properties[prop])
+	if err != nil {
 		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, properties[prop])
 	}
 
@@ -278,10 +279,11 @@ func removeReferenceByteExact(obj *models.Object, prop string, removeBeacon strf
 	if properties == nil || properties[prop] == nil {
 		return false, ""
 	}
-	refs, ok := properties[prop].(models.MultipleRef)
-	if !ok {
-		// %T on properties[prop] — refs is the zero MultipleRef on a
-		// failed assertion and would misreport the stored type.
+	// an emptied reference property is read back from storage as an empty
+	// []interface{}: it holds no reference to remove, like an empty
+	// MultipleRef, and must not fail the request (weaviate/weaviate#6701)
+	refs, err := crossref.AsMultipleRef(properties[prop])
+	if err != nil {
 		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, properties[prop])
 	}
 	after := slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
