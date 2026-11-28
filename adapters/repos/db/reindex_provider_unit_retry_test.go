@@ -34,7 +34,8 @@ type refusingRecorder struct {
 	*fakeRecorder
 	failureErr, completionErr, progressErr atomic.Pointer[error]
 	refused                                atomic.Int32
-	progressPanics                         atomic.Bool
+	progressPanics, failurePanics          atomic.Bool
+	beforeProgressPanic                    func()
 }
 
 var errRecorderUnavailable = errors.New("raft applyTimeout")
@@ -53,6 +54,9 @@ func (r *refusingRecorder) refusal(write *atomic.Pointer[error]) error {
 }
 
 func (r *refusingRecorder) RecordDistributedTaskUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
+	if r.failurePanics.Load() {
+		panic("failure write panicked")
+	}
 	if err := r.refusal(&r.failureErr); err != nil {
 		return err
 	}
@@ -68,6 +72,9 @@ func (r *refusingRecorder) RecordDistributedTaskUnitCompletion(ctx context.Conte
 
 func (r *refusingRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
 	if r.progressPanics.Load() {
+		if r.beforeProgressPanic != nil {
+			r.beforeProgressPanic()
+		}
 		panic("progress write panicked")
 	}
 	if err := r.refusal(&r.progressErr); err != nil {
@@ -124,16 +131,25 @@ func countLines(hook *logrustest.Hook, stem, unitID string) int {
 	return n
 }
 
-// A waiting unit keeps its handle open, and a started unit retries only its failed write.
+// A waiting unit keeps its handle open, a started unit retries only its failed write, and a panicking unit
+// closes the handle and reaches GoWrapper's recover, which reports it to Sentry.
 func TestHandleRetriesItsDeferredUnits(t *testing.T) {
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 	const missing = "gone__node1"
 	type fixture struct {
-		p     *ReindexProvider
-		shard *Shard
-		desc  distributedtask.TaskDescriptor
-		tasks []*ShardReindexTaskGeneric
-		rec   *refusingRecorder
+		p         *ReindexProvider
+		shard     *Shard
+		desc      distributedtask.TaskDescriptor
+		tasks     []*ShardReindexTaskGeneric
+		rec       *refusingRecorder
+		terminate func()
+	}
+	panics := func(failureToo bool) func(*testing.T, fixture) func() {
+		return func(t *testing.T, f fixture) func() {
+			f.rec.progressPanics.Store(true)
+			f.rec.failurePanics.Store(failureToo)
+			return func() {}
+		}
 	}
 	held := func(t *testing.T, f fixture) func() {
 		f.shard.migrationMirrors.holdUnarmed(f.tasks)
@@ -154,11 +170,15 @@ func TestHandleRetriesItsDeferredUnits(t *testing.T) {
 		next      bool
 		hold      func(t *testing.T, f fixture) (lift func())
 		terminate bool
-		// In closes rows, the recorder rejects the subject for good, so the handle ends without a lift.
+		// In closes rows, the handle ends without a lift.
 		closes bool
 		// In claimed rows, the subject waits on a write after it started, so a teardown cannot seal it.
 		claimed       bool
 		starts, fails int
+		// lost is set when the FAILED write itself panics, so nothing is recorded.
+		lost   bool
+		reason string
+		panics int
 	}{
 		{name: "held shard", next: true, hold: held, starts: 1},
 		{name: "held shard, handle terminated", hold: held, terminate: true},
@@ -172,10 +192,12 @@ func TestHandleRetriesItsDeferredUnits(t *testing.T) {
 		{name: "completion write refused, handle terminated", hold: refused(completions, errRecorderUnavailable), claimed: true, terminate: true, starts: 1},
 		{name: "initial progress refused", hold: refused(progress, errRecorderUnavailable), claimed: true, starts: 1},
 		{name: "completion rejected for good", hold: refused(completions, terminal), closes: true, starts: 1},
-		{name: "unit panics", hold: func(t *testing.T, f fixture) func() {
-			f.rec.progressPanics.Store(true)
-			return func() {}
-		}, closes: true, starts: 1, fails: 1},
+		{name: "unit panics", hold: panics(false), closes: true, starts: 1, fails: 1, reason: "progress write panicked", panics: 1},
+		{name: "unit panics, failure write panics too", hold: panics(true), closes: true, starts: 1, fails: 1, lost: true, panics: 1},
+		{name: "handle terminated, then unit panics", hold: func(t *testing.T, f fixture) func() {
+			f.rec.beforeProgressPanic = f.terminate
+			return panics(false)(t, f)
+		}, closes: true, starts: 1, panics: 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -205,7 +227,7 @@ func TestHandleRetriesItsDeferredUnits(t *testing.T) {
 			built, err := p.createReindexTasks(desc, shard.migrationUnit(), payload)
 			require.NoError(t, err)
 			rec := &refusingRecorder{fakeRecorder: newFakeRecorder()}
-			lift := tc.hold(t, fixture{p: p, shard: shard, desc: desc, tasks: built, rec: rec})
+			lift := tc.hold(t, fixture{p: p, shard: shard, desc: desc, tasks: built, rec: rec, terminate: cancel})
 			defer lift()
 			sealable := func() bool {
 				release, sealed := p.SealLocalUnit(desc, subject)
@@ -218,7 +240,7 @@ func TestHandleRetriesItsDeferredUnits(t *testing.T) {
 			closed := runUnits(ctx, p, task, payload, idx, units, rec)
 			switch {
 			case tc.closes:
-				require.Eventually(t, closed, time.Second, 10*time.Millisecond, "a rejected write ends the wait")
+				require.Eventually(t, closed, time.Second, 10*time.Millisecond, "the handle ends without a lift")
 			default:
 				if tc.claimed {
 					require.Eventually(t, func() bool { return rec.refused.Load() > 0 }, 10*time.Second, 10*time.Millisecond)
@@ -242,9 +264,11 @@ func TestHandleRetriesItsDeferredUnits(t *testing.T) {
 			require.Equal(t, tc.starts, countLines(hook, "starting unit", subject), "the unit's work runs at most once")
 			require.Equal(t, tc.fails, countLines(hook, "unit failed", subject))
 			rec.mu.Lock()
-			_, failed := rec.failed[subject]
+			reason, failed := rec.failed[subject]
 			rec.mu.Unlock()
-			require.Equal(t, tc.fails > 0, failed, "a failed unit is recorded FAILED")
+			require.Equal(t, tc.fails > 0 && !tc.lost, failed, "a failed unit is recorded FAILED")
+			require.Contains(t, reason, tc.reason)
+			require.Equal(t, tc.panics, countLines(hook, "Recovered from panic", ""), "a unit panic reaches GoWrapper")
 			require.True(t, sealable(), "a closed handle holds no claim")
 		})
 	}

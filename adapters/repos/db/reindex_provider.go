@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -30,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -109,8 +107,6 @@ type ReindexProvider struct {
 
 	recorderRetryOnce sync.Once
 	recorderRetry     *logrusext.Sampler
-	unitPanicOnce     sync.Once
-	unitPanic         *logrusext.Sampler
 
 	// sealedUnits/sealedTasks count teardowns, guarded by [mu]. A seal, not a [liveUnits] read, which is stale on return.
 	sealedUnits unitClaims
@@ -443,13 +439,6 @@ func (p *ReindexProvider) recorderRetrySampler() *logrusext.Sampler {
 	return p.recorderRetry
 }
 
-func (p *ReindexProvider) unitPanicSampler() *logrusext.Sampler {
-	p.unitPanicOnce.Do(func() {
-		p.unitPanic = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
-	})
-	return p.unitPanic
-}
-
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -541,11 +530,15 @@ func (p *ReindexProvider) processUnits(
 				defer wg.Done()
 				defer limiter.Release()
 				retry := false
+				defer func() { pending.finish(unitID, retry) }()
 				defer func() {
 					if r := recover(); r != nil {
-						p.failPanickedUnit(ctx, task, unitID, recorder, r)
+						defer panic(r)
+						// Unrecorded, the task stays STARTED and relaunches the panicking unit every retryFloor.
+						if ctx.Err() == nil && p.serverCtx.Err() == nil {
+							p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("panic: %v", r))
+						}
 					}
-					pending.finish(unitID, retry)
 				}()
 				retry = p.processOneUnit(ctx, task, payload, idx, unitID, recorder)
 			}, p.logger)
@@ -997,19 +990,6 @@ func (p *ReindexProvider) failUnit(
 		return recorder.RecordDistributedTaskUnitFailure(
 			ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, errMsg)
 	})
-}
-
-// failPanickedUnit fails the unit, because an unaccounted unit would keep its handle open forever.
-func (p *ReindexProvider) failPanickedUnit(ctx context.Context, task *distributedtask.Task, unitID string,
-	recorder distributedtask.TaskCompletionRecorder, r any,
-) {
-	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
-		panic(r)
-	}
-	p.unitPanicSampler().WithSampling(func(l logrus.FieldLogger) {
-		enterrors.PrintStack(l.WithField("taskID", task.ID).WithField("unit", unitID))
-	})
-	p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("panic: %v", r))
 }
 
 const recorderRetryMaxBackoff = time.Minute
