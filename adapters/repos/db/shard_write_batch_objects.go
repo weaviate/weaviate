@@ -71,6 +71,13 @@ func (s *Shard) putBatch(ctx context.Context,
 	batcher.wg.Wait()
 	s.metrics.VectorIndex(batcher.batchStartTime)
 
+	// Objects flushed while the workers still had vectors of the batch to
+	// add: what they wrote to the vector indexes and to the store after that
+	// flush is in buffers of the process. Flush again, so that the batch does
+	// not answer for an object whose vector a crash would lose. The errors go
+	// to the same slice Objects returned.
+	batcher.flushWALs(ctx)
+
 	return err
 }
 
