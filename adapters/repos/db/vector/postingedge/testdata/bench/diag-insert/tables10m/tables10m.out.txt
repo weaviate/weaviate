@@ -1,0 +1,39 @@
+== 04:22:52 waiting for 900 s of idle (now 26768 s)
+== 2026-11-28 04:22:52 idle for 26768 s
+== 04:22:53 search-t1-before-r1: before TestDiagSearch PE_THREADS=1 PE_N=5000
+search-t1-before-r1 exit 0
+== 04:24:21 search-t1-after-r1: after TestDiagSearch PE_THREADS=1 PE_N=5000
+search-t1-after-r1 exit 0
+== 04:25:57 search-t1-before-r2: before TestDiagSearch PE_THREADS=1 PE_N=5000
+search-t1-before-r2 exit 0
+== 04:27:25 search-t1-after-r2: after TestDiagSearch PE_THREADS=1 PE_N=5000
+search-t1-after-r2 exit 0
+== 04:29:01 search-t1-before-r3: before TestDiagSearch PE_THREADS=1 PE_N=5000
+search-t1-before-r3 exit 0
+== 04:30:26 search-t1-after-r3: after TestDiagSearch PE_THREADS=1 PE_N=5000
+search-t1-after-r3 exit 0
+== 04:32:02 inserts-c8-before-r1: before TestDiagInserts PE_CALLERS=8
+inserts-c8-before-r1 exit 0
+== 04:33:42 inserts-c8-after-r1: after TestDiagInserts PE_CALLERS=8
+inserts-c8-after-r1 exit 0
+== 04:35:30 inserts-c8-before-r2: before TestDiagInserts PE_CALLERS=8
+inserts-c8-before-r2 exit 0
+== 04:37:10 inserts-c8-after-r2: after TestDiagInserts PE_CALLERS=8
+inserts-c8-after-r2 exit 0
+== 04:38:57 inserts-c8-before-r3: before TestDiagInserts PE_CALLERS=8
+inserts-c8-before-r3 exit 0
+== 04:40:35 inserts-c8-after-r3: after TestDiagInserts PE_CALLERS=8
+inserts-c8-after-r3 exit 0
+== 04:42:24 inserts-c1-before-r1: before TestDiagInserts PE_CALLERS=1
+inserts-c1-before-r1 exit 0
+== 04:47:40 inserts-c1-after-r1: after TestDiagInserts PE_CALLERS=1
+inserts-c1-after-r1 exit 0
+== 04:53:38 inserts-c1-before-r2: before TestDiagInserts PE_CALLERS=1
+inserts-c1-before-r2 exit 0
+== 04:58:55 inserts-c1-after-r2: after TestDiagInserts PE_CALLERS=1
+inserts-c1-after-r2 exit 0
+== 05:04:51 heap-before: before TestNightHeap PE_CACHE=routing PE_HEAP=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/tb10m/heap-before/heap.heap PE_OUT=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/tb10m/heap-before/heap.json
+heap-before exit 0
+== 05:05:08 heap-after: after TestNightHeap PE_CACHE=routing PE_HEAP=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/tb10m/heap-after/heap.heap PE_OUT=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/tb10m/heap-after/heap.json
+heap-after exit 0
+== 2026-11-28 05:05:24 passes done

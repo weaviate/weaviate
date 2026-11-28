@@ -1,0 +1,85 @@
+## the search of an insert alone, 1 thread
+  before visit ms   rounds 9.668  9.783  9.611  median 9.668  spread 1.8 %
+  before plan ms    rounds 15.523  15.656  15.466  median 15.523  spread 1.2 %
+  before fetch ms   rounds 2.842  2.833  2.856  median 2.842  spread 0.8 %
+  before rescore ms rounds 2.456  2.471  2.449  median 2.456  spread 0.9 %
+  before cpu ms     rounds 18.072  18.293  17.977  median 18.072  spread 1.7 %
+  before user ms    rounds 15.517  15.679  15.461  median 15.517  spread 1.4 %
+  before Minstr     rounds 134.633  134.732  134.650  median 134.650  spread 0.1 %
+  before Mcyc       rounds 55.883  56.359  55.605  median 55.883  spread 1.3 %
+  before rd KB      rounds 2138.454  2138.322  2138.354  median 2138.354  spread 0.0 %
+  before per s      rounds 64.402  63.857  64.638  median 64.402  spread 1.2 %
+  before counts [(544052, 134763, 1088104, 23468917559, 141405816, 749907)]
+  after  visit ms   rounds 11.628  11.507  11.575  median 11.575  spread 1.0 %
+  after  plan ms    rounds 17.606  17.486  17.549  median 17.549  spread 0.7 %
+  after  fetch ms   rounds 2.919  2.916  2.916  median 2.916  spread 0.1 %
+  after  rescore ms rounds 2.488  2.500  2.495  median 2.495  spread 0.4 %
+  after  cpu ms     rounds 20.318  20.132  20.202  median 20.202  spread 0.9 %
+  after  user ms    rounds 17.717  17.552  17.620  median 17.620  spread 0.9 %
+  after  Minstr     rounds 142.069  141.914  141.934  median 141.934  spread 0.1 %
+  after  Mcyc       rounds 63.093  62.545  62.766  median 62.766  spread 0.9 %
+  after  rd KB      rounds 2138.371  2138.381  2138.358  median 2138.371  spread 0.0 %
+  after  per s      rounds 56.784  57.175  56.969  median 56.969  spread 0.7 %
+  after  counts [(544052, 134763, 1088104, 23468917559, 141405816, 749907)]
+  after against before, visit ms   +19.73 %  <- the rule: DOES NOT MEET
+  after against before, plan ms    +13.05 %
+  after against before, fetch ms   +2.60 %
+  after against before, rescore ms +1.58 %
+  after against before, cpu ms     +11.79 %
+  after against before, user ms    +13.55 %
+  after against before, Minstr     +5.41 %
+  after against before, Mcyc       +12.32 %
+  after against before, rd KB      +0.00 %
+  after against before, per s      -11.54 %
+## 20 000 inserts, 8 callers
+  before ins/s      rounds 229.453  236.720  237.460  median 236.720  spread 3.4 %  MARKED
+  before cpu ms     rounds 18.524  18.448  18.466  median 18.466  spread 0.4 %
+  before user ms    rounds 16.311  16.353  16.361  median 16.353  spread 0.3 %
+  before plan ms    rounds 23.937  23.708  23.567  median 23.708  spread 1.6 %
+  before Minstr     rounds 130.854  129.972  130.368  median 130.368  spread 0.7 %
+  before rd KB      rounds 2100.699  2037.635  2020.896  median 2037.635  spread 3.9 %
+  before loads      rounds 108.602  108.601  108.600  median 108.601  spread 0.0 %
+  before cores      rounds 4.250  4.367  4.385  median 4.367  spread 3.1 %
+  after  ins/s      rounds 212.002  212.267  210.380  median 212.002  spread 0.9 %
+  after  cpu ms     rounds 21.501  21.402  21.451  median 21.451  spread 0.5 %
+  after  user ms    rounds 19.353  19.270  19.258  median 19.270  spread 0.5 %
+  after  plan ms    rounds 26.111  26.028  26.256  median 26.111  spread 0.9 %
+  after  Minstr     rounds 136.532  136.380  136.982  median 136.532  spread 0.4 %
+  after  rd KB      rounds 2002.845  2013.946  2064.231  median 2013.946  spread 3.0 %
+  after  loads      rounds 108.601  108.602  108.601  median 108.601  spread 0.0 %
+  after  cores      rounds 4.558  4.543  4.513  median 4.543  spread 1.0 %
+  after against before, ins/s      -10.44 %  <- the rule: DOES NOT MEET
+  after against before, cpu ms     +16.16 %
+  after against before, user ms    +17.84 %
+  after against before, plan ms    +10.13 %
+  after against before, Minstr     +4.73 %
+  after against before, rd KB      -1.16 %
+  after against before, loads      -0.00 %
+  after against before, cores      +4.03 %
+## 20 000 inserts, 1 caller
+  before ins/s      rounds 66.469  65.759  median 66.114  spread 1.1 %
+  before cpu ms     rounds 17.112  17.392  median 17.252  spread 1.6 %
+  before user ms    rounds 14.915  15.231  median 15.073  spread 2.1 %
+  before plan ms    rounds 14.708  14.865  median 14.787  spread 1.1 %
+  before Minstr     rounds 131.053  131.412  median 131.232  spread 0.3 %
+  before rd KB      rounds 1580.026  1630.421  median 1605.224  spread 3.1 %
+  before loads      rounds 108.593  108.593  median 108.593  spread 0.0 %
+  before cores      rounds 1.137  1.144  median 1.141  spread 0.5 %
+  after  ins/s      rounds 58.276  58.457  median 58.367  spread 0.3 %
+  after  cpu ms     rounds 19.281  19.144  median 19.213  spread 0.7 %
+  after  user ms    rounds 17.065  17.061  median 17.063  spread 0.0 %
+  after  plan ms    rounds 16.826  16.766  median 16.796  spread 0.4 %
+  after  Minstr     rounds 137.678  137.701  median 137.690  spread 0.0 %
+  after  rd KB      rounds 1601.900  1619.794  median 1610.847  spread 1.1 %
+  after  loads      rounds 108.593  108.593  median 108.593  spread 0.0 %
+  after  cores      rounds 1.124  1.119  median 1.121  spread 0.4 %
+  after against before, ins/s      -11.72 %  <- the rule: DOES NOT MEET
+  after against before, cpu ms     +11.36 %
+  after against before, user ms    +13.20 %
+  after against before, plan ms    +13.59 %
+  after against before, Minstr     +4.92 %
+  after against before, rd KB      +0.35 %
+  after against before, loads      -0.00 %
+  after against before, cores      -1.68 %
+heap before alloc 1308.2 MB, in use 1419.2 MB, opened in 14.0 s, keys 12499156/12499156, pending heap 121.7 MB
+heap after  alloc 1126.7 MB, in use 1240.5 MB, opened in 14.8 s, keys 12499168/12499168, pending heap 121.7 MB

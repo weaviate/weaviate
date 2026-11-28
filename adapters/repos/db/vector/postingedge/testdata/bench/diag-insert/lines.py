@@ -33,12 +33,6 @@ by_func = defaultdict(float)
 for i, (depth, count, name, image, addrs) in enumerate(graph):
     if name is None or not image.endswith(".test"):
         continue
-    children = 0
-    for d2, c2, *_ in graph[i + 1:]:
-        if d2 <= depth:
-            break
-        if d2 == depth + 2 or True:
-            pass
     # What its children do not account for is what was on this frame itself.
     j, below = i + 1, 0
     child_depth = None

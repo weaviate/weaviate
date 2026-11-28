@@ -2099,6 +2099,76 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 
 **Duración estimada:** unos 50 minutos.
 
+#### Las tablas por docID sobre el 10M: no cumplen (28 de noviembre, cerrado a las 05:06)
+
+**Las tablas por docID no cumplen a 10M, y por mucho: el recorrido de la búsqueda de un insert tarda un 19.7 % más, con el umbral en el 3 %, y los inserts van un 10.4 % más lentos con 8 llamadores y un 11.7 % con 1. Por la regla del usuario no entran en la base. El heap baja 181 MB, lo esperado.**
+
+**Qué se hizo.** La cadena corrió de 04:22 a 05:05 del 28, las 18 pasadas con salida 0, cada una sobre un clon nuevo del índice de 10M.
+
+**La búsqueda del insert sola,** 1 hilo, 5 000 planes, tres rondas alternadas. Mediana, y entre paréntesis las tres rondas.
+
+| por plan | antes | después | diferencia |
+|---|---:|---:|---:|
+| recorrido, ms | 9.668 (9.668, 9.783, 9.611) | 11.575 (11.628, 11.507, 11.575) | **+19.7 %** |
+| el plan entero, ms | 15.523 | 17.549 | +13.1 % |
+| filas, ms | 2.842 | 2.916 | +2.6 % |
+| vectores exactos, ms | 2.456 | 2.495 | +1.6 % |
+| CPU, ms | 18.07 | 20.20 | +11.8 % |
+| millones de instrucciones | 134.7 | 141.9 | +5.4 % |
+| millones de ciclos | 55.9 | 62.8 | +12.3 % |
+| planes por segundo | 64.4 | 57.0 | −11.5 % |
+
+- **Las cuentas son idénticas con los dos binarios,** en las seis pasadas: 108.81 cargas, 217.6 filas y 28 281 miembros por plan. Es la misma búsqueda.
+- **Ninguna celda marcada:** las rondas de un binario se separan un 1.8 % y un 1.0 %.
+- **Suben más los ciclos que las instrucciones:** 6.9 millones de ciclos más por plan con 7.3 millones de instrucciones más. Lo añadido cuesta casi un ciclo por instrucción, donde el resto va a 2.4 instrucciones por ciclo.
+
+**Los inserts,** 20 000 sobre cada clon.
+
+| | antes | después | diferencia |
+|---|---:|---:|---:|
+| 8 llamadores, inserts/s | 236.7 (229.5, 236.7, 237.5) | 212.0 (212.0, 212.3, 210.4) | **−10.4 %** |
+| 8 llamadores, ms de CPU por insert | 18.47 | 21.45 | +16.2 % |
+| 8 llamadores, reloj del plan, ms | 23.71 | 26.11 | +10.1 % |
+| 1 llamador, inserts/s | 66.1 (66.5, 65.8) | 58.4 (58.3, 58.5) | **−11.7 %** |
+| 1 llamador, ms de CPU por insert | 17.25 | 19.21 | +11.4 % |
+| 1 llamador, reloj del plan, ms | 14.79 | 16.80 | +13.6 % |
+
+- **Las cargas por insert son las mismas:** 108.60 con 8 llamadores y 108.59 con 1, en los dos binarios.
+- **Una celda queda marcada:** el «antes» con 8 llamadores, con un 3.4 % entre rondas. **El veredicto no depende de ella,** así que no la repito con cinco rondas: el recorrido y los inserts con 1 llamador no están marcados, y aun en esa celda la peor ronda de antes queda un 7.5 % por encima de la mejor de después.
+
+**El heap al abrir en `routing`.**
+
+| MB | antes | después |
+|---|---:|---:|
+| lo que el índice guarda por vector | 1 024.9: códigos de ruteo 899.9, slot 50.0, posting 50.0, vivos 12.5 y borrados 12.5 | 840.3, la tabla nueva |
+| por vector | 102.5 B | 84.0 B |
+| reservado y en uso | 1 308.2 | 1 126.7 |
+| heap en uso | 1 419.2 | 1 240.5 |
+| abrir, s | 14.0 | 14.8 |
+
+- **Son 181 MB menos,** y la cuenta de la enmienda 1 daba 84.4 B por vector frente a los 102.5 de hoy con su holgura.
+
+**Frente a lo que esperaba.**
+
+| | esperaba | salió |
+|---|---|---|
+| recorrido | entre un 2 y un 7 % más | un 19.7 % más |
+| inserts por segundo con 8 llamadores | diferencia por debajo de lo que se separan las pasadas iguales | un 10.4 % menos |
+| heap | unos 180 MB menos | 181 MB menos |
+
+- **Me quedé muy corto en el coste.** A 10M la búsqueda de un insert sigue 170 000 aristas, y la entrada por doc id que el cambio pone delante del posting y del código pesa mucho más de lo que conté.
+- **No sé en qué líneas está:** no muestreé el binario de después. Los ciclos por instrucción de lo añadido apuntan a lecturas que esperan a la memoria; no lo he medido por línea.
+
+**Qué sigue, por la regla de la enmienda 1 de las tablas.**
+- **No entra en la base.** La base se congela sin ella. El problema queda anotado como conocido en la nota para Rodrigo: lo que el índice guarda por vector ocupa por el mayor doc id dado, 102.5 B por doc id con la holgura. El cambio pasa a `feat/posting-edge-next`.
+- **La propuesta que la regla pide, sin implementarla:** un camino directo para el caso denso, posición igual a doc id cuando los ids van seguidos, y la tabla nueva solo cuando hay huecos.
+  - **Lo que esta medida añade a esa propuesta** (*mío*, sin medir): el caso denso tiene que conservar las dos lecturas de hoy por extremo, sin una entrada delante. Los 181 MB de la holgura se podrían recuperar aparte, con las tablas de hoy en trozos por doc id: un puntero de trozo por lectura, que cabe en caché.
+- **La serie en limpio no se hace:** las tablas se quedan como commits de trabajo en local (`0e69426e81`), con sus tests en verde.
+
+**La medida de 1M no está hecha.** Necesita unos 23 GB de pico en disco y hay 18 GiB libres. El veredicto ya no depende de ella: la regla dice que no cumple si pasa el 3 % en alguna celda.
+
+**Datos.** `testdata/bench/diag-insert/tables10m/`: la cadena y su salida, `tables10m.py` con lo que da, `results.tar.gz` con el resultado, el log y el monitor de cada pasada, y los dos perfiles del heap.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
