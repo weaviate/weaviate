@@ -1,0 +1,22 @@
+{
+  "cacheMode": "routing",
+  "dir": "/Volumes/v40bench/grow10m/clones/x10m/index",
+  "gomaxprocs": 10,
+  "live": 10000000,
+  "rounds": [
+    {
+      "keysBefore": 12499156,
+      "keysAfter": 15623946,
+      "ms": 113.571459,
+      "heapInuseBefore": 1418960896,
+      "heapInuseAfter": 2700140544
+    },
+    {
+      "keysBefore": 15623946,
+      "keysAfter": 19529933,
+      "ms": 149.232666,
+      "heapInuseBefore": 1675190272,
+      "heapInuseAfter": 3214180352
+    }
+  ]
+}

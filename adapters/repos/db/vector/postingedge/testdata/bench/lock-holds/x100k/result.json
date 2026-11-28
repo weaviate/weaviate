@@ -1,0 +1,22 @@
+{
+  "cacheMode": "routing",
+  "dir": "/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/lock/clones/x100k/index",
+  "gomaxprocs": 10,
+  "live": 100000,
+  "rounds": [
+    {
+      "keysBefore": 124996,
+      "keysAfter": 156246,
+      "ms": 1.189833,
+      "heapInuseBefore": 24207360,
+      "heapInuseAfter": 37052416
+    },
+    {
+      "keysBefore": 156246,
+      "keysAfter": 195308,
+      "ms": 1.275458,
+      "heapInuseBefore": 26771456,
+      "heapInuseAfter": 42803200
+    }
+  ]
+}

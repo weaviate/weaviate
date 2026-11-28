@@ -3676,6 +3676,62 @@ Al escribir el lector que aplica la fórmula (`gate.py`, antes de que exista nin
 
 **Una corrección a lo que espero,** antes de los datos. En el humo a 100k, con una tabla de 200 000 doc ids, puntuar los extremos en conjunto quedó entre 0.90 y 0.95 de hacerlo por separado: traer los códigos una vez casi no ahorra, porque el cálculo se repite por consulta y la búsqueda ya adelanta las lecturas. Los extremos son a 10M unos 7.6 de los 14.9 ms de la búsqueda de un insert. Si con la tabla de 10M la razón no baja de 0.8, la CPU estimada quedará cerca de 0.7 de la de hoy, no de la mitad, y la enmienda de los miembros la moverá poco. Lo dejo dicho; decide la medida.
 
+#### El cerrojo del índice retenido 355 ms a 10M: medido retención a retención (28 de noviembre a las 18:31; pasada de las 17:02, 180 s, 1 hilo de queries y 8 llamadores sobre un clon)
+
+**Es el volcado por presupuesto, como decían el código y los tramos. La regla pre-registrada se cumple: las cinco retenciones de más de 290 ms de la pasada son las cinco que escriben filas por presupuesto (2 145 a 2 158 filas cada una), llegan cada 34 a 38 s, y la espera más larga de una query, 369.5 ms, cae dentro de la más larga, 369.2 ms. Hay una segunda causa que no esperaba, más pequeña: un split cuyos vectores exactos tardaron 165 ms en leerse retuvo el índice 184 ms.**
+
+**La pasada.** 45 600 inserts en 181 s (251.7 por segundo) y 54 290 queries (p50 2.47 ms, p99 13.41, máximo 373.1). El índice se tomó para escribir 831 veces, todas para aplicar un lote: 4.6 por segundo, 10.3 s en total, el 5.7 % de la pasada.
+
+| retenciones | cuántas | p50 | p99 | máxima |
+| --- | --- | --- | --- | --- |
+| todas | 831 | 6.42 ms | 64.03 | 369.2 |
+| lotes sin split | 662 | 5.96 | 14.87 | 79.2 |
+| lotes con un split | 142 | 23.02 | 64.03 | 184.4 |
+| lotes con dos o más | 22 | 38.16 | 89.62 | 89.6 |
+| lotes con filas por presupuesto | 5 | 305.4 | | 369.2 |
+
+**Las cinco del presupuesto.**
+
+| a los | duró | filas por presupuesto | escribir las filas | diario | entrega al almacén | volcado | planes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 36.9 s | 369.2 ms | 2 145 (31.0 MB) | 122.5 | 82.6 | 157.5 | 1.5 | 60 |
+| 74.1 s | 300.6 ms | 2 147 (31.2 MB) | 103.2 | 44.1 | 142.8 | 1.5 | 60 |
+| 111.9 s | 337.9 ms | 2 154 (30.9 MB) | 105.5 | 28.3 | 181.7 | 1.4 | 44 |
+| 146.8 s | 299.5 ms | 2 153 (30.9 MB) | 108.3 | 24.4 | 159.8 | 1.5 | 60 |
+| 180.8 s | 305.4 ms | 2 158 (30.9 MB) | 98.0 | 23.9 | 176.3 | 1.8 | 56 |
+
+- **Cada cuánto:** 37.2, 37.8, 34.9 y 34.0 s entre una y la siguiente, unos 9 100 inserts. La cuenta daba 9 300 inserts y 39 s.
+- **De qué está hecha:** las filas, el diario (67.6 a 68.2 MB cada vez) y la entrega al almacén; el volcado del diario, 1.5 ms. La cuenta daba 115, 110 y 185 ms; el diario mide entre 24 y 83.
+- **Las esperas:** de las 5 queries que esperaron más de 100 ms, 4 cayeron en una de estas retenciones.
+
+**Lo que no esperaba.**
+- **Una retención de 184 ms sin presupuesto:** un lote con un split que tardó 169.6 ms, de ellos 165.2 en leer los 361 vectores exactos del posting, que se leen uno a uno con el índice tomado. Lo normal de esa lectura son 14 ms. Esperaba que no hubiera ninguna otra de más de 100 ms.
+- **Vinieron cinco eventos y no dos,** porque la pasada hizo 45 600 inserts y no los 20 000 con los que conté.
+- **`extend` tarda menos de lo que esperaba** (300 a 600 ms a 10M):
+
+| dar sitio a un cuarto más de doc ids | primera vez | segunda |
+| --- | --- | --- |
+| 100k (de 124 996) | 1.2 ms | 1.3 |
+| 1M (de 1 099 499) | 8.9 ms | 11.0 |
+| 10M (de 12 499 156) | 113.6 ms | 149.2 |
+
+  Sigue siendo una retención de más de 100 ms a 10M, una vez cada vez que los doc ids crecen un cuarto.
+
+**Las retenciones corrientes.** Los 826 lotes sin filas por presupuesto retienen 10.55 ms de media: el 37 % es el split, el 36 % las inversas, el 15 % escribir el miembro y sus aristas y el 10 % la entrega al almacén. Hubo 190 splits, uno cada 0.95 s; cada uno retiene 17.2 ms (p99 51.8), y **14.0 de esos 17.2 ms son leer los vectores exactos**. El p99 de las retenciones, 64 ms, lo hacen los lotes con split.
+
+**La espera de una query por el índice:** p50 0, p99 5.9 ms, p99.9 27.2, máxima 369.5; 723 esperaron más de 5 ms y 221 más de 10.
+
+**Lo que cambia en las propuestas de troceo** (siguen siendo propuestas).
+- **La cuota por lote** quita las cinco retenciones de 300 a 370 ms. Está construida como palanca (`budgetRows`) y se mide en la cadena, con el índice aplicado por trozos y sin ellos.
+- **Nueva, 5: el split lee sus vectores antes de tomar el índice.** Con el cerrojo de lectura lee los 361 vectores y calcula el 2-means; con el de escritura comprueba que el posting no cambió y escribe. Saca 14 de los 17 ms de cada split, y los 165 del que se alargó. Es lo que haría bajar el p99 de las retenciones, que la cuota no toca. No está construida.
+- **`extend`** queda como estaba propuesto; a 10M son 114 a 149 ms, no 300 a 600.
+
+**Lo que falta de esta medida.** La pasada a 100k no arrancó (pedía más vectores de los que el índice deja); se repite en la segunda cadena.
+
+**No comparable,** como estaba dicho: es un clon recién abierto, con filas y vectores más fríos que en un proceso con horas de marcha.
+
+Datos: `testdata/bench/lock-holds/`.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

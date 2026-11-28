@@ -1,0 +1,22 @@
+{
+  "cacheMode": "routing",
+  "dir": "/Volumes/v40bench/sim1m/clone/index",
+  "gomaxprocs": 10,
+  "live": 990000,
+  "rounds": [
+    {
+      "keysBefore": 1099499,
+      "keysAfter": 1374374,
+      "ms": 8.869292,
+      "heapInuseBefore": 156598272,
+      "heapInuseAfter": 269320192
+    },
+    {
+      "keysBefore": 1374374,
+      "keysAfter": 1717968,
+      "ms": 10.957083,
+      "heapInuseBefore": 179142656,
+      "heapInuseAfter": 320028672
+    }
+  ]
+}
