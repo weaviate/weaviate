@@ -423,6 +423,98 @@ func TestReindexShardViewIndexOff(t *testing.T) {
 	}
 }
 
+// A load deletes every index folder of a class property its view does not
+// name, and nothing else.
+func TestReindexShardViewLoadSweep(t *testing.T) {
+	const otherPlain = "property_title__gen1" // plain folder of the property "title__gen1"
+	tests := []struct {
+		name          string
+		prepare       func(f *viewFixture, lsm string)
+		gone, kept    []string
+		hello, others uint64 // filterable counts of "title" and "title__gen1"
+	}{
+		{
+			name: "a plain folder left beside the served generation 1",
+			prepare: func(f *viewFixture, lsm string) {
+				require.NoError(f.t, copyTree(filepath.Join(lsm, plainTitle), filepath.Join(lsm, gen1Title)))
+				f.setLive(map[string]uint64{indexTypeFilterable: 1})
+			},
+			gone: []string{plainTitle}, kept: []string{gen1Title, otherPlain}, hello: 5, others: 7,
+		},
+		{
+			name: "an index turned off while the shard was unloaded",
+			prepare: func(f *viewFixture, lsm string) {
+				off := false
+				f.class.Properties[0].IndexFilterable = &off
+			},
+			gone: []string{plainTitle}, kept: []string{otherPlain}, others: 7,
+		},
+		{
+			name: "a staged build keeps its folder, not its scratch",
+			prepare: func(f *viewFixture, lsm string) {
+				f.tasks.set(stagedTask("a"))
+				for _, dir := range []string{gen1Title, gen1Title + ".build"} {
+					require.NoError(f.t, os.Mkdir(filepath.Join(lsm, dir), 0o755))
+				}
+			},
+			gone: []string{gen1Title + ".build"}, kept: []string{plainTitle, gen1Title, otherPlain}, hello: 5, others: 7,
+		},
+		{
+			name: "unnamed generations and sidecars of a class property, not other folders",
+			prepare: func(f *viewFixture, lsm string) {
+				for _, dir := range []string{
+					"property_title.gen3_searchable", "property_title__filt_retokenize_ingest_1",
+					"property_gone.gen1", "property_title_propertyLength",
+				} {
+					require.NoError(f.t, os.MkdirAll(filepath.Join(lsm, dir), 0o755))
+				}
+			},
+			gone: []string{"property_title.gen3_searchable", "property_title__filt_retokenize_ingest_1"},
+			kept: []string{plainTitle, otherPlain, "property_gone.gen1", "property_title_propertyLength"}, hello: 5, others: 7,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			text := func(name string) *models.Property {
+				return &models.Property{Name: name, DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWord}
+			}
+			f := newViewFixture(t, "ViewTest", text("title"), text("title__gen1"))
+			for i := range 7 {
+				obj := testObject(f.class.Class)
+				obj.Object.Properties = map[string]any{"title__gen1": "hello"}
+				if i < 5 {
+					obj.Object.Properties.(map[string]any)["title"] = "hello"
+				}
+				require.NoError(t, f.shard.PutObject(context.Background(), obj))
+			}
+			require.NoError(t, f.shard.Shutdown(context.Background()))
+			lsm := f.shard.pathLSM()
+			tc.prepare(f, lsm)
+
+			sl, err := f.idx.initShard(context.Background(), f.shard.name, f.class, nil, true, true)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, sl.Shutdown(context.Background())) })
+			for _, dir := range tc.gone {
+				require.NoDirExists(t, filepath.Join(lsm, dir))
+			}
+			for _, dir := range tc.kept {
+				require.DirExists(t, filepath.Join(lsm, dir))
+			}
+			v := sl.(*Shard).loadView()
+			for plain, want := range map[string]uint64{plainTitle: tc.hello, otherPlain: tc.others} {
+				var got uint64
+				if b := v.Bucket(plain); b != nil {
+					bm, release, err := b.RoaringSetGet(context.Background(), []byte("hello"))
+					require.NoError(t, err)
+					got = uint64(bm.GetCardinality())
+					release()
+				}
+				require.Equal(t, want, got, plain)
+			}
+		})
+	}
+}
+
 func TestReindexShardViewStagingLimit(t *testing.T) {
 	const limit = 2 * time.Second
 	tests := []struct {

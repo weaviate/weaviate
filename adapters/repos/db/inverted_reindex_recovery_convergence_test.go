@@ -192,33 +192,6 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	}
 }
 
-// computeBaselineFingerprint runs a clean migration on a throw-away
-// shard and returns its post-migration fingerprint. Recovery-from-state
-// cases compare against this as ground truth.
-func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) map[string][]uint64 {
-	t.Helper()
-	ctx := testCtx()
-	className := "ConvergenceBaselineRef_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{propName})
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-	require.NoError(t, task.RunOnShard(ctx, shard))
-	require.True(t, strategy.migrationCompleted)
-
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-	return fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
-}
-
 // On a relaunch over an already-finished rebuild the iteration has nothing to
 // do, so a RunOnShard that does not sequence the swap after it reports success
 // on an index that was never swapped.

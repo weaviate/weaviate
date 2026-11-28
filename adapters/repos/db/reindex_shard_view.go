@@ -12,6 +12,7 @@
 package db
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -199,22 +201,86 @@ func (s *Shard) servedIndexName(propName, indexType string) string {
 
 // loadReindexView decides, before any property bucket opens, which folder
 // each property index opens.
-func (s *Shard) loadReindexView() error {
+func (s *Shard) loadReindexView(loading *models.Class) error {
 	class, props, err := s.readReindexView()
 	if err != nil {
 		return fmt.Errorf("read reindex state: %w", err)
 	}
-	if class != nil {
-		for _, prop := range class.Properties {
-			for _, t := range reindexIndexTypes {
-				if err := s.refuseMissingServedFolder(prop.Name, t, props[prop.Name]); err != nil {
-					return err
-				}
+	if class == nil {
+		class = loading
+	}
+	for _, prop := range class.Properties {
+		for _, t := range reindexIndexTypes {
+			if err := s.refuseMissingServedFolder(prop.Name, t, props[prop.Name]); err != nil {
+				return err
 			}
 		}
 	}
+	s.sweepUnnamedIndexFolders(class, props)
 	s.view.current.Store(newShardView(s, props))
 	return nil
+}
+
+// sweepUnnamedIndexFolders deletes what a crash before a retire or an index-off on an unloaded
+// shard left behind. A folder it cannot delete is never opened.
+func (s *Shard) sweepUnnamedIndexFolders(class *models.Class, props map[string]reindexPropView) {
+	entries, err := os.ReadDir(s.pathLSM())
+	if err != nil {
+		s.index.logger.WithField("action", "reindex_load_sweep").Errorf("cannot list the shard's folders: %v", err)
+		return
+	}
+	named := namedIndexFolders(class, props)
+	failed, first := 0, error(nil)
+	for _, e := range entries {
+		if !e.IsDir() || named[e.Name()] || !isIndexFolderOf(class, e.Name()) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(s.pathLSM(), e.Name())); err != nil {
+			failed, first = failed+1, cmp.Or(first, err)
+		}
+	}
+	if failed > 0 {
+		s.index.logger.WithField("action", "reindex_load_sweep").WithField("shard", s.name).WithField("failed", failed).
+			Errorf("cannot delete %d index folders no view names: %v", failed, first)
+	}
+}
+
+// A property the view does not govern serves the plain folder of each index the class turns on.
+func namedIndexFolders(class *models.Class, props map[string]reindexPropView) map[string]bool {
+	named := map[string]bool{}
+	for _, prop := range class.Properties {
+		pv, governed := props[prop.Name]
+		for _, t := range reindexIndexTypes {
+			switch {
+			case governed && pv.on[t]:
+				named[reindexBucketName(prop.Name, t, pv.gen[t])] = true
+			case !governed && classIndexOn(prop, t):
+				named[reindexBucketName(prop.Name, t, 0)] = true
+			}
+		}
+		for _, st := range pv.staged {
+			for _, t := range st.target.indexTypes {
+				named[reindexBucketName(prop.Name, t, st.gen)] = true
+			}
+		}
+	}
+	return named
+}
+
+// The property name ends at the first ".", which no property name holds.
+func isIndexFolderOf(class *models.Class, name string) bool {
+	if prop, rest, ok := strings.Cut(strings.TrimPrefix(name, "property_"), "."); ok {
+		return strings.HasPrefix(name, "property_") && strings.HasPrefix(rest, "gen") &&
+			slices.ContainsFunc(class.Properties, func(p *models.Property) bool { return p.Name == prop })
+	}
+	for _, prop := range class.Properties {
+		for _, t := range reindexIndexTypes {
+			if plain := reindexBucketName(prop.Name, t, 0); name == plain || isSidecarDirOf(name, plain) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Shard) finishViewLoad() {

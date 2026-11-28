@@ -1094,6 +1094,9 @@ func (st *Store) openDatabase(ctx context.Context) {
 // then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
+		if !st.dbLoaded.Load() {
+			refuseUnfinishedLegacyRuns(st.log, st.distributedTasksManager.LocalDistributedTasks()[db.ReindexNamespace])
+		}
 		func() {
 			stop := st.trackDBLoadProgress()
 			defer stop()

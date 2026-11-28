@@ -736,3 +736,7 @@ func shutdownIndexOnCleanup(t *testing.T, index *Index) {
 		}
 	})
 }
+
+func boolPtr(b bool) *bool {
+	return &b
+}

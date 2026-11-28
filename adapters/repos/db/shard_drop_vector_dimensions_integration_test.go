@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -280,8 +281,8 @@ func TestDropVectorIndex_DimensionsClearSurvivesProcessCrash(t *testing.T) {
 func dimensionsAfterCrash(t *testing.T, ctx context.Context, s *Shard, targetVector string) int {
 	t.Helper()
 	crashed := t.TempDir()
-	copyDirTree(t, filepath.Join(s.path(), "lsm", helpers.DimensionsBucketLSM),
-		filepath.Join(crashed, s.name, "lsm", helpers.DimensionsBucketLSM))
+	require.NoError(t, os.CopyFS(filepath.Join(crashed, s.name, "lsm", helpers.DimensionsBucketLSM),
+		os.DirFS(filepath.Join(s.path(), "lsm", helpers.DimensionsBucketLSM))))
 	got, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, logrus.New(), crashed, s.name, targetVector)
 	require.NoError(t, err)
 	return got.Count * got.Dimensions

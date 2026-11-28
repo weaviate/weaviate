@@ -1,0 +1,283 @@
+{
+  "baselineBeforeMigration": {
+    "filterEqual_title_hello_world": 10,
+    "bm25_title_hello": 10,
+    "bm25_title_hello_world": 10
+  },
+  "classAtUpgrade": {
+    "class": "Q718Legacy",
+    "invertedIndexConfig": {
+      "cleanupIntervalSeconds": 60,
+      "indexNullState": true,
+      "indexPropertyLength": true,
+      "stopwords": {
+        "additions": null,
+        "preset": "none",
+        "removals": null
+      },
+      "usingBlockMaxWAND": true
+    },
+    "multiTenancyConfig": {
+      "autoTenantActivation": false,
+      "autoTenantCreation": false,
+      "enabled": true
+    },
+    "properties": [
+      {
+        "dataType": [
+          "text"
+        ],
+        "indexFilterable": true,
+        "indexSearchable": true,
+        "name": "title",
+        "tokenization": "field"
+      }
+    ],
+    "vectorIndexConfig": {
+      "skip": false,
+      "cleanupIntervalSeconds": 300,
+      "maxConnections": 32,
+      "efConstruction": 128,
+      "ef": -1,
+      "dynamicEfMin": 100,
+      "dynamicEfMax": 500,
+      "dynamicEfFactor": 8,
+      "vectorCacheMaxObjects": 1000000000000,
+      "flatSearchCutoff": 40000,
+      "distance": "cosine",
+      "pq": {
+        "enabled": false,
+        "bitCompression": false,
+        "segments": 0,
+        "centroids": 256,
+        "trainingLimit": 100000,
+        "encoder": {
+          "type": "kmeans",
+          "distribution": "log-normal"
+        }
+      },
+      "bq": {
+        "enabled": false
+      },
+      "sq": {
+        "enabled": false,
+        "trainingLimit": 100000,
+        "rescoreLimit": 20
+      },
+      "rq": {
+        "enabled": false,
+        "bits": 8,
+        "rescoreLimit": 20,
+        "centering": false,
+        "trainingLimit": 10000
+      },
+      "filterStrategy": "acorn",
+      "multivector": {
+        "enabled": false,
+        "muvera": {
+          "enabled": false,
+          "ksim": 4,
+          "dprojections": 16,
+          "repetitions": 10
+        },
+        "aggregation": "maxSim"
+      },
+      "skipDefaultQuantization": false,
+      "trackDefaultQuantization": false
+    }
+  },
+  "effectShownByClass": true,
+  "expectedNote": "",
+  "expectedOnNewCode": {
+    "foo-tenant": {
+      "filterEqual_title_hello_world": 5,
+      "bm25_title_hello": 0,
+      "bm25_title_hello_world": 5
+    }
+  },
+  "files": [
+    "./",
+    "indexcount (8 B)",
+    "lsm/",
+    "lsm/.migrations/",
+    "lsm/.migrations/records/",
+    "lsm/.migrations/records/1_filterable_retokenize_foo-tenant__node1.json (794 B)",
+    "lsm/.migrations/records/1_searchable_retokenize_foo-tenant__node1.json (828 B)",
+    "lsm/objects/",
+    "lsm/objects/segment-1795431320613904000.bloom (52 B)",
+    "lsm/objects/segment-1795431320613904000.cna (12 B)",
+    "lsm/objects/segment-1795431320613904000.db (2562 B)",
+    "lsm/objects/segment-1795431320613904000.secondary.0.bloom (52 B)",
+    "lsm/property__id/",
+    "lsm/property__id/segment-1795431320613719000.bloom (52 B)",
+    "lsm/property__id/segment-1795431320613719000.db (1386 B)",
+    "lsm/property_title/",
+    "lsm/property_title/segment-1795431320694065000.bloom (36 B)",
+    "lsm/property_title/segment-1795431320694065000.db (814 B)",
+    "lsm/property_title_nullState/",
+    "lsm/property_title_nullState/segment-1795431320615054000.bloom (36 B)",
+    "lsm/property_title_nullState/segment-1795431320615054000.db (258 B)",
+    "lsm/property_title_propertyLength/",
+    "lsm/property_title_propertyLength/segment-1795431320614251000.bloom (36 B)",
+    "lsm/property_title_propertyLength/segment-1795431320614251000.db (528 B)",
+    "lsm/property_title_searchable/",
+    "lsm/property_title_searchable/segment-1795431320620591000.bloom (36 B)",
+    "lsm/property_title_searchable/segment-1795431320620591000.db (490 B)",
+    "proplengths (104 B)",
+    "version (2 B)"
+  ],
+  "fixture": "03-changetok-promoted-effect-shown",
+  "generatedBy": "v1.39.17 (7fd11ac128) adapters/repos/db TestQ718v2GenerateLegacyFixtures",
+  "howV13917GotHere": "Swapped, then the shard was loaded once more while the task was still SWAPPING (promotion renamed the staged folders onto the plain names, record -\u003e promoted), then the flip landed with no later load. The record is only removed by a load that sees the effect (reconcilePromotedSealed).",
+  "lsmTopLevelDirs": [
+    ".migrations",
+    "objects",
+    "property__id",
+    "property_title",
+    "property_title_nullState",
+    "property_title_propertyLength",
+    "property_title_searchable"
+  ],
+  "migrationType": "change-tokenization",
+  "nodeName": "node1",
+  "objectCount": 10,
+  "objects": [
+    {
+      "id": "9605ff90-a306-57d6-9cfe-c739b0f6f59f",
+      "title": "hello world"
+    },
+    {
+      "id": "f77982e6-2975-51f6-9093-ce2440d39cce",
+      "title": "hello world"
+    },
+    {
+      "id": "c1d096f3-5b7d-5e19-83cc-7f1f2e37849e",
+      "title": "hello world"
+    },
+    {
+      "id": "b6010ca7-2418-5dac-a422-24fb93b46254",
+      "title": "hello world"
+    },
+    {
+      "id": "1399218e-77c8-5b46-9a96-7001302c88f8",
+      "title": "hello world"
+    },
+    {
+      "id": "96cca2b3-d9a0-59ae-8942-7387765055bc",
+      "title": "hello there world"
+    },
+    {
+      "id": "9305456c-48e9-5128-a5fd-61b758a579df",
+      "title": "hello there world"
+    },
+    {
+      "id": "8047a45f-ac7d-5dd6-906f-85f50e5ef6b4",
+      "title": "hello there world"
+    },
+    {
+      "id": "18cccc49-db03-5ae0-a4d2-2157498012ed",
+      "title": "world hello"
+    },
+    {
+      "id": "e67c5e85-b982-51ec-a371-90de85c042c2",
+      "title": "world hello"
+    }
+  ],
+  "queries": {
+    "bm25_title_hello": "bm25 query \"hello\" on title",
+    "bm25_title_hello_world": "bm25 query \"hello world\" on title",
+    "filterEqual_title_hello_world": "where title Equal \"hello world\" (valueText)"
+  },
+  "recordStateAtUpgrade": "promoted",
+  "records": [
+    {
+      "file": ".migrations/records/1_filterable_retokenize_foo-tenant__node1.json",
+      "state": "promoted",
+      "decoded": {
+        "formatVersion": 1,
+        "state": "promoted",
+        "subject": {
+          "key": {
+            "taskVersion": 1,
+            "strategyCode": "filterable_retokenize",
+            "unitID": "foo-tenant__node1"
+          },
+          "taskID": "q718-legacy-fixture",
+          "migrationType": "change-tokenization",
+          "targetTokenization": "field",
+          "originalTokenization": "word",
+          "collection": "Q718Legacy",
+          "bucketStrategy": "inverted",
+          "iterationCutoff": "2026-11-23T11:55:20.695+01:00",
+          "props": {
+            "title": {
+              "staged": "property_title__filt_retokenize_ingest_1",
+              "canonical": "property_title",
+              "sidecar": "property_title__filt_retokenize_reindex_1"
+            }
+          }
+        },
+        "flip": {
+          "flipped": [
+            "title"
+          ],
+          "displacedDirs": {
+            "title": "property_title"
+          }
+        }
+      }
+    },
+    {
+      "file": ".migrations/records/1_searchable_retokenize_foo-tenant__node1.json",
+      "state": "promoted",
+      "decoded": {
+        "formatVersion": 1,
+        "state": "promoted",
+        "subject": {
+          "key": {
+            "taskVersion": 1,
+            "strategyCode": "searchable_retokenize",
+            "unitID": "foo-tenant__node1"
+          },
+          "taskID": "q718-legacy-fixture",
+          "migrationType": "change-tokenization",
+          "targetTokenization": "field",
+          "originalTokenization": "word",
+          "collection": "Q718Legacy",
+          "bucketStrategy": "inverted",
+          "iterationCutoff": "2026-11-23T11:55:20.621+01:00",
+          "props": {
+            "title": {
+              "staged": "property_title_searchable__retokenize_ingest_1",
+              "canonical": "property_title_searchable",
+              "sidecar": "property_title_searchable__retokenize_reindex_1"
+            }
+          }
+        },
+        "flip": {
+          "flipped": [
+            "title"
+          ],
+          "displacedDirs": {
+            "title": "property_title_searchable"
+          }
+        }
+      }
+    }
+  ],
+  "shardDirName": "foo-tenant",
+  "tarball": "shard.tar.gz (root entry = shard directory, i.e. \u003cindexDir\u003e/foo-tenant)",
+  "taskID": "q718-legacy-fixture",
+  "taskVersion": 1,
+  "tenant": "foo-tenant",
+  "unitID": "foo-tenant__node1",
+  "v13917AfterOneMoreLoad": {
+    "counts": {
+      "filterEqual_title_hello_world": 5,
+      "bm25_title_hello": 0,
+      "bm25_title_hello_world": 5
+    },
+    "recordStatesAfter": [],
+    "taskStatusSeen": "FINISHED"
+  }
+}

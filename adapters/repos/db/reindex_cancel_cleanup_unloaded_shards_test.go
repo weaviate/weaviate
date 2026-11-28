@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -189,128 +188,6 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			} else {
 				assert.NoError(t, err)
 			}
-		})
-	}
-}
-
-func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *testing.T) {
-	const (
-		residueTenant = "residue-tenant"
-		cleanTenant   = "clean-tenant"
-		// promoted rides along inside the ingest dir, so the canonical dir it
-		// becomes can be told apart from one the reopened bucket created.
-		promoted = "promoted.marker"
-	)
-
-	// mkBucketDir plants a bucket dir carrying one non-segment file, which the
-	// store ignores and a rename carries along.
-	mkBucketDir := func(t *testing.T, lsmPath, name, marker string) {
-		t.Helper()
-		require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, name), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(lsmPath, name, marker), []byte("x"), 0o644))
-	}
-
-	tests := []struct {
-		name      string
-		propName  string
-		indexType string
-		code      MigrationStrategyCode
-		gen       uint64
-		ingestDir string
-		canonical string
-		legacyDir string
-	}{
-		{
-			name:      "a per-property filterable enable",
-			propName:  "category",
-			indexType: "filterable",
-			code:      StrategyCodeEnableFilterable,
-			gen:       1,
-			ingestDir: "property_category__enable_filterable_ingest_1",
-			canonical: "property_category",
-			legacyDir: "property_category__enable_filterable_backup_1",
-		},
-		{
-			name:      "a class-level roaringset refresh",
-			propName:  "category",
-			indexType: "filterable",
-			code:      StrategyCodeFilterableRoaringsetRefresh,
-			gen:       2,
-			ingestDir: "property_category__roaringset_ingest_2",
-			canonical: "property_category",
-			legacyDir: "property_category__roaringset_backup_2",
-		},
-		{
-			name:      "a per-property searchable retokenize",
-			propName:  "descr",
-			indexType: "searchable",
-			code:      StrategyCodeSearchableRetokenize,
-			gen:       1,
-			ingestDir: "property_descr_searchable__retokenize_ingest_1",
-			canonical: "property_descr_searchable",
-			legacyDir: "property_descr_searchable__blockmax_map_1",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			class := newTestClassWithProps("ResidueReclaim_"+uuid.NewString()[:8],
-				[]string{tc.propName})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			defer shd.Shutdown(context.Background())
-
-			residueLSM := shardPathLSM(idx.path(), residueTenant)
-			unitID := testMigrationUnitFor(idx, residueTenant)
-			mkFlippedMigrationRecord(t, residueLSM, unitID,
-				tc.code, tc.gen, tc.propName, tc.ingestDir, tc.canonical)
-			mkBucketDir(t, residueLSM, tc.ingestDir, promoted)
-			mkBucketDir(t, residueLSM, tc.legacyDir, "superseded.marker")
-
-			// The clean tenant carries the canonical bucket a migrated tenant
-			// ends up with, so the gate has a real listing to answer from
-			// rather than a missing directory.
-			cleanLSM := shardPathLSM(idx.path(), cleanTenant)
-			mkBucketDir(t, cleanLSM, tc.canonical, "untouched.marker")
-
-			tenants := map[string]*LazyLoadShard{}
-			for _, name := range []string{residueTenant, cleanTenant} {
-				lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue,
-					idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter,
-					idx.shardReindexer, false, idx.bitmapBufPool)
-				idx.shards.Store(name, lazy)
-				tenants[name] = lazy
-			}
-			defer func() {
-				for _, lazy := range tenants {
-					if lazy.isLoaded() {
-						require.NoError(t, lazy.Shutdown(context.Background()))
-					}
-				}
-			}()
-
-			require.NoError(t, idx.cleanStalePartialReindexState(ctx, tc.propName, tc.indexType, nil, nil))
-
-			assert.FileExists(t, filepath.Join(residueLSM, tc.canonical, promoted),
-				"the ingest dir is the migration's own data, so reclaiming it means "+
-					"promoting it to the canonical name, never deleting it")
-			assert.False(t, dirExistsAt(t, residueLSM, tc.ingestDir),
-				"the data is under its canonical name now")
-			assert.False(t, dirExistsAt(t, residueLSM, tc.legacyDir),
-				"a backup copy from a release before this one is reclaimed here or never")
-
-			logger, _ := test.NewNullLogger()
-			store, unreadable, err := migrationRecordStoreAt(residueLSM, logger)
-			require.NoError(t, err)
-			require.Empty(t, unreadable)
-			rec, ok := store.Get(MigrationRecordKey{TaskVersion: tc.gen, StrategyCode: tc.code, UnitID: unitID})
-			require.True(t, ok, "the record outlives the rename that answers it")
-			assert.Equal(t, MigrationStatePromoted, rec.State())
-
-			assert.False(t, tenants[cleanTenant].isLoaded(),
-				"a tenant with no migration leftovers is the population the gate is "+
-					"for, and it must still be left alone")
 		})
 	}
 }
@@ -931,60 +808,6 @@ func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *t
 
 	require.True(t, dirExistsAt(t, lsm, staleSidecar),
 		"the state the summary must not report as swept")
-}
-
-// Load returns no error for records split across two units, but the index
-// sweep still has to report the shard as unreadable, loaded or not.
-func TestIndexCleanStalePartialReindexStateReportsRecordsOfTwoUnits(t *testing.T) {
-	const (
-		propName  = "category"
-		indexType = "filterable"
-		tenant    = "restored-tenant"
-		owned     = "property_category__enable_filterable_ingest_1"
-		stale     = "property_category__enable_filterable_ingest_2"
-	)
-	for _, loaded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("loaded=%v", loaded), func(t *testing.T) {
-			ctx := testCtx()
-			logger, hook := test.NewNullLogger()
-			class := newTestClassWithProps("TwoUnitRecords_"+uuid.NewString()[:8], []string{propName})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false, func(i *Index) { i.logger = logger })
-			defer shd.Shutdown(context.Background())
-
-			shardName, lsm := shd.Name(), shd.(*Shard).pathLSM()
-			if !loaded {
-				lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-					idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-					false, idx.bitmapBufPool)
-				idx.shards.Store(tenant, lazy)
-				defer func() {
-					if lazy.isLoaded() {
-						require.NoError(t, lazy.Shutdown(context.Background()))
-					}
-				}()
-				shardName, lsm = tenant, shardPathLSM(idx.path(), tenant)
-			}
-			require.NoError(t, os.MkdirAll(filepath.Join(lsm, stale), 0o755))
-			main := mustMainBucket(t, propName, indexType)
-			own := MigrationUnitID(shardName, idx.getSchema.NodeName())
-			for _, unit := range []string{own, shardName + "__node-9"} {
-				mkFlippedMigrationRecord(t, lsm, unit, StrategyCodeEnableFilterable, 1, propName, owned, main)
-			}
-
-			hook.Reset()
-			cache := &dirNamesCache{}
-			require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, cache))
-
-			count, reasons := cache.unreadableRecordSets()
-			require.Equal(t, 1, count)
-			require.ErrorContains(t, reasons, "records of 2 units")
-			summary := onlySweepSummary(t, hook)
-			require.Equal(t, logrus.WarnLevel, summary.Level)
-			require.Equal(t, 1, summary.Data["unreadable_record_sets"])
-			require.True(t, dirExistsAt(t, lsm, stale), "a shard whose records are unreadable keeps every sidecar")
-		})
-	}
 }
 
 // The gate's answer must depend on nothing but this shard's own disk, and must

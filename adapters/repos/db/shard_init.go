@@ -154,20 +154,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
-	// Ahead of initNonVector because reconciliation renames directories: a bucket
-	// opened at a name it is about to move would serve the wrong data.
+	// Both legacy steps rename folders, so they run before any bucket opens.
 	s.finalizeLegacyMigrations(class)
-	recovered := s.reconcileMigrationRecords(ctx, class)
-	s.restoreMigratedOverlays(class, reindexer.UnbuildableFaults())
-
-	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
-		index.path(), shardName, class, s.migratedIndexStands); err != nil {
-		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
+	if err := s.convertLegacyRecords(class); err != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
+	s.migrationRecords = NewMigrationRecordStoreForUnit(s.pathLSM(), s.migrationUnit(), s.index.logger)
 
 	markInFlightRangeableMigrationsNotReady(s)
 
-	if err := s.loadReindexView(); err != nil {
+	if err := s.loadReindexView(class); err != nil {
 		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
 
@@ -201,13 +197,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
-	}
-
-	// This ignores ctx's cancellation because a lazy load's client can disconnect mid-load.
-	// Otherwise OnAfterLsmInit fails on the cancelled ctx, and AbandonUnarmed marks the
-	// migration Unmirrored, so it is never swapped in and has to be resubmitted.
-	if unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(ctx), recovered); err != nil {
-		s.holdReadOnlyForUnarmed(unarmed, err)
 	}
 	return s, nil
 }

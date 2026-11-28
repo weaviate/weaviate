@@ -18,7 +18,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -98,23 +97,6 @@ func (s *Shard) migrationSwapCommitted(rec MigrationRecord) bool {
 	}
 	acked := task.Status.IsActive() && slices.Contains(task.PrepAckedBy, s.index.getSchema.NodeName())
 	return task.GroupDecided || acked
-}
-
-// holdReadOnlyForUnarmed sets the shard READONLY, because a write would miss the unguarded staged copy.
-func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
-	s.migrationMirrors.holdUnarmed(unarmed)
-	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s and its reindex migrations wait: "+
-		"%v. Clear that cause, then set the shard to %s, which starts a retry, or restart the node (a repaired unreadable record needs the restart); "+
-		"if a staged bucket cannot open because a segment file is damaged, repair that file in place first. "+
-		"A migration whose swap is not committed also leaves the hold at that retry once its Unmirrored stamp can be written, "+
-		"unless a migration with a committed swap or already swapped in is held on the same shard. "+
-		"A committed swap cannot be given up on this node, because its other replicas made or will make it; "+
-		"if its staged data cannot be repaired, read the reindex recovery docs before deleting anything: "+
-		"recovering from a backup comes first",
-		storagestate.StatusReadOnly, cause, storagestate.StatusReady)
-	if err := s.SetStatusReadonly(statusReasonMirrorUnarmed); err != nil {
-		s.index.logger.WithField("shard", s.ID()).Errorf("mark shard %s: %v", storagestate.StatusReadOnly, err)
-	}
 }
 
 func (s *Shard) migrationUnit() string { return migrationUnitOf(s.index, s.name) }

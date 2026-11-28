@@ -113,7 +113,7 @@ func TestFinalizeLegacyMigrations(t *testing.T) {
 			if !tt.wantMoved {
 				require.NoError(t, err, "a migration that may not have finished must keep its tracker")
 				for _, dir := range staged {
-					require.DirExists(t, filepath.Join(lsm, dir), "and its staged data")
+					require.NoDirExists(t, filepath.Join(lsm, dir), "the load sweep deletes data no view names")
 				}
 				return
 			}
@@ -194,4 +194,20 @@ func legacyFinalizeSearch(t *testing.T, ctx context.Context, shard *Shard, class
 		additional.Properties{}, nil)
 	require.NoError(t, err)
 	return found
+}
+
+func TestPropertyIndexRemoved(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		setting  *bool
+		expected bool
+	}{
+		{name: "nil setting", setting: nil, expected: false},
+		{name: "true setting", setting: boolPtr(true), expected: false},
+		{name: "false setting", setting: boolPtr(false), expected: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, propertyIndexRemoved(tt.setting))
+		})
+	}
 }

@@ -169,3 +169,7 @@ func (f legacyMigrationFinalizer) promote(code MigrationStrategyCode, prop, stag
 	}
 	return nil
 }
+
+func propertyIndexRemoved(propertyIndexSetting *bool) bool {
+	return propertyIndexSetting != nil && !*propertyIndexSetting
+}
