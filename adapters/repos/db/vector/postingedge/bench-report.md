@@ -3096,6 +3096,89 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 
 **Orden.** Cuando acabe la cadena en curso: compilar (el mismo binario lleva la medida del cerrojo), humo a 100k, la medida de las retenciones del cerrojo, y esta tanda: 1M y después 10M.
 
+#### Insert en dos tiempos: resultado a 1M, y la referencia del constructor en lote (28 de noviembre a las 13:51; la matriz de 10M sigue en la cadena, y el diseño de la autorreparación va con ella)
+
+**El índice.** dbpedia, 1 536 dimensiones, 990 000 vectores crecidos con 8 llamadores y doc ids densos: 4 107 postings vivos de 241 miembros, 8.96 aristas por vector, 47 508 vectores sin ninguna (4.8 %). 1 000 queries, rescore 64. **Hoy:** 0.95 con ef 20 y 18.51 cargas; 0.99 con ef 154 y 69.60 cargas. La copia en memoria busca como el índice (humo de 100k: mismo ef y mismas cargas).
+
+**1. Cobertura:** de las aristas de hoy, las que llevan a un posting del grupo del posting de su vector.
+
+| grupo | por centroides: aristas | media por vector | vectores con ≥ 90 % | con todas | por aristas de los compañeros: aristas | media por vector | con ≥ 90 % | con todas |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 32 | 59.8 % | 65.2 % | 31.5 % | 27.0 % | 65.2 % | 71.0 % | 37.4 % | 32.1 % |
+| 64 | 70.5 % | 75.0 % | 42.8 % | 36.3 % | 75.5 % | 80.1 % | 49.9 % | 42.3 % |
+| 128 | 79.8 % | 83.2 % | 56.1 % | 47.3 % | 83.7 % | 87.0 % | 62.8 % | 53.0 % |
+| 256 | 87.2 % | 89.5 % | 70.3 % | 60.6 % | 89.2 % | 91.4 % | 73.6 % | 63.0 % |
+| 320 | 89.1 % | 91.1 % | 74.4 % | 64.8 % | 90.4 % | 92.3 % | 76.0 % | 65.3 % |
+
+- Con grupos de 64, tres de cada diez aristas de hoy quedan fuera, y solo el 36 % de los vectores tiene todas las suyas dentro. Con 320, que es el 7.8 % del índice, aún queda fuera una de cada diez.
+- El grupo por las aristas de los compañeros cubre 5 puntos más que el de centroides con 32 y 64, y 1 a 2 con 256 y 320.
+- A 100k (411 postings) un grupo de 64 cubría el 86.6 %: la cobertura de un grupo fijo cae con el tamaño del índice.
+
+**2. Tolerancia:** el X % más reciente sin aristas, ni de salida ni inversas hacia ellos.
+
+| sin aristas | vectores sin ninguna | 0.95: ef, cargas | frente a hoy | 0.99: ef, cargas | frente a hoy | recall con ef 20 |
+| --- | --- | --- | --- | --- | --- | --- |
+| hoy | 47 508 | 20, 18.51 | | 154, 69.60 | | 0.9503 |
+| 5 % | 96 977 | 24, 20.09 | +8.5 % | 234, 90.19 | +29.6 % | 0.9440 |
+| 10 % | 146 502 | 29, 21.92 | +18.4 % | 308, 106.65 | +53.2 % | 0.9364 |
+| 25 % | 295 595 | 55, 30.34 | +63.9 % | 787, 191.78 | +175.5 % | 0.9164 |
+| 50 % | 545 668 | 187, 54.45 | +194.1 % | 1 991, 309.08 | +344.1 % | 0.8535 |
+
+- Con el 5 % ya está fuera de la regla del 5 %: el índice no tolera pendientes sin aristas, y a 0.99 menos todavía.
+
+**3. Referencia: la fase de aristas del constructor en lote**, cronometrada sobre los mismos 990 000 vectores (10 procesadores).
+
+| etapa | segundos | CPU | por vector |
+| --- | --- | --- | --- |
+| partición | 50 | 214 s | |
+| asignación | 118 | 1 118 s | 1.13 ms |
+| códigos | 1.4 | 13 s | |
+| **aristas** | **195** | **1 864 s** | **1.88 ms, 5 073 vectores por segundo** |
+| todo | 365 | 3 211 s | |
+
+- Por vector: los miembros de sus 256 postings más cercanos (51 479 candidatos por código), 64 comparados exactamente, 8.97 aristas. Sin cargas: lo tiene todo en memoria. No hace aristas inversas.
+- **Un insert de hoy cuesta 9.4 ms de CPU** a 1M con 8 llamadores (7.7 con uno): cinco veces la fase de aristas del lote.
+
+**4. Estimación: eventos que conectan a los pendientes.** Cada evento carga su posting y su grupo una vez y conecta a todos sus pendientes: candidatos por código entre los miembros cargados, 64 comparados exactamente, las 16 más cercanas, y entra en las listas de sus vecinos como un insert.
+
+| pendientes, grupo | conectados por evento | cargas por vector | por código | exactas | vectores exactos distintos por vector | aristas propias | inversas | CPU por vector |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 5 %, 64 | 12.1 | 5.39 | 16 146 | 64 | 13.3 | 8.89 | 3.48 | 0.79 ms |
+| 10 %, 64 | 24.1 | 2.70 | 16 145 | 64 | 11.7 | 8.88 | 3.28 | 0.80 ms |
+| 25 %, 64 | 60.3 | 1.08 | 16 144 | 64 | 9.2 | 8.89 | 2.65 | 0.81 ms |
+| 50 %, 64 | 120.6 | 0.54 | 16 144 | 64 | 7.3 | 8.93 | 1.63 | 0.82 ms |
+| 10 %, 32 | 24.1 | 1.37 | 8 214 | 64 | 11.4 | 8.45 | 2.94 | 0.44 ms |
+| 10 %, 128 | 24.1 | 5.35 | 32 004 | 64 | 12.0 | 9.18 | 3.56 | 1.52 ms |
+
+- **Con 16, 32 y 64 pendientes por evento y grupos de 64:** 4.1, 2.0 y 1.0 cargas por vector (65 postings entre los pendientes; cada carga son dos filas), unas 12.8, 11.2 y 9.1 lecturas de vectores exactos por vector si el evento lee una vez cada uno, y **0.8 ms de CPU por vector sea cual sea el número de pendientes**: el coste es puntuar por código a los 16 000 miembros del grupo, 50 ns cada uno con todo lo demás dentro. Lo que se reparte entre los pendientes son las cargas y las lecturas, no el cálculo.
+- **Frente a hoy:** 0.8 ms contra 9.4 ms de CPU de un insert, y contra 1.88 ms de la fase de aristas del lote, que mira cuatro veces más postings.
+
+**Lo que recuperan esos eventos** (cargas frente a hoy, a 0.95 y a 0.99).
+
+| pendientes | sin aristas | eventos, 64 por centroides | 128 por centroides | 64 por aristas | 128 por aristas | 32 por centroides |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5 % | +8.5 %, +29.6 % | +4.6 %, +1.8 % | | | | |
+| 10 % | +18.4 %, +53.2 % | +4.1 %, +8.6 % | +4.0 %, +0.7 % | +7.1 %, +5.2 % | +3.9 %, +0.7 % | +6.6 %, +15.8 % |
+| 25 % | +63.9 %, +175.5 % | +13.8 %, +47.3 % | +9.5 %, +21.6 % | +12.0 %, +32.2 % | +12.4 %, +23.1 % | +20.8 %, +80.0 % |
+| 50 % | +194.1 %, +344.1 % | +34.4 %, +91.4 % | | | | |
+
+- **Dentro de la regla solo con el 5 %** (grupos de 64) **y con el 10 % si el grupo es de 128.** Con el 25 % conectado así, fuera en todas las celdas: las aristas que salen de un grupo son peores que las de una búsqueda, y se nota en cuanto son muchas.
+- **Las dos definiciones de grupo no se separan:** por aristas gana a 0.99 con el 25 % y grupos de 64 (+32 % contra +47 %) y pierde a 0.95 con el 10 %. Con 128 dan lo mismo.
+
+**5. Reconectar también a los antiguos, frente a conectar solo a los pendientes.** El evento que reconecta a todos los miembros del posting hace 241 vectores por evento en vez de 12 a 121: 20, 10, 4 y 2 veces el cálculo con el 5, 10, 25 y 50 % de pendientes. Un antiguo conserva las aristas que tenía si siguen entre sus más cercanas.
+
+| pendientes | solo pendientes, grupos de 64 | reconectando a todos | con grupos de 128: solo pendientes | a todos |
+| --- | --- | --- | --- | --- |
+| 5 % | +4.6 %, +1.8 % | +2.0 %, +9.1 % | | |
+| 10 % | +4.1 %, +8.6 % | +5.3 %, +10.3 % | +4.0 %, +0.7 % | +2.0 %, +9.2 % |
+| 25 % | +13.8 %, +47.3 % | +12.9 %, +30.7 % | +9.5 %, +21.6 % | +7.7 %, +13.0 % |
+| 50 % | +34.4 %, +91.4 % | +21.8 %, +86.8 % | | |
+
+- **Con pocos pendientes no compensa:** con el 5 y el 10 % gana 2 puntos a 0.95 en algunas celdas y pierde a 0.99. Gana con el 25 y el 50 %, donde de todos modos se está fuera.
+- **Sin pendientes** (reconectar el índice de hoy entero): +2.0 % y −0.0 % con grupos de 64, +2.0 % y −3.8 % con 128; las aristas por vector pasan de 8.96 a 9.73, y los vectores sin ninguna de 47 508 a 37 267. No es una mejora por sí misma.
+- **Tras borrados sí compensa.** Con el 10 % borrado al azar y sacado de las listas, las cargas suben +5.9 % y +10.3 %; reconectar a todos las deja en +2.9 % y +2.7 % sobre hoy. Con el 30 %: de +14.5 % y +18.7 % a +6.4 % y −1.5 %.
+- **Tras un split:** no lo simulé (lo dije en el pre-registro). Lo más cercano es reconectar el índice de hoy, que es todo él producto de splits.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

@@ -1,0 +1,35 @@
+=== RUN   TestSimBatchBuild
+time="2026-11-28T13:30:57+01:00" level=debug msg="Waiting for 1 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=1 limit=0 shard=
+time="2026-11-28T13:31:11+01:00" level=debug msg="Waiting for 2 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=2 limit=0 shard=
+time="2026-11-28T13:31:19+01:00" level=debug msg="Waiting for 4 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=4 limit=0 shard=
+time="2026-11-28T13:31:25+01:00" level=debug msg="Waiting for 8 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=8 limit=0 shard=
+time="2026-11-28T13:31:29+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:31+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:34+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:36+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:38+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:41+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:43+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:45+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:46+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:47+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:47+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:47+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:47+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:47+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:31:47+01:00" level=debug msg="posting-edge build stage done" action=posting_edge_build class= index_id=postingedge-test postings=4195 shard= stage=partition took=50.165617167s
+time="2026-11-28T13:31:47+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:33:45+01:00" level=debug msg="posting-edge build stage done" action=posting_edge_build class= index_id=postingedge-test postings=4195 shard= stage=assign took=1m57.767146583s
+time="2026-11-28T13:33:45+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:33:47+01:00" level=debug msg="posting-edge build stage done" action=posting_edge_build class= index_id=postingedge-test shard= stage=encode took=1.402111125s
+time="2026-11-28T13:33:47+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated class= index_id=postingedge-test jobs_count=10 limit=0 shard=
+time="2026-11-28T13:37:02+01:00" level=debug msg="posting-edge build stage done" action=posting_edge_build class= edges=8885237 index_id=postingedge-test shard= stage=edges took=3m15.134312166s
+time="2026-11-28T13:37:02+01:00" level=info msg="restored data from disk" action=restore_from_disk duration="399.459µs" index_id=centroids
+time="2026-11-28T13:37:02+01:00" level=debug msg="Waiting for 10 jobs to finish with limit 0" action=error_group_wait_initiated jobs_count=10 limit=0
+time="2026-11-28T13:37:02+01:00" level=debug msg="index grown from 1000 to 3000, took 2.125µs\n" action=hnsw_grow_index index_id=centroids new_size=3000 previous_size=1000 took="2.125µs"
+time="2026-11-28T13:37:02+01:00" level=debug msg="index grown from 3000 to 5000, took 2.5µs\n" action=hnsw_grow_index index_id=centroids new_size=5000 previous_size=3000 took="2.5µs"
+time="2026-11-28T13:37:02+01:00" level=debug msg="posting-edge build stage done" action=posting_edge_build class= index_id=postingedge-test shard= stage=centroid_graph took=192.403375ms
+time="2026-11-28T13:37:02+01:00" level=info msg="posting-edge index built" action=posting_edge_build class= edges=8885237 index_id=postingedge-test postings=4195 shard= took=6m4.665659625s vectors=990000
+    bench_sim_test.go:1247: 990000 vectors in 4195 postings: partition 50s, assign 1m58s, edges 3m15s (5073 vectors a second, 256 postings and 51479 candidates by code and 64 exact a vector), in all 6m5s
+--- PASS: TestSimBatchBuild (368.52s)
+PASS

@@ -1,0 +1,54 @@
+{
+  "assignSeconds": 117.767146583,
+  "buildProbe": 256,
+  "candidatesRescoredPerVector": 64,
+  "candidatesScoredPerVector": 51479.173492929294,
+  "centroidGraphSeconds": 0.192403375,
+  "cpuSeconds": 3211.49328625,
+  "cpuSecondsBefore": 4.222763958,
+  "dataset": "/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.bin",
+  "edgeSeconds": 195.134312166,
+  "edgeVectorsPerSecond": 5073.428599055459,
+  "edges": 8885237,
+  "edgesPerVector": 8.97498686868687,
+  "encodeSeconds": 1.402111125,
+  "gomaxprocs": 10,
+  "partitionSeconds": 50.165617167,
+  "postings": 4195,
+  "postingsProbedPerVector": 256,
+  "rescueLimit": 64,
+  "seconds": 364.66573925,
+  "stages": [
+    {
+      "atSeconds": 50.176271333,
+      "cpuSecondsSoFar": 218.656306499,
+      "stage": "partition",
+      "took": "50.165617167s"
+    },
+    {
+      "atSeconds": 167.943491875,
+      "cpuSecondsSoFar": 1336.948989207,
+      "stage": "assign",
+      "took": "1m57.767146583s"
+    },
+    {
+      "atSeconds": 169.336675208,
+      "cpuSecondsSoFar": 1350.286306124,
+      "stage": "encode",
+      "took": "1.402111125s"
+    },
+    {
+      "atSeconds": 364.471059417,
+      "cpuSecondsSoFar": 3213.985777791,
+      "stage": "edges",
+      "took": "3m15.134312166s"
+    },
+    {
+      "atSeconds": 364.665683917,
+      "cpuSecondsSoFar": 3215.715973207,
+      "stage": "centroid_graph",
+      "took": "192.403375ms"
+    }
+  ],
+  "vectors": 990000
+}
