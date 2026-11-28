@@ -1,0 +1,11 @@
+=== RUN   TestIntegrationScale
+    bench_test.go:2318: brute-forcing the ground truth over 100000 vectors
+    bench_integration_test.go:425: the base: 10000 vectors in 43 postings, built in 1s once the vector that completed it was in
+    bench_integration_test.go:454: 100000 of 100000 in (100.0 %): 1168 inserts a second in this stretch, 1188 since the base | 791 postings given out, 374 splits | 1 passes over the vectors, 40020 of 100000 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:840: settled in 1s, with other runs on the machine: 0 refreshes of edges ended, 0 vectors refreshed with 0 loads, 0 lists changed and 0 inverse edges entered
+    bench_integration_test.go:848: grown: 100000 vectors, 791 postings given out, 374 splits, 0.7 GB in its directory
+    bench_integration_test.go:536: grown: coverage complete | 1 segments of postings, left as one 0 times since the index was opened | generation 3 of the vectors, 100000 of 100000 in the order of their postings | 374 deleted centroids in the graph | 9.0 MB of routing codes in memory
+    bench_integration_test.go:598: grown, ef 40: recall 0.9886, 20.26 loads a query in 4.82 rounds, 0 of 1000 queries answered otherwise the second time
+    bench_integration_test.go:598: grown, ef 160: recall 0.9973, 49.56 loads a query in 12.14 rounds, 0 of 1000 queries answered otherwise the second time
+--- PASS: TestIntegrationScale (89.42s)
+PASS

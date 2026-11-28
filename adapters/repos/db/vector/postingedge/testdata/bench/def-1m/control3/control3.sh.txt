@@ -1,0 +1,51 @@
+#!/bin/bash
+# Amendment 2 of the control of the start of the 1M curve (bench-report.md of
+# feat/posting-edge-index, "Control del arranque, enmienda 1: resultado, y
+# enmienda 2", pre-registered on 2026-11-28): the harness of the measure at
+# 100k of the 27th (TestIntegrationScale, with the options of steps.sh) with
+# the code of today: integ.test, built before from integration at 20e89f0873.
+# Two passes with 8 callers, one more with GODEBUG=gctrace=1 to count the
+# collections, and one with 1 caller. Timed: marker, idle wait, caffeinate.
+# Each index is removed once its pass ends.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/def1m/control3
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+PKG=$S/prop/integ/adapters/repos/db/vector/postingedge
+mkdir -p $W
+
+printf 'amendment 2 of the control of the start of the 1M curve (def1m/control3.sh), timed, since %s for about a quarter of an hour; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+clear_index() {
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/def1m/control3 -type d -name index -prune -exec rm -rf {} +
+}
+
+pass() { # name callers godebug
+  local C=$W/$1 callers=$2 godebug=$3
+  mkdir -p $C/index
+  date "+== %Y-%m-%d %H:%M:%S $1: $callers callers, GODEBUG '$godebug' (idle $(hid_idle) s)"
+  (cd $PKG && exec env GODEBUG=$godebug $S/def1m/integ.test -test.run '^TestIntegrationScale$' \
+    -bench.dataset $D -bench.limit 100000 -bench.queries 1000 -test.v -test.timeout 0 \
+    -bench.integrationdir $C/index -bench.integrationout $C/result.json -bench.integrationbase 10000 \
+    -bench.integrationwriters $callers -bench.integrationcycles -bench.integrationdelete 0 -bench.integrationreopen=false \
+    -bench.integrationefs 40,160 > $C/run.log 2>&1) &
+  local pid=$!
+  python3 -I -B $S/def1m/monitor.py $pid $C/monitor.jsonl 10 > $C/monitor.err 2>&1 &
+  wait $pid
+  echo "$1 exit $?"
+  wait
+  clear_index
+}
+
+pass c8-1 8 ''
+pass c8-2 8 ''
+pass c8-gc 8 gctrace=1
+pass c1 1 ''
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $W/end.txt
+pmset -g log 2>/dev/null | grep -E '^[0-9-]+ [0-9:]+ \+[0-9]+ (Sleep|Wake|DarkWake)' | tail -n 5 > $W/pmset-sleep-wake.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

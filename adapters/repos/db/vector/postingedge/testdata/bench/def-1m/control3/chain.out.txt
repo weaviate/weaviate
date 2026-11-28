@@ -1,0 +1,11 @@
+== 09:12:18 waiting for 900 s of idle (now 481 s)
+== 2026-11-28 09:19:19 idle for 902 s
+== 2026-11-28 09:19:19 c8-1: 8 callers, GODEBUG '' (idle 902 s)
+c8-1 exit 0
+== 2026-11-28 09:20:50 c8-2: 8 callers, GODEBUG '' (idle 992 s)
+c8-2 exit 0
+== 2026-11-28 09:22:20 c8-gc: 8 callers, GODEBUG 'gctrace=1' (idle 1083 s)
+c8-gc exit 0
+== 2026-11-28 09:23:50 c1: 1 callers, GODEBUG '' (idle 1173 s)
+c1 exit 0
+== 2026-11-28 09:28:40 done (idle 1463 s)

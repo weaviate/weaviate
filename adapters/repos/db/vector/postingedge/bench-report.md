@@ -2519,6 +2519,49 @@ A igual ef, recall y cargas de los tres crecidos:
 
 **Datos:** `testdata/bench/def-1m/control2/`.
 
+#### Control del arranque, enmienda 2: resultado (28 de noviembre, cerrado a las 09:29)
+
+**El código de hoy no es más lento: en el arnés de la medida de 100k da 1 188 inserts por segundo con 8 llamadores y 334 con 1, donde el 27 dio 1 198 y 324. La diferencia con la cadena es del arnés. Las cifras de 1M valen como están, con dos notas: son las de un store con las opciones y los ciclos de un shard, en un proceso sin nada más en el heap; y la de 100k del 27 era optimista para un nodo.**
+
+**La corrida,** de 09:19:19 a 09:28:40, cuatro pasadas sin error y sin teclado ni trackpad: 902 s sin tocar al empezar y 1 463 al acabar. Binario de integración en `20e89f0873`, con las opciones de `steps.sh`.
+
+| pasada | llamadores | inserts/s, reloj de los inserts | inserts/s, tramo entero | búsqueda del plan, ms por insert | cargas por insert | recolecciones por segundo | recall a ef 40 y 160 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| C | 8 | 1 190 | 1 169 | 4.01 | 43.12 | | 0.9892 y 0.9972 |
+| C | 8 | 1 188 | 1 168 | 4.03 | 43.14 | | 0.9886 y 0.9973 |
+| C, con `gctrace` | 8 | 1 184 | 1 164 | 4.02 | 43.21 | 5.5 | 0.9886 y 0.9975 |
+| C | 1 | 334 | 332 | 2.79 | 43.19 | | 0.9891 y 0.9976 |
+| el 27, `s5` | 8 | 1 198 | 1 176 | 3.94 | 43.22 | sin contar | 0.9885 y 0.9880, y 0.9974 y 0.9977 |
+| el 27, `s5` | 1 | 324 | 322 | 2.89 | 43.14 | sin contar | 0.9885 y 0.9884, y 0.9975 y 0.9970 |
+
+**Frente a lo que esperaba:** con 8, entre 1 150 y 1 220, y salieron 1 184 a 1 190; con 1, entre 315 y 330, y salieron 334; de 3 a 5 recolecciones por segundo, y fueron 5.5.
+
+**El mismo crecimiento, de 10 000 a 100 000 vectores densos con 8 llamadores, por arnés:**
+
+| | inserts/s | búsqueda del plan, ms | recolecciones por segundo |
+|---|---:|---:|---:|
+| el arnés de la medida de 100k, código de hoy | 1 188 | 4.02 | 5.5 |
+| el arnés de la noche, `GOGC=500` | 955 | 5.19 | 1.2 |
+| el arnés de la noche | 857 | 6.03 | 17 |
+| el arnés de la noche, doc ids repartidos, como en la cadena | 796 | 6.49 | 13 |
+
+- **De los 331 inserts por segundo que separan los dos arneses, 98 son del recolector** y 233 quedan sin separar, entre lo que queda de la lista: los ciclos del store corriendo a la vez o entre rondas y fuera del reloj, y las opciones de los buckets.
+  - **No es el recolector solo:** con `GOGC=500` el arnés de la noche recoge menos veces que el de 100k, 1.2 frente a 5.5 por segundo, y aun así tarda 5.19 ms por búsqueda frente a 4.02.
+  - Leer las filas del fichero no puede ser: son 100 lecturas de 6 KB de la caché por cada 100 inserts.
+- **Los doc ids repartidos son otros 61,** un 7 %.
+
+**Qué cambia en las cifras de 1M.**
+- **Nada en las cifras:** la cadena se hizo con el arnés de la noche, que abre el store con las opciones de un shard y con sus ciclos en los relojes de un nodo. Es el que se parece a un shard.
+- **Dos notas que hay que leer con ellas:**
+  1. **El recolector.** En la cadena corrió 14 veces por segundo al empezar y 5 al acabar con 8 llamadores, porque el proceso no tiene nada más en el heap. A 100k, 17 veces por segundo cuestan un 11 % con 8 llamadores y un 6 % con 1. A 1M no lo medí: la pasada con `GOGC=500` tenía una condición que no se cumplió. Un nodo con más cosas vivas en el heap recoge menos veces.
+  2. **Los doc ids.** El arnés los reparte por todo el rango y un shard los da en orden: a 100k eso cuesta un 7 % con 8 llamadores y un 13 % con 1. Al final de la curva de 1M las tablas son las mismas en los dos casos.
+- **La cifra de 100k del 27, 1 180 por segundo, era optimista para un nodo** por su arnés. Los pasos de la serie se compararon entre sí con el mismo arnés: sus razones valen.
+- **Lo que lo cierra es la medida de punta a punta por un shard,** de la segunda parte.
+
+**Lo que no sé.** Cómo se reparten los 233 inserts por segundo entre los ciclos y las opciones de los buckets. El diagnóstico midió a 100k de wiki-dpr que una fila se lee de 2.7 segmentos en el arnés de la noche; el arnés de 100k deja el bucket de postings en un segmento. No lo he medido aquí.
+
+**Datos:** `testdata/bench/def-1m/control3/` (por pasada, `result.json`, `run.log` y `monitor.jsonl.gz`; `chain.out.txt`, `control3.sh.txt`, `control3.py`).
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
