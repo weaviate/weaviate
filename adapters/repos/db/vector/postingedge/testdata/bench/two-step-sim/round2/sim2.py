@@ -75,9 +75,10 @@ for path in sys.argv[1:]:
         v = s.get("provisional")
         if v and v["vectors"]:
             n = v["vectors"]
-            cells.append("%.0f, %.0f, %.2f, %.1f, %d, in %.2f" % (
+            cells.append("%.0f, %.0f, %.2f, %.1f, %d, in %.2f, notices %.2f (%d hold some, most %d)" % (
                 v["companionsScoredByCode"] / n, v["endpointsScoredByCode"] / n, v["edges"] / n, 1e6 * v["cpuSeconds"] / n,
-                v["vectorsLeftWithNone"], v.get("inverseEdges", 0) / n))
+                v["vectorsLeftWithNone"], v.get("inverseEdges", 0) / n, v.get("notices", 0) / n,
+                v.get("vectorsWithNotices", 0), v.get("mostNoticesOnAVector", 0)))
         else:
             cells.append("")
         c = s.get("events")

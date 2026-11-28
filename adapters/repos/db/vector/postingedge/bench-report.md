@@ -3304,6 +3304,76 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 
 **Orden.** Detrás de HFresh a 10M.
 
+#### La puerta del insert en dos tiempos: no pasa. Veredicto a 1M, con la segunda tanda entera (28 de noviembre a las 15:44; la parte de 10M sigue en la cadena y ya no decide)
+
+**Veredicto.** A 1M fallan las dos filas que deciden la puerta, y también las que añadí al lado. El prototipo del insert en dos tiempos queda parado, como fija el encargo. Las medidas de la base siguen.
+
+**Las filas que deciden** (dbpedia 1M, 1 000 queries, rescore 64; umbrales: +5 % a 0.95 y +10 % a 0.99 sobre hoy; CPU no mayor que la del lote).
+
+| | cargas a 0.95 | cargas a 0.99 | CPU por vector | |
+| --- | --- | --- | --- | --- |
+| hoy, crecido por inserts | 18.51 | 69.60 | 9.4 ms un insert | |
+| **el índice en lote del mismo tamaño** (v4.0, 5 000 queries) | 18.59 (+0.4 %) | 76.30 (+9.6 %) | 1.88 ms su fase de aristas | |
+| todo por eventos, grupos de 64 | 31.58 (+70.6 %) | 180.18 (+158.9 %) | 0.81 ms | fuera |
+| grupos de 128 | 23.18 (+25.2 %) | 143.50 (+106.2 %) | 1.60 ms | fuera |
+| grupos de 256 | 21.53 (+16.3 %) | 100.38 (+44.2 %) | 3.15 ms | fuera, y más CPU que el lote |
+| candidatos por vector: 64 dentro de 128 | 23.58 (+27.3 %) | 164.38 (+136.2 %) | 0.86 ms | fuera |
+| 64 dentro de 256 | 22.19 (+19.9 %) | 116.39 (+67.2 %) | 0.91 ms | fuera |
+| 128 dentro de 256 | 21.51 (+16.2 %) | 106.59 (+53.1 %) | 1.72 ms | fuera |
+| **provisionales (solo de salida, k = 16) con el 10 % pendiente** | 21.49 (+16.1 %) | 106.83 (+53.5 %) | 0.06 ms | fuera |
+
+- **El lote, al lado de hoy** (pedido por el usuario): a 1M queda a +0.4 % y +9.6 % de hoy, con otro juego de queries. **A 10M, con rescore 150 y las mismas 1 000 queries: el lote 20.70 y 88.87 cargas, hoy 19.53 y 62.90.** El índice crecido por inserts es mejor que el lote a 0.99, y a 10M mucho mejor (el lote necesita un 41 % más de cargas): el lote no hace aristas inversas.
+- **Ninguna configuración que cargue 256 postings pasa a 1M,** así que por la regla escrita no corren a 10M.
+
+**Punto 1 del encargo: la tabla de tolerancia con provisionales** (cargas frente a hoy, a 0.95 y a 0.99).
+
+| pendientes | sin aristas | provisionales, solo de salida | además entran por código en las listas de sus vecinos | eventos encima de las provisionales (grupos de 64) | eventos sin provisionales |
+| --- | --- | --- | --- | --- | --- |
+| 5 % | +8.5 %, +29.6 % | +8.6 %, +29.7 % | +9.2 %, +11.8 % | +4.5 %, +1.9 % | +4.6 %, +1.8 % |
+| 10 % | +18.4 %, +53.2 % | +16.1 %, +53.5 % | +11.5 %, +21.3 % | +4.2 %, +8.3 % | +4.1 %, +8.6 % |
+| 25 % | +63.9 %, +175.5 % | +62.5 %, +165.1 % | +33.6 %, +126.1 % | +13.8 %, +30.4 % | +13.8 %, +47.3 % |
+| 50 % | +194.1 %, +344.1 % | +199.2 %, +345.9 % | +122.4 %, +228.4 % | +28.9 %, +86.5 % | +34.4 %, +91.4 % |
+
+- **Las provisionales solo de salida no aportan nada:** igual que sin aristas en todas las filas, y con k = 4 o k = 64 lo mismo (+18.4 % y +53.4 %; +16.4 % y +53.5 %). Lo que se pierde con un vector pendiente son las aristas que llevan hasta él.
+- **Entrando por código en las listas de los vecinos** (la variante que añadí; 4.1 listas por vector) mejora a 0.99, de +53.5 % a +21.3 % con el 10 %, y sigue fuera.
+- **Los eventos encima recuperan lo mismo con provisionales que sin ellas** cuando hay pocos pendientes; con el 25 % las provisionales ayudan a 0.99 (+30.4 % contra +47.3 %).
+- **Coste de una provisional:** 241 compañeros y 99 extremos puntuados por código, 15.7 aristas, 61 µs de CPU; 362 de 99 000 vectores se quedan sin ninguna.
+
+**Puntos 2 y 3: todo por eventos, y candidatos por vector.** La tabla de arriba. Además:
+- **En 10 oleadas** por orden de llegada, con grupos de 64: +50.5 % y +153.5 %. El orden ayuda (frente a +70.6 % y +158.9 % de una pasada) y no cambia el resultado.
+- **Los candidatos por vector valen cuando hay pocos pendientes.** Con el 10 % pendiente, puntuar 64 postings dentro de 128 o de 256 cargados da +4.0 % y +2.4 %, y +4.4 % y +1.3 %, con 0.86 y 0.90 ms: la calidad del grupo grande con el cálculo del pequeño (64 enteros: +4.1 % y +8.6 % con 0.80 ms; 128 enteros: +4.0 % y +0.7 % con 1.52 ms; 256 enteros: +1.7 % y −0.8 % con 3.01 ms). Con el 25 %: 64 dentro de 256 da +9.7 % y +18.0 %, contra +13.8 % y +47.3 % de 64 enteros. Las cargas del evento son las del grupo grande.
+- **Con todo pendiente no alcanzan:** 128 dentro de 256 iguala a 256 enteros a 0.95 (+16.2 %) con la mitad de CPU, y queda en +53.1 % a 0.99.
+
+**El insert en dos tiempos tal como correría** (10 oleadas: provisionales al llegar y eventos encima que las comparan exactamente; no decide la puerta).
+
+| | todo conectado | con la última oleada pendiente | CPU del evento por vector |
+| --- | --- | --- | --- |
+| grupos de 64 | +50.4 %, +154.2 % | +72.0 %, +180.5 % | 0.49 ms |
+| 64 dentro de 128 | +20.6 %, +105.6 % | +42.4 %, +144.5 % | 0.53 ms |
+| grupos de 64, las provisionales entran por código en sus vecinos | +50.1 %, +143.3 % | +58.1 %, +147.8 % | 0.49 ms |
+
+**Punto 4: el reparto de los recientes.**
+
+| el 10 % | fracción de un posting: p10, p50, p90, máximo | postings sin ninguno | aristas de salida por vector | aristas que llevan a él |
+| --- | --- | --- | --- | --- |
+| más reciente | 0.070, 0.100, 0.134, 0.243 | 1 de 4 107 | 9.59 | 4.53 |
+| al azar | 0.074, 0.099, 0.126, 0.214 | 0 | 8.97 | 8.05 |
+
+- **Se reparten casi como al azar** entre los postings, también con el 5, el 25 y el 50 %. Lo que distingue a los recientes es que les llegan la mitad de aristas.
+- **Quitar las aristas al azar cuesta parecido:** +11.0 % y +16.9 % con el 5 % (recientes: +8.5 % y +29.6 %), +23.4 % y +55.2 % con el 10 % (+18.4 % y +53.2 %), +78.9 % y +169.8 % con el 25 % (+63.9 % y +175.5 %), +215.3 % y +341.3 % con el 50 % (+194.1 % y +344.1 %).
+
+**Qué falla, en una frase cada cosa.**
+- **Un evento solo ve el grupo que rodea al centroide de su posting,** y ese grupo no contiene las aristas que hacen falta: el 70, 80 y 87 % de las de hoy con 64, 128 y 256 postings a 1M, y el 57, 67 y 76 % a 10M. El lote mira los 256 postings más cercanos al vector, no al centroide, y con eso queda a +0.4 % y +9.6 %; el evento, con 256 alrededor del centroide, a +16 % y +44 %.
+- **El error se acumula:** un 10 % conectado por eventos sobre un índice hecho por búsqueda aguanta (+4 % y +8 %); todo conectado por eventos no, porque ningún vecino tiene ya aristas de la calidad de una búsqueda de las que tirar.
+- **Las provisionales no llevan a nadie hasta el vector** si no entran en las listas de los demás, y entrando por código tampoco llegan.
+
+**Lo que sí queda en pie.** Los eventos conectan barato (0.8 ms de CPU por vector, contra 9.4 de un insert) un resto pequeño de pendientes sobre un índice hecho por búsqueda: hasta el 5 % con grupos de 64, o el 10 % con 64 dentro de 128, a 1M. No sirven para construir el índice.
+
+**Plan B, el del encargo: las palancas pequeñas en la rama nueva,** cada una con la medida que ya tiene en el informe.
+1. **La marca de borrado fuera del bucle por miembro:** 51.5 ns por miembro a 10M, 1.46 ms por plan, el 10 % del plan.
+2. **El posting en la arista,** y encima la medida de las tablas compactas por doc id: seguir aristas cuesta por el tamaño de las tablas, 6.8 a 20.9 ns por arista.
+3. **Aplicar el lote soltando el cerrojo entre inserts,** con la cuota del volcado por presupuesto: p99 de la espera de una query 15 ms y máximo 355 ms a 10M.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

@@ -37,8 +37,8 @@ for path in paths:
     for name, s in sc.items():
         kind = name.split(":")[0]
         everything = kind in ("po", "pv") and name.split(":")[1] == "100"
-        if not everything and name not in ("prov:10:16", "provi:10:16") and kind not in (
-                "evprov", "proto", "protop", "protoi", "protoip"):
+        if not everything and name not in ("prov:10:16", "provi:10:16", "provn:10:16") and kind not in (
+                "evprov", "proto", "protop", "protoi", "protoip", "proton", "protonp"):
             continue
         deltas = []
         for target in (0.95, 0.99):
