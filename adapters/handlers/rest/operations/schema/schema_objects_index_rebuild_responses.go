@@ -278,7 +278,7 @@ func (o *SchemaObjectsIndexRebuildConflict) WriteResponse(rw http.ResponseWriter
 const SchemaObjectsIndexRebuildUnprocessableEntityCode int = 422
 
 /*
-SchemaObjectsIndexRebuildUnprocessableEntity Invalid `indexName` path value.
+SchemaObjectsIndexRebuildUnprocessableEntity Invalid `indexName` path value, or two tenant replicas would share one reindex unit ID (`<tenant>__<node>`), which needs a `__` inside a tenant or node name or a node name that starts with `_`.
 
 swagger:response schemaObjectsIndexRebuildUnprocessableEntity
 */

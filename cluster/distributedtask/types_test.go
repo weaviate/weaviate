@@ -180,3 +180,20 @@ func unitPerGroup(groups []string) map[string]*Unit {
 	}
 	return units
 }
+
+func TestAddUnitsIndexesLikeIndexGroups(t *testing.T) {
+	task := &Task{Units: map[string]*Unit{"a1": {ID: "a1", GroupID: "a"}}}
+	task.IndexGroups()
+	task.addUnits([]*Unit{{ID: "b1", GroupID: "b"}, {ID: "b2", GroupID: "b"}})
+
+	want := &Task{Units: task.Units}
+	want.IndexGroups()
+	require.Equal(t, want.groupCount, task.groupCount)
+	require.Len(t, task.groups, len(want.groups))
+	for g, ids := range want.groups {
+		require.ElementsMatch(t, ids, task.groups[g])
+	}
+
+	task.decideSwap("a", time.Time{})
+	require.False(t, task.AllGroupsSwapDecided(), "the added group is still undecided")
+}

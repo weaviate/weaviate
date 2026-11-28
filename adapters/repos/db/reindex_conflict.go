@@ -14,10 +14,13 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // ReindexBucketEffect is the single source of truth for which buckets a
@@ -119,6 +122,50 @@ func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distrib
 		}
 	}
 	return nil
+}
+
+// AddMissingGroups returns a pending unit per replica node for each tenant in state that task lacks. It skips
+// a tenant whose newest decided swap in collectionTasks came from a paidBy run owing it no swap. It
+// returns ErrTaskTenantsNotHot when a tenant it would give a unit is not HOT, and ErrTaskUnitIDTaken when
+// two replicas would share a unit ID.
+func (ReindexDetector) AddMissingGroups(task *distributedtask.Task, paidBy []uint64,
+	collectionTasks []*distributedtask.Task, state *sharding.State,
+) ([]*distributedtask.Unit, error) {
+	added := map[string]*distributedtask.Unit{}
+	for tenant := range state.Physical {
+		if task.HasGroup(tenant) || stillPaid(tenant, paidBy, collectionTasks) {
+			continue
+		}
+		shard := state.Physical[tenant]
+		for _, node := range shard.BelongsToNodes {
+			if node == "" {
+				continue
+			}
+			// The tenant has no group yet, so an existing unit with this ID is another tenant's.
+			id := MigrationUnitID(tenant, node)
+			if task.Units[id] != nil || added[id] != nil {
+				return nil, distributedtask.NewUnitIDTakenError(state.IndexID, id)
+			}
+			if !reindexableTenantStatus(shard.Status) {
+				return nil, distributedtask.NewTenantsNotHotError(state.IndexID)
+			}
+			added[id] = &distributedtask.Unit{ID: id, GroupID: tenant, Status: distributedtask.UnitStatusPending}
+		}
+	}
+	return slices.Collect(maps.Values(added)), nil
+}
+
+func stillPaid(tenant string, paidBy []uint64, collectionTasks []*distributedtask.Task) bool {
+	if len(paidBy) == 0 {
+		return false
+	}
+	var newest *distributedtask.Task
+	for _, t := range collectionTasks {
+		if t.GroupSwapDecided(tenant) && (newest == nil || t.Version > newest.Version) {
+			newest = t
+		}
+	}
+	return newest != nil && slices.Contains(paidBy, newest.Version) && len(newest.SwapsOwed[tenant]) == 0
 }
 
 // typesConflictReason returns a non-empty reason if two reindex migrations

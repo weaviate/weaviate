@@ -66,6 +66,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -509,6 +510,13 @@ func cancelThenResubmitWhileFinishedTenantIs(t *testing.T, parked string) {
 	helper.SetupClient(restURI)
 	helper.SetTenantsStatus(t, className, []string{"small"}, parked)
 	retry := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
+	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
+	require.True(t, ok)
+	idx := slices.IndexFunc(tasks["reindex"], func(task models.DistributedTask) bool { return task.ID == retry })
+	require.GreaterOrEqual(t, idx, 0)
+	for _, unit := range tasks["reindex"][idx].Units {
+		require.False(t, strings.HasPrefix(unit.ID, "small__"), "the resubmit must not rerun the tenant the cancelled run paid")
+	}
 	reindexhelpers.AwaitReindexFinished(t, restURI, retry, reindexhelpers.WithTimeout(10*time.Minute))
 	helper.SetTenantsStatus(t, className, []string{"small"}, models.TenantActivityStatusHOT)
 	for i := 1; i <= 3; i++ {

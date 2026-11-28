@@ -1370,8 +1370,11 @@ type AddDistributedTaskRequest struct {
 	UnitIds                 []string               `protobuf:"bytes,6,rep,name=unit_ids,json=unitIds,proto3" json:"unit_ids,omitempty"`
 	UnitSpecs               []*UnitSpec            `protobuf:"bytes,7,rep,name=unit_specs,json=unitSpecs,proto3" json:"unit_specs,omitempty"`
 	NeedsPreparationBarrier bool                   `protobuf:"varint,8,opt,name=needs_preparation_barrier,json=needsPreparationBarrier,proto3" json:"needs_preparation_barrier,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	AddMissingGroups        bool                   `protobuf:"varint,9,opt,name=add_missing_groups,json=addMissingGroups,proto3" json:"add_missing_groups,omitempty"`
+	// Versions of the runs whose swaps let the submitter leave tenants out of unit_specs.
+	PaidByVersions []uint64 `protobuf:"varint,10,rep,packed,name=paid_by_versions,json=paidByVersions,proto3" json:"paid_by_versions,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AddDistributedTaskRequest) Reset() {
@@ -1451,6 +1454,20 @@ func (x *AddDistributedTaskRequest) GetNeedsPreparationBarrier() bool {
 		return x.NeedsPreparationBarrier
 	}
 	return false
+}
+
+func (x *AddDistributedTaskRequest) GetAddMissingGroups() bool {
+	if x != nil {
+		return x.AddMissingGroups
+	}
+	return false
+}
+
+func (x *AddDistributedTaskRequest) GetPaidByVersions() []uint64 {
+	if x != nil {
+		return x.PaidByVersions
+	}
+	return nil
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
@@ -2644,7 +2661,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\"5\n" +
 	"\bUnitSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\xb7\x02\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\x8f\x03\n" +
 	"\x19AddDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2653,7 +2670,10 @@ const file_api_message_proto_rawDesc = "" +
 	"\bunit_ids\x18\x06 \x03(\tR\aunitIds\x12B\n" +
 	"\n" +
 	"unit_specs\x18\a \x03(\v2#.weaviate.internal.cluster.UnitSpecR\tunitSpecs\x12:\n" +
-	"\x19needs_preparation_barrier\x18\b \x01(\bR\x17needsPreparationBarrier\"\xe9\x01\n" +
+	"\x19needs_preparation_barrier\x18\b \x01(\bR\x17needsPreparationBarrier\x12,\n" +
+	"\x12add_missing_groups\x18\t \x01(\bR\x10addMissingGroups\x12(\n" +
+	"\x10paid_by_versions\x18\n" +
+	" \x03(\x04R\x0epaidByVersions\"\xe9\x01\n" +
 	"*RecordDistributedTaskNodeCompletionRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +

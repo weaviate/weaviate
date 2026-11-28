@@ -503,7 +503,7 @@ func NewSchemaObjectsIndexRebuildUnprocessableEntity() *SchemaObjectsIndexRebuil
 /*
 SchemaObjectsIndexRebuildUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid `indexName` path value.
+Invalid `indexName` path value, or two tenant replicas would share one reindex unit ID (`<tenant>__<node>`), which needs a `__` inside a tenant or node name or a node name that starts with `_`.
 */
 type SchemaObjectsIndexRebuildUnprocessableEntity struct {
 	Payload *models.ErrorResponse

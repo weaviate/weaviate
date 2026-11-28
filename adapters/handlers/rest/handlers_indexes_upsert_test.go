@@ -702,6 +702,37 @@ func dbWithTenants(t *testing.T, statuses map[string]string) *db.DB {
 	return database
 }
 
+// Non-semantic submits never reach AddMissingGroups, so the handler itself must refuse a shared unit ID.
+func TestSubmitReindexTaskRejectsReplicasSharingAUnitID(t *testing.T) {
+	hot := models.TenantActivityStatusHOT
+	// Tenant "x" on node "y__z" and tenant "x__y" on node "z" both give unit ID "x__y__z".
+	shardState := &sharding.State{Physical: map[string]sharding.Physical{
+		"x":    {BelongsToNodes: []string{"y__z"}, Status: hot},
+		"x__y": {BelongsToNodes: []string{"z"}, Status: hot},
+	}}
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.EXPECT().Read("C", true, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, shardState)
+		})
+	database := &db.DB{}
+	database.SetSchemaReader(reader)
+	h := &indexesHandlers{appState: &state.State{
+		Logger: logrus.New(), DB: database, ClusterService: &rCluster.Service{}, Authorizer: &collectionsOnly{},
+	}}
+	class := &models.Class{
+		Class:              "C",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		Properties:         []*models.Property{{Name: "p", DataType: []string{"text"}}},
+	}
+
+	resp := h.submitReindexTask(context.Background(), nil, class, "C", "p",
+		upsertPlan{migrationType: db.ReindexTypeEnableFilterable}, nil, nil)
+
+	code, body := statusOf(t, resp)
+	require.Equal(t, http.StatusUnprocessableEntity, code, "the submit went on with one replica left without a unit: %+v", body)
+}
+
 func TestValidateTenants(t *testing.T) {
 	database := dbWithTenants(t, map[string]string{
 		"hot":  models.TenantActivityStatusHOT,
@@ -871,6 +902,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 		tenants         []string
 		tasks           []*distributedtask.Task
 		want            []string
+		paidBy          []uint64
 		status          string
 		migrated, total int64
 	}{
@@ -904,6 +936,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 				run(2, failed, changeTok, field, "bc", "b"),
 			},
 			want:   []string{"c"},
+			paidBy: []uint64{1, 2},
 			status: "partial", migrated: 2, total: 3,
 		},
 		{
@@ -913,14 +946,16 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 				run(2, failed, changeTok, whitespace, "abc", "b"),
 			},
 			want:   []string{"b", "c"},
+			paidBy: []uint64{1},
 			status: "partial", migrated: 1, total: 3,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			database := dbWithTenants(t, map[string]string{"a": hot, "b": hot, "c": hot})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), target, "title", tc.tenants, tc.tasks)
+			got, paidBy, err := database.ShardReplicaOwnershipForMT(context.Background(), target, "title", tc.tenants, tc.tasks)
 			require.NoError(t, err)
 			require.Equal(t, map[string][]string{"node1": tc.want}, got)
+			require.Equal(t, tc.paidBy, paidBy, "the runs the apply checks each skip against")
 
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "C", "title", "filterable", db.ReindexRuns(tc.tasks), nil)
@@ -1042,7 +1077,7 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 			require.Empty(t, plan.conflict)
 			require.Equal(t, tc.mt, plan.migrationType)
 			database := dbWithTenants(t, map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusHOT})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), &db.ReindexTaskPayload{
+			got, _, err := database.ShardReplicaOwnershipForMT(context.Background(), &db.ReindexTaskPayload{
 				Collection: "C", MigrationType: plan.migrationType, TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
 			}, "p", nil, tasks)
 			require.NoError(t, err)
