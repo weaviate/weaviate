@@ -115,6 +115,34 @@ func (ReindexTaskRules) Ended(task *distributedtask.Task, existing []*distribute
 	return ruling
 }
 
+// IndexOff removes ended runs of that index type alone, since the returned Live covers them.
+func (ReindexTaskRules) IndexOff(collection, property, indexType string, existing []*distributedtask.Task,
+) (uint64, distributedtask.EndRuling) {
+	var live uint64
+	var covered distributedtask.EndRuling
+	for _, task := range existing {
+		h, ok := ReindexRunServingIndex(task, collection, property, indexType)
+		if !ok {
+			continue
+		}
+		live = max(live, h.Generation)
+		if types, _ := ReindexIndexTypes(h.MigrationType); task.Status.IsTerminal() && len(types) == 1 && len(h.Properties) == 1 {
+			covered.Remove = append(covered.Remove, task)
+		}
+	}
+	return live, covered
+}
+
+func ReindexRunServingIndex(task *distributedtask.Task, collection, property, indexType string) (ReindexTaskHeader, bool) {
+	h, ok := ReindexHeaderOf(task)
+	if !ok || h.Generation == 0 || len(task.SwapDecidedGroups) == 0 ||
+		!strings.EqualFold(h.Collection(), collection) || !slices.Contains(h.Properties, property) {
+		return ReindexTaskHeader{}, false
+	}
+	types, _ := ReindexIndexTypes(h.MigrationType)
+	return h, slices.Contains(types, indexType)
+}
+
 // BornSwitched holds for full runs, because a tenant created during one has nothing to build.
 func (ReindexTaskRules) BornSwitched(task *distributedtask.Task) bool {
 	h, ok := ReindexHeaderOf(task)

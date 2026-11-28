@@ -13,6 +13,7 @@ package db
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -222,7 +223,7 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // Must stay a pure function of (className, propertyName, existingTasks) for
 // RAFT determinism; an unparseable payload is a hard reject, same as
 // [ConflictDetector.CheckConflict].
-func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckPropertyUpdate(className, propertyName, indexOff string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
@@ -252,10 +253,21 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, nil, false); msg != "" {
+	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, IndexOffOfRun(indexOff), false); msg != "" {
 		return fmt.Errorf("%s", msg)
 	}
 	return nil
+}
+
+// IndexOffOfRun admits turning off an index a partial run builds, which then serves no tenant.
+func IndexOffOfRun(indexOff string) func(*ReindexRun) bool {
+	if indexOff == "" {
+		return nil
+	}
+	return func(run *ReindexRun) bool {
+		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
+		return slices.Contains(types, indexOff)
+	}
 }
 
 // CheckClassMutation implements

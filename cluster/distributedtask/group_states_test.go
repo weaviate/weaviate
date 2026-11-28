@@ -44,6 +44,10 @@ func (r *endRecordingRules) Ended(task *Task, existing []*Task) EndRuling {
 
 func (r *endRecordingRules) BornSwitched(*Task) bool { return r.born }
 
+func (r *endRecordingRules) IndexOff(string, string, string, []*Task) (uint64, EndRuling) {
+	return 0, EndRuling{}
+}
+
 func (r *endRecordingRules) Units(TaskHeader, *sharding.State) ([]UnitSpec, error) { return nil, nil }
 
 func newRulesTestManager(t *testing.T, rules *endRecordingRules, seed ...*Task) *Manager {

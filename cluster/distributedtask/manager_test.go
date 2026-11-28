@@ -1563,7 +1563,7 @@ type fakeSchemaMutationDetector struct {
 	rejectWith    error
 }
 
-func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error {
+func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName, _ string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
 	f.lastPropName = propertyName
@@ -1590,7 +1590,7 @@ func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenan
 func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	t.Run("no detectors registered → nil", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name", ""))
 	})
 
 	t.Run("detector returns nil → CheckPropertyUpdate returns nil", func(t *testing.T) {
@@ -1601,7 +1601,7 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		}
 		h.init(t)
 
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name", ""))
 		require.Equal(t, 1, detector.called,
 			"detector MUST be consulted exactly once per CheckPropertyUpdate")
 		require.Equal(t, "C", detector.lastClassName)
@@ -1618,7 +1618,7 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		}
 		h.init(t)
 
-		err := h.manager.CheckPropertyUpdate("C", "name")
+		err := h.manager.CheckPropertyUpdate("C", "name", "")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated conflict")
 	})
@@ -1629,7 +1629,7 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 			"reindex": nil,
 		}
 		h.init(t)
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name", ""))
 	})
 }
 
@@ -1669,7 +1669,7 @@ func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
 	idOf := map[string]string{"Foo": "same", "Bar": "other", "": "unknown"}
 	checks := map[string]func(m *Manager, d *fakeRemovalGate) error{
-		"property": func(m *Manager, _ *fakeRemovalGate) error { return m.CheckPropertyUpdate("foo", "name") },
+		"property": func(m *Manager, _ *fakeRemovalGate) error { return m.CheckPropertyUpdate("foo", "name", "") },
 		"class":    func(m *Manager, _ *fakeRemovalGate) error { return m.CheckClassMutation("foo") },
 		"tenant":   func(m *Manager, _ *fakeRemovalGate) error { return m.CheckTenantMutation("foo", []string{"t1"}) },
 		"vector config removal": func(m *Manager, _ *fakeRemovalGate) error {

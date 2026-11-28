@@ -713,12 +713,13 @@ func TestSchemaManagerReplicaAddRoutesByCommandType(t *testing.T) {
 // optionally rejects with a configured error. Used to pin the
 // SchemaManager.UpdateProperty guard call site (https://github.com/weaviate/0-weaviate-issues/issues/218).
 type recordingMutationGuard struct {
-	called      int
-	lastClass   string
-	lastProp    string
-	lastRemoved []string
-	lastShards  []string
-	rejectWith  error
+	called       int
+	lastClass    string
+	lastProp     string
+	lastIndexOff string
+	lastRemoved  []string
+	lastShards   []string
+	rejectWith   error
 
 	proposeCalled     int
 	rejectProposeWith error
@@ -734,10 +735,11 @@ func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string
 	return g.rejectMigrationWith
 }
 
-func (g *recordingMutationGuard) CheckPropertyUpdate(class, prop string) error {
+func (g *recordingMutationGuard) CheckPropertyUpdate(class, prop, indexOff string) error {
 	g.called++
 	g.lastClass = class
 	g.lastProp = prop
+	g.lastIndexOff = indexOff
 	return g.rejectWith
 }
 
@@ -903,6 +905,65 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 // (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). DeleteClass mid-reindex destroys
 // every property's bucket state at once; the guard rejection must
 // fire BEFORE any class-deletion side effect.
+func TestSchemaManager_UpdatePropertyTurnsIndexOff(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name         string
+		prop         models.Property
+		fields       []string
+		runLive      uint64 // what the task manager's IndexOff answers
+		wantIndexOff string
+		wantLive     map[string]map[string]uint64
+	}{
+		{
+			name: "filterable off raises Live to the run's generation", prop: models.Property{Name: "title", IndexFilterable: &off},
+			fields: []string{cmd.PropertyFieldIndexFilterable}, runLive: 2,
+			wantIndexOff: cmd.ReindexFilterable, wantLive: map[string]map[string]uint64{"title": {cmd.ReindexFilterable: 2}},
+		},
+		{
+			name: "searchable off", prop: models.Property{Name: "title", IndexSearchable: &off},
+			fields: []string{cmd.PropertyFieldIndexSearchable, cmd.PropertyFieldSearchableBlockmax}, runLive: 3,
+			wantIndexOff: cmd.ReindexSearchable, wantLive: map[string]map[string]uint64{"title": {cmd.ReindexSearchable: 3}},
+		},
+		{
+			name: "rangeable off", prop: models.Property{Name: "title", IndexRangeFilters: &off},
+			fields: []string{cmd.PropertyFieldIndexRangeFilters}, runLive: 1,
+			wantIndexOff: cmd.ReindexRangeable, wantLive: map[string]map[string]uint64{"title": {cmd.ReindexRangeable: 1}},
+		},
+		{
+			name: "no run serves the index", prop: models.Property{Name: "title", IndexFilterable: &off},
+			fields: []string{cmd.PropertyFieldIndexFilterable}, wantIndexOff: cmd.ReindexFilterable,
+		},
+		{
+			name: "a replace-all update is no index-off", prop: models.Property{Name: "title", IndexFilterable: &off}, runLive: 2,
+		},
+		{
+			name: "another field is no index-off", prop: models.Property{Name: "title", Tokenization: models.PropertyTokenizationField},
+			fields: []string{cmd.PropertyFieldTokenization}, runLive: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			guard, deleter := &recordingMutationGuard{}, &fakeCascadeDeleter{indexOffLive: tc.runLive}
+			sm := NewSchemaManager("test-node", nil, fakes.NewMockParser(), prometheus.NewPedanticRegistry(), logrus.New())
+			sm.SetMutationGuard(guard)
+			sm.SetDistributedTaskManager(deleter)
+			on := true
+			require.NoError(t, sm.schema.addClass(&models.Class{Class: "C", Properties: []*models.Property{{
+				Name: "title", DataType: []string{"text"}, IndexFilterable: &on, IndexSearchable: &on, IndexRangeFilters: &on,
+			}}}, &sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+			sub, err := json.Marshal(&cmd.UpdatePropertyRequest{Property: &tc.prop, FieldsToUpdate: tc.fields})
+			require.NoError(t, err)
+			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_PROPERTY, Class: "C", Version: 2, SubCommand: sub}
+			require.NoError(t, sm.UpdateProperty(req, true, false))
+
+			require.Equal(t, tc.wantIndexOff, guard.lastIndexOff)
+			require.Equal(t, tc.wantIndexOff != "", len(deleter.indexOff) == 1, "the task manager asked once per index-off")
+			require.Equal(t, tc.wantLive, sm.schema.ClassLive("C"))
+		})
+	}
+}
+
 func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	mkRequest := func(class string) *cmd.ApplyRequest {
 		return &cmd.ApplyRequest{
@@ -949,6 +1010,8 @@ type fakeCascadeDeleter struct {
 	collectionCalls []string
 	forgotten       []string
 	born            []string
+	indexOff        []string
+	indexOffLive    uint64
 	activeMatch     bool
 	purgeErr        error // non-sentinel purge failure
 	targetCalls     []struct {
@@ -968,6 +1031,11 @@ func (f *fakeCascadeDeleter) ForgetGroupsForCollection(collection string, groups
 
 func (f *fakeCascadeDeleter) MarkTenantsBornSwitched(collection string, tenants []string) {
 	f.born = append(f.born, collection+":"+strings.Join(tenants, ","))
+}
+
+func (f *fakeCascadeDeleter) TurnIndexOff(collection, property, indexType string) uint64 {
+	f.indexOff = append(f.indexOff, collection+":"+property+":"+indexType)
+	return f.indexOffLive
 }
 
 func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {

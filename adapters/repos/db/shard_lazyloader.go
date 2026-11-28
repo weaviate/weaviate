@@ -1057,6 +1057,15 @@ func (l *LazyLoadShard) hasGeoIndexForProp(propName string) bool {
 	return l.shard.hasGeoIndexForProp(propName)
 }
 
+func (l *LazyLoadShard) hasFilterableIndexForProp(propName string) bool {
+	return l.isLoaded() && l.shard.hasFilterableIndexForProp(propName)
+}
+
+func (l *LazyLoadShard) servedIndexName(propName, indexType string) string {
+	l.mustLoad()
+	return l.shard.servedIndexName(propName, indexType)
+}
+
 func (l *LazyLoadShard) Metrics() *Metrics {
 	l.mustLoad()
 	return l.shard.Metrics()

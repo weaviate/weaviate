@@ -941,9 +941,9 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 			run.Status = distributedtask.TaskStatusFinished
 			tasks := []*distributedtask.Task{run}
 
-			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", tasks), "the drop")
+			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", "", tasks), "the drop")
 			tc.drop(p)
-			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", tasks), "a change after the drop")
+			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", "", tasks), "a change after the drop")
 			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, p, "filterable", tasks, true)
 			require.NotErrorIs(t, err, errRebuildPropertyPartlyMigrated)
 			plan, err := resolveUpsertPlan(class, "C", p, tc.idx, tc.readd, tasks, true)
@@ -1000,7 +1000,7 @@ func TestPartialRunRefusalsCountTenantsOnlyForTenantReaders(t *testing.T) {
 			h := gateWithTasks(partial)
 			h.authorizer = authz
 			return h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
-				HTTPRequest: httptest.NewRequest(http.MethodDelete, "/", nil), ClassName: "C", PropertyName: "title", IndexName: "filterable",
+				HTTPRequest: httptest.NewRequest(http.MethodDelete, "/", nil), ClassName: "C", PropertyName: "title", IndexName: "rangeable",
 			}, nil)
 		}},
 	} {

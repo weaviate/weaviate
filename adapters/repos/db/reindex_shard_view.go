@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,7 +39,7 @@ type shardView struct {
 	shard  *Shard
 	store  *lsmkv.Store
 	props  map[string]reindexPropView
-	served map[string]*lsmkv.Bucket // keyed by the plain name; nil while the index is off
+	served map[string]*lsmkv.Bucket // keyed by the plain name; nil while off, missing for the store's plain folder
 	staged []*stagedBuild
 
 	refs       atomic.Int64
@@ -221,9 +222,11 @@ func (s *Shard) finishViewLoad() {
 	next := newShardView(s, cur.props)
 	for prop, pv := range cur.props {
 		for _, t := range reindexIndexTypes {
-			next.served[reindexBucketName(prop, t, 0)] = nil
-			if pv.on[t] {
-				next.served[reindexBucketName(prop, t, 0)] = s.store.Bucket(reindexBucketName(prop, t, pv.gen[t]))
+			switch plain := reindexBucketName(prop, t, 0); {
+			case !pv.on[t]:
+				next.served[plain] = nil
+			case pv.gen[t] > 0:
+				next.served[plain] = s.store.Bucket(reindexBucketName(prop, t, pv.gen[t]))
 			}
 		}
 	}
@@ -310,27 +313,27 @@ func (s *Shard) resolveServed(ctx context.Context, class *models.Class, next *sh
 		}
 		for _, t := range reindexIndexTypes {
 			plain := reindexBucketName(prop.Name, t, 0)
-			next.served[plain] = nil
 			if !pv.on[t] {
+				next.served[plain] = nil
 				continue
 			}
 			name := reindexBucketName(prop.Name, t, pv.gen[t])
 			if s.retirePending(name) {
 				return errViewNotReady
 			}
-			if b := s.store.Bucket(name); b != nil {
-				next.served[plain] = b
-				continue
+			if s.store.Bucket(name) == nil {
+				if err := s.refuseMissingServedFolder(prop.Name, t, pv); err != nil {
+					return err
+				}
+				opts := s.propertyIndexOptions(viewProperty(prop, pv, true), t, s.makeDefaultBucketOptions)
+				if err := s.store.CreateOrLoadBucket(ctx, name, opts...); err != nil {
+					return fmt.Errorf("open served folder %q: %w", name, err)
+				}
+				*opened = append(*opened, name)
 			}
-			if err := s.refuseMissingServedFolder(prop.Name, t, pv); err != nil {
-				return err
+			if pv.gen[t] > 0 {
+				next.served[plain] = s.store.Bucket(name)
 			}
-			opts := s.propertyIndexOptions(viewProperty(prop, pv, true), t, s.makeDefaultBucketOptions)
-			if err := s.store.CreateOrLoadBucket(ctx, name, opts...); err != nil {
-				return fmt.Errorf("open served folder %q: %w", name, err)
-			}
-			*opened = append(*opened, name)
-			next.served[plain] = s.store.Bucket(name)
 		}
 	}
 	return nil
@@ -385,7 +388,7 @@ func (s *Shard) openStagedBuild(ctx context.Context, prop *models.Property, next
 		target.Tokenization = st.target.tokenization
 	}
 	blockmax := st.target.blockmax
-	if served := next.served[helpers.BucketSearchableFromPropNameLSM(prop.Name)]; !blockmax && served != nil {
+	if served := next.Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name)); !blockmax && served != nil {
 		blockmax = served.Strategy() == lsmkv.StrategyInverted
 	}
 	target.SearchableBlockmax = &blockmax
@@ -626,20 +629,24 @@ func (s *Shard) closeUnpublished(names []string) {
 	}
 }
 
-// replacedBuckets is every bucket cur names and next does not. The plain
-// bucket of a property next no longer governs stays, as the store serves it.
+// replacedBuckets is every bucket cur serves and next does not, counting the store's plain folders.
 func replacedBuckets(cur, next *shardView) []*lsmkv.Bucket {
+	names := slices.Collect(maps.Keys(cur.served))
+	for plain := range next.served {
+		if _, ok := cur.served[plain]; !ok {
+			names = append(names, plain)
+		}
+	}
 	kept := map[*lsmkv.Bucket]bool{}
-	for _, b := range next.served {
-		kept[b] = true
+	for _, plain := range names {
+		kept[next.Bucket(plain)] = true
 	}
 	for _, b := range next.staged {
 		kept[b.bucket] = true
 	}
 	var out []*lsmkv.Bucket
-	for plain, b := range cur.served {
-		_, governed := next.served[plain]
-		if b != nil && !kept[b] && (governed || filepath.Base(b.GetDir()) != plain) {
+	for _, plain := range names {
+		if b := cur.Bucket(plain); b != nil && !kept[b] {
 			out = append(out, b)
 		}
 	}

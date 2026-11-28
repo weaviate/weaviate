@@ -422,6 +422,85 @@ func TestReindexTaskRulesBornSwitched(t *testing.T) {
 	}
 }
 
+func TestReindexTaskRulesIndexOff(t *testing.T) {
+	run := func(collection string, mt ReindexMigrationType, gen uint64) ReindexTaskPayload {
+		return ReindexTaskPayload{
+			Collection: collection, MigrationType: mt, Properties: []string{"title"}, TargetTokenization: "word", Generation: gen,
+		}
+	}
+	const (
+		cancelled  = distributedtask.TaskStatusCancelled
+		failed     = distributedtask.TaskStatusFailed
+		filterable = indexTypeFilterable
+	)
+	for _, tc := range []struct {
+		name      string
+		seed      func(t *testing.T) []*distributedtask.Task
+		indexType string
+		wantLive  uint64
+		wantLeft  []string
+	}{
+		{
+			name: "a partial run of that index type alone is covered and removed",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{reindexSeed(t, "a", 1, cancelled, run("C", ReindexTypeEnableFilterable, 2), "t1")}
+			},
+			indexType: filterable, wantLive: 2,
+		},
+		{
+			name: "a run of two index types sets Live and keeps its tenants",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{reindexSeed(t, "a", 1, cancelled, run("C", ReindexTypeChangeTokenization, 3), "t1")}
+			},
+			indexType: filterable, wantLive: 3, wantLeft: []string{"a"},
+		},
+		{
+			name: "the highest generation wins",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexSeed(t, "a", 1, failed, run("C", ReindexTypeEnableFilterable, 2), "t1"),
+					reindexSeed(t, "b", 2, cancelled, run("C", ReindexTypeRepairFilterable, 4), "t2"),
+				}
+			},
+			indexType: filterable, wantLive: 4,
+		},
+		{
+			name: "a run with no switched tenant serves nothing",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{reindexSeed(t, "a", 1, cancelled, run("C", ReindexTypeEnableFilterable, 2))}
+			},
+			indexType: filterable, wantLeft: []string{"a"},
+		},
+		{
+			name: "a run of another index type",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{reindexSeed(t, "a", 1, cancelled, run("C", ReindexTypeEnableFilterable, 2), "t1")}
+			},
+			indexType: indexTypeSearchable, wantLeft: []string{"a"},
+		},
+		{
+			name: "the same property in another collection",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{reindexSeed(t, "a", 1, cancelled, run("D", ReindexTypeEnableFilterable, 2), "t1")}
+			},
+			indexType: filterable, wantLeft: []string{"a"},
+		},
+		{
+			name: "a run without a generation",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{reindexSeed(t, "a", 1, cancelled, run("C", ReindexTypeEnableFilterable, 0), "t1")}
+			},
+			indexType: filterable, wantLeft: []string{"a"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := reindexRulesManager(t, tc.seed(t)...)
+			require.Equal(t, tc.wantLive, m.TurnIndexOff("C", "title", tc.indexType))
+			require.ElementsMatch(t, tc.wantLeft, taskIDs(m))
+		})
+	}
+}
+
 func taskIDs(m *distributedtask.Manager) []string {
 	var ids []string
 	for _, task := range m.LocalDistributedTasks()[ReindexNamespace] {

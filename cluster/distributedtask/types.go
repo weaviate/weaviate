@@ -306,7 +306,8 @@ type ConflictDetector interface {
 // applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
 	// Every method's existingTasks is pre-filtered to className: tasks on a known other collection are dropped.
-	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
+	// indexOff names the index type an update only turns off, and is empty for any other update.
+	CheckPropertyUpdate(className, propertyName, indexOff string, existingTasks []*Task) error
 
 	// CheckClassMutation is called under [Manager.mu] from the schema FSM's
 	// destructive class-wide apply paths (DeleteClass etc.). Stricter than

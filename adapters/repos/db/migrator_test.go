@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -28,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
@@ -1372,12 +1372,25 @@ func TestShardHasProperty(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "non-geo property with no filterable bucket",
+			name: "non-geo property with no filterable index",
 			prop: nameProp,
 			shard: mockShard(func(s *MockShardLike) {
-				s.EXPECT().Store().Return(&lsmkv.Store{})
+				s.EXPECT().hasFilterableIndexForProp("name").Return(false)
 			}),
 			want: false,
+		},
+		{
+			name: "a filterable index served past generation 0",
+			prop: &models.Property{Name: "title", DataType: schema.DataTypeText.PropString()},
+			shard: func(t *testing.T) ShardLike {
+				f := newViewFixture(t, "ViewTest")
+				f.refreshTo(stagedTask("a"))
+				f.refreshTo(switchedTask("a"))
+				require.Eventually(t, func() bool { return f.shard.Store().Bucket(plainTitle) == nil },
+					5*time.Second, 10*time.Millisecond, "the plain folder is retired")
+				return f.shard
+			},
+			want: true,
 		},
 		{
 			// this shard carries no dependencies, so any attempt to load it panics

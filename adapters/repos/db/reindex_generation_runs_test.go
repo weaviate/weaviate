@@ -203,6 +203,70 @@ func TestReindexGenerationRuns_PartialRun(t *testing.T) {
 	}
 }
 
+// Turning off the index a cancelled enable run left on t1 makes every tenant
+// drop it, and a re-enable builds a new generation.
+func TestReindexGenerationRuns_IndexOff(t *testing.T) {
+	c := newGenCluster(t, genClassOpts{searchable: true, tokenization: models.PropertyTokenizationWord}, 1)
+	n := c.nodes[0]
+	n.sm.SetMutationGuard(n.dtm)
+	c.addTenants("t1", "t2")
+	c.write("t1", 3)
+	c.write("t2", 3)
+	release := c.holdUnitsOf("t2__")
+	id, err := c.submit(ReindexTypeEnableFilterable, "")
+	require.NoError(t, err)
+	c.waitSwitched(id, "t1")
+	require.NoError(t, c.cancel(id))
+	release()
+	c.waitStatus(id, distributedtask.TaskStatusCancelled)
+	gen1 := reindexBucketName(genProp, indexTypeFilterable, 1)
+	require.True(t, c.folderExists(n, "t1", gen1))
+
+	off := false
+	require.NoError(t, c.apply(api.ApplyRequest_TYPE_UPDATE_PROPERTY, c.class, api.UpdatePropertyRequest{
+		Property: &models.Property{Name: genProp, IndexFilterable: &off}, FieldsToUpdate: []string{api.PropertyFieldIndexFilterable},
+	}))
+	require.Equal(t, map[string]map[string]uint64{genProp: {indexTypeFilterable: 1}}, n.sr.ClassLive(c.class))
+	require.Nil(t, c.task(id))
+	c.waitFor("t1's generation-1 folder to go", func() bool { return !c.folderExists(n, "t1", gen1) })
+
+	n.reload("t1")
+	c.write("t1", 1)
+	next, err := c.submit(ReindexTypeEnableFilterable, "")
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), c.generation(next))
+	c.waitGone(next)
+	hello := n.filter(genProp, "hello", schema.DataTypeText, filters.OperatorEqual)
+	require.Equal(t, 4, n.count("t1", hello))
+	require.Equal(t, 3, n.count("t2", hello))
+}
+
+// The reload after a snapshot install refreshes loaded shards, since the
+// install changes cluster state without the applies that send notices.
+func TestReindexGenerationRuns_ReloadAfterSnapshotInstall(t *testing.T) {
+	c := newGenCluster(t, genDefaultOpts(), 1)
+	n := c.nodes[0]
+	c.addTenants("t1")
+	plain, gen1 := reindexBucketName(genProp, indexTypeFilterable, 0), reindexBucketName(genProp, indexTypeFilterable, 1)
+	serves := func(n *genNode) bool { return servedFolder(n.shard("t1").loadView(), plain) == gen1 }
+	require.NoError(t, c.apply(api.ApplyRequest_TYPE_REINDEX_FLIP, c.class, api.ReindexFlipRequest{
+		Prop: genProp, Gen: 1, IndexTypes: []string{indexTypeFilterable},
+	}))
+	require.Never(t, func() bool { return serves(n) }, 300*time.Millisecond, 10*time.Millisecond, "a flip sends no notice")
+
+	n.sm.ReloadDBFromSchema()
+	c.waitFor("t1 to serve generation 1", func() bool { return serves(n) })
+
+	// A load opens only generation 1, so the next reload's property probe must ask the view.
+	c.crash(0)
+	n = c.restart(0, genRestart{edit: func(root string) {
+		require.NoError(t, os.RemoveAll(filepath.Join(shardPathLSM(filepath.Join(root, indexID(schema.ClassName(c.class))), "t1"), plain)))
+	}})
+	require.True(t, serves(n))
+	n.sm.ReloadDBFromSchema()
+	require.False(t, c.folderExists(n, "t1", plain), "the reload added the property again")
+}
+
 // A resubmit that takes over a run whose tenants all switched has nothing to build, and still finishes.
 func TestReindexGenerationRuns_EmptyTakeover(t *testing.T) {
 	field := models.PropertyTokenizationField
@@ -329,7 +393,8 @@ func TestReindexGenerationRuns_ScopedRebuild(t *testing.T) {
 	require.True(t, kept.GroupSwapDecided("t1"))
 	require.Empty(t, c.nodes[0].sr.ClassLive(c.class))
 	c.waitServed("t1", genProp, 1, indexTypeSearchable)
-	require.Equal(t, []string{"", "", ""}, c.servedFolders("t2", genProp, indexTypeSearchable), "no view governs t2")
+	plain := reindexBucketName(genProp, indexTypeSearchable, 0)
+	require.Equal(t, []string{plain, plain, plain}, c.servedFolders("t2", genProp, indexTypeSearchable), "t2 keeps its plain folder")
 
 	full, err := c.submit(ReindexTypeRebuildSearchable, "")
 	require.NoError(t, err)

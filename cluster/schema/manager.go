@@ -60,7 +60,7 @@ type replicationFSM interface {
 // FSM-determinism: implementations MUST be pure functions of their
 // arguments + RAFT-replicated FSM state.
 type MutationGuard interface {
-	CheckPropertyUpdate(className, propertyName string) error
+	CheckPropertyUpdate(className, propertyName, indexOff string) error
 
 	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
 	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
@@ -96,6 +96,7 @@ type distributedTaskCascadeDeleter interface {
 	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
 	ForgetGroupsForCollection(collection string, groups []string)
 	MarkTenantsBornSwitched(collection string, tenants []string)
+	TurnIndexOff(collection, property, indexType string) uint64
 }
 
 type SchemaManager struct {
@@ -977,12 +978,13 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
 	}
 
+	indexOff := indexTurnedOff(req)
 	// Cross-FSM mutation guard — see [MutationGuard]. A flip naming no run (older binary) is admitted.
 	if s.mutationGuard != nil {
 		var err error
 		switch {
 		case !req.FromInFlightMigration:
-			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name)
+			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name, indexOff)
 		case req.MigrationRun != nil:
 			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, *req.MigrationRun)
 		}
@@ -1016,7 +1018,10 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 					// property says is off, so hand it what the schema kept.
 					req.Property = merged
 				}
-				return nil
+				if indexOff == "" {
+					return nil
+				}
+				return s.turnIndexOff(cmd.Class, cmd.Version, req.Property.Name, indexOff)
 			},
 			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,

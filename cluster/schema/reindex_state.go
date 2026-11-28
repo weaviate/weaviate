@@ -35,6 +35,36 @@ func (s *SchemaManager) ReindexFlip(cmd *command.ApplyRequest, schemaOnly bool) 
 	})
 }
 
+// turnIndexOff raises Live over every run still serving the index, so a re-enable builds a new generation.
+func (s *SchemaManager) turnIndexOff(class string, v uint64, prop, indexType string) error {
+	if s.distributedTaskManager == nil {
+		return nil
+	}
+	gen := s.distributedTaskManager.TurnIndexOff(class, prop, indexType)
+	if gen == 0 {
+		return nil
+	}
+	return s.schema.applyReindexFlip(class, v, &command.ReindexFlipRequest{Prop: prop, Gen: gen, IndexTypes: []string{indexType}})
+}
+
+// indexTurnedOff names the index type a DeleteClassPropertyIndex update turns off, else empty.
+func indexTurnedOff(req command.UpdatePropertyRequest) string {
+	p, fields := req.Property, req.FieldsToUpdate
+	switch {
+	case slices.Equal(fields, []string{command.PropertyFieldIndexFilterable}) && isOff(p.IndexFilterable):
+		return command.ReindexFilterable
+	case slices.Equal(fields, []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax}) &&
+		isOff(p.IndexSearchable):
+		return command.ReindexSearchable
+	case slices.Equal(fields, []string{command.PropertyFieldIndexRangeFilters}) && isOff(p.IndexRangeFilters):
+		return command.ReindexRangeable
+	default:
+		return ""
+	}
+}
+
+func isOff(flag *bool) bool { return flag != nil && !*flag }
+
 func (s *schema) applyReindexFlip(class string, v uint64, req *command.ReindexFlipRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

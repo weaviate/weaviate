@@ -26,6 +26,8 @@ type TaskRules interface {
 	// Admit may rewrite the task before AddTask stores it, and names the ended task it takes over.
 	Admit(task *Task, existing []*Task, live map[string]map[string]uint64) (takesOver *Task, err error)
 	Ended(task *Task, existing []*Task) EndRuling
+	// IndexOff returns the live generation that turns a property's index off for every tenant, and what it covers.
+	IndexOff(collection, property, indexType string, existing []*Task) (live uint64, covered EndRuling)
 	BornSwitched(task *Task) bool
 	// Units lists the units of a task submitted without any, from the sharding state at the task's log index,
 	// in an order that never follows a map, so every replica stores the same task.
@@ -91,6 +93,17 @@ func (m *Manager) applyEndRulesWithLock() {
 
 func (m *Manager) endTaskWithLock(task *Task) {
 	ruling := m.taskRules[task.Namespace].Ended(task, m.namespaceTasksWithLock(task.Namespace))
+	if m.applyRulingWithLock(ruling, task) {
+		return
+	}
+	if ruling.Compact {
+		task.compactInPlace()
+		m.markWithLock(task.Namespace, task.ID).addedOrRemoved = true
+	}
+	m.notifyStateWithLock(task, nil)
+}
+
+func (m *Manager) applyRulingWithLock(ruling EndRuling, task *Task) bool {
 	for other, groups := range ruling.Forget {
 		change := m.markWithLock(other.Namespace, other.ID)
 		for _, g := range groups {
@@ -106,14 +119,20 @@ func (m *Manager) endTaskWithLock(task *Task) {
 		m.notifyStateWithLock(t, nil)
 		removed = removed || t == task
 	}
-	if removed {
-		return
+	return removed
+}
+
+func (m *Manager) TurnIndexOff(collection, property, indexType string) uint64 {
+	defer m.fireStates()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var live uint64
+	for namespace, rules := range m.taskRules {
+		gen, covered := rules.IndexOff(collection, property, indexType, m.namespaceTasksWithLock(namespace))
+		m.applyRulingWithLock(covered, nil)
+		live = max(live, gen)
 	}
-	if ruling.Compact {
-		task.compactInPlace()
-		m.markWithLock(task.Namespace, task.ID).addedOrRemoved = true
-	}
-	m.notifyStateWithLock(task, nil)
+	return live
 }
 
 // MarkTenantsBornSwitched switches new tenants in running tasks whose rules say they hold nothing to build.

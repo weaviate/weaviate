@@ -17,14 +17,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 type ShardInvertedReindexTask_SpecifiedIndex struct {
 	classNamesWithPropertyNames map[string]map[string]struct{}
+	runServed                   *logrusext.Sampler
 }
 
 func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx context.Context,
@@ -42,8 +46,9 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx con
 		lsmkv.WithDirtyThreshold(time.Duration(shard.Index().Config.MemtablesFlushDirtyAfter) * time.Second),
 	}
 
+	runServed := t.skipRunServed(shard, props)
 	for name := range shard.Store().GetBucketsByName() {
-		if strings.HasPrefix(name, helpers.VectorsCompressedBucketLSM) {
+		if _, ok := runServed[name]; ok || strings.HasPrefix(name, helpers.VectorsCompressedBucketLSM) {
 			continue
 		}
 		// skip non prop buckets
@@ -112,6 +117,30 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx con
 	}
 
 	return reindexableProperties, nil
+}
+
+// skipRunServed returns the plain folders of props' indexes that a reindex run owns past generation 0.
+func (t *ShardInvertedReindexTask_SpecifiedIndex) skipRunServed(shard ShardLike, props map[string]struct{},
+) map[string]struct{} {
+	skip := map[string]struct{}{}
+	for prop := range props {
+		var types []string
+		for _, it := range []string{indexTypeFilterable, indexTypeSearchable} {
+			if plain := reindexBucketName(prop, it, 0); shard.servedIndexName(prop, it) != plain {
+				skip[plain] = struct{}{}
+				types = append(types, it)
+			}
+		}
+		if len(types) == 0 {
+			continue
+		}
+		t.runServed.WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("shard", shard.Name()).WithField("property", prop).WithField("index_types", types).
+				Warn("REINDEX_INDEXES_AT_STARTUP skips indexes a reindex run serves; " +
+					"to rebuild them, start a repair or rebuild reindex at runtime")
+		})
+	}
+	return skip
 }
 
 func (t *ShardInvertedReindexTask_SpecifiedIndex) OnPostResumeStore(ctx context.Context, shard ShardLike) error {

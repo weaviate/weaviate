@@ -75,7 +75,7 @@ func TestReindexHeaderReaders(t *testing.T) {
 			return len(runs) == 1
 		}},
 		{"checkReindexConflictForPropertyMutation", func(tasks []*distributedtask.Task) bool {
-			reason := gateWithTasks(tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", "name", true)
+			reason := gateWithTasks(tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", "name", "", true)
 			return reason != "" && !strings.Contains(reason, "unparseable")
 		}},
 	} {

@@ -182,6 +182,8 @@ type ShardLike interface {
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 	hasGeoIndexForProp(propName string) bool
+	hasFilterableIndexForProp(propName string) bool
+	servedIndexName(propName, indexType string) string
 	// addTargetNodeOverride adds a target node override to the shard.
 	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 	// removeTargetNodeOverride removes a target node override from the shard.

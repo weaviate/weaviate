@@ -179,9 +179,9 @@ func changedGroupsOf(changed *changedGroups, src *Task, change *taskChange) {
 // Returns nil when no detectors are registered or no task in any
 // namespace flags the update. Empty fast-path keeps the schema apply
 // path free of allocations in the common case.
-func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
+func (m *Manager) CheckPropertyUpdate(className, propertyName, indexOff string) error {
 	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
-		return d.CheckPropertyUpdate(className, propertyName, existing)
+		return d.CheckPropertyUpdate(className, propertyName, indexOff, existing)
 	})
 }
 

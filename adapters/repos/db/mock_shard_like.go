@@ -4694,6 +4694,99 @@ func (_c *MockShardLike_hasGeoIndexForProp_Call) RunAndReturn(run func(string) b
 	return _c
 }
 
+// hasFilterableIndexForProp provides a mock function with given fields: propName
+func (_m *MockShardLike) hasFilterableIndexForProp(propName string) bool {
+	ret := _m.Called(propName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for hasFilterableIndexForProp")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string) bool); ok {
+		r0 = rf(propName)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockShardLike_hasFilterableIndexForProp_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'hasFilterableIndexForProp'
+type MockShardLike_hasFilterableIndexForProp_Call struct {
+	*mock.Call
+}
+
+// hasFilterableIndexForProp is a helper method to define mock.On call
+//   - propName string
+func (_e *MockShardLike_Expecter) hasFilterableIndexForProp(propName interface{}) *MockShardLike_hasFilterableIndexForProp_Call {
+	return &MockShardLike_hasFilterableIndexForProp_Call{Call: _e.mock.On("hasFilterableIndexForProp", propName)}
+}
+
+func (_c *MockShardLike_hasFilterableIndexForProp_Call) Run(run func(propName string)) *MockShardLike_hasFilterableIndexForProp_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_hasFilterableIndexForProp_Call) Return(_a0 bool) *MockShardLike_hasFilterableIndexForProp_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_hasFilterableIndexForProp_Call) RunAndReturn(run func(string) bool) *MockShardLike_hasFilterableIndexForProp_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// servedIndexName provides a mock function with given fields: propName, indexType
+func (_m *MockShardLike) servedIndexName(propName string, indexType string) string {
+	ret := _m.Called(propName, indexType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for servedIndexName")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func(string, string) string); ok {
+		r0 = rf(propName, indexType)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockShardLike_servedIndexName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'servedIndexName'
+type MockShardLike_servedIndexName_Call struct {
+	*mock.Call
+}
+
+// servedIndexName is a helper method to define mock.On call
+//   - propName string
+//   - indexType string
+func (_e *MockShardLike_Expecter) servedIndexName(propName interface{}, indexType interface{}) *MockShardLike_servedIndexName_Call {
+	return &MockShardLike_servedIndexName_Call{Call: _e.mock.On("servedIndexName", propName, indexType)}
+}
+
+func (_c *MockShardLike_servedIndexName_Call) Run(run func(propName string, indexType string)) *MockShardLike_servedIndexName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_servedIndexName_Call) Return(_a0 string) *MockShardLike_servedIndexName_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_servedIndexName_Call) RunAndReturn(run func(string, string) string) *MockShardLike_servedIndexName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // initPropertyBuckets provides a mock function with given fields: ctx, eg, lazyLoadSegments, props
 func (_m *MockShardLike) initPropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property) {
 	_va := make([]interface{}, len(props))

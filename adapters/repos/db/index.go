@@ -1172,6 +1172,7 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	})
 
 	err := eg.Wait()
+	i.db.reindexRefresher().notify(i.Config.ClassName.String(), nil)
 	if recordSetReads := counts.recordSetReads.Load(); recordSetReads > 0 {
 		i.logger.WithFields(map[string]any{
 			"property":         property.Name,

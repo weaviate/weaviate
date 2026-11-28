@@ -74,7 +74,10 @@ func newSwitchFixture(t *testing.T) (f *viewFixture, held *shardView) {
 	require.NoError(t, f.shard.store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch())
 
 	held = f.shard.acquireView()
-	t.Cleanup(held.release)
+	t.Cleanup(func() {
+		held.release()
+		f.shard.closeViews() // the retire the release starts finishes before the temp dir goes
+	})
 	f.tasks.set(tasks(true)...)
 	return f, held
 }

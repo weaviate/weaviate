@@ -129,8 +129,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 // DeleteClassPropertyIndex deletes collection's property index. Whether the
 // flag is already off is read from this node's own schema, so a follower that
 // has not applied the flip yet answers success having written nothing.
+// servedByRun sends an already-off index through RAFT while a reindex run still serves it.
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
-	className, propertyName, indexName string,
+	className, propertyName, indexName string, servedByRun bool,
 ) error {
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
@@ -210,7 +211,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 	var updateFields []string
 	switch indexName {
 	case "filterable":
-		if prop.IndexFilterable != nil && *prop.IndexFilterable {
+		if servedByRun || (prop.IndexFilterable != nil && *prop.IndexFilterable) {
 			notExists := false
 			prop.IndexFilterable = &notExists
 			updateFields = []string{command.PropertyFieldIndexFilterable}
@@ -219,7 +220,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			return nil
 		}
 	case "searchable":
-		if prop.IndexSearchable != nil && *prop.IndexSearchable {
+		if servedByRun || (prop.IndexSearchable != nil && *prop.IndexSearchable) {
 			notExists := false
 			prop.IndexSearchable = &notExists
 			// Clear the blockmax stamp in the same masked write: it must not
@@ -231,7 +232,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			return nil
 		}
 	case "rangeFilters":
-		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+		if servedByRun || (prop.IndexRangeFilters != nil && *prop.IndexRangeFilters) {
 			notExists := false
 			prop.IndexRangeFilters = &notExists
 			updateFields = []string{command.PropertyFieldIndexRangeFilters}

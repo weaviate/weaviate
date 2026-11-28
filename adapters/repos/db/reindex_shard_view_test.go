@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -109,7 +110,7 @@ func (f *viewFixture) startLoop(idxs ...*Index) *reindexRefresh {
 }
 
 func servedFolder(v *shardView, plain string) string {
-	if b := v.served[plain]; b != nil {
+	if b := v.Bucket(plain); b != nil {
 		return filepath.Base(b.GetDir())
 	}
 	return ""
@@ -358,6 +359,66 @@ func TestReindexShardViewSelfNoticeAfterLoad(t *testing.T) {
 			require.Eventually(t, func() bool {
 				return servedFolder(sh.loadView(), plainTitle) == gen1Title
 			}, 5*time.Second, 10*time.Millisecond)
+		})
+	}
+}
+
+// Turning an index off that the view serves leaves its folder to the refresh,
+// which deletes it once no reader holds it.
+func TestReindexShardViewIndexOff(t *testing.T) {
+	cancelled := distributedtask.TaskStatusCancelled
+	tests := []struct {
+		name   string
+		live   map[string]uint64
+		tasks  []distributedtask.ShardTaskState
+		folder string // the served filterable folder
+		// offLive is set with the index off, and a refresh runs before the shard's property update.
+		offLive map[string]uint64
+	}{
+		{
+			name:   "a plain folder of a property a run governs",
+			tasks:  []distributedtask.ShardTaskState{viewTaskState("a", 1, ReindexTypeChangeAlgorithm, cancelled, true, false)},
+			folder: plainTitle,
+		},
+		{
+			name:   "a generation-2 folder",
+			live:   map[string]uint64{indexTypeFilterable: 2},
+			folder: "property_title.gen2",
+		},
+		{
+			name:    "a plain folder of a property the index-off makes governed",
+			folder:  plainTitle,
+			offLive: map[string]uint64{indexTypeFilterable: 2},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newViewFixture(t, "ViewTest")
+			f.setLive(tc.live)
+			f.refreshTo(tc.tasks...)
+			f.startLoop()
+			dir := filepath.Join(f.shard.pathLSM(), tc.folder)
+			require.Equal(t, tc.folder, servedFolder(f.shard.loadView(), plainTitle))
+
+			held := f.shard.acquireView()
+			off := false
+			f.class.Properties[0].IndexFilterable = &off
+			if tc.offLive != nil {
+				f.setLive(tc.offLive)
+				require.NoError(t, f.shard.refreshView(context.Background()))
+			} else {
+				require.NoError(t, f.idx.updateProperty(context.Background(), f.class.Properties[0]))
+			}
+			require.Eventually(t, func() bool { return f.shard.loadView() != held }, 5*time.Second, 10*time.Millisecond)
+			require.Nil(t, f.shard.loadView().Bucket(plainTitle), "queries stop using the index")
+			require.DirExists(t, dir, "deleted while a reader holds it")
+
+			held.release()
+			require.Eventually(t, func() bool {
+				_, err := os.Stat(dir)
+				return errors.Is(err, os.ErrNotExist)
+			}, 5*time.Second, 10*time.Millisecond)
+			require.Nil(t, f.shard.store.Bucket(tc.folder))
 		})
 	}
 }

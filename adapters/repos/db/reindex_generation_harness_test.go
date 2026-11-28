@@ -455,6 +455,8 @@ func (n *genNode) applyEntry(cmd *api.ApplyRequest, index uint64, schemaOnly boo
 		return n.sm.DeleteTenants(cmd, schemaOnly)
 	case api.ApplyRequest_TYPE_REINDEX_FLIP:
 		return n.sm.ReindexFlip(cmd, schemaOnly)
+	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
+		return n.sm.UpdateProperty(cmd, schemaOnly, false)
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		return n.dtm.AddTask(cmd, index)
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:

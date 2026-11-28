@@ -182,6 +182,10 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 		defer func() {
 			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
 		}()
+		// A reader may hold what the view serves; the refresh retires it after release.
+		if _, governed := s.loadView().props[prop.Name]; governed {
+			return nil
+		}
 		for _, indexType := range disabledIndexTypes(prop) {
 			if s.migratedIndexStands(prop.Name, indexType) {
 				continue

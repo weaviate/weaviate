@@ -20,7 +20,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -39,6 +38,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -430,6 +430,8 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		ec.Add(m.updateIndexAddMissingProperties(ctx, idx, incomingClass))
 	}
 
+	// A snapshot install changes tasks and Live without the applies that send notices.
+	m.db.reindexRefresher().notify(incomingClass.Class, nil)
 	return ec.ToError()
 }
 
@@ -573,7 +575,7 @@ func shardHasProperty(shard ShardLike, prop *models.Property) bool {
 	if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
 		return shard.hasGeoIndexForProp(prop.Name)
 	}
-	return shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name)) != nil
+	return shard.hasFilterableIndexForProp(prop.Name)
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
@@ -1174,6 +1176,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 			}
 			tasks[name] = &ShardInvertedReindexTask_SpecifiedIndex{
 				classNamesWithPropertyNames: classNamesWithPropertyNames,
+				runServed:                   logrusext.NewSampler(m.logInvertedReindex(), maxReportedErrors, time.Minute),
 			}
 		}
 	}
