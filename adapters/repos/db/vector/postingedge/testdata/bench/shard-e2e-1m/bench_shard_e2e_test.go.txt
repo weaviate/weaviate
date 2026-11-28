@@ -1,0 +1,1050 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package db
+
+import (
+	"bufio"
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"io"
+	"math"
+	"math/bits"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"reflect"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
+	"unsafe"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/postingedge"
+	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	postingedgeent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects"
+)
+
+// The inserts of a vector index end to end, through a shard: TestShardE2E
+// opens a database as a node opens it, with one class of one shard whose
+// vector index is of the type asked for, and imports the train rows of a raw
+// dataset as objects, by the call a node serves a batch import with
+// (DB.BatchPutObjects). Every object is written to the store of the shard,
+// with its vector and its property, and its vector is added to the index,
+// inside the clock: what the posting-edge index and HFresh are compared by,
+// each paying for the same.
+//
+// Parameters, from the environment:
+//   - PE_DATASET: a raw dataset directory (meta.txt, train.f32 or
+//     train.embedded with a train_offset line, test.f32, neighbors.i32).
+//   - PE_DIR: where the database goes; it must not exist, or be empty.
+//   - PE_OUT: the JSON of the result, written again with every sample of the
+//     progress and at every step.
+//   - PE_INDEX: "postingedge" or "hfresh". The class has the default user
+//     config of the type, with the cosine distance.
+//   - PE_CACHE: the rq.cacheMode of the posting-edge index (routing).
+//   - PE_CALLERS: how many callers import at once (8).
+//   - PE_BATCH: the objects of a batch call (100).
+//   - PE_ROWS: the first rows of the dataset that go in (all of them if 0).
+//   - PE_SHUFFLE: 0 imports the rows in their order; otherwise they go in
+//     the shuffled order of the other harnesses of the index (1).
+//   - PE_QUERIES: how many queries are searched afterwards, 0 for none
+//     (1000).
+//   - PE_PROGRESS: the seconds between two samples of the progress (30).
+//   - PE_READERS: how many goroutines read the dataset ahead of the callers
+//     (4).
+//   - PE_ASYNC: 1 turns async indexing on (0, as a node has it unless
+//     ASYNC_INDEXING is set).
+//   - PE_IMPORT_FACTOR: the factor of the batch workers of the database,
+//     times GOMAXPROCS (1.5, as a node has it).
+
+const shardE2EClass = "ShardE2E"
+
+func shardE2EEnv(name, def string) string {
+	if s := os.Getenv(name); s != "" {
+		return s
+	}
+	return def
+}
+
+func shardE2EEnvInt(t *testing.T, name string, def int64) int64 {
+	s := os.Getenv(name)
+	if s == "" {
+		return def
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	require.NoError(t, err, name)
+	return v
+}
+
+// shardE2EShapes reads the meta.txt of a raw dataset: a line "<name> <a> <b>"
+// for each of its files ("train 990000 1536", "test 10000 1536", "neighbors
+// 10000 100"), and "train_offset <bytes> 0" when the train vectors are inside
+// another file. Any other line is skipped.
+func shardE2EShapes(dir string) (map[string][2]int, error) {
+	meta, err := os.Open(filepath.Join(dir, "meta.txt"))
+	if err != nil {
+		return nil, err
+	}
+	defer meta.Close()
+	shapes := map[string][2]int{}
+	scanner := bufio.NewScanner(meta)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 3 {
+			continue
+		}
+		a, errA := strconv.Atoi(fields[1])
+		b, errB := strconv.Atoi(fields[2])
+		if errA == nil && errB == nil {
+			shapes[fields[0]] = [2]int{a, b}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return shapes, nil
+}
+
+// shardE2ETrain is the train set of a raw dataset, read a vector at a time
+// from its file: 10M vectors of 768 dimensions are 30.7 GB, more than the run
+// should hold.
+type shardE2ETrain struct {
+	file   *os.File
+	offset int64
+	rows   int
+	dims   int
+}
+
+// openShardE2ETrain opens train.f32, or train.embedded when the dataset has
+// none: a link to the file the vectors are in, which has them from the byte
+// the train_offset line of meta.txt gives.
+func openShardE2ETrain(dir string, shapes map[string][2]int) (*shardE2ETrain, error) {
+	shape, ok := shapes["train"]
+	if !ok || shape[0] <= 0 || shape[1] <= 0 {
+		return nil, errors.Errorf("%s: no train line in meta.txt", dir)
+	}
+	path := filepath.Join(dir, "train.f32")
+	if _, err := os.Stat(path); err != nil {
+		path = filepath.Join(dir, "train.embedded")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	train := &shardE2ETrain{file: file, offset: int64(shapes["train_offset"][0]), rows: shape[0], dims: shape[1]}
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+	if need := train.offset + 4*int64(train.rows)*int64(train.dims); info.Size() < need {
+		file.Close()
+		return nil, errors.Errorf("%s has %d bytes, and %d rows of %d dimensions from byte %d take %d",
+			path, info.Size(), train.rows, train.dims, train.offset, need)
+	}
+	return train, nil
+}
+
+// read reads the vectors of rows, each into a slice of its own, reusing buf.
+func (tr *shardE2ETrain) read(rows []uint32, buf []byte) ([][]float32, []byte, error) {
+	size := 4 * tr.dims
+	if cap(buf) < size {
+		buf = make([]byte, size)
+	}
+	buf = buf[:size]
+	vectors := make([][]float32, len(rows))
+	for i, row := range rows {
+		if _, err := tr.file.ReadAt(buf, tr.offset+int64(row)*int64(size)); err != nil {
+			return nil, buf, errors.Wrapf(err, "read train row %d", row)
+		}
+		vec := make([]float32, tr.dims)
+		byteops.CopyBytesToSlice(vec, buf)
+		vectors[i] = vec
+	}
+	return vectors, buf, nil
+}
+
+// shardE2EReadHead reads the first size bytes of a file.
+func shardE2EReadHead(path string, size int) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	raw := make([]byte, size)
+	if _, err := io.ReadFull(file, raw); err != nil {
+		return nil, errors.Wrapf(err, "read the first %d bytes of %s", size, path)
+	}
+	return raw, nil
+}
+
+// shardE2EReadQueries reads the first limit queries of a raw dataset and, for
+// each, the first k of the neighbors it ships: rows of the train set. The
+// queries are given to the search as they are stored.
+func shardE2EReadQueries(dir string, shapes map[string][2]int, dims, limit, k int) ([][]float32, [][]uint32, error) {
+	test, neighbors := shapes["test"], shapes["neighbors"]
+	switch {
+	case test[0] <= 0:
+		return nil, nil, errors.Errorf("%s: no test line in meta.txt", dir)
+	case test[1] != dims:
+		return nil, nil, errors.Errorf("%s: the queries have %d dimensions, the train rows %d", dir, test[1], dims)
+	case neighbors[0] != test[0]:
+		return nil, nil, errors.Errorf("%s: %d rows of neighbors for %d queries", dir, neighbors[0], test[0])
+	case neighbors[1] < k:
+		return nil, nil, errors.Errorf("%s: the dataset ships %d neighbors a query, fewer than %d", dir, neighbors[1], k)
+	}
+	count := min(limit, test[0])
+
+	raw, err := shardE2EReadHead(filepath.Join(dir, "test.f32"), 4*count*dims)
+	if err != nil {
+		return nil, nil, err
+	}
+	queries := make([][]float32, count)
+	for q := range queries {
+		vec := make([]float32, dims)
+		byteops.CopyBytesToSlice(vec, raw[4*q*dims:4*(q+1)*dims])
+		queries[q] = vec
+	}
+
+	width := neighbors[1]
+	raw, err = shardE2EReadHead(filepath.Join(dir, "neighbors.i32"), 4*count*width)
+	if err != nil {
+		return nil, nil, err
+	}
+	truth := make([][]uint32, count)
+	for q := range truth {
+		truth[q] = make([]uint32, k)
+		for i := range truth[q] {
+			truth[q][i] = binary.LittleEndian.Uint32(raw[4*(q*width+i):])
+		}
+	}
+	return queries, truth, nil
+}
+
+// shardE2EUUID is the id of the object of a train row. Its first four bytes
+// are the row with its bits reversed, so that the ids are spread over the
+// keys of the store as random ones are, whatever the order the rows go in;
+// its last four are the row, which a result is read back to. The version and
+// the variant are those of a random id.
+func shardE2EUUID(row uint32) strfmt.UUID {
+	var id uuid.UUID
+	binary.BigEndian.PutUint32(id[0:4], bits.Reverse32(row))
+	id[6] = 0x40
+	id[8] = 0x80
+	binary.BigEndian.PutUint32(id[12:16], row)
+	return strfmt.UUID(id.String())
+}
+
+// shardE2ERow is the train row of the object with the id.
+func shardE2ERow(id strfmt.UUID) (uint32, error) {
+	parsed, err := uuid.Parse(string(id))
+	if err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint32(parsed[12:16]), nil
+}
+
+// shardE2ERusage is what the system accounts to this process: its time on
+// the CPU (getrusage), and the bytes it read from and wrote to disk, its
+// page-ins and its footprint (proc_pid_rusage, RUSAGE_INFO_V2).
+type shardE2ERusage struct {
+	UserSeconds   float64 `json:"userSeconds"`
+	SystemSeconds float64 `json:"systemSeconds"`
+	CPUSeconds    float64 `json:"cpuSeconds"`
+	BytesRead     uint64  `json:"diskBytesRead"`
+	BytesWritten  uint64  `json:"diskBytesWritten"`
+	Pageins       uint64  `json:"pageins"`
+	// Footprint is the footprint when it was read, not an amount since.
+	Footprint uint64 `json:"physFootprint"`
+}
+
+func readShardE2ERusage() (shardE2ERusage, error) {
+	var usage syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
+		return shardE2ERusage{}, errors.Wrap(err, "getrusage")
+	}
+	const procInfoCallPidRusage, rusageInfoV2 = 9, 2
+	var buf [256]byte
+	_, _, errno := syscall.Syscall6(syscall.SYS_PROC_INFO, procInfoCallPidRusage, uintptr(os.Getpid()), rusageInfoV2, 0,
+		uintptr(unsafe.Pointer(&buf[0])), 0)
+	if errno != 0 {
+		return shardE2ERusage{}, errors.Wrap(errno, "read the resource usage of the process")
+	}
+	// The uint64 of index i of rusage_info_v2, after its uuid of 16 bytes.
+	word := func(i int) uint64 { return binary.LittleEndian.Uint64(buf[16+8*i:]) }
+	user, system := time.Duration(usage.Utime.Nano()), time.Duration(usage.Stime.Nano())
+	return shardE2ERusage{
+		UserSeconds: user.Seconds(), SystemSeconds: system.Seconds(), CPUSeconds: (user + system).Seconds(),
+		Pageins: word(4), Footprint: word(7), BytesRead: word(16), BytesWritten: word(17),
+	}, nil
+}
+
+// since returns what the process was accounted since start was read. The
+// footprint stays the one of now.
+func (r shardE2ERusage) since(start shardE2ERusage) shardE2ERusage {
+	r.UserSeconds -= start.UserSeconds
+	r.SystemSeconds -= start.SystemSeconds
+	r.CPUSeconds -= start.CPUSeconds
+	r.BytesRead -= start.BytesRead
+	r.BytesWritten -= start.BytesWritten
+	r.Pageins -= start.Pageins
+	return r
+}
+
+// shardE2EDirBytes sums the sizes of the files under dir.
+func shardE2EDirBytes(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
+}
+
+// shardE2EHFreshQueues are the background queues of an HFresh index: its
+// analyzes, its splits, its reassignments and its merges. The index keeps
+// them to itself (HFresh.taskQueue), and what waits for them is a helper of
+// its own tests (waitForMaintenance), so they are reached here by their
+// names.
+type shardE2EHFreshQueues struct {
+	names  []string
+	queues []*queue.DiskQueue
+}
+
+func shardE2EQueuesOf(index *hfresh.HFresh) (*shardE2EHFreshQueues, error) {
+	taskQueue := reflect.ValueOf(index).Elem().FieldByName("taskQueue")
+	if !taskQueue.IsValid() || taskQueue.Kind() != reflect.Struct {
+		return nil, errors.New("HFresh has no field taskQueue that is a struct")
+	}
+	diskQueue := func(name string, field reflect.Value) (*queue.DiskQueue, error) {
+		if !field.IsValid() || !field.CanAddr() {
+			return nil, errors.Errorf("HFresh.taskQueue has no field %s", name)
+		}
+		found, ok := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Interface().(*queue.DiskQueue)
+		if !ok || found == nil {
+			return nil, errors.Errorf("HFresh.taskQueue.%s is a %s, or nil", name, field.Type())
+		}
+		return found, nil
+	}
+	out := &shardE2EHFreshQueues{}
+	// The queue of the analyzes wraps its disk queue.
+	analyze := taskQueue.FieldByName("analyzeQueue")
+	if !analyze.IsValid() || analyze.Kind() != reflect.Pointer || analyze.IsNil() {
+		return nil, errors.New("HFresh.taskQueue has no analyzeQueue")
+	}
+	found, err := diskQueue("analyzeQueue.DiskQueue", analyze.Elem().FieldByName("DiskQueue"))
+	if err != nil {
+		return nil, err
+	}
+	out.names, out.queues = append(out.names, "analyze"), append(out.queues, found)
+	for _, name := range []string{"split", "reassign", "merge"} {
+		found, err := diskQueue(name+"Queue", taskQueue.FieldByName(name+"Queue"))
+		if err != nil {
+			return nil, err
+		}
+		out.names, out.queues = append(out.names, name), append(out.queues, found)
+	}
+	return out, nil
+}
+
+// pending returns what waits in every queue.
+func (q *shardE2EHFreshQueues) pending() map[string]int64 {
+	out := make(map[string]int64, len(q.queues))
+	for i, dq := range q.queues {
+		out[q.names[i]] = dq.Size()
+	}
+	return out
+}
+
+func (q *shardE2EHFreshQueues) size() int64 {
+	var total int64
+	for _, dq := range q.queues {
+		total += dq.Size()
+	}
+	return total
+}
+
+// wait returns once the queues are empty and none of their tasks runs, by
+// the calls of the helper of the tests of HFresh (waitForMaintenance): the
+// queues are flushed, the scheduler is asked to schedule them now, each is
+// waited for, and they are done when nothing is left in them. Apart from
+// that helper, the queues must be found empty twice in a row, since a task
+// of one puts tasks in another, and a round that finds work sleeps a
+// millisecond before the next. Whoever calls it has stopped writing.
+func (q *shardE2EHFreshQueues) wait(ctx context.Context) error {
+	quiet := 0
+	for {
+		for i, dq := range q.queues {
+			if err := dq.Flush(); err != nil {
+				return errors.Wrapf(err, "flush the %s queue", q.names[i])
+			}
+		}
+		q.queues[0].Scheduler().Schedule(ctx)
+		for i, dq := range q.queues {
+			if err := dq.Wait(ctx); err != nil {
+				return errors.Wrapf(err, "wait for the %s queue", q.names[i])
+			}
+		}
+		if q.size() > 0 {
+			quiet = 0
+			time.Sleep(time.Millisecond)
+			continue
+		}
+		quiet++
+		if quiet == 2 {
+			return nil
+		}
+	}
+}
+
+// shardE2ESample is a sample of the progress: the seconds since the first
+// batch call, the objects whose batch call has returned, and how many went in
+// a second since the sample before.
+type shardE2ESample struct {
+	Seconds   float64 `json:"seconds"`
+	Inserted  int64   `json:"inserted"`
+	PerSecond float64 `json:"perSecond"`
+	// Pending is what waits in every background queue of an HFresh index.
+	Pending map[string]int64 `json:"pending,omitempty"`
+}
+
+// shardE2EPoint is the run at one of its clocks: the seconds since the first
+// batch call, the objects of the run over them, and what the system accounted
+// to the process meanwhile.
+type shardE2EPoint struct {
+	Seconds          float64        `json:"seconds"`
+	ObjectsPerSecond float64        `json:"objectsPerSecond"`
+	Usage            shardE2ERusage `json:"usage"`
+}
+
+type shardE2ESearch struct {
+	Queries int `json:"queries"`
+	K       int `json:"k"`
+	// Recall is against the neighbors the dataset ships, which are over every
+	// train row: it is left out when not all of them went in.
+	Recall *float64 `json:"recall,omitempty"`
+	MeanMs float64  `json:"meanMs"`
+	P50Ms  float64  `json:"p50Ms"`
+	P95Ms  float64  `json:"p95Ms"`
+	P99Ms  float64  `json:"p99Ms"`
+	MaxMs  float64  `json:"maxMs"`
+	QPS    float64  `json:"qps"`
+}
+
+type shardE2EResult struct {
+	Index string `json:"index"`
+	// Config is the user config of the vector index of the class.
+	Config    any    `json:"config"`
+	Dataset   string `json:"dataset"`
+	Dir       string `json:"dir"`
+	Rows      int    `json:"rows"`
+	TrainRows int    `json:"trainRows"`
+	Dims      int    `json:"dims"`
+	Shuffled  bool   `json:"shuffled"`
+	Callers   int    `json:"callers"`
+	BatchSize int    `json:"batchSize"`
+	Readers   int    `json:"datasetReaders"`
+	Procs     int    `json:"gomaxprocs"`
+	// ImportWorkers is the batch workers of the database, which add the
+	// vectors of every batch to the index, one each, when async indexing is
+	// off. BackgroundWorkers is the workers of the scheduler of the database:
+	// the background queues of HFresh, and the queue of the shard when async
+	// indexing is on.
+	ImportFactor      float64 `json:"importGoroutinesFactor"`
+	ImportWorkers     int     `json:"importWorkers"`
+	BackgroundWorkers int     `json:"backgroundWorkers"`
+	AsyncIndexing     bool    `json:"asyncIndexing"`
+	Pid               int     `json:"pid"`
+
+	Inserted int64 `json:"inserted"`
+	// LastBatch is the return of the last batch call. BackgroundDone is the
+	// vector index with no background work left, and what it writes handed to
+	// the system. Flushed is that with every memtable of the shard flushed to
+	// a segment besides.
+	LastBatch      *shardE2EPoint `json:"lastBatch,omitempty"`
+	BackgroundDone *shardE2EPoint `json:"backgroundDone,omitempty"`
+	Flushed        *shardE2EPoint `json:"flushed,omitempty"`
+	// PendingAtLastBatch is what waited in the background queues of HFresh
+	// when the last batch call returned.
+	PendingAtLastBatch map[string]int64 `json:"pendingAtLastBatch,omitempty"`
+	// DatasetReadSeconds adds up what the readers took to read the rows, ahead
+	// of the callers, and CallersFoundNoBatch how many times a caller found
+	// no batch read: once a caller at the end, and otherwise the readers did
+	// not keep up and the callers waited for the dataset.
+	DatasetReadSeconds  float64 `json:"datasetReadSeconds"`
+	CallersFoundNoBatch int64   `json:"callersFoundNoBatch"`
+
+	// The heap after two collections, and the files under PE_DIR, both at
+	// Flushed: of the whole database, the store of the objects included.
+	HeapInuse uint64 `json:"heapInuse"`
+	HeapAlloc uint64 `json:"heapAlloc"`
+	HeapSys   uint64 `json:"heapSys"`
+	Sys       uint64 `json:"sys"`
+	DirBytes  int64  `json:"dirBytes"`
+
+	Progress []shardE2ESample `json:"progress"`
+
+	Search *shardE2ESearch `json:"search,omitempty"`
+	// PendingAfterSearch is what the searches left in the background queues
+	// of HFresh.
+	PendingAfterSearch map[string]int64 `json:"pendingAfterSearch,omitempty"`
+
+	ShutdownSeconds float64 `json:"shutdownSeconds"`
+	DirBytesAtEnd   int64   `json:"dirBytesAtEnd"`
+	Done            bool    `json:"done"`
+}
+
+// TestShardE2E imports the dataset through a shard and tells how long it
+// took: to the return of the last batch call, and to the vector index with no
+// background work left and everything flushed. It then searches the queries
+// of the dataset through the database, one at a time.
+//
+// The database is the one the tests of the package open (openTestDatabase),
+// with the settings a node has by default where the tests have others: the
+// memtables, the segments, the cycles, the batch workers, the limit of the
+// commit logs. The scheduler, the cycles of flush and compaction and the
+// cycles of the vector indexes are those of a node, since the database starts
+// them.
+func TestShardE2E(t *testing.T) {
+	datasetDir, dir, out, indexType := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_OUT"), os.Getenv("PE_INDEX")
+	if datasetDir == "" || dir == "" || out == "" || indexType == "" {
+		t.Skip("no PE_DATASET, PE_DIR, PE_OUT and PE_INDEX given")
+	}
+	const k = 10
+	ctx := context.Background()
+	callers := int(shardE2EEnvInt(t, "PE_CALLERS", 8))
+	batchSize := int(shardE2EEnvInt(t, "PE_BATCH", 100))
+	readers := int(shardE2EEnvInt(t, "PE_READERS", 4))
+	queryLimit := int(shardE2EEnvInt(t, "PE_QUERIES", 1000))
+	every := time.Duration(shardE2EEnvInt(t, "PE_PROGRESS", 30)) * time.Second
+	async := shardE2EEnvInt(t, "PE_ASYNC", 0) != 0
+	shuffle := shardE2EEnvInt(t, "PE_SHUFFLE", 1) != 0
+	importFactor := config.DefaultMaxImportGoroutinesFactor
+	if s := os.Getenv("PE_IMPORT_FACTOR"); s != "" {
+		v, err := strconv.ParseFloat(s, 64)
+		require.NoError(t, err, "PE_IMPORT_FACTOR")
+		importFactor = v
+	}
+	require.Positive(t, callers, "PE_CALLERS")
+	require.Positive(t, batchSize, "PE_BATCH")
+	require.Positive(t, readers, "PE_READERS")
+	require.Positive(t, int64(every), "PE_PROGRESS")
+	require.Positive(t, importFactor, "PE_IMPORT_FACTOR")
+
+	shapes, err := shardE2EShapes(datasetDir)
+	require.NoError(t, err)
+	train, err := openShardE2ETrain(datasetDir, shapes)
+	require.NoError(t, err)
+	defer train.file.Close()
+	n := train.rows
+	if rows := int(shardE2EEnvInt(t, "PE_ROWS", 0)); rows > 0 {
+		n = min(n, rows)
+	}
+
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "%s is not empty", dir)
+
+	// The default user config of the type, with the cosine distance.
+	var userConfig any
+	switch indexType {
+	case vectorindex.VectorIndexTypePostingEdge:
+		uc := postingedgeent.NewDefaultUserConfig()
+		uc.Distance = vectorIndexCommon.DistanceCosine
+		uc.RQ.CacheMode = shardE2EEnv("PE_CACHE", postingedgeent.CacheModeRouting)
+		require.NoError(t, uc.Validate())
+		userConfig = uc
+	case vectorindex.VectorIndexTypeHFresh:
+		uc := hfreshent.NewDefaultUserConfig()
+		uc.Distance = vectorIndexCommon.DistanceCosine
+		userConfig = uc
+	default:
+		t.Fatalf("PE_INDEX is %q: it is %q or %q", indexType, vectorindex.VectorIndexTypePostingEdge,
+			vectorindex.VectorIndexTypeHFresh)
+	}
+	class := &models.Class{
+		Class:             shardE2EClass,
+		VectorIndexType:   indexType,
+		VectorIndexConfig: userConfig,
+		// As the tests of the package have it (invertedConfig), without the
+		// indexes of the null state and of the property lengths, which a class
+		// does not have unless it asks for them.
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			Stopwords:              &models.StopwordConfig{Preset: "none"},
+			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
+		},
+		Properties: []*models.Property{{Name: "row", DataType: schema.DataTypeInt.PropString()}},
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	eager := false
+	repo := openTestDatabase(t, dir, singleShardState(), monitoring.GetMetrics(), func(c *Config) {
+		// The shard is opened at once, for its vector index to be reached.
+		c.EnableLazyLoadShards = &eager
+		c.AsyncIndexingEnabled = async
+		// What a node has by default (configure_api.go and the defaults of
+		// usecases/config), where the tests of the package have zero or
+		// something else.
+		c.TrackVectorDimensions = false
+		c.MaxImportGoroutinesFactor = importFactor
+		c.MemtablesFlushDirtyAfter = config.DefaultPersistenceMemtablesFlushDirtyAfter
+		c.MemtablesInitialSizeMB = 10
+		c.MemtablesMaxSizeMB = config.DefaultPersistenceMemtablesMaxSize
+		c.MemtablesMinActiveSeconds = config.DefaultPersistenceMemtablesMinDuration
+		c.MemtablesMaxActiveSeconds = config.DefaultPersistenceMemtablesMaxDuration
+		c.MinMMapSize = config.DefaultPersistenceMinMMapSize
+		c.MaxReuseWalSize = config.DefaultPersistenceMaxReuseWalSize
+		c.SegmentInfoIntoFileNameEnabled = true
+		c.MaxSegmentSize = config.DefaultPersistenceLSMMaxSegmentSize
+		c.CycleManagerRoutinesFactor = config.DefaultPersistenceLSMCycleManagerRoutinesFactor
+		c.HNSWMaxLogSize = config.DefaultPersistenceHNSWMaxLogSize
+		c.HNSWFlatSearchConcurrency = config.DefaultHNSWFlatSearchConcurrency
+		c.HNSWAcornFilterRatio = config.DefaultHNSWAcornFilterRatio
+		c.VisitedListPoolMaxSize = config.DefaultHNSWVisitedListPoolSize
+	}, nil, class)
+	closed := false
+	defer func() {
+		if closed {
+			return
+		}
+		if err := repo.Shutdown(context.Background()); err != nil {
+			t.Errorf("shut the database down: %v", err)
+		}
+	}()
+
+	// The shard of the class, its vector index and the queue of its vectors.
+	classIndex := repo.GetIndex(shardE2EClass)
+	require.NotNil(t, classIndex)
+	var shard *Shard
+	require.NoError(t, classIndex.ForEachShard(func(_ string, s ShardLike) error {
+		loaded, ok := s.(*Shard)
+		if !ok {
+			return errors.Errorf("a shard of %T: the test opens its shards at once", s)
+		}
+		shard = loaded
+		return nil
+	}))
+	require.NotNil(t, shard)
+	var pe *postingedge.Persistent
+	var hf *hfresh.HFresh
+	require.NoError(t, shard.ForEachVectorIndex(func(_ string, vectorIndex VectorIndex) error {
+		switch found := vectorIndex.(type) {
+		case *postingedge.Persistent:
+			pe = found
+		case *hfresh.HFresh:
+			hf = found
+		default:
+			return errors.Errorf("the vector index of the class is a %T", vectorIndex)
+		}
+		return nil
+	}))
+	var vq *VectorIndexQueue
+	require.NoError(t, shard.ForEachVectorQueue(func(_ string, found *VectorIndexQueue) error {
+		vq = found
+		return nil
+	}))
+	require.NotNil(t, vq)
+	var queues *shardE2EHFreshQueues
+	switch indexType {
+	case vectorindex.VectorIndexTypePostingEdge:
+		require.NotNil(t, pe, "the vector index of the class is not a posting-edge index")
+	case vectorindex.VectorIndexTypeHFresh:
+		require.NotNil(t, hf, "the vector index of the class is not an HFresh index")
+		// Before anything is imported: a run does not get to its end to find
+		// that the queues are not where they were.
+		queues, err = shardE2EQueuesOf(hf)
+		require.NoError(t, err)
+	}
+
+	result := &shardE2EResult{
+		Index: indexType, Config: userConfig, Dataset: datasetDir, Dir: dir, Rows: n, TrainRows: train.rows,
+		Dims: train.dims, Shuffled: shuffle, Callers: callers, BatchSize: batchSize, Readers: readers,
+		Procs: runtime.GOMAXPROCS(0), ImportFactor: importFactor,
+		ImportWorkers:     int(math.Round(importFactor * float64(runtime.GOMAXPROCS(0)))),
+		BackgroundWorkers: repo.GetScheduler().Workers, AsyncIndexing: async, Pid: os.Getpid(),
+	}
+	// mu is held by whoever changes the result or writes it: the test, and
+	// what samples the progress.
+	var mu sync.Mutex
+	write := func() error {
+		raw, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(out, raw, 0o644)
+	}
+	update := func(change func()) {
+		mu.Lock()
+		defer mu.Unlock()
+		change()
+		require.NoError(t, write())
+	}
+	update(func() {})
+	t.Logf("%s through a shard: %d of the %d rows of %s, %d dimensions, by %d callers in batches of %d | %d batch workers, "+
+		"%d background workers, async indexing %t | config %+v", indexType, n, train.rows, datasetDir, train.dims, callers,
+		batchSize, result.ImportWorkers, result.BackgroundWorkers, async, userConfig)
+
+	// The rows in the order they go in: that of the other harnesses of the
+	// index, which shuffle the rows that go in among themselves.
+	order := make([]uint32, n)
+	for i := range order {
+		order[i] = uint32(i)
+	}
+	if shuffle {
+		rand.New(rand.NewPCG(1, 1)).Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
+	}
+
+	// The readers read the rows of every batch ahead of the callers, so that
+	// a caller does not wait for the dataset between two batch calls.
+	type prepared struct {
+		rows    []uint32
+		vectors [][]float32
+	}
+	batches := make(chan prepared, 4*callers)
+	stopReading := make(chan struct{})
+	var stopReadingOnce sync.Once
+	defer stopReadingOnce.Do(func() { close(stopReading) })
+	var nextBatch, readNs atomic.Int64
+	reading := enterrors.NewErrorGroupWrapper(logger)
+	for range readers {
+		reading.Go(func() error {
+			var buf []byte
+			for {
+				select {
+				case <-stopReading:
+					return nil
+				default:
+				}
+				from := (int(nextBatch.Add(1)) - 1) * batchSize
+				if from >= n {
+					return nil
+				}
+				rows := order[from:min(from+batchSize, n)]
+				began := time.Now()
+				vectors, kept, err := train.read(rows, buf)
+				buf = kept
+				readNs.Add(int64(time.Since(began)))
+				if err != nil {
+					stopReadingOnce.Do(func() { close(stopReading) })
+					return err
+				}
+				select {
+				case batches <- prepared{rows: rows, vectors: vectors}:
+				case <-stopReading:
+					return nil
+				}
+			}
+		})
+	}
+	var readErr error
+	readDone := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		readErr = reading.Wait()
+		close(batches)
+		close(readDone)
+	}, logger)
+	// The first batches are read before the clock starts.
+	prefilled := func() bool {
+		select {
+		case <-readDone:
+			return true
+		default:
+			return len(batches) == cap(batches)
+		}
+	}
+	for !prefilled() {
+		time.Sleep(time.Millisecond)
+	}
+
+	var inserted, foundNoBatch atomic.Int64
+	startUsage, err := readShardE2ERusage()
+	require.NoError(t, err)
+	begin := time.Now()
+
+	// The progress, every PE_PROGRESS seconds, until the run is flushed.
+	sample := func() {
+		s := shardE2ESample{Seconds: time.Since(begin).Seconds(), Inserted: inserted.Load()}
+		if queues != nil {
+			s.Pending = queues.pending()
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		var last shardE2ESample
+		if len(result.Progress) > 0 {
+			last = result.Progress[len(result.Progress)-1]
+		}
+		s.PerSecond = float64(s.Inserted-last.Inserted) / (s.Seconds - last.Seconds)
+		result.Progress = append(result.Progress, s)
+		result.Inserted = s.Inserted
+		if err := write(); err != nil {
+			t.Errorf("write %s: %v", out, err)
+		}
+		t.Logf("%.0f s: %d of %d in (%.1f %%), %.0f a second since the last sample | waiting in the background queues: %v",
+			s.Seconds, s.Inserted, n, 100*float64(s.Inserted)/float64(n), s.PerSecond, s.Pending)
+	}
+	stopSampling, sampled := make(chan struct{}), make(chan struct{})
+	var stopSamplingOnce sync.Once
+	enterrors.GoWrapper(func() {
+		defer close(sampled)
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopSampling:
+				return
+			case <-ticker.C:
+				sample()
+			}
+		}
+	}, logger)
+	stopSampler := func() {
+		stopSamplingOnce.Do(func() { close(stopSampling) })
+		<-sampled
+	}
+	defer stopSampler()
+
+	inserting := enterrors.NewErrorGroupWrapper(logger)
+	for range callers {
+		inserting.Go(func() error {
+			for {
+				if len(batches) == 0 {
+					foundNoBatch.Add(1)
+				}
+				next, ok := <-batches
+				if !ok {
+					return nil
+				}
+				batch := make(objects.BatchObjects, len(next.rows))
+				for i, row := range next.rows {
+					id := shardE2EUUID(row)
+					batch[i] = objects.BatchObject{
+						OriginalIndex: i,
+						Object: &models.Object{
+							Class:      shardE2EClass,
+							ID:         id,
+							Properties: map[string]interface{}{"row": int64(row)},
+							Vector:     next.vectors[i],
+						},
+						UUID: id,
+					}
+				}
+				res, err := repo.BatchPutObjects(ctx, batch, nil, 0)
+				if err == nil {
+					for _, object := range res {
+						if object.Err != nil {
+							err = errors.Wrapf(object.Err, "row %d", next.rows[object.OriginalIndex])
+							break
+						}
+					}
+				}
+				if err != nil {
+					stopReadingOnce.Do(func() { close(stopReading) })
+					return err
+				}
+				inserted.Add(int64(len(batch)))
+			}
+		})
+	}
+	insertErr := inserting.Wait()
+	lastBatch := time.Since(begin)
+	require.NoError(t, insertErr)
+	<-readDone
+	require.NoError(t, readErr)
+	require.Equal(t, int64(n), inserted.Load(), "the objects whose batch call returned")
+
+	// point is the run at a clock that has just been read.
+	point := func(took time.Duration) *shardE2EPoint {
+		usage, err := readShardE2ERusage()
+		require.NoError(t, err)
+		return &shardE2EPoint{
+			Seconds: took.Seconds(), ObjectsPerSecond: float64(n) / took.Seconds(), Usage: usage.since(startUsage),
+		}
+	}
+	atLastBatch := point(lastBatch)
+	var pendingAtLastBatch map[string]int64
+	if queues != nil {
+		pendingAtLastBatch = queues.pending()
+	}
+	// Written at once, a small file: a run that stops in what follows has
+	// left its first clock.
+	update(func() {
+		result.Inserted, result.LastBatch, result.PendingAtLastBatch = inserted.Load(), atLastBatch, pendingAtLastBatch
+	})
+	t.Logf("the last batch call returned at %.1f s: %.0f objects a second, %.0f s of CPU | waiting in the background "+
+		"queues: %v", atLastBatch.Seconds, atLastBatch.ObjectsPerSecond, atLastBatch.Usage.CPUSeconds, pendingAtLastBatch)
+
+	// The vector index with no background work left. With async indexing the
+	// queue of the shard goes first: what it holds has not reached the index.
+	if async {
+		require.NoError(t, vq.Flush())
+		for vq.Size() > 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+		require.NoError(t, vq.Wait(ctx))
+	}
+	switch {
+	case pe != nil:
+		// Whatever maintenance is due, with the rule of an index at rest, and
+		// then what the index wrote handed to the system.
+		require.NoError(t, pe.Settle(ctx))
+		require.NoError(t, pe.Flush())
+	case hf != nil:
+		require.NoError(t, queues.wait(ctx))
+		require.NoError(t, hf.Flush())
+	}
+	backgroundDone := time.Since(begin)
+	atBackgroundDone := point(backgroundDone)
+	update(func() { result.BackgroundDone = atBackgroundDone })
+	// And everything flushed: every memtable of the shard, those of the
+	// objects and those of the index, in a segment.
+	require.NoError(t, shard.Store().FlushMemtables(ctx))
+	flushed := time.Since(begin)
+	atFlushed := point(flushed)
+	stopSampler()
+
+	// The heap and the disk, without what the harness held.
+	order = nil
+	runtime.GC()
+	runtime.GC()
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	dirBytes, err := shardE2EDirBytes(dir)
+	require.NoError(t, err)
+	update(func() {
+		result.Flushed = atFlushed
+		result.DatasetReadSeconds = time.Duration(readNs.Load()).Seconds()
+		result.CallersFoundNoBatch = foundNoBatch.Load()
+		result.HeapInuse, result.HeapAlloc, result.HeapSys, result.Sys = mem.HeapInuse, mem.HeapAlloc, mem.HeapSys, mem.Sys
+		result.DirBytes = dirBytes
+	})
+	t.Logf("no background work left at %.1f s, flushed at %.1f s: %.0f objects a second, %.0f s of CPU, %.1f GB written "+
+		"to disk | heap in use %.1f MB, footprint %.1f MB, %.2f GB on disk | the readers took %.1f s of the dataset, a "+
+		"caller found no batch %d times", atBackgroundDone.Seconds, atFlushed.Seconds, atFlushed.ObjectsPerSecond,
+		atFlushed.Usage.CPUSeconds, float64(atFlushed.Usage.BytesWritten)/1e9, float64(mem.HeapInuse)/1e6,
+		float64(atFlushed.Usage.Footprint)/1e6, float64(dirBytes)/1e9, result.DatasetReadSeconds,
+		result.CallersFoundNoBatch)
+
+	// The queries, one at a time, through the search of the database, which
+	// is the search of the shard and the objects of its results.
+	if queryLimit > 0 {
+		queries, truth, err := shardE2EReadQueries(datasetDir, shapes, train.dims, queryLimit, k)
+		require.NoError(t, err)
+		latencies := make([]float64, len(queries))
+		hits := 0
+		for q, query := range queries {
+			started := time.Now()
+			res, err := repo.VectorSearch(ctx, dto.GetParams{
+				ClassName:  shardE2EClass,
+				Pagination: &filters.Pagination{Limit: k},
+			}, []string{""}, []models.Vector{query})
+			latencies[q] = float64(time.Since(started).Nanoseconds()) / 1e6
+			require.NoError(t, err, "query %d", q)
+			got := make([]uint32, 0, len(res))
+			for _, r := range res {
+				row, err := shardE2ERow(r.ID)
+				require.NoError(t, err, "query %d returned the id %q", q, r.ID)
+				got = append(got, row)
+			}
+			for _, want := range truth[q] {
+				if slices.Contains(got, want) {
+					hits++
+				}
+			}
+		}
+		search := &shardE2ESearch{Queries: len(queries), K: k}
+		var total float64
+		for _, ms := range latencies {
+			total += ms
+		}
+		sorted := slices.Clone(latencies)
+		slices.Sort(sorted)
+		at := func(q float64) float64 {
+			return sorted[max(0, min(len(sorted)-1, int(math.Ceil(q*float64(len(sorted))))-1))]
+		}
+		search.MeanMs, search.QPS = total/float64(len(queries)), 1e3*float64(len(queries))/total
+		search.P50Ms, search.P95Ms, search.P99Ms, search.MaxMs = at(0.50), at(0.95), at(0.99), sorted[len(sorted)-1]
+		if n == train.rows {
+			recall := float64(hits) / float64(len(queries)*k)
+			search.Recall = &recall
+			t.Logf("%d queries, one at a time: recall@%d %.4f | %.2f ms a query, p50 %.2f, p99 %.2f", len(queries), k, recall,
+				search.MeanMs, search.P50Ms, search.P99Ms)
+		} else {
+			t.Logf("%d queries, one at a time: %.2f ms a query, p50 %.2f, p99 %.2f | no recall: the neighbors of the dataset "+
+				"are over its %d rows, and %d went in", len(queries), search.MeanMs, search.P50Ms, search.P99Ms, train.rows, n)
+		}
+		var pendingAfterSearch map[string]int64
+		if queues != nil {
+			// A search of HFresh enqueues a merge for every posting it finds
+			// too small.
+			pendingAfterSearch = queues.pending()
+			require.NoError(t, queues.wait(ctx))
+		}
+		update(func() { result.Search, result.PendingAfterSearch = search, pendingAfterSearch })
+	}
+
+	shutting := time.Now()
+	closed = true
+	require.NoError(t, repo.Shutdown(context.Background()))
+	shutdown := time.Since(shutting)
+	dirBytesAtEnd, err := shardE2EDirBytes(dir)
+	require.NoError(t, err)
+	update(func() {
+		result.ShutdownSeconds, result.DirBytesAtEnd, result.Done = shutdown.Seconds(), dirBytesAtEnd, true
+	})
+	t.Logf("shut in %.1f s, %.2f GB on disk", shutdown.Seconds(), float64(dirBytesAtEnd)/1e9)
+}

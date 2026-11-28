@@ -1,0 +1,183 @@
+{
+  "index": "hfresh",
+  "config": {
+    "maxPostingSizeKB": 48,
+    "replicas": 4,
+    "searchProbe": 256,
+    "distance": "cosine",
+    "rq": {
+      "enabled": true,
+      "bits": 1,
+      "rescoreLimit": 350,
+      "rescoreFactor": 0,
+      "centering": false,
+      "trainingLimit": 0
+    },
+    "multivector": {
+      "enabled": false,
+      "muvera": {
+        "enabled": false,
+        "ksim": 4,
+        "dprojections": 16,
+        "repetitions": 10
+      },
+      "aggregation": ""
+    }
+  },
+  "dataset": "/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.bin",
+  "dir": "/Volumes/v40bench/shard1m/hfresh/db",
+  "rows": 990000,
+  "trainRows": 990000,
+  "dims": 1536,
+  "shuffled": true,
+  "callers": 8,
+  "batchSize": 100,
+  "datasetReaders": 4,
+  "gomaxprocs": 10,
+  "importGoroutinesFactor": 1.5,
+  "importWorkers": 15,
+  "backgroundWorkers": 9,
+  "asyncIndexing": false,
+  "pid": 71194,
+  "inserted": 990000,
+  "lastBatch": {
+    "seconds": 116.029713667,
+    "objectsPerSecond": 8532.297191056206,
+    "usage": {
+      "userSeconds": 883.320589,
+      "systemSeconds": 70.712126,
+      "cpuSeconds": 954.032715,
+      "diskBytesRead": 6023929856,
+      "diskBytesWritten": 41867821056,
+      "pageins": 245,
+      "physFootprint": 1801522880
+    }
+  },
+  "backgroundDone": {
+    "seconds": 183.370639292,
+    "objectsPerSecond": 5398.901393496921,
+    "usage": {
+      "userSeconds": 1369.976766,
+      "systemSeconds": 92.442836,
+      "cpuSeconds": 1462.419602,
+      "diskBytesRead": 6040256512,
+      "diskBytesWritten": 69501001728,
+      "pageins": 247,
+      "physFootprint": 1349456448
+    }
+  },
+  "flushed": {
+    "seconds": 183.724856292,
+    "objectsPerSecond": 5388.492444520191,
+    "usage": {
+      "userSeconds": 1370.0924519999999,
+      "systemSeconds": 92.623933,
+      "cpuSeconds": 1462.716385,
+      "diskBytesRead": 6040256512,
+      "diskBytesWritten": 69690982400,
+      "pageins": 248,
+      "physFootprint": 1401377472
+    }
+  },
+  "pendingAtLastBatch": {
+    "analyze": 49086,
+    "merge": 0,
+    "reassign": 800026,
+    "split": 1475
+  },
+  "datasetReadSeconds": 91.243865329,
+  "callersFoundNoBatch": 8,
+  "heapInuse": 413499392,
+  "heapAlloc": 328266768,
+  "heapSys": 2272133120,
+  "sys": 2312929576,
+  "dirBytes": 8264100049,
+  "progress": [
+    {
+      "seconds": 30.003554917,
+      "inserted": 273000,
+      "perSecond": 9098.921802940036,
+      "pending": {
+        "analyze": 12863,
+        "merge": 0,
+        "reassign": 192205,
+        "split": 1231
+      }
+    },
+    {
+      "seconds": 60.000255334,
+      "inserted": 520600,
+      "perSecond": 8254.241185129744,
+      "pending": {
+        "analyze": 25569,
+        "merge": 0,
+        "reassign": 410238,
+        "split": 1003
+      }
+    },
+    {
+      "seconds": 90.000668042,
+      "inserted": 769500,
+      "perSecond": 8296.552531546595,
+      "pending": {
+        "analyze": 38202,
+        "merge": 0,
+        "reassign": 616305,
+        "split": 1017
+      }
+    },
+    {
+      "seconds": 120.000222959,
+      "inserted": 990000,
+      "perSecond": 7350.109046952832,
+      "pending": {
+        "analyze": 50667,
+        "merge": 0,
+        "reassign": 788217,
+        "split": 0
+      }
+    },
+    {
+      "seconds": 150.000570834,
+      "inserted": 990000,
+      "perSecond": 0,
+      "pending": {
+        "analyze": 54823,
+        "merge": 0,
+        "reassign": 449662,
+        "split": 0
+      }
+    },
+    {
+      "seconds": 180.000236084,
+      "inserted": 990000,
+      "perSecond": 0,
+      "pending": {
+        "analyze": 57504,
+        "merge": 0,
+        "reassign": 37560,
+        "split": 0
+      }
+    }
+  ],
+  "search": {
+    "queries": 1000,
+    "k": 10,
+    "recall": 0.9668,
+    "meanMs": 6.600427047,
+    "p50Ms": 5.893166,
+    "p95Ms": 11.241292,
+    "p99Ms": 16.514208,
+    "maxMs": 36.883917,
+    "qps": 151.505348499309
+  },
+  "pendingAfterSearch": {
+    "analyze": 0,
+    "merge": 49,
+    "reassign": 0,
+    "split": 0
+  },
+  "shutdownSeconds": 0.120100792,
+  "dirBytesAtEnd": 8280396455,
+  "done": true
+}

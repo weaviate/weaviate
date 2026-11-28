@@ -1,0 +1,351 @@
+{
+  "index": "postingedge",
+  "config": {
+    "distance": "cosine",
+    "ef": 20,
+    "efConstruction": 160,
+    "maxPostingSizeKB": 0,
+    "rq": {
+      "rescoreLimit": -1,
+      "cacheMode": "routing"
+    }
+  },
+  "dataset": "/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.bin",
+  "dir": "/Volumes/v40bench/shard1m/postingedge/db",
+  "rows": 990000,
+  "trainRows": 990000,
+  "dims": 1536,
+  "shuffled": true,
+  "callers": 8,
+  "batchSize": 100,
+  "datasetReaders": 4,
+  "gomaxprocs": 10,
+  "importGoroutinesFactor": 1.5,
+  "importWorkers": 15,
+  "backgroundWorkers": 9,
+  "asyncIndexing": false,
+  "pid": 72028,
+  "inserted": 990000,
+  "lastBatch": {
+    "seconds": 1576.014337333,
+    "objectsPerSecond": 628.1668742146858,
+    "usage": {
+      "userSeconds": 9545.144437,
+      "systemSeconds": 605.936957,
+      "cpuSeconds": 10151.081393999999,
+      "diskBytesRead": 65105920,
+      "diskBytesWritten": 78087839744,
+      "pageins": 45,
+      "physFootprint": 1242750208
+    }
+  },
+  "backgroundDone": {
+    "seconds": 1576.015146333,
+    "objectsPerSecond": 628.1665517641037,
+    "usage": {
+      "userSeconds": 9545.144564,
+      "systemSeconds": 605.937633,
+      "cpuSeconds": 10151.082197,
+      "diskBytesRead": 65105920,
+      "diskBytesWritten": 78087852032,
+      "pageins": 45,
+      "physFootprint": 1242750208
+    }
+  },
+  "flushed": {
+    "seconds": 1576.330094167,
+    "objectsPerSecond": 628.041045250207,
+    "usage": {
+      "userSeconds": 9545.218226,
+      "systemSeconds": 606.042978,
+      "cpuSeconds": 10151.261204,
+      "diskBytesRead": 65110016,
+      "diskBytesWritten": 78191898624,
+      "pageins": 45,
+      "physFootprint": 1290165632
+    }
+  },
+  "datasetReadSeconds": 4.82683576,
+  "callersFoundNoBatch": 8,
+  "heapInuse": 350978048,
+  "heapAlloc": 289277560,
+  "heapSys": 1595342848,
+  "sys": 1625267832,
+  "dirBytes": 13761481686,
+  "progress": [
+    {
+      "seconds": 30.000046583,
+      "inserted": 38600,
+      "perSecond": 1286.664668776658
+    },
+    {
+      "seconds": 60.001396167,
+      "inserted": 42000,
+      "perSecond": 113.32823513423715
+    },
+    {
+      "seconds": 90.000071375,
+      "inserted": 48500,
+      "perSecond": 216.6762350314253
+    },
+    {
+      "seconds": 120.000993833,
+      "inserted": 72600,
+      "perSecond": 803.3086327175096
+    },
+    {
+      "seconds": 150.000616042,
+      "inserted": 97700,
+      "perSecond": 836.677202970573
+    },
+    {
+      "seconds": 180.000049667,
+      "inserted": 121200,
+      "perSecond": 783.3481222930915
+    },
+    {
+      "seconds": 210.001436875,
+      "inserted": 145700,
+      "perSecond": 816.6289055283078
+    },
+    {
+      "seconds": 240.000051875,
+      "inserted": 169100,
+      "perSecond": 780.0360116625384
+    },
+    {
+      "seconds": 270.000062208,
+      "inserted": 191900,
+      "perSecond": 759.9997382307574
+    },
+    {
+      "seconds": 300.000064958,
+      "inserted": 215200,
+      "perSecond": 776.6665954722282
+    },
+    {
+      "seconds": 330.00020225,
+      "inserted": 237900,
+      "perSecond": 756.663203873181
+    },
+    {
+      "seconds": 360.000068,
+      "inserted": 259300,
+      "perSecond": 713.3365255142844
+    },
+    {
+      "seconds": 390.000129167,
+      "inserted": 281100,
+      "perSecond": 726.6651850690205
+    },
+    {
+      "seconds": 420.002066292,
+      "inserted": 302800,
+      "perSecond": 723.2866301128885
+    },
+    {
+      "seconds": 450.000190708,
+      "inserted": 323800,
+      "perSecond": 700.0437663629165
+    },
+    {
+      "seconds": 480.000118625,
+      "inserted": 344600,
+      "perSecond": 693.3349992555576
+    },
+    {
+      "seconds": 510.000108292,
+      "inserted": 365200,
+      "perSecond": 686.6669031776378
+    },
+    {
+      "seconds": 540.0000615,
+      "inserted": 386000,
+      "perSecond": 693.3344147501307
+    },
+    {
+      "seconds": 570.000077917,
+      "inserted": 406300,
+      "perSecond": 676.6662963723142
+    },
+    {
+      "seconds": 600.00006975,
+      "inserted": 426200,
+      "perSecond": 663.3335139148277
+    },
+    {
+      "seconds": 630.000098958,
+      "inserted": 446300,
+      "perSecond": 669.9993476886351
+    },
+    {
+      "seconds": 660.000051417,
+      "inserted": 466200,
+      "perSecond": 663.3343845193316
+    },
+    {
+      "seconds": 690.000207292,
+      "inserted": 485500,
+      "perSecond": 643.3299906979229
+    },
+    {
+      "seconds": 720.00136075,
+      "inserted": 504400,
+      "perSecond": 629.9757783132904
+    },
+    {
+      "seconds": 750.004665167,
+      "inserted": 523800,
+      "perSecond": 646.5954459672079
+    },
+    {
+      "seconds": 780.010530875,
+      "inserted": 542600,
+      "perSecond": 626.5441624964566
+    },
+    {
+      "seconds": 810.000051792,
+      "inserted": 560600,
+      "perSecond": 600.2096548930332
+    },
+    {
+      "seconds": 840.000052458,
+      "inserted": 579300,
+      "perSecond": 623.3333194953335
+    },
+    {
+      "seconds": 870.000057583,
+      "inserted": 597900,
+      "perSecond": 619.9998940833532
+    },
+    {
+      "seconds": 900.000107583,
+      "inserted": 616300,
+      "perSecond": 613.3323111128127
+    },
+    {
+      "seconds": 930.000202,
+      "inserted": 634700,
+      "perSecond": 613.3314030362993
+    },
+    {
+      "seconds": 960.000775208,
+      "inserted": 652800,
+      "perSecond": 603.321805703811
+    },
+    {
+      "seconds": 990.0000825,
+      "inserted": 670900,
+      "perSecond": 603.3472647825715
+    },
+    {
+      "seconds": 1020.000059167,
+      "inserted": 688300,
+      "perSecond": 580.0004511050164
+    },
+    {
+      "seconds": 1050.000061625,
+      "inserted": 705100,
+      "perSecond": 559.9999541173385
+    },
+    {
+      "seconds": 1080.001905458,
+      "inserted": 721800,
+      "perSecond": 556.6324554236594
+    },
+    {
+      "seconds": 1110.002238833,
+      "inserted": 738500,
+      "perSecond": 556.6604807770725
+    },
+    {
+      "seconds": 1140.000058125,
+      "inserted": 755000,
+      "perSecond": 550.0399825530127
+    },
+    {
+      "seconds": 1170.000156333,
+      "inserted": 771200,
+      "perSecond": 539.9982322617859
+    },
+    {
+      "seconds": 1200.000064083,
+      "inserted": 787800,
+      "perSecond": 553.3350348385627
+    },
+    {
+      "seconds": 1230.000058875,
+      "inserted": 804200,
+      "perSecond": 546.6667615680196
+    },
+    {
+      "seconds": 1260.000061042,
+      "inserted": 820700,
+      "perSecond": 549.9999602716687
+    },
+    {
+      "seconds": 1290.000150583,
+      "inserted": 837100,
+      "perSecond": 546.6650350355352
+    },
+    {
+      "seconds": 1320.000093583,
+      "inserted": 853800,
+      "perSecond": 556.6677243353423
+    },
+    {
+      "seconds": 1350.000502833,
+      "inserted": 870400,
+      "perSecond": 553.3257850474184
+    },
+    {
+      "seconds": 1380.001302375,
+      "inserted": 886200,
+      "perSecond": 526.6526306367448
+    },
+    {
+      "seconds": 1410.000414333,
+      "inserted": 901800,
+      "perSecond": 520.0153931836605
+    },
+    {
+      "seconds": 1440.00013,
+      "inserted": 917800,
+      "perSecond": 533.3383881901324
+    },
+    {
+      "seconds": 1470.002071792,
+      "inserted": 933700,
+      "perSecond": 529.9656972282945
+    },
+    {
+      "seconds": 1500.000134458,
+      "inserted": 950100,
+      "perSecond": 546.7019714772381
+    },
+    {
+      "seconds": 1530.000974417,
+      "inserted": 965900,
+      "perSecond": 526.6519211326342
+    },
+    {
+      "seconds": 1560.000127792,
+      "inserted": 981400,
+      "perSecond": 516.6812478420467
+    }
+  ],
+  "search": {
+    "queries": 1000,
+    "k": 10,
+    "recall": 0.9491,
+    "meanMs": 2.038155797000002,
+    "p50Ms": 1.571166,
+    "p95Ms": 4.777083,
+    "p99Ms": 8.616458,
+    "maxMs": 18.192792,
+    "qps": 490.6396269960902
+  },
+  "shutdownSeconds": 0.012984084,
+  "dirBytesAtEnd": 13761481686,
+  "done": true
+}

@@ -3801,6 +3801,55 @@ Datos: `testdata/bench/search-10m-grown/`.
 
 **Orden.** Se escribe ahora sin compilar, en una copia del árbol de las palancas. Se compila y se prueba en un hueco, y se mide detrás de la segunda cadena.
 
+#### Los inserts de punta a punta por un shard a 1M (28 de noviembre a las 18:56; sesión de las 18:11 a las 18:41)
+
+**Por un shard, con el objeto y el vector dentro del reloj, HFresh mete 8 532 objetos por segundo hasta el último lote y 5 388 hasta vaciar sus colas; el nuestro, 628. Son 13.6 y 8.6 veces. En CPU, 1.48 ms por objeto frente a 10.25: 6.9 veces. El nuestro queda donde esperaba; HFresh, por encima de lo que esperaba.**
+
+dbpedia, 990 000 objetos de 1 536 dimensiones, una clase y un shard, 8 llamadores con lotes de 100 por `DB.BatchPutObjects`, indexado en línea: el shard reparte un vector por llamada entre 15 workers. Cada índice con su configuración por defecto.
+
+| | HFresh | el nuestro |
+| --- | --- | --- |
+| último lote devuelto | 116.0 s: **8 532 objetos/s** | 1 576.0 s: **628 objetos/s** |
+| trabajo de fondo acabado | 183.4 s: 5 399 objetos/s | 1 576.0 s: 628 |
+| almacén volcado | 183.7 s: **5 388 objetos/s** | 1 576.3 s: 628 |
+| CPU del proceso hasta ahí | 1 463 s (954 al último lote) | 10 151 s |
+| CPU por objeto | 1.48 ms | 10.25 ms |
+| escrito a disco | 69.7 GB | 78.2 GB |
+| en disco al acabar | 8.26 GB | 13.76 GB |
+| heap en uso | 413.5 MB | 351.0 MB |
+| huella del proceso | 1 401 MB | 1 290 MB |
+| recall@10, 1 000 queries de una en una | 0.9668 | 0.9491 |
+| ms por query (p50, p99) | 6.60 (5.89, 16.51) | 2.04 (1.57, 8.62) |
+
+- **HFresh deja trabajo detrás del último lote:** 800 026 reasignaciones, 49 086 análisis y 1 475 splits esperando cuando devuelve el último lote; los vacía en 67 s más.
+- **El nuestro no deja nada:** el segundo reloj coincide con el primero. Durante la ingesta reorganizó tres veces (con 45 542, 181 645 y 725 140 vectores), dentro del reloj.
+- **Frente a los índices solos** (primera parte: 692 inserts por segundo el nuestro con 8 llamadores de 100, HFresh 7 289 hasta el último insert y 5 002 hasta vaciar colas): por el shard el nuestro baja un 9 % y HFresh sube un 17 % hasta el último lote y un 8 % hasta vaciar colas.
+
+**Lo esperado y lo medido.** El nuestro, entre 500 y 700: **628, se cumple.** HFresh, entre 3 000 y 6 000 hasta el último lote: **8 532, por encima;** hasta vaciar colas, 5 388.
+
+**No comparable,** como estaba dicho: la búsqueda del final usa los parámetros por defecto de cada índice, así que los dos recalls no son al mismo coste (HFresh lee 256 postings y compara 350 vectores; el nuestro va con ef 20). Las compactaciones del almacén no se esperan en ninguno.
+
+**El arnés** compiló a la primera en el hueco de las 16:57 y pasó su humo; ninguno de los diez puntos sin verificar hizo falta tocarlo.
+
+Datos: `testdata/bench/shard-e2e-1m/`.
+
+#### El hueco de las 18:51 y la segunda cadena (28 de noviembre a las 18:56)
+
+**La primera cadena acabó a las 18:50.** De sus sesiones: las retenciones a 10M, la reorganización del 10M con su búsqueda y el shard, medidas y con su sección. HFresh a 10M y la pasada del cerrojo a 100k no arrancaron (dicho arriba). **Y la búsqueda a 1M tampoco salió, por un tercer error mío:** su guion llamaba a un binario compilado antes de que el arnés supiera pasar los vecinos del dataset a doc ids densos, así que todo recall salió 0 y no encontró ningún punto. La reorganización de ese clon sí corrió (16 s, 990 000 vectores) y la celda del lote de v4.0 también; lo demás se repite.
+
+**Lo que falló por no pasar por un humo** son tres sesiones de siete. Desde ahora ninguna sesión entra en una cadena sin haber corrido antes su misma invocación en pequeño.
+
+**El hueco, de las 18:51 a las 18:55.** Todo compiló a la primera.
+- **El micro-benchmark de miembros** (la enmienda del usuario), con su humo a 100k.
+- **El arnés de HFresh** con el lector del dataset en su sitio, y su humo con los primeros 20 000 vectores del dataset de 10M.
+- **La búsqueda a 1M con el binario bueno,** con su humo: encuentra sus puntos (0.99 con ef 132).
+- **El árbol de las palancas:** el paquete entero con el detector de carreras, en verde; `golangci-lint` y el de las goroutines, limpios. Queda en un commit local.
+- **La palanca D** (el split lee sus vectores antes de tomar el índice), escrita por un subagente sin compilar: compila, sus dos tests pasan y el paquete entero sigue en verde con ella. Falta llevarla al binario de medida, donde choca con los relojes del diagnóstico en dos funciones; va en el siguiente hueco.
+- **El bug del camino de lotes, por encargo del usuario:** PR en borrador a `main`, https://github.com/weaviate/weaviate/pull/14089. Primer commit, el test rojo: sobre `main` (`4c6a489e47`) fallan HNSW, HNSW con un lote que cambia vectores y flat, con 24 de 24 objetos de vuelta sin su vector, y pasa el control asíncrono. Segundo commit, el arreglo: las cuatro filas pasan, también con el detector de carreras; los tests de lotes del paquete pasan y el lint queda limpio. El coste del volcado extra por lote sigue sin medir, y así lo dice la descripción.
+- **Sitio:** borrado el clon reorganizado del 10M; quedan 83 GiB libres.
+
+**La segunda cadena, desde las 18:55,** en este orden: HFresh a 10M, el cerrojo a 100k, la búsqueda a 1M, la búsqueda conjunta con su enmienda, los avisos, las palancas y la pasada de 10M del prototipo.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
