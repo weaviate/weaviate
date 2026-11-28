@@ -59,7 +59,7 @@ func (compactTestCodec) RenameCollection(payload []byte, collection string) ([]b
 	return json.Marshal(h)
 }
 
-var compactAt = time.UnixMilli(1_700_000_000_000)
+var compactAt = time.UnixMilli(1_700_000_000_000).UTC()
 
 func newCompactTestManager() *Manager {
 	return NewManager(ManagerParameters{ConflictDetectors: map[string]ConflictDetector{
