@@ -279,7 +279,8 @@ func isIndexFolderOf(class *models.Class, name string) bool {
 	return false
 }
 
-// finishViewLoad publishes what a refresh would; a build that cannot open is left to the refresh loop.
+// finishViewLoad publishes what a refresh would. A build that cannot open fails the load once a unit
+// here started, since writes must reach its kept folder; else the refresh retries over an emptied one.
 func (s *Shard) finishViewLoad(ctx context.Context, class *models.Class) error {
 	s.view.mu.Lock()
 	defer s.view.mu.Unlock()
@@ -292,6 +293,15 @@ func (s *Shard) finishViewLoad(ctx context.Context, class *models.Class) error {
 	}
 	served := len(opened)
 	if _, err := s.resolveStaged(ctx, class, cur, next, &opened); err != nil {
+		if taskID, started := startedUnitTask(next); started {
+			s.closeUnpublished(opened)
+			var se *stagingError
+			if errors.As(err, &se) {
+				taskID = se.taskID
+			}
+			return fmt.Errorf("open the build folders of reindex task %s: %w; "+
+				"if a folder stays unopenable, cancel the task", taskID, err)
+		}
 		s.closeUnpublished(opened[served:])
 		next.staged = nil
 		s.index.buildOpenWarnings().WithSampling(func(l logrus.FieldLogger) {
@@ -301,6 +311,17 @@ func (s *Shard) finishViewLoad(ctx context.Context, class *models.Class) error {
 	}
 	s.publishView(next)
 	return nil
+}
+
+func startedUnitTask(v *shardView) (string, bool) {
+	for _, pv := range v.props {
+		for _, st := range pv.staged {
+			if st.unitStarted {
+				return st.taskID, true
+			}
+		}
+	}
+	return "", false
 }
 
 // refuseMissingServedFolder refuses an empty index over objects when a named generation folder is gone.

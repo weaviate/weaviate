@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -180,14 +181,10 @@ func TestReindexViewWrites(t *testing.T) {
 		{
 			name: "a write between a reload and the first refresh lands in a started unit's build",
 			run: func(f *viewFixture) string {
-				started := func(st distributedtask.ShardTaskState) distributedtask.ShardTaskState {
-					st.LocalUnitStarted = true
-					return st
-				}
-				f.refreshTo(started(stagedTask("a")))
+				f.refreshTo(withUnitStarted(stagedTask("a")))
 				f.reload()
 				f.putTitle(testObject(f.class.Class), "hello")
-				f.refreshTo(started(switchedTask("a")))
+				f.refreshTo(withUnitStarted(switchedTask("a")))
 				return fmt.Sprint(countHello(f.t, f.shard.loadView()))
 			},
 			want: "1",
@@ -209,12 +206,81 @@ func TestReindexViewWrites(t *testing.T) {
 			},
 			want: "1 1",
 		},
+		{
+			name: "a started unit's build that cannot open at load fails the load",
+			run: func(f *viewFixture) string {
+				f.refreshTo(withUnitStarted(stagedTask("a")))
+				return f.reloadOverBlockedBuild(gen1Title, replaceWithFile)
+			},
+			want: "load failed, names the cancel",
+		},
+		{
+			name: "a completed unit's build that cannot open at load fails the load",
+			run: func(f *viewFixture) string {
+				f.refreshTo(withUnitStarted(viewTaskState("a", 1, ReindexTypeRepairFilterable,
+					distributedtask.TaskStatusSwapping, false, true)))
+				return f.reloadOverBlockedBuild(gen1Title, replaceWithFile)
+			},
+			want: "load failed, names the cancel",
+		},
+		{
+			name: "an unstarted unit's build that cannot open at load leaves it to the refresh",
+			run: func(f *viewFixture) string {
+				f.refreshTo(stagedTask("a"))
+				return f.reloadOverBlockedBuild(gen1Title, holdUndeletable)
+			},
+			want: "published, staged []",
+		},
+		{
+			name: "an unstarted unit's build that cannot open beside a started unit's build fails the load",
+			run: func(f *viewFixture) string {
+				f.refreshTo(withUnitStarted(stagedTask("a")),
+					viewTaskState("b", 2, ReindexTypeRepairFilterable, distributedtask.TaskStatusStarted, false, true))
+				return f.reloadOverBlockedBuild("property_title.gen2", holdUndeletable)
+			},
+			want: "load failed, names the cancel",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, tc.run(newViewFixture(t, "ViewTest", tc.props...)))
 		})
 	}
+}
+
+func withUnitStarted(st distributedtask.ShardTaskState) distributedtask.ShardTaskState {
+	st.LocalUnitStarted = true
+	return st
+}
+
+// A started unit keeps its folder, so a file in its place fails the open.
+func replaceWithFile(t *testing.T, dir string) {
+	require.NoError(t, os.RemoveAll(dir))
+	require.NoError(t, os.WriteFile(dir, nil, 0o644))
+}
+
+// An unstarted unit empties its folder first, so a folder it cannot empty fails the open.
+func holdUndeletable(t *testing.T, dir string) {
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "held"), 0o755))
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+}
+
+// reloadOverBlockedBuild reloads the shard after block made folder fail to open.
+func (f *viewFixture) reloadOverBlockedBuild(folder string, block func(*testing.T, string)) string {
+	ctx := context.Background()
+	require.NoError(f.t, f.shard.Shutdown(ctx))
+	block(f.t, filepath.Join(f.shard.pathLSM(), folder))
+	sl, err := f.idx.initShard(ctx, f.shard.name, f.class, nil, true, true)
+	if err != nil {
+		if strings.Contains(err.Error(), "cancel the task") {
+			return "load failed, names the cancel"
+		}
+		return "load failed: " + err.Error()
+	}
+	f.idx.shards.Store(f.shard.name, sl)
+	f.shard = sl.(*Shard)
+	return fmt.Sprintf("published, staged %v", stagedTasks(f.shard.loadView()))
 }
 
 // titleBuckets lists the open buckets of the fixture's title property.
