@@ -107,8 +107,7 @@ func (v *shardView) Bucket(name string) *lsmkv.Bucket {
 	return v.store.Bucket(name)
 }
 
-// AcquireBucketForRead needs no pin for an index the view serves, because the
-// view's own reference holds off its retire.
+// AcquireBucketForRead needs no pin for a served index: the view's reference holds off its retire.
 func (v *shardView) AcquireBucketForRead(name string) (*lsmkv.Bucket, func()) {
 	if b, ok := v.served[name]; ok {
 		return b, func() {}
@@ -142,8 +141,7 @@ func (v *shardView) release() {
 	v.tryDrain()
 }
 
-// tryDrain marks a replaced view drained once no one holds it and every older
-// view is drained, then gives the next view the same chance.
+// tryDrain marks a replaced view drained once no one holds it or an older view.
 func (v *shardView) tryDrain() {
 	for v != nil {
 		if !v.superseded.Load() || v.refs.Load() > 0 {
@@ -199,8 +197,7 @@ func (s *Shard) servedIndexName(propName, indexType string) string {
 	return reindexBucketName(propName, indexType, s.loadView().props[propName].gen[indexType])
 }
 
-// loadReindexView decides, before any property bucket opens, which folder
-// each property index opens.
+// loadReindexView decides which folder each property index opens, before any opens.
 func (s *Shard) loadReindexView(loading *models.Class, keep map[string]bool) (*models.Class, error) {
 	class, props, err := s.readReindexView()
 	if err != nil {
@@ -221,8 +218,7 @@ func (s *Shard) loadReindexView(loading *models.Class, keep map[string]bool) (*m
 	return class, nil
 }
 
-// sweepUnnamedIndexFolders deletes what a crash before a retire or an index-off on an unloaded
-// shard left behind. A folder it cannot delete is never opened.
+// sweepUnnamedIndexFolders deletes what a crash before a retire or an unloaded index-off left; it never opens one it cannot delete.
 func (s *Shard) sweepUnnamedIndexFolders(class *models.Class, props map[string]reindexPropView, keep map[string]bool) {
 	entries, err := os.ReadDir(s.pathLSM())
 	if err != nil {
@@ -283,9 +279,7 @@ func isIndexFolderOf(class *models.Class, name string) bool {
 	return false
 }
 
-// finishViewLoad publishes what a refresh of the load's state would, so writes
-// reach every kept build from the start. A build that cannot open is left to
-// the refresh loop, whose staging limit fails its unit.
+// finishViewLoad publishes what a refresh would; a build that cannot open is left to the refresh loop.
 func (s *Shard) finishViewLoad(ctx context.Context, class *models.Class) error {
 	s.view.mu.Lock()
 	defer s.view.mu.Unlock()
@@ -308,8 +302,7 @@ func (s *Shard) finishViewLoad(ctx context.Context, class *models.Class) error {
 	return nil
 }
 
-// refuseMissingServedFolder refuses to serve an empty index over objects
-// when a generation folder the view names is gone.
+// refuseMissingServedFolder refuses an empty index over objects when a named generation folder is gone.
 func (s *Shard) refuseMissingServedFolder(prop, indexType string, pv reindexPropView) error {
 	if !pv.on[indexType] || pv.gen[indexType] == 0 {
 		return nil
@@ -338,9 +331,7 @@ type stagingError struct {
 func (e *stagingError) Error() string { return e.err.Error() }
 func (e *stagingError) Unwrap() error { return e.err }
 
-// refreshView makes a loaded shard serve what the cluster state now says. It
-// never waits on a reader. A folder still being retired leaves it not ready,
-// and the refresh loop tries again.
+// refreshView never waits on a reader; a folder still being retired leaves it not ready.
 func (s *Shard) refreshView(ctx context.Context) error {
 	s.view.mu.Lock()
 	defer s.view.mu.Unlock()
@@ -456,8 +447,7 @@ func (s *Shard) openBuildLengthAndNull(ctx context.Context, prop *models.Propert
 	return s.openBucketNeeds(ctx, needs, opened)
 }
 
-// resolveStaged opens the folder of every build the view stages. A folder
-// still held by a replaced build or a retire is left out until it is free.
+// resolveStaged leaves out a build folder a replaced build or a retire still holds.
 func (s *Shard) resolveStaged(ctx context.Context, class *models.Class, cur, next *shardView, opened *[]string,
 ) (ready bool, err error) {
 	ready = true
@@ -490,8 +480,7 @@ func (s *Shard) resolveStaged(ctx context.Context, class *models.Class, cur, nex
 	return ready, nil
 }
 
-// openStagedBuild opens a build's folder, emptied while its local unit has
-// not started, with the options a build keeps until the next load.
+// openStagedBuild empties the folder while its local unit has not started.
 func (s *Shard) openStagedBuild(ctx context.Context, prop *models.Property, next *shardView, st reindexStaged,
 	b *stagedBuild,
 ) error {
@@ -562,8 +551,7 @@ func stagedStrategy(className string, target *models.Property, st reindexStaged,
 	}
 }
 
-// writeStaged moves a write's previous and new version through every build its
-// view stages, each analyzed the way that build's strategy indexes it.
+// writeStaged analyzes each version the way the build's strategy indexes it.
 func (s *Shard) writeStaged(v *shardView, object, prev *storobj.Object, docID, prevDocID uint64) error {
 	for _, b := range v.staged {
 		if prev != nil {
@@ -595,8 +583,7 @@ func (s *Shard) mirrorStaged(b *stagedBuild, obj *storobj.Object, docID uint64,
 	return nil
 }
 
-// analyzeForBuild analyzes obj with the settings the view serves once b switches,
-// not the class's, which differ while an earlier run's switched tenants stand.
+// analyzeForBuild uses the settings served once b switches, not the class's, which an earlier run may differ from.
 func (s *Shard) analyzeForBuild(b *stagedBuild, obj *storobj.Object) ([]inverted.Property, error) {
 	className := s.index.Config.ClassName.String()
 	c := s.index.getSchema.ReadOnlyClass(className)
@@ -729,8 +716,7 @@ func (s *Shard) dropScratch(name string) error {
 	return nil
 }
 
-// whenNotHalted runs del once no backup halts the shard, holding the halt lock
-// so none starts mid-delete. It gives up when ctx or the shard ends.
+// whenNotHalted holds the halt lock so no halt starts mid-delete; it gives up when ctx or the shard ends.
 func (s *Shard) whenNotHalted(ctx context.Context, del func()) bool {
 	for {
 		s.haltForTransferMux.Lock()
@@ -763,8 +749,7 @@ func (s *Shard) reindexDeletePending() (bool, string) {
 	return false, ""
 }
 
-// scanObjects has no time filter, since the coordinator stamps update times on
-// its own clock and a local cut-off could drop an object written before staging.
+// scanObjects has no time filter: update times are on the coordinator's clock, not this node's.
 func (s *Shard) scanObjects(ctx context.Context, b *stagedBuild, scratch *lsmkv.Bucket) error {
 	objects, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
 	if objects == nil {
@@ -795,8 +780,7 @@ func (s *Shard) scanObjects(ctx context.Context, b *stagedBuild, scratch *lsmkv.
 	return nil
 }
 
-// closeUnpublished closes what a failed refresh opened and keeps the folders,
-// since a served one may hold data.
+// closeUnpublished keeps the folders, since a served one may hold data.
 func (s *Shard) closeUnpublished(names []string) {
 	for _, name := range names {
 		if err := s.store.ShutdownBucket(context.Background(), name); err != nil {
@@ -842,8 +826,7 @@ func (s *Shard) retirePending(name string) bool {
 	return ok
 }
 
-// retireBuckets deletes buckets a publish replaced, off the refresh loop, once
-// no one holds the replaced view or an older one.
+// retireBuckets deletes off the refresh loop, once no one holds the replaced view or an older one.
 func (s *Shard) retireBuckets(buckets []*lsmkv.Bucket, replaced *shardView) {
 	if len(buckets) == 0 {
 		return
@@ -877,8 +860,7 @@ func (s *Shard) retireBuckets(buckets []*lsmkv.Bucket, replaced *shardView) {
 	}, s.index.logger)
 }
 
-// retireBucket logs a folder it cannot delete once. No view names it, so no
-// load opens it again.
+// retireBucket logs an undeletable folder once; no view names it, so no load opens it.
 func (s *Shard) retireBucket(b *lsmkv.Bucket) {
 	dir := b.GetDir()
 	log := s.index.logger.WithField("action", "reindex_retire").WithField("dir", dir)
@@ -924,8 +906,7 @@ type stagingWait struct {
 	waiting      map[string]int
 }
 
-// noteRefresh restarts the staging clock unless this refresh failed opening
-// the same task's build folder as the one before.
+// noteRefresh keeps the staging clock while refreshes keep failing on the same task's build.
 func (w *stagingWait) noteRefresh(err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -944,8 +925,7 @@ func (w *stagingWait) noteRefresh(err error) {
 	}
 }
 
-// check returns the channel the next refresh closes, and the staging error
-// once it has failed for this task for limit in a row.
+// check returns the channel the next refresh closes, and the error once staging failed for limit.
 func (w *stagingWait) check(taskID string, limit time.Duration) (<-chan struct{}, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -980,9 +960,7 @@ func (w *stagingWait) waitingTasks() []string {
 	return out
 }
 
-// awaitStagedBuilds returns the task's builds of prop once the refresh loop has
-// staged them. It fails only after opening the task's build folder kept failing
-// for the configured limit.
+// awaitStagedBuilds fails only once opening the task's build folder kept failing for the configured limit.
 func (s *Shard) awaitStagedBuilds(ctx context.Context, taskID string, gen uint64, prop string,
 ) ([]*stagedBuild, error) {
 	limit := s.index.db.config.ReindexStagingFailureTimeout
