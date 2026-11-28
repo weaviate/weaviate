@@ -3562,6 +3562,32 @@ El mapa compacto, las hojas con solape, la poda del halo y los centroides en RQ1
 
 **Lo que no es una propuesta y conviene tener presente al medir.** Cuánto recoge el recolector depende del heap del nodo, no del índice: la 5 es lo que el índice puede hacer. Y en un shard los doc ids llegan en orden: las medidas con el arnés de la noche los reparten salvo que se pida lo contrario.
 
+#### El evento por búsqueda conjunta, y su puerta (pre-registro, 28 de noviembre a las 16:35, por encargo del usuario; antes de escribir el código)
+
+**El encargo** (del usuario). Seguir con el plan B y con la cadena de la noche. Y añadir a la simulación, sin retrasar las medidas de la base:
+1. **Evento por búsqueda conjunta:** para los pendientes de un posting (8, 16 y 32, elegidos entre sus miembros), lanzar la búsqueda del insert de hoy para cada uno y medir cuánto se comparte: las cargas (suma de las de cada búsqueda frente a postings distintos cargados), los extremos (puntuaciones totales frente a extremos distintos) y los vectores exactos del rescore (totales frente a distintos). A 1M y a 10M.
+2. **Micro-benchmark,** como el de seguir aristas: lo que cuesta traer una vez los códigos de los extremos de un posting cargado y puntuarlos para m consultas seguidas, frente a m recorridos separados. Con tablas de tamaño 1M y 10M.
+3. **Con eso, estimar** CPU, cargas y lecturas por vector de un evento por búsqueda conjunta, frente al insert de hoy y al constructor en lote.
+4. **Tolerancia con los avisos** (ya pre-registrada): qué fracción pendiente aguanta dentro del 5 % a 0.95 y del 10 % a 0.99. De ahí sale el umbral de pendientes.
+5. **Una pregunta:** con el mismo grupo de 256, el lote queda en 18.59 y 76.30 con 1.88 ms y los eventos simulados en 21.53 y 100.38 con 3.15 ms. ¿Qué hace el lote que no hacen los eventos?
+- **La puerta** (del usuario): pasa si con 16 a 32 pendientes las cargas por vector bajan a un quinto o menos de las de hoy y la CPU estimada a un tercio o menos, con la fracción pendiente del punto 4. Si pasa, el prototipo de dos tiempos se retoma con este evento. Si no, queda descartado y seguimos solo con el plan B.
+
+**Cómo lo mido** (*mío*).
+- **1.** Sobre la copia en memoria de un clon, 200 postings al azar (semilla fija) y de cada uno 32 miembros al azar; 8 y 16 son los primeros de esos 32. A los elegidos se les quitan las aristas, de salida y las que llevan a ellos, que es como estaría un pendiente. Para cada uno corre la búsqueda de un insert tal cual (los mismos postings de entrada, el mismo ef y el mismo rescore) y se apunta qué postings carga, qué extremos puntúa y qué vectores exactos lee. No simulo qué aristas saldrían: de eso ya sé que son las de hoy, porque la búsqueda es la de hoy.
+- **2.** Una tabla de códigos de enrutado de 1M y de 10M de doc ids, con códigos de verdad repetidos, y postings sintéticos con los extremos distintos que tiene un posting de ese tamaño. Separado: m pasadas, cada una puntuando los extremos de cada posting desde la tabla, con otros postings entre una visita y la siguiente. Conjunto: por posting, copiar una vez los códigos a un buffer y puntuarlos para las m consultas. m = 1, 8, 16 y 32. Con la función de puntuar del índice.
+- **3. La estimación, con la fórmula escrita antes de ver los datos.** El coste de la búsqueda de un insert de hoy por partes sale del pase instrumentado (filas, recorrido, rescore; a 10M el archivado, a 1M uno nuevo sobre el clon). Para el evento, por vector: las filas, por la fracción de cargas distintas; del recorrido, la parte de puntuar miembros entera (cada consulta puntúa a cada miembro) y la parte de los extremos por la razón conjunto/separado del micro-benchmark; del rescore, las lecturas por la fracción de vectores distintos y el cálculo entero; y la escritura de hoy entera. **Las cargas por vector** son los postings distintos entre m; **las lecturas,** filas distintas más vectores exactos distintos entre m.
+- **5.** Lo contesto con una medida además de con el código: un escenario que conecta todo con la regla del lote dentro del simulador (cada vector mira los miembros de los 64, 128 o 256 postings más cercanos a él, no al centroide de su posting; los mejores por código, comparados exactamente; sin inversas). Si con 256 reproduce las cargas del lote, la diferencia es qué postings mira; lo que quede será de las inversas o de otra cosa.
+
+**Cómo leo la puerta** (*mío*).
+- **Cargas:** postings distintos por vector con 16 y con 32 pendientes, frente a la media de cargas de una búsqueda de insert de la misma medida. Tiene que cumplirse a 1M y a 10M con alguno de los dos tamaños.
+- **CPU:** la estimada por la fórmula de arriba, frente a la de la búsqueda más la escritura de un insert de hoy por las mismas partes. Un tercio o menos, a los dos tamaños.
+- **«Con la fracción pendiente del punto 4»:** la mayor fracción de la tabla de tolerancia con avisos que quede dentro del 5 % y del 10 %, pasada a pendientes por posting (241 miembros a 1M, 248 a 10M). Si no da para 16 pendientes por posting, la puerta no pasa aunque los cocientes pasen. A 10M mido también el 5 %, que no estaba.
+- **Lo que no cubre esta medida, dicho antes:** un evento conjunto no comparte el cálculo de puntuar miembros ni el de comparar exactamente, solo las lecturas y los accesos a memoria; y la búsqueda de cada pendiente no ve a los demás pendientes conectados.
+
+**Lo que espero** (*mío*): con 16 a 32 pendientes, entre 3 y 6 veces menos cargas por vector que hoy, y la CPU estimada a la mitad, no a un tercio: puntuar miembros es la mayor parte del recorrido y no se comparte. Sobre la pregunta 5: que la regla del lote dentro del simulador dé las cargas del lote, es decir, que la diferencia sea mirar alrededor del vector y no del centroide.
+
+**Orden:** detrás de las medidas de la base en la cadena de la noche, y antes de las palancas.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
