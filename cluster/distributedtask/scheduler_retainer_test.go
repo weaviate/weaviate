@@ -81,6 +81,7 @@ func TestCompletedTaskRetainerVetoesTTLCleanup(t *testing.T) {
 	completeUnit(t, h, h.tasksNamespace, taskID, version, h.localNodeID, "su-1")
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
 	h.advanceClock(h.schedulerTickInterval)
+	h.advanceClock(h.schedulerTickInterval)
 
 	// A second, still-ACTIVE task joins the namespace before the sweep.
 	const siblingID = "5678"

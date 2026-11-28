@@ -225,8 +225,7 @@ func TestTask_MissingPostCompletionAckNodes(t *testing.T) {
 		"extraneous acks (from nodes not in NodesWithLocalUnits) must be ignored")
 }
 
-// TestTask_AllUnitsTerminal and TestTask_AnyUnitFailed pin the two
-// invariants the manager FSM uses to decide post-units state.
+// TestTask_AllUnitsTerminal pins the predicate the FSM uses to leave STARTED.
 func TestTask_AllUnitsTerminal(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -249,30 +248,6 @@ func TestTask_AllUnitsTerminal(t *testing.T) {
 			}
 			task := withUnits(&Task{}, units)
 			assert.Equal(t, tc.want, task.AllUnitsTerminal())
-		})
-	}
-}
-
-func TestTask_AnyUnitFailed(t *testing.T) {
-	cases := []struct {
-		name     string
-		statuses []UnitStatus
-		want     bool
-	}{
-		{"empty units", nil, false},
-		{"all completed", []UnitStatus{UnitStatusCompleted, UnitStatusCompleted}, false},
-		{"one failed amid completed", []UnitStatus{UnitStatusCompleted, UnitStatusFailed}, true},
-		{"all failed", []UnitStatus{UnitStatusFailed, UnitStatusFailed}, true},
-		{"one failed amid pending", []UnitStatus{UnitStatusPending, UnitStatusFailed}, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			units := map[string]*Unit{}
-			for i, s := range tc.statuses {
-				units[unitKey(i)] = &Unit{Status: s}
-			}
-			task := withUnits(&Task{}, units)
-			assert.Equal(t, tc.want, task.AnyUnitFailed())
 		})
 	}
 }

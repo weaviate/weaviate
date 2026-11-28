@@ -70,9 +70,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
 
 	h.advanceClock(h.schedulerTickInterval)
-
-	// Retention counts from the FINISHED transition, which lands a tick
-	// after the units stopped, so this still lands just short of the TTL.
+	h.advanceClock(h.schedulerTickInterval)
 	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, taskID, version)
@@ -461,8 +459,7 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 
 	recvWithTimeout(t, h.provider.completedCh)
 
-	// Retention counts from the FINISHED transition, which the scheduler
-	// commits a tick after the last unit stopped.
+	h.advanceClock(h.schedulerTickInterval)
 	h.advanceClock(h.schedulerTickInterval)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
@@ -1727,7 +1724,6 @@ func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
 	addTaskWithUnits(t, h, h.tasksNamespace, "control", 11, []string{"su-2"})
 	control := h.manager.tasks[h.tasksNamespace]["control"]
 	control.Status = TaskStatusFinished
-	control.FinishedAt = h.clock.Now()
 
 	swept := make(chan string, 4)
 	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -1756,8 +1752,8 @@ func TestSchedulerTTLSweep_SkipsUnknownStatus(t *testing.T) {
 	h.startScheduler(t)
 	defer h.Close()
 
-	h.advanceClock(h.completedTaskTTL)
 	h.advanceClock(h.schedulerTickInterval)
+	h.advanceClock(h.completedTaskTTL)
 
 	require.Equal(t, "control", recvWithTimeout(t, swept),
 		"the terminal, TTL-expired control task must be swept")
@@ -1871,12 +1867,6 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				addTaskWithUnits(t, h, spec.namespace, spec.id, spec.version, []string{"su-" + spec.id})
 				task := h.manager.tasks[spec.namespace][spec.id]
 				task.Status = spec.status
-				// Terminal tasks need FinishedAt stamped, or the TTL sweep
-				// deletes them before assertions run; non-terminal tasks
-				// must stay unstamped, matching how localTasks seeds above.
-				if spec.status.IsTerminal() {
-					task.FinishedAt = h.clock.Now()
-				}
 			}
 
 			h.startScheduler(t)
@@ -2028,7 +2018,6 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 			addTaskWithUnits(t, h, h.tasksNamespace, "control", 11, []string{"u-control"})
 			control := h.manager.tasks[h.tasksNamespace]["control"]
 			control.Status = TaskStatusFinished
-			control.FinishedAt = h.clock.Now()
 
 			h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(errors.New("cleanup keeps failing"))
@@ -2036,6 +2025,7 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 			h.startScheduler(t)
 			defer h.Close()
 
+			h.advanceClock(h.schedulerTickInterval)
 			h.advanceClock(h.completedTaskTTL)
 			for i := 0; i < 8; i++ {
 				h.advanceClock(h.schedulerTickInterval)

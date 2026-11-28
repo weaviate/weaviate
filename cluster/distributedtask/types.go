@@ -568,8 +568,7 @@ type Task struct {
 
 	// FinishedAt is the terminal timestamp (zero until then); [Task.markTerminal]
 	// is the sole writer, aside from Restore clearing it on non-terminal tasks.
-	// Must not be stamped during PREPARING/SWAPPING — those can run minutes on
-	// large collections — since cleanup TTL counts from this value.
+	// Display only; stamping it during PREPARING/SWAPPING shows running work as done.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
@@ -746,16 +745,6 @@ func (t *Task) AllUnitsTerminal() bool {
 		}
 	}
 	return true
-}
-
-// AnyUnitFailed returns true if any unit has FAILED status.
-func (t *Task) AnyUnitFailed() bool {
-	for _, u := range t.Units {
-		if u.Status == UnitStatusFailed {
-			return true
-		}
-	}
-	return false
 }
 
 // Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire.

@@ -103,7 +103,8 @@ type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
 	// startLogged holds the started tasks whose first start was logged; pruned each tick, since some providers never report tasks for cleanup.
-	startLogged map[string]map[TaskDescriptor]struct{}
+	startLogged  map[string]map[TaskDescriptor]struct{}
+	finishedSeen map[string]map[TaskDescriptor]time.Time
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
@@ -217,6 +218,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
 		startLogged:  map[string]map[TaskDescriptor]struct{}{},
+		finishedSeen: map[string]map[TaskDescriptor]time.Time{},
 
 		providers:          params.Providers,
 		completionRecorder: params.CompletionRecorder,
@@ -660,13 +662,8 @@ func (s *Scheduler) tick() {
 
 		// TTL-cleanup of finished tasks.
 		retainer, providerRetains := provider.(CompletedTaskRetainer)
-		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
-			if task.Status.IsActive() {
-				return false
-			}
-			if s.completedTaskTTL > s.clock.Since(task.FinishedAt) {
-				return false
-			}
+		expired := s.expiredTasks(namespace, tasks)
+		cleanableTasks := filterTasks(expired, func(task *Task) bool {
 			// A provider may veto expiry of a record that is still
 			// load-bearing (e.g. drop-vector coverage records while their
 			// marker is pending — expiring the chain forces a periodic
@@ -1398,6 +1395,34 @@ func (s *Scheduler) joinGroupErrors(errs map[string]error) (bool, string) {
 		return true, ""
 	}
 	return false, fmt.Sprintf("%d group(s) failed: %v", ec.Len(), ec.ToErrorLimited(maxReportedGroupErrors))
+}
+
+// expiredTasks returns tasks this node first saw finished a TTL ago, by its own clock, not FinishedAt.
+func (s *Scheduler) expiredTasks(namespace string, tasks map[TaskDescriptor]*Task) map[TaskDescriptor]*Task {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	seen := s.finishedSeen[namespace]
+	if seen == nil {
+		seen = map[TaskDescriptor]time.Time{}
+		s.finishedSeen[namespace] = seen
+	}
+	for desc := range seen {
+		if task, ok := tasks[desc]; !ok || task.Status.IsActive() {
+			delete(seen, desc)
+		}
+	}
+	return filterTasks(tasks, func(task *Task) bool {
+		if task.Status.IsActive() {
+			return false
+		}
+		first, ok := seen[task.TaskDescriptor]
+		if !ok {
+			first = s.clock.Now()
+			seen[task.TaskDescriptor] = first
+		}
+		return s.clock.Since(first) >= s.completedTaskTTL
+	})
 }
 
 // perTaskStateLocked returns the per-task scheduler state for desc, or

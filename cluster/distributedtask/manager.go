@@ -594,22 +594,10 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	u.Progress = 1.0
 
 	if task.AllUnitsTerminal() {
-		if task.AnyUnitFailed() {
-			// Failures are terminal immediately — there are no
-			// post-task callbacks to wait for on the failure path
-			// (the schema flip is intentionally skipped when any
-			// unit failed; see OnTaskCompleted's early-return for
-			// FAILED tasks).
-			task.markTerminal(TaskStatusFailed, finishedAt)
+		if task.NeedsPreparationBarrier {
+			task.Status = TaskStatusPreparing
 		} else {
-			// Barrier tasks go through PREPARING; others jump to SWAPPING.
-			// Both are non-terminal, so neither stamps FinishedAt: the unit
-			// work has stopped but the cutover has not run yet.
-			if task.NeedsPreparationBarrier {
-				task.Status = TaskStatusPreparing
-			} else {
-				task.Status = TaskStatusSwapping
-			}
+			task.Status = TaskStatusSwapping
 		}
 	}
 
