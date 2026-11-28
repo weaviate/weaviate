@@ -126,6 +126,7 @@ func countLines(hook *logrustest.Hook, stem, unitID string) int {
 
 // A waiting unit keeps its handle open, and a started unit retries only its failed write.
 func TestHandleRetriesItsDeferredUnits(t *testing.T) {
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 	const missing = "gone__node1"
 	type fixture struct {
 		p     *ReindexProvider
