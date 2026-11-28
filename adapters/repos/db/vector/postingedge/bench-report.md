@@ -3393,6 +3393,20 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 
 **Orden:** detrás de la reorganización del 10M.
 
+#### La inversa provisional como aviso (pre-registro, 28 de noviembre a las 15:48, por encargo del usuario; simulación, con el prototipo parado)
+
+**El encargo** (del usuario, a las 15:05): valorar que la arista inversa provisional se guarde como aviso en el buffer de cambios pendientes, sin leer la lista del vecino en el insert, y se aplique al cargar ese posting.
+
+**Cómo lo simulo** (*mío*). El vector provisional deja un aviso en cada uno de sus 16 vecinos: «tengo una arista hacia ti». No se lee nada del vecino ni se compara ninguna distancia. Cuando una búsqueda carga el posting de un vecino, sigue sus avisos como aristas de más, por encima de las 16 de su lista, que no se toca. Cuando un evento conecta al vector, sus avisos desaparecen y entra en las listas como hoy.
+- **Qué mide:** la tabla de tolerancia (5, 10, 25 y 50 % a 1M; 10 y 25 % a 10M) con provisionales y avisos, y el insert por oleadas con la última pendiente. Cuántos avisos guarda un vector como mucho, y cuántos vectores guardan alguno.
+- **Con qué se compara:** sin aristas, provisionales solo de salida, y la variante que entra por código en la lista del vecino leyendo sus distancias (+11.5 % y +21.3 % con el 10 % a 1M).
+
+**Valoración antes de medir.**
+- **A favor:** el insert no lee nada del vecino (la variante por código lee las distancias de 16 listas, que a 10M son lecturas en frío bajo el cerrojo); el aviso no puede desplazar una arista buena por una distancia mal estimada; y no hace falta guardarlo: al abrir se rehace de las listas de los vectores provisionales, así que «pendiente» sigue saliendo del índice.
+- **En contra:** ocupa memoria en el buffer que ya tiene presupuesto (16 avisos de 4 B por vector pendiente, más su estructura: con el 10 % de 10M pendiente, 64 MB solo de avisos frente a un presupuesto de 128 MB); un vecino muy citado acumula avisos sin tope, y cada carga de su posting los recorre; y la calidad no puede ser mejor que la de las propias provisionales, que salen de los compañeros.
+
+**Lo que espero** (*mío*): parecido a la variante por código o algo mejor a 0.95, y fuera de los umbrales de la puerta igualmente.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
