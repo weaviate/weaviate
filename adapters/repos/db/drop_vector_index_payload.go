@@ -216,22 +216,21 @@ func CompletedUnitShards(task *distributedtask.Task, payload *DropVectorIndexTas
 // excludeTaskID — whose payload overlaps collection (case-insensitive) and
 // any of targets (exact case), along with its decoded payload and the
 // overlapping names. The shared predicate behind the AddTask conflict check
-// and the finalize-time replay guard; corrupt payloads are skipped fail-open
-// with a warning (erroring would block on one bad record; deterministic:
-// every node sees the same records).
+// and the finalize-time replay guard. Corrupt payloads are skipped fail-open,
+// with one summary line when logger is set, because erroring would block on one
+// bad record. Every node sees the same records, so the skip is deterministic.
 func FirstActiveOverlappingDrop(tasks []*distributedtask.Task, excludeTaskID, collection string, targets []string,
 	logger logrus.FieldLogger,
 ) (*distributedtask.Task, *DropVectorIndexTaskPayload, []string) {
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(logger, "drop-vector: skipping active task(s) with unparseable payload in overlap check")
 	for _, task := range tasks {
 		if task.ID == excludeTaskID || !task.Status.IsActive() {
 			continue
 		}
 		p, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector: skipping active task with unparseable payload in overlap check: %v", err)
-			}
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) {
@@ -247,18 +246,17 @@ func FirstActiveOverlappingDrop(tasks []*distributedtask.Task, excludeTaskID, co
 // ActiveDropCovers reports whether an ACTIVE drop task in tasks covers
 // targetVector (exact case) on collection (case-insensitive). The shared
 // predicate for "is this drop still running" across the REST enqueuer and the
-// reconcile loop; unparseable payloads are skipped fail-open with a warning.
+// reconcile loop. Unparseable payloads are skipped fail-open, with one summary line when logger is set.
 func ActiveDropCovers(tasks []*distributedtask.Task, collection, targetVector string, logger logrus.FieldLogger) bool {
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(logger, "drop-vector has-active-drop: skipping active task(s) with unparseable payload")
 	for _, task := range tasks {
 		if !task.Status.IsActive() {
 			continue
 		}
 		p, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector has-active-drop: skipping active task with unparseable payload: %v", err)
-			}
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) {
@@ -405,13 +403,12 @@ func newestDropEpoch(tasks []*distributedtask.Task, collection string, targets [
 ) (epoch string, ok bool) {
 	var newest *DropVectorIndexTaskPayload
 	var newestVersion uint64
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(logger, "drop-vector: coverage-inheritance: skipping task(s) with unparseable payload")
 	for _, task := range tasks {
 		p, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector: coverage-inheritance: skipping task with unparseable payload: %v", err)
-			}
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if !SameDrop(p, collection, targets) {

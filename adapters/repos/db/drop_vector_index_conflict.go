@@ -47,7 +47,7 @@ func (p *DropVectorIndexDetector) CheckConflict(newPayload []byte, existingTasks
 	})
 
 	if task, existP, overlap := FirstActiveOverlappingDrop(
-		existingTasks, "", newP.Collection, newP.Targets, p.logger); task != nil {
+		existingTasks, "", newP.Collection, newP.Targets, nil); task != nil {
 		return fmt.Errorf(
 			"drop-vector task %q is already in flight on %s for vector(s) %v (status=%s)",
 			task.ID, existP.Collection, overlap, task.Status)
@@ -271,7 +271,7 @@ func stillStrippingStatus(s distributedtask.TaskStatus) bool {
 }
 
 // dropCovers reports whether a drop-vector task matching statusMatch covers targetVector
-// on className. Unparseable payloads warn and are skipped (fail-open).
+// on className. Unparseable payloads are skipped (fail-open).
 func (p *DropVectorIndexDetector) dropCovers(className, targetVector string, existingTasks []*distributedtask.Task,
 	statusMatch func(distributedtask.TaskStatus) bool,
 ) (id string, found bool) {
@@ -284,8 +284,8 @@ func (p *DropVectorIndexDetector) dropCovers(className, targetVector string, exi
 }
 
 // eachDropCovering invokes fn for every task matching statusMatch whose payload
-// covers targetVector on className, until fn returns false. Unparseable payloads warn
-// and are skipped (fail-open).
+// covers targetVector on className, until fn returns false. Unparseable payloads are
+// skipped (fail-open) without a log line, since loading the Raft snapshot that stored them logged them.
 func (p *DropVectorIndexDetector) eachDropCovering(className, targetVector string,
 	existingTasks []*distributedtask.Task, statusMatch func(distributedtask.TaskStatus) bool,
 	fn func(*distributedtask.Task, *DropVectorIndexTaskPayload) bool,
@@ -296,8 +296,6 @@ func (p *DropVectorIndexDetector) eachDropCovering(className, targetVector strin
 		}
 		existP, err := decodeDropVectorIndexPayload(task.Payload)
 		if err != nil {
-			p.logger.WithField("task", task.ID).
-				Warnf("drop-vector: skipping task with unparseable payload in removal gate: %v", err)
 			continue
 		}
 		if !strings.EqualFold(existP.Collection, className) {

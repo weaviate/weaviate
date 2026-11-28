@@ -88,16 +88,6 @@ func (e *dropVectorIndexEnqueuer) logInfo(collection, msg string) {
 	}
 }
 
-// warnSkippedPayload surfaces an undecodable active-task payload instead of
-// silently skipping it (the skip itself is deliberate fail-open behavior).
-// Package-level so no skip site can silently re-inline a divergent copy.
-func warnSkippedPayload(logger logrus.FieldLogger, where, taskID string, err error) {
-	if logger != nil {
-		logger.WithField("task", taskID).
-			Warnf("drop-vector %s: skipping active task with unparseable payload: %v", where, err)
-	}
-}
-
 // ListDistributedTasks exposes the cluster task list for the reconcile loop
 // (one fetch per round) and its startup readiness probe.
 func (e *dropVectorIndexEnqueuer) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
@@ -131,16 +121,23 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: list tasks for %q: %w", collection, err)
 	}
-	return e.EnqueueDropVectorIndexWithTasks(ctx, collection, targets, tasks)
+	return e.enqueueWithTasks(ctx, collection, targets, tasks, e.logger)
 }
 
 // EnqueueDropVectorIndexWithTasks is EnqueueDropVectorIndex against an
 // already-fetched task list, so the reconcile loop pays ONE ListDistributedTasks
 // per round instead of one per marker. A slightly stale list is safe: the
 // AddTask-apply guard (CheckConflict) re-proves the coverage claim against the
-// FSM's live records, and any rejection is retried by the next round.
+// FSM's live records, and any rejection is retried by the next round. It logs no
+// unparseable payloads, because the reconcile round logs them once.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Context, collection string,
 	targets []string, tasks map[string][]*distributedtask.Task,
+) error {
+	return e.enqueueWithTasks(ctx, collection, targets, tasks, nil)
+}
+
+func (e *dropVectorIndexEnqueuer) enqueueWithTasks(ctx context.Context, collection string,
+	targets []string, tasks map[string][]*distributedtask.Task, payloadLogger logrus.FieldLogger,
 ) error {
 	// Re-validate against the leader-consistent class: the marker commit and this
 	// enqueue are not atomic, and reconciliation may run off a stale local schema
@@ -197,7 +194,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 		return nil
 	}
 
-	epoch, cleaned, verifyOnly := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
+	epoch, cleaned, verifyOnly := db.EpochAndInheritedCoverage(collection, targets, state, tasks, payloadLogger)
 	if verifyOnly {
 		// Every current shard is covered and what the chain still owed was
 		// deleted, so nothing is left to strip. A verify-only round lets each
@@ -448,10 +445,12 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 	}
 	live := map[string]struct{}{}
 	classes := map[string]classLookup{}
+	var unreadable distributedtask.UnreadablePayloads
+	defer unreadable.Log(e.logger, "drop-vector live-op-ids: skipping task(s) with unparseable payload")
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
-			warnSkippedPayload(e.logger, "live-op-ids", task.ID, err)
+			unreadable.Add(task.ID, err)
 			continue
 		}
 		if e.opStillNeeded(task, p, classes) {
@@ -534,6 +533,7 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 		logger.Warnf("drop-vector reconcile: listing tasks failed (round skipped): %v", err)
 		return
 	}
+	checked := false
 	for _, class := range classes {
 		if class == nil {
 			continue
@@ -542,7 +542,8 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 			if !modelsext.IsVectorIndexDropped(cfg) {
 				continue
 			}
-			if activeDropCovers(tasks, class.Class, name, logger) {
+			checked = true
+			if activeDropCovers(tasks, class.Class, name, nil) {
 				continue
 			}
 			if err := enq.EnqueueDropVectorIndexWithTasks(ctx, class.Class, []string{name}, tasks); err != nil {
@@ -551,6 +552,19 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 			}
 		}
 	}
+	if checked {
+		logUnreadableDropTasks(tasks[db.DropVectorIndexNamespace], logger)
+	}
+}
+
+func logUnreadableDropTasks(tasks []*distributedtask.Task, logger logrus.FieldLogger) {
+	var unreadable distributedtask.UnreadablePayloads
+	for _, task := range tasks {
+		if _, err := db.DecodeDropVectorIndexTaskPayload(task.Payload); err != nil {
+			unreadable.Add(task.ID, err)
+		}
+	}
+	unreadable.Log(logger, "drop-vector reconcile: skipping task(s) with unparseable payload")
 }
 
 // schemaLister returns the local schema snapshot (eventually-consistent is fine

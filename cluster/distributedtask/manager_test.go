@@ -2767,3 +2767,46 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 	})))
 	require.Empty(t, restored.tasks[ns][id].SwapsOwed)
 }
+
+func TestRestoreLogsUnreadableHeadersAsOneLine(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		idPrefix           string
+		unreadable, usable int
+		wantWarnings       int
+		wantIDs            int
+	}{
+		{name: "one unreadable", unreadable: 1, usable: 2, wantWarnings: 1, wantIDs: 1},
+		{name: "more than five unreadable", idPrefix: "Article:change-tokenization:title:", unreadable: 6, wantWarnings: 1, wantIDs: 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var tasks []*Task
+			for i := range tc.unreadable + tc.usable {
+				payload := "C"
+				if i < tc.unreadable {
+					payload = ""
+				}
+				tasks = append(tasks, &Task{
+					Namespace: "ns", TaskDescriptor: TaskDescriptor{ID: fmt.Sprintf("%stask-%d", tc.idPrefix, i), Version: 1},
+					Payload: []byte(payload), Status: TaskStatusFinished,
+				})
+			}
+			snap, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{"ns": tasks}})
+			require.NoError(t, err)
+
+			logger, hook := logrustest.NewNullLogger()
+			m := NewManager(ManagerParameters{Logger: logger, ConflictDetectors: map[string]ConflictDetector{
+				"ns": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 }),
+			}})
+			require.NoError(t, m.Restore(snap))
+
+			require.Len(t, hook.AllEntries(), tc.wantWarnings)
+			if tc.wantWarnings > 0 {
+				msg := hook.LastEntry().Message
+				t.Log(msg)
+				require.Contains(t, msg, fmt.Sprintf("%d restored task", tc.unreadable))
+				require.Equal(t, tc.wantIDs, strings.Count(msg, "ns/"+tc.idPrefix+"task-"))
+			}
+		})
+	}
+}
