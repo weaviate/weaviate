@@ -3616,6 +3616,55 @@ El mapa compacto, las hojas con solape, la poda del halo y los centroides en RQ1
 
 **La cadena de la noche,** en marcha desde las 17:02: las retenciones del cerrojo, HFresh a 10M, la reorganización del 10M con su búsqueda, el shard, la búsqueda a 1M, la búsqueda conjunta, los avisos, las palancas y la pasada de 10M que quedaba.
 
+#### La cadena de la noche: dos pasadas que no arrancaron, y cómo sigue (28 de noviembre a las 18:21; nada compilado)
+
+**Lo que ha corrido.** Las retenciones del cerrojo a 10M (17:02 a 17:05) y lo que tarda dar sitio a los doc ids a 100k, 1M y 10M. La reorganización del índice de 10M con su búsqueda en frío y en caliente, antes y después (17:06 a 18:11). La de punta a punta por un shard corre desde las 18:11. Los resultados van en sus secciones.
+
+**Lo que no arrancó.**
+- **HFresh a 10M.** Su binario es el de la medida de 1M, de integración `20e89f0873`, y su lector busca los vectores en un `train.f32`. El dataset de 10M los tiene dentro del hdf5 (`train.embedded`, con una línea `train_offset`), y el lector que entiende eso está en la rama de los experimentos y no en la de integración. Falló a los 10 s. **Error mío:** fue la sesión que no pasó por un humo en el hueco, porque su binario ya había medido a 1M.
+- **La pasada del cerrojo a 100k.** Reinserta vectores del propio índice y exige que el índice tenga el doble de los que se piden. Pedí 90 000 a un índice de 100 000.
+
+**Cómo sigue** (*mío*, escrito antes de hacerlo).
+- **La cadena acaba tras las medidas de la base** (el shard y la búsqueda a 1M). No se ha editado ningún guion ni se ha parado nada: he renombrado los binarios de las sesiones de la simulación y de las palancas, y la cadena se salta por su regla las sesiones cuyo binario falta. Así hay un hueco para compilar antes de ellas, que la enmienda de la búsqueda conjunta necesita de todos modos.
+- **En el hueco:** el micro-benchmark de miembros; el arnés de HFresh con el lector del dataset en su sitio; los tests del paquete y el lint del árbol de las palancas; y un humo de cada invocación nueva, HFresh incluido, con 20 000 vectores del dataset de 10M.
+- **El binario de HFresh a 10M** sale del mismo commit del producto que el de 1M. Cambia solo el arnés: `testinghelpers/raw_dataset.go`, traído de la rama de los experimentos.
+- **Sitio.** HFresh a 10M pide 70 GiB libres y quedan 51. Antes de lanzarlo quito el clon reorganizado del índice de 10M (36.8 GB), que ya está medido y se rehace en 9 minutos.
+- **La pasada del cerrojo a 100k** se repite con 50 000 vectores, que es lo que deja el índice, y 40 s en vez de 60: a 1 190 inserts por segundo los vectores duran 42 s.
+- **Segunda cadena, en este orden:** HFresh a 10M, el cerrojo a 100k, la búsqueda conjunta con su enmienda, los avisos, las palancas y la pasada de 10M del prototipo que quedaba.
+
+**Lo que cambia respecto al orden del encargo:** HFresh a 10M queda detrás de la reorganización y del shard, y no segundo. Las medidas de la base siguen yendo todas antes que las de la simulación.
+
+#### El evento por búsqueda conjunta: enmienda del usuario al pre-registro (28 de noviembre a las 18:21; el micro-benchmark de miembros no está escrito ni compilado, y de la búsqueda conjunta no hay todavía ninguna medida cronometrada)
+
+**Dónde estaba.** El micro-benchmark de los extremos y la simulación de la búsqueda conjunta se compilaron en el hueco de las 16:57, antes de llegar esta enmienda, y solo corrieron en humo a 100k. Su sesión cronometrada no ha empezado. Lo que añade la enmienda se escribe después de este texto y se compila en el siguiente hueco.
+
+**La enmienda** (del usuario).
+1. **Los miembros, medidos igual que los extremos** en el micro-benchmark: traer una vez los códigos (y la marca de borrado) de los miembros de un posting cargado y puntuarlos para m consultas, frente a m pasadas separadas. Tablas de 1M y de 10M, m = 1, 8, 16 y 32.
+2. **En la fórmula,** la parte de puntuar miembros se reparte según ese resultado, en vez de darla por no compartida. Las dos estimaciones quedan a la vista: la de antes y la enmendada.
+3. **La CPU, contra dos referencias:** el insert de hoy, y el insert de hoy con la marca de borrado por posting del plan B.
+
+**Cómo lo mido** (*mío*).
+- **1. El micro-benchmark de miembros.** Postings sintéticos con los miembros que tiene un posting de ese tamaño (241 a 1M, 248 a 10M) y sus códigos seguidos, como en la fila de un posting cargado: códigos de verdad del índice de 100k, repetidos. Los doc ids de los miembros, al azar en una tabla de marcas de 1M y de 10M de doc ids, de un byte por doc id como la del índice y sin ninguna marca puesta. Son 2 048 postings, como con los extremos.
+  - **Separado:** m pasadas; en cada una, por cada posting, el bucle de la búsqueda de hoy: la marca de cada miembro leída por doc id y su código puntuado con la función del índice. Entre una visita a un posting y la siguiente pasan los otros 2 047.
+  - **Conjunto:** por posting, las marcas leídas una vez y, después, los códigos puntuados para las m consultas seguidas.
+  - Dos rondas de cada uno, alternadas; doy las dos.
+  - **Sin la marca** (no decide): lo mismo sin leer la tabla, que es como queda el bucle con la marca por posting en un posting sin borrados. Dice cuánto de lo que se comparte es la marca y cuánto es encontrar los códigos en la caché.
+  - **Lo que no cubre:** meter cada miembro en la lista de candidatos, que es por consulta y no se comparte; y leer y decodificar la fila, que está en la parte de las filas y ya se reparte por las cargas distintas. Lo primero favorece al evento.
+- **2. La fórmula enmendada.** Igual que la escrita, salvo la parte de puntuar miembros: por la razón conjunto/separado del micro-benchmark de miembros con esa m y esa tabla. Doy las dos columnas, «miembros sin compartir» (la mía de antes) y «enmendada».
+- **3. La segunda referencia.** La búsqueda de un insert con la marca por posting, medida y no restada: el pase instrumentado con 1 hilo, con la marca por miembro y por posting, dos pasadas de cada una alternadas, con el mismo binario (el de las palancas, apagadas y encendida). A 10M son las pasadas de la palanca B ya pre-registradas en el plan B; a 1M las añado a la sesión de la búsqueda conjunta, sobre el clon. La referencia es esa búsqueda por partes más la escritura de hoy entera. Si la pasada con la marca por miembro se aparta más de un 3 % de la del binario del diagnóstico, lo digo y uso el par del binario de las palancas para las dos referencias.
+  - **El evento con la marca por posting** (no decide): la misma estimación con el par «sin la marca» del micro-benchmark, contra la segunda referencia.
+
+**Cómo leo la puerta con la enmienda** (*mío*).
+- **La estimación que decide es la enmendada,** que es la corrección del usuario a la fórmula. La de antes queda al lado. Si no dan el mismo veredicto, va en la primera línea.
+- **La referencia que decide es el insert de hoy,** como está escrita la puerta. La segunda va al lado. Si pasa contra hoy y no contra hoy con la marca por posting, la puerta pasa como está escrita y el prototipo se retoma, y lo digo en la primera línea: la ganancia que valdrá en `next` es la de la segunda referencia, porque la marca por posting entra en `next` con el evento o sin él.
+- Las cargas y la fracción pendiente se leen como estaba escrito.
+
+**Lo que espero** (*mío*).
+- **Micro-benchmark de miembros:** a 10M, conjunto entre 0.35 y 0.45 de separado con m de 16 y de 32, porque la marca es más de dos tercios de lo que cuesta un miembro (51.5 de unos 73 ns) y se lee una vez; a 1M, entre 0.6 y 0.8, porque allí la marca cuesta poco. Sin la marca, entre 0.85 y 1.0 a los dos tamaños: el cálculo no se comparte.
+- **Estimación enmendada:** baja menos de una décima de la CPU de hoy a 10M y casi nada a 1M, porque a 10M puntuar miembros son unos 2 ms de los 9.6 del recorrido. Sigo esperando la CPU cerca de la mitad de la de hoy y no en un tercio. Contra la segunda referencia, el cociente sube alrededor de un 10 % a 10M.
+
+**Orden.** En la misma sesión que el micro-benchmark de los extremos, que no ha corrido, con un binario nuevo. Va detrás de las medidas de la base.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
