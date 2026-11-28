@@ -13,6 +13,7 @@ package schema
 
 import (
 	"fmt"
+	"maps"
 	"math/rand"
 	"slices"
 	"strings"
@@ -35,8 +36,21 @@ type (
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
+		// Live maps property, then index type, to that index's live generation.
+		Live map[string]map[string]uint64 `json:"live,omitempty"`
 	}
 )
+
+func cloneLive(live map[string]map[string]uint64) map[string]map[string]uint64 {
+	if live == nil {
+		return nil
+	}
+	out := make(map[string]map[string]uint64, len(live))
+	for property, generations := range live {
+		out[property] = maps.Clone(generations)
+	}
+	return out
+}
 
 func (m *metaClass) ClassInfo() ClassInfo {
 	if m == nil {

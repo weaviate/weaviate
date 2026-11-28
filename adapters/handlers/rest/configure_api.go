@@ -783,6 +783,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	})
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
+	repo.SetEndedReindexTaskReader(appState.ClusterService.Raft)
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
 	repo.SetTenantsActivityManager(appState.SchemaManager)

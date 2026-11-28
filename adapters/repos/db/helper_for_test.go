@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -242,16 +243,20 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-// installNoLiveReindexLookup installs a ShardReindexActivityLookup
-// that reports zero live reindex tasks. Used by test fixtures so
-// Shard.HaltForTransfer / Index.refuseIfReindexInFlight do not trip
-// the conservative pre-wire refusal during tests that do not
-// exercise the gate. Tests that exercise the gate overwrite this
-// with their own lookup.
+// installNoLiveReindexLookup installs readers that report no live and no ended reindex
+// task, so fixtures that do not exercise the backup gate can halt shards and build descriptors.
 func installNoLiveReindexLookup(db *DB) {
 	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
 		return func(string, string) bool { return false }, nil
 	})
+	db.SetEndedReindexTaskReader(fakeEndedReindexTasks{})
+}
+
+// fakeEndedReindexTasks answers LocalEndedTasks by namespace and collection.
+type fakeEndedReindexTasks map[[2]string][]*distributedtask.Task
+
+func (f fakeEndedReindexTasks) LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error) {
+	return f[[2]string{namespace, collection}], nil
 }
 
 // stubDBWithNoLiveReindex returns a minimally initialized *DB that
@@ -315,6 +320,7 @@ func openTestDatabase(t *testing.T, dir string, shardState *sharding.State, metr
 		return nil
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ClassLive(mock.Anything).Return(nil).Maybe()
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()

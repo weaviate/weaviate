@@ -311,6 +311,7 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
+	mockSchemaReader.EXPECT().ClassLive(mock.Anything).Return(nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlyVersionedClass(mock.Anything).Return(versioned.Class{}).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, version uint64) error {
@@ -339,6 +340,7 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
+	db.SetEndedReindexTaskReader(fakeEndedReindexTasks{})
 	require.Nil(t, db.WaitForStartup(testCtx()))
 	migrator := NewMigrator(db, logger, "node1")
 

@@ -225,6 +225,18 @@ func (s *schema) unsafeReadOnlyClass(class string) (*models.Class, uint64) {
 	return meta.CloneClass(), meta.ClassVersion
 }
 
+func (s *schema) ClassLive(class string) map[string]map[string]uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	meta := s.unsafeResolveClass(class)
+	if meta == nil {
+		return nil
+	}
+	meta.RLock()
+	defer meta.RUnlock()
+	return cloneLive(meta.Live)
+}
+
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
 func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
@@ -775,6 +787,7 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 			ClassVersion: v.ClassVersion,
 			Sharding:     v.Sharding.DeepCopy(),
 			ShardVersion: v.ShardVersion,
+			Live:         cloneLive(v.Live),
 		}
 		v.RUnlock()
 	}

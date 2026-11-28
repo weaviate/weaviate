@@ -682,6 +682,8 @@ type Task struct {
 	// Nil for tasks whose provider does not implement [UnitAwareProvider]
 	// (no OnGroupCompleted to ack).
 	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
+
+	Summary *UnitSummary `json:"summary,omitempty"`
 }
 
 // PostCompletionAck records one node's OnGroupCompleted result for a

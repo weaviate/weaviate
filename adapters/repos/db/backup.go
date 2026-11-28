@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -654,7 +655,7 @@ func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*back
 	return result
 }
 
-// marshalBackupMetadata marshals sharding state, schema, and aliases into the class descriptor.
+// marshalBackupMetadata marshals sharding state, schema, aliases and reindex state into the class descriptor.
 func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingState []byte) error {
 	var err error
 	desc.ShardingState = shardingState
@@ -669,6 +670,38 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingStat
 	// newer backups. To avoid failing to backup old backups that doesn't
 	// understand `aliases` key in the ClassDescriptor.
 	desc.AliasesIncluded = true
+	return i.marshalReindexState(desc)
+}
+
+type EndedReindexTaskReader interface {
+	LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error)
+}
+
+func (db *DB) SetEndedReindexTaskReader(reader EndedReindexTaskReader) {
+	db.endedReindexTasks = reader
+}
+
+func (i *Index) marshalReindexState(desc *backup.ClassDescriptor) error {
+	reader := i.db.endedReindexTasks
+	if reader == nil {
+		return fmt.Errorf("no reader for the ended reindex tasks of class %s", i.Config.ClassName)
+	}
+	className := i.Config.ClassName.String()
+	tasks, err := reader.LocalEndedTasks(ReindexNamespace, className)
+	if err != nil {
+		return fmt.Errorf("read ended reindex tasks: %w", err)
+	}
+	if tasks == nil {
+		tasks = []*distributedtask.Task{}
+	}
+	if desc.ReindexTasks, err = json.Marshal(tasks); err != nil {
+		return fmt.Errorf("marshal ended reindex tasks: %w", err)
+	}
+	if live := i.schemaReader.ClassLive(className); len(live) > 0 {
+		if desc.ReindexLive, err = json.Marshal(live); err != nil {
+			return fmt.Errorf("marshal live index generations: %w", err)
+		}
+	}
 	return nil
 }
 

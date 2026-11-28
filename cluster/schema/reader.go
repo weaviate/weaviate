@@ -179,6 +179,10 @@ func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
 	return res
 }
 
+func (rs SchemaReader) ClassLive(class string) map[string]map[string]uint64 {
+	return rs.schema.ClassLive(class)
+}
+
 func (rs SchemaReader) GetAliasesForClass(class string) []*models.Alias {
 	return rs.schema.GetAliasesForClass(class)
 }

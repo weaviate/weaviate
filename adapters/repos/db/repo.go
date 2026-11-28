@@ -129,6 +129,8 @@ type DB struct {
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 
+	endedReindexTasks EndedReindexTaskReader
+
 	// Both carry their own lock; see [migrationUnitSeals] and
 	// [migrationClusterReconciler].
 	migrationSeals   migrationUnitSeals

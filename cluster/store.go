@@ -496,6 +496,10 @@ func (st *Store) LocalTaskStatuses(namespace, shard string) []distributedtask.Ta
 	return st.distributedTasksManager.LocalTaskStatuses(namespace, shard)
 }
 
+func (st *Store) LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error) {
+	return st.distributedTasksManager.LocalEndedTasks(namespace, collection)
+}
+
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
 // this method work as a protection from applying anything was applied to the db

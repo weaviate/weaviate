@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -723,6 +724,7 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, shardState)
 		}).Maybe()
+	mockReader.EXPECT().ClassLive(mock.Anything).Return(nil).Maybe()
 
 	return &Index{
 		Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
@@ -1396,10 +1398,86 @@ func TestBackupableRefusalSizeDoesNotGrowWithTenants(t *testing.T) {
 	}
 }
 
+func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
+	const className = "TestClass"
+	ended := []*distributedtask.Task{
+		{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "a", Version: 1}, Status: distributedtask.TaskStatusFinished},
+		{
+			Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "b", Version: 2}, Status: distributedtask.TaskStatusFailed, Error: "boom",
+			Summary: &distributedtask.UnitSummary{Groups: 1, Counts: map[distributedtask.UnitStatus]int{distributedtask.UnitStatusFailed: 1}, Errors: []string{"u: boom"}},
+		},
+	}
+	decoy := []*distributedtask.Task{{Namespace: "other", TaskDescriptor: distributedtask.TaskDescriptor{ID: "x", Version: 9}}}
+	live := map[string]map[string]uint64{"body": {"searchable": 2}}
+
+	for _, tc := range []struct {
+		name      string
+		reader    EndedReindexTaskReader
+		live      map[string]map[string]uint64
+		wantErr   bool
+		wantTasks string
+		wantLive  string
+	}{
+		{
+			name: "the class's ended tasks are captured",
+			reader: fakeEndedReindexTasks{
+				{ReindexNamespace, className}: ended, {ReindexNamespace, "Other"}: decoy, {"other", className}: decoy,
+			},
+			wantTasks: string(mustJSON(t, ended)),
+		},
+		{name: "a class with no ended task is marked as captured", reader: fakeEndedReindexTasks{}, wantTasks: "[]"},
+		{name: "no reader fails the descriptor", wantErr: true},
+		{name: "live generations are captured", reader: fakeEndedReindexTasks{}, live: live, wantTasks: "[]", wantLive: string(mustJSON(t, live))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			state := NewMultiTenantShardingStateBuilder().AddTenant("t1", models.TenantActivityStatusCOLD).WithReplicationFactor(1).Build()
+			createColdShardFiles(t, rootDir, className, "t1")
+			idx := newDescriptorTestIndex(t, rootDir, className, state)
+			idx.db = &DB{}
+			if tc.reader != nil {
+				idx.db.SetEndedReindexTaskReader(tc.reader)
+			}
+			idx.schemaReader = liveSchemaReader{idx.schemaReader, map[string]map[string]map[string]uint64{className: tc.live, "Other": live}}
+
+			var desc backup.ClassDescriptor
+			err := idx.descriptor(context.Background(), "b1", &desc, nil, newReindexGate(stubDBWithNoLiveReindex(), reindexGateMaxAge))
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			var got map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(mustJSON(t, desc), &got))
+			require.JSONEq(t, tc.wantTasks, string(got["reindexTasks"]))
+			if tc.wantLive == "" {
+				require.NotContains(t, got, "reindexLive")
+				return
+			}
+			require.JSONEq(t, tc.wantLive, string(got["reindexLive"]))
+		})
+	}
+}
+
+type liveSchemaReader struct {
+	schemaUC.SchemaReader
+	live map[string]map[string]map[string]uint64
+}
+
+func (r liveSchemaReader) ClassLive(class string) map[string]map[string]uint64 { return r.live[class] }
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	require.NoError(t, err)
+	return raw
+}
+
 func backupTestDBWithColdTenants(t *testing.T, classes, tenants []string, state *sharding.State) *DB {
 	t.Helper()
 	logger, _ := tlog.NewNullLogger()
 	db := &DB{logger: logger, indices: map[string]*Index{}}
+	db.SetEndedReindexTaskReader(fakeEndedReindexTasks{})
 	for _, className := range classes {
 		rootDir := t.TempDir()
 		for _, name := range tenants {

@@ -98,6 +98,10 @@ func (s *Raft) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescr
 	return s.store.distributedTasksManager.TaskHasUnit(namespace, desc, unitID)
 }
 
+func (s *Raft) LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error) {
+	return s.store.LocalEndedTasks(namespace, collection)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
