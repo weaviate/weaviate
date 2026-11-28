@@ -2053,6 +2053,20 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 
 **Datos.** `testdata/bench/diag-insert/`: la cadena y su salida; `summary-100k.tsv` y `summary-10m.tsv`, una línea por pasada, con `summary.py`, `table.py` y `report_tables.py`; `results.tar.gz` con el `result.json`, el log y el monitor de cada pasada; de la traza, los perfiles de bloqueo, de planificador y de llamadas al sistema; de la muestra de fuera, su recuento y `lines.txt`, con `lines.py`; el principio de los perfiles de CPU de Go, para que se vea el artefacto; y el crecimiento de 100k de la enmienda 3. Las trazas enteras (75 MB) no se archivan.
 
+#### El CI de la propagación, y un test de backup que dependía del reloj (28 de noviembre, a las 04:18)
+
+**Integración (#14023, `20e89f0873`): en verde,** 84 comprobaciones. Las dos en rojo son las de siempre, por el límite de 20 000 líneas de diff. La del código generado, que falló con `6126bb00a2`, pasa con el arreglo de las cabeceras.
+
+**`m2` (#14041, `8ed921ed59`):** sus cinco comprobaciones han acabado, con la misma de tamaño de diff en rojo.
+
+**backup (#14013, `ed1600de96`): dos en rojo.**
+- **Los tests unitarios de `adapters` se pasan de los 10 minutos del CI** en el paquete del índice. Ya fallaba así antes de la fusión (`eb47743b11`): backup tiene más tests que integración, que sí cabe. No lo he tocado.
+- **Uno de los tests de integración falló, y este es nuevo:** `TestPostingEdge_CrashBetweenTheIndexAndTheLogOfTheObject`, en el caso del vector que solo está en el diario. Esperaba que tras la caída no volvieran ni el objeto ni su vector, y volvieron los dos.
+  - **No es la serie, y la propiedad se cumple:** los dos o ninguno. Es el test. El store escribe los logs que tiene en memoria en un ciclo propio, cada 100 ms a 5 s. Si uno cae entre el put del objeto y la copia de los ficheros, la copia lleva el log del objeto, y esa es la caída del otro caso.
+  - **Reproducido aquí:** con una espera de 7 s en esa ventana falla igual que en el CI. Con 3 s no, que es menos que el intervalo más largo del ciclo. Sin espera pasó 15 de 15.
+  - **Arreglado en backup** (`628cdd9733`): el test distingue esa copia de la que quiere, por los ficheros del bucket de objetos antes del put y en la copia, y pone otro objeto hasta que la copia es de antes de cualquier escritura del store. Forzando la espera en el primer intento, lo detecta y pasa con el segundo; sin forzar, 20 de 20. Los tests por un shard y el linter, en verde antes de subir.
+  - Los otros tests que copian ficheros de un shard lo hacen por el camino del backup, que no depende de ese ciclo.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
