@@ -6,66 +6,62 @@ without dropping query availability on the affected property.
 
 This document is the entry-point for anyone reviewing or extending the
 feature. It covers the full surface area: REST API, architecture layer
-by layer, the migration-strategy catalogue, crash-safety contract,
-concurrency model, multi-tenancy, property overlay, the
-deferred-finalize / per-migration generation design that closes the
-load-bearing #10675 family of data-loss bugs, and the test map.
+by layer, the migration-strategy catalogue, how a shard decides which
+index folder it serves (generations and views), crash safety,
+concurrency, multi-tenancy, upgrade rules and the test map.
 
 The package-level godocs of the touched packages are the per-symbol
 source of truth; this doc is the navigable overview that ties them
 together. If a section here disagrees with a godoc in source, the
 godoc wins — and that's a bug in this doc.
 
-> **How migration state is stored, as of this build.** One JSON record per
-> (shard, migration) at `<shard>/lsm/.migrations/records/` holds it, in five
-> states — Iterating, Iterated, Merged, Swapped, Promoted — and
-> reconciliation at shard load makes every load-time decision except restarting a lost rebuild, which the arm does (§6.2 step 5). The record
-> names each directory the migration touches, so the swap removes the
-> directory it displaces at the recorded handle rather than renaming it to a
-> derived backup name. `inverted_reindex_record.go` and
-> `inverted_reindex_reconcile.go` are the source of truth.
->
-> Two sections describe the retired representation end to end and should be
-> read as history only: §9.4 and §9.5. Elsewhere the
-> stale parts are individual mentions of a marker file (`started.mig`,
-> `reindexed.mig`, `prepended.mig`, `merged.mig`, `swapped.mig`, `tidied.mig`,
-> `properties.mig`), of `FinalizeCompletedMigrations`, of
-> `completedMigrationGens`, of a rename-to-backup, or of a "tidied" state. The
-> API, the strategy catalogue, the concurrency model, multi-tenancy and the
-> tokenization overlay are unaffected and still accurate.
+> **How serving works, in one paragraph.** Every reindex run builds its
+> new index into a folder named for the run's *generation*. What a shard
+> serves is a pure function of cluster state: the class (its settings
+> plus a *live generation* per property and index type) and the
+> collection's reindex tasks (each task's generation and the tenants it
+> has *switched*). Each shard caches that answer as a *view*; one refresh
+> loop per node keeps the views current. No file on disk decides what is
+> served, and no node-local record is kept per migration. §6 has the
+> rule, §9 the folders.
 
 ## 1. Overview
 
 A runtime reindex rebuilds one or more inverted-index buckets on a
-property in place while the class stays open for reads and writes. The
-typical journeys it unlocks:
+property while the class stays open for reads and writes. The typical
+journeys it unlocks:
 
 - Change a text property's tokenization (`word` → `trigram`, etc.)
-  with no downtime — both the searchable and filterable buckets are
-  rewritten on every replica and the schema's `tokenization` field is
-  flipped only after every shard has committed its swap.
+  with no downtime — the searchable and filterable indexes are both
+  rebuilt into a new generation, each tenant switches to it once its
+  build is done, and the class's `tokenization` field and live
+  generation are written when every tenant has switched.
 - Add a missing inverted index after the fact: `enable-filterable`,
   `enable-searchable`, `enable-rangeable`.
 - Migrate a searchable index from WAND (Map) to BlockMax (Inverted):
   `change-algorithm`.
 - Repair a bucket suspected of corruption: `repair-filterable`,
-  `rebuild-searchable` (rebuild an existing BlockMax bucket in place),
+  `rebuild-searchable` (rebuild an existing BlockMax bucket),
   `repair-rangeable`.
-- Upgrade a searchable index from the deprecated WAND format to
-  BlockMax: `change-algorithm`.
-- Cancel a migration until every tenant's swap is decided (`SWAPPING`).
-  Tenants already decided keep their swap, which can leave the collection
-  partly migrated (§8, §12).
+- Cancel a migration until every tenant's switch is decided (`SWAPPING`).
+  Tenants already switched keep their new index, which can leave the
+  collection partly migrated (§8, §11).
 
-The whole feature is built on top of three substrates:
+All nine migration types are generation runs: they build a new
+generation of the index and switch tenant by tenant. The whole feature
+is built on three substrates:
 
-- The **LSM bucket-swap primitives** ([`adapters/repos/db/lsmkv/store.go`](../adapters/repos/db/lsmkv/store.go)
-  `SwapBucketPointer` + `FinalizeBucketSwap`) — the atomic in-memory
-  pointer flip and its deferred on-disk counterpart.
+- The **per-shard view over generation folders**
+  ([`adapters/repos/db/reindex_shard_view.go`](../adapters/repos/db/reindex_shard_view.go),
+  [`reindex_cluster_view.go`](../adapters/repos/db/reindex_cluster_view.go)):
+  each shard computes from cluster state which folder every property
+  index serves, which builds are staged for writes, and which settings
+  (tokenization, rangeable readiness) apply. Reads and writes take their
+  buckets from one view (§6).
 - The **Distributed Task Manager (DTM)** ([`cluster/distributedtask/`](../cluster/distributedtask/))
   — RAFT-backed task state, per-unit assignment, group barriers,
-  per-node `PREPARING` and `SWAPPING` coordination states, two-phase
-  PreparationComplete + PostCompletion ack barriers (§6.3).
+  `PREPARING` and `SWAPPING` coordination states, the task rules that
+  give a run its generation and compact it when it ends (§4.2).
 - The **schema FSM mutation guard** — rejects external mutations on
   classes / properties / tenants while a reindex is in flight, so the
   bucket↔schema invariant cannot be broken by a concurrent
@@ -82,13 +78,12 @@ together into a small REST surface rooted at
 > a migration returns `400 Bad Request` with
 > `runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true`.
 > The cancel verb and `GET .../indexes` keep working, so a task that was
-> already running stays observable and cancellable (§12). Everything below describes behavior with
-> the flag on, except recovery at shard load (§6.2), which re-arms or
-> stamps an in-flight migration whatever the flag says.
+> already running stays observable and cancellable (§11). Serving does
+> not depend on the flag: a shard serves the generations cluster state
+> names whether or not the flag is on.
 
 A replica movement requested while a migration runs on its collection is
-refused with 409. One that reaches a shard still being cleaned up after a
-cancelled or failed migration waits for the cleanup to finish.
+refused with 409.
 
 ### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
@@ -105,12 +100,12 @@ body against current state and picks the migration:
 
 | Path + body | Effect | Migration type |
 |---|---|---|
-| `.../index/searchable` `{"tokenization":"word"}`, no searchable index yet | Creates a Blockmax bucket, flips `IndexSearchable=true` + `Tokenization`. `text`/`text[]` only; `tokenization` required. | `enable-searchable` |
-| `.../index/searchable` `{"tokenization":"trigram"}`, index exists | Rewrites BOTH the searchable and filterable buckets when both exist. | `change-tokenization` |
-| `.../index/searchable` `{"algorithm":"blockmax"}`, index on WAND | Map → Blockmax upgrade. `flipSemanticMigrationSchema`, from `OnTaskCompleted`, flips the class-level `UsingBlockMaxWAND` once every searchable property is blockmax. `wand` is rejected (deprecated); this is the only WAND → Blockmax path. | `change-algorithm` |
-| `.../index/filterable` `{}`, no filterable index yet | Creates a RoaringSet bucket, flips `IndexFilterable=true`. A supplied tokenization must equal the property's current one. | `enable-filterable` |
+| `.../index/searchable` `{"tokenization":"word"}`, no searchable index yet | Builds a Blockmax index, then turns `IndexSearchable` on and sets `Tokenization`. `text`/`text[]` only; `tokenization` required. | `enable-searchable` |
+| `.../index/searchable` `{"tokenization":"trigram"}`, index exists | Rebuilds BOTH the searchable and filterable indexes when both exist. | `change-tokenization` |
+| `.../index/searchable` `{"algorithm":"blockmax"}`, index on WAND | Map → Blockmax upgrade. The flip stamps the property as Blockmax and sets the class-level `UsingBlockMaxWAND` once every searchable property is stamped. `wand` is rejected (deprecated); this is the only WAND → Blockmax path. | `change-algorithm` |
+| `.../index/filterable` `{}`, no filterable index yet | Builds a RoaringSet index, then turns `IndexFilterable` on. A supplied tokenization must equal the property's current one. | `enable-filterable` |
 | `.../index/filterable` `{"tokenization":"word"}`, index exists, no searchable index | Filterable-only retokenize. Rejected (400) when a searchable index exists, since both indexes share one tokenization; use `.../index/searchable` instead. | `change-tokenization-filterable` |
-| `.../index/rangeFilters` `{}`, no range index yet | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). | `enable-rangeable` |
+| `.../index/rangeFilters` `{}`, no range index yet | Builds a RoaringSetRange index, then turns `IndexRangeFilters` on. Numeric types only (`int`, `number`, `date`). | `enable-rangeable` |
 
 A PUT whose desired config already matches current state AND has no reindex
 task in flight submits no task and returns `200` with `{"status":"NO_OP"}`.
@@ -132,7 +127,7 @@ rejected — migrate to Blockmax first via `PUT {"algorithm":"blockmax"}`.
 
 | Index type | Effect | Migration type |
 |---|---|---|
-| `searchable` (already Blockmax) | Rebuild the Blockmax bucket. | `rebuild-searchable` |
+| `searchable` (already Blockmax) | Rebuild the Blockmax index. | `rebuild-searchable` |
 | `filterable` | RoaringSet refresh. | `repair-filterable` |
 | `rangeFilters` | RoaringSetRange rebuild. | `repair-rangeable` |
 
@@ -140,12 +135,13 @@ rejected — migrate to Blockmax first via `PUT {"algorithm":"blockmax"}`.
 
 Cancel the in-flight task on `(class, property, indexType)`. No request
 body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when a
-`STARTED` or `PREPARING` task is cancelled; tenants whose swap is already
-decided (§6.3) keep it, every other tenant stops. `202` + `Status: NO_OP`
-(no `taskId`) when nothing matches (already finished, never submitted, or
-already cancelled). `409` for a `SWAPPING` task (it ends once every replica that owes a swap has swapped; a node lost for good, or a swap that never succeeds, holds it, §6.3)
-and for a status this build does not recognize. See §12. Never `404` for
-"nothing to cancel".
+`STARTED` or `PREPARING` task is cancelled; tenants whose switch is
+already decided (§6.3) keep it, every other tenant stops and drops its
+build. `202` + `Status: NO_OP` (no `taskId`) when nothing matches
+(already finished, never submitted, or already cancelled). `409` for a
+`SWAPPING` task (every tenant is already decided and the task is
+finishing) and for a status this build does not recognize. See §11.
+Never `404` for "nothing to cancel".
 
 Query parameters (PUT and rebuild):
 
@@ -175,14 +171,16 @@ Response shapes (PUT / rebuild / cancel):
 - `400 Bad Request` — validation failure with an actionable hint (e.g.
   "property X has no searchable index; PUT
   `/v1/schema/{className}/properties/X/index/searchable` with a
-  tokenization to add one first").
+  tokenization to add one first"). Also a submit that names a tenant that
+  is not `HOT`, or on a collection with no shards (§4.2).
 - `404 Not Found` — class or property doesn't exist.
-- `409 Conflict` — four distinct meanings. On PUT / rebuild, an in-flight
+- `409 Conflict` — five distinct meanings. On PUT / rebuild, an in-flight
   task already touches this property; the error names the offending task
   ID unless another submit won the race. On PUT / rebuild, a replica
   movement is in flight on the collection. On PUT / rebuild, a partial run
   stands on the property (§8); the error names the resubmit that finishes it.
-  On cancel, either arm can refuse. The pre-flight refuses a status this
+  On PUT / rebuild, the collection was deleted between the request and the
+  apply. On cancel, either arm can refuse. The pre-flight refuses a status this
   build does not recognize and names the task ID and that status. The
   apply refuses a target that reached such a status or a terminal one
   after that read, and names no status, since it cannot tell which. Neither refusal cancelled anything, but the
@@ -190,22 +188,24 @@ Response shapes (PUT / rebuild / cancel):
   the race, so re-read the index status to see where it landed —
   `CANCELLED` included. A pre-flight refusal leaves the task in flight,
   and a status this build does not recognize keeps reading as `indexing`
-  here until it reaches a terminal state on the nodes that do (§12).
+  here until it reaches a terminal state on the nodes that do (§11).
 - `422 Unprocessable Entity` — `{indexType}` outside the enum.
 - `429 / 503` — per-collection in-flight cap reached (default 32), or the
   cluster service is unavailable / an in-flight task's payload cannot be
-  parsed so conflict-freedom cannot be proven / a local worker of an earlier
-  task on this property did not exit within 10 s (typically right after a
-  cancel; retry shortly).
+  parsed so conflict-freedom cannot be proven.
 
 ### `DELETE /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
 Drop a configured inverted index. `{indexType}` is one of `filterable`,
 `searchable`, `rangeFilters` (`rangeable` accepted as an alias). Flips the
-corresponding schema flag to false, drops the bucket dir, and removes the
-sidecar buckets, so a subsequent re-enable starts from a clean slate. Subject to the same MutationGuard as
-`UpdateProperty` — rejected while a reindex on this property is in flight,
-or while a partial run stands on it (the answer names the resubmit; §8).
+corresponding schema flag to false. A property served only through its plain
+folder loses the folder at once; a property a generation serves loses its
+folders when the refresh loop retires them, after the last reader releases
+them (§6.2). The live generation is raised past every run still serving the
+index, so a re-enable builds a new generation instead of finding old data
+(§6.5). Subject to the same MutationGuard as `UpdateProperty` — rejected
+while a reindex on this property is in flight, or while a partial run stands
+on it, unless the DELETE turns off an index type that run builds (§8).
 
 ### `GET /v1/schema/{className}/indexes`
 
@@ -233,12 +233,20 @@ Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`,
 run's refusals, go only to a caller who may read the collection's tenants;
 a count of tenants is tenant metadata.
 The status is synthesized in `mergeReindexStatus` from the DTM task
-list crossed with the schema flags. Both values are read from the
+list crossed with the schema flags. When several runs touch one index, the
+one reported is picked by status priority, then task version, then start
+time. A compacted run reports progress from its summary. Both values are read from the
 node serving the request, and the task list is read first, so the
 schema is never the older of the two: a class read at a later applied
 index carries every flag flip the tasks it is compared against have
 already committed. A FINISHED task surfaces nothing of its own — the
 schema flag alone decides whether an entry is emitted.
+
+This endpoint is the completion signal. A successful full run's task is
+removed when its flip lands, so once the index reads `ready` with no
+`taskId` the class serves the new generation. A tenant-scoped successful
+run stays as a compact `FINISHED` record, because it holds switched
+tenants (§4.2).
 
 #### The apply edge
 
@@ -271,8 +279,7 @@ pill alternates between `indexing` and no entry at all, and `algorithm`
 between `blockmax` and `wand` for a property whose stamp only one of them has.
 
 This endpoint is node-local while `GET /v1/tasks` is leader-routed, so a UI
-polling both against a lagging follower can render the task FINISHED and the
-index pill `indexing` at the same moment.
+polling both against a lagging follower can render the two out of step.
 
 ### RBAC
 
@@ -306,33 +313,29 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
 
 - **`UnitStatus`** (`PENDING → IN_PROGRESS → COMPLETED`/`FAILED`) —
   per-unit. One unit = one shard × one node. `COMPLETED` means *this
-  single replica* has finished its piece of the reindex work; the
-  per-shard swap and cluster-wide schema flip are still ahead.
-- **`TaskStatus`** — per-task aggregate. The transition sequence
-  depends on whether the task opts into the PREP barrier
-  (`NeedsPreparationBarrier`, set automatically for semantic migrations by
-  the submit handler; full mechanics in §6.3):
-  - **Semantic migrations** (`change-tokenization`,
-    `change-tokenization-filterable`, `enable-filterable`,
-    `enable-searchable`, `enable-rangeable`,
-    `change-algorithm`):
-    `STARTED → PREPARING → SWAPPING → FINISHED`.
-    `PREPARING` is reached once every unit is terminal. A group (one
-    per tenant) prepares as soon as its own units are COMPLETED, even
-    while the task is STARTED, and its swap is decided once every node
-    owning one of its units acked PREP success. `PREPARING → SWAPPING`
-    happens once every group is decided, and `SWAPPING → FINISHED`
-    once no replica owes a swap (§6.3).
-  - **Format-only migrations** (`repair-filterable`,
-    `repair-rangeable`, `rebuild-searchable`):
-    `STARTED → SWAPPING → FINISHED`.
-    `PREPARING` is skipped because there is no cross-replica
-    state alignment to bound — each shard's `RunOnShard`
-    completes the full lifecycle locally and there is no
-    cluster-wide schema flip.
-  - Either path may terminate at `FAILED` (a failed PREP ack, or a
-    failed format-only unit) or `CANCELLED` (operator-initiated).
-    `FINISHED` is the correct signal for "fully done".
+  single replica* has finished building its new index folder. The
+  tenant still serves the old index until its switch is decided.
+- **`TaskStatus`** — per-task aggregate:
+  `STARTED → PREPARING → SWAPPING → FINISHED`, and `FAILED` (a failed
+  unit, a failed preparation ack, or a failed flip) or `CANCELLED`
+  (operator-initiated) from the non-final states.
+  - `STARTED`: units are building. A group (one per tenant; one group
+    `""` covering every shard on a single-tenant collection) is ready once
+    all its units are `COMPLETED`, even while the task is still `STARTED`.
+  - `PREPARING`: reached once every unit is terminal. Each node owning a
+    unit of a group acks the group (`RecordPreparationCompleteAck`); once
+    every owner acked success the group's switch is **decided** and the
+    group joins the task's switched set (`Task.SwapDecidedGroups`). §6.3.
+  - `SWAPPING`: every group is decided. A full run now flips the class
+    (below); a tenant-scoped run has nothing to flip.
+  - `FINISHED`: the flip landed (full run) or every group is decided
+    (scoped run).
+
+  All nine migration types take this path, `repair-*` and
+  `rebuild-searchable` included: they build a new generation and switch
+  per tenant like the rest. `FINISHED` is not the signal that the class
+  serves the new generation for a full run, because its task is removed
+  at the flip; the index status (§2) is.
 
 These are different Go types in the source —
 [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go)
@@ -348,239 +351,171 @@ preceding a transition on the per-task field. Annotations
                 └──────────────────────────┬─────────────────────────────┘
                                            │
         ┌──────────────────────────────────▼─────────────────────────────┐
-        │  REST handler (adapters/handlers/rest/handlers_indexes.go)    │
+        │  REST handler (adapters/handlers/rest/handlers_indexes*.go)   │
         │   • Per-(class, prop) ReindexSubmitLock                       │
         │   • Validate body, classify migration type, dispatch          │
         │   • checkReindexConflict (read-side mirror of FSM check)      │
-        │   • Pre-submit DB.NewStalePartialReindexSweep                 │
-        │   • AddDistributedTaskWith[Groups]Barrier("reindex", payload) │
+        │   • AddDistributedTaskWithGroupsBarrier("reindex", payload)   │
+        │     (no unit list: the apply builds the units)                │
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  RAFT-replicated AddTask
         ┌──────────────────────────────────▼─────────────────────────────┐
         │  cluster/distributedtask FSM (Manager)              ← TaskSt. │
         │   • ConflictDetector.CheckConflict (FSM-deterministic)        │
-        │   • Append task to FSM state at STARTED                       │
+        │   • TaskRules.Admit: generation, takeover or refusal          │
+        │   • TaskRules.Units: one unit per shard replica, from the     │
+        │     sharding state at this log index                          │
+        │   • Task stored at STARTED (a takeover with nothing to build  │
+        │     goes straight to SWAPPING, or FINISHED when scoped)       │
+        └──────────────────────────────────┬─────────────────────────────┘
+                 task-state notice to each node's refresh loop
+        ┌──────────────────────────────────▼─────────────────────────────┐
+        │  Refresh loop (per node) → each loaded shard's view           │
+        │   • opens the task's build folder, emptied while the unit is  │
+        │     PENDING; the folder is staged: written by live writes,    │
+        │     never read                                                │
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  Scheduler tick on each node
         ┌──────────────────────────────────▼─────────────────────────────┐
         │  ReindexProvider.StartTask (per node, per task)     ← UnitSt. │
-        │   • processOneUnit per local unit, in a bounded worker pool   │
-        │     (per unit: PENDING → IN_PROGRESS → COMPLETED on success)  │
-        │   • Build ShardReindexTaskGeneric per (strategy, unit)        │
-        │   • Semantic: RunReindexOnlyOnShard — iterate objects, write  │
-        │     to __reindex_<N>/ bucket; install double-write callbacks; │
-        │     stop at markReindexed (the swap waits for the barrier)    │
-        │   • Format-only: RunOnShard — the same iteration, then prep   │
-        │     and swap, all locally                                     │
+        │   • one build per local unit, in a bounded worker pool        │
+        │   • wait for staging → record unit start → wait until this    │
+        │     node applied it → scan every object into a scratch bucket │
+        │     and place its segments under the build                    │
         │   • UnitStatus = COMPLETED  ← per-Unit status                 │
         └──────────────────────────────────┬─────────────────────────────┘
                               All units terminal across the cluster
-                                           │
-                          (semantic only — format-only skips to SWAPPING)
-                                           │
                                   ┌────────▼────────┐
                                   │ PREPARING       │ ← TaskStatus
-                                  └────────┬────────┘    (semantic only;
-                                           │             format-only skips)
-                                           │  scheduler fires per-node
-        ┌──────────────────────────────────▼─────────────────────────────┐
-        │  Provider.OnGroupCompleted (per-node, semantic only, barrier) │
-        │   PHASE A — PREP per local shard, idempotent at merged.mig:   │
-        │    1. PREP (background): FlushAndSwitch + Prepend             │
-        │      (disk-I/O proportional to bucket size — minutes at       │
-        │       billion-scale; this is what the barrier closes)         │
-        │   RecordPreparationCompleteAck(group, success) — per group+node│
-        └──────────────────────────────────┬─────────────────────────────┘
-                  Every group decided (each group's owners acked success)
-                                           │   FSM gates the transition
+                                  └────────┬────────┘
+                       Each group: every owning node acked → decided
+                       (the tenant now serves the new generation)
                                   ┌────────▼────────┐
                                   │ SWAPPING        │ ← TaskStatus
-                                  └────────┬────────┘   (replicas may differ
-                                           │            for a window that
-                                           │            grows with in-flight
-                                           │            PREP and swaps)
-                                           │  scheduler fires per-node
+                                  └────────┬────────┘
         ┌──────────────────────────────────▼─────────────────────────────┐
-        │  Provider.OnSwapRequested (per-node, semantic only, barrier)  │
-        │   PHASE B — OVERLAY + SWAP per local shard:                   │
-        │    2. OVERLAY SET: per-shard tokenization resolver            │
-        │    3. ATOMIC SWAP: SwapBucketPointer per prop (microseconds)  │
-        │    + post-atomic inline tidy (Shutdown + rename old → backup) │
-        │    + OnMigrationComplete (per-strategy hook)                  │
-        │   RecordPostCompletionAck(group, success) — pays the debt     │
-        │                                                                │
-        │  (Format-only path: neither callback does swap work —        │
-        │   RunOnShard already finished PREP+SWAP on the node during    │
-        │   StartTask. No PreparationCompleteAck barrier; SWAPPING      │
-        │   fires directly from AllUnitsTerminal.)                      │
+        │  Provider.OnTaskCompleted (full runs only)                    │
+        │   proposes one TYPE_REINDEX_FLIP per property: Live = G and   │
+        │   the target settings (idempotent: every node proposes it)    │
         └──────────────────────────────────┬─────────────────────────────┘
-              No replica owes a swap (format-only: every node acked)
-                                           │
-        ┌──────────────────────────────────▼─────────────────────────────┐
-        │  Provider.OnTaskCompleted (per-node, semantic only)           │
-        │   flipSemanticMigrationSchema — RAFT UpdatePropertyInternal   │
-        │   (idempotent: every node fires, first commit wins)           │
-        └──────────────────────────────────┬─────────────────────────────┘
-                                           │  scheduler marks finalized
                                   ┌────────▼────────┐
                                   │ FINISHED        │ ← TaskStatus
-                                  └─────────────────┘   (operator-visible
-                                           │            "fully done" signal)
-                                           │  next process startup
-        ┌──────────────────────────────────▼─────────────────────────────┐
-        │  FinalizeCompletedMigrations (pre-LSM init)                   │
-        │   For each (prop, indexType) with tidied.mig:                 │
-        │     rename property_p_<idx>__<ingestSuffix>_<N>/              │
-        │       → property_p_<idx>/                                     │
-        │     remove backup dirs, lower-gen sidecars                    │
-        └────────────────────────────────────────────────────────────────┘
+                                  └────────┬────────┘
+                       end rules run in the same apply: a finished
+                       full run deletes itself and the runs it covers
 ```
 
-Format-only migrations (`repair-filterable`,
-`repair-rangeable`, `rebuild-searchable`) skip the OnGroupCompleted
-barrier. Each shard runs the full lifecycle inside its own `RunOnShard`,
-which sequences `RunReindexOnlyOnShard` → `RunPrepareOnShard` →
-`RunSwapOnShard` against the sentinels on disk, and there is no
-cluster-wide schema flip. Because every phase dispatches on persisted
-state, a task relaunched after a restart resumes from wherever the
-previous run stopped rather than reporting the unit COMPLETED with the
-swap still outstanding. The flow is otherwise identical.
+A failed or cancelled run keeps its decided tenants: they continue to
+serve the generation the run built. The run stays in the task list with
+its switched set until a resubmit takes it over, a newer run covers it, the
+index is turned off, or its tenants and collection are deleted (§8).
 
 ### What goes through RAFT vs. what is local-only
 
-The diagram is easy to misread as "PREPARING and SWAPPING are
-cluster-wide synchronization moments; every node atomically swaps in
-lock-step". The truth is more nuanced — the FSM transitions ARE
-cluster-wide RAFT commits, but each node's local PREP and SWAP work
-runs on its own timeline. The barrier (`PREPARING → SWAPPING`) bounds
-the cross-node window where local timelines diverge.
-
 What goes through RAFT (cluster-wide commits):
 
-- `AddTask` — task created at STARTED.
+- `AddTask` — task created at STARTED, with its generation and units.
 - `UpdateUnitProgress` / `RecordUnitCompletion` — per unit, on the
-  node that owns the unit.
-- The transition `STARTED → PREPARING` (semantic) or
-  `STARTED → SWAPPING` (format-only) — happens once the cluster-wide
-  `AllUnitsTerminal` predicate becomes true on the Manager's FSM
-  state. Routing depends on `Task.NeedsPreparationBarrier`.
+  node that owns the unit. The first records that the unit started.
+- The transition `STARTED → PREPARING` — once every unit is terminal.
 - `RecordPreparationCompleteAck` — one per group and node, with
-  `Success=bool`. Semantic-migration path only — fires after the node's
-  PREP for that group (`OnGroupCompleted`) returns, in STARTED or PREPARING.
+  `Success=bool`.
 - The transition `PREPARING → SWAPPING` — committed inside
   `RecordPreparationCompleteAck`'s apply once every group is decided.
-- `RecordPostCompletionAck` — one per group and node for barrier tasks
-  (after `OnSwapRequested`; a success pays that replica's swap debt),
-  one per node for non-barrier tasks (after `OnGroupCompleted`).
+- `RecordPostCompletionAck` — a no-op for tasks with the preparation
+  barrier, kept so old logs replay.
+- `TYPE_REINDEX_FLIP` — the class-level flip of a full run.
 - The transition `SWAPPING → FINISHED` — committed by
-  `MarkTaskFinalized` once no swap is owed (barrier) or every node
-  acked success (non-barrier).
-- `UpdateProperty` from `OnTaskCompleted` — the cluster-wide schema
-  flip (semantic migrations only).
+  `MarkTaskFinalized` once this node's `OnTaskCompleted` succeeded.
 
 What does NOT go through RAFT (local-only):
 
-- **PREP** (FlushAndSwitch, Prepend, Shutdown the reindex bucket).
-- **OVERLAY SET** (install per-shard tokenization resolver).
-- **ATOMIC SWAP** (`SwapBucketPointer` per prop, in microseconds).
-- **Post-atomic inline tidy** (Shutdown old main, rename old → backup).
-- **`OnMigrationComplete`** per-strategy hook (in-memory shard-local
-  state mutations).
+- Opening, staging and retiring a shard's index folders (the refresh loop).
+- The build itself: the object scan, the scratch bucket, placing its
+  segments under the build folder.
+- Computing a view. Every node computes its own view from the state it
+  has applied.
 
-All five of those are pure in-process operations on each node's local
-LSM store. There is no single instant where every node atomically
-swaps. Different nodes fire `OnGroupCompleted` at slightly different
-times (scheduler-tick jitter, typically sub-second to a few seconds).
-Each node runs its own three-phase dance on its own local timeline.
-
-### What "atomic" actually means
-
-Two different scopes of atomicity carry weight here:
-
-- **Per-node atomic** — inside `RunSwapOnShard`'s Phase 2a, the per-
-  prop `SwapBucketPointer` tight loop holds the mixed-state subwindow
-  ("some props swapped, others not") to microseconds. A query landing
-  on this node during this subwindow that hits a not-yet-swapped prop
-  would tokenize input with the new value against an old-tokenized
-  bucket; the loop staying microseconds ensures the probability is
-  negligible. This is the meaning of "ATOMIC SWAP" in the diagram.
-- **Cluster-wide convergence (NOT instantaneous synchronization)** —
-  the system guarantees that either every node converges to the new
-  bucket+schema state, or the migration fails cleanly and every node
-  stays at the old state. It does NOT guarantee that nodes flip at
-  the same wall-clock instant.
-
-The cluster-wide convergence guarantee is enforced by two independent
-mechanisms:
-
-1. **Per-shard property overlay (the per-node bridge).** Between the
-   local `SwapBucketPointer` (bucket is now NEW) and the eventual
-   cluster-wide schema flip (schema flag is now NEW), this node's
-   analyzer would still describe the property the pre-migration way.
-   The overlay installs the target view at the per-shard query and
-   write paths, so reads in that window tokenize against the content
-   the bucket now holds, and writes in it reach the migrated index.
-   No task status clears it: only the schema-update sweep that removes a
-   disabled index's bucket retires an entry's fields, and otherwise the
-   entry lives until the shard unloads. See §10.
-2. **Two-phase ack barrier (the cross-node handshake).** See §6.3. A
-   failed PREP ack fails the task, so `OnTaskCompleted` skips the
-   cluster-wide schema flip.
+There is no single instant at which every node switches a tenant. A
+tenant's replicas each learn that the group is decided when they apply
+the entry that decided it, and each publishes its new view when its
+refresh loop reaches the notice. Reads in that window can be answered
+from either generation, each complete and internally consistent (§6.3).
 
 ## 4. Architecture by layer
 
 ### 4.1 REST layer — `adapters/handlers/rest/handlers_indexes.go` + `handlers_reindex.go`
 
-Validation, dispatch, response shaping. Two structural details worth
+Validation, dispatch, response shaping. One structural detail worth
 calling out:
 
 **Per-`(collection, property)` submit lock.** Held across class read,
 validation, conflict check, and the RAFT `AddDistributedTaskWithGroupsBarrier`
-call, whose unit specs name each unit's shard and node.
-Without this, a parallel `DELETE /properties/{p}/index/{name}` could
+call. Without this, a parallel `DELETE /properties/{p}/index/{name}` could
 win the lock between the PUT's `ReadOnlyClass` snapshot and its
 RAFT task-add, leaving the PUT validating against a schema that no
-longer matches the on-disk bucket. The lock is process-wide; the
+longer matches the index. The lock is process-wide; the
 multi-node version of the same race is closed by the FSM-side
 `MutationGuard` (see §4.3). Stored on `state.ReindexSubmitLocks` so the
 PUT handler and the DELETE-property-index handler share the same
 entries. See [`adapters/handlers/rest/state/reindex_submit_locks.go`](../adapters/handlers/rest/state/reindex_submit_locks.go).
 
-**Pre-submit `DB.NewStalePartialReindexSweep` sweep.** Defense in depth
-against the CANCEL→retry silent-failure family (same shape as
-DELETE→re-enable): if a previous cancelled run left a stale migration
-record + sidecar dirs on disk, the new task
-would resume against them, finish in <1s with a no-op, flip the schema
-flag, and report success against an empty bucket. The cancel handler
-already runs this synchronously, but the wait can time out or the node
-can crash mid-cancel. Submit-time cleanup catches that gap. Critically,
-for `change-tokenization` the sweep wipes BOTH `searchable` AND
-`filterable` migration dirs — cleaning only one of them was the root
-cause of a Sev 1.
+The submit lists no tenants and no replicas: the entry carries the
+payload only, and every node builds the units when it applies the entry
+(§4.2). Neither submit nor cancel sweeps any node's disk.
 
 ### 4.2 Distributed Task Manager — `cluster/distributedtask/`
 
 The substrate. Package doc at [`cluster/distributedtask/doc.go`](../cluster/distributedtask/doc.go)
-documents the four "journey" shapes; reindex uses **Journey 3** for
-semantic migrations and **Journey 2** for format-only ones, plus
-**Journey 4** for per-tenant grouped MT.
+documents the four "journey" shapes; reindex uses the per-tenant grouped
+**Journey 4** with the preparation barrier for every run.
 
 Key types & contracts:
 
 - **`Manager`** — the RAFT FSM. Owns task state, applies `AddTask`,
   `UpdateUnitProgress`, `RecordUnitCompletion`, `RecordPreparationCompleteAck`,
-  `RecordPostCompletionAck`, `MarkTaskFinalized`, `CancelTask`,
-  `CleanUpTask`. Every mutation is FSM-deterministic.
+  `MarkTaskFinalized`, `MarkTaskFailed`, `CancelTask`, `CleanUpTask`.
+  Every mutation is FSM-deterministic. It also fires a state listener
+  after every add, takeover, decision, end and removal (the refresh
+  loop's source of notices), and answers `ShardTaskStates`, which reports
+  per task what it means for one shard on one node.
+- **`TaskRules`** — the namespace's rules inside the apply
+  ([`group_states.go`](../cluster/distributedtask/group_states.go)),
+  implemented for reindex by `db.ReindexTaskRules`
+  ([`reindex_task_rules.go`](../adapters/repos/db/reindex_task_rules.go)):
+  - `Admit` runs in the `AddTask` apply before the task is stored. It
+    gives the run a generation, one more than the highest generation the
+    class's live state or any task on the same properties records. A run
+    **takes over** the newest failed or cancelled run on the same
+    properties and target that still has switched tenants: it inherits
+    that run's generation and switched tenants, builds no unit for them,
+    and the old task is deleted. A finished run is never taken over. A
+    run of another target is refused with `ErrTaskPartlyMigrated` (409)
+    while a failed or cancelled run on the same properties still has
+    switched tenants, because waiting for it or cancelling it cannot
+    help. Only payloads marked `ViewServed` are shaped, so a log written
+    by v1.39.x replays unchanged.
+  - `Units` builds the run's units from the collection's sharding state
+    at the entry's log index: shards sorted by name, then replicas in
+    their stored order, unit ID `shard__node`. The order never follows a
+    map, so every replica stores the same task. A named tenant that does
+    not exist is refused (`ErrTaskTenantsMissing`, 400), as is any shard
+    in scope that is not `HOT` (`ErrTaskTenantsNotHot`, 400, count
+    first) and a collection with no shards (`ErrTaskHasNoUnits`, 400).
+    A collection deleted meanwhile answers `ErrTaskCollectionGone`
+    (409). Because the apply reads the sharding state at its own log
+    position, no tenant can appear or change between listing and apply.
+  - `Ended` runs once per task that became terminal, in the same apply,
+    and `BornSwitched` marks the tenants created during a full run.
+    See "End rules" below.
+  - `IndexOff` computes the live generation that turns an index off
+    (§6.5).
 - **`Scheduler`** — per-node loop. Polls Manager for current task list,
-  starts/stops local work via Provider, fires `OnGroupCompleted`
-  (PHASE A: PREP for barrier tasks, PREP+SWAP for non-barrier),
-  fires `OnSwapRequested` (PHASE B: SWAP for barrier tasks),
-  `OnTaskCompleted` (cluster-wide schema flip), submits
-  `MarkTaskFinalized` when the local callbacks succeed.
+  starts/stops local work via Provider, fires `OnGroupCompleted` (a no-op
+  for reindex), `OnTaskCompleted` (the flip) and submits
+  `MarkTaskFinalized` when the local callback succeeds.
 - **`Provider` / `UnitAwareProvider`** — the extension point.
-  `ReindexProvider` implements the latter and provides both
-  `OnGroupCompleted` and `OnSwapRequested` for barrier-aware
-  semantic migrations.
+  `ReindexProvider` implements it.
 - **`ConflictDetector`** — pluggable interface implemented per
   namespace (here, by `ReindexDetector.CheckConflict`). Called under
   Manager's lock from the AddTask apply path, BEFORE the task is
@@ -592,40 +527,68 @@ Key types & contracts:
   `ReindexDetector.CheckPropertyUpdate` / `CheckClassMutation` /
   `CheckTenantMutation`. Uses `TaskStatus.IsActive()`, so every
   non-terminal status counts as "in flight" for mutation gating (see
-  **Task status classification** below).
+  **Task status classification** below). A failed or cancelled run with
+  switched tenants also refuses property updates other than its own
+  index-off (§8).
 - **`TaskStatusPreparing` and `TaskStatusSwapping`** — the post-units,
-  pre-FINISHED coordination states that split per-node PREP from
-  per-node SWAP with a cluster-wide PreparationCompleteAck barrier in between.
-  Semantic migrations transit STARTED → PREPARING → SWAPPING →
-  FINISHED; format-only migrations skip PREPARING and transit STARTED
-  → SWAPPING → FINISHED. The task is NOT safe to act on from the API
-  surface in either coordination state; callers polling for "fully
-  done" must wait for `FINISHED`. Format-only journeys pass through
-  SWAPPING in essentially zero time.
-  These states close the schema-flip-lag race where a task would
-  otherwise be FINISHED at the FSM layer before every node's
-  post-completion callback had committed its bucket-pointer flip. For what
-  a tenant's replicas serve meanwhile, see "Cross-replica window" in §6.3.
-- **Two-phase ack barrier** — `RecordPreparationCompleteAck` (semantic only)
-  + `RecordPostCompletionAck` (all paths). Each node acks its phase on
-  the task before the cluster is allowed to advance: PREPARING → SWAPPING
-  is gated on every PreparationCompleteAck landing with Success=true;
-  SWAPPING → FINISHED is gated on every PostCompletionAck landing with
-  Success=true. A failed PreparationCompleteAck flips the task to
-  `FAILED`. A failed semantic swap sends no ack and stays owed, so the
-  schema flip and SWAPPING → FINISHED wait until no replica owes a swap.
-  A format-only swap failure fails its unit. Acks idempotent and
-  rehydrate over restart.
+  pre-FINISHED coordination states. Callers polling for "fully done"
+  poll the index status (§2), not the task.
+- **Preparation barrier** — `RecordPreparationCompleteAck`. Each node
+  acks each group it owns a unit of; the group's switch is decided once
+  every owner acked success, and PREPARING → SWAPPING is gated on every
+  group being decided. A failed ack flips the task to `FAILED`.
+  `RecordPostCompletionAck` is a no-op for barrier tasks (old logs
+  replay it).
 - **Permanent-rejection sentinels** —
   `ErrTaskNotRunning`/`ErrTaskDoesNotExist`/`ErrUnitAlreadyTerminal`/
-  `ErrUnitWrongNode`/`ErrTaskNotInFinalizingState`, all matched by
-  the umbrella `ErrPermanentRejection`. Encoded over gRPC with a
-  stable `codes.FailedPrecondition` + `[dtm-perm/<id>] ...` message
-  marker so the sentinel identity survives wire transit and gets
-  re-attached on the receiving side by `RehydratePermanentRejection`.
-  Mixed-version friendly (pre-sentinel peers return plain-text
-  phrasing; the classifier substring-matches as a fallback). See
+  `ErrUnitWrongNode`/`ErrTaskNotInFinalizingState`, plus the submit
+  refusals above, all matched by the umbrella `ErrPermanentRejection`.
+  Encoded over gRPC with a stable `codes.FailedPrecondition` +
+  `[dtm-perm/<id>] ...` message marker so the sentinel identity survives
+  wire transit and gets re-attached on the receiving side by
+  `RehydratePermanentRejection`. Mixed-version friendly (pre-sentinel
+  peers return plain-text phrasing; the classifier substring-matches as a
+  fallback). See
   [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go).
+
+#### End rules and compaction
+
+Every apply that can end a task (unit completion, preparation acks,
+finalize, fail, cancel) and every restore runs the namespace's end rules
+once per task that became terminal, before the lock is released
+(`ReindexTaskRules.Ended`). For a run with a generation:
+
+- A run that ended with switched tenants takes them from older ended runs
+  on the same properties whose index types it covers. An older run left
+  with none is deleted.
+- A finished **full** run deletes itself and every ended run on its
+  properties that it covers, with or without a generation, because its
+  flip already made the class serve its generation.
+- Any other ended run is compacted in place: its units become a summary
+  (`UnitSummary`: group count, counts per unit status, up to 20 errors),
+  and its switched tenants stay. `Task.GroupTotal` counts switched groups
+  without units (born, taken over) and answers from the summary once
+  compacted.
+
+Runs without a generation are left as they are. Deleting a tenant removes
+it from a task's switched set even when the task holds no unit for it.
+
+#### Retention
+
+`ShouldRetainCompletedTask` keeps a run with a generation that is
+`FAILED` or `CANCELLED`, or `FINISHED` with switched tenants. Everything
+else, including every run without a generation, follows
+`DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` (§13). A kept run leaves
+through the rules above, a takeover, an index-off, or the deletion of its
+tenants or collection; there is no age limit on it.
+
+#### Cutover check
+
+`MarkTaskFailed` records `FINISHED` instead of `FAILED` when
+`ReindexDetector.CutoverLanded` finds the flip already applied: the
+class's live generations hold the run's generation for every index type
+it builds. A missing entry is not landed. A run without a generation is
+reported landed, because it never serves.
 
 #### Task status classification
 
@@ -638,7 +601,7 @@ Key types & contracts:
 | `IsActive()` | everything else (defined as the exact negation of `IsTerminal()`) |
 | `IsCompleted()` | `SWAPPING`, `FINISHED` — every unit succeeded |
 | `IsRecognized()` | any status this build declares |
-| `IsCancellable()` | `STARTED`, `PREPARING` (in `SWAPPING` nothing is left to cancel) |
+| `IsCancellable()` | `STARTED`, `PREPARING` (in `SWAPPING` every tenant is decided and nothing is left to cancel) |
 
 `IsCancellable()` is a literal comparison rather than a classification,
 which is what makes it different from the other four. `Manager.CancelTask`
@@ -731,10 +694,24 @@ as `indexing`.
 
 Three changes here serve the reindex feature:
 
-**`BucketGeneration` counter on `Property`.** Bumped on every reindex
-that touches a property. Lets unrelated machinery (notably backup) tell
-"this is the same bucket I saw before" apart from "this property has
-been rebuilt since I last looked."
+**Live generations.** The class carries, outside its public schema, a
+live generation per property and index type. A property index serves
+`max(Live, generation of every task on it that switched the tenant)`
+(§6.1). Only two applies write it: `TYPE_REINDEX_FLIP` and the index-off
+update (§6.5).
+
+**`TYPE_REINDEX_FLIP`** (RAFT apply type 7;
+`ReindexFlipRequest{Prop, Gen, Tokenization, IndexTypes, Enable, Blockmax}`).
+Proposed by `ReindexProvider.OnTaskCompleted` once every group of a full
+run is decided, one entry per property. The apply
+(`applyReindexFlip`) sets `Live = Gen` for the built index types and the
+target settings: the tokenization, the index flags of an enable run, the
+property's blockmax stamp, and the class-level `UsingBlockMaxWAND` once
+every searchable property is stamped. It needs no shard work, because
+every tenant already serves the generation. An entry whose generation is
+not above the current one changes nothing, so every node can propose it
+and a replay is harmless. A tenant-scoped run never flips: no class
+value can name only some tenants.
 
 **`UpdateProperty` fieldmask.** `applyPerPropertySchemaUpdate` passes a
 `fields []string` mask all the way down to the FSM apply path
@@ -744,74 +721,62 @@ other on RAFT apply: the FSM merges only the listed fields onto the
 live class state. An empty mask falls back to "replace every field"
 semantics for callers that don't care.
 
-**`FromInFlightMigration` flag.** Routed via
-`UpdatePropertyInternalFromMigration` and set only by the provider's
-`OnTaskCompleted` path. The MutationGuard described next would refuse a
-migration's own schema flip, because its run is still in flight. The
-flag routes the flip to `CheckMigrationPropertyUpdate` instead, which
-admits it only while a run on that property is `SWAPPING`, so a flip
-arriving after its run ended is refused. The provider treats that refusal
-as done when the schema already shows the target (`ReindexRunLanded`).
-
 **`MutationGuard` (cross-FSM).** The schema FSM consults
 `distributedtask.SchemaMutationDetector` on every `UpdateProperty`,
 `DeleteClass`, `UpdateTenants(FROZEN)`, `DeleteTenants` apply.
 `ReindexDetector`'s implementation rejects any mutation overlapping the
 properties of an in-flight reindex task on the same collection. In flight
 means any non-terminal status, admitted via `TaskStatus.IsActive()` (see
-§4.2). The motivating failure mode is summarized on
-`CheckPropertyUpdate`'s godoc: a `change-tokenization` migration spawns
-separate per-shard sub-tasks for searchable and filterable; a DELETE
-arrives mid-flight; the stale-sidecar sweep wipes the searchable
-sub-task's working copy; the searchable sub-unit FAILs; the filterable
-sub-unit commits its local swap; per-shard ack barrier sees mixed acks;
-task FAILED; `flipSemanticMigrationSchema` skipped; schema stays at OLD
-tokenization while the filterable bucket on disk holds NEW-tokenized
-data. **Bucket↔schema inversion.** Same family as the ack-barrier
-failure mode but triggered by an external schema mutation instead of
-a crash.
+§4.2). The guard also names, from the update's field mask, the index type
+an update turns off (`indexTurnedOff`), so a partial run's own index can
+be turned off while every other update stays refused (§8). The motivating
+failure mode is summarized on `CheckPropertyUpdate`'s godoc: a
+`change-tokenization` migration builds the searchable and filterable
+indexes of one property; a DELETE arrives mid-flight and removes one of
+them; the run then serves one index at the new tokenization and the other
+at the old one. **Bucket↔schema inversion.** Same family as the
+ack-barrier failure mode but triggered by an external schema mutation
+instead of a crash.
 
-The guard is intentionally blanket: any overlap rejects. Migration-
-driven flips (`FromInFlightMigration=true`) are checked by
-`CheckMigrationPropertyUpdate` instead, which admits them only while a
-run on the property is `SWAPPING`. Class-wide
+The guard is intentionally blanket: any overlap rejects. Class-wide
 (`CheckClassMutation`) is stricter — any reindex on the class
 (regardless of property) blocks DeleteClass.
 
+The `UPDATE_PROPERTY` apply still reads `FromInFlightMigration` and
+`MigrationRun`, and still routes such an update to
+`CheckMigrationPropertyUpdate`, so a log written by v1.39.x replays. This
+build proposes no such update; its own flip is `TYPE_REINDEX_FLIP`.
+
 ### 4.4 Reindex orchestration — `adapters/repos/db/reindex_*` & `inverted_reindex_*`
 
-**`ReindexProvider`** ([`reindex_provider.go`](../adapters/repos/db/reindex_provider.go))
+**`ReindexProvider`** ([`reindex_provider.go`](../adapters/repos/db/reindex_provider.go),
+[`reindex_provider_generation.go`](../adapters/repos/db/reindex_provider_generation.go))
 — the DTM `UnitAwareProvider` implementation. Lifecycle hooks:
 
-- `StartTask` → per-node bootstrap. Unmarshals the payload, identifies
-  this node's local units, hands them to `processUnits`. Bounded
-  concurrency via `ConcurrencyLimiter`.
-- `processOneUnit` → per-(unit, shard) bootstrap. Constructs the
-  strategy instance(s) at the submission's task version, writes the
-  recovery payload, runs the reindex iteration via
-  `ShardReindexTaskGeneric`. For semantic migrations it stops at
-  `markReindexed` (barrier); for format-only it runs the full
-  lifecycle including the swap.
-- `OnGroupCompleted` (semantic only) → the swap phase, per local
-  shard. Three-phase: PREP → OVERLAY SET → ATOMIC SWAP. See §6.
-- `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
-  via RAFT. It does not touch the property overlay: an entry describes
-  this shard's buckets, and no task status changes those (§10).
+- `StartTask` → per-node bootstrap. Refuses a task without a generation
+  (boot makes that unreachable, §13). Identifies this node's local units
+  and runs each one's build (`startGenerationRun`) in a bounded worker
+  pool (`ConcurrencyLimiter`).
+- Per unit (`runGenerationUnit`): wait until the refresh loop stages the
+  build folder, record the unit's start, wait until this node applied it,
+  then `Shard.ReindexBuild` per property. Only then does the unit report
+  `COMPLETED`. A completion that cannot be reported is logged through a
+  sampler; an interrupted unit logs nothing and is started again by the
+  next task relaunch.
+- `OnGroupCompleted` does nothing: each unit reported done only once its
+  build was durable.
+- `OnTaskCompleted` → `completeGenerationRun`: for a full run in
+  `SWAPPING`, one `TYPE_REINDEX_FLIP` per property through the wired
+  `ReindexFlipper`.
 - The RAFT-apply checks are not provider hooks. They live on
   `ReindexDetector` in `reindex_conflict.go`, below. See §4.3 & §7.
 
-**`ShardReindexTaskGeneric`** ([`inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go))
-— the strategy-parameterized lifecycle. State machine, merge / swap /
-tidy, object iteration, progress tracking, sentinel writes. The
-file-level godoc documents the three-phase contract (PREP / ATOMIC /
-DEFERRED) that every code path must preserve.
-
 **`MigrationStrategy`** ([`inverted_reindex_strategy.go`](../adapters/repos/db/inverted_reindex_strategy.go))
 — the per-migration extension surface. Each strategy supplies bucket
-naming, the per-key transform, source/target/backup LSM strategies,
-the Add/Delete double-write callbacks, the optional `AnalyzerOverlay`
-(see §8), the `PreReindexHook`, and the `OnMigrationComplete` hook
-(see §4.5 phase contract).
+naming, the per-key transform, source/target LSM strategies, the
+Add/Delete double-write callbacks, and the optional `AnalyzerOverlay`
+(§10). A staged build calls the strategy's double-write callbacks, given
+the staged bucket, for every write on a view that stages it.
 
 **`reindex_conflict.go`** — `ReindexDetector`: `CheckConflict` (FSM-deterministic),
 `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`,
@@ -821,453 +786,319 @@ the `Touches*` predicates intentionally panic on unknown migration
 types so a new `ReindexMigrationType` cannot silently be treated as
 "doesn't touch X" — it surfaces on the first request.
 
-**`reindex_recovery.go`** — `MigrationRecoveryReindexer`
-(`RecoverMigrations`, `AbandonUnarmed`) and `buildRecoveryTasks`.
-`MakeAppState` sets it as the DB's `ShardReindexerV3` before any shard
-loads, so each shard rebuilds its in-flight tasks and re-arms their
-double-write mirrors before it takes a write. See §6 crash safety.
+**`reindex_retainer.go`** — the retention rule, the cutover check
+(`CutoverLanded`) and the partial-run helpers (`ReindexRuns`,
+`ReindexPartialRun`, `ReindexPartialRunConflict`) that the status, the
+conflict messages and the submit refusals share.
 
-**`reindex_cancel_cleanup.go`** — `DB.NewStalePartialReindexSweep(tenants)`
-returns a `func(ctx, collection, prop, indexType) error` that fans out to
-`Shard.CleanStalePartialReindexState` per shard. Called from the cancel
-handler (after `SealLocalTaskDrain`), from the submit handler
-(defense in depth). Once a task reaches FAILED or CANCELLED,
-`autoCleanupAfterTerminal` does not sweep: on every node it has the
-reconciler discard the task's records, and their directories, on the shards
-the index map holds. Per-shard failures don't stop
-iteration so a stuck shard can't permanently wedge a
-`(collection, prop, indexType)` tuple.
-One sweep serves a whole call so an unloaded shard's directory listing is
-read once across the index types a single migration touches; a loaded
-shard's sweep always reads the filesystem directly and never acts on the
-cached snapshot.
+**`reindex_upgrade_check.go`** ([`cluster/`](../cluster/reindex_upgrade_check.go))
+and **`reindex_legacy_records.go`** — the boot check and the load-time
+conversion of pre-generation state (§13).
 
-**`inverted_reindex_finalize.go`** — startup-time deferred dir rename
-(see §9), `completedMigrationGens`
-(`parseMigrationDirName` lives in
-`inverted_reindex_strategy_dir_names.go`). The finalize algorithm
-handles every shape defensively: tidied / merged-but-not-
-tidied / lower-gen sidecars / in-flight gens left alone for
-recovery at shard load (§6.2) to pick up.
+**`inverted_reindex_legacy_finalize.go`** — the frozen legacy step for
+the v1.39.0-2 marker layout (tracker files such as `tidied.mig`). At
+shard load, before any bucket opens, it finishes the migrations those
+releases left finished. It is never extended.
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
 Eight strategy implementations, one file each:
 
-| Strategy | Type | Source bucket | Target bucket | OnMigrationComplete |
-|---|---|---|---|---|
-| `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | No-op; the class-level `UsingBlockMaxWAND` flip is cluster-wide from `OnTaskCompleted`. |
-| `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Inverted/Blockmax) | `searchable` (Inverted/Blockmax) | No-op; the property was already searchable + BlockMax, so no schema flag moves. Format-only. |
-| `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
-| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` only. `enable-rangeable` is semantic, so cluster-wide `IndexRangeFilters=true` flips from `OnTaskCompleted`; `repair-rangeable` arrives with the flag already true. |
-| `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
-| `EnableSearchableStrategy` | `enable-searchable` | objects → builds Blockmax | `searchable` (Blockmax) | No-op; cluster-wide flip from `OnTaskCompleted`. |
-| `SearchableRetokenizeStrategy` | `change-tokenization` (searchable half) | `searchable` | `searchable` (new tokenization) | No-op; `Tokenization` flip from `OnTaskCompleted`. |
-| `FilterableRetokenizeStrategy` | `change-tokenization` (filterable half) + `change-tokenization-filterable` | `filterable` | `filterable` (new tokenization) | No-op; same flip path. |
+| Strategy | Type | Source | Target |
+|---|---|---|---|
+| `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) |
+| `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Inverted/Blockmax) | `searchable` (Inverted/Blockmax) |
+| `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) |
+| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) |
+| `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) |
+| `EnableSearchableStrategy` | `enable-searchable` | objects → builds Blockmax | `searchable` (Blockmax) |
+| `SearchableRetokenizeStrategy` | `change-tokenization` (searchable half) | `searchable` | `searchable` (new tokenization) |
+| `FilterableRetokenizeStrategy` | `change-tokenization` (filterable half) + `change-tokenization-filterable` | `filterable` | `filterable` (new tokenization) |
 
-`change-tokenization` spawns TWO strategy instances per unit
-(`SearchableRetokenizeStrategy` + `FilterableRetokenizeStrategy`) so
-the searchable + filterable buckets retokenize in lock-step, with
-their per-shard swaps inside the same property-overlay window.
-Per-shard cleanup (`indexTypesFromMigrationType`) must wipe BOTH
-halves' sidecars — see §4.1.
+A strategy owns no swap, record or completion hook: the view switches
+the tenant, and the flip writes the class settings. A strategy
+contributes to a staged build its target bucket kind, its per-object
+transform, its double-write callbacks and its analyzer overlay.
 
-These instances are constructed and parameterized by
-`ShardReindexTaskGeneric` (the generic V3 task lifecycle), so all
-strategies share a single state machine, sentinel writer, callback
-manager, and progress tracker.
+`change-tokenization` builds TWO strategy instances per property
+(`SearchableRetokenizeStrategy` + `FilterableRetokenizeStrategy`) so the
+searchable and filterable indexes switch in the same view, never one
+without the other.
 
 The strategy interface itself documents the per-method contract; see
 [`inverted_reindex_strategy.go`](../adapters/repos/db/inverted_reindex_strategy.go).
-Of particular note is `OnMigrationComplete`'s phase contract — it
-fires in Phase 2c, AFTER the per-prop `SwapBucketPointer` tight loop
-and AFTER the inline `oldMain.Shutdown` + `oldMain → backup` rename
-loop, but still INSIDE the per-shard property-overlay window on a
-semantic migration.
 
 **Semantic vs format-only.** `IsSemanticMigration` is the predicate:
 `change-tokenization`, `change-tokenization-filterable`,
 `enable-filterable`, `enable-searchable`, `enable-rangeable`, and
-`change-algorithm` are semantic. Every shard must reindex before any
-shard swaps (Journey 3 barrier), and the schema flip happens
-cluster-wide from `OnTaskCompleted`. The rest are format-only: each
-shard runs the full lifecycle independently (Journey 2), with no
-cluster-wide schema dependency.
+`change-algorithm` are semantic: they change what the class declares, so
+a full run flips the class settings at its end. The rest
+(`repair-filterable`, `repair-rangeable`, `rebuild-searchable`) change
+no setting; their flip raises the live generation and writes no flag.
+Both kinds build a generation and switch per tenant.
 
 **Why `enable-rangeable` is semantic.** It turns an index on, so its
 flag is the cluster's statement that every shard can serve range
-queries. Flipping it per-shard made that statement from the first
-shard to swap, and a task that then stopped left the flag on over
-shards holding an empty bucket
+queries. Writing it before every tenant switched would make that
+statement from the first tenant to finish, and a task that then stopped
+left the flag on over shards holding an empty index
 ([0-weaviate-issues#464](https://github.com/weaviate/0-weaviate-issues/issues/464)).
-`repair-rangeable` stays format-only: its flag is already true at
-submit, so it has no cutover to coordinate.
+The view closes this: it answers `RangeableReady` from the generation it
+serves, and the flag is written only by the flip.
 
-### 4.6 LSM primitives — `adapters/repos/db/lsmkv/store.go`
+### 4.6 Bucket lookup and view primitives
 
-Three primitives carry the load:
+**`lsmkv.BucketLookup`** ([`adapters/repos/db/lsmkv/`](../adapters/repos/db/lsmkv/))
+is the one interface through which every property-bucket lookup goes. The
+store implements it for properties no view governs; `shardView`
+implements it for the rest. `AcquireBucketForRead` returns a bucket and a
+release function.
 
-**`Store.SwapBucketPointer(ctx, targetName, sourceName)`.** Atomic in-memory
-pointer flip — all future `Store.Bucket(targetName)` calls return the
-bucket currently registered as `sourceName`. The source name is
-removed from the map; the source bucket's on-disk path is released
-from `GlobalBucketRegistry`. The caller is responsible for shutting
-down the returned old bucket, persisting any crash-safety markers
-around this call, and finalizing directory renames at a later point
-(typically next restart).
+**`shardView`** (§6.2) holds a reference count. A reader acquires the
+view once (`Shard.acquireView`) and takes every bucket, the tokenization
+and the rangeable-ready flag from it. A publish replaces the shard's
+current view in one atomic store and never waits for a reader. A retire
+deletes a replaced folder only after the replaced view and every older
+one are released.
 
-The registry release is what makes back-to-back migrations in the same
-process work: a second migration's ingest bucket can claim the same
-canonical path after the on-disk dir has been cleaned by
-`cleanStaleSidecarDirs`. Without the release, the second cycle aborts
-at `OnAfterLsmInit` with "bucket already registered".
-
-**`Store.InstallOrSwapBucketPointer(ctx, targetName, sourceName)`.** The
-same flip, except that a missing target is installed instead of refused.
-Migrations that add an index (enable-filterable, enable-searchable,
-enable-rangeable) swap through it, because no bucket is registered under
-the live name before the swap; registering an empty one at the start of the
-run made sort and unfiltered aggregates read it as a complete index. Every
-other migration type keeps `SwapBucketPointer`, which fails on a missing
-live bucket.
-
-**`Store.FinalizeBucketSwap(ctx, bucketName, canonicalDir, currentDir, backupDir)`.**
-The deferred-finalize counterpart: flush memtable, remove backup dir,
-`os.Rename(currentDir → canonicalDir)`, rewrite `bucket.dir` +
-`bucket.disk.dir` + every segment's in-memory `.path`, create a fresh
-active memtable. **MUST only be called during startup, before the
-bucket serves any queries.** Calling on a live bucket creates a race
-where step 3 (`os.Rename`) and step 4 (`updateBucketDir`) form a
-non-atomic window; a concurrent compaction reading `bucket.disk.dir`
-sees the old path and post-rename writes fail with `ENOENT`. See §9
-for the full history.
-
-The atomic-phase contract in the orchestrator file enforces this
-rule: a unit test fails if `SwapBucketPointer` is preceded by any
-disk-I/O or compaction-wait op inside Phase 2
-(`ShardReindexTaskGeneric.processOneSwapPropFn` + wall-clock budget
-assertion).
+There is no bucket-pointer swap and no directory rename. Folders are
+opened under their generation's name and never renamed while loaded.
 
 ## 5. Migration strategies — quick map
 
 ```
-                               semantic?   property        analyzer
-                                           overlay (§10)   overlay (§11)
-change-tokenization              ✓              ✓
-change-tokenization-filterable   ✓              ✓
-enable-filterable                ✓              ✓               ✓
-enable-searchable                ✓              ✓               ✓
+                               semantic?   analyzer overlay (§10)
+change-tokenization              ✓
+change-tokenization-filterable   ✓
+enable-filterable                ✓              ✓
+enable-searchable                ✓              ✓
 change-algorithm                 ✓
-enable-rangeable                 ✓              ✓               ✓
-repair-rangeable                                                ✓
+enable-rangeable                 ✓              ✓
+repair-rangeable                                ✓
 repair-filterable
 rebuild-searchable
 ```
 
-The six semantic migrations take the cluster-wide barrier and the
-cluster-wide schema flip; the three format-only ones take neither. The
-analyzer overlay lets a from-scratch build see a property whose schema
-flag is still false (`MigrationStrategy.AnalyzerOverlay`). The property
-overlay is that same value again, now installed on the shard at the
-local bucket flip, plus the target tokenization for the two retokenize
-types (which no strategy carries). `change-algorithm` takes neither: it
-only swaps the searchable bucket strategy.
+All nine take the preparation barrier and the per-tenant switch. The six
+semantic ones also write their target settings at the flip of a full run.
+The analyzer overlay lets a from-scratch build see a property whose
+schema flag is still false (`MigrationStrategy.AnalyzerOverlay`), and
+lets a staged write analyze the same way.
 
-So a unit gets a property overlay only when two things hold
-(`propertyOverlayViews`): the migration is semantic, and it is a
-tokenization change or its strategy's value is non-empty.
-`change-algorithm` fails the second, `repair-rangeable` the first.
+While a run builds, the view analyzes a staged write with the settings
+the view serves once the build switches: the view's settings with the
+build's target applied (the winning task's target, else the class). That
+is the same settings the build folder is opened with and the main write
+is analyzed with (`analyzeForBuild`, `analyzeObjectInView`).
 
-## 6. Crash safety
+## 6. Serving: generations, views and crash safety
 
-### 6.1 The migration record
+### 6.1 The serving rule
 
-Every per-shard migration owns one record file under
-`<lsm>/.migrations/records/`, named by its task version, strategy code and
-unit. It is the only state file a migration writes, and every phase
-transition rewrites it atomically:
+For tenant T, property P and index type I, the served generation is
 
-| Part | Holds |
-|---|---|
-| `state` | `iterating`, `iterated`, `merged`, `swapped` or `promoted`. |
-| `subject.key` | Task version (the generation), strategy code and unit. |
-| `subject` | Task ID, migration type, collection, bucket strategy, target and original tokenization, and each property's staged, canonical and sidecar directory. |
-| `checkpoint` | The last processed key, while iterating. |
-| `flip` | The swapped properties and the directories they displaced. |
+```
+max( Live(P, I),  generation of every task on (P, I) that has T switched )
+```
 
-### 6.2 Recovery — at shard load
+A task's switched tenants are the groups in its `SwapDecidedGroups`. A
+group joins that set in one of three ways: its swap is decided by the
+barrier (`PREPARING`), the tenant is created during a full run (it holds
+no data to build, so it is **born switched**), or a takeover inherits it
+from the run it replaced. Settings (tokenization, index on, blockmax)
+come from the winning task's target, else from the class. An index that
+is off serves nothing.
 
-Recovery runs as each shard loads, not at boot, so a shard that never
-loads (a cold tenant) costs nothing. `MakeAppState` builds the reindex
-provider and the `MigrationRecoveryReindexer` before any shard loads.
-Then, per shard load:
+While a *running* task has an unswitched unit for T on this shard, the
+shard also **stages** that task's generation: it opens the build folder,
+every write goes into it as well, and nothing reads it.
 
-1. `Shard.finalizeLegacyMigrations` runs before any record is read and
-   before any bucket opens, because it renames bucket directories. It
-   finishes the migrations a previous version left finished, as named by
-   their tracker files. See §9 for the multi-gen algorithm.
-2. The shard loads its migration records once. A records directory that
-   cannot be read is reported by the load reconciler, and nothing is
-   recovered.
-3. `RecoverMigrations` reads those records. Raft may not be open yet, so
-   the record is its only source. For each record not yet promoted, it
-   rebuilds a per-shard `ShardReindexTaskGeneric`: the generation is the
-   record's task version, and a change-tokenization half is chosen by
-   the record's strategy code. A record it
-   cannot build a task from is stamped `Unmirrored`, unless another record
-   on the shard is unreadable, which freezes the store and the load
-   reconciler instead. New tasks seed the
-   provider's per-descriptor task cache, so `OnGroupCompleted` reuses
-   the armed instances instead of calling `OnAfterLsmInit` a second
-   time (which would attempt to load already-loaded ingest buckets). A
-   reload of the same shard gets back the instances the provider holds,
-   which is their only owner. A load after the task ended still arms its
-   migration from the record but caches nothing, so an ended task's
-   instances are not kept; the provider keeps one descriptor per ended
-   task until restart.
-4. The load reconciler runs over the same records. It runs after the
-   stamp, because it must not promote stale staged data over the live
-   bucket.
-5. Once the shard's buckets are open, `Shard.armRecoveredMigrations`
-   calls `OnAfterLsmInit` on each recovered task, re-installing the
-   double-write callbacks before any post-restart write can reach the
-   shard. Without this, writes that arrive between shard init and the
-   swap that completes a deferred reindex go only to the old main bucket
-   and are lost when the swap replaces it with the ingest bucket. For a
-   migration whose staged data is not complete (Iterating or Iterated),
-   the arm first checks that each property's staged and sidecar
-   directories exist. If one is gone, it restarts the rebuild: it
-   rewrites the record as Iterating with an empty checkpoint and a cutoff
-   covering every write, and if that write fails, the arm fails. The arm
-   does not use the request's context, so a client that gives up on a
-   lazy load cannot fail it. The outcomes:
-   - **The mirror arms.** The migration continues.
-   - **The mirror fails to arm and the stamp lands.** Only possible while
-     the migration's swap is not committed (below). The shard loads
-     writable. `AbandonUnarmed` stamps the record `Unmirrored` and drops
-     the unit's tasks from the provider's cache. A rebuild refuses an
-     `Unmirrored` record before it does anything else, as do
-     `RunPrepareOnShard` and the swap phase. So a migration whose unit
-     has not completed on this node fails that unit when it next runs. A
-     semantic migration whose unit completed fails at this node's prepare
-     ack. Either way, a semantic migration fails before any replica or
-     sibling half swaps; a format-only one fails its unit, and other
-     replicas may already have swapped. It has to be resubmitted.
-   - **The mirror fails to arm and no stamp can be written.** This covers a
-     failing disk, an unreadable record on the shard (the store then
-     refuses every write), and a migration whose swap is committed. The
-     shard loads `READONLY` with its own status reason: it serves reads
-     and takes no writes, so the staged copy stays current.
-     - A swap is committed (`migrationSwapCommitted`) once the other
-       replicas made it or will make it. This node must then not give it
-       up: a stamp is permanent, so it would leave this replica on the old
-       index for good. That holds when the local record is past the flip,
-       when RAFT decided the group's swap, when this node acked its
-       prepare on a task that is still active, or when the node cannot
-       read its task list yet (eager loads at boot; setting the shard
-       READY later retries the arm with the list readable).
-     - The held migration's own iteration unit (while it is still
-       iterating), prepare and swap, and another migration's
-       unit, prepare or swap on the shard, wait and run again on a later tick
-       (a waiting swap holds its task in `SWAPPING`, §6.3). If the shard also holds an
-       unreadable record, a unit fails its migration, as on any shard; a
-       prepare fails only when its migration has no task cached on the
-       shard, and otherwise waits too.
-     - The shard list (`GET /v1/schema/<class>/shards`) shows only
-       READONLY, with no reason, the same as under disk pressure. The
-       node's `reindex_held_shards` gauge counts its held shards, with no
-       labels; it drops when a hold is lifted or the shard shuts down or
-       is dropped.
-     - The owning node logs one Error line per hold, when it starts,
-       naming the shard, the cause and the way out. A waiting step's
-       retry line is at Debug and names the hold; with Debug on it
-       repeats once per held shard and waiting migration on every tick
-       and wake. A task whose unit waits is relaunched on every tick and
-       wake. A task's first "started distributed task execution" line is
-       always logged; the line for each relaunch is sampled on a budget
-       of its own: at most 5 a node per 5 ticks. A unit, prepare or swap that waits, including one of a
-       migration submitted after the hold began, logs a Warn naming its
-       task, unit and shard. These lines share one budget with the line
-       about a teardown holding a unit: at most 10 a minute per node.
-     - A refused write names the hold's status reason; a refused lift
-       names the cause, or that a recovery retry started.
-     - Of the status writers, only a manual status update starts a lift, and a restart retries too (below). A vector-index config
-       change is refused while the shard is READONLY, and disk-pressure
-       recovery lifts only its own reason.
-     - A lift never waits for the disk: it starts a retry of the arm in the
-       background and is refused at once. If the mirror arms, the retry makes the
-       shard writable once disk and memory pressure clears, and the migration continues; if only the stamp lands,
-       the migration must be
-       resubmitted; otherwise any bucket the retry opened is set back to
-       READONLY, the owning node logs the cause at Error level, and the
-       next lift starts another retry. Every refused
-       lift shows up on each replica where the shard is held as an `apply
-       command` Error and in `weaviate_cluster_store_fsm_apply_failures_total`.
-       Here that does not mean the cluster state diverged.
-     - The way out depends on what stopped the arm, which the hold log and
-       the refusal name. A migration whose swap is not committed leaves
-       the hold once what blocks its stamp is cleared: the stamp lands,
-       and it must be resubmitted. One whose swap is committed, or that
-       is already swapped in, has no such exit: its mirror has to arm, and
-       until then the hold covers the whole shard, so no other migration
-       on it is stamped either. The waiting tasks keep blocking deleting
-       the collection, deleting or deactivating its tenants, and updating
-       the properties they cover.
+Generation 0 is the plain folder `property_<name>[_searchable|_rangeable]`
+and is always what the store opened. A run's generation is one more than
+the highest generation the class or any task on the same properties
+records, so two runs never share a folder name (§9).
 
-       | What stopped the arm | Way out |
-       |---|---|
-       | The disk fails reads or writes | Once it works, set the shard READY |
-       | A migration's directory was lost and the arm could not record restarting its rebuild | Clear the cause (make the records dir writable, or repair the unreadable record and restart), then set the shard READY |
-       | A staged bucket cannot open because a segment file is damaged | Repair that file in place, then set the shard READY or restart the node. Never put back an older copy: compaction reuses segment file names, so an older copy silently lacks entries a later compaction merged in. If the migration's swap is not committed, and no migration with a committed swap or already swapped in is held on the same shard, you can instead make the records dir writable (or repair the unreadable record and restart) and set READY: the migration then fails and must be resubmitted. The refused lift says when a swap is committed ("has a committed swap"); then see the next row |
-       | A migration whose swap is committed but not yet made on this node, and whose damaged segment cannot be repaired | **There is currently no supported way to make this shard writable again without losing data.** **Do not delete the staged bucket directories** to get past the hold: READY then succeeds, but this replica never makes its swap and silently returns different results from its peers. We say this plainly because the remaining options are serious, and a fix that rebuilds the staged copy from this shard's own objects is planned. Nothing is lost while the shard stays READONLY: it keeps serving reads, and the other replicas keep serving the tenant. Take the time to choose, and contact Weaviate support before any step that deletes data. This node's swap waits, so the task stays `SWAPPING` (§6.3), as does every other migration that owes a swap on this shard; cancel any other migration on the collection that is still `STARTED` or `PREPARING`. Once the segment is repaired and the shard set READY, the node makes the swap on its own and the run finishes. Once the task has ended, in the order we recommend: **1. Restore from a backup.** This replaces the whole collection: every write since the backup is lost, on every tenant. **2. Delete the tenant or the collection, only as a last resort.** This permanently deletes that data on every replica, not only on this node. Use it only when a backup cannot recover the data, and make the records dir writable first, or the delete leaves the record behind. |
-       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit or prepare waits on this shard; a SWAPPING task that owes a swap on this shard waits (§6.3), and a failed step on any node can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED or PREPARING), and this shard stays READONLY. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
-     - Reads are served while the retry runs, and a lift meanwhile is
-       refused. The owning node runs a lift inside its schema apply, which
-       therefore never waits on the disk. The shard's shutdown waits for a
-       running retry: a migration is stamped only because its arm failed,
-       never because the shard shut down. The migration's steps wait until
-       the shard is writable. A cancel or
-       failure that ends the migration while the retry runs waits up to
-       10 s for it; past that, cleanup on this node is skipped with a
-       Warn, and the next reconciliation pass (within a minute of the
-       retry ending) disarms the mirror and removes the staged data. A
-       lift that meets such a
-       cleanup leaves that migration held and is refused; set the status
-       again once the cleanup ends.
-     - On a multi-node cluster the status PUT can answer 200 while the
-       owning node refused the lift. Confirm whether the shard is still
-       READONLY with `GET /v1/schema/<class>/shards`, and read the cause in
-       the owning node's log.
-     - A restart retries too. An unreadable record stays unreadable until
-       it is repaired and the node restarted.
+Every function above reads cluster state only. Two nodes that applied the
+same entries compute the same answer, and a restart computes it again
+from scratch: nothing on disk is consulted to decide it.
 
-### 6.3 The two-phase ack barrier (PREPARING + SWAPPING)
+### 6.2 The shard view, load and refresh loop
 
-The post-completion barrier is split into two phases.
+**Load.** Before any property bucket opens, a shard reads its tasks, then
+the live generations, then the class, and computes its view
+(`Shard.loadReindexView`). It opens exactly the folders the view names:
+the served ones and the staged builds. A load **refuses** to serve a
+folder above generation 0 that is missing while the objects bucket holds
+objects, so a lost folder is never replaced by an empty index. Generation
+0 is never refused.
 
-**Semantic migrations (NeedsPreparationBarrier=true):**
+**Load sweep.** The load deletes every folder of a class property's
+index that the view does not name: plain folders, generation folders,
+`.build` scratch folders and the pre-generation sidecar folders. It keeps
+the folders of other properties and every staged build. A folder it
+cannot delete is reported on one line per shard and is never opened.
+This is how a crash between a switch and its cleanup, or an index turned
+off on an unloaded tenant, is repaired.
 
-1. `OnGroupCompleted` (PHASE A) runs PREP per local shard of a group
-   (one group per tenant) as soon as that group's units are done. The
-   scheduler emits `RecordPreparationCompleteAck(group, Success=bool)`.
-2. Once every node owning a unit of the group acked success, the FSM
-   records the group's swap as decided (`Task.SwapDecidedGroups`). From
-   then on every replica of the group owes its swap (`Task.SwapsOwed`),
-   even if the task later fails or is cancelled, and the task is kept
-   until every replica paid. `PREPARING → SWAPPING` happens once every
-   group is decided.
-3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard of a
-   group this node owes, in any task status, and retries a failed swap
-   every tick. A success emits `RecordPostCompletionAck(group)`, which
-   pays that debt. A swap that never succeeds holds the run in `SWAPPING`,
-   which cannot be cancelled, until the operator exit ships with
-   weaviate/etienne-claude-issues#592.
-4. `OnTaskCompleted` fires → cluster-wide schema flip commits. The
-   scheduler runs this phase (`runCompletedCallbackPhase`) before it
-   proposes finalization.
-5. FSM transitions `SWAPPING → FINISHED` only when no swap is owed
-   AND this node's `OnTaskCompleted` has fired — `runFinalizePhase`
-   skips any task whose `completedCallbackFired` is unset.
+**Refresh loop.** One loop per node (`reindexRefresh`,
+[`reindex_refresher.go`](../adapters/repos/db/reindex_refresher.go))
+takes notices and republishes each *loaded* shard's view; it never loads
+a cold shard, because a shard's load computes its own view. A notice
+comes from the task-state listener (wired in `configure_api.go`), from
+the class apply (`Index.updateProperty`), from a reload after a snapshot
+install (`Migrator.UpdateIndex`), and from an index's registration
+(`DB.registerIndex`, one notice for all its shards). A shard also queues
+one refresh for itself once it is visible as loaded, which repairs a
+change its load read too early.
 
-**Format-only migrations (NeedsPreparationBarrier=false):** PHASE A is
-skipped; the FSM goes `STARTED → SWAPPING` directly. PREP and SWAP have
-already run locally inside `RunOnShard` during `StartTask`, so
-`OnGroupCompleted` is a no-op and the scheduler emits
-`RecordPostCompletionAck`. SWAPPING → FINISHED is gated on the
-PostCompletionAck barrier only.
+A refresh opens the folders the new view needs and publishes it with one
+atomic store. It never waits for a reader. A folder still being retired
+leaves the shard "not ready", and a failed or not-ready shard is retried
+from a min-heap with backoff from 50 ms to 5 s. A missing served folder
+fails the refresh the same way as at load and is never created empty.
 
-**Failure handling (both paths):**
+**Retire.** A folder the new view no longer names is shut down and
+deleted off the loop, once the replaced view and every older one are
+released. Shard shutdown and drop wait for pending retires. A folder that
+fails to delete is logged once and is never opened again, because no view
+names it and the next load sweeps it.
 
-- A failed PREP ack → task flips to `FAILED` immediately →
-  `OnTaskCompleted` early-returns, schema flip is SKIPPED. Groups already
-  decided still swap, which leaves the collection `partial` until the
-  same migration is submitted again (§8). A format-only swap failure
-  fails its unit, and so the task.
-- A failed semantic swap stays owed and is retried; the schema flip
-  waits until no replica owes a swap.
-- On node restart, the recovery path re-fires the appropriate phase
-  callback (PHASE A for a group not yet decided, PHASE B for every group
-  this node owes, in any status) via the
-  rehydrate branch; if the per-shard work succeeds the second time,
-  the ack lands and the task completes normally.
+**Operability.**
 
-**Cross-replica window:** The replicas of one tenant serve different BM25
-and filter results from the first replica's swap to the last; no data is
-lost. No fixed bound holds: a node runs its decided swaps one at a time,
-a swap can wait behind PREP work on that node, and a failing swap is
-retried only on a later tick. Different tenants are not coupled: each
-swaps when its own replicas are ready.
+- Gauge `reindex_view_refresh_pending`: shards on this node whose refresh
+  failed or was not ready and waits for a retry.
+- At most one warning per collection per minute names the first failing
+  shard, its error, how many more are pending, and the tasks waiting on
+  its staging.
+- A unit waiting for its build folder fails once opening that folder kept
+  failing for `REINDEX_STAGING_FAILURE_TIMEOUT` (default 30 minutes, a
+  guess, not a measurement). A folder still being retired never counts,
+  and any other refresh outcome restarts the clock.
 
-**Why two phases instead of one** — the empirical anchor: at 1M-object
-scale on a 3-node × RF=1 × 5-shard cluster, QA observed a ~1-second
-total in-flight window with a 248 ms within-window mixed-state
-captured between two probe samples on adjacent shards (see
-weaviate/0-weaviate-issues#225). At that scale the per-node PREP
-duration variance dominates: with no barrier, the cross-replica
-mixed-state window scales with PREP duration (minutes at
-billion-scale); with the barrier, a decided swap no longer waits for
-the slowest node's PREP of its own shard, though it can still wait behind
-other preparation work in flight on a node. The cost is one extra
-cluster-wide RAFT roundtrip per semantic migration. Without this
-anchor, future maintainers reading the FSM table see "two RAFT-coordinated phases" and may propose
-collapsing it back to one — the bug it closes is not visually
-obvious from the code alone.
+**The view holds only folders it opened.** Generation 0 is the store's
+plain folder for every property, governed or not, and store tools such
+as the startup reindexers replace it. A *served* entry therefore exists
+only for "off" (nil) or generation 1 or higher; a missing entry means the
+store's plain folder. A property the view does not govern (no live
+generation, no switched task, no staged build) goes to the store as it
+always did.
 
-PREP acks are idempotent (first ack per `(task, group, node)` wins); a swap
-ack pays its replica's debt in any status; rehydrate over
-restart (the scheduler re-fires on the next tick); silent on already-
-terminal tasks (a late-arriving ack from a slow follower must not
-produce a noisy apply failure).
+### 6.3 Reads, writes and the switch
 
-### 6.4 The three-phase swap
+**Reads.** Each shard query (`ObjectSearch`, `ObjectVectorSearch`,
+`ObjectList`, `Aggregate`, `FindUUIDs`) acquires one view at its start and
+takes every property bucket, the tokenization, the rangeable-ready flag
+and the fallback-to-searchable flag from it (`inverted.IndexView`). A
+switch published mid-query cannot hand the query a bucket from one
+generation and a tokenization from another; the view's reference holds
+every bucket the query reads. A range filter uses a rangeable index
+exactly when the view says it is ready.
 
-`OnGroupCompleted` runs a strict prep / atomic / defer split per local
-shard. The contract is summarized at the top of
-[`inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go);
-in short:
+**Writes.** Each write acquires one view and takes its analysis, its main
+buckets and its staged buckets from it. The previous and the new version
+of the object go through every staged build's own strategy callbacks
+(`writeStaged`), so a write on the old view lands in both folders. A
+write that loaded a view *without* the build holds the scan back
+(`ReindexBuild` waits until no such write still runs), so no write is
+lost between staging and the scan.
 
-- **Phase 1 — PREP (background, NOT inside the overlay window):**
-  `FlushAndSwitch` reindex bucket, `Shutdown` it, `PrependSegmentsFromBucket`
-  per property, `removeReindexBucketsDirs`, sentinel writes. Disk-I/O-
-  heavy. Schema = OLD, bucket = OLD throughout — safe with live queries.
-- **Phase 2a — ATOMIC SWAP (microseconds, inside overlay window):**
-  per prop, `Store.SwapBucketPointer(ctx, mainName, ingestName)` followed
-  by `markSwappedProp`. Tight loop. Bounds the per-shard
-  "mixed-state" subwindow (some props swapped, others not) to a few
-  microseconds total — queries during this subwindow that hit
-  not-yet-swapped props would tokenize input with the new value
-  against an old-tokenized bucket. Must stay microseconds.
-- **Phase 2b — POST-ATOMIC INLINE TIDY (slow but correctness-safe):**
-  `oldMainBucket.Shutdown(ctx)` + `os.Rename(oldMainDir, backupDir)`
-  per property, then `markSwapped` + `markTidied`. After every prop
-  has flipped in 2a, the mixed-state subwindow is closed; queries
-  during 2b see all-new buckets with the overlay still active. The
-  `oldMain.Shutdown` is REQUIRED inline (not deferred) because
-  `Bucket.Shutdown` is the only call that removes the bucket's path
-  from `GlobalBucketRegistry`; deferring leaks the path entry
-  process-wide.
-- **Phase 2c — POST-ATOMIC INLINE FINALIZE:**
-  `OnMigrationComplete` + `trimOlderGenerationsLocked`. Outside the
-  mixed-state subwindow. Strategy-specific hook for in-memory
-  shard-local query-path state mutations (e.g. `setRangeableLocallyReady`)
-  or for non-semantic RAFT calls.
-- **Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup):**
-  `FinalizeCompletedMigrations` runs the ingest → canonical dir
-  rename before LSM init reloads any bucket. See §9.
+**The switch.** When the barrier decides a group, the task's switched
+set grows. Each replica of the tenant applies that entry and then
+publishes a view that serves the new generation when its refresh loop
+reaches the notice. There is no per-replica swap step that can fail or be
+owed: the switch is a function of state every replica has.
 
-The PREP / OVERLAY-SET / ATOMIC-SWAP ordering is what closes the
-SWAPPING-window misalignment. Setting the overlay before prep would
-expose the very gap it closes (NEW-tokenized analyzer input against
-OLD-tokenized bucket content for hundreds of ms). Setting it between
-prep and atomic swap means the window is bounded by the in-memory
-pointer flip (microseconds).
+**Cross-replica window.** The replicas of one tenant switch at slightly
+different times (scheduler and refresh jitter). In that window a query
+is answered from the old or the new generation, each complete and
+consistent on its own; no data is lost. No fixed bound holds: a refresh
+that finds its folder still being retired is retried with backoff.
+Different tenants are not coupled.
 
-Under the two-phase barrier (semantic migrations), PREP and OVERLAY
-SET + ATOMIC SWAP fire from two different scheduler callbacks
-(`OnGroupCompleted` for PREP, `OnSwapRequested` for OVERLAY+SWAP) with
-the cluster-wide `RecordPreparationCompleteAck` barrier in between. The
-phase ordering on a single node is preserved; for the cross-node skew see
-"Cross-replica window" in §6.3.
+**Why the barrier exists.** The empirical anchor: at 1M-object scale on
+a 3-node × RF=1 × 5-shard cluster, QA observed a ~1-second total
+in-flight window with a 248 ms within-window mixed state between two
+probe samples on adjacent shards (weaviate/0-weaviate-issues#225). The
+barrier keeps the decision cluster-wide and per tenant: no replica
+serves the new generation until every replica of that tenant has built
+it. Without this anchor, a reader of the FSM table sees "two
+RAFT-coordinated phases" and may propose collapsing them.
+
+### 6.4 The build
+
+A unit's build is `Shard.ReindexBuild` ([`reindex_shard_view.go`](../adapters/repos/db/reindex_shard_view.go)).
+Its order is fixed, because a crash can interrupt it anywhere:
+
+1. **Stage.** The refresh loop opens the build folder
+   (`property_<name>.gen<G>…`), **emptied while this replica's unit is
+   `PENDING` in its own log**. It is staged: live writes reach it.
+2. **Record the start.** The unit proposes its start and waits until this
+   node applied it. From then on a refresh keeps the folder as it is.
+3. **Wait for old writers.** The scan starts only when no write that
+   loaded a view without the build still runs.
+4. **Scan.** Every object is scanned into a **scratch bucket**
+   (`….build` folder) and the scratch's segments are placed *under* the
+   build's, so live writes and tombstones win over scanned entries. The
+   scan has no time filter, because the coordinator stamps update times
+   on its own clock and a local cut-off could drop an object written
+   before staging. Every exit deletes the scratch. The build holds a view
+   reference until it returns, so a retire of its folder waits for it.
+5. **Rangeable in-memory structure.** A rangeable build gets its
+   in-memory structure after its last prepend, since a prepend refuses a
+   bucket that has it.
+6. **Report done.** `RecordUnitCompletion`. A completion refused with
+   `ErrUnitAlreadyTerminal` counts as success: an earlier attempt's
+   completion landed.
+
+**A build folder belongs to its unit, not to one attempt.** After a crash,
+a unit reopens its folder as it is and prepends one more scan layer; a
+replica empties the folder only while its unit is `PENDING` in its own
+log. A unit relaunched in the same process after its completion reply was
+lost finds its builds already scanned and proposes the completion again.
+A late completion from a run that was cancelled meanwhile is refused by
+the FSM.
+
+**A cancelled run.** The view stops naming the build once the task is
+terminal, so the refresh loop retires its folder after the last reader
+releases it. A tenant that had not switched keeps serving generation 0;
+a switched tenant keeps its generation.
+
+**Crash points.** The test matrix (§15) crashes a node while the unit
+builds, in the middle of the prepend (the copied segment left as `.tmp`
+files), after the unit is done and before the decision, after the
+decision with the flip missing from the node's log, and after the flip.
+Each recovers by computing its view again and reopening the same folder.
+
+### 6.5 Turning an index off, and snapshot install
+
+**Index off.** `DELETE .../index/{indexType}` sends an `UPDATE_PROPERTY`
+update that the apply recognizes as turning one index type off
+(`indexTurnedOff`, from its field mask). The apply also raises
+`Live(P, I)` to the highest generation of any run with switched tenants on
+that index (`TaskRules.IndexOff`, `Manager.TurnIndexOff`) and removes
+the ended runs of that index type alone, which `Live` now covers; a run
+of two index types keeps its tenants. A re-enable then builds a new
+generation. The folder of a property a view governs is retired by the
+refresh, after readers release it (`Shard.updatePropertyBuckets` leaves
+it alone); a property no view governs is removed as before. The REST
+handler sets `servedByRun` when a run serves the index to switched
+tenants, so an index the class already has off still reaches RAFT; a
+failed task listing sets it too, and the apply decides.
+
+**Snapshot install.** A snapshot install changes tasks and live
+generations without the applies that send notices. `Migrator.UpdateIndex`
+ends with a refresh notice for its class, so every loaded shard
+republishes its view. `shardHasProperty` asks the shard's view for the
+filterable bucket, so a reload does not re-add a property served past
+generation 0.
+
+**Startup reindexers.** The startup reindexers work on generation 0
+through the store, as before. `REINDEX_INDEXES_AT_STARTUP` **skips** the
+plain folder of an index a run serves past generation 0, and logs one
+sampled warning per shard and property pointing to a runtime repair or
+rebuild (`ShardLike.servedIndexName`); it does not act on a generation
+folder. The missing-text-filterable task reads the searchable folder by
+its served name and skips a filterable a run already built.
 
 ## 7. Concurrency model
 
@@ -1281,27 +1112,25 @@ node applies the same RAFT log entry, sees the same `existingTasks`
 snapshot, runs the same predicate, reaches the same accept/reject
 decision. Survives leader re-election.
 
+**Submit and movement ordering.** A submit and a replica movement on one
+collection are applied one after the other (`taskMovementLocks`, held
+until the apply returns), so a movement is checked against a task that
+has already applied, and the reverse.
+
 **Conflict rule:** any two reindex migrations on overlapping properties
 of the same collection conflict, regardless of which bucket type they
-primarily write to. Earlier versions allowed parallel migrations as
-long as they wrote to different bucket types; that turned out to be a
-real Sev 1, because the completing migration's `OnMigrationComplete`
-fires an `UpdateProperty` whose `MergeProps` preserved the still-false
-sibling flag (the other migration hadn't flipped its flag yet), and
-the FSM apply path then ran a stale-state sweep for every index
-whose flag was now false — wiping the in-flight migration's working
-directory. The closure happens at submit time: reject any new task
-whose property set overlaps an in-flight task's, so the caller gets a
-clean conflict error and can serialize. Every non-terminal status counts
+primarily write to. Two runs on one property would each write the
+property's schema flags and settings at their own flip, and each flip
+must see the other's result. The closure happens at submit time: reject
+any new task whose property set overlaps an in-flight task's, so the
+caller gets a clean conflict error and can serialize. Every non-terminal status counts
 as in-flight (via `TaskStatus.IsActive()`), `PREPARING` and `SWAPPING`
 included; see §4.2.
 
 **Cluster-wide FSM schema-mutation check**
 (`SchemaMutationDetector`). See §4.3. Blanket reject any external
 mutation overlapping an in-flight task's properties on the same
-collection. Migration-driven flips (`FromInFlightMigration`) are checked
-by `CheckMigrationPropertyUpdate`, admitted only while a run on the
-property is `SWAPPING`.
+collection.
 
 **Per-collection in-flight cap: 32** (`maxConcurrentReindexPerCollection`).
 Bumped from the original DTM default of 4 specifically for this
@@ -1314,53 +1143,79 @@ REST handler returns 429 once the cap is reached
 (`reindexCapExceededResponder`; on this verb 503 instead means an
 in-flight task carries a payload this build cannot decode).
 
-**Per-collection worker pool** in `processUnits`. Bounded by the
+**Worker pool** in `startGenerationRun`. Bounded by the
 `concurrency` function passed to the provider (typically a
 `runtime.DynamicValue`), so operators can throttle on overloaded
 clusters.
 
-## 8. Multi-tenancy
+**Views.** A view is immutable once published; publishing is one atomic
+store and never waits for a reader. A reader holds a reference count; a
+retire waits for the replaced view and every older one. A refresh never
+holds a lock a reader needs.
+
+## 8. Multi-tenancy, partial runs and takeover
 
 `?tenants=t1,t2` scopes the task to the named tenants on a multi-
 tenant class. The handler validates:
 
 - `tenants` on a single-tenant class → 400.
 - No `tenants` on a multi-tenant class → defaults to all tenants, for
-  semantic and format-only migrations alike. A multi-tenant semantic
-  migration takes the per-tenant group barrier
-  (`AddDistributedTaskWithGroupsBarrier`); see below.
+  semantic and format-only migrations alike. Each tenant is its own group
+  in the preparation barrier; a single-tenant collection has one group
+  `""` covering every shard.
 - `tenants` with a semantic migration → 400 ("all tenants must be
   targeted").
-- Any targeted tenant that is not HOT → 400, with a fixed message that
-  names no tenant.
+- Any targeted tenant that is not HOT → 400, with a message that gives
+  the count and names no tenant.
 
-Per-tenant unit groups (Journey 4 from the DTM doc): one
-`UnitSpec.GroupID` per tenant, so `OnGroupCompleted` fires per-tenant
-as each tenant's replicas all finish, and a tenant swaps once its own
-replicas have prepared (§6.3).
+A tenant switches once its own replicas have built the generation and
+acked (§6.3). After a tokenization change the tenant answers queries with
+the new index at once; an index a migration enables is read by the tenant
+at once as well, but the class flag that declares it (and the class
+tokenization) is written at the flip, after the last tenant.
 
-For a semantic migration, a swapped tenant's shards carry the migrated
-tokenization and index flags in their overlay (§10) until the
-collection-wide schema flip lands after the last tenant. After a
-tokenization change the tenant answers queries with the new index at
-once; an index a migration enables answers only once the migration
-finishes.
+**Tenants created during a run.** A tenant created while a full run is
+running starts switched, because it holds no data to build. It stays
+switched after a cancel or a failure.
 
-A run that fails or is cancelled leaves the decided tenants migrated and
-the rest not. `GET .../indexes` then reads `partial`, with
-`migratedTenants` / `totalTenants` counted over every run of that
-migration since the last finished flip. Submit the same migration again
-until it reads `ready`, also before changing the binary (§14). The
-resubmit skips the tenants every replica already swapped; when that is
-all of them, it reruns every tenant to land the flip. A single-tenant
-collection whose swap was decided reads `partial` too, and its resubmit
-reruns every shard. Migrating back, or on to another target, is not
-supported yet.
+**A run that fails or is cancelled** leaves the decided tenants migrated
+and the rest not. `GET .../indexes` then reads `partial`, with
+`migratedTenants` / `totalTenants` counted over the newest partial run
+that has a generation. A single-tenant collection whose group was decided
+reads `partial` too.
+
+### Resubmit, takeover and the exits from a kept run
 
 While a partial run stands on a property, `ReindexPartialRunConflict`
-refuses everything but that resubmit, and names it: a `PUT` that would
-start any other migration, a no-op `PUT` that names a tokenization and a
-rebuild (`409`), and an index `DELETE` (`422`).
+refuses everything but the exits below, and names the resubmit: a `PUT`
+that would start any other migration (`409`), a no-op `PUT` that names a
+tokenization and a rebuild (`409`), and an index `DELETE` (`422`).
+
+A kept `FAILED` or `CANCELLED` run does not expire, so an operator needs
+a way out. The exits, in the order to try them:
+
+1. **Resubmit the same target (takeover).** The new run takes over the
+   partial run's generation and switched tenants, builds only what is
+   left, and finishes the migration. The old task is deleted. When
+   nothing is left to build, the apply finishes the takeover itself: a
+   full run goes straight to `SWAPPING` and its flip lands as usual; a
+   tenant-scoped run is marked `FINISHED` with the submit time as its end
+   time and is compacted at once.
+2. **Then the new target.** Once the migration reads `ready`, a run of
+   another target is admitted. A different target submitted *before* that
+   is refused with `409` ("a failed or cancelled run of another target on
+   this property still has switched tenants; resubmit that target and let
+   it finish first").
+3. **Turn the index off** (for an enable run, or any run whose index type
+   you can drop). `DELETE .../index/{indexType}` is admitted while the
+   run stands when it turns off an index type that run builds: it raises
+   the live generation past the run, so no tenant serves anything, and
+   removes the ended runs of that index type alone (§6.5).
+4. **Delete the tenant or the collection.** A deleted tenant leaves the
+   run's switched set; deleting the collection removes its tasks.
+
+Migrating back, or on to another target, without finishing the partial
+run first is not supported.
 
 Status after cancelling a tenant-scoped task is reported at the
 collection level: `GET /v1/schema/{className}/indexes` renders
@@ -1369,260 +1224,77 @@ identity, so there is no per-tenant index-status surface.
 
 `FROZEN` tenants are rejected by the MutationGuard. A reindex on a
 tenant that transitions to FROZEN mid-flight fails the affected unit;
-the post-completion ack barrier propagates that failure to the task.
-Operator can resume by un-freezing the tenant (transition back to HOT)
-and re-submitting.
+the barrier propagates that failure to the task. Operator can resume by
+un-freezing the tenant (transition back to HOT) and re-submitting. A
+frozen or offloaded tenant carries its generation folders with the shard
+folder.
 
-## 9. Per-migration generation + deferred live-bucket rename
+## 9. Generation folders and the cleanup rule
 
-The original design problem this section answers:
-
-> The natural finalize step after a successful in-memory swap is to
-> rename the new bucket's on-disk dir from `…__<ingestSuffix>_<N>/` to
-> canonical `property_<p>_<index>/`. That rename is not safe at
-> runtime (segments mid-flight hold path snapshots; renaming under
-> them produces `ENOENT` on the next write).
-
-The solution has two parts: defer the rename to next startup, and
-give every migration a generation suffix so back-to-back migrations
-on the same property don't collide.
-
-### 9.1 Why the rename is deferred
-
-After a successful `runtimeSwap` on each node:
-
-- `bucketsByName[mainName]` → the ingest bucket instance.
-- That bucket's `dir` still points at
-  `property_<p>_<index>__<ingestSuffix>_<N>/`; no filesystem rename.
-- The old main has been `Shutdown` and its dir renamed to
-  `…__<backupSuffix>_<N>/`.
-
-`Store.FinalizeBucketSwap` would rename ingest → canonical, but as its
-godoc spells out, **it MUST only be called during startup, before the
-bucket serves any queries**. Calling on a live bucket creates a
-non-atomic window between `os.Rename` (step 3) and
-`updateBucketDir` (step 4) where a concurrent compaction reading
-`bucket.disk.dir` sees the old path; the next write fails with
-`ENOENT` (`rename ...l0.s5.db ...deleteme: no such file` is the
-production-observed shape).
-
-Pausing compactions doesn't fix it cleanly: reads in flight also hold
-paths from the consistent-view-of-segments snapshot, and any defer-
-callback that touches `bucket.disk.dir` mid-update would crash or
-scribble onto the wrong path.
-
-The cost-benefit is wrong anyway: the rename is purely a tidiness
-step. The bucket already serves correct data from the ingest-named
-dir; the rename only matters across a process restart, so deferring
-to next-startup `FinalizeCompletedMigrations` (when no buckets are
-loaded) is correct and zero-risk.
-
-### 9.2 Why per-migration generation suffixes
-
-Once the rename is deferred, a second problem appears: back-to-back
-migrations on the same property. After `T_N` tidied, `bucketsByName[mainName]`
-points at the gen-N ingest bucket and that bucket's dir is
-`…__<ingestSuffix>_<N>/`. The next migration `T_(N+1)` would, without
-a generation suffix, try to create a new ingest bucket at the same
-path the live main is currently serving from → `GlobalBucketRegistry`
-collision or two `*Bucket` structs pointing at the same physical
-directory.
-
-Each migration takes its own gen-suffixed sidecars:
+A property's index folders are named by generation:
 
 ```
-T_(N+1) on prop=text:
-  reindex dir : property_text_searchable__retokenize_reindex_<N+1>
-  ingest dir  : property_text_searchable__retokenize_ingest_<N+1>
-  backup dir  : property_text_searchable__retokenize_backup_<N+1>
+property_<name>[_searchable|_rangeable]            generation 0, the plain name
+property_<name>.gen<G>[_searchable|_rangeable]     generation G >= 1
+property_<name>.gen<G>[_searchable|_rangeable].build   scratch of an unfinished scan
 ```
 
-No path collision with the gen-N state still on disk. `T_(N+1)`'s
-`runtimeSwap` replaces the gen-N pointer with its own; the old gen-N
-bucket is shut down and renamed to the later migration's backup dir.
-`N` and `N+1` here label two successive submissions, whose generations
-rise but need not be consecutive (§9.3).
+A property name never holds a `.`, so no two triples of property,
+generation and index type share a folder, and the property name of a
+folder ends at its first `.`.
 
-### 9.3 The generation is the submission's task version
+**The generation is allocated by the apply.** `ReindexTaskRules.Admit`
+assigns it at the `AddTask` entry: one more than the highest generation
+the class's live state or any task on the same properties records. It is
+a function of replicated state, so every node derives the same folder
+names, and no directory scan decides a number. A takeover keeps the taken
+run's generation.
 
-The generation is `TaskDescriptor.Version` — the version RAFT assigns
-the submission, once, cluster-wide. Every node derives the same
-directory names, and every later submission gets a strictly higher
-number, so two migrations can never derive one name whatever each
-node's disk happens to hold.
+**What exists on disk.** For each (property, index type) a shard has at
+most: the served folder; the staged build folders of running tasks with
+an unswitched unit here; and folders still waiting for a reader to
+release them. Everything else is deleted:
 
-The generation used to be a per-node counter, `max(existing on disk) +
-1`. That made the name's correctness depend on the listing being
-complete, and the listing never covered the bucket working copies in
-the shard's LSM root. A cleanup that failed to remove its working
-copies therefore handed the next migration a number already taken, and
-that migration opened its working copy on top of the previous one's
-files.
+- A folder a refresh replaced is retired after the replaced view and every
+  older one are released (§6.2).
+- A folder no view names at shard load is deleted by the load sweep.
+- A kept `FAILED` or `CANCELLED` run's switched tenants keep serving its
+  generation, so its folder stays for those tenants until a newer run
+  takes their generation, the index is turned off, or the tenant is
+  deleted.
+- A finished full run's flip makes the class serve its generation, and the
+  generation-0 folder (and any older generation) is retired.
 
-The number is a RAFT log index, so it is large and non-contiguous.
-Nothing reads it as small or dense: `parseMigrationDirName` accepts any
-integer ≥ 1, and every consumer compares generations rather than
-counting them.
+**Hard rules.**
 
-### 9.4 Trim at end of swap keeps depth bounded
+- Do not rename a served folder while it is loaded. The mmap'd segments
+  survive an unlink, but new segment writes land in a missing directory
+  and silently lose data (weaviate/weaviate#10675 is exactly this failure
+  mode). Generation folders are opened under their final name and never
+  renamed.
+- Do not derive a generation from a disk scan. The number is settled by
+  the apply before any directory is inspected.
+- Do not decide what is served from a file. The view is a function of
+  cluster state; a file that disagrees with it is deleted at the next
+  load.
 
-After `T_N` tidies, the per-shard `runtimeSwap` does an in-process
-trim that deletes every older gen's sidecar dirs (reindex / ingest /
-backup). The invariant: at any time, on disk for any
-`(prop, indexType)`, there is **at most one tidied generation plus at
-most one in-flight generation** (the trim runs at end of swap, so two
-tidied gens can only coexist if the trim crashed between `markTidied`
-and its `os.RemoveAll` loop).
+## 10. The analyzer overlay
 
-### 9.5 `FinalizeCompletedMigrations` handles every shape
+Defined per-strategy via
+`MigrationStrategy.AnalyzerOverlay(props) → map[string]inverted.PropertyOverlay`
+([`inverted/analyzer.go`](../adapters/repos/db/inverted/analyzer.go)).
 
-Per namespace (strategy-prefix + props-suffix):
-
-1. Find the highest gen `T` with `tidied.mig`.
-2. Find the highest gen `M` with `merged.mig` (regardless of tidied).
-3. `effective = max(T, M)`.
-4. If `effective` exists:
-   - `effective == T`: standard path. Rename `…_<ingestSuffix>_<T>/` →
-     `property_<prop>_<index>/`, remove `…_<backupSuffix>_<T>/`.
-   - `effective == M > T`: recovery path. The in-process swap on this
-     node crashed AFTER `markMerged` but BEFORE `markTidied`. The
-     ingest dir at gen M holds the target-tokenization data the
-     schema expects (the cluster-wide schema flip in
-     `flipSemanticMigrationSchema` likely already committed via RAFT,
-     since the DTM task was FINISHED before this node died). Write
-     `swapped.mig` + `tidied.mig` sentinels and promote the same way.
-     **CRITICAL:** otherwise this node serves the old data under the
-     new schema → divergence vs other replicas → #10675-shape bug.
-5. Remove every dir on disk with gen < effective.
-6. Leave gens > effective alone (in-flight; recovery at shard load
-   handles them, §6.2).
-
-### 9.6 Hard rules
-
-- **Do not** call `Store.FinalizeBucketSwap` at runtime. Single
-  biggest landmine in the reindex code path; every previous attempt
-  to "clean up the cosmetic naming" has produced a Sev 1.
-- **Do not** rename the live main bucket's physical directory while
-  loaded, by any means. The mmap'd segments survive `os.RemoveAll`
-  (POSIX unlink-while-open) and can serve reads from cached pages,
-  but new segment writes will land in a missing dir and silently
-  lose data. weaviate/weaviate#10675 is exactly this failure mode.
-- **Do not** derive the gen from a disk scan again. The number has to
-  be settled before any directory is inspected; a scan that misses the
-  bucket working copies would hand out a number already taken (§9.3).
-
-## 10. Per-shard property overlay
-
-The overlay value is [`inverted.PropertyOverlay`](../adapters/repos/db/inverted/analyzer.go);
-the query-side resolver is in [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go).
-
-The problem: on each replica, the bucket pointer flips to the migrated
-content at the end of `RunSwapOnShard` (Phase 2a), but the cluster-wide
-schema flip (`OnTaskCompleted`'s RAFT commit) waits until every replica has swapped and acked, then
-reaches the local FSM after up to `minWakeSpacing` (100 ms) plus commit and apply latency, longer if the flip is retried (`retryFloor`, 2 s apart). In that window
-the analyzer still describes the property the pre-migration way, which
-breaks two things:
-
-- **Reads**, on a change-tokenization migration. Query input is
-  tokenized against the OLD schema value and looked up in a
-  NEW-tokenized bucket — wrong results.
-- **Writes**, on a migration that enables an index type. The
-  double-write mirror comes down when `runtimeSwap` returns and the
-  ordinary write path gates on a schema flag that is still false, so a
-  write accepted here is acked, durable in the objects bucket, and
-  indexed nowhere. Nothing rescans afterwards, so it stays missing
-  (weaviate/etienne-claude-issues#449).
-
-With per-tenant swaps (§6.3) the window lasts until the slowest tenant
-finishes, and after a failure until a resubmit of the same migration
-finishes (§8). So every shard load re-installs
-the overlay from its promoted migration records: each one whose flip is
-decided, except an index a run enabled once its task is gone, limited to what the live schema does not show. The
-load also opens the bucket of an index a migration turned on, and the
-schema's index-off sweeps leave that bucket alone.
-
-The overlay closes both. `Shard.SetPropertyOverlay(prop, overlay)`
-installs a per-shard map of `inverted.PropertyOverlay` values, each
-saying which index flags to treat as on and which tokenization to use.
-The write path reads the whole value: `Shard.writePathAnalyzerOverlay`
-hands it to the analyzer's `WithSchemaOverlay`. The query path reads the
-tokenization half only, via
-`inverted.ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)`;
-the searcher's `tokResolver` is `Shard.TokenizationFor`, attached via
-`WithTokenizationResolver` wherever the shard builds a `Searcher` or
-`BM25Searcher`.
-
-An entry is a fact about this shard's buckets, never about a task and
-never about the schema. It claims only what is physically true here: a
-forced flag while that bucket exists, a tokenization while the
-searchable bucket's content uses it. Lifecycle:
-
-1. **Set at swap** — `maybeWirePerPropOverlaySet` runs in Phase 2 of
-   `OnGroupCompleted`, between PREP and ATOMIC SWAP, installing a
-   per-prop `swapPropAtomic` hook on each task (plus an `onPropSwapped`
-   fallback the recovery/resume path still uses). The overlay for a prop
-   is then SET inside the swap's Phase 2a tight loop, ATOMICALLY with
-   that prop's bucket-pointer flip — one critical section via
-   `Shard.SwapBucketAndSetOverlay` — not once-for-the-whole-shard up
-   front (which opens a disk-I/O-sized `overlay=NEW`, `bucket=OLD`
-   window across `RunSwapOnShard`'s preamble). The value is the one the
-   task's strategy already hands the backfill scan (§11) plus, for the
-   two retokenize types, the payload's target tokenization — the one
-   part no strategy carries. A second swap on the same property unions
-   its facts into the entry already there (`mergePropertyOverlay`); a
-   newer tokenization replaces an older one. A strategy handing an empty
-   value installs nothing, which is why `change-algorithm` gets no entry
-   despite being semantic (§5).
-2. **Reduced on read** — the whole of Phase 2 (atomic swap +
-   post-atomic tidy + `OnMigrationComplete`) and everything after it
-   runs with the entry active. Queries see analyzer input matching the
-   bucket content; writes reach the migrated bucket. Each write reduces
-   the entry against this node's schema (`PropertyOverlay.BeyondLiveSchema`
-   in `Shard.writePathAnalyzerOverlay`), so once the cluster-wide flip
-   lands, the parts it made real drop out. Queries read the stored
-   tokenization as is; it matches the schema once the flip of the
-   migration that stored it lands. It is not re-derived when the schema
-   moves, because it never described the schema.
-3. **Dropped with the bucket** — `Shard.updatePropertyBuckets` retires
-   the fields describing an index type's bucket immediately before
-   removing that bucket (`Shard.retirePropertyOverlay`). This is the
-   only retirement correctness requires: an entry that outlived its
-   bucket would aim the next write at a bucket the shard no longer has,
-   turning a silently-unindexed write into a failed one. No task status
-   and no schema status is consulted. Otherwise entries live until the
-   shard unloads.
-
-A property the overlay forced on has no property-length and no
-null-state bucket — shard init skips creating those for a property with
-no inverted index. `inverted.Property.OverlayForcedOnly` marks such a
-property so both write legs skip those two buckets; without it every
-write to the collection would fail on the missing bucket.
-
-Range queries stay in their pre-migration state for the whole window.
-`HasRangeableIndex` is false on every shard until the flip, which is
-exactly the pre-migration state, so queries fall back to the
-filterable bucket walk cluster-wide. A shard serving from its new
-bucket while its siblings have not swapped would reintroduce the
-first-shard-wins inconsistency the cluster-wide flip removes. Slower
-for the length of the window, not wrong.
-
-`repair-*` and `rebuild-*` need neither overlay: their flags are
-already true, so the ordinary write path covers the property
-throughout.
-
-## 11. The analyzer overlay
-
-A different but related mechanism. Defined per-strategy via
-`MigrationStrategy.AnalyzerOverlay(props) → map[string]inverted.PropertyOverlay`.
-
-Applied by the inverted analyzer during the backfill scan. Used by
-"from-scratch" strategies (`EnableFilterableStrategy`,
-`EnableSearchableStrategy`, `FilterableToRangeableStrategy` for both
-`enable-rangeable` and `repair-rangeable`) that build a brand-new
-inverted bucket while the corresponding schema flag is still false in
-the RAFT-stored schema. Without this override the analyzer would skip
-the targeted property (see `HasAnyInvertedIndex` in
-`inverted/objects.go`) and the new bucket would come out empty.
+A staged build asks its strategy for the overlay when the build is
+opened (`stagedStrategy`) and attaches it to the analyzer
+(`WithSchemaOverlay`) for the scan and for every staged write
+(`analyzeForBuild`). Used by "from-scratch" strategies
+(`EnableFilterableStrategy`, `EnableSearchableStrategy`,
+`FilterableToRangeableStrategy` for both `enable-rangeable` and
+`repair-rangeable`) that build a brand-new inverted index while the
+corresponding schema flag is still false in the RAFT-stored schema.
+Without this override the analyzer would skip the targeted property (see
+`HasAnyInvertedIndex` in `inverted/objects.go`) and the new index would
+come out empty.
 
 Strategies that don't need an overlay embed `noAnalyzerOverlay` to get
 the nil-return default: both retokenize strategies,
@@ -1632,15 +1304,16 @@ schema flag is already true for the properties they target.
 reason: a rebuild must not change tokenization, which is a separate
 verb.
 
-Related to the property overlay (§10) by value, not by lifetime. The
-analyzer overlay is a pure function of the strategy, read by the
-backfill iterator while the scan runs. A semantic migration's swap hook
-takes that same value and installs it on the shard, where it lives until
-the schema-update sweep removes the index it describes or the shard
-unloads, and is read by the ordinary write and query paths. One is the
-source, the other is a copy that outlives it.
+The overlay is a pure function of the strategy and lives only as long as
+the staged build. What the *served* index uses is not an overlay: the
+view's settings (tokenization, rangeable readiness) are the winning run's
+target while its switched tenants serve it, and the class's after the flip.
+`inverted.Property.OverlayForcedOnly` marks a property the build forced on
+that has no property-length or null-state bucket yet, so both write legs
+skip those two buckets; without it every write to the collection would
+fail on the missing bucket.
 
-## 12. Cancel + DELETE-property-index
+## 11. Cancel + DELETE-property-index
 
 **Cancel** (`POST .../index/{indexType}/cancel`):
 
@@ -1652,48 +1325,39 @@ source, the other is a copy that outlives it.
    surfaced as a no-op rather than overloading 404 with two distinct
    meanings.
 2. If that task is `SWAPPING`, or in a status this build does not
-   recognize (§4.2), return 409 and stop. A `SWAPPING` task ends once
-   every replica that owes a swap has swapped; for an unrecognized status this build cannot tell whether the
-   task has swapped anywhere, and the mutation-refusal guards agree
-   (`MutationRemedy`). Every other in-flight status cancels
-   (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
-   still swap, every other tenant stops. The
+   recognize (§4.2), return 409 and stop. A `SWAPPING` task has decided
+   every tenant and ends once the flip lands; for an unrecognized status
+   this build cannot tell what has happened, and the mutation-refusal
+   guards agree (`MutationRemedy`). Every other in-flight status cancels
+   (`TaskStatus.IsCancellable`): tenants whose switch is decided (§6.3)
+   keep it, every other tenant stops. The
    REST pre-flight and `Manager.CancelTask` apply the same predicate, so a
-   cancel that loses the race to a status transition is refused at the FSM
-   too, and `cancelApplyFailureResponder` renders that refusal as the same
+   cancel that loses the race to a status transition is refused at the
+   FSM too, and `cancelApplyFailureResponder` renders that refusal as the same
    409 the pre-flight would have.
 3. RAFT `CancelDistributedTask`.
-4. Wait for the local reindex goroutine to drain
-   (`SealLocalTaskDrain`, 10s timeout). Bounded so a stuck
-   goroutine doesn't turn the HTTP request into a hang.
-5. `DB.NewStalePartialReindexSweep(tenants)` — wipe sidecars
-   so the next submit starts from a clean slate. Runs for every index
-   type the migration touches, not just the one named in the URL:
-   `change-tokenization` spawns a searchable and a filterable strategy
-   under one task, so cleaning only one leaves the sibling orphaned.
-   Sidecars a committed migration record still names are preserved: a
-   property that got that far is finished by resubmitting the same
-   migration (a rebuild answers `409` and names the resubmit).
-6. 202 with `Status: CANCELLED` + the cancelled task ID.
+4. 202 with `Status: CANCELLED` + the cancelled task ID.
 
-If the drain times out, return 202 anyway. The next submit waits up to
-10 s for that worker and returns 503 while it still runs, so the client
-retries. If the node crashes
-mid-cancel, the on-disk state survives; the next submit's pre-cleanup
-catches that gap.
+Cancel sweeps no disk and waits for no worker. The task goes terminal in
+the apply; each node's refresh loop then retires the build folders of the
+unswitched tenants once their readers release them, and a node that was
+down computes its view from cluster state when it loads. A cancelled run
+with switched tenants stays as a kept run (§8).
 
 **DELETE `/properties/{propertyName}/index/{indexType}`:**
 
 1. Acquire the same `ReindexSubmitLocks` entry as PUT (closes the
    race described in §4.1).
 2. Schema FSM applies the `UpdateProperty` flipping the flag to
-   false. The MutationGuard rejects if a reindex is in flight on this
-   property (`FromInFlightMigration=false` on this path).
-3. `removeBucket` drops the canonical bucket dir, and `cleanStaleSidecarDirs`
-   removes the leftover `__reindex` / `__ingest` / `__backup` dirs.
-4. Subsequent re-enable starts from clean state.
+   false and raising the live generation (§6.5). The MutationGuard rejects
+   if a reindex is in flight on this property
+   (`FromInFlightMigration=false` on this path), or a partial run stands
+   on it that this DELETE does not turn off.
+3. The folder is removed: at once for a property no view governs, by the
+   refresh loop's retire for a property a view governs.
+4. A subsequent re-enable builds a new generation from clean state.
 
-## 13. Known limitation: schema migration
+## 12. Known limitation: schema migration, backup and restore
 
 Schema migration across runtime-reindex state does not work, and the
 v1.38 Preview merge does not fix it. The fixes live on
@@ -1704,17 +1368,41 @@ Backups are covered: `Index.refuseIfReindexInFlight`
 ([`reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go))
 refuses a backup on any shard DTM reports a live reindex on, and
 [`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)
-covers it. Operators should not rely on schema migration interacting
-cleanly with an in-flight or recently-completed reindex while running
-v1.38 Preview.
+covers it.
 
-## 14. Upgrade / operations: `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
+A backup also carries each class's **ended reindex tasks** (the compacted
+copies, `LocalEndedTasks`) and its **live generations**
+(`reindexTasks` and `reindexLive` in the backup descriptor). A failed or
+cancelled run with switched tenants therefore survives backup and
+restore. The restore entry installs, in order, the class's ended tasks
+(`Manager.RestoreCollectionTasks`), then the class with its live
+generations, then the index, so a shard that loads inside the entry
+already serves its generation. The restore:
 
-This knob sets how long FINISHED distributed tasks (completed reindex
-tasks included) linger in the RAFT task list before garbage collection.
-`0` means immediate GC on the next scheduler tick. It is now accepted
-because the per-property blockmax truth is durable in the schema stamp,
-so no reader depends on FINISHED reindex tasks lingering.
+- installs only tasks with a generation, of the restored class (also when
+  the restore strips its namespace), with the payload's collection
+  rewritten to the restored name;
+- turns a task captured while running into `FAILED`;
+- drops switched tenants the restored class lacks (the group `""` of a
+  single-tenant run stays);
+- keeps a held task with a higher version;
+- runs the end rules on what it installed.
+
+A backup taken before these fields existed restores as generation 0.
+
+## 13. Upgrade / operations
+
+### `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
+
+This knob sets how long terminal distributed tasks without anything to
+serve linger in the RAFT task list before garbage collection. `0` means
+immediate GC on the next scheduler tick. It applies to tasks without a
+generation and to `FINISHED` runs with no switched tenants. It does not
+apply to a run with a generation that is `FAILED` or `CANCELLED`, or
+`FINISHED` with switched tenants: those are kept until the rules in §4.2
+remove them. It is accepted because the per-property blockmax truth is
+durable in the schema stamp, so no reader depends on finished reindex
+tasks lingering.
 
 ### Upgrade assumptions
 
@@ -1740,70 +1428,100 @@ to this version assumes two things:
 If you moved a property to BlockMax on v1.38 with the collection flag off,
 submit `{"algorithm":"blockmax"}` for it again after upgrading.
 
+### The boot check
+
+This version serves only generations, so a run from before them that is
+still unfinished cannot be served at all. On the process's first DB load,
+`Store.reloadDBFromSchema` runs `refuseUnfinishedLegacyRuns`
+([`cluster/reindex_upgrade_check.go`](../cluster/reindex_upgrade_check.go))
+over the reindex tasks in cluster state and stops the node at **fatal
+level** for a reindex task without a generation that is
+
+- not terminal, or
+- `FAILED` or `CANCELLED` with switched tenants, and not covered by a newer
+  `FINISHED` run of the same collection that covers its properties, index
+  types and tenants.
+
+The message names the task, collection, property and switched-tenant
+count, and the way out: roll back to v1.39.17, resubmit the same
+migration and let it finish (or cancel it there, only when no tenant has
+switched), then upgrade again. A runtime snapshot install and
+metadata-only nodes skip the check.
+
+**Limitation.** The check reads cluster state only. **A partial run from
+v1.39.3-14 whose task those releases already deleted is not detected.**
+Those releases kept no reindex tasks and deleted failed ones after 5 days.
+The precondition above and best-effort schema state cover it. Such a
+tenant serves what the class names; where v1.39.x had already deleted its
+plain folder, that index is empty for that tenant.
+
+A second limitation concerns a v1.39.x `MarkTaskFailed` replayed from the
+log after the upgrade: for a task without a generation the cutover check
+reports it landed and records `FINISHED`. A v1.39.x run whose flip did not
+land is then recorded `FINISHED`, and the boot check does not see it as
+partial. A node whose snapshot already held the v1.39.x verdict keeps it,
+so replicas can disagree on that old task's status. The task has no
+generation and never serves, so only its status is affected.
+
+### Legacy records at load
+
+A shard still holding v1.39.3-17 migration record files
+(`<shard>/lsm/.migrations/records/`) converts them before its view loads
+(`convertLegacyRecords`, [`reindex_legacy_records.go`](../adapters/repos/db/reindex_legacy_records.go)):
+
+- Every record decodes first; an unreadable one fails the load with
+  nothing changed.
+- Per plain folder, only the newest record acts. A swapped or merged
+  record whose type changes no setting, or whose effect the class shows,
+  moves its staged folder to the plain name (remove plain, rename, then
+  delete records; safe to repeat). A promoted record never touches the
+  plain folder.
+- Then every record is deleted, and the load sweep (§6.2) deletes every
+  staged and sidecar folder the conversion left.
+
+Fixtures for the thirteen v1.39.17 layouts are under
+`adapters/repos/db/testdata/reindex_legacy`. A partial run whose task is
+gone serves what the class names (the accepted limitation above).
+
+### Mixed versions and downgrade
+
+- **Old logs and snapshots.** v1.39.x `UPDATE_PROPERTY` flips replay
+  unchanged; DTM entries replay with the end rules; a barrier
+  post-completion ack is a no-op; `swapsOwed` in an old snapshot is
+  ignored.
+- **A task entry without unit specs** is applied only by this version or
+  later. During a rolling upgrade a node of an earlier release rejects it.
+- **Downgrade.** An older binary cannot apply `TYPE_REINDEX_FLIP`, and it
+  does not know generation folders: downgrade only before the first run on
+  this version. Roll a cluster back below this version after a run only by
+  restoring from a backup.
+- **Metrics.** `migration_records_wedged_total`,
+  `migration_records_not_understood_total`, `reindex_held_shards` and
+  `rangeable_inmemory_rebuild_degraded_total` no longer exist, and
+  `reindex_view_refresh_pending` is new. Dashboards and alerts on the
+  removed names go quiet.
+
 **Status of an old run after upgrading from v1.39.15 or v1.39.16.** A node that
 replays such a run from its RAFT log, instead of restoring it from a
 snapshot, can label it `failed` or `cancelled` on the indexes endpoint
-while the other nodes report it finished, and keeps the files of an index
-the run enabled if that index was deleted since. Queries, data and the
+while the other nodes report it finished. Queries, data and the
 schema are not affected. The label clears with the completed-task TTL (a
 `failed` one only once a node that reports the run as finished leads the
 cluster) or when a newer migration of the same property replaces the run.
 
-**Downgrade:** the stamp is an additive `searchableBlockmax` property field;
-an older binary ignores it and derives blockmax from the class flag / task
-list as before, so a downgrade does not corrupt data. The residual is only
-that a partial-class property seeded solely by the stamp (its FINISHED task
-already GC'd) resolves as WAND on the older binary until a re-migration.
+**Downgrade of the blockmax stamp:** the stamp is an additive
+`searchableBlockmax` property field; an older binary ignores it and
+derives blockmax from the class flag / task list as before, so this alone
+does not corrupt data. The residual is only that a partial-class property
+seeded solely by the stamp (its FINISHED task already GC'd) resolves as
+WAND on the older binary until a re-migration.
 
-**Migration records, both directions.** Drain and promote every reindex, and
-submit every migration that reads `partial` again until it reads `ready`,
-before you change the binary, up or down. Neither direction is enforced.
-
-This build emits no load-time signal for an unpromoted marker-era migration.
-
-- **"Drain and promote before you change the binary" is not executable for a
-  multi-tenant collection.** The old build's only promoter runs per shard load,
-  so a tenant that has not been activated since its swap never promotes, and
-  never emits the old build's warning either. There is no operation that drains
-  them all.
-- **The preserve set comes from the records alone.** A marker-era migration
-  directory under `.migrations/` is never read, so it neither preserves nor
-  withholds anything.
-
-Downgrading is the mirror of it. A migration this build flipped and has not yet
-promoted keeps its live data under the staged name, and the record in
-`<shard>/lsm/.migrations/records/` is the only thing that says so.
-
-The staged directory itself survives an ordinary downgrade — the older
-release's sidecar sweep runs on an index DELETE, not on load. But that sweep
-derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
-this build never writes, so **disabling the index to fix the empty results is
-what destroys the data**. Upgrade again instead and let reconciliation promote.
-
-**Rolling back below this version after a reindex run.** Older releases,
-v1.40.0 to v1.40.5 included (upgrade to the latest v1.40 patch instead),
-read neither per-tenant preparation nor a cancel during PREPARING as this
-build does. An older node that replays a reindex run from its RAFT log can
-keep the run PREPARING for good, refusing every schema change on the
-collection, or run its swap and schema flip again. Before rolling back:
-
-1. Resubmit every migration that reads `partial`, in any collection on
-   any node, until it reads `ready`. An older release cannot tell which
-   tenants a stopped run migrated: at a migrated tenant's next load it
-   deletes an index the run turned on and reads a re-tokenized index with
-   the old tokenization.
-2. Make every node snapshot past its last reindex run. Restart it on this
-   version with `RAFT_SNAPSHOT_THRESHOLD=1 RAFT_SNAPSHOT_INTERVAL=5`. Its
-   `raft node constructed` line logs `last_store_applied_index_on_start`.
-   Wait until that line's `last_snapshot_index`, or the `index` of a later
-   `snapshot complete up to` line, is at least that value (not
-   `raft_last_index`), then roll back with both variables removed.
-
-## 15. Files of interest
+## 14. Files of interest
 
 **REST**
 
-- [`adapters/handlers/rest/handlers_indexes.go`](../adapters/handlers/rest/handlers_indexes.go) — GET / PUT / DELETE.
+- [`adapters/handlers/rest/handlers_indexes.go`](../adapters/handlers/rest/handlers_indexes.go) — GET / cancel / status.
+- [`adapters/handlers/rest/handlers_indexes_upsert.go`](../adapters/handlers/rest/handlers_indexes_upsert.go) — PUT / rebuild submit, the refusal mapping.
 - [`adapters/handlers/rest/handlers_reindex.go`](../adapters/handlers/rest/handlers_reindex.go) — validation helpers, status synthesis.
 - [`adapters/handlers/rest/state/reindex_submit_locks.go`](../adapters/handlers/rest/state/reindex_submit_locks.go) — per-(class, prop) submit lock.
 - [`entities/models/index_*.go`](../entities/models/) — swagger DTOs (`IndexStatus`, `IndexUpdateRequest`, `PropertyIndexStatus`).
@@ -1811,50 +1529,55 @@ collection, or run its swap and schema flip again. Before rolling back:
 
 **Orchestration**
 
-- [`adapters/repos/db/reindex_provider.go`](../adapters/repos/db/reindex_provider.go) — DTM provider, three-phase swap, `flipSemanticMigrationSchema`.
+- [`adapters/repos/db/reindex_provider.go`](../adapters/repos/db/reindex_provider.go) — DTM provider, `IsLiveReindexTaskStatus`.
+- [`adapters/repos/db/reindex_provider_generation.go`](../adapters/repos/db/reindex_provider_generation.go) — the unit build and the flip proposal.
 - [`adapters/repos/db/reindex_provider_payload.go`](../adapters/repos/db/reindex_provider_payload.go) — `ReindexTaskPayload`, migration type constants.
+- [`adapters/repos/db/reindex_task_rules.go`](../adapters/repos/db/reindex_task_rules.go) — `ReindexTaskRules`: `Admit`, `Units`, `Ended`, `IndexOff`, `BornSwitched`.
+- [`adapters/repos/db/reindex_retainer.go`](../adapters/repos/db/reindex_retainer.go) — retention, `CutoverLanded`, partial-run helpers.
 - [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `Touches*` predicates, `MutationRemedy`.
 - [`adapters/repos/db/reindex_activity_lookup.go`](../adapters/repos/db/reindex_activity_lookup.go) — `NewShardReindexActivityLookup`, the backup gate's snapshot.
-- [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `MigrationRecoveryReindexer`, the shard-load recovery `ShardReindexerV3`, and `buildRecoveryTasks`.
-- [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `DB.NewStalePartialReindexSweep`.
 - [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `Index.refuseIfReindexInFlight` and `newReindexGate`, the backup gate.
+- [`cluster/reindex_upgrade_check.go`](../cluster/reindex_upgrade_check.go) — the boot check.
+- [`adapters/repos/db/reindex_legacy_records.go`](../adapters/repos/db/reindex_legacy_records.go) — legacy record conversion.
 
-**Strategy + finalize**
+**Serving**
+
+- [`adapters/repos/db/reindex_cluster_view.go`](../adapters/repos/db/reindex_cluster_view.go) — `computeReindexView`, the serving rule, `reindexBucketName`.
+- [`adapters/repos/db/reindex_shard_view.go`](../adapters/repos/db/reindex_shard_view.go) — `shardView`, load, refresh, retire, `ReindexBuild`, staged writes.
+- [`adapters/repos/db/reindex_refresher.go`](../adapters/repos/db/reindex_refresher.go) — the node's refresh loop.
+- [`adapters/repos/db/helpers/helpers.go`](../adapters/repos/db/helpers/helpers.go) — folder names at a generation.
+
+**Strategy + legacy**
 
 - [`adapters/repos/db/inverted_reindex_strategy.go`](../adapters/repos/db/inverted_reindex_strategy.go) — `MigrationStrategy` interface, `applyPerPropertySchemaUpdate`, `reindexTaskConfig`.
 - [`adapters/repos/db/inverted_reindex_strategy_*.go`](../adapters/repos/db/) — one per strategy.
-- [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`.
-- [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
-- [`adapters/repos/db/inverted_reindex_record.go`](../adapters/repos/db/inverted_reindex_record.go) — `MigrationRecord` and its five variants, `MigrationStrategyCode`.
-- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition except restarting a lost rebuild, which the shard-load arm (`OnAfterLsmInit`, §6.2 step 5) does.
+- [`adapters/repos/db/inverted_reindex_legacy_finalize.go`](../adapters/repos/db/inverted_reindex_legacy_finalize.go) — the frozen v1.39.0-2 finalizer.
+- [`adapters/repos/db/inverted_reindexer*.go`](../adapters/repos/db/) — the startup reindexers.
 
-**LSM primitives**
+**Inverted analyzer**
 
-- [`adapters/repos/db/lsmkv/store.go`](../adapters/repos/db/lsmkv/store.go) — `SwapBucketPointer`, `FinalizeBucketSwap`, `updateBucketDir`. The two function godocs document the in-memory-vs-disk split.
-- [`adapters/repos/db/lsmkv/segment_group_prepend.go`](../adapters/repos/db/lsmkv/segment_group_prepend.go) — `SegmentGroup.PrependSegmentsFromBucket`; the wrapper the reindex path calls, `Bucket.PrependSegmentsFromBucket`, is in [`bucket.go`](../adapters/repos/db/lsmkv/bucket.go).
-
-**Inverted analyzer / overlay**
-
-- [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go) — `TokenizationResolver`, `ResolveTokenization`.
-- [`adapters/repos/db/inverted/analyzer.go`](../adapters/repos/db/inverted/analyzer.go) — `PropertyOverlay`, `BeyondLiveSchema`, `Property.OverlayForcedOnly`.
-- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `SwapBucketAndSetOverlay`, `retirePropertyOverlay`, `SnapshotPropertyOverlay`, `TokenizationFor`.
-- [`adapters/repos/db/shard_write_inverted.go`](../adapters/repos/db/shard_write_inverted.go) — `writePathAnalyzerOverlay`, the write path's read of the overlay.
+- [`adapters/repos/db/inverted/analyzer.go`](../adapters/repos/db/inverted/analyzer.go) — `PropertyOverlay`, `WithSchemaOverlay`, `Property.OverlayForcedOnly`.
 
 **DTM**
 
 - [`cluster/distributedtask/doc.go`](../cluster/distributedtask/doc.go) — package-level architecture + the four "journey" shapes.
 - [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, the `TaskStatus.IsTerminal()` / `IsActive()` / `IsCompleted()` / `IsRecognized()` classification helpers, and `IsCancellable()` (§4.2).
-- [`cluster/distributedtask/manager.go`](../cluster/distributedtask/manager.go) — FSM. `RecordPostCompletionAck`, `MarkTaskFinalized` godocs are essential reading.
+- [`cluster/distributedtask/group_states.go`](../cluster/distributedtask/group_states.go) — `TaskRules`, `EndRuling`, `TakeOver`, `TurnIndexOff`.
+- [`cluster/distributedtask/compact.go`](../cluster/distributedtask/compact.go) — `LocalEndedTasks`, `UnitSummary`, `GroupTotal`.
+- [`cluster/distributedtask/collection_tasks.go`](../cluster/distributedtask/collection_tasks.go) — `RestoreCollectionTasks`.
+- [`cluster/distributedtask/manager.go`](../cluster/distributedtask/manager.go) — FSM. `MarkTaskFinalized`, `MarkTaskFailed` godocs are essential reading.
 - [`cluster/distributedtask/scheduler.go`](../cluster/distributedtask/scheduler.go) — per-node loop, callback dispatch.
 - [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go) — permanent-rejection sentinels + gRPC wire encoding.
 
 **Schema FSM**
 
-- `cluster/proto/api/` — `PropertyField*` constants used by the fieldmask, `FromInFlightMigration` flag.
+- [`cluster/schema/reindex_state.go`](../cluster/schema/reindex_state.go) — `ReindexFlip`, `applyReindexFlip`, `turnIndexOff`, `indexTurnedOff`.
+- [`cluster/proto/api/reindex_state_requests.go`](../cluster/proto/api/reindex_state_requests.go) — `ReindexFlipRequest`.
+- `cluster/proto/api/` — `PropertyField*` constants used by the fieldmask.
 - `cluster/schema/meta_class.go` — `MergePropsMasked` fieldmask apply path.
-- `usecases/schema/` — `UpdatePropertyInternal`, `UpdatePropertyInternalFromMigration`.
+- `usecases/schema/` — `DeleteClassPropertyIndex` and the property update path.
 
-## 16. Tests of interest
+## 15. Tests of interest
 
 Tests are layered: unit close to the symbol; per-package integration
 (build tag `integrationTest`) where multi-component interaction
@@ -1873,10 +1596,8 @@ with the modern testcontainer style.
   — the #10675 family.
 - `change_tok_delete_journeys_test` — the cross-strategy clobber +
   stale-state sweep family.
-- `cancel_test` / `cancel_then_retry_test` — cancel + the
-  defense-in-depth cleanup.
-- `torn_resume_test` / `restart_during_swap_test` — crash recovery in
-  every phase boundary.
+- `cancel_test` / `cancel_then_retry_test` — cancel and resubmit.
+- `restart_during_swap_test` — restart while a run is switching.
 - `property_state_migration_matrix_test` — exhaustive matrix
   (~510 cells × 6 data types × 15 body shapes).
 - `scope_assertion_test` — blast-radius bounds: a migration on one
@@ -1887,20 +1608,24 @@ with the modern testcontainer style.
 **Acceptance — multi-node** ([`test/acceptance/reindex_multinode/`](../test/acceptance/reindex_multinode/)):
 
 - `happy_path_test` — 3-node baseline.
-- `finalizing_window_test` — per-shard property overlay coverage.
+- `finalizing_window_test` — reads and writes while tenants switch.
 - `finalizing_crash_test` — ack barrier rehydrate over restart.
+- `cross_replica_barrier_test` — PREPARING and SWAPPING through REST.
 - `restart_matrix_test` — rolling restart × migration type.
-- `restart_test` — full restart at every sentinel boundary.
-- `post_restart_test` — recovery + finalize after planned restart.
+- `restart_test` — full restart at every boundary.
+- `post_restart_test` — recovery after planned restart.
 - `round_trip_test` — the original word → field → word pin for #10675.
 - `round_trip_adjacent_test` — adjacent journeys (multi-round,
   different tokenizations, filterable-only, searchable-only,
   enable-then-change, MT, concurrent-different-props).
 - `in_flight_rangeable_test` — query correctness during enable-
-  rangeable mid-flight (relies on `rangeableLocalReady`).
+  rangeable mid-flight.
 - `migration_journeys_test` — full lifecycle coverage of every
   semantic migration.
 - `concurrent_migrations_test` — parallel non-conflicting submits.
+- `replica_movement_exclusion_test` / `replica_move_before_finalize_test`
+  — replica movement refused during a run.
+- `cancel_cleanup_cluster_wide_test` — cancel across nodes.
 
 **Acceptance — concurrency** ([`test/acceptance/reindex_concurrent/`](../test/acceptance/reindex_concurrent/)):
 
@@ -1913,7 +1638,9 @@ with the modern testcontainer style.
 **Acceptance — multi-tenant** ([`test/acceptance/reindex_mt/`](../test/acceptance/reindex_mt/)):
 
 - `reindex_mt_test` — `?tenants=` filtering, per-tenant repair,
-  FROZEN-tenant resume, per-tenant `OnGroupCompleted` barrier.
+  FROZEN-tenant resume, per-tenant barrier.
+- `tenant_scoped_cancel_test` / `cold_and_unhydrated_cancel_test` —
+  cancel of scoped runs and of cold tenants.
 
 **Acceptance — backup gate** ([`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)):
 
@@ -1922,11 +1649,7 @@ with the modern testcontainer style.
 **Acceptance — rangeable** ([`test/acceptance/reindex_rangeable/`](../test/acceptance/reindex_rangeable/)):
 
 - `concurrent_writes_test` — writes landing during an
-  `enable-rangeable` build. Smoke coverage, as is
-  `reindex_multinode/enable_rangeable_concurrent_updates_test`: this
-  storm ends before the reindex does and the multinode one re-PATCHes
-  every object after the flip, so neither pins §10's uncovered write
-  window.
+  `enable-rangeable` build.
 
 **Distributed task framework** ([`test/acceptance/distributed_tasks/`](../test/acceptance/distributed_tasks/)):
 
@@ -1938,42 +1661,38 @@ HTTP-level helpers (`SubmitIndexUpdate`, `AwaitReindexFinished`,
 `GetIndexes`, `AwaitReindexViaIndexes`, `BoolPtr`, `IdsMatchUnordered`)
 with `WithTenants` / `WithTimeout` functional options. Plus the
 fixture API: `SetupClass`, `SetupClassWithConfig`, `ImportObjects`,
-`WithEnv` — consolidated from prior duplicated copies across the four
-test packages.
+`WithEnv`.
 
-**Unit tests of interest**
+**Unit and integration tests of interest** (`adapters/repos/db`):
+
+- Generation harness — `reindex_generation_harness_test.go` runs the real
+  schema and task FSMs, scheduler, provider and DB on every node over an
+  in-process log. `reindex_generation_runs_test.go`: each of the nine
+  types on 3 nodes at RF 3, takeover, cancel, born-switched tenants,
+  deletes and updates during a build, single-tenant runs, the empty
+  takeover, index-off, and reload after a snapshot install.
+  `reindex_generation_crash_test.go`: crash points, late and re-sent
+  completions, crash mid-prepend, a takeover over a dead run's folder.
+- The view — `reindex_shard_view_test.go` (load, refresh, retire, index
+  off, load sweep, staging limit), `reindex_cluster_view_test.go` (the
+  serving rule), `reindex_view_reads_test.go` and
+  `reindex_view_writes_test.go` (a query or write on an old view versus a
+  new one).
+- The rules — `reindex_task_rules_test.go`, `reindex_task_units_test.go`,
+  `reindex_conflict_test.go`, `reindex_header_readers_test.go`.
+- Upgrade — `reindex_legacy_records_test.go` (the thirteen v1.39.17
+  fixtures), `cluster/reindex_upgrade_check_test.go` (the boot check).
+- `failUnit` and the provider — `reindex_provider_failunit_test.go`,
+  `reindex_provider_test.go`, `reindex_provider_unit_claim_test.go`.
+- The backup gate — `reindex_inflight_test.go`,
+  `reindex_inflight_kill_switch_test.go`.
+
+**Cluster tests of interest**
 
 - `mergeReindexStatus` — `handlers_indexes_edge_test.go` /
   `handlers_indexes_gaps_test.go`.
-- `checkReindexConflict` / `ReindexPropsOverlap` /
-  `TypesConflictReason` / `Touches*` — `reindex_conflict_test.go`.
-- `failUnit` and recovery — `reindex_provider_failunit_test.go`,
-  `reindex_provider_recovery_test.go`,
-  `reindex_provider_repair_guidance_test.go`.
-- `parseMigrationDirName` — `inverted_reindex_finalize_test.go`.
-- `OnGroupCompleted` cache + rehydrate —
-  `reindex_provider_on_group_completed_test.go`.
-- Property overlay set / retire, and the per-migration-type
-  wiring — `property_overlay_lifecycle_test.go`,
-  `reindex_provider_tokenization_overlay_test.go`,
-  `shard_tokenization_overlay_test.go`.
-- The overlay's effect on the analyzer, and what
-  `BeyondLiveSchema` leaves for it to do —
-  `inverted/objects_test.go` (`TestIndexInverted`).
-- A write landing in the swap window of each migration that enables an
-  index type — `inverted_reindex_semantic_swap_window_test.go`.
-- Shard CoW callbacks — `shard_callbacks_test.go`.
-- DTM finalizing + ack barrier — `cluster/distributedtask/manager_test.go`,
+- DTM — `cluster/distributedtask/manager_test.go`,
+  `group_states_test.go`, `compact_test.go`, `collection_tasks_test.go`,
   `scheduler_multinode_test.go`, `errors_test.go`.
-- LSM swap primitives — `lsmkv/store_bucket_swap_test.go`.
-- Atomic-phase regression guard — `inverted_reindex_task_generic_test.go`
-  (the `processOneSwapPropFn` wall-clock budget assertion).
-
-## 17. Deferred simplifications
-
-[`docs/proposals/deferred_reindex_simplifications.md`](./proposals/deferred_reindex_simplifications.md)
-catalogues two refactors that the scout pass identified as
-worthwhile but that were deliberately not applied autonomously,
-because each touches either a crash-safety path or the hottest write
-hook. Re-evaluated for the v1.38 Preview merge and kept deferred.
-Source of truth for follow-up work.
+- Flip and restore — `cluster/schema/reindex_state_test.go`,
+  `cluster/schema/restore_reindex_test.go`.
