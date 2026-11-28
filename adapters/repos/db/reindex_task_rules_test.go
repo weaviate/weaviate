@@ -241,7 +241,7 @@ func TestReindexTaskRulesAdmit(t *testing.T) {
 	}
 }
 
-func reindexRulesManager(t *testing.T, seed ...*distributedtask.Task) *distributedtask.Manager {
+func reindexRulesManager(t *testing.T, live map[string]map[string]uint64, seed ...*distributedtask.Task) *distributedtask.Manager {
 	t.Helper()
 	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: seed}})
 	require.NoError(t, err)
@@ -250,7 +250,7 @@ func reindexRulesManager(t *testing.T, seed ...*distributedtask.Task) *distribut
 		Logger:            logger,
 		ConflictDetectors: map[string]distributedtask.ConflictDetector{ReindexNamespace: ReindexDetector{}},
 		TaskRules:         map[string]distributedtask.TaskRules{ReindexNamespace: ReindexTaskRules{}},
-		ClassLive:         func(string) map[string]map[string]uint64 { return nil },
+		ClassLive:         func(string) map[string]map[string]uint64 { return live },
 	})
 	require.NoError(t, m.Restore(snapshot))
 	return m
@@ -404,7 +404,7 @@ func TestReindexTaskRulesEnded(t *testing.T) {
 			for _, task := range seed {
 				units[task.ID] = len(task.Units)
 			}
-			m := reindexRulesManager(t, seed...)
+			m := reindexRulesManager(t, nil, seed...)
 
 			tc.end(t, m)
 
@@ -504,7 +504,7 @@ func TestReindexTaskRulesBornSwitched(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := tc.p
 			p.Collection, p.MigrationType, p.Properties = "C", ReindexTypeChangeTokenization, []string{"title"}
-			m := reindexRulesManager(t, reindexSeed(t, "run", 1, distributedtask.TaskStatusStarted, p, "t1"))
+			m := reindexRulesManager(t, nil, reindexSeed(t, "run", 1, distributedtask.TaskStatusStarted, p, "t1"))
 
 			m.MarkTenantsBornSwitched("c", []string{"t3"})
 
@@ -528,6 +528,7 @@ func TestReindexTaskRulesIndexOff(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		seed      func(t *testing.T) []*distributedtask.Task
+		live      map[string]map[string]uint64
 		indexType string
 		wantLive  uint64
 		wantLeft  []string
@@ -545,6 +546,14 @@ func TestReindexTaskRulesIndexOff(t *testing.T) {
 				return []*distributedtask.Task{reindexSeed(t, "a", 1, cancelled, run("C", ReindexTypeChangeTokenization, 3), "t1")}
 			},
 			indexType: filterable, wantLive: 3, wantLeft: []string{"a"},
+		},
+		{
+			name: "a run of two index types is removed once its other index is off too",
+			seed: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{reindexSeed(t, "a", 1, cancelled, run("C", ReindexTypeChangeTokenization, 3), "t1")}
+			},
+			live:      map[string]map[string]uint64{"title": {indexTypeSearchable: 3}},
+			indexType: filterable, wantLive: 3,
 		},
 		{
 			name: "the highest generation wins",
@@ -586,7 +595,7 @@ func TestReindexTaskRulesIndexOff(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := reindexRulesManager(t, tc.seed(t)...)
+			m := reindexRulesManager(t, tc.live, tc.seed(t)...)
 			require.Equal(t, tc.wantLive, m.TurnIndexOff("C", "title", tc.indexType))
 			require.ElementsMatch(t, tc.wantLeft, taskIDs(m))
 		})

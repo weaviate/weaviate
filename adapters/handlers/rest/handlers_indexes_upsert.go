@@ -599,7 +599,7 @@ var errRebuildPropertyPartlyMigrated = errors.New("cannot rebuild an index of a 
 func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string,
 	reindexTasks []*distributedtask.Task, tenantCounts bool,
 ) (upsertPlan, error) {
-	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, reindexTasks, tenantCounts); err != nil {
+	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, rebuildTypes[indexType], reindexTasks, tenantCounts); err != nil {
 		return upsertPlan{}, err
 	}
 	switch indexType {
@@ -614,7 +614,7 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 		if !db.SearchablePropertyIsBlockmax(class, prop.Name) {
 			return upsertPlan{}, errors.New("cannot rebuild a WAND searchable index — WAND is deprecated; PUT {\"algorithm\":\"blockmax\"} to migrate first")
 		}
-		return upsertPlan{migrationType: db.ReindexTypeRebuildSearchable}, nil
+		return upsertPlan{migrationType: rebuildTypes[indexType]}, nil
 
 	case "filterable":
 		if !filterableIndexOn(prop) {
@@ -623,20 +623,31 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 		if err := validateRebuildFilterableDataType(prop); err != nil {
 			return upsertPlan{}, err
 		}
-		return upsertPlan{migrationType: db.ReindexTypeRepairFilterable}, nil
+		return upsertPlan{migrationType: rebuildTypes[indexType]}, nil
 
 	case "rangeable":
 		if err := validateRebuildRangeableProperty(prop); err != nil {
 			return upsertPlan{}, err
 		}
-		return upsertPlan{migrationType: db.ReindexTypeRepairRangeable}, nil
+		return upsertPlan{migrationType: rebuildTypes[indexType]}, nil
 	}
 	// Unreachable: normalizeIndexTypeParam already validated the token.
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
-func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task, tenantCounts bool) error {
-	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil, tenantCounts); msg != "" {
+var rebuildTypes = map[string]db.ReindexMigrationType{
+	"searchable": db.ReindexTypeRebuildSearchable,
+	"filterable": db.ReindexTypeRepairFilterable,
+	"rangeable":  db.ReindexTypeRepairRangeable,
+}
+
+// refusePartlyMigratedRebuild admits a rebuild of the same type as the partial
+// run, which takes that run over.
+func refusePartlyMigratedRebuild(collection, propName string, mt db.ReindexMigrationType, reindexTasks []*distributedtask.Task,
+	tenantCounts bool,
+) error {
+	sameType := func(run *db.ReindexRun) bool { return run.Payload.MigrationType == mt }
+	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, sameType, tenantCounts); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPropertyPartlyMigrated, msg)
 	}
 	return nil

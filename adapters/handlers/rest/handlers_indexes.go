@@ -386,10 +386,10 @@ func (h *indexesHandlers) cancelTooLateResponder(target *distributedtask.Task, c
 		"index_type":  indexType,
 		"taskID":      target.ID,
 		"principal":   principalUsername(principal),
-	}).Info("cancel: the task is SWAPPING and ends once every replica that owes a swap has swapped; refusing")
+	}).Info("cancel: the task is SWAPPING and ends once its flip lands; refusing")
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s has reached %s and can no longer be cancelled: "+
-			"it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. Nothing was cancelled",
+			"it ends once its flip lands; if the flip keeps failing, the task fails and a resubmit of the same target finishes it. Nothing was cancelled",
 			target.ID, collection, propertyName, distributedtask.TaskStatusSwapping)))
 }
 

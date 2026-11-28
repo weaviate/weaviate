@@ -44,7 +44,7 @@ func (r *endRecordingRules) Ended(task *Task, existing []*Task) EndRuling {
 
 func (r *endRecordingRules) BornSwitched(*Task) bool { return r.born }
 
-func (r *endRecordingRules) IndexOff(string, string, string, []*Task) (uint64, EndRuling) {
+func (r *endRecordingRules) IndexOff(string, string, string, []*Task, map[string]map[string]uint64) (uint64, EndRuling) {
 	return 0, EndRuling{}
 }
 

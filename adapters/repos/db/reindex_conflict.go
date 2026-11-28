@@ -197,7 +197,7 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 		return whenCancellable
 	}
 	if status == distributedtask.TaskStatusSwapping {
-		return "the task is SWAPPING and ends once every replica that owes a swap has swapped, so wait for it; a node lost for good, or a swap that never succeeds, holds it"
+		return "the task is SWAPPING and ends once its flip lands, so wait for it; if the flip keeps failing, the task fails and a resubmit of the same target finishes it"
 	}
 	return "this build cannot classify that status, so a cancel via the reindex REST API is " +
 		"refused on every node — the task has to reach a terminal state on the nodes that do " +

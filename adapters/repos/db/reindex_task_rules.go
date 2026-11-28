@@ -116,8 +116,10 @@ func (ReindexTaskRules) Ended(task *distributedtask.Task, existing []*distribute
 	return ruling
 }
 
-// IndexOff removes ended runs of that index type alone, since the returned Live covers them.
+// IndexOff removes an ended run once Live, counting this off, covers every
+// index type it builds at its generation; a two-index run needs both turned off.
 func (ReindexTaskRules) IndexOff(collection, property, indexType string, existing []*distributedtask.Task,
+	classLive map[string]map[string]uint64,
 ) (uint64, distributedtask.EndRuling) {
 	var live uint64
 	var covered distributedtask.EndRuling
@@ -127,7 +129,9 @@ func (ReindexTaskRules) IndexOff(collection, property, indexType string, existin
 			continue
 		}
 		live = max(live, h.Generation)
-		if types, _ := ReindexIndexTypes(h.MigrationType); task.Status.IsTerminal() && len(types) == 1 && len(h.Properties) == 1 {
+		types, _ := ReindexIndexTypes(h.MigrationType)
+		liveCovers := func(t string) bool { return t == indexType || classLive[property][t] >= h.Generation }
+		if task.Status.IsTerminal() && len(h.Properties) == 1 && !slices.ContainsFunc(types, func(t string) bool { return !liveCovers(t) }) {
 			covered.Remove = append(covered.Remove, task)
 		}
 	}

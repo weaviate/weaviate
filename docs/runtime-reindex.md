@@ -1078,11 +1078,11 @@ update that the apply recognizes as turning one index type off
 (`indexTurnedOff`, from its field mask). The apply also raises
 `Live(P, I)` to the highest generation of any run with switched tenants on
 that index (`TaskRules.IndexOff`, `Manager.TurnIndexOff`) and removes
-the ended runs of that index type alone, which `Live` now covers; a run
-of two index types keeps its tenants. A re-enable then builds a new
-generation. The folder of a property a view governs is retired by the
-refresh, after readers release it (`Shard.updatePropertyBuckets` leaves
-it alone); a property no view governs is removed as before. The REST
+each ended run once `Live`, counting this off, covers every index type it
+builds; a run of two index types stays until both are off. A re-enable
+then builds a new generation. The refresh retires the folder of the index
+turned off, after readers release it, whether or not a view governs the
+property. The REST
 handler sets `servedByRun` when a run serves the index to switched
 tenants, so an index the class already has off still reaches RAFT; a
 failed task listing sets it too, and the apply decides.
@@ -1211,8 +1211,10 @@ a way out. The exits, in the order to try them:
 3. **Turn the index off** (for an enable run, or any run whose index type
    you can drop). `DELETE .../index/{indexType}` is admitted while the
    run stands when it turns off an index type that run builds: it raises
-   the live generation past the run, so no tenant serves anything, and
-   removes the ended runs of that index type alone (§6.5).
+   the live generation past the run, so no tenant serves anything. The
+   ended run is removed once every index type it builds is off: a
+   change-tokenization run needs both its searchable and its filterable
+   index turned off (§6.5).
 4. **Delete the tenant or the collection.** A deleted tenant leaves the
    run's switched set; deleting the collection removes its tasks.
 

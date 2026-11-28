@@ -27,8 +27,10 @@ type TaskRules interface {
 	// Admit may rewrite the task before AddTask stores it, and names the ended task it takes over.
 	Admit(task *Task, existing []*Task, live map[string]map[string]uint64) (takesOver *Task, err error)
 	Ended(task *Task, existing []*Task) EndRuling
-	// IndexOff returns the live generation that turns a property's index off for every tenant, and what it covers.
-	IndexOff(collection, property, indexType string, existing []*Task) (live uint64, covered EndRuling)
+	// IndexOff returns the live generation that turns a property's index off for every tenant, and what it covers
+	// given the collection's live generations.
+	IndexOff(collection, property, indexType string, existing []*Task, classLive map[string]map[string]uint64,
+	) (live uint64, covered EndRuling)
 	BornSwitched(task *Task) bool
 	// Units lists the units of a task submitted without any, from the sharding state at the task's log index,
 	// in an order that never follows a map, so every replica stores the same task. A group in switched,
@@ -126,8 +128,9 @@ func (m *Manager) TurnIndexOff(collection, property, indexType string) uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var live uint64
+	classLive := m.classLive(collection)
 	for namespace, rules := range m.taskRules {
-		gen, covered := rules.IndexOff(collection, property, indexType, m.namespaceTasksWithLock(namespace))
+		gen, covered := rules.IndexOff(collection, property, indexType, m.namespaceTasksWithLock(namespace), classLive)
 		m.applyRulingWithLock(covered, nil)
 		live = max(live, gen)
 	}

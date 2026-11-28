@@ -262,7 +262,20 @@ func ReindexResubmitCommand(payload *ReindexTaskPayload, propName string) string
 	if tok == "" {
 		tok = "<tokenization>"
 	}
+	rebuild := func(indexType string) string {
+		cmd := fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild", payload.Collection, propName, indexType)
+		if len(payload.Tenants) > 0 {
+			cmd += "?tenants=<tenants>"
+		}
+		return cmd
+	}
 	switch payload.MigrationType {
+	case ReindexTypeRebuildSearchable:
+		return rebuild("searchable")
+	case ReindexTypeRepairFilterable:
+		return rebuild("filterable")
+	case ReindexTypeRepairRangeable:
+		return rebuild("rangeFilters")
 	case ReindexTypeEnableFilterable:
 		return put("filterable", "{}")
 	case ReindexTypeEnableRangeable:
