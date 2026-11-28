@@ -627,9 +627,9 @@ the node:
 - rejects schema mutations overlapping the task's properties, and rejects
   new reindex submits that overlap them (`CheckPropertyUpdate`,
   `CheckClassMutation`, `CheckTenantMutation`, `CheckConflict`);
-- refuses backups on the shards the task lists
-  (`db.NewShardReindexActivityLookup` feeding
-  `Index.refuseIfReindexInFlight` through a `newReindexGate` gate);
+- refuses backups of the task's class (`Index.reindexStateFingerprint`) and
+  backup or replica-move halts of the shards it has a unit on
+  (`Shard.refuseIfReindexRunsHere`);
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
@@ -642,8 +642,8 @@ the node:
   nodes that do recognize the status (`MutationRemedy` in
   [`reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go)).
 
-The backup gate routes through `db.IsLiveReindexTaskStatus`, so the rule
-for a new status is answered in one place.
+Both backup checks route through `TaskStatus.IsTerminal`, so the rule for
+a new status is answered in one place.
 
 TTL cleanup is the one exit. `Manager.CleanUpTask` refuses a task that is
 both active **and** recognized, so an unrecognized-status task is deleted
@@ -1368,9 +1368,11 @@ v1.38 Preview merge does not fix it. The fixes live on
 `backup-runtime-reindex-fixes` and land as a follow-up PR. Tracking:
 weaviate/0-weaviate-issues#215.
 
-Backups are covered: `Index.refuseIfReindexInFlight`
-([`reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go))
-refuses a backup on any shard DTM reports a live reindex on, and
+Backups are covered: a backup refuses a class while one of its reindex
+tasks has not ended, at the precheck, at capture start and at capture end
+([`backup.go`](../adapters/repos/db/backup.go)). Each node reads the tasks
+it applied, the only ones its shards act on, so a task applied during the
+capture fails it at the end.
 [`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)
 covers it.
 
@@ -1541,14 +1543,13 @@ WAND on the older binary until a re-migration.
 
 **Orchestration**
 
-- [`adapters/repos/db/reindex_provider.go`](../adapters/repos/db/reindex_provider.go) — DTM provider, `IsLiveReindexTaskStatus`.
+- [`adapters/repos/db/reindex_provider.go`](../adapters/repos/db/reindex_provider.go) — DTM provider.
 - [`adapters/repos/db/reindex_provider_generation.go`](../adapters/repos/db/reindex_provider_generation.go) — the unit build and the flip proposal.
 - [`adapters/repos/db/reindex_provider_payload.go`](../adapters/repos/db/reindex_provider_payload.go) — `ReindexTaskPayload`, migration type constants.
 - [`adapters/repos/db/reindex_task_rules.go`](../adapters/repos/db/reindex_task_rules.go) — `ReindexTaskRules`: `Admit`, `Units`, `Ended`, `IndexOff`, `BornSwitched`.
 - [`adapters/repos/db/reindex_retainer.go`](../adapters/repos/db/reindex_retainer.go) — retention, `CutoverLanded`, partial-run helpers.
 - [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `Touches*` predicates, `MutationRemedy`.
-- [`adapters/repos/db/reindex_activity_lookup.go`](../adapters/repos/db/reindex_activity_lookup.go) — `NewShardReindexActivityLookup`, the backup gate's snapshot.
-- [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `Index.refuseIfReindexInFlight` and `newReindexGate`, the backup gate.
+- [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `Shard.refuseIfReindexRunsHere`, the halt check.
 - [`cluster/reindex_upgrade_check.go`](../cluster/reindex_upgrade_check.go) — the boot check.
 - [`adapters/repos/db/reindex_legacy_records.go`](../adapters/repos/db/reindex_legacy_records.go) — legacy record conversion.
 
@@ -1575,7 +1576,7 @@ WAND on the older binary until a re-migration.
 - [`cluster/distributedtask/doc.go`](../cluster/distributedtask/doc.go) — package-level architecture + the four "journey" shapes.
 - [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, the `TaskStatus.IsTerminal()` / `IsActive()` / `IsCompleted()` / `IsRecognized()` classification helpers, and `IsCancellable()` (§4.2).
 - [`cluster/distributedtask/group_states.go`](../cluster/distributedtask/group_states.go) — `TaskRules`, `EndRuling`, `TakeOver`, `TurnIndexOff`.
-- [`cluster/distributedtask/compact.go`](../cluster/distributedtask/compact.go) — `LocalEndedTasks`, `UnitSummary`, `GroupTotal`.
+- [`cluster/distributedtask/compact.go`](../cluster/distributedtask/compact.go) — `LocalEndedTasks`, `LocalTaskPrints`, `UnitSummary`, `GroupTotal`.
 - [`cluster/distributedtask/collection_tasks.go`](../cluster/distributedtask/collection_tasks.go) — `RestoreCollectionTasks`.
 - [`cluster/distributedtask/manager.go`](../cluster/distributedtask/manager.go) — FSM. `MarkTaskFinalized`, `MarkTaskFailed` godocs are essential reading.
 - [`cluster/distributedtask/scheduler.go`](../cluster/distributedtask/scheduler.go) — per-node loop, callback dispatch.

@@ -787,7 +787,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	})
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
-	repo.SetEndedReindexTaskReader(appState.ClusterService.Raft)
+	repo.SetReindexTaskReader(appState.ClusterService.Raft)
 	repo.SetReindexTaskStateSource(appState.ClusterService.Raft)
 	appState.ClusterService.SetDistributedTaskStateListener(repo.ReindexTaskStateListener)
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
@@ -1038,44 +1038,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 
-		raft := appState.ClusterService.Raft
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("failed to start distributed task scheduler: %v", err)
 			return
 		}
-
-		// Install the backup-gate activity lookup so refuseIfReindexInFlight
-		// consults DTM rather than per-shard filesystem markers. Built per
-		// backup precheck so the snapshot is fresh; on list failure we
-		// fall back to refusing every backup until DTM is reachable, to
-		// avoid races against in-flight reindexes that the local node
-		// cannot see.
-		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx, raft, appState.Logger))
 	}, appState.Logger)
 
 	return appState
-}
-
-type reindexGateSource interface {
-	distributedtask.TaskHeaderLister
-	LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(node string) string) (has, known bool)
-}
-
-func shardReindexActivityBuilder(ctx context.Context, source reindexGateSource, logger logrus.FieldLogger,
-) db.ShardReindexActivityLookupBuilder {
-	return func() (db.ShardReindexActivityLookup, error) {
-		tasksByNamespace, err := listTaskHeaders(ctx, source)
-		if err != nil {
-			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
-		}
-		hasUnit := func(desc distributedtask.TaskDescriptor, shard string) (bool, bool) {
-			return source.LocalTaskHasUnit(db.ReindexNamespace, desc, func(node string) string {
-				return db.MigrationUnitID(shard, node)
-			})
-		}
-		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], hasUnit, logger), nil
-	}
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {

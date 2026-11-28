@@ -234,26 +234,6 @@ func (p *ReindexProvider) isPermanentRecorderRejection(logger logrus.FieldLogger
 
 const migrationUnitContentionWindow = time.Minute
 
-// IsLiveReindexTaskStatus reports whether a task in the given DTM status
-// still owns the on-disk sidecar buckets of its migration.
-//
-// A status this build never declared answers true. The other answer
-// deletes those dirs while a newer node is still migrating, which is the
-// one outcome nothing downstream can undo.
-func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
-	switch status {
-	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping:
-		return true
-	case distributedtask.TaskStatusFinished,
-		distributedtask.TaskStatusCancelled,
-		distributedtask.TaskStatusFailed:
-		return false
-	}
-	return true
-}
-
 func ReindexResubmitCommand(payload *ReindexTaskPayload, propName string) string {
 	put := func(indexType, body string) string {
 		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", payload.Collection, propName, indexType, body)

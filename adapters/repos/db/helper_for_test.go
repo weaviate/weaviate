@@ -243,20 +243,29 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-// installNoLiveReindexLookup installs readers that report no live and no ended reindex
-// task, so fixtures that do not exercise the backup gate can halt shards and build descriptors.
+// installNoLiveReindexLookup installs a reader that reports no reindex task, so
+// fixtures that do not exercise the backup checks can build descriptors.
 func installNoLiveReindexLookup(db *DB) {
-	db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
-		return func(string, string) bool { return false }, nil
-	})
-	db.SetEndedReindexTaskReader(fakeEndedReindexTasks{})
+	db.SetReindexTaskReader(fakeReindexTasks{})
 }
 
-// fakeEndedReindexTasks answers LocalEndedTasks by namespace and collection.
-type fakeEndedReindexTasks map[[2]string][]*distributedtask.Task
+// fakeReindexTasks answers both reads with its tasks by namespace and collection.
+type fakeReindexTasks map[[2]string][]*distributedtask.Task
 
-func (f fakeEndedReindexTasks) LocalEndedTasks(namespace, collection string) []*distributedtask.Task {
+func (f fakeReindexTasks) LocalEndedTasks(namespace, collection string) []*distributedtask.Task {
 	return f[[2]string{namespace, collection}]
+}
+
+func (f fakeReindexTasks) LocalTaskPrints(namespace, collection string) []distributedtask.TaskPrint {
+	return taskPrints(f[[2]string{namespace, collection}])
+}
+
+func taskPrints(tasks []*distributedtask.Task) []distributedtask.TaskPrint {
+	var out []distributedtask.TaskPrint
+	for _, t := range tasks {
+		out = append(out, distributedtask.TaskPrint{TaskDescriptor: t.TaskDescriptor, Status: t.Status, Switched: len(t.SwapDecidedGroups)})
+	}
+	return out
 }
 
 // stubDBWithNoLiveReindex returns a minimally initialized *DB that
@@ -445,11 +454,6 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	// Install a default empty backup-gate activity lookup so
-	// Shard.HaltForTransfer / Index.refuseIfReindexInFlight do not
-	// trip the conservative pre-wire refusal in tests that do not
-	// install their own lookup. Tests that exercise the gate
-	// (reindex_inflight_test.go) overwrite this with their fixture.
 	installNoLiveReindexLookup(repo)
 	sch := schema.Schema{
 		Objects: &models.Schema{

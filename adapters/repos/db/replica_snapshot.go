@@ -41,9 +41,7 @@ type replicaSnapshotState struct {
 }
 
 func (i *Index) asShardBusyIfReindexInFlight(err error) error {
-	busyWithReindex := errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) &&
-		!errors.Is(err, ErrReindexGateUnavailable)
-	if !busyWithReindex {
+	if !errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) {
 		return err
 	}
 	return fmt.Errorf("%w: %w; transfer deferred until it completes",

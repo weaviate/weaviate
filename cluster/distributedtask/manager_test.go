@@ -2813,32 +2813,3 @@ func TestManager_DecodeTaskListCountsTheReceivedUnits(t *testing.T) {
 	require.Equal(t, want.AllUnitsTerminal(), got.AllUnitsTerminal())
 	require.ElementsMatch(t, want.NodesWithLocalUnits(), got.NodesWithLocalUnits())
 }
-
-func TestManager_TaskHasUnit(t *testing.T) {
-	m := NewManager(ManagerParameters{})
-	specs := make([]*cmd.UnitSpec, 0, 3)
-	for _, node := range []string{"n1", "n2", "n3"} {
-		specs = append(specs, &cmd.UnitSpec{Id: "s-" + node + "__" + node, Node: node})
-	}
-	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitSpecs: specs}), 1))
-	unitOn := func(shard string) func(string) string { return func(node string) string { return shard + "__" + node } }
-	for _, tc := range []struct {
-		name            string
-		desc            TaskDescriptor
-		shard           string
-		wantHas, wantOK bool
-	}{
-		{name: "unit on n1", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n1", wantHas: true, wantOK: true},
-		{name: "unit on n2", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n2", wantHas: true, wantOK: true},
-		{name: "unit on n3", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n3", wantHas: true, wantOK: true},
-		{name: "shard with no unit", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "other", wantOK: true},
-		{name: "absent task", desc: TaskDescriptor{ID: "X", Version: 1}, shard: "s-n1"},
-		{name: "other version", desc: TaskDescriptor{ID: "T", Version: 2}, shard: "s-n1"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			has, known := m.TaskHasUnit("ns", tc.desc, unitOn(tc.shard))
-			require.Equal(t, tc.wantHas, has)
-			require.Equal(t, tc.wantOK, known)
-		})
-	}
-}

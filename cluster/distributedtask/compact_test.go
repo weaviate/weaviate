@@ -170,6 +170,21 @@ func TestManager_LocalEndedTasks(t *testing.T) {
 	})
 }
 
+func TestManager_LocalTaskPrints(t *testing.T) {
+	m := newCompactTestManager()
+	addCompactTestTask(t, m, "reindex", "running", `{"collection":"C","generation":2}`, false, spec("u", "", "n1"))
+	addCompactTestTask(t, m, "reindex", "failed", `{"collection":"c"}`, false, spec("u", "", "n1"))
+	finishCompactTestUnit(t, m, "reindex", "failed", "n1", "u", "boom")
+	addCompactTestTask(t, m, "reindex", "other-collection", `{"collection":"D"}`, false, spec("u", "", "n1"))
+	addCompactTestTask(t, m, "other", "other-namespace", `{"collection":"C"}`, false, spec("u", "", "n1"))
+	m.tasks["reindex"]["running"].SwapDecidedGroups = map[string]time.Time{"g1": compactAt, "g2": compactAt}
+
+	require.Equal(t, []TaskPrint{
+		{TaskDescriptor: TaskDescriptor{ID: "failed", Version: 1}, Status: TaskStatusFailed},
+		{TaskDescriptor: TaskDescriptor{ID: "running", Version: 1}, Status: TaskStatusStarted, Switched: 2},
+	}, m.LocalTaskPrints("reindex", "C"))
+}
+
 func TestManager_LocalEndedTasksCostFollowsTheSwitchedSet(t *testing.T) {
 	const units, groups = 300_000, 100_000
 	m := newCompactTestManager()

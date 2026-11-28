@@ -1424,22 +1424,6 @@ func (m *Manager) DecodeTaskHeaders(data []byte) (map[string][]*Task, error) {
 	return tasks, nil
 }
 
-// TaskHasUnit checks one unit ID per node of the task, and known is false when this node holds no such version.
-func (m *Manager) TaskHasUnit(namespace string, desc TaskDescriptor, unitID func(node string) string) (has, known bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	task := m.tasks[namespace][desc.ID]
-	if task == nil || task.Version != desc.Version {
-		return false, false
-	}
-	for node := range task.unitCounts {
-		if node != "" && task.Units[unitID(node)] != nil {
-			return true, true
-		}
-	}
-	return false, true
-}
-
 func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {
 	task := m.findTaskWithLock(namespace, taskID)
 	if task == nil || task.Version != taskVersion {

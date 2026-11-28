@@ -41,6 +41,28 @@ func (m *Manager) LocalEndedTasks(namespace, collection string) []*Task {
 	return out
 }
 
+// TaskPrint is what changes when a task ends, switches a group or is replaced.
+type TaskPrint struct {
+	TaskDescriptor
+	Status   TaskStatus
+	Switched int
+}
+
+// LocalTaskPrints lists collection's tasks in any status, copying no units.
+func (m *Manager) LocalTaskPrints(namespace, collection string) []TaskPrint {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var out []TaskPrint
+	for _, task := range m.tasks[namespace] {
+		if strings.EqualFold(task.collection(), collection) {
+			out = append(out, TaskPrint{TaskDescriptor: task.TaskDescriptor, Status: task.Status, Switched: len(task.SwapDecidedGroups)})
+		}
+	}
+	slices.SortFunc(out, func(a, b TaskPrint) int { return cmp.Or(cmp.Compare(a.ID, b.ID), cmp.Compare(a.Version, b.Version)) })
+	return out
+}
+
 // compactCopy builds the copy field by field, because Clone copies every unit.
 func (t *Task) compactCopy() *Task {
 	return &Task{

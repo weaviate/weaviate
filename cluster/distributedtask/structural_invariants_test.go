@@ -402,8 +402,7 @@ func TestStructuralInvariant_OnlyUnitReadersListTheFullTaskList(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ name, file, fn string }{
-		{"backup gate wiring", "adapters/handlers/rest/configure_api.go", "MakeAppState"},
-		{"backup gate builder", "adapters/handlers/rest/configure_api.go", "shardReindexActivityBuilder"},
+		{"app wiring", "adapters/handlers/rest/configure_api.go", "MakeAppState"},
 		{"submit and rebuild pre-checks", "adapters/handlers/rest/handlers_indexes_upsert.go", "reindexTasksOrFailClosed"},
 		{"cancel", "adapters/handlers/rest/handlers_indexes.go", "indexesHandlers.cancelReindexTask"},
 		{"property-index delete check", "adapters/handlers/rest/handlers_schema.go", "schemaHandlers.checkReindexConflictForPropertyMutation"},

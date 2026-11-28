@@ -15,9 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -533,7 +533,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	}
 
 	var sd backup.ShardDescriptor
-	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
+	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
 	require.NoError(t, err)
 
 	// Helper to get inode number.
@@ -698,14 +698,14 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
+		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
 
 	t.Run("non-hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil, newReindexGate(idx.db, reindexGateMaxAge))
+		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
@@ -780,7 +780,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	// FROZEN tenant: no directory at all.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
+	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
 
 	// Only COLD should be in desc.Shards — FROZEN is omitted.
@@ -827,7 +827,7 @@ func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
+	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
 	require.Len(t, desc.Shards, 1)
 
@@ -879,7 +879,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	// No directories, no shards in map.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
+	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
 	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
 
@@ -905,7 +905,7 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
+	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
@@ -925,7 +925,7 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 
 	var desc backup.ClassDescriptor
 	backupID := "test-backup"
-	err := idx.descriptor(ctx, backupID, &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
+	err := idx.descriptor(ctx, backupID, &desc, nil)
 	require.NoError(t, err)
 
 	stagingDir := desc.StagingDir
@@ -974,8 +974,8 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		// path before releasing shardCreateLocks. See weaviate/0-weaviate-issues#234.
 		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
-			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
+			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
 				sd.Name = name
 				sd.Node = "node1"
 				return files, nil
@@ -989,7 +989,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
+	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
 
 	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
@@ -1054,8 +1054,8 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 		close(releaseCalled)
 	}, nil)
 	mockShard.EXPECT().
-		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
 			sd.Name = shardName
 			sd.Node = "node1"
 			close(snapshotStarted)
@@ -1070,7 +1070,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}
 	backupDone := make(chan backupResult, 1)
 	go func() {
-		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
 		backupDone <- backupResult{sd: sd, err: err}
 	}()
 
@@ -1147,8 +1147,8 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}
 			}, nil)
 			mockShard.EXPECT().
-				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
 					if tt.snapshotErr != nil {
 						return nil, tt.snapshotErr
 					}
@@ -1169,7 +1169,7 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}}
 			}
 
-			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir())
 			if tt.expectedErr != "" {
 				require.ErrorContains(t, err, tt.expectedErr)
 			} else {
@@ -1202,7 +1202,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
-	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prevent shutdown")
 
@@ -1278,21 +1278,29 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
 }
 
-// Regression: a task-list fetch per shard, then per collection, scaled backup
-// time with tenant and collection count. COLD tenants take the inactive-shard
-// path; HOT ones halt each loaded shard.
-func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
+// A backup refuses a class while one of its runs has not ended, as this node
+// applied them. COLD tenants take the inactive-shard path; HOT ones halt each
+// loaded shard.
+func TestBackupRefusesWhileAReindexRunHasNotEnded(t *testing.T) {
 	classes := []string{"ClassA", "ClassB", "ClassC"}
 	tenants := []string{"tenant-1", "tenant-2", "tenant-3"}
+	runOnB := func(status distributedtask.TaskStatus) fakeReindexTasks {
+		return fakeReindexTasks{{ReindexNamespace, "ClassB"}: {{TaskDescriptor: distributedtask.TaskDescriptor{ID: "run", Version: 1}, Status: status}}}
+	}
 
 	for _, status := range []string{models.TenantActivityStatusCOLD, models.TenantActivityStatusHOT} {
 		for _, tc := range []struct {
-			name    string
-			live    map[[2]string]bool
-			refused bool
+			name     string
+			tasks    fakeReindexTasks
+			disabled bool
+			refused  bool
 		}{
-			{name: "no reindex running"},
-			{name: "reindex running on one tenant", live: map[[2]string]bool{{"ClassB", "tenant-2"}: true}, refused: true},
+			{name: "no reindex run", tasks: fakeReindexTasks{}},
+			{name: "an ended run", tasks: runOnB(distributedtask.TaskStatusFinished)},
+			{name: "a started run", tasks: runOnB(distributedtask.TaskStatusStarted), refused: true},
+			{name: "a swapping run", tasks: runOnB(distributedtask.TaskStatusSwapping), refused: true},
+			{name: "a status this build cannot classify", tasks: runOnB(unknownFutureStatus), refused: true},
+			{name: "runtime reindex disabled", tasks: runOnB(distributedtask.TaskStatusStarted), disabled: true},
 		} {
 			t.Run(status+"/"+tc.name, func(t *testing.T) {
 				// One replica per node puts every tenant on this node.
@@ -1307,21 +1315,17 @@ func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 					db = backupTestDBWithLoadedShards(t, classes, builder.Build())
 				}
 
-				var fetches atomic.Int64
-				db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
-					fetches.Add(1)
-					return makeActivityBuilder(tc.live)()
-				})
+				db.SetReindexTaskReader(tc.tasks)
+				db.config.RuntimeReindexDisabled = tc.disabled
 
 				err := db.Backupable(context.Background(), classes)
 				if tc.refused {
 					require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+					require.ErrorContains(t, err, `collection "ClassB"`)
 				} else {
 					require.NoError(t, err)
 				}
-				assert.EqualValues(t, 1, fetches.Load(), "Backupable")
 
-				fetches.Store(0)
 				var descs []backup.ClassDescriptor
 				for d := range db.BackupDescriptors(context.Background(), "backup-1", classes, nil) {
 					descs = append(descs, d)
@@ -1337,64 +1341,8 @@ func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 						require.NoError(t, db.ReleaseBackup(context.Background(), "backup-1", d.Name))
 					}
 				}
-				assert.EqualValues(t, 1, fetches.Load(), "BackupDescriptors")
 			})
 		}
-	}
-}
-
-func TestBackupableRefusalSizeDoesNotGrowWithTenants(t *testing.T) {
-	const className = "ClassA"
-	// One shard's refusal is about 600 characters; ten sampled names fit in the rest.
-	const maxErrLen = 2000
-	tenants := make([]string, 1000)
-	everyTenant := map[[2]string]bool{}
-	builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(int64(len(tenants)))
-	for i := range tenants {
-		tenants[i] = fmt.Sprintf("tenant-%04d", i)
-		everyTenant[[2]string{className, tenants[i]}] = true
-		builder.AddTenant(tenants[i], models.TenantActivityStatusCOLD)
-	}
-	db := backupTestDBWithColdTenants(t, []string{className}, tenants, builder.Build())
-
-	for _, tc := range []struct {
-		name      string
-		lookup    ShardReindexActivityLookupBuilder
-		wantErr   error
-		wantCount string
-		wantFirst string
-	}{
-		{
-			name:      "reindex running on every tenant",
-			lookup:    makeActivityBuilder(everyTenant),
-			wantErr:   backup.ErrBackupBlockedByInFlightReindex,
-			wantCount: "1000 of 1000 shards",
-			wantFirst: "tenant-0000",
-		},
-		{
-			name:      "reindex running on one tenant",
-			lookup:    makeActivityBuilder(map[[2]string]bool{{className, "tenant-0500"}: true}),
-			wantErr:   backup.ErrBackupBlockedByInFlightReindex,
-			wantCount: "1 of 1000 shards blocked (tenant-0500)",
-			wantFirst: "tenant-0500",
-		},
-		{
-			name:      "task manager unreachable",
-			lookup:    unreachableActivityBuilder,
-			wantErr:   ErrReindexGateUnavailable,
-			wantCount: "1000 of 1000 shards",
-			wantFirst: "tenant-0000",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			db.SetShardReindexActivityLookup(tc.lookup)
-
-			err := db.Backupable(context.Background(), []string{className})
-			require.ErrorIs(t, err, tc.wantErr)
-			assert.Contains(t, err.Error(), tc.wantCount)
-			assert.Contains(t, err.Error(), fmt.Sprintf("shard %q", tc.wantFirst))
-			assert.Less(t, len(err.Error()), maxErrLen)
-		})
 	}
 }
 
@@ -1412,7 +1360,7 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 
 	for _, tc := range []struct {
 		name      string
-		reader    EndedReindexTaskReader
+		reader    ReindexTaskReader
 		live      map[string]map[string]uint64
 		wantErr   bool
 		wantTasks string
@@ -1420,14 +1368,14 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 	}{
 		{
 			name: "the class's ended tasks are captured",
-			reader: fakeEndedReindexTasks{
+			reader: fakeReindexTasks{
 				{ReindexNamespace, className}: ended, {ReindexNamespace, "Other"}: decoy, {"other", className}: decoy,
 			},
 			wantTasks: string(mustJSON(t, ended)),
 		},
-		{name: "a class with no ended task is marked as captured", reader: fakeEndedReindexTasks{}, wantTasks: "[]"},
+		{name: "a class with no ended task is marked as captured", reader: fakeReindexTasks{}, wantTasks: "[]"},
 		{name: "no reader fails the descriptor", wantErr: true},
-		{name: "live generations are captured", reader: fakeEndedReindexTasks{}, live: live, wantTasks: "[]", wantLive: string(mustJSON(t, live))},
+		{name: "live generations are captured", reader: fakeReindexTasks{}, live: live, wantTasks: "[]", wantLive: string(mustJSON(t, live))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rootDir := t.TempDir()
@@ -1436,12 +1384,12 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 			idx := newDescriptorTestIndex(t, rootDir, className, state)
 			idx.db = &DB{}
 			if tc.reader != nil {
-				idx.db.SetEndedReindexTaskReader(tc.reader)
+				idx.db.SetReindexTaskReader(tc.reader)
 			}
 			idx.schemaReader = liveSchemaReader{idx.schemaReader, map[string]map[string]map[string]uint64{className: tc.live, "Other": live}}
 
 			var desc backup.ClassDescriptor
-			err := idx.descriptor(context.Background(), "b1", &desc, nil, newReindexGate(stubDBWithNoLiveReindex(), reindexGateMaxAge))
+			err := idx.descriptor(context.Background(), "b1", &desc, nil)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -1462,16 +1410,21 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 // changingReindexState answers its first read with the state before the shard snapshots, then the one after.
 type changingReindexState struct {
 	schemaUC.SchemaReader
-	taskReads, liveReads  atomic.Int32
+	printReads, liveReads atomic.Int32
 	tasksBefore, tasksNow []*distributedtask.Task
 	liveBefore, liveNow   map[string]map[string]uint64
 }
 
+// LocalEndedTasks is read only after the shard snapshots.
 func (c *changingReindexState) LocalEndedTasks(string, string) []*distributedtask.Task {
-	if c.taskReads.Add(1) == 1 {
-		return c.tasksBefore
+	return slices.DeleteFunc(slices.Clone(c.tasksNow), func(t *distributedtask.Task) bool { return !t.Status.IsTerminal() })
+}
+
+func (c *changingReindexState) LocalTaskPrints(string, string) []distributedtask.TaskPrint {
+	if c.printReads.Add(1) == 1 {
+		return taskPrints(c.tasksBefore)
 	}
-	return c.tasksNow
+	return taskPrints(c.tasksNow)
 }
 
 func (c *changingReindexState) ClassLive(string) map[string]map[string]uint64 {
@@ -1481,33 +1434,44 @@ func (c *changingReindexState) ClassLive(string) map[string]map[string]uint64 {
 	return c.liveNow
 }
 
-// A run that ends or flips Live while the shards are snapshotted would pair its
-// task state with files from before it, so the backup fails instead.
+// A run that ends, switches a group or flips Live while the shards are
+// snapshotted would pair its task state with files from before it, so the
+// backup fails instead.
 func TestDescriptorRefusesReindexStateChangedDuringBackup(t *testing.T) {
 	const className = "TestClass"
-	ended := []*distributedtask.Task{{
-		Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "a", Version: 1},
-		Status: distributedtask.TaskStatusCancelled, SwapDecidedGroups: map[string]time.Time{"t1": {}},
-	}}
-	switchedMore := []*distributedtask.Task{{
-		Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "a", Version: 1},
-		Status: distributedtask.TaskStatusCancelled, SwapDecidedGroups: map[string]time.Time{"t1": {}, "t2": {}},
-	}}
+	run := func(status distributedtask.TaskStatus, groups ...string) []*distributedtask.Task {
+		switched := map[string]time.Time{}
+		for _, g := range groups {
+			switched[g] = time.Time{}
+		}
+		return []*distributedtask.Task{{
+			Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "a", Version: 1},
+			Status: status, SwapDecidedGroups: switched,
+		}}
+	}
+	ended := run(distributedtask.TaskStatusCancelled, "t1")
 	live := map[string]map[string]uint64{"body": {"searchable": 2}}
+	const changed, running = "reindex state of class TestClass changed during the backup; retry", `collection "TestClass" has an active runtime-reindex task`
 	for _, tc := range []struct {
 		name    string
 		state   *changingReindexState
-		changed bool
+		wantErr string
 	}{
 		{name: "unchanged state is captured", state: &changingReindexState{
 			tasksBefore: ended, tasksNow: ended, liveBefore: live, liveNow: live,
 		}},
-		{name: "a run that ended during the backup", changed: true, state: &changingReindexState{tasksNow: ended}},
-		{name: "a run gone during the backup", changed: true, state: &changingReindexState{tasksBefore: ended}},
-		{name: "a group switched during the backup", changed: true, state: &changingReindexState{
-			tasksBefore: ended, tasksNow: switchedMore,
+		{name: "a run that ended during the backup", wantErr: changed, state: &changingReindexState{tasksNow: ended}},
+		{name: "a run gone during the backup", wantErr: changed, state: &changingReindexState{tasksBefore: ended}},
+		{name: "a group switched during the backup", wantErr: changed, state: &changingReindexState{
+			tasksBefore: ended, tasksNow: run(distributedtask.TaskStatusCancelled, "t1", "t2"),
 		}},
-		{name: "Live flipped during the backup", changed: true, state: &changingReindexState{liveNow: live}},
+		{name: "Live flipped during the backup", wantErr: changed, state: &changingReindexState{liveNow: live}},
+		{name: "a started run switched a group during the backup", wantErr: running, state: &changingReindexState{
+			tasksBefore: run(distributedtask.TaskStatusStarted, "t1"), tasksNow: run(distributedtask.TaskStatusStarted, "t1", "t2"),
+		}},
+		{name: "a run applied after the capture started", wantErr: running, state: &changingReindexState{
+			tasksNow: run(distributedtask.TaskStatusStarted),
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rootDir := t.TempDir()
@@ -1515,14 +1479,14 @@ func TestDescriptorRefusesReindexStateChangedDuringBackup(t *testing.T) {
 			createColdShardFiles(t, rootDir, className, "t1")
 			idx := newDescriptorTestIndex(t, rootDir, className, state)
 			idx.db = &DB{}
-			idx.db.SetEndedReindexTaskReader(tc.state)
+			idx.db.SetReindexTaskReader(tc.state)
 			tc.state.SchemaReader = idx.schemaReader
 			idx.schemaReader = tc.state
 
 			var desc backup.ClassDescriptor
-			err := idx.descriptor(context.Background(), "b1", &desc, nil, newReindexGate(stubDBWithNoLiveReindex(), reindexGateMaxAge))
-			if tc.changed {
-				require.ErrorContains(t, err, "reindex state of class TestClass changed during the backup; retry")
+			err := idx.descriptor(context.Background(), "b1", &desc, nil)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
@@ -1549,7 +1513,7 @@ func backupTestDBWithColdTenants(t *testing.T, classes, tenants []string, state 
 	t.Helper()
 	logger, _ := tlog.NewNullLogger()
 	db := &DB{logger: logger, indices: map[string]*Index{}}
-	db.SetEndedReindexTaskReader(fakeEndedReindexTasks{})
+	db.SetReindexTaskReader(fakeReindexTasks{})
 	for _, className := range classes {
 		rootDir := t.TempDir()
 		for _, name := range tenants {

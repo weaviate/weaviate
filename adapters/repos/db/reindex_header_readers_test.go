@@ -46,10 +46,6 @@ func TestReindexHeaderReaders(t *testing.T) {
 			_, err := NewReindexProvider(&DB{}, logger, "n1", nil, context.Background()).StartTask(task)
 			return err != nil && strings.Contains(err.Error(), `collection "C" not found`)
 		}},
-		{"NewShardReindexActivityLookup", distributedtask.TaskStatusStarted, func(task *distributedtask.Task) bool {
-			hasUnit := func(distributedtask.TaskDescriptor, string) (bool, bool) { return true, true }
-			return NewShardReindexActivityLookup([]*distributedtask.Task{task}, hasUnit, logger)("C", "s1")
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			task := loadTasks(t, ReindexNamespace, &distributedtask.Task{

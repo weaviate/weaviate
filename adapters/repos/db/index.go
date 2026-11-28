@@ -379,10 +379,7 @@ type Index struct {
 	// docs/usage_limits.md.
 	usageLimits *usagelimits.Manager
 
-	// db is the owning *DB, set by the caller right after NewIndex
-	// returns. Used by [Index.refuseIfReindexInFlight] to consult the
-	// DTM-backed backup gate. Nil is treated conservatively by the gate
-	// (refuses).
+	// db is the owning *DB, set by the caller right after NewIndex returns.
 	db *DB
 }
 
@@ -1001,22 +998,6 @@ func (i *Index) beingDropped() bool {
 		return true
 	}
 	return i.getSchema != nil && i.getSchema.ReadOnlyClass(i.Config.ClassName.String()) == nil
-}
-
-// reportedShardNames orders and caps names at [maxReportedErrors] for an
-// operator-facing message; the cap itself is reported as an entry so the
-// count of unaccounted shards isn't lost.
-func reportedShardNames(names map[string]struct{}) []string {
-	sorted := make([]string, 0, len(names))
-	for name := range names {
-		sorted = append(sorted, name)
-	}
-	slices.Sort(sorted)
-	if len(sorted) <= maxReportedErrors {
-		return sorted
-	}
-	return append(sorted[:maxReportedErrors:maxReportedErrors],
-		fmt.Sprintf("(and %d more)", len(sorted)-maxReportedErrors))
 }
 
 // ForEachShard applies func f on each shard in the index.

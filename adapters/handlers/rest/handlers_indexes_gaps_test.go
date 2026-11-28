@@ -37,7 +37,6 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -1147,7 +1146,7 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 	}
 }
 
-// gateSourceOver answers the gate's two reads from one Manager, as the leader and this node would.
+// gateSourceOver answers task listings from one Manager, as the leader would.
 type gateSourceOver struct {
 	mgr *distributedtask.Manager
 	err error
@@ -1172,29 +1171,13 @@ func TestReindexRunServesIndexRetriesANewLeader(t *testing.T) {
 	require.False(t, h.reindexRunServesIndex(context.Background(), "C", "title", "filterable"))
 }
 
-func (s gateSourceOver) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(string) string) (bool, bool) {
-	return s.mgr.TaskHasUnit(namespace, desc, unitID)
-}
-
-func TestShardReindexActivityBuilder(t *testing.T) {
+func TestListTaskHeadersRetriesANewLeader(t *testing.T) {
 	errNoLeader := errors.New("no leader")
-	logger, _ := test.NewNullLogger()
-	unitOn := func(shard string) map[string]*distributedtask.Unit {
-		id := db.MigrationUnitID(shard, "node-1")
-		return map[string]*distributedtask.Unit{id: {ID: id, Shard: shard, NodeID: "node-1"}}
-	}
 	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {
 		db.ReindexNamespace: {{
 			Namespace: db.ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
 			Status:  distributedtask.TaskStatusStarted,
 			Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C", MigrationType: db.ReindexTypeRepairFilterable}),
-			Units:   unitOn("shard1"),
-		}},
-		db.DropVectorIndexNamespace: {{
-			Namespace: db.DropVectorIndexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "D", Version: 1},
-			Status:  distributedtask.TaskStatusStarted,
-			Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),
-			Units:   unitOn("shard2"),
 		}},
 	}})
 	require.NoError(t, err)
@@ -1214,21 +1197,20 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 		wantErr error
 	}{
 		{name: "the task list is unavailable", source: gateSourceOver{err: errNoLeader}, wantErr: errNoLeader},
-		{name: "a reindex task is running", source: gateSourceOver{mgr: mgr}},
+		{name: "the task list is read", source: gateSourceOver{mgr: mgr}},
 		{name: "a new leader refuses once", source: gateSourceOver{mgr: mgr, err: notCaughtUp, refusals: once()}},
 		{name: "a new leader's refusal is forwarded once", source: gateSourceOver{mgr: mgr, err: forwarded, refusals: once()}},
 		{name: "a new leader keeps refusing", source: gateSourceOver{err: notCaughtUp}, wantErr: types.ErrFSMNotCaughtUp},
 		{name: "another node refuses", source: gateSourceOver{mgr: mgr, err: errNoLeader, refusals: once()}, wantErr: errNoLeader},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			lookup, err := shardReindexActivityBuilder(context.Background(), tc.source, logger)()
+			tasks, err := listTaskHeaders(context.Background(), tc.source)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			require.True(t, lookup("C", "shard1"))
-			require.False(t, lookup("C", "shard2"))
+			require.Len(t, tasks[db.ReindexNamespace], 1)
 		})
 	}
 }

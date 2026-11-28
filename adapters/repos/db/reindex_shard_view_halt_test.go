@@ -23,10 +23,15 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-func noLiveRun(string, string) (bool, error) { return false, nil }
-
-func haltShard(t *testing.T, s *Shard) error {
-	return s.haltForTransfer(context.Background(), false, 0, noLiveRun)
+// haltShard halts as a backup would that passed its reindex check before the
+// fixture's tasks were applied.
+func haltShard(t *testing.T, f *viewFixture) error {
+	f.tasks.mu.Lock()
+	states := f.tasks.states
+	f.tasks.states = nil
+	f.tasks.mu.Unlock()
+	defer f.tasks.set(states...)
+	return f.shard.HaltForTransfer(context.Background(), false, 0)
 }
 
 func folderExists(dir string) bool {
@@ -43,7 +48,7 @@ func TestReindexShardViewDeletesWaitForBackupHalt(t *testing.T) {
 	}{
 		{name: "a retire queued during a halt deletes nothing until the resume", run: func(t *testing.T, f *viewFixture) {
 			plain := filepath.Join(f.shard.pathLSM(), plainTitle)
-			require.NoError(t, haltShard(t, f.shard))
+			require.NoError(t, haltShard(t, f))
 			f.tasks.set(switchedTask("a"))
 			require.NoError(t, f.shard.refreshView(context.Background()))
 			require.Equal(t, gen1Title, servedFolder(f.shard.loadView(), plainTitle))
@@ -56,17 +61,17 @@ func TestReindexShardViewDeletesWaitForBackupHalt(t *testing.T) {
 			held := f.shard.acquireView()
 			f.tasks.set(switchedTask("a"))
 			require.NoError(t, f.shard.refreshView(context.Background()))
-			require.ErrorIs(t, haltShard(t, f.shard), enterrors.ErrShardBusyStructuralOp)
+			require.ErrorIs(t, haltShard(t, f), enterrors.ErrShardBusyStructuralOp)
 			require.False(t, f.shard.haltedForTransfer())
 			held.release()
-			require.Eventually(t, func() bool { return haltShard(t, f.shard) == nil }, 5*time.Second, 10*time.Millisecond)
+			require.Eventually(t, func() bool { return haltShard(t, f) == nil }, 5*time.Second, 10*time.Millisecond)
 			require.NoError(t, f.shard.resumeMaintenanceCycles(context.Background()))
 		}},
 		{name: "a takeover of the same generation waits for the retire a halt holds", run: func(t *testing.T, f *viewFixture) {
 			build := filepath.Join(f.shard.pathLSM(), f.shard.loadView().staged[0].name)
 			marker := filepath.Join(build, "dead-run")
 			require.NoError(t, os.WriteFile(marker, nil, 0o644))
-			require.NoError(t, haltShard(t, f.shard))
+			require.NoError(t, haltShard(t, f))
 			f.tasks.set(stagedTask("takeover"))
 			require.ErrorIs(t, f.shard.refreshView(context.Background()), errViewNotReady)
 			require.Empty(t, stagedTasks(f.shard.loadView()))
@@ -83,7 +88,7 @@ func TestReindexShardViewDeletesWaitForBackupHalt(t *testing.T) {
 			b := f.shard.loadView().staged[0]
 			scratch := filepath.Join(f.shard.pathLSM(), b.name+reindexBuildSuffix)
 			require.NoError(t, os.MkdirAll(scratch, 0o755))
-			require.NoError(t, haltShard(t, f.shard))
+			require.NoError(t, haltShard(t, f))
 			done := make(chan error, 1)
 			enterrors.GoWrapper(func() { done <- f.shard.scanIntoBuild(context.Background(), b) }, f.idx.logger)
 			require.Never(t, func() bool { return !folderExists(scratch) || len(done) > 0 }, quiet, 10*time.Millisecond,
@@ -97,9 +102,9 @@ func TestReindexShardViewDeletesWaitForBackupHalt(t *testing.T) {
 			b := f.shard.loadView().staged[0]
 			end, err := f.shard.beginScan(context.Background(), b.name+reindexBuildSuffix)
 			require.NoError(t, err)
-			require.ErrorIs(t, haltShard(t, f.shard), enterrors.ErrShardBusyStructuralOp)
+			require.ErrorIs(t, haltShard(t, f), enterrors.ErrShardBusyStructuralOp)
 			end()
-			require.NoError(t, haltShard(t, f.shard))
+			require.NoError(t, haltShard(t, f))
 			require.NoError(t, f.shard.resumeMaintenanceCycles(context.Background()))
 		}},
 	}
