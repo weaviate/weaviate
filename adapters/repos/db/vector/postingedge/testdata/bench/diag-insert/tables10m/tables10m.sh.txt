@@ -1,0 +1,72 @@
+#!/bin/bash
+# The tables by doc id over the grown 10M index, before and after
+# (bench-report.md of feat/posting-edge-index, "Las tablas por docID sobre el
+# 10M", pre-registered on 2026-11-28): the search of an insert alone, the
+# inserts with 8 callers and with 1, and the heap, each pass on an APFS clone
+# of its own of the index, removed after it. before.test is m2 (8ed921ed59)
+# and after.test m2 with the tables (0e69426e81), with the same harness; both
+# built before, nothing here builds. Timed: marker, idle wait, caffeinate.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+X=$S/diag
+D=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+P=adapters/repos/db/vector/postingedge
+
+printf 'the tables by doc id over the 10M index, before and after (diag/tables10m.sh), timed, since %s for about an hour; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+# run <name> <before|after> <test> [NAME=value ...]
+run() {
+  local name=$1 bin=$2 test=$3
+  shift 3
+  local C=$X/tb10m/$name
+  local tree=$X/m2
+  [ $bin = after ] && tree=$X/tables
+  local free=$(df -k $X | tail -n 1 | awk '{print int($4/1048576)}')
+  if [ "$free" -lt 10 ]; then
+    date "+== %H:%M:%S $name NOT RUN: $free GiB free, under 10"
+    return
+  fi
+  mkdir -p $C
+  cp -c -R $S/grow10m/index $C/index || exit 3
+  # The store read once; the vectors stay as cold as a new clone is.
+  find $C/index/lsm -type f -exec cat {} + > /dev/null
+  # The heap is read from a profile of every allocation.
+  local flags=""
+  [ $test = TestNightHeap ] && flags="-test.memprofilerate=1"
+  date "+== %H:%M:%S $name: $bin $test $*"
+  (cd $tree/$P && exec env PE_DATASET=$D PE_DIR=$C/index PE_OUT=$C/result.json "$@" \
+    $X/$bin.test -test.run "^$test\$" -test.v -test.timeout 0 $flags > $C/run.log 2>&1) &
+  local pid=$!
+  python3 -I -B $X/monitor.py $pid $C/monitor.jsonl 2 > $C/monitor.err 2>&1 &
+  wait $pid
+  echo "$name exit $?"
+  wait
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/tb10m -type d -name index -prune -exec rm -rf {} +
+}
+
+# 1. The search of an insert alone, 1 thread, 5 000 plans: three rounds in turn.
+for r in 1 2 3; do
+  run search-t1-before-r$r before TestDiagSearch PE_THREADS=1 PE_N=5000
+  run search-t1-after-r$r after TestDiagSearch PE_THREADS=1 PE_N=5000
+done
+# 2. 20 000 inserts with 8 callers: three rounds in turn.
+for r in 1 2 3; do
+  run inserts-c8-before-r$r before TestDiagInserts PE_CALLERS=8
+  run inserts-c8-after-r$r after TestDiagInserts PE_CALLERS=8
+done
+# 3. 20 000 inserts with 1 caller: two rounds in turn.
+for r in 1 2; do
+  run inserts-c1-before-r$r before TestDiagInserts PE_CALLERS=1
+  run inserts-c1-after-r$r after TestDiagInserts PE_CALLERS=1
+done
+# 4. The heap of each binary over the index, opened with its codes in memory.
+for bin in before after; do
+  run heap-$bin $bin TestNightHeap PE_CACHE=routing PE_HEAP=$X/tb10m/heap-$bin/heap.heap PE_OUT=$X/tb10m/heap-$bin/heap.json
+done
+date "+== %Y-%m-%d %H:%M:%S passes done" | tee $X/tb10m/end.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

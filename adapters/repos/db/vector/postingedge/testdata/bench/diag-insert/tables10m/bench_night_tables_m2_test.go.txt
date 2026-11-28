@@ -1,0 +1,35 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package postingedge
+
+// What the harness of the night reads of what an index keeps by doc id
+// (bench_night_grow_test.go, bench_night_points_test.go), with the tables as
+// m2 has them: one entry for every doc id the index has room for.
+
+// nightDeleted counts the vectors that are marked deleted.
+func nightDeleted(g *growIndex) int {
+	deleted := 0
+	for _, d := range g.deleted {
+		if d {
+			deleted++
+		}
+	}
+	return deleted
+}
+
+// nightKeys is how many doc ids the table of the live vectors and that of
+// the deleted ones have room for.
+func nightKeys(g *growIndex) (live, deleted int) {
+	return len(g.live), len(g.deleted)
+}

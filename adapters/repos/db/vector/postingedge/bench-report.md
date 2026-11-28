@@ -2067,6 +2067,38 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
   - **Arreglado en backup** (`628cdd9733`): el test distingue esa copia de la que quiere, por los ficheros del bucket de objetos antes del put y en la copia, y pone otro objeto hasta que la copia es de antes de cualquier escritura del store. Forzando la espera en el primer intento, lo detecta y pasa con el segundo; sin forzar, 20 de 20. Los tests por un shard y el linter, en verde antes de subir.
   - Los otros tests que copian ficheros de un shard lo hacen por el camino del backup, que no depende de ese ciclo.
 
+#### Las tablas por docID sobre el 10M, antes y después (pre-registro, 28 de noviembre a las 04:22, antes de ejecutarlo)
+
+**El encargo (del usuario, 16:45 y 20:55 del 27):** además de la medida de 1M, 20 000 inserts sobre un clon del 10M crecido, antes y después, con el mismo umbral del 3 %. A escala el insert depende de la memoria, y una indirección puede costar más ahí.
+
+**Va antes que la medida de 1M** (*mío*): la de 1M necesita unos 23 GB de pico en disco y hay 19 GiB libres. Esta trabaja sobre clones. La de 1M queda para cuando haya sitio.
+
+**Los binarios.** «Antes» es `m2` (`8ed921ed59`). «Después» es lo mismo más las tablas (`0e69426e81`, en commits de trabajo: la serie en limpio se hace si cumple). El arnés es el de la pasada de diagnóstico, sin los relojes nuevos, que `m2` no tiene. Compilados a las 04:20 y probados los dos sobre el índice de 20 000.
+- Sobre ese índice pequeño, las cuentas de la búsqueda sola salen idénticas con los dos: 22.096 cargas y 5 530.6 miembros por plan.
+
+**Lo que la pasada de diagnóstico enseña para leer esto.**
+- A 10M, las pasadas iguales de inserts se separan hasta un 5.5 % en ritmo, por la caché de ficheros. La CPU por insert, entre un 1 y un 2 %.
+- La indirección está en el recorrido, que es CPU: 9.6 a 9.7 ms por plan con 1 hilo. El reloj del recorrido existe ya en `m2`.
+
+**Las medidas,** cada pasada sobre un clon nuevo del índice, con el store leído antes y los vectores en frío (enmienda 2 de la pasada de diagnóstico):
+1. **La búsqueda del insert sola, con 1 hilo, 5 000 planes,** tres rondas alternadas. De cada una, los ms de recorrido por plan, los ms del plan, y la CPU y las instrucciones por plan. Las cargas, las filas y los miembros deben salir idénticos entre binarios: si no, paro.
+2. **20 000 inserts con 8 llamadores,** tres rondas alternadas: inserts por segundo, CPU por insert y reloj del plan.
+3. **20 000 inserts con 1 llamador,** dos rondas alternadas.
+4. **El heap al abrir en `routing`,** de cada binario.
+
+**La regla, con el 3 % del usuario.**
+- **No cumple a 10M** si la mediana del de después supera a la del de antes en un 3 % o más en los ms de recorrido por plan, o queda un 3 % o más por debajo en inserts por segundo, con 8 llamadores o con 1.
+- **Una celda queda marcada** si las rondas de un mismo binario se separan un 3 % o más. Si el veredicto depende de una celda marcada, repito esa medida con cinco rondas antes de darlo.
+- La CPU y las instrucciones por insert se dan como apoyo, sin umbral.
+- **Si no cumple:** como en la enmienda 1 de las tablas. No entra en la base, y propongo el camino directo para el caso denso sin implementarlo.
+
+**Lo que espero** (*mío*, antes de ningún dato). Por plan a 10M la búsqueda sigue 170 000 aristas y puntúa 75 000 extremos. La entrada de 8 B por doc id sustituye a la lectura del posting, de 4 B, en una tabla del doble de tamaño (100 MB frente a 50), y el código se pide por la posición que da esa entrada.
+- **Recorrido:** entre un 2 y un 7 % más. No sé de qué lado del 3 % cae.
+- **Inserts por segundo con 8 llamadores:** la diferencia quedará por debajo de lo que se separan las pasadas iguales. Probablemente una celda marcada.
+- **Heap:** unos 180 MB menos, los códigos de ruteo de las posiciones que hoy no tienen vector.
+
+**Duración estimada:** unos 50 minutos.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
