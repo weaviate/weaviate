@@ -920,19 +920,34 @@ func TestManager_UpdateUnitProgress_Failures(t *testing.T) {
 		require.ErrorContains(t, err, "does not exist")
 	})
 
-	t.Run("terminal unit ignored", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		var version uint64 = 10
-		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1", "su-2"})
-		completeUnit(t, h, "ns", "task1", version, "node-1", "su-1")
+	for _, tc := range []struct {
+		name     string
+		progress float32
+		refused  bool
+	}{
+		{name: "terminal unit refuses a new claim", progress: 0, refused: true},
+		{name: "terminal unit ignores later progress", progress: 0.5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			var version uint64 = 10
+			addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1", "su-2"})
+			completeUnit(t, h, "ns", "task1", version, "node-1", "su-1")
 
-		// Progress update should be silently ignored
-		err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
-			Namespace: "ns", Id: "task1", Version: version,
-			NodeId: "node-1", UnitId: "su-1", Progress: 0.5, UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}))
-		require.NoError(t, err)
-	})
+			err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+				Namespace: "ns", Id: "task1", Version: version,
+				NodeId: "node-1", UnitId: "su-1", Progress: tc.progress, UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+			}))
+			if !tc.refused {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrUnitAlreadyTerminal)
+			require.ErrorIs(t, err, ErrPermanentRejection)
+			tasks, _ := h.manager.ListDistributedTasks(context.Background())
+			require.Equal(t, UnitStatusCompleted, tasks["ns"][0].Units["su-1"].Status)
+		})
+	}
 }
 
 func TestManager_UpdateUnitProgress_InvalidValues(t *testing.T) {
