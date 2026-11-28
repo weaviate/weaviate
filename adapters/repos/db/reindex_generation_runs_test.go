@@ -249,13 +249,27 @@ func TestReindexGenerationRuns_ReloadAfterSnapshotInstall(t *testing.T) {
 	c.addTenants("t1")
 	plain, gen1 := reindexBucketName(genProp, indexTypeFilterable, 0), reindexBucketName(genProp, indexTypeFilterable, 1)
 	serves := func(n *genNode) bool { return servedFolder(n.shard("t1").loadView(), plain) == gen1 }
+	// The test handles the queue itself: the loop could otherwise take t1's load
+	// notice after the flip and serve generation 1 without the reload.
+	r := n.db.reindexRefresh
+	r.shutdown()
+	handleQueued := func() (classQueued bool) {
+		for coll, shards := range r.takeWork(time.Now().Add(time.Hour)) {
+			r.refreshCollection(c.ctx, coll, shards)
+			classQueued = classQueued || coll == c.class
+		}
+		return classQueued
+	}
+	handleQueued()
 	require.NoError(t, c.apply(api.ApplyRequest_TYPE_REINDEX_FLIP, c.class, api.ReindexFlipRequest{
 		Prop: genProp, Gen: 1, IndexTypes: []string{indexTypeFilterable},
 	}))
-	require.Never(t, func() bool { return serves(n) }, 300*time.Millisecond, 10*time.Millisecond, "a flip sends no notice")
+	require.False(t, handleQueued(), "a flip sends no notice")
+	require.False(t, serves(n))
 
 	n.sm.ReloadDBFromSchema()
-	c.waitFor("t1 to serve generation 1", func() bool { return serves(n) })
+	require.True(t, handleQueued(), "the reload sends a notice")
+	require.True(t, serves(n))
 
 	// A load opens only generation 1, so the next reload's property probe must ask the view.
 	c.crash(0)
