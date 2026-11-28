@@ -28,53 +28,12 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestRestartDuringSwap verifies that a NEW write submitted between the moment
-// the reindex unit is COMPLETED (and the container is restarted) and the moment
-// OnGroupCompleted fires the swap on the next scheduler tick is NOT lost.
-//
-// The concern: ReindexProvider keeps a per-task cache of
-// *ShardReindexTaskGeneric instances. These instances hold the registered
-// double-write callbacks (OnAfterLsmInit registers them via
-// registerDoubleWriteCallbacks). If Weaviate restarts after the reindex unit
-// is COMPLETED but before OnGroupCompleted fires:
-//
-//   - The cache is empty (only populated in StartTask / processOneUnit).
-//   - The scheduler does NOT call StartTask for terminal-units tasks
-//     (scheduler.go: filterStartedTasks requires NodeHasNonTerminalUnits).
-//   - OnGroupCompleted falls back to createReindexTasks → fresh task instances
-//     with NO double-write callbacks registered.
-//   - Writes during the swap-recovery window therefore go ONLY to the OLD main
-//     bucket. After the swap replaces the main bucket with the ingest bucket,
-//     those writes are lost.
-//
-// Test strategy:
-//  1. Create a collection with tokenization=word.
-//  2. Insert baseline objects.
-//  3. Submit a change-tokenization reindex (word → field).
-//  4. Poll /v1/tasks until the task is FINISHED (RAFT-level: all units
-//     terminal). At this moment the swap has likely NOT yet completed
-//     (see TestSingleNode_FinishedStatusRaceWithSchemaFlag — the swap
-//     fires on the next scheduler tick, up to 1s later).
-//  5. Stop the container immediately (SIGKILL via 0 timeout).
-//  6. Start the container again.
-//  7. As soon as the container is ready, write a NEW object with a unique
-//     marker that requires FIELD tokenization to be retrievable as a single
-//     token.
-//  8. Wait for the schema tokenization to flip to "field" (swap complete).
-//  9. Query with field-tokenization-style BM25 and EQUAL filter — the new
-//     object must appear in the new bucket.
-//
-// If this test PASSES, the cache-loss is harmless (some other recovery path
-// re-registers callbacks, e.g. via OnAfterLsmInit during shard startup).
-// If this test FAILS, the cache-loss is a real bug: writes during the
-// swap-recovery window are not double-written and are lost on swap.
+// TestRestartDuringSwap kills the node the moment a change-tokenization run
+// reports done, restarts it, and checks that a write made right after the
+// restart is found at the target tokenization by BM25 and an Equal filter.
 func TestRestartDuringSwap(t *testing.T) {
 	ctx := context.Background()
 
-	// The shared config's 1s scheduler tick gives us up to ~1s after
-	// FINISHED is reported in RAFT before OnGroupCompleted fires —
-	// comfortably wider than the time needed to issue StopAt(... 0
-	// timeout) and kill the container.
 	compose, err := reindexhelpers.StartSingleNode(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -159,13 +118,11 @@ func TestRestartDuringSwap(t *testing.T) {
 		`{"tokenization":"field"}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	// Step 4: poll /v1/tasks until FINISHED. Keep a tight 20ms tick: this
-	// test SIGKILLs at the FINISHED boundary, so the poll cadence is
-	// load-bearing for hitting the swap-recovery window.
+	// Step 4: poll until done. The 20ms tick keeps the kill close to the flip.
 	var sawFinishedAt time.Time
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		status, err := fetchTaskStatus(restURI, taskID)
-		require.NoError(t, err)
+		status := poller.Status()
 		if status == "FAILED" {
 			t.Fatalf("task FAILED before reaching FINISHED")
 		}
@@ -192,7 +149,6 @@ func TestRestartDuringSwap(t *testing.T) {
 	// Step 6: restart the container.
 	require.NoError(t, compose.StartAt(ctx, 0))
 	helper.SetupClient(compose.GetWeaviate().URI())
-	restURI = compose.GetWeaviate().URI()
 	t.Logf("container restarted at %v (elapsed since stop trigger: %v)",
 		time.Now(), time.Since(sawFinishedAt))
 
@@ -231,11 +187,6 @@ func TestRestartDuringSwap(t *testing.T) {
 	} else {
 		t.Logf("post-restart: tokenization flipped to field")
 	}
-
-	// Sanity: task should still be reported as FINISHED.
-	finalStatus, err := fetchTaskStatus(restURI, taskID)
-	require.NoError(t, err)
-	t.Logf("post-restart task status: %q", finalStatus)
 
 	// Step 9: query with FIELD-tokenization-style queries.
 	//

@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -29,28 +28,8 @@ type RoaringSetRefreshStrategy struct {
 	generation int // see genSuffix godoc
 }
 
-func (s *RoaringSetRefreshStrategy) StrategyCode() MigrationStrategyCode {
-	return StrategyCodeFilterableRoaringsetRefresh
-}
-
 func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketFromPropNameLSM(propName)
-}
-
-func (s *RoaringSetRefreshStrategy) ReindexSuffix() string {
-	return "__roaringset_reindex" + genSuffix(s.generation)
-}
-
-func (s *RoaringSetRefreshStrategy) IngestSuffix() string {
-	return "__roaringset_ingest" + genSuffix(s.generation)
-}
-
-func (s *RoaringSetRefreshStrategy) SourceStrategy() string {
-	return lsmkv.StrategyRoaringSet
-}
-
-func (s *RoaringSetRefreshStrategy) SourceIndexType() PropertyIndexType {
-	return IndexTypePropValue
 }
 
 func (s *RoaringSetRefreshStrategy) TargetStrategy() string {
@@ -108,13 +87,4 @@ func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) 
 		}
 		return nil
 	}
-}
-
-func (s *RoaringSetRefreshStrategy) PreReindexHook(shard *Shard, props []string) {
-	// No-op: no property marking needed for same-strategy refresh.
-}
-
-func (s *RoaringSetRefreshStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
-	// No-op: no schema update needed for same-strategy refresh.
-	return nil
 }

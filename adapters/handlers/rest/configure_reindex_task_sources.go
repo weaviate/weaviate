@@ -14,58 +14,19 @@ package rest
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/types"
 )
 
-type migrationTaskRaft interface {
-	LocalTaskStatuses(namespace, shard string) []distributedtask.TaskStatusEntry
-	FSMHasCaughtUp() bool
-	ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error)
-}
-
-func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSource {
-	return func(shard string) ([]distributedtask.TaskStatusEntry, bool) {
-		if !raft.FSMHasCaughtUp() {
-			return nil, false
-		}
-		return raft.LocalTaskStatuses(db.ReindexNamespace, shard), true
-	}
-}
-
-func newMigrationClusterTaskSource(raft migrationTaskRaft) db.MigrationClusterTaskSource {
-	return func(ctx context.Context) ([]*distributedtask.Task, error) {
-		if !raft.FSMHasCaughtUp() {
-			return nil, fmt.Errorf("this node is still applying its RAFT log, so it cannot tell a task " +
-				"it has not added yet from one the cluster removed")
-		}
-		tasksByNamespace, err := listTaskHeaders(ctx, raft)
-		if err != nil {
-			return nil, err
-		}
-		return tasksByNamespace[db.ReindexNamespace], nil
-	}
-}
-
 const catchUpRetryBudget = 2 * time.Second
 
-// catchUpRetryLister retries a new leader's refusal, which also starts the catch-up nothing else starts without writes.
-type catchUpRetryLister struct {
-	distributedtask.TaskHeaderLister
-}
-
-func (l catchUpRetryLister) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	return listTaskHeaders(ctx, l.TaskHeaderLister)
-}
-
+// listTaskHeaders retries a new leader's refusal, which also starts the catch-up nothing else starts without writes.
 func listTaskHeaders(ctx context.Context, lister distributedtask.TaskHeaderLister) (map[string][]*distributedtask.Task, error) {
 	return listRetryingCatchUp(ctx, lister.ListDistributedTaskHeaders)
 }

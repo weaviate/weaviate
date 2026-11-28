@@ -15,13 +15,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // stubRecorder is a tiny TaskCompletionRecorder that lets a test program the
@@ -250,6 +254,39 @@ func TestFailUnit_TransientError_StillRetriesAfterPermanentBranchAdded(t *testin
 
 	require.Equal(t, int32(2), rec.failureCalls.Load(),
 		"transient error path retries; second call succeeds")
+}
+
+// A recorder outage hits every waiting unit at once, so its retry lines are sampled per node.
+func TestRecorderRetryLinesAreSampled(t *testing.T) {
+	const units = 15
+	p, hook := newTestProvider(t)
+	refusals := make([]error, 1000)
+	for i := range refusals {
+		refusals[i] = errors.New("raft applyTimeout")
+	}
+	rec := &stubRecorder{failureResults: refusals}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wg sync.WaitGroup
+	for i := range units {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			p.failUnit(ctx, newFailUnitTestTask(), fmt.Sprintf("unit-%d", i), rec, "disk full")
+		}, p.logger)
+	}
+	require.Eventually(t, func() bool { return rec.failureCalls.Load() >= 3*units }, 10*time.Second, 10*time.Millisecond)
+	cancel()
+	wg.Wait()
+
+	retries := 0
+	for _, e := range hook.AllEntries() {
+		if strings.Contains(e.Message, "failed to record unit failure") {
+			retries++
+		}
+	}
+	require.NotZero(t, retries)
+	require.LessOrEqual(t, retries, maxReportedErrors)
 }
 
 func contains(s, sub string) bool {

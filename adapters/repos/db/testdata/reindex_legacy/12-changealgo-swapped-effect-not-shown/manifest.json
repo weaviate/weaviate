@@ -1,0 +1,239 @@
+{
+  "baselineBeforeMigration": {
+    "filterEqual_title_hello_world": 10,
+    "bm25_title_hello": 10,
+    "bm25_title_hello_world": 10
+  },
+  "classAtUpgrade": {
+    "class": "Q718Legacy",
+    "invertedIndexConfig": {
+      "cleanupIntervalSeconds": 60,
+      "indexNullState": true,
+      "indexPropertyLength": true,
+      "stopwords": {
+        "additions": null,
+        "preset": "none",
+        "removals": null
+      }
+    },
+    "multiTenancyConfig": {
+      "autoTenantActivation": false,
+      "autoTenantCreation": false,
+      "enabled": true
+    },
+    "properties": [
+      {
+        "dataType": [
+          "text"
+        ],
+        "indexFilterable": true,
+        "indexSearchable": true,
+        "name": "title",
+        "tokenization": "word"
+      }
+    ],
+    "vectorIndexConfig": {
+      "skip": false,
+      "cleanupIntervalSeconds": 300,
+      "maxConnections": 32,
+      "efConstruction": 128,
+      "ef": -1,
+      "dynamicEfMin": 100,
+      "dynamicEfMax": 500,
+      "dynamicEfFactor": 8,
+      "vectorCacheMaxObjects": 1000000000000,
+      "flatSearchCutoff": 40000,
+      "distance": "cosine",
+      "pq": {
+        "enabled": false,
+        "bitCompression": false,
+        "segments": 0,
+        "centroids": 256,
+        "trainingLimit": 100000,
+        "encoder": {
+          "type": "kmeans",
+          "distribution": "log-normal"
+        }
+      },
+      "bq": {
+        "enabled": false
+      },
+      "sq": {
+        "enabled": false,
+        "trainingLimit": 100000,
+        "rescoreLimit": 20
+      },
+      "rq": {
+        "enabled": false,
+        "bits": 8,
+        "rescoreLimit": 20,
+        "centering": false,
+        "trainingLimit": 10000
+      },
+      "filterStrategy": "acorn",
+      "multivector": {
+        "enabled": false,
+        "muvera": {
+          "enabled": false,
+          "ksim": 4,
+          "dprojections": 16,
+          "repetitions": 10
+        },
+        "aggregation": "maxSim"
+      },
+      "skipDefaultQuantization": false,
+      "trackDefaultQuantization": false
+    }
+  },
+  "effectShownByClass": false,
+  "expectedNote": "CONFLICT: the class says map (no searchableBlockmax), but the swap deleted the plain map-format searchable folder; the staged blockmax folder is the only copy. v1.39.17 serves it through the record's overlay (counts listed). The planned rule (class does not show effect -\u003e delete staged) leaves no searchable index: BM25 returns 0 or the load fails.",
+  "expectedOnNewCode": {
+    "foo-tenant": {
+      "filterEqual_title_hello_world": 10,
+      "bm25_title_hello": 10,
+      "bm25_title_hello_world": 10
+    }
+  },
+  "files": [
+    "./",
+    "indexcount (8 B)",
+    "lsm/",
+    "lsm/.migrations/",
+    "lsm/.migrations/records/",
+    "lsm/.migrations/records/1_searchable_map_to_blockmax_foo-tenant__node1.json (719 B)",
+    "lsm/objects/",
+    "lsm/objects/segment-1795431323406290000.bloom (52 B)",
+    "lsm/objects/segment-1795431323406290000.cna (12 B)",
+    "lsm/objects/segment-1795431323406290000.db (2562 B)",
+    "lsm/objects/segment-1795431323406290000.secondary.0.bloom (52 B)",
+    "lsm/property__id/",
+    "lsm/property__id/segment-1795431323406270000.db (1386 B)",
+    "lsm/property_title/",
+    "lsm/property_title/segment-1795431323406302000.db (766 B)",
+    "lsm/property_title_nullState/",
+    "lsm/property_title_nullState/segment-1795431323406278000.db (258 B)",
+    "lsm/property_title_propertyLength/",
+    "lsm/property_title_propertyLength/segment-1795431323406324000.db (528 B)",
+    "lsm/property_title_searchable__blockmax_ingest_1/",
+    "lsm/property_title_searchable__blockmax_ingest_1/segment-1795431323408929000.bloom (36 B)",
+    "lsm/property_title_searchable__blockmax_ingest_1/segment-1795431323408929000.db (444 B)",
+    "proplengths (104 B)",
+    "version (2 B)"
+  ],
+  "fixture": "12-changealgo-swapped-effect-not-shown",
+  "generatedBy": "v1.39.17 (7fd11ac128) adapters/repos/db TestQ718v2GenerateLegacyFixtures",
+  "howV13917GotHere": "Failed partial run: tenant swapped, task FAILED, no stamp.",
+  "lsmTopLevelDirs": [
+    ".migrations",
+    "objects",
+    "property__id",
+    "property_title",
+    "property_title_nullState",
+    "property_title_propertyLength",
+    "property_title_searchable__blockmax_ingest_1"
+  ],
+  "migrationType": "change-algorithm",
+  "nodeName": "node1",
+  "objectCount": 10,
+  "objects": [
+    {
+      "id": "9605ff90-a306-57d6-9cfe-c739b0f6f59f",
+      "title": "hello world"
+    },
+    {
+      "id": "f77982e6-2975-51f6-9093-ce2440d39cce",
+      "title": "hello world"
+    },
+    {
+      "id": "c1d096f3-5b7d-5e19-83cc-7f1f2e37849e",
+      "title": "hello world"
+    },
+    {
+      "id": "b6010ca7-2418-5dac-a422-24fb93b46254",
+      "title": "hello world"
+    },
+    {
+      "id": "1399218e-77c8-5b46-9a96-7001302c88f8",
+      "title": "hello world"
+    },
+    {
+      "id": "96cca2b3-d9a0-59ae-8942-7387765055bc",
+      "title": "hello there world"
+    },
+    {
+      "id": "9305456c-48e9-5128-a5fd-61b758a579df",
+      "title": "hello there world"
+    },
+    {
+      "id": "8047a45f-ac7d-5dd6-906f-85f50e5ef6b4",
+      "title": "hello there world"
+    },
+    {
+      "id": "18cccc49-db03-5ae0-a4d2-2157498012ed",
+      "title": "world hello"
+    },
+    {
+      "id": "e67c5e85-b982-51ec-a371-90de85c042c2",
+      "title": "world hello"
+    }
+  ],
+  "queries": {
+    "bm25_title_hello": "bm25 query \"hello\" on title",
+    "bm25_title_hello_world": "bm25 query \"hello world\" on title",
+    "filterEqual_title_hello_world": "where title Equal \"hello world\" (valueText)"
+  },
+  "recordStateAtUpgrade": "swapped",
+  "records": [
+    {
+      "file": ".migrations/records/1_searchable_map_to_blockmax_foo-tenant__node1.json",
+      "state": "swapped",
+      "decoded": {
+        "formatVersion": 1,
+        "state": "swapped",
+        "subject": {
+          "key": {
+            "taskVersion": 1,
+            "strategyCode": "searchable_map_to_blockmax",
+            "unitID": "foo-tenant__node1"
+          },
+          "taskID": "q718-legacy-fixture",
+          "migrationType": "change-algorithm",
+          "collection": "Q718Legacy",
+          "iterationCutoff": "2026-11-23T11:55:23.41+01:00",
+          "props": {
+            "title": {
+              "staged": "property_title_searchable__blockmax_ingest_1",
+              "canonical": "property_title_searchable",
+              "sidecar": "property_title_searchable__blockmax_reindex_1"
+            }
+          }
+        },
+        "flip": {
+          "flipped": [
+            "title"
+          ],
+          "displacedDirs": {
+            "title": "property_title_searchable"
+          }
+        }
+      }
+    }
+  ],
+  "shardDirName": "foo-tenant",
+  "tarball": "shard.tar.gz (root entry = shard directory, i.e. \u003cindexDir\u003e/foo-tenant)",
+  "taskID": "q718-legacy-fixture",
+  "taskVersion": 1,
+  "tenant": "foo-tenant",
+  "unitID": "foo-tenant__node1",
+  "v13917AfterOneMoreLoad": {
+    "counts": {
+      "filterEqual_title_hello_world": 10,
+      "bm25_title_hello": 10,
+      "bm25_title_hello_world": 10
+    },
+    "recordStatesAfter": [
+      "promoted"
+    ],
+    "taskStatusSeen": "FAILED"
+  }
+}

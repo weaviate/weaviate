@@ -32,12 +32,9 @@ import (
 
 // This file is the weaviate/weaviate#12199 regression suite: with
 // INDEX_RANGEABLE_IN_MEMORY=true, an enable-rangeable reindex must not serve
-// empty range results after the per-shard swap (no restart required). Also
-// pins the disk-fallback WARN and rebuild-at-finalize INFO log signals.
-const (
-	fallbackWARNSubstr        = "rangeable in-memory index is empty"
-	rebuildFinalizeINFOSubstr = "rangeable in-memory index built at migration finalize"
-)
+// empty range results once the run finishes (no restart required), and no
+// read may fall back to disk with the WARN below.
+const fallbackWARNSubstr = "rangeable in-memory index is empty"
 
 // countInLogs returns the number of lines in a container's logs containing substr.
 func countInLogs(ctx context.Context, t *testing.T, c interface {
@@ -59,38 +56,9 @@ func countInLogs(ctx context.Context, t *testing.T, c interface {
 	return n
 }
 
-// assertRebuildFinalizeThenNoFallbackWarn requires the rebuild INFO at least
-// once, then no fallback WARN after the last such INFO line.
-func assertRebuildFinalizeThenNoFallbackWarn(ctx context.Context, t *testing.T, container interface {
-	Logs(context.Context) (io.ReadCloser, error)
-}, failMsgInfo, failMsgWarn string,
-) {
-	t.Helper()
-	reader, err := container.Logs(ctx)
-	require.NoError(t, err, "reading container logs")
-	defer reader.Close()
-	raw, err := io.ReadAll(reader)
-	require.NoError(t, err, "draining container logs")
-
-	lines := strings.Split(string(raw), "\n")
-	lastInfoIdx := -1
-	for i, line := range lines {
-		if strings.Contains(line, rebuildFinalizeINFOSubstr) {
-			lastInfoIdx = i
-		}
-	}
-	require.GreaterOrEqual(t, lastInfoIdx, 0, failMsgInfo)
-
-	for i, line := range lines[lastInfoIdx+1:] {
-		if strings.Contains(line, fallbackWARNSubstr) {
-			t.Fatalf("%s (found at log line %d, after the rebuild-finalize INFO at line %d)", failMsgWarn, lastInfoIdx+1+i, lastInfoIdx)
-		}
-	}
-}
-
 // startSingleNodeRangeableInMemCluster starts a 1-node cluster with the
-// in-mem rangeable knob on and LOG_LEVEL=info so the rebuild-at-finalize
-// INFO / fallback WARN are visible in the logs the assertions grep.
+// in-mem rangeable knob on and LOG_LEVEL=info so the fallback WARN is
+// visible in the logs the assertions grep.
 func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
 	t.Helper()
 	compose, err := docker.New().
@@ -139,8 +107,7 @@ func TestRangeableInMemory_SingleNode_AcceptanceAndRestartHandoff(t *testing.T) 
 	container := compose.GetWeaviate().Container()
 
 	const className = "RangeableInMemAcceptance"
-	// 3 shards => 3 rangeable buckets, each rebuilt at migration finalize,
-	// so the rebuild-at-finalize INFO fires per bucket.
+	// 3 shards => 3 rangeable buckets, each of which must serve correctly.
 	createCollection(t, compose, restURI, className, 3, 1, rangeableScoreProps())
 	// Read the URI lazily at cleanup time: the restart below re-maps the host
 	// port, so a URI captured now would be stale by the time this defer runs.
@@ -157,18 +124,12 @@ func TestRangeableInMemory_SingleNode_AcceptanceAndRestartHandoff(t *testing.T) 
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
-	// Poll briefly for the per-shard swap + schema flip to settle, then check
+	// Poll briefly for the views to serve the new generation, then check
 	// counts and the disk-fallback WARN.
 	awaitRangeCountSettledNoFallback(ctx, t, container, restURI, className,
 		rangeLo, rangeHi, expectedBaseline,
-		"weaviate/weaviate#12199: post-swap range count must equal golden %d WITHOUT restart", expectedBaseline,
+		"weaviate/weaviate#12199: post-flip range count must equal golden %d WITHOUT restart", expectedBaseline,
 		"disk-fallback WARN must not fire on the fixed path; its presence means an empty in-memory rep was served (weaviate/weaviate#12199)")
-
-	// Promoted buckets must serve range queries from memory immediately
-	// after the swap, no restart.
-	assertRebuildFinalizeThenNoFallbackWarn(ctx, t, container,
-		"rebuild-at-finalize INFO must fire post-swap WITHOUT restart; absence means the in-memory rep was not rebuilt synchronously at migration finalize",
-		"disk-fallback WARN must not fire after the rebuild-at-finalize INFO; its presence means a read fell back to disk after the rep was supposedly rebuilt")
 
 	// Post-restart: boot-time population rebuilds the in-memory rep from disk,
 	// so reads serve from the rep again and no fallback WARN fires.

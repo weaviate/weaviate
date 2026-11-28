@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 type testHeader string
@@ -1512,8 +1511,13 @@ type landedDetector struct {
 	landed bool
 }
 
-func (d *landedDetector) CutoverLanded(*Task, func(string) *models.Class) bool     { return d.landed }
-func (d *landedDetector) CheckMigrationPropertyUpdate(string, string, *Task) error { return nil }
+func (d *landedDetector) CutoverLanded(*Task, func(string) map[string]map[string]uint64) bool {
+	return d.landed
+}
+
+func (d *landedDetector) CheckMigrationPropertyUpdate(string, string, uint64, *Task) error {
+	return nil
+}
 
 // TestManager_SnapshotRestore_WithPostCompletionAcks pins the
 // crash-safety property the https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A fix relies on:
@@ -1563,7 +1567,7 @@ type fakeSchemaMutationDetector struct {
 	rejectWith    error
 }
 
-func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error {
+func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName, _ string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
 	f.lastPropName = propertyName
@@ -1590,7 +1594,7 @@ func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenan
 func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	t.Run("no detectors registered → nil", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name", ""))
 	})
 
 	t.Run("detector returns nil → CheckPropertyUpdate returns nil", func(t *testing.T) {
@@ -1601,7 +1605,7 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		}
 		h.init(t)
 
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name", ""))
 		require.Equal(t, 1, detector.called,
 			"detector MUST be consulted exactly once per CheckPropertyUpdate")
 		require.Equal(t, "C", detector.lastClassName)
@@ -1618,7 +1622,7 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		}
 		h.init(t)
 
-		err := h.manager.CheckPropertyUpdate("C", "name")
+		err := h.manager.CheckPropertyUpdate("C", "name", "")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated conflict")
 	})
@@ -1629,7 +1633,7 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 			"reindex": nil,
 		}
 		h.init(t)
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name", ""))
 	})
 }
 
@@ -1669,7 +1673,7 @@ func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
 	idOf := map[string]string{"Foo": "same", "Bar": "other", "": "unknown"}
 	checks := map[string]func(m *Manager, d *fakeRemovalGate) error{
-		"property": func(m *Manager, _ *fakeRemovalGate) error { return m.CheckPropertyUpdate("foo", "name") },
+		"property": func(m *Manager, _ *fakeRemovalGate) error { return m.CheckPropertyUpdate("foo", "name", "") },
 		"class":    func(m *Manager, _ *fakeRemovalGate) error { return m.CheckClassMutation("foo") },
 		"tenant":   func(m *Manager, _ *fakeRemovalGate) error { return m.CheckTenantMutation("foo", []string{"t1"}) },
 		"vector config removal": func(m *Manager, _ *fakeRemovalGate) error {
@@ -2245,9 +2249,6 @@ func TestManager_RecordPreparationCompleteAck_Success(t *testing.T) {
 	addBarrierTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1", "u-node-2", "u-node-3"})
 	drivePreparing(t, h, "ns", "task1", version, nodes)
 
-	// First two acks: task must stay PREPARING — the barrier hasn't
-	// lifted yet (load-bearing property; the third node must NOT see
-	// SWAPPING and prematurely fire its OnSwapRequested).
 	// Each listed copy is encoded, as the list query does, while later acks land.
 	var listed []*Task
 	stop := make(chan struct{})
@@ -2559,7 +2560,7 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 		{TaskStatusStarted, true, ""},
 		{unknownFutureStatus, false, "no longer running"},
 		{TaskStatusPreparing, true, ""},
-		{TaskStatusSwapping, false, "ends once every replica that owes a swap has swapped"},
+		{TaskStatusSwapping, false, "ends once its flip lands"},
 		{TaskStatusFinished, false, "no longer running"},
 		{TaskStatusFailed, false, "no longer running"},
 		{TaskStatusCancelled, false, "no longer running"},
@@ -2667,14 +2668,10 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 			task := h.manager.tasks["ns"]["T"]
 			task.Status = tc.status
 			task.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
-			task.SwapsOwed = map[string][]string{"a": {"n1"}, "b": {"n1"}}
 
 			h.manager.ForgetGroupsForCollection("Foo", []string{"a"})
 
 			require.Equal(t, !tc.wantForget, task.GroupSwapDecided("a"))
-			if tc.wantForget {
-				require.Equal(t, map[string][]string{"b": {"n1"}}, task.SwapsOwed, "a forgotten tenant owes no swap")
-			}
 		})
 	}
 }
@@ -2748,7 +2745,6 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 
 			task := m.tasks[ns][id]
 			require.Equal(t, tc.want, task.Status)
-			require.Empty(t, task.SwapsOwed)
 		})
 	}
 }
@@ -2762,7 +2758,6 @@ var releasedSnapshot = []byte(`{"tasks":{"reindex":[{"ID":"failed-mid-swap","err
 "u1":{"finishedAt":"2023-11-14T23:13:20+01:00","groupId":"t1","id":"u1","nodeId":"n1","progress":1,"status":"COMPLETED","updatedAt":"2023-11-14T23:13:20+01:00"},
 "u2":{"finishedAt":"2023-11-14T23:13:20+01:00","groupId":"t1","id":"u2","nodeId":"n2","progress":1,"status":"COMPLETED","updatedAt":"2023-11-14T23:13:20+01:00"}}}]}}`)
 
-// Pins that a snapshot an earlier release wrote restores cleanly and owes nothing.
 func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	m := NewManager(ManagerParameters{Logger: logger})
@@ -2771,56 +2766,10 @@ func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
 	statuses := map[string]TaskStatus{}
 	for _, task := range m.tasks["reindex"] {
 		statuses[task.ID] = task.Status
-		require.Empty(t, task.SwapsOwed, task.ID)
 		require.NotEmpty(t, task.NodePreparationAcks, "%s: the old per-node PREP acks decode into their old name", task.ID)
 		require.Len(t, task.Units, 2, task.ID)
 	}
 	require.Equal(t, map[string]TaskStatus{"failed-mid-swap": TaskStatusFailed}, statuses)
-}
-
-// Pins that the swap debt round-trips a snapshot.
-func TestSwapDebtSurvivesSnapshot(t *testing.T) {
-	const ns, id = "ns", "T"
-	logger, _ := logrustest.NewNullLogger()
-	at := time.UnixMilli(1_700_000_000_000)
-	m := NewManager(ManagerParameters{Logger: logger})
-	specs := []*cmd.UnitSpec{{Id: "u1", GroupId: "t1"}, {Id: "u2", GroupId: "t1"}}
-	node := map[string]string{"u1": "n1", "u2": "n2"}
-	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace: ns, Id: id, UnitSpecs: specs, NeedsPreparationBarrier: true, SubmittedAtUnixMillis: at.UnixMilli(),
-	}), 1))
-	for u, n := range node {
-		require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-			Namespace: ns, Id: id, Version: 1, NodeId: n, UnitId: u, FinishedAtUnixMillis: at.UnixMilli(),
-		})))
-	}
-	for _, n := range []string{"n1", "n2"} {
-		require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-			Namespace: ns, Id: id, Version: 1, GroupId: new("t1"), NodeId: n, Success: true, AckedAtUnixMillis: at.UnixMilli(),
-		})))
-	}
-	require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n1", Success: true, AckedAtUnixMillis: at.UnixMilli(),
-	})))
-	before := m.tasks[ns][id]
-	require.Equal(t, map[string][]string{"t1": {"n2"}}, before.SwapsOwed)
-
-	snap, err := m.Snapshot()
-	require.NoError(t, err)
-	restored := NewManager(ManagerParameters{Logger: logger})
-	require.NoError(t, restored.Restore(snap))
-	after := restored.tasks[ns][id]
-	require.Equal(t, before.SwapsOwed, after.SwapsOwed)
-	// Compared with Equal: the JSON round trip changes each time's Location.
-	require.Len(t, after.SwapDecidedGroups, len(before.SwapDecidedGroups))
-	for g, decidedAt := range before.SwapDecidedGroups {
-		require.True(t, decidedAt.Equal(after.SwapDecidedGroups[g]), "group %q", g)
-	}
-
-	require.NoError(t, restored.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n2", Success: true, AckedAtUnixMillis: at.UnixMilli(),
-	})))
-	require.Empty(t, restored.tasks[ns][id].SwapsOwed)
 }
 
 // Units added without a node are bound by their first progress report; their completions must then end the task.
@@ -2863,33 +2812,4 @@ func TestManager_DecodeTaskListCountsTheReceivedUnits(t *testing.T) {
 	got, want := received["ns"][0], leader.tasks["ns"]["T"]
 	require.Equal(t, want.AllUnitsTerminal(), got.AllUnitsTerminal())
 	require.ElementsMatch(t, want.NodesWithLocalUnits(), got.NodesWithLocalUnits())
-}
-
-func TestManager_TaskHasUnit(t *testing.T) {
-	m := NewManager(ManagerParameters{})
-	specs := make([]*cmd.UnitSpec, 0, 3)
-	for _, node := range []string{"n1", "n2", "n3"} {
-		specs = append(specs, &cmd.UnitSpec{Id: "s-" + node + "__" + node, Node: node})
-	}
-	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitSpecs: specs}), 1))
-	unitOn := func(shard string) func(string) string { return func(node string) string { return shard + "__" + node } }
-	for _, tc := range []struct {
-		name            string
-		desc            TaskDescriptor
-		shard           string
-		wantHas, wantOK bool
-	}{
-		{name: "unit on n1", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n1", wantHas: true, wantOK: true},
-		{name: "unit on n2", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n2", wantHas: true, wantOK: true},
-		{name: "unit on n3", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n3", wantHas: true, wantOK: true},
-		{name: "shard with no unit", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "other", wantOK: true},
-		{name: "absent task", desc: TaskDescriptor{ID: "X", Version: 1}, shard: "s-n1"},
-		{name: "other version", desc: TaskDescriptor{ID: "T", Version: 2}, shard: "s-n1"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			has, known := m.TaskHasUnit("ns", tc.desc, unitOn(tc.shard))
-			require.Equal(t, tc.wantHas, has)
-			require.Equal(t, tc.wantOK, known)
-		})
-	}
 }

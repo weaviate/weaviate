@@ -36,7 +36,7 @@ type (
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
-		// Live maps property, then index type, to that index's live generation.
+		// Live maps property, then index type, to that index's live generation. A full run's flip writes it.
 		Live map[string]map[string]uint64 `json:"live,omitempty"`
 	}
 )
@@ -301,6 +301,9 @@ func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Prop
 			mergedProps = append(mergedProps, new[idx])
 			continue
 		}
+		// Readers may hold the old property, so change a copy.
+		propCopy := *mergedProps[oldIdx]
+		mergedProps[oldIdx] = &propCopy
 
 		if allow(command.PropertyFieldIndexRangeFilters) {
 			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
@@ -331,9 +334,7 @@ func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Prop
 				mergedProps[oldIdx].NestedProperties,
 				new[idx].NestedProperties)
 			if merged {
-				propCopy := *mergedProps[oldIdx]
 				propCopy.NestedProperties = nestedProperties
-				mergedProps[oldIdx] = &propCopy
 			}
 		}
 	}

@@ -289,19 +289,19 @@ func awaitTask(t *testing.T, restURI, taskID string, timeout time.Duration) erro
 	// transient error (request/unmarshal) returns false and retries on the
 	// next tick.
 	var failErr error
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		tasks := getTasks(t, restURI)
-		for _, task := range tasks["reindex"] {
-			if task.ID == taskID {
-				switch task.Status {
-				case "FINISHED":
-					t.Logf("task %s: FINISHED", taskID)
-					return true
-				case "FAILED":
-					failErr = fmt.Errorf("task %s FAILED: %s", taskID, task.Error)
-					return true
-				}
-			}
+		task, ok := poller.Poll()
+		if !ok {
+			return false
+		}
+		switch task.Status {
+		case "FINISHED":
+			t.Logf("task %s: FINISHED", taskID)
+			return true
+		case "FAILED", "CANCELLED":
+			failErr = fmt.Errorf("task %s %s: %s", taskID, task.Status, task.Error)
+			return true
 		}
 		return false
 	}, timeout, 50*time.Millisecond, "task %s should finish", taskID)

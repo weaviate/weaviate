@@ -134,9 +134,8 @@ func newRoaringRowsFixture(tb testing.TB, rows [][]uint64, docIDCount uint64) *r
 	}
 
 	bitmapFactory := roaringset.NewBitmapFactory(bufPool, func() uint64 { return docIDCount })
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
-		func(string) bool { return false }, "",
+	searcher := NewSearcher(logger, storeView{BucketLookup: store}, createSchema().GetClass, nil, nil,
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
 		WithBatchedContainsEnabled(configRuntime.NewDynamicValue(true))
 

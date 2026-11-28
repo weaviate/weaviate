@@ -91,7 +91,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			// rewrites indexed data, so it demands Collections (data+metadata),
 			// not metadata-only.
 			methodName:        "DeleteClassPropertyIndex",
-			additionalArgs:    []any{"classname", "someprop", "someindex"},
+			additionalArgs:    []any{"classname", "someprop", "someindex", false},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.Collections("classname"),
 		},

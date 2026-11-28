@@ -13,10 +13,7 @@ package reindex_multinode
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -123,8 +120,9 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	for time.Since(startedAt) < overallBudget {
-		status, progress, ok := tryFetchTaskStatusAndProgress(restURI, taskID)
+		status, progress, ok := tryFetchTaskStatusAndProgress(poller)
 		if ok {
 			finalTaskStatus = status
 			if status == "FINISHED" {
@@ -186,48 +184,18 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 // tryFetchTaskStatusAndProgress reads the named task from /v1/tasks and
 // returns its current status and a human-readable summary of per-unit
 // progress (used as the equality key for plateau detection). Returns
-// `ok=false` when the request errors or the task is not in the
-// response.
-func tryFetchTaskStatusAndProgress(restURI, taskID string) (status, progress string, ok bool) {
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-	if err != nil {
+// `ok=false` while the poller cannot tell the task's state.
+func tryFetchTaskStatusAndProgress(poller *reindexhelpers.RunPoller) (status, progress string, ok bool) {
+	task, ok := poller.Poll()
+	if !ok {
 		return "", "", false
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", "", false
+	// Two consecutive polls with the same fingerprint mean "no forward motion".
+	fp := ""
+	for _, u := range task.Units {
+		fp += fmt.Sprintf("%s=%s/%.2f|", u.ID, u.Status, u.Progress)
 	}
-	// Tolerant parse: only need the namespaced task list + per-unit
-	// fields. The full DistributedTasks model in entities has more
-	// nesting than necessary here, so unmarshal into a tight shape.
-	var resp1 map[string][]struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-		Units  []struct {
-			ID       string  `json:"id"`
-			NodeID   string  `json:"nodeId"`
-			Status   string  `json:"status"`
-			Progress float32 `json:"progress"`
-		} `json:"units"`
-	}
-	if err := json.Unmarshal(body, &resp1); err != nil {
-		return "", "", false
-	}
-	for _, task := range resp1["reindex"] {
-		if task.ID != taskID {
-			continue
-		}
-		// Build a stable equality key from the per-unit status +
-		// progress fingerprint. Two consecutive polls with the same
-		// fingerprint mean "no forward motion".
-		fp := ""
-		for _, u := range task.Units {
-			fp += fmt.Sprintf("%s=%s/%.2f|", u.ID, u.Status, u.Progress)
-		}
-		return task.Status, fp, true
-	}
-	return "", "", false
+	return task.Status, fp, true
 }
 
 // TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas

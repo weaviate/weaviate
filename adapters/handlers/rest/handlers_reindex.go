@@ -192,8 +192,7 @@ func validateRebuildFilterableDataType(prop *models.Property) error {
 //
 // We also reject the request if the property already has a filterable
 // index AND a stored tokenization that differs from the requested one.
-// EnableSearchable.OnMigrationComplete unconditionally writes
-// Tokenization = s.tokenization alongside IndexSearchable = true; if the
+// The enable-searchable flip writes Tokenization alongside IndexSearchable = true; if the
 // property has a pre-existing filterable bucket built with the old
 // tokenization, that bucket's terms would silently diverge from the
 // schema's tokenization and from the newly built searchable bucket. The
@@ -301,17 +300,6 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	specs := unitSpecsPerReplica(shardOwnership)
 	for i := range specs {
 		specs[i].Shard, specs[i].Node = "", ""
-	}
-	return specs
-}
-
-// buildReindexUnitSpecs groups by shard only for a multi-tenant semantic run, whose tenants swap one at a time.
-func buildReindexUnitSpecs(shardOwnership map[string][]string, isMT bool, mt db.ReindexMigrationType) []distributedtask.UnitSpec {
-	specs := unitSpecsPerReplica(shardOwnership)
-	if !isMT || !db.IsSemanticMigration(mt) {
-		for i := range specs {
-			specs[i].GroupID = ""
-		}
 	}
 	return specs
 }

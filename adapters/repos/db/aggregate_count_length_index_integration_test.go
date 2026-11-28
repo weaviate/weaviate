@@ -174,7 +174,7 @@ func TestAggregateCountOfArraysAfterDroppingLastInvertedIndex(t *testing.T) {
 	off := false
 	prop := class.Properties[0]
 	prop.IndexFilterable, prop.IndexSearchable, prop.IndexRangeFilters = &off, &off, &off
-	require.NoError(t, s.index.updateProperty(ctx, prop))
+	s.index.updateProperty()
 	require.NotNil(t, s.store.Bucket(helpers.BucketFromPropNameLengthLSM("ints")),
 		"precondition: the length index outlives the drop")
 

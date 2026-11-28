@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -28,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
@@ -114,12 +114,12 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+				false, roaringset.NewBitmapBufPoolNoop(),
 				monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
 
@@ -595,7 +595,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
 
@@ -1063,7 +1063,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	// HaltForTransfer's backup-gate would refuse the test's
@@ -1072,7 +1072,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	index.db = stubDBWithNoLiveReindex()
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+		false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 
@@ -1372,12 +1372,25 @@ func TestShardHasProperty(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "non-geo property with no filterable bucket",
+			name: "non-geo property with no filterable index",
 			prop: nameProp,
 			shard: mockShard(func(s *MockShardLike) {
-				s.EXPECT().Store().Return(&lsmkv.Store{})
+				s.EXPECT().hasFilterableIndexForProp("name").Return(false)
 			}),
 			want: false,
+		},
+		{
+			name: "a filterable index served past generation 0",
+			prop: &models.Property{Name: "title", DataType: schema.DataTypeText.PropString()},
+			shard: func(t *testing.T) ShardLike {
+				f := newViewFixture(t, "ViewTest")
+				f.refreshTo(stagedTask("a"))
+				f.refreshTo(switchedTask("a"))
+				require.Eventually(t, func() bool { return f.shard.Store().Bucket(plainTitle) == nil },
+					5*time.Second, 10*time.Millisecond, "the plain folder is retired")
+				return f.shard
+			},
+			want: true,
 		},
 		{
 			// this shard carries no dependencies, so any attempt to load it panics

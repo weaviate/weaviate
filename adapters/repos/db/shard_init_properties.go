@@ -13,13 +13,11 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -70,9 +68,12 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 		makeBucketOptions = s.overwrittenMakeDefaultBucketOptions(lsmkv.WithLazySegmentLoading(lazyLoadSegments))
 	}
 
-	initValueIndex := func(prop *models.Property) error {
-		if err := s.createPropertyValueIndex(ctx, prop, makeBucketOptions); err != nil {
-			return fmt.Errorf("init prop %q: value index: %w", prop.Name, err)
+	initGeoIndex := func(prop *models.Property) error {
+		if err := s.isReadOnly(); err != nil {
+			return fmt.Errorf("init prop %q: geo index: %w", prop.Name, err)
+		}
+		if err := s.initGeoProp(prop); err != nil {
+			return fmt.Errorf("init prop %q: geo index: %w", prop.Name, err)
 		}
 		return nil
 	}
@@ -83,7 +84,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	var geoProps []*models.Property
 
 	for _, prop := range props {
-		prop = s.withMigratedIndexes(prop)
+		prop = s.withViewIndexes(prop)
 		propCopy := *prop // prevent loop variable capture
 
 		if _, ok := schema.AsNested(prop.DataType); ok {
@@ -104,31 +105,33 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		if !inverted.HasAnyInvertedIndex(prop) {
-			continue
-		}
-
 		if createsGeoIndex(prop) {
 			geoProps = append(geoProps, &propCopy)
-		} else {
-			eg.Go(func() error {
-				return initValueIndex(&propCopy)
-			})
 		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			eg.Go(func() error {
-				if err := s.createPropertyNullIndex(ctx, &propCopy, makeBucketOptions); err != nil {
-					return fmt.Errorf("init prop %q: null index: %w", prop.Name, err)
-				}
-				return nil
-			})
+		// one job per index family, as before: value buckets, null, length
+		var value, null, length []bucketNeed
+		for _, need := range s.propertyBucketNeeds(prop, s.loadView().props[prop.Name].gen, makeBucketOptions) {
+			switch need.kind {
+			case bucketNeedNull:
+				null = append(null, need)
+			case bucketNeedLength:
+				length = append(length, need)
+			default:
+				value = append(value, need)
+			}
 		}
-
-		if s.index.invertedIndexConfig.IndexPropertyLength {
+		for _, job := range []struct {
+			family string
+			needs  []bucketNeed
+		}{{"value", value}, {"null", null}, {"length", length}} {
+			if len(job.needs) == 0 {
+				continue
+			}
 			eg.Go(func() error {
-				if err := s.createPropertyLengthIndex(ctx, &propCopy, makeBucketOptions); err != nil {
-					return fmt.Errorf("init prop %q: length index: %w", prop.Name, err)
+				for _, need := range job.needs {
+					if err := s.openBucketNeed(ctx, need); err != nil {
+						return fmt.Errorf("init prop %q: %s index: %w", prop.Name, job.family, err)
+					}
 				}
 				return nil
 			})
@@ -145,7 +148,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 					ec.Add(err)
 					break
 				}
-				ec.Add(initValueIndex(prop))
+				ec.Add(initGeoIndex(prop))
 			}
 			return ec.ToError()
 		})
@@ -162,242 +165,6 @@ func createsGeoIndex(prop *models.Property) bool {
 	return dt == schema.DataTypeGeoCoordinates
 }
 
-type migrationSweepCounts struct {
-	recordSetReads atomic.Int64
-}
-
-func (s *Shard) updatePropertyBuckets(ctx context.Context,
-	eg *enterrors.ErrorGroupWrapper,
-	prop *models.Property,
-	counts *migrationSweepCounts,
-) {
-	eg.Go(func() error {
-		var sweep *migrationSweepState
-		sweepState := func() *migrationSweepState {
-			if sweep == nil {
-				sweep = s.migrationSweepState()
-			}
-			return sweep
-		}
-		defer func() {
-			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
-		}()
-		for _, indexType := range disabledIndexTypes(prop) {
-			if s.migratedIndexStands(prop.Name, indexType) {
-				continue
-			}
-			// The whole loop runs inside the RAFT apply, once per shard. Every
-			// shard still queued for it drops out here rather than sweeping its
-			// own directories for an apply that is already failing.
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
-			}
-			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
-			if !ok {
-				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
-			}
-			s.retirePropertyOverlay(prop.Name, indexType)
-			if err := s.removeBucket(ctx, mainBucket); err != nil {
-				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
-			}
-			s.cleanStaleSidecarDirs(ctx, mainBucket, sweepState().committed)
-		}
-		return nil
-	})
-}
-
-// disabledIndexTypes drives the sweep in updatePropertyBuckets and names it in
-// Index.updateProperty's summary log, so the two can never disagree.
-func disabledIndexTypes(prop *models.Property) []string {
-	var types []string
-	if !inverted.HasFilterableIndex(prop) {
-		types = append(types, "filterable")
-	}
-	if !inverted.HasSearchableIndex(prop) {
-		types = append(types, "searchable")
-	}
-	if !inverted.HasRangeableIndex(prop) {
-		types = append(types, "rangeable")
-	}
-	return types
-}
-
-type migrationSweepState struct {
-	committed migrationPreservedState
-	// One per state: the total should come to one per sweep, not per index type.
-	recordReads int
-}
-
-func (s *migrationSweepState) recordSetReads() int {
-	if s == nil {
-		return 0
-	}
-	return s.recordReads
-}
-
-// No disk read: the shard's store is the only writer to .migrations/records/.
-func (s *Shard) migrationSweepState() *migrationSweepState {
-	store := s.migrationRecordStore()
-	return &migrationSweepState{
-		recordReads: 1,
-		committed:   migrationPreservedStateFromRecords(store.Records(), store.Unreadable()),
-	}
-}
-
-// CleanStalePartialReindexState removes the on-disk state of a previously
-// cancelled (or otherwise abandoned) runtime-reindex for the named
-// (propName, indexType), so a retry cannot resume against a partial bucket
-// and silently report success.
-//
-// Crash safety: sidecar buckets shut down before their dirs go (open lsmkv
-// handles); the .migrations/records/ record stays, still naming the run's dirs.
-func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string,
-	dirs *dirNamesCache,
-) error {
-	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
-	if !ok {
-		return fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
-	}
-
-	logger := s.index.logger.WithFields(map[string]any{
-		"shard":       s.Name(),
-		"property":    propName,
-		"index_type":  indexType,
-		"main_bucket": mainBucketName,
-		"operation":   "CleanStalePartialReindexState",
-	})
-
-	// Only an unlistable dir withholds this shard's cleanup: any other unreadable record set
-	// preserves every sidecar, and the sweep summary's count reports it.
-	records, faults, err := migrationRecordsAt(s.pathLSM(), s.index.logger)
-	dirs.chargeUnreadableRecordSet(s.pathLSM(), faults, err)
-	if err != nil {
-		return &cleanupWithheldError{faults: faults}
-	}
-	committed := migrationPreservedStateFromRecords(records, faults)
-
-	loaded := s.store.GetBucketsByName()
-	var shutDown []string
-	for bucketName := range loaded {
-		if !isSidecarDirOf(bucketName, mainBucketName) {
-			continue
-		}
-		if committed.preservesBucket(bucketName) {
-			continue
-		}
-		if key, prop, ok := committed.mirrorFor(bucketName); ok {
-			s.DisarmMigrationMirror(key, prop)
-		}
-		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
-			if errors.Is(err, lsmkv.ErrBucketNotFound) {
-				// Race with another teardown path (in-flight task's own
-				// cancel sidecar shutdown, or restart-bootstrap pre-mark)
-				// that already removed this bucket. The desired post-state
-				// — bucket gone — is satisfied; keep going.
-				continue
-			}
-			return fmt.Errorf(
-				"shutting down stale sidecar bucket %q before partial-reindex cleanup: %w",
-				bucketName, err)
-		}
-		shutDown = append(shutDown, bucketName)
-	}
-	logger.WithField("buckets_shut_down", shutDown).
-		WithField("preserved_sidecars", committed.bucketsOf(mainBucketName)).
-		Info("partial-reindex cleanup: sidecar buckets shut down")
-
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, committed)
-	logger.Info("partial-reindex cleanup: sidecar dirs cleaned")
-
-	return nil
-}
-
-// mainBucketForPropertyIndex returns the canonical main bucket name on
-// disk for a given (propName, indexType). Used by
-// CleanStalePartialReindexState to compute the prefix that identifies
-// per-property sidecar buckets.
-//
-// KNOWN COLLISION (weaviate/weaviate#12574), pre-existing and wider than
-// this function: bucket names are "property_<prop>" plus a fixed suffix, and
-// property names can collide with them — e.g. "cat_searchable" filterable
-// and "cat" searchable share a bucket name, so a sweep of either reaches the
-// other's sidecars.
-func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
-	switch indexType {
-	case "filterable":
-		return helpers.BucketFromPropNameLSM(propName), true
-	case "searchable":
-		return helpers.BucketSearchableFromPropNameLSM(propName), true
-	case "rangeable":
-		return helpers.BucketRangeableFromPropNameLSM(propName), true
-	}
-	return "", false
-}
-
-func (s *Shard) cleanStaleSidecarDirs(ctx context.Context, mainBucketName string,
-	committed migrationPreservedState,
-) {
-	keep := map[string]bool{}
-	for bucketName := range s.store.GetBucketsByName() {
-		if !isSidecarDirOf(bucketName, mainBucketName) {
-			continue
-		}
-		if key, prop, ok := committed.mirrorFor(bucketName); ok {
-			s.DisarmMigrationMirror(key, prop)
-		}
-		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil &&
-			!errors.Is(err, lsmkv.ErrBucketNotFound) {
-			s.index.logger.WithField("bucket", bucketName).
-				Errorf("shutting down a stale sidecar bucket before removing its directory: %v; "+
-					"keeping the directory, since removing it under an open bucket fails every write "+
-					"carrying this property until the process restarts", err)
-			keep[bucketName] = true
-		}
-	}
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, migrationPreservingOnly(keep))
-}
-
-func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationPreservedState) {
-	dirs := shardBucketDirs(s.pathLSM())
-	entries, err := os.ReadDir(dirs.root)
-	if err != nil {
-		s.index.logger.WithField("path", dirs.root).
-			Errorf("failed to enumerate LSM dir for sidecar cleanup after DELETE: %v; a subsequent re-enable may fail with 'file exists' when RunSwapOnShard tries to rotate buckets", err)
-		return
-	}
-	const what = "a stale sidecar directory"
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !isSidecarDirOf(name, mainBucketName) {
-			continue
-		}
-		if committed.preservesBucket(name) {
-			s.index.logger.WithField("dir", name).
-				Debug("partial-reindex cleanup: preserving the sidecar dir of a committed migration (live bucket pointer)")
-			continue
-		}
-		path, err := dirs.Path(name, what)
-		if err != nil {
-			s.index.logger.WithField("dir", name).Errorf("stale sidecar cleanup after DELETE: %v", err)
-			continue
-		}
-		// Drop the registry entry BEFORE removing the dir. The reverse order
-		// is also correct (registry is a separate process-local store), but
-		// the chosen order matches Bucket.Shutdown's defer (registry.Remove
-		// fires before any other shutdown side effect), so a future reader
-		// who already knows that contract finds the same shape here. Either
-		// step is independently safe to retry / call when no entry exists.
-		lsmkv.GlobalBucketRegistry.Remove(path)
-		if err := dirs.Discard(name, what); err != nil {
-			s.index.logger.WithField("dir", name).
-				Errorf("failed to remove stale sidecar bucket dir after index DELETE: %v", err)
-		}
-	}
-}
-
 // sidecarRoleWords are the words every migration sidecar suffix ends in, once
 // the generation tail is off, plus "backup"/"map" that only upgrades bring in.
 var sidecarRoleWords = schema.SidecarRoleWords
@@ -405,8 +172,7 @@ var sidecarRoleWords = schema.SidecarRoleWords
 // isSidecarDirOf reports whether name is a per-property sidecar of
 // mainBucketName. "__" alone isn't enough: property names may contain "__"
 // too, so "property_a__b" is "a__b"'s own main bucket, not a sidecar of "a"
-// — the trailing role word decides instead. Shared with
-// [hasStalePartialReindexState] for the same hydrate-or-skip decision.
+// — the trailing role word decides instead.
 //
 // Still too weak: a property named "a__<word>_<role>" (or "a___del") reads as
 // a sidecar of "a" on all three index types, so sweeping "a" deletes that
@@ -458,36 +224,66 @@ func (s *Shard) removeDirIfExists(parentDir, dirName string) error {
 	return nil
 }
 
-func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property,
+const (
+	bucketNeedMetaCount = "ref count"
+	bucketNeedNull      = "null"
+	bucketNeedLength    = "length"
+)
+
+type bucketNeed struct {
+	kind string // an index type or a bucketNeed* constant
+	name string
+	opts []lsmkv.BucketOption
+}
+
+// propertyBucketNeeds lists the buckets a load opens for prop, served at gen,
+// so a refresh opens the same set. Geo and nested indexes open in the load only.
+func (s *Shard) propertyBucketNeeds(prop *models.Property, gen map[string]uint64,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-) error {
+) []bucketNeed {
+	if _, nested := schema.AsNested(prop.DataType); nested || !inverted.HasAnyInvertedIndex(prop) {
+		return nil
+	}
+	var needs []bucketNeed
+	add := func(kind, name string, opts []lsmkv.BucketOption) {
+		needs = append(needs, bucketNeed{kind: kind, name: name, opts: opts})
+	}
+	if !createsGeoIndex(prop) {
+		if inverted.HasFilterableIndex(prop) && schema.IsRefDataType(prop.DataType) {
+			add(bucketNeedMetaCount, helpers.BucketFromPropNameMetaCountLSM(prop.Name), makeBucketOptions(lsmkv.StrategyRoaringSet))
+		}
+		for _, t := range reindexIndexTypes {
+			if classIndexOn(prop, t) {
+				add(t, reindexBucketName(prop.Name, t, gen[t]), s.propertyIndexOptions(prop, t, makeBucketOptions))
+			}
+		}
+	}
+	if s.index.invertedIndexConfig.IndexNullState {
+		add(bucketNeedNull, helpers.BucketFromPropNameNullLSM(prop.Name), makeBucketOptions(lsmkv.StrategyRoaringSet))
+	}
+	switch schema.DataType(prop.DataType[0]) {
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeInt,
+		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate: // not in the inverted index
+	default:
+		if s.index.invertedIndexConfig.IndexPropertyLength {
+			add(bucketNeedLength, helpers.BucketFromPropNameLengthLSM(prop.Name), makeBucketOptions(lsmkv.StrategyRoaringSet))
+		}
+	}
+	return needs
+}
+
+func (s *Shard) openBucketNeed(ctx context.Context, need bucketNeed) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
+	return s.store.CreateOrLoadBucket(ctx, need.name, need.opts...)
+}
 
-	if createsGeoIndex(prop) {
-		return s.initGeoProp(prop)
-	}
-
-	if inverted.HasFilterableIndex(prop) {
-		if schema.IsRefDataType(prop.DataType) {
-			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
-				makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-			); err != nil {
-				return err
-			}
-		}
-
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-		); err != nil {
-			return err
-		}
-	}
-
-	if inverted.HasSearchableIndex(prop) {
+func (s *Shard) propertyIndexOptions(prop *models.Property, indexType string,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+) []lsmkv.BucketOption {
+	switch indexType {
+	case indexTypeSearchable:
 		// The per-property stamp overrides the class-level flag: a new tenant
 		// shard on a permanently-partial class must create a blockmax bucket for
 		// an already-stamped property, not default to the class-wide WAND flag.
@@ -495,75 +291,18 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		if prop.SearchableBlockmax != nil {
 			blockmax = *prop.SearchableBlockmax
 		}
-		strategy := lsmkv.DefaultSearchableStrategy(blockmax)
-		searchableBucketOpts := makeBucketOptions(strategy)
-
+		opts := makeBucketOptions(lsmkv.DefaultSearchableStrategy(blockmax))
 		if s.class.InvertedIndexConfig != nil {
-			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithBM25Config(s.class.InvertedIndexConfig.Bm25))
+			opts = append(opts, lsmkv.WithBM25Config(s.class.InvertedIndexConfig.Bm25))
 		}
-
-		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
-		if err := s.store.CreateOrLoadBucket(ctx, bucketName, searchableBucketOpts...); err != nil {
-			return err
-		}
-
-		bucket, release := s.store.AcquireBucketForRead(bucketName)
-		if bucket == nil {
-			return fmt.Errorf("searchable bucket %q of shard %q: %w", bucketName, s.name, lsmkv.ErrBucketNotFound)
-		}
-		actualStrategy := bucket.Strategy()
-		release()
-		if actualStrategy == lsmkv.StrategyInverted {
-			s.markSearchableBlockmaxProperties(prop.Name)
-		}
-	}
-
-	if inverted.HasRangeableIndex(prop) {
+		return opts
+	case indexTypeRangeable:
 		// Appended last so it wins over makeDefaultBucketOptions' value.
-		opts := append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
+		return append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
 			lsmkv.WithKeepSegmentsInMemory(s.index.Config.keepRangeableInMemory(prop.Name)))
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketRangeableFromPropNameLSM(prop.Name), opts...,
-		); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property,
-	makeBucketOptions lsmkv.MakeBucketOptions,
-) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
-	// some datatypes are not added to the inverted index, so we can skip them here
-	switch schema.DataType(prop.DataType[0]) {
-	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeInt,
-		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-		return nil
 	default:
+		return makeBucketOptions(lsmkv.StrategyRoaringSet)
 	}
-
-	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
-		makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-	)
-}
-
-func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property,
-	makeBucketOptions lsmkv.MakeBucketOptions,
-) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
-	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameNullLSM(prop.Name),
-		makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-	)
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
@@ -655,17 +394,4 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...,
 	)
-}
-
-func (s *Shard) markSearchableBlockmaxProperties(propNames ...string) {
-	s.searchableBlockmaxPropNamesLock.Lock()
-	s.searchableBlockmaxPropNames = append(s.searchableBlockmaxPropNames, propNames...)
-	s.searchableBlockmaxPropNamesLock.Unlock()
-}
-
-func (s *Shard) getSearchableBlockmaxProperties() []string {
-	// since slice is only appended, it should be safe to return it that way
-	s.searchableBlockmaxPropNamesLock.Lock()
-	defer s.searchableBlockmaxPropNamesLock.Unlock()
-	return s.searchableBlockmaxPropNames
 }

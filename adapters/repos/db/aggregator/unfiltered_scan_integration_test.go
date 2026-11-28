@@ -172,7 +172,7 @@ func (f *scanFixture) aggregate(ctx context.Context, prop aggregation.ParamPrope
 
 	logger, _ := test.NewNullLogger()
 	ua := unfilteredAggregator{Aggregator: &Aggregator{
-		store:     f.store,
+		store:     storeView{f.store},
 		logger:    logger,
 		getSchema: getter,
 		params: aggregation.Params{

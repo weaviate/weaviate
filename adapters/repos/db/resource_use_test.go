@@ -33,6 +33,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+// firstErrorEntry returns the first ERROR-level log entry captured by hook,
+// or nil if none was emitted.
+func firstErrorEntry(hook *test.Hook) *logrus.Entry {
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.ErrorLevel {
+			return e
+		}
+	}
+	return nil
+}
+
 // newTestMemMonitor creates a memwatch.Monitor with controllable memory usage.
 // The ratio returned by Ratio() will be usedMemory/limit.
 // For example, usedMemory=95, limit=100 gives Ratio()=0.95 (i.e. 95%).

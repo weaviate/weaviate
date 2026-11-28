@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -95,6 +96,8 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		return errs
 	}
 
+	view := b.shard.acquireView()
+	defer view.release()
 	invertedMerger := inverted.NewDeltaMerger()
 	propsByName, err := b.getSchemaPropsByName()
 	if err != nil {
@@ -137,17 +140,6 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 			continue
 		}
 
-		// The merge above bumped the object past a live reindex watermark; mirror
-		// its co-located props so the backfill scan's skip stays lossless.
-		if err := b.mirrorColocatedPropsForReindex(res); err != nil {
-			func() {
-				errLock.Lock()
-				defer errLock.Unlock()
-				errs[i] = err
-			}()
-			continue
-		}
-
 		prop, ok := propsByName[ref.From.Property.String()]
 		if !ok {
 			errLock.Lock()
@@ -167,7 +159,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		}
 	}
 
-	if err := b.writeInverted(invertedMerger.Merge()); err != nil {
+	if err := b.writeInverted(view, invertedMerger.Merge()); err != nil {
 		for i := range errs {
 			errs[i] = errors.Wrap(err, "write inverted batch")
 		}
@@ -175,30 +167,6 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 	}
 
 	return errs
-}
-
-// mirrorColocatedPropsForReindex mirrors the merged object's scope-property
-// postings into any in-flight reindex ingest bucket. The batch-ref writers
-// touch only the reference's own buckets and never funnel through
-// updateInvertedIndexLSM's migrationDoubleWrite, so without this a reindex of a
-// co-located primitive property loses the object: mutableMergeObjectLSM bumps
-// its LastUpdateTimeUnix past the reindex watermark, the backfill scan skips it,
-// yet its target value was never mirrored (weaviate/0-weaviate-issues#318).
-//
-// Analyzes under the TARGET overlay and fires only scope props — exactly what
-// migrationDoubleWrite's add leg does on the object write path — so a
-// retokenizing migration mirrors target-tokenized terms (not source-tokenized)
-// into the ingest bucket (weaviate/0-weaviate-issues#298). No-op when no
-// migration scope is armed.
-func (b *referencesBatcher) mirrorColocatedPropsForReindex(res mutableMergeResult) error {
-	st := b.shard.loadPropValueIndexState()
-	if len(st.scope.props) == 0 {
-		return nil
-	}
-	if err := b.shard.mirrorAddToIngest(st, res.status.docID, res.next); err != nil {
-		return fmt.Errorf("mirror merged object into the reindex ingest bucket: %w", err)
-	}
-	return nil
 }
 
 func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult, ref objects.BatchReference, prop *models.Property) error {
@@ -219,15 +187,15 @@ func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger
 	return nil
 }
 
-func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
+func (b *referencesBatcher) writeInverted(buckets lsmkv.BucketLookup, in inverted.DeltaMergeResult) error {
 	before := time.Now()
-	if err := b.writeInvertedAdditions(in.Additions); err != nil {
+	if err := b.writeInvertedAdditions(buckets, in.Additions); err != nil {
 		return errors.Wrap(err, "write additions")
 	}
 	b.shard.Metrics().InvertedExtend(before, len(in.Additions))
 
 	before = time.Now()
-	if err := b.writeInvertedDeletions(in.Deletions); err != nil {
+	if err := b.writeInvertedDeletions(buckets, in.Deletions); err != nil {
 		return errors.Wrap(err, "write deletions")
 	}
 	b.shard.Metrics().InvertedDeleteDelta(before)
@@ -236,13 +204,13 @@ func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 }
 
 // TODO text_rbm_inverted_index unify bucket write
-func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) error {
+func (b *referencesBatcher) writeInvertedDeletions(buckets lsmkv.BucketLookup, in []inverted.MergeProperty) error {
 	for _, prop := range in {
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := buckets.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
@@ -262,13 +230,13 @@ func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) 
 }
 
 // TODO text_rbm_inverted_index unify bucket write
-func (b *referencesBatcher) writeInvertedAdditions(in []inverted.MergeProperty) error {
+func (b *referencesBatcher) writeInvertedAdditions(buckets lsmkv.BucketLookup, in []inverted.MergeProperty) error {
 	for _, prop := range in {
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			bucket := buckets.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}

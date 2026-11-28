@@ -1234,7 +1234,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 			}
 
 			err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
-				tt.inputName, "title", "filterable")
+				tt.inputName, "title", "filterable", false)
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
 				return
@@ -1361,7 +1361,7 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 				fmt.Errorf("reindex task is in flight on this property"))
 
 			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
-				"Movies", "title", idx.indexName)
+				"Movies", "title", idx.indexName, false)
 			require.Error(t, err, "UpdateProperty was mocked to fail")
 
 			// The CRITICAL assertion: after the failed apply, the FSM's
@@ -1475,7 +1475,7 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 			).Return(nil)
 
 			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
-				"Movies", tc.fsmProp.Name, tc.indexName)
+				"Movies", tc.fsmProp.Name, tc.indexName, false)
 			require.NoError(t, err)
 			sm.AssertExpectations(t)
 		})
@@ -1508,7 +1508,7 @@ func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
 			forwardedFields = args.Get(2).([]string)
 		}).Return(nil)
 
-	err := handler.DeleteClassPropertyIndex(context.Background(), nil, "Movies", "title", "searchable")
+	err := handler.DeleteClassPropertyIndex(context.Background(), nil, "Movies", "title", "searchable", false)
 	require.NoError(t, err)
 
 	require.NotNil(t, forwarded)
@@ -1522,40 +1522,46 @@ func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
 	sm.AssertExpectations(t)
 }
 
-// TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff pins that deleting an
-// already-off index succeeds without reaching RAFT.
-func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
+// TestDeleteClassPropertyIndex_FlagAlreadyOff pins that deleting an
+// already-off index succeeds without reaching RAFT, unless a run still serves it.
+func TestDeleteClassPropertyIndex_FlagAlreadyOff(t *testing.T) {
 	t.Parallel()
 
+	title := func(filterable, searchable bool) *models.Property {
+		return &models.Property{
+			Name: "title", DataType: schema.DataTypeText.PropString(),
+			IndexFilterable: boolPtr(filterable), IndexSearchable: boolPtr(searchable), Tokenization: "word",
+		}
+	}
+	size := &models.Property{
+		Name: "size", DataType: schema.DataTypeNumber.PropString(),
+		IndexFilterable: boolPtr(true), IndexRangeFilters: boolPtr(false),
+	}
 	cases := []struct {
-		indexName string
-		fsmProp   *models.Property
+		indexName   string
+		fsmProp     *models.Property
+		servedByRun bool
+		wantFields  []string // nil when the delete must not reach RAFT
 	}{
+		{indexName: "filterable", fsmProp: title(false, true)},
+		{indexName: "searchable", fsmProp: title(true, false)},
+		{indexName: "rangeFilters", fsmProp: size},
 		{
-			indexName: "filterable",
-			fsmProp: &models.Property{
-				Name: "title", DataType: schema.DataTypeText.PropString(),
-				IndexFilterable: boolPtr(false), IndexSearchable: boolPtr(true), Tokenization: "word",
-			},
+			indexName: "filterable", fsmProp: title(false, true), servedByRun: true,
+			wantFields: []string{command.PropertyFieldIndexFilterable},
 		},
 		{
-			indexName: "searchable",
-			fsmProp: &models.Property{
-				Name: "title", DataType: schema.DataTypeText.PropString(),
-				IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(false), Tokenization: "word",
-			},
+			indexName: "searchable", fsmProp: title(true, false), servedByRun: true,
+			wantFields: []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax},
 		},
 		{
-			indexName: "rangeFilters",
-			fsmProp: &models.Property{
-				Name: "size", DataType: schema.DataTypeNumber.PropString(),
-				IndexFilterable: boolPtr(true), IndexRangeFilters: boolPtr(false),
-			},
+			indexName: "rangeFilters", fsmProp: size, servedByRun: true,
+			wantFields: []string{command.PropertyFieldIndexRangeFilters},
 		},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.indexName, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s served by a run %v", tc.indexName, tc.servedByRun), func(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, false)
 
@@ -1565,12 +1571,18 @@ func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 				Properties: []*models.Property{tc.fsmProp},
 			}
 			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
-			// No UpdateProperty expectation: a no-op must not reach RAFT.
+			if tc.wantFields != nil {
+				sm.On("UpdateProperty", "Movies", mock.Anything, tc.wantFields).Return(nil)
+			}
 
 			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
-				"Movies", tc.fsmProp.Name, tc.indexName)
+				"Movies", tc.fsmProp.Name, tc.indexName, tc.servedByRun)
 			require.NoError(t, err)
-			sm.AssertNotCalled(t, "UpdateProperty", mock.Anything, mock.Anything, mock.Anything)
+			if tc.wantFields == nil {
+				sm.AssertNotCalled(t, "UpdateProperty", mock.Anything, mock.Anything, mock.Anything)
+				return
+			}
+			sm.AssertExpectations(t)
 		})
 	}
 }

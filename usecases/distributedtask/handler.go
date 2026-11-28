@@ -63,13 +63,14 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 		resp[namespace] = make([]models.DistributedTask, 0, len(visible))
 		for _, task := range visible {
 			dt := models.DistributedTask{
-				ID:         task.ID,
-				Version:    int64(task.Version),
-				Status:     task.Status.String(),
-				Error:      task.Error,
-				StartedAt:  strfmt.DateTime(task.StartedAt),
-				FinishedAt: optionalDateTime(task.FinishedAt),
-				Units:      mapUnits(task),
+				ID:          task.ID,
+				Version:     int64(task.Version),
+				Status:      task.Status.String(),
+				Error:       task.Error,
+				StartedAt:   strfmt.DateTime(task.StartedAt),
+				FinishedAt:  optionalDateTime(task.FinishedAt),
+				Units:       mapUnits(task),
+				UnitSummary: mapSummary(task.Summary),
 			}
 			if _, redact := redacted[task]; redact {
 				dt.Payload = visiblePayload(task)
@@ -185,6 +186,23 @@ func redactTenants(dt *models.DistributedTask) {
 			u.Error = redactedError
 		}
 	}
+	// A summary error embeds its unit's ID, which names the tenant.
+	if dt.UnitSummary != nil {
+		for i := range dt.UnitSummary.Errors {
+			dt.UnitSummary.Errors[i] = redactedError
+		}
+	}
+}
+
+func mapSummary(s *distributedtask.UnitSummary) *models.DistributedTaskUnitSummary {
+	if s == nil {
+		return nil
+	}
+	counts := make(map[string]int64, len(s.Counts))
+	for status, n := range s.Counts {
+		counts[string(status)] = int64(n)
+	}
+	return &models.DistributedTaskUnitSummary{Groups: int64(s.Groups), Counts: counts, Errors: slices.Clone(s.Errors)}
 }
 
 func mapUnits(task *distributedtask.Task) []*models.DistributedTaskUnit {

@@ -219,9 +219,9 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Equal(t, schema.ClassInfo{}, schemaReader.ClassInfo("C"))
 
 	// RestoreClass
-	_, err = srv.RestoreClass(ctx, nil, nil)
+	_, err = srv.RestoreClass(ctx, command.AddClassRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	version, err = srv.RestoreClass(ctx, cls, ss)
+	version, err = srv.RestoreClass(ctx, command.AddClassRequest{Class: cls, State: ss})
 	assert.Nil(t, err)
 	info.ClassVersion = version
 	info.ShardVersion = version

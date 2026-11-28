@@ -48,7 +48,7 @@ var (
 type SchemaManager interface {
 	// Schema writes operation.
 	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
-	RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	RestoreClass(ctx context.Context, req command.AddClassRequest) (uint64, error)
 	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State, field string, more ...string) (uint64, error)
 	ReplaceClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
@@ -60,12 +60,6 @@ type SchemaManager interface {
 	// every field" semantics, so existing public-API callers do not need
 	// to change.
 	UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
-	// UpdatePropertyFromMigration is the internal variant of
-	// UpdateProperty used by the distributed-task scheduler's reindex
-	// completion path. It sets the
-	// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the
-	// schema FSM checks it with MutationGuard.CheckMigrationPropertyUpdate. Not for public handlers.
-	UpdatePropertyFromMigration(ctx context.Context, class string, run command.MigrationRun, property *models.Property, fields ...string) (uint64, error)
 	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
 	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
 	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)

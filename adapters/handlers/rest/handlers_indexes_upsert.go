@@ -443,7 +443,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 		// Per-property truth: the class-wide flag only flips once every
 		// property has migrated, so an already-migrated property must
 		// NO_OP even while siblings are still pending.
-		run, _, _ := db.ReindexPartialRun(db.ReindexRuns(reindexTasks), collection, prop.Name, []string{"searchable"})
+		run := db.ReindexPartialRun(db.ReindexRuns(reindexTasks), collection, prop.Name, []string{"searchable"})
 		if db.SearchablePropertyIsBlockmax(class, prop.Name) && (run == nil || run.Payload.MigrationType != db.ReindexTypeChangeAlgorithm) {
 			return upsertPlan{noop: true}, nil
 		}
@@ -599,7 +599,7 @@ var errRebuildPropertyPartlyMigrated = errors.New("cannot rebuild an index of a 
 func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string,
 	reindexTasks []*distributedtask.Task, tenantCounts bool,
 ) (upsertPlan, error) {
-	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, reindexTasks, tenantCounts); err != nil {
+	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, rebuildTypes[indexType], reindexTasks, tenantCounts); err != nil {
 		return upsertPlan{}, err
 	}
 	switch indexType {
@@ -614,7 +614,7 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 		if !db.SearchablePropertyIsBlockmax(class, prop.Name) {
 			return upsertPlan{}, errors.New("cannot rebuild a WAND searchable index — WAND is deprecated; PUT {\"algorithm\":\"blockmax\"} to migrate first")
 		}
-		return upsertPlan{migrationType: db.ReindexTypeRebuildSearchable}, nil
+		return upsertPlan{migrationType: rebuildTypes[indexType]}, nil
 
 	case "filterable":
 		if !filterableIndexOn(prop) {
@@ -623,34 +623,45 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 		if err := validateRebuildFilterableDataType(prop); err != nil {
 			return upsertPlan{}, err
 		}
-		return upsertPlan{migrationType: db.ReindexTypeRepairFilterable}, nil
+		return upsertPlan{migrationType: rebuildTypes[indexType]}, nil
 
 	case "rangeable":
 		if err := validateRebuildRangeableProperty(prop); err != nil {
 			return upsertPlan{}, err
 		}
-		return upsertPlan{migrationType: db.ReindexTypeRepairRangeable}, nil
+		return upsertPlan{migrationType: rebuildTypes[indexType]}, nil
 	}
 	// Unreachable: normalizeIndexTypeParam already validated the token.
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
-func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task, tenantCounts bool) error {
-	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil, tenantCounts); msg != "" {
+var rebuildTypes = map[string]db.ReindexMigrationType{
+	"searchable": db.ReindexTypeRebuildSearchable,
+	"filterable": db.ReindexTypeRepairFilterable,
+	"rangeable":  db.ReindexTypeRepairRangeable,
+}
+
+func refusePartlyMigratedRebuild(collection, propName string, mt db.ReindexMigrationType, reindexTasks []*distributedtask.Task,
+	tenantCounts bool,
+) error {
+	payload := db.ReindexTaskPayload{MigrationType: mt, Collection: collection, Properties: []string{propName}}
+	if msg := db.ReindexAdmissionConflict(payload, reindexTasks, tenantCounts); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPropertyPartlyMigrated, msg)
 	}
 	return nil
 }
 
+// A tokenization NO_OP names no target, so any partial run refuses it. The AddTask apply decides.
 func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task,
 	tenantCounts bool,
 ) string {
 	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
 		return ""
 	}
-	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, func(run *db.ReindexRun) bool {
-		return plan.migrationType == run.Payload.MigrationType && plan.targetTok == run.Payload.TargetTokenization
-	}, tenantCounts)
+	return db.ReindexAdmissionConflict(db.ReindexTaskPayload{
+		MigrationType: plan.migrationType, Collection: collection, Properties: []string{propName},
+		TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
+	}, reindexTasks, tenantCounts)
 }
 
 // validateTenantScope enforces the tenants contract: honored only on
@@ -700,29 +711,6 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	}
 
 	payload := buildReindexPayload(class, collection, properties, plan, tenants)
-	// One unit per shard per replica: each replica has its own local copy.
-	var shardOwnership map[string][]string
-	var err error
-	if isMT {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, &payload, propertyName, tenants, reindexTasks)
-	} else {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
-	}
-	var notHot *db.TenantsNotHotError
-	if errors.As(err, &notHot) {
-		msg := err.Error()
-		if h.mayReadTenants(ctx, principal, collection) {
-			msg = fmt.Sprintf("%s (tenants still needing work that are not HOT: %d)", msg, notHot.Count)
-		}
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal, msg))
-	}
-	if err != nil {
-		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-			fmt.Sprintf("getting shard ownership: %v", err)))
-	}
-	if len(shardOwnership) == 0 {
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
-	}
 
 	// Human-readable task ID with a random suffix for uniqueness.
 	// Format: "Collection:migration-type:property:ab3f".
@@ -736,16 +724,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, h.reindexDrainSealer(),
-		collection, propertyName, tenants, migrationType, reindexTasks); resp != nil {
-		return resp
-	}
-
-	unitSpecs := buildReindexUnitSpecs(shardOwnership, isMT, migrationType)
-	if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
-		ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
-	); err != nil {
-		return h.mapSubmitTaskError(principal, collection, taskID, err)
+	if err := addReindexTask(ctx, h.appState.ClusterService, taskID, payload); err != nil {
+		return h.mapSubmitTaskError(ctx, principal, collection, taskID, err)
 	}
 
 	// Operational audit line for a privileged cluster-wide operation.
@@ -763,6 +743,16 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: reindexStartedStatus,
 	})
+}
+
+type reindexTaskAdder interface {
+	AddDistributedTaskWithGroupsBarrier(ctx context.Context, namespace, taskID string, taskPayload any,
+		unitSpecs []distributedtask.UnitSpec, needsPreparationBarrier bool) error
+}
+
+// addReindexTask sends no units, since every replica builds them when it applies the task.
+func addReindexTask(ctx context.Context, adder reindexTaskAdder, taskID string, payload db.ReindexTaskPayload) error {
+	return adder.AddDistributedTaskWithGroupsBarrier(ctx, db.ReindexNamespace, taskID, payload, nil, true)
 }
 
 // buildReindexPayload assembles the RAFT task payload. OriginalTokenization is
@@ -786,121 +776,12 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 		OriginalTokenization: originalTok,
 		BucketStrategy:       plan.bucketStrategy,
 		Tenants:              tenants,
+		ViewServed:           true,
 	}
-}
-
-// stalePartialStateCleaner opens a sweep over a property's partial reindex
-// sidecar dirs. *db.DB satisfies it.
-type stalePartialStateCleaner interface {
-	NewStalePartialReindexSweep(tenants []string) db.StalePartialReindexSweep
-}
-
-type localReindexDrainSealer interface {
-	SealLocalTaskDrain(ctx context.Context, desc distributedtask.TaskDescriptor) (func(), error)
-}
-
-func (h *indexesHandlers) reindexDrainSealer() localReindexDrainSealer {
-	if h.appState.ReindexProvider == nil {
-		return nil
-	}
-	return h.appState.ReindexProvider
-}
-
-func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal *models.Principal,
-	sealer localReindexDrainSealer, collection, propertyName string,
-	reindexTasks []*distributedtask.Task,
-) (func(), middleware.Responder) {
-	if sealer == nil {
-		return func() {}, nil
-	}
-	var held []func()
-	release := func() {
-		for _, unseal := range held {
-			unseal()
-		}
-	}
-	drainCtx, cancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-	defer cancel()
-	for _, desc := range reindexTaskDescriptorsForProperty(reindexTasks, collection, propertyName, h.appState.Logger) {
-		unseal, err := sealer.SealLocalTaskDrain(drainCtx, desc)
-		if err != nil {
-			release()
-			entry := h.appState.Logger.WithFields(logrus.Fields{
-				"collection": collection,
-				"property":   propertyName,
-				"taskID":     desc.ID,
-			})
-			if errors.Is(err, context.Canceled) {
-				entry.Infof("submit: the request ended while waiting for an earlier task's local worker: %v", err)
-			} else {
-				entry.Errorf("submit: a local worker of an earlier task on this property has not exited, "+
-					"so pre-submit cleanup would race it; refusing submit: %v", err)
-			}
-			return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
-				"a local worker of an earlier reindex task on this property has not exited yet; "+
-					"pre-submit cleanup cannot run without racing it — retry shortly"))
-		}
-		held = append(held, unseal)
-	}
-	return release, nil
-}
-
-// cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
-// type migrationType touches, returning a terminal responder or nil to
-// proceed. Guards CANCEL→retry resuming stale state as a false success; fails
-// closed on an unknown type or a scrub error rather than skip silently.
-//
-// A truncated sweep is the one exception: it means shards went unvisited, so
-// their state is unverified rather than known stale, and a healthy node
-// produces that from a tenant leaving the shard map mid-walk. Refusing the
-// submit on it would turn ordinary tenant movement into a 500.
-func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
-	cleaner stalePartialStateCleaner, sealer localReindexDrainSealer,
-	collection, propertyName string, tenants []string, migrationType db.ReindexMigrationType,
-	reindexTasks []*distributedtask.Task,
-) middleware.Responder {
-	indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType)
-	if !known {
-		h.appState.Logger.WithFields(logrus.Fields{
-			"collection":     collection,
-			"property":       propertyName,
-			"migration_type": migrationType,
-		}).Error("submit: unknown migration type, cannot resolve cleanup index types; refusing submit")
-		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
-	}
-	release, resp := h.sealLocalReindexWorkers(ctx, principal, sealer, collection, propertyName, reindexTasks)
-	if resp != nil {
-		return resp
-	}
-	defer release()
-
-	// One sweep across the loop: every index type asks the same unloaded shards.
-	sweep := cleaner.NewStalePartialReindexSweep(tenants)
-	for _, it := range indexTypesForCleanup {
-		err := sweep(ctx, collection, propertyName, it)
-		if err == nil {
-			continue
-		}
-		entry := h.appState.Logger.WithFields(logrus.Fields{
-			"collection":     collection,
-			"property":       propertyName,
-			"migration_type": migrationType,
-			"index_type":     it,
-		})
-		if errors.Is(err, db.ErrCleanupSweepTruncated) {
-			entry.Warnf("submit: pre-submit cleanup did not reach every shard; proceeding with the submit, the unvisited shards are unverified rather than known stale: %v", err)
-			continue
-		}
-		entry.Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
-		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-			"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
-	}
-	return nil
 }
 
 // mapSubmitTaskError logs an ErrTaskConflict error but leaves it out of the 409, so the caller never sees the in-flight task's ID it names.
-func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collection, taskID string, err error) middleware.Responder {
+func (h *indexesHandlers) mapSubmitTaskError(ctx context.Context, principal *models.Principal, collection, taskID string, err error) middleware.Responder {
 	if errors.Is(err, distributedtask.ErrTaskConflict) {
 		h.appState.Logger.WithFields(logrus.Fields{
 			"collection": collection,
@@ -910,16 +791,31 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 			"a conflicting reindex task on the same property is already in flight "+
 				"(a concurrent submit won the race); wait for it to finish or cancel it before retrying"))
 	}
+	if errors.Is(err, distributedtask.ErrTaskPartlyMigrated) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal,
+			"a failed or cancelled run of another target on this property still has switched tenants; "+
+				"resubmit that target and let it finish first"))
+	}
 	if errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			fmt.Sprintf("collection %q has a replica movement in flight; retry after it completes", collection)))
 	}
 	if errors.Is(err, distributedtask.ErrTaskTenantsNotHot) {
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal, db.ErrTenantsNotHot.Error()))
+		msg := db.ErrTenantsNotHot.Error()
+		if count, ok := distributedtask.TenantsNotHotCount(err); ok && h.mayReadTenants(ctx, principal, collection) {
+			msg = fmt.Sprintf("%s (target tenants that are not HOT: %d)", msg, count)
+		}
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, msg))
 	}
-	if errors.Is(err, distributedtask.ErrTaskReplicasChanged) {
+	if errors.Is(err, distributedtask.ErrTaskTenantsMissing) {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "some target tenants do not exist"))
+	}
+	if errors.Is(err, distributedtask.ErrTaskHasNoUnits) {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
+	}
+	if errors.Is(err, distributedtask.ErrTaskCollectionGone) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
-			fmt.Sprintf("the shards or replicas of collection %q changed while the reindex was submitted; resubmit it against the current state", collection)))
+			fmt.Sprintf("collection %q was deleted while the reindex was submitted", collection)))
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))

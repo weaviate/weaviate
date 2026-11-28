@@ -53,6 +53,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const (
@@ -195,6 +196,7 @@ type Config struct {
 	// extractors. See [distributedtask.ManagerParameters].
 	DistributedTaskConflictDetectors       map[string]distributedtask.ConflictDetector
 	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
+	DistributedTaskRules                   map[string]distributedtask.TaskRules
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
@@ -298,14 +300,14 @@ type Store struct {
 
 	// tenantAddLocks serializes AddTenants per class on the leader so the
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
-	tenantAddLocks *evictingKeyRWLocker
+	tenantAddLocks *evictingKeyLocker
 
 	// collectionAddLocks serializes AddClass per namespace on the leader so the
 	// pre-commit collection-cap check cannot race the apply that increments the
 	// count.
 	collectionAddLocks *entsync.KeyLocker
 
-	taskMovementLocks *evictingKeyRWLocker
+	taskMovementLocks *evictingKeyLocker
 
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
@@ -424,8 +426,20 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		Logger:                  cfg.Logger,
 		ConflictDetectors:       cfg.DistributedTaskConflictDetectors,
 		SchemaMutationDetectors: cfg.DistributedTaskSchemaMutationDetectors,
-		ReadOnlyClass: func(collection string) *models.Class {
-			return schemaReader.ReadOnlyVersionedClass(collection).Class
+		TaskRules:               cfg.DistributedTaskRules,
+		ClassLive:               schemaReader.ClassLive,
+		ReadSharding: func(collection string, read func(*sharding.State)) error {
+			err := schemaReader.Read(collection, false, func(_ *models.Class, state *sharding.State) error {
+				read(state)
+				return nil
+			})
+			if errors.Is(err, schema.ErrClassNotFound) {
+				return distributedtask.NewCollectionGoneError(collection)
+			}
+			if err != nil {
+				return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
+			}
+			return nil
 		},
 	})
 
@@ -460,9 +474,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
-		tenantAddLocks:          newEvictingKeyRWLocker(),
+		tenantAddLocks:          newEvictingKeyLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
-		taskMovementLocks:       newEvictingKeyRWLocker(),
+		taskMovementLocks:       newEvictingKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
@@ -496,7 +510,7 @@ func (st *Store) LocalTaskStatuses(namespace, shard string) []distributedtask.Ta
 	return st.distributedTasksManager.LocalTaskStatuses(namespace, shard)
 }
 
-func (st *Store) LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error) {
+func (st *Store) LocalEndedTasks(namespace, collection string) []*distributedtask.Task {
 	return st.distributedTasksManager.LocalEndedTasks(namespace, collection)
 }
 
@@ -1080,6 +1094,9 @@ func (st *Store) openDatabase(ctx context.Context) {
 // then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
+		if !st.dbLoaded.Load() {
+			refuseUnfinishedLegacyRuns(st.log, st.distributedTasksManager.LocalDistributedTasks()[db.ReindexNamespace])
+		}
 		func() {
 			stop := st.trackDBLoadProgress()
 			defer stop()

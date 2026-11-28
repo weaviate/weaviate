@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -35,28 +34,8 @@ type EnableFilterableStrategy struct {
 	generation int // see genSuffix godoc
 }
 
-func (s *EnableFilterableStrategy) StrategyCode() MigrationStrategyCode {
-	return StrategyCodeEnableFilterable
-}
-
 func (s *EnableFilterableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketFromPropNameLSM(propName)
-}
-
-func (s *EnableFilterableStrategy) ReindexSuffix() string {
-	return "__enable_filterable_reindex" + genSuffix(s.generation)
-}
-
-func (s *EnableFilterableStrategy) IngestSuffix() string {
-	return "__enable_filterable_ingest" + genSuffix(s.generation)
-}
-
-func (s *EnableFilterableStrategy) SourceStrategy() string {
-	return lsmkv.StrategyRoaringSet
-}
-
-func (s *EnableFilterableStrategy) SourceIndexType() PropertyIndexType {
-	return IndexTypePropValue
 }
 
 func (s *EnableFilterableStrategy) TargetStrategy() string {
@@ -79,7 +58,7 @@ func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) stri
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — it's false on the target
-		// property until OnMigrationComplete flips it.
+		// property until the run's flip.
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
 			armed, bucketNamer, s.SourceBucketName)
 		if skip {
@@ -112,8 +91,6 @@ func (s *EnableFilterableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 	}
 }
 
-func (s *EnableFilterableStrategy) PreReindexHook(*Shard, []string) {}
-
 func (s *EnableFilterableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
@@ -123,18 +100,4 @@ func (s *EnableFilterableStrategy) AnalyzerOverlay(props []string) map[string]in
 		out[p] = inverted.PropertyOverlay{ForceFilterable: true}
 	}
 	return out
-}
-
-// OnMigrationComplete is a no-op for this semantic migration. The schema
-// cutover (IndexFilterable=true flip via RAFT) now happens once
-// cluster-wide from [ReindexProvider.OnTaskCompleted] after every node's
-// local OnGroupCompleted has run the bucket pointer swap. See the
-// Journey 3 canonical pattern in cluster/distributedtask/doc.go:111-137.
-//
-// Per-shard schema flips would re-introduce the first-shard-flips
-// problem: the first shard on the first node to call RunSwapOnShard
-// would flip the cluster-wide IndexFilterable flag while other nodes /
-// other shards still serve the old (filterable-disabled) state.
-func (s *EnableFilterableStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
-	return nil
 }

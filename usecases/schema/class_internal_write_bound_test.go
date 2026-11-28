@@ -29,10 +29,6 @@ func TestInternalCutoverWritesBounded(t *testing.T) {
 		name  string
 		write func(h *Handler) error
 	}{
-		{name: "property write", write: func(h *Handler) error {
-			return UpdatePropertyInternalFromMigration(h, context.Background(), "C", command.MigrationRun{},
-				&models.Property{Name: "p", DataType: []string{"text"}})
-		}},
 		{name: "class write", write: func(h *Handler) error {
 			return UpdateClassInternal(h, context.Background(), "C", &models.Class{Class: "C", Vectorizer: "none"},
 				command.ClassFieldUsingBlockMaxWAND)
@@ -85,13 +81,6 @@ func (r *deadlineRecordingSchemaManager) ReplaceClass(ctx context.Context, _ *mo
 
 // untilCancelledSchemaManager models a leader that never answers.
 type untilCancelledSchemaManager struct{ *fakeSchemaManager }
-
-func (untilCancelledSchemaManager) UpdatePropertyFromMigration(ctx context.Context, _ string, _ command.MigrationRun,
-	_ *models.Property, _ ...string,
-) (uint64, error) {
-	<-ctx.Done()
-	return 0, ctx.Err()
-}
 
 func (untilCancelledSchemaManager) UpdateClass(ctx context.Context, _ *models.Class, _ *sharding.State, _ string, _ ...string) (uint64, error) {
 	<-ctx.Done()

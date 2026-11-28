@@ -33,8 +33,8 @@ import (
 // across cycles that the per-cycle DELETE cleanup misses. Candidates:
 //   - DTM task records persisted to disk that survive across reindex
 //     submissions and short-circuit on the second/third call.
-//   - In-memory state on the shard (markSearchableBlockmaxProperties
-//     list, cached strategies in ReindexProvider) that doesn't reset.
+//   - In-memory state on the shard (cached strategies in ReindexProvider)
+//     that doesn't reset.
 //
 // The test asserts the *post-cycle-3 state*, which is the strictest:
 // schema flag IndexSearchable = true, bm25() returns all docs. Same

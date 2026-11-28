@@ -17,8 +17,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TaskLister is an interface for listing distributed tasks in the cluster.
@@ -189,12 +187,6 @@ type TaskFinalizer interface {
 // The recorded state is stored on the [Task] (see [Task.PostCompletionAcks])
 // and survives RAFT snapshot/restore so a node restart during the
 // SWAPPING window does not lose the cluster's collected acks.
-//
-// Crash-safety contract: without this hook, a node whose RunSwapOnShard
-// silently failed could still let the cluster-wide schema flip commit,
-// leaving that replica serving wrong-tokenization data with no operator
-// signal. The recorder closes that gap by gating MarkTaskFinalized on
-// every per-node ack landing.
 type PostCompletionAckRecorder interface {
 	RecordDistributedTaskPostCompletionAck(
 		ctx context.Context,
@@ -306,7 +298,8 @@ type ConflictDetector interface {
 // applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
 	// Every method's existingTasks is pre-filtered to className: tasks on a known other collection are dropped.
-	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
+	// indexOff names the index type an update only turns off, and is empty for any other update.
+	CheckPropertyUpdate(className, propertyName, indexOff string, existingTasks []*Task) error
 
 	// CheckClassMutation is called under [Manager.mu] from the schema FSM's
 	// destructive class-wide apply paths (DeleteClass etc.). Stricter than
@@ -324,8 +317,9 @@ type SchemaMutationDetector interface {
 
 // CutoverOutcome judges a run's cutover write: did it land, may it still land. Called under [Manager.mu].
 type CutoverOutcome interface {
-	CutoverLanded(task *Task, readClass func(collection string) *models.Class) bool
-	CheckMigrationPropertyUpdate(className, propertyName string, run *Task) error
+	CutoverLanded(task *Task, classLive func(collection string) map[string]map[string]uint64) bool
+	// CheckMigrationPropertyUpdate admits a write that names run's generation; 0 names a run without one.
+	CheckMigrationPropertyUpdate(className, propertyName string, gen uint64, run *Task) error
 }
 
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
@@ -400,12 +394,6 @@ type RecoveryAwareProvider interface {
 //     when all units reach terminal state (same effect as having a single group).
 //   - Tasks with groups: OnGroupCompleted fires per-group as each completes,
 //     even while the task is still STARTED
-//
-// Callback phases:
-//  1. OnGroupCompleted — fires per group as each group's units reach terminal.
-//     PREP-only for barrier tasks; PREP+OVERLAY+SWAP inline otherwise.
-//  2. OnSwapRequested — OVERLAY+SWAP per decided group this node owes, even after the task ended.
-//  3. OnTaskCompleted — fires once on every node after ALL units terminal.
 type UnitAwareProvider interface {
 	Provider
 	// OnGroupCompleted fires when all units in a group reach terminal state.
@@ -413,8 +401,6 @@ type UnitAwareProvider interface {
 	// without local units in the group. Non-nil errors feed
 	// RecordPreparationCompleteAck (barrier tasks) or RecordPostCompletionAck.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
-
-	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
 
 	// OnTaskCompleted is invoked by the [Scheduler] once per task that has
 	// reached a terminal status, after every local unit terminated and
@@ -427,9 +413,7 @@ type UnitAwareProvider interface {
 	// MUST therefore be idempotent against repeat calls with the same
 	// (TaskDescriptor, Status): re-running must not double-apply a
 	// destructive side effect (a schema flip reverted, a marker emitted
-	// twice, etc.). Today's concrete provider (db/reindex_provider.go's
-	// OnTaskCompleted → autoCleanupAfterTerminal) already is; new
-	// implementations MUST preserve this contract.
+	// twice, etc.).
 	//
 	// Return value (weaviate/0-weaviate-issues#297): a non-nil error on the
 	// SWAPPING path withholds finalize and retries next tick. Wrap in
@@ -668,12 +652,13 @@ type Task struct {
 
 	header TaskHeader
 
+	ended            bool
+	decidedWithUnits int
+
 	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
 
 	// SwapDecidedGroups outlives FAILED/CANCELLED: a decided group must swap on every replica or they diverge.
 	SwapDecidedGroups map[string]time.Time `json:"swapDecidedGroups,omitempty"`
-
-	SwapsOwed map[string][]string `json:"swapsOwed,omitempty"`
 
 	NodePreparationAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
 
@@ -683,6 +668,7 @@ type Task struct {
 	// (no OnGroupCompleted to ack).
 	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
 
+	// Summary replaces Units once the end rules compact an ended task.
 	Summary *UnitSummary `json:"summary,omitempty"`
 }
 
@@ -716,6 +702,7 @@ func (t *Task) IndexGroups() {
 	}
 	t.groups, t.groupCount = groups, len(groups)
 	t.countUnits()
+	t.countDecided()
 }
 
 // adoptGroups shares held's index when it has as many units (units are only removed), never its counts, which follow t's own units.
@@ -726,6 +713,7 @@ func (t *Task) adoptGroups(held heldCopy) {
 	}
 	t.groups, t.groupCount = held.groups, held.groupCount
 	t.countUnits()
+	t.countDecided()
 }
 
 func (t *Task) countUnits() {
@@ -762,8 +750,14 @@ func (t *Task) updateUnit(u *Unit, write func()) {
 
 func (t *Task) forgetGroups(groups []string) {
 	for _, group := range groups {
+		_, decided := t.SwapDecidedGroups[group]
+		// Compaction, born tenants and takeovers leave switched groups without units.
+		delete(t.SwapDecidedGroups, group)
 		if !t.hasGroup(group) {
 			continue
+		}
+		if decided {
+			t.decidedWithUnits--
 		}
 		for _, id := range t.groups[group] {
 			if u := t.Units[id]; u != nil {
@@ -772,8 +766,6 @@ func (t *Task) forgetGroups(groups []string) {
 			delete(t.Units, id)
 		}
 		t.groupCount--
-		delete(t.SwapsOwed, group)
-		delete(t.SwapDecidedGroups, group)
 		delete(t.PreparedGroups, group)
 	}
 }
@@ -809,8 +801,6 @@ func (t *Task) cloneWithoutUnits() *Task {
 		}
 	}
 	clone.SwapDecidedGroups = maps.Clone(t.SwapDecidedGroups)
-	// Shallow: paySwap and RecordPreparationCompleteAck replace values, never edit them.
-	clone.SwapsOwed = maps.Clone(t.SwapsOwed)
 	clone.PreparedGroups = maps.Clone(t.PreparedGroups)
 	clone.NodePreparationAcks = maps.Clone(t.NodePreparationAcks)
 	clone.unitCounts = maps.Clone(t.unitCounts)
@@ -821,7 +811,7 @@ func (t *Task) copyChangesFrom(src *Task, change *taskChange) {
 	t.Status, t.StartedAt, t.FinishedAt, t.Error = src.Status, src.StartedAt, src.FinishedAt, src.Error
 	t.NodePreparationAcks = maps.Clone(src.NodePreparationAcks)
 	t.PostCompletionAcks = maps.Clone(src.PostCompletionAcks)
-	t.groups, t.groupCount = src.groups, src.groupCount
+	t.groups, t.groupCount, t.decidedWithUnits = src.groups, src.groupCount, src.decidedWithUnits
 	t.unitCounts = maps.Clone(src.unitCounts)
 	for id := range change.units {
 		u, ok := src.Units[id]
@@ -835,7 +825,6 @@ func (t *Task) copyChangesFrom(src *Task, change *taskChange) {
 	for group := range change.groups {
 		copyEntry(&t.PreparedGroups, src.PreparedGroups, group)
 		copyEntry(&t.SwapDecidedGroups, src.SwapDecidedGroups, group)
-		copyEntry(&t.SwapsOwed, src.SwapsOwed, group)
 	}
 }
 
@@ -855,33 +844,11 @@ func (t *Task) decideSwap(group string, at time.Time) {
 	if t.SwapDecidedGroups == nil {
 		t.SwapDecidedGroups = map[string]time.Time{}
 	}
+	if _, again := t.SwapDecidedGroups[group]; !again && t.hasGroup(group) {
+		t.decidedWithUnits++
+	}
 	t.SwapDecidedGroups[group] = at
 	delete(t.PreparedGroups, group)
-	nodes := t.groupNodes(group)
-	if len(nodes) == 0 {
-		return
-	}
-	if t.SwapsOwed == nil {
-		t.SwapsOwed = map[string][]string{}
-	}
-	t.SwapsOwed[group] = nodes
-}
-
-func (t *Task) paySwap(group, node string) {
-	owed := t.SwapsOwed[group]
-	i := slices.Index(owed, node)
-	if i < 0 {
-		return
-	}
-	if len(owed) == 1 {
-		delete(t.SwapsOwed, group)
-		return
-	}
-	t.SwapsOwed[group] = slices.Delete(slices.Clone(owed), i, i+1)
-}
-
-func (t *Task) SwapOwedBy(group, node string) bool {
-	return slices.Contains(t.SwapsOwed[group], node)
 }
 
 func (t *Task) GroupSwapDecided(groupID string) bool {
@@ -889,8 +856,18 @@ func (t *Task) GroupSwapDecided(groupID string) bool {
 	return ok
 }
 
+// AllGroupsSwapDecided ignores switched groups without units, such as born tenants.
 func (t *Task) AllGroupsSwapDecided() bool {
-	return len(t.SwapDecidedGroups) == t.groupCount
+	return t.decidedWithUnits == t.groupCount
+}
+
+func (t *Task) countDecided() {
+	t.decidedWithUnits = 0
+	for group := range t.SwapDecidedGroups {
+		if t.hasGroup(group) {
+			t.decidedWithUnits++
+		}
+	}
 }
 
 func (t *Task) appendError(msg string) {
@@ -1049,10 +1026,7 @@ func (t *Task) NodesWithLocalUnits() []string {
 // units in this task but have NOT yet recorded a post-completion ack.
 // The scheduler uses this as the gating predicate for
 // [TaskFinalizer.MarkDistributedTaskFinalized] — the SWAPPING →
-// FINISHED transition must wait until this returns empty, so a node
-// whose RunSwapOnShard silently failed cannot let the cluster-wide
-// schema flip commit before its ack is recorded as a failure (which
-// transitions the task to FAILED and skips the flip).
+// FINISHED transition must wait until this returns empty.
 //
 // Returns nil when all expected nodes have acked. Returned slice is
 // unsorted.

@@ -29,7 +29,13 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 		return nil, err
 	}
 	defer release()
+	view := s.acquireView()
+	defer view.release()
+	return s.aggregate(ctx, view, params, modules)
+}
 
+func (s *Shard) aggregate(ctx context.Context, view *shardView, params aggregation.Params, modules *modules.Provider,
+) (*aggregation.Result, error) {
 	var vectorIndex VectorIndex
 
 	// we only need the index queue for vector search
@@ -41,11 +47,9 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 		vectorIndex = idx
 	}
 
-	return aggregator.New(s.store, params, s.index.getSchema, s.propertyIndicesSnapshot(), s.index.classSearcher,
+	return aggregator.New(view, params, s.index.getSchema, s.propertyIndicesSnapshot(), s.index.classSearcher,
 		s.index.getStopwordProvider(), s.versioner.Version(), vectorIndex, s.index.logger, s.GetPropertyLengthTracker(),
-		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules, s.index.Config.QueryHybridMaximumResults,
-		s.TokenizationFor).
-		WithSearchableBucketPinningResolver(s.PinTokenizationAndSearchableBucket).
+		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules, s.index.Config.QueryHybridMaximumResults).
 		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		Do(ctx)
 }

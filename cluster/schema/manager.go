@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -59,10 +60,10 @@ type replicationFSM interface {
 // FSM-determinism: implementations MUST be pure functions of their
 // arguments + RAFT-replicated FSM state.
 type MutationGuard interface {
-	CheckPropertyUpdate(className, propertyName string) error
+	CheckPropertyUpdate(className, propertyName, indexOff string) error
 
-	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
-	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
+	// CheckMigrationPropertyUpdate admits a flip only while its run is SWAPPING and built gen (0: none).
+	CheckMigrationPropertyUpdate(className, propertyName string, gen uint64, run command.MigrationRun) error
 
 	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
 	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
@@ -94,6 +95,9 @@ type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
 	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
 	ForgetGroupsForCollection(collection string, groups []string)
+	MarkTenantsBornSwitched(collection string, tenants []string)
+	TurnIndexOff(collection, property, indexType string) uint64
+	RestoreCollectionTasks(raw []byte, class string, hasTenant func(string) bool) error
 }
 
 type SchemaManager struct {
@@ -533,13 +537,29 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 
 	return s.apply(
 		applyOp{
-			op:                   cmd.GetType().String(),
-			updateSchema:         func() error { return s.schema.addClass(req.Class, req.State, cmd.Version) },
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				if err := s.restoreCollectionTasks(req); err != nil {
+					return err
+				}
+				return s.schema.addClassWithLive(req.Class, req.State, cmd.Version, req.Live)
+			},
 			updateStore:          func() error { return s.db.AddClass(req) },
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// restoreCollectionTasks runs before the class exists, so the index's shards load with the restored tasks.
+func (s *SchemaManager) restoreCollectionTasks(req command.AddClassRequest) error {
+	if s.distributedTaskManager == nil || s.schema.ClassInfo(req.Class.Class).Exists {
+		return nil
+	}
+	return s.distributedTaskManager.RestoreCollectionTasks(req.DistributedTasks, req.Class.Class, func(tenant string) bool {
+		_, ok := req.State.Physical[tenant]
+		return ok
+	})
 }
 
 // ReplaceStatesNodeName it update the node name inside sharding states.
@@ -975,14 +995,15 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
 	}
 
+	indexOff := indexTurnedOff(req)
 	// Cross-FSM mutation guard — see [MutationGuard]. A flip naming no run (older binary) is admitted.
 	if s.mutationGuard != nil {
 		var err error
 		switch {
 		case !req.FromInFlightMigration:
-			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name)
+			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name, indexOff)
 		case req.MigrationRun != nil:
-			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, *req.MigrationRun)
+			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, 0, *req.MigrationRun)
 		}
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -1014,7 +1035,10 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 					// property says is off, so hand it what the schema kept.
 					req.Property = merged
 				}
-				return nil
+				if indexOff == "" {
+					return nil
+				}
+				return s.turnIndexOff(cmd.Class, cmd.Version, req.Property.Name, indexOff)
 			},
 			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,
@@ -1095,10 +1119,23 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req) },
-			updateStore:  func() error { return s.db.AddTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				if s.distributedTaskManager == nil {
+					return s.schema.addTenants(cmd.Class, cmd.Version, req)
+				}
+				// addTenants narrows req to this node's tenants, so the cluster-wide set is read around it.
+				absent := s.schema.absentTenants(cmd.Class, tenantNames(req.Tenants))
+				if err := s.schema.addTenants(cmd.Class, cmd.Version, req); err != nil {
+					return err
+				}
+				notPlaced := s.schema.absentTenants(cmd.Class, absent)
+				born := slices.DeleteFunc(absent, func(name string) bool { return slices.Contains(notPlaced, name) })
+				s.distributedTaskManager.MarkTenantsBornSwitched(cmd.Class, born)
+				return nil
+			},
+			updateStore: func() error { return s.db.AddTenants(cmd.Class, req) },
+			schemaOnly:  schemaOnly,
 		},
 	)
 }

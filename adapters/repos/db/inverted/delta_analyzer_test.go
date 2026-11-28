@@ -12,6 +12,7 @@
 package inverted
 
 import (
+	"slices"
 	"testing"
 	"unicode/utf8"
 
@@ -20,6 +21,10 @@ import (
 	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+func deltaSkipNames(previous, next []Property, skip []string) DeltaResults {
+	return DeltaSkipSearchable(previous, next, func(name string) bool { return slices.Contains(skip, name) })
+}
 
 func TestDeltaAnalyzer(t *testing.T) {
 	t.Run("without previous indexing", func(t *testing.T) {
@@ -439,7 +444,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 				HasSearchableIndex: true,
 			}
 
-			delta := DeltaSkipSearchable(prev,
+			delta := deltaSkipNames(prev,
 				[]Property{prop1_new_searchableInv_filterable_next},
 				[]string{})
 
@@ -466,7 +471,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 				HasSearchableIndex: true,
 			}
 
-			delta := DeltaSkipSearchable(prev,
+			delta := deltaSkipNames(prev,
 				[]Property{prop2_new_searchableInv_next},
 				[]string{})
 
@@ -493,7 +498,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 				HasSearchableIndex: true,
 			}
 
-			delta := DeltaSkipSearchable(prev,
+			delta := deltaSkipNames(prev,
 				[]Property{prop3_new_searchableMap_filterable_next},
 				[]string{})
 
@@ -519,7 +524,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 				HasSearchableIndex: false,
 			}
 
-			delta := DeltaSkipSearchable(prev,
+			delta := deltaSkipNames(prev,
 				[]Property{prop4_new_filterable_next},
 				[]string{})
 
@@ -531,7 +536,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 		})
 
 		t.Run("sanity check - all properties at once", func(t *testing.T) {
-			delta := DeltaSkipSearchable(prev, allNext, allSkipSearchable)
+			delta := deltaSkipNames(prev, allNext, allSkipSearchable)
 
 			assert.ElementsMatch(t, allExpectedToAdd, delta.ToAdd)
 			assert.Empty(t, delta.ToDelete)
@@ -575,7 +580,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop01_adding2values_searchableInv_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop01_adding2values_searchableInv_filterable_prev},
 					[]Property{prop01_adding2values_searchableInv_filterable_next},
 					[]string{prop01_adding2values_searchableInv_filterable_prev.Name},
@@ -620,7 +625,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop11_adding2values_searchableInv_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop11_adding2values_searchableInv_prev},
 					[]Property{prop11_adding2values_searchableInv_next},
 					[]string{prop11_adding2values_searchableInv_prev.Name},
@@ -665,7 +670,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop21_adding2values_searchableMap_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop21_adding2values_searchableMap_filterable_prev},
 					[]Property{prop21_adding2values_searchableMap_filterable_next},
 					nil,
@@ -709,7 +714,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop31_adding2values_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop31_adding2values_filterable_prev},
 					[]Property{prop31_adding2values_filterable_next},
 					nil,
@@ -796,7 +801,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop02_adding1value_searchableInv_filterable_prev},
 					[]Property{prop02_adding1value_searchableInv_filterable_next},
 					[]string{prop02_adding1value_searchableInv_filterable_prev.Name},
@@ -844,7 +849,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop12_adding1value_searchableInv_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop12_adding1value_searchableInv_prev},
 					[]Property{prop12_adding1value_searchableInv_next},
 					[]string{prop12_adding1value_searchableInv_prev.Name},
@@ -907,7 +912,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop22_adding1value_searchableMap_filterable_prev},
 					[]Property{prop22_adding1value_searchableMap_filterable_next},
 					nil,
@@ -969,7 +974,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop32_adding1value_filterable_prev},
 					[]Property{prop32_adding1value_filterable_next},
 					nil,
@@ -1015,7 +1020,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop03_deleting2values_searchableInv_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop03_deleting2values_searchableInv_filterable_prev},
 					[]Property{prop03_deleting2values_searchableInv_filterable_next},
 					[]string{prop03_deleting2values_searchableInv_filterable_prev.Name},
@@ -1060,7 +1065,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop13_deleting2values_searchableInv_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop13_deleting2values_searchableInv_prev},
 					[]Property{prop13_deleting2values_searchableInv_next},
 					[]string{prop13_deleting2values_searchableInv_prev.Name},
@@ -1105,7 +1110,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop23_deleting2values_searchableMap_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop23_deleting2values_searchableMap_filterable_prev},
 					[]Property{prop23_deleting2values_searchableMap_filterable_next},
 					nil,
@@ -1149,7 +1154,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop33_deleting2values_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop33_deleting2values_filterable_prev},
 					[]Property{prop33_deleting2values_filterable_next},
 					nil,
@@ -1236,7 +1241,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop04_deleting1value_searchableInv_filterable_prev},
 					[]Property{prop04_deleting1value_searchableInv_filterable_next},
 					[]string{prop04_deleting1value_searchableInv_filterable_prev.Name},
@@ -1284,7 +1289,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop14_deleting1value_searchableInv_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop14_deleting1value_searchableInv_prev},
 					[]Property{prop14_deleting1value_searchableInv_next},
 					[]string{prop14_deleting1value_searchableInv_prev.Name},
@@ -1347,7 +1352,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop24_deleting1value_searchableMap_filterable_prev},
 					[]Property{prop24_deleting1value_searchableMap_filterable_next},
 					nil,
@@ -1409,7 +1414,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop34_deleting1value_filterable_prev},
 					[]Property{prop34_deleting1value_filterable_next},
 					nil,
@@ -1461,7 +1466,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop05_replacing2values_searchableInv_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop05_replacing2values_searchableInv_filterable_prev},
 					[]Property{prop05_replacing2values_searchableInv_filterable_next},
 					[]string{prop05_replacing2values_searchableInv_filterable_prev.Name},
@@ -1512,7 +1517,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop15_replacing2values_searchableInv_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop15_replacing2values_searchableInv_prev},
 					[]Property{prop15_replacing2values_searchableInv_next},
 					[]string{prop15_replacing2values_searchableInv_prev.Name},
@@ -1563,7 +1568,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop25_replacing2values_searchableMap_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop25_replacing2values_searchableMap_filterable_prev},
 					[]Property{prop25_replacing2values_searchableMap_filterable_next},
 					nil,
@@ -1613,7 +1618,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop35_replacing2values_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop35_replacing2values_filterable_prev},
 					[]Property{prop35_replacing2values_filterable_next},
 					nil,
@@ -1709,7 +1714,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop06_replacing1value_searchableInv_filterable_prev},
 					[]Property{prop06_replacing1value_searchableInv_filterable_next},
 					[]string{prop06_replacing1value_searchableInv_filterable_prev.Name},
@@ -1760,7 +1765,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop16_replacing1value_searchableInv_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop16_replacing1value_searchableInv_prev},
 					[]Property{prop16_replacing1value_searchableInv_next},
 					[]string{prop16_replacing1value_searchableInv_prev.Name},
@@ -1829,7 +1834,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop26_replacing1value_searchableMap_filterable_prev},
 					[]Property{prop26_replacing1value_searchableMap_filterable_next},
 					nil,
@@ -1897,7 +1902,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop36_replacing1value_filterable_prev},
 					[]Property{prop36_replacing1value_filterable_next},
 					nil,
@@ -1942,7 +1947,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{},
 					[]Property{prop07_creating2values_searchableInv_filterable_next},
 					[]string{prop07_creating2values_searchableInv_filterable_next.Name},
@@ -1985,7 +1990,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{},
 					[]Property{prop17_creating2values_searchableInv_next},
 					[]string{prop17_creating2values_searchableInv_next.Name},
@@ -2028,7 +2033,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{},
 					[]Property{prop27_creating2values_searchableMap_filterable_next},
 					nil,
@@ -2070,7 +2075,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					},
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{},
 					[]Property{prop37_creating2values_filterable_next},
 					nil,
@@ -2114,7 +2119,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop08_dropping2values_searchableInv_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop08_dropping2values_searchableInv_filterable_prev},
 					[]Property{},
 					[]string{prop08_dropping2values_searchableInv_filterable_prev.Name},
@@ -2157,7 +2162,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop18_dropping2values_searchableInv_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop18_dropping2values_searchableInv_prev},
 					[]Property{},
 					[]string{prop18_dropping2values_searchableInv_prev.Name},
@@ -2200,7 +2205,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop28_dropping2values_searchableMap_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop28_dropping2values_searchableMap_filterable_prev},
 					[]Property{},
 					nil,
@@ -2242,7 +2247,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 					prop38_dropping2values_filterable_prev,
 				}
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop38_dropping2values_filterable_prev},
 					[]Property{},
 					nil,
@@ -2274,7 +2279,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 				}
 				prop09_noChanges_searchableInv_filterable_next := prop09_noChanges_searchableInv_filterable_prev
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop09_noChanges_searchableInv_filterable_prev},
 					[]Property{prop09_noChanges_searchableInv_filterable_next},
 					[]string{prop09_noChanges_searchableInv_filterable_prev.Name},
@@ -2304,7 +2309,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 				}
 				prop19_noChanges_searchableInv_next := prop19_noChanges_searchableInv_prev
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop19_noChanges_searchableInv_prev},
 					[]Property{prop19_noChanges_searchableInv_next},
 					[]string{prop19_noChanges_searchableInv_prev.Name},
@@ -2334,7 +2339,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 				}
 				prop29_noChanges_searchableMap_filterable_next := prop29_noChanges_searchableMap_filterable_prev
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop29_noChanges_searchableMap_filterable_prev},
 					[]Property{prop29_noChanges_searchableMap_filterable_next},
 					nil,
@@ -2363,7 +2368,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 				}
 				prop39_noChanges_filterable_next := prop39_noChanges_filterable_prev
 
-				delta := DeltaSkipSearchable(
+				delta := deltaSkipNames(
 					[]Property{prop39_noChanges_filterable_prev},
 					[]Property{prop39_noChanges_filterable_next},
 					nil,
@@ -2378,7 +2383,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 		})
 
 		t.Run("sanity check - all properties at once", func(t *testing.T) {
-			delta := DeltaSkipSearchable(allPrev, allNext, allSkipSearchable)
+			delta := deltaSkipNames(allPrev, allNext, allSkipSearchable)
 
 			assert.ElementsMatch(t, allExpectedToAdd, delta.ToAdd)
 			assert.ElementsMatch(t, allExpectedToDel, delta.ToDelete)
@@ -2407,7 +2412,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 			{Data: []byte("added"), TermFrequency: 3},
 		}
 
-		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+		delta := deltaSkipNames([]Property{prev}, []Property{next}, []string{prev.Name})
 
 		assert.NotEmpty(t, delta.ToAdd)
 		assert.NotEmpty(t, delta.ToDelete)
@@ -2433,7 +2438,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 		next := prev
 		next.Length = 6
 
-		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+		delta := deltaSkipNames([]Property{prev}, []Property{next}, []string{prev.Name})
 
 		assert.ElementsMatch(t, []Property{next}, delta.ToAdd, "a punctuation-only edit must not be skipped")
 		assert.ElementsMatch(t, []Property{prev}, delta.ToDelete, "a punctuation-only edit must not be skipped")
@@ -2449,7 +2454,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 		next := prev
 		next.Length = 1
 
-		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+		delta := deltaSkipNames([]Property{prev}, []Property{next}, []string{prev.Name})
 
 		assert.ElementsMatch(t, []Property{next}, delta.ToAdd, "empty-to-whitespace must not be skipped")
 		assert.ElementsMatch(t, []Property{prev}, delta.ToDelete, "empty-to-whitespace must not be skipped")
@@ -2475,7 +2480,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 			{Data: []byte("term_b"), TermFrequency: 1},
 		}
 
-		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+		delta := deltaSkipNames([]Property{prev}, []Property{next}, []string{prev.Name})
 
 		assert.Empty(t, delta.ToAdd, "reordered-but-unchanged searchable prop must not be re-added")
 		assert.Empty(t, delta.ToDelete, "reordered-but-unchanged searchable prop must not be tombstoned")
@@ -2498,7 +2503,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 			{Data: []byte("term_a"), TermFrequency: 1},
 		}
 
-		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+		delta := deltaSkipNames([]Property{prev}, []Property{next}, []string{prev.Name})
 
 		assert.Empty(t, delta.ToAdd)
 		assert.Empty(t, delta.ToDelete)
@@ -2523,7 +2528,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 		}
 		next.Length = 11
 
-		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+		delta := deltaSkipNames([]Property{prev}, []Property{next}, []string{prev.Name})
 
 		assert.NotEmpty(t, delta.ToAdd, "a Length change must not be absorbed by the order-insensitive skip")
 		assert.NotEmpty(t, delta.ToDelete, "a Length change must not be absorbed by the order-insensitive skip")
@@ -2547,7 +2552,7 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 			HasSearchableIndex: true,
 		}
 
-		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+		delta := deltaSkipNames([]Property{prev}, []Property{next}, []string{prev.Name})
 
 		assert.Empty(t, delta.ToAdd, "two analyses of unchanged text must not re-add terms")
 		assert.Empty(t, delta.ToDelete, "two analyses of unchanged text must not tombstone terms")
@@ -2818,7 +2823,7 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 			HasFilterableIndex: true,
 		}}
 
-		delta := DeltaSkipSearchable(previous, next, nil)
+		delta := deltaSkipNames(previous, next, nil)
 
 		assert.Empty(t, delta.ToAdd)
 		assert.Empty(t, delta.ToDelete)
@@ -3057,7 +3062,7 @@ func TestDeltaAnalyzer_AbsentZeroTokenTransitions(t *testing.T) {
 		}
 		next := []Property(nil)
 
-		delta := DeltaSkipSearchable(previous, next, nil)
+		delta := deltaSkipNames(previous, next, nil)
 
 		deleted, ok := propByName(delta.ToDelete, "description")
 		require.True(t, ok, "the stale length=1 entry must be deleted")
@@ -3105,7 +3110,7 @@ func TestDeltaAnalyzer_AbsentZeroTokenTransitions(t *testing.T) {
 		}
 		next := []Property(nil)
 
-		delta := DeltaSkipSearchable(previous, next, nil)
+		delta := deltaSkipNames(previous, next, nil)
 
 		deleted, ok := propByName(delta.ToDelete, "description")
 		require.True(t, ok, "the length=0 entry must be deleted")
@@ -3129,7 +3134,7 @@ func TestDeltaAnalyzer_AbsentZeroTokenTransitions(t *testing.T) {
 		assert.False(t, addedOk)
 		assert.False(t, addedDelOk)
 
-		removeDelta := DeltaSkipSearchable(withProp, without, nil)
+		removeDelta := deltaSkipNames(withProp, without, nil)
 		_, removedOk := propByName(removeDelta.ToDelete, "flag")
 		_, removedAddOk := propByName(removeDelta.ToAdd, "flag")
 		assert.False(t, removedOk)

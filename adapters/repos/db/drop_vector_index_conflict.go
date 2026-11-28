@@ -78,7 +78,7 @@ func (p *DropVectorIndexDetector) CheckConflict(newHeader distributedtask.TaskHe
 // CheckPropertyUpdate implements distributedtask.SchemaMutationDetector. A
 // drop-vector task touches named vectors, not inverted properties, so a property
 // update never conflicts with it.
-func (p *DropVectorIndexDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexDetector) CheckPropertyUpdate(className, propertyName, indexOff string, existingTasks []*distributedtask.Task) error {
 	return nil
 }
 

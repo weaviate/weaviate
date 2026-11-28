@@ -26,7 +26,7 @@ import (
 
 // A bucket registers its on-disk path with the process-global
 // GlobalBucketRegistry at NewBucket time. A later Store op can mutate the
-// bucket's dir (RenameBucket, FinalizeBucketSwap). Bucket.Shutdown must
+// bucket's dir (RenameBucket). Bucket.Shutdown must
 // deregister the path it originally REGISTERED — not its current GetDir() —
 // otherwise the original path is stranded in the registry with no live bucket
 // and a same-name restore's TryAdd fails with ErrBucketAlreadyRegistered.
@@ -48,18 +48,6 @@ func TestRegistryLifecycle_ShutdownDeregistersRegisteredPath(t *testing.T) {
 				// RenameBucket requires the bucket to be read-only.
 				store.Bucket(name).UpdateStatus(storagestate.StatusReadOnly)
 				require.NoError(t, store.RenameBucket(ctx, name, "property_name_renamed"))
-				return registeredPath
-			},
-		},
-		{
-			name: "FinalizeBucketSwap",
-			mutate: func(t *testing.T, store *Store, dir string) string {
-				const name = "property_searchable_ingest"
-				require.NoError(t, store.CreateOrLoadBucket(ctx, name, WithStrategy(StrategyReplace)))
-				registeredPath := filepath.Join(dir, name)
-				canonicalDir := filepath.Join(dir, "property_searchable")
-				backupDir := filepath.Join(dir, "property_searchable_bak")
-				require.NoError(t, store.FinalizeBucketSwap(ctx, name, canonicalDir, registeredPath, backupDir))
 				return registeredPath
 			},
 		},

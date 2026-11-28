@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -266,23 +267,27 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// UpdateProperty apply ([MutationGuard]) still closes the
 	// multi-node race that this per-node check cannot — they are
 	// complementary, not redundant.
+	// Normalize the `rangeable` alias to `rangeFilters` for the schema
+	// manager; other values pass through unchanged so DELETE stays
+	// byte-compatible with GA v1.36.
+	indexName, indexOff := params.IndexName, params.IndexName
+	if indexName == "rangeable" {
+		indexName = "rangeFilters"
+	}
+	if indexName == "rangeFilters" {
+		indexOff = "rangeable"
+	}
+
 	tenantCounts := s.authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
 		authorization.ShardsMetadata(qualifiedClass)...) == nil
-	if conflict := s.checkReindexConflictForPropertyMutation(ctx, qualifiedClass, params.PropertyName, tenantCounts); conflict != "" {
+	if conflict := s.checkReindexConflictForPropertyMutation(ctx, qualifiedClass, params.PropertyName, indexOff, tenantCounts); conflict != "" {
 		s.metricRequestsTotal.logError(params.ClassName, fmt.Errorf("reindex conflict: %s", conflict))
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
 	}
 
-	// Normalize the `rangeable` alias to `rangeFilters` for the schema
-	// manager; other values pass through unchanged so DELETE stays
-	// byte-compatible with GA v1.36.
-	indexName := params.IndexName
-	if indexName == "rangeable" {
-		indexName = "rangeFilters"
-	}
-
-	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName,
+		s.reindexRunServesIndex(ctx, qualifiedClass, params.PropertyName, indexOff))
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -321,7 +326,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // detected) so the request proceeds to RAFT and the apply-time guard
 // handles correctness. We never spuriously reject due to a transient
 // local error.
-func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string,
+func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName, indexOff string,
 	tenantCounts bool,
 ) string {
 	if s.reindexTaskLister == nil {
@@ -367,7 +372,22 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			db.MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	return db.ReindexPartialRunConflict(tasksByNamespace[db.ReindexNamespace], className, propertyName, nil, tenantCounts)
+	return db.ReindexPartialRunConflict(tasksByNamespace[db.ReindexNamespace], className, propertyName,
+		db.IndexOffOfRun(indexOff), tenantCounts)
+}
+
+func (s *schemaHandlers) reindexRunServesIndex(ctx context.Context, className, propertyName, indexType string) bool {
+	if s.reindexTaskLister == nil {
+		return false
+	}
+	tasksByNamespace, err := listTaskHeaders(ctx, s.reindexTaskLister)
+	if err != nil {
+		return true // the apply decides
+	}
+	return slices.ContainsFunc(tasksByNamespace[db.ReindexNamespace], func(task *distributedtask.Task) bool {
+		_, ok := db.ReindexRunServingIndex(task, className, propertyName, indexType)
+		return ok
+	})
 }
 
 func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVectorsDeleteParams,

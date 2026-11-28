@@ -952,7 +952,7 @@ function run_acceptance_reindex_multinode() {
 function run_acceptance_reindex_multinode_restart_a() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-restart-a (mid-reindex restarts + post-complete rolling)"
-  # 7 tests:
+  # 8 tests:
   #   TestMultiNode_GracefulRestartDuringReindex
   #   TestMultiNode_GracefulLeaderRestartDuringReindex
   #   TestMultiNode_CrashDuringReindex
@@ -960,6 +960,7 @@ function run_acceptance_reindex_multinode_restart_a() {
   #   TestMultiNode_RollingRestartAfterComplete
   #   TestMultiNode_RollingRestartMidMigration
   #   TestMultiNode_RollingRestartBetweenMigrations
+  #   TestMultiNode_RollingRestartAfterMidRunEvent
   #
   # The "restart-during-active-reindex" + "post-complete rolling"
   # bucket. Each test owns its own cluster lifecycle (restart timing
@@ -974,7 +975,7 @@ function run_acceptance_reindex_multinode_restart_a() {
   # `RollingRestartMidMigration` + `RollingRestartBetweenMigrations`
   # un-claimed by any sub-shard; both are PASSING on main and now
   # land in this filter.
-  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|GracefulLeaderRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete|RollingRestartMidMigration|RollingRestartBetweenMigrations)' \
+  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|GracefulLeaderRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete|RollingRestartMidMigration|RollingRestartBetweenMigrations|RollingRestartAfterMidRunEvent)' \
     run_aof_group "reindex-multinode-restart-a" test/acceptance/reindex_multinode
 }
 
@@ -1091,10 +1092,9 @@ function run_acceptance_reindex_singlenode_a() {
   # Profiled locally on M4 (race detector on): TestSingleNode_ReindexSuite
   # totals 265s, dominated by /PropertyStateMigrationMatrix at 128s
   # (~half the suite). Isolating PSMM to -singlenode-b gives this
-  # sub-shard ~137s of suite work + the 5 standalone Test* funcs
+  # sub-shard ~137s of suite work + the standalone Test* funcs
   # (TestCancelThenRetry, TestRestartDuringSwap,
   # TestSingleNode_FinishedStatusRaceWithSchemaFlag,
-  # TestTornResume_StandaloneSmoke,
   # TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff), totalling
   # ~3 min local → ~7-8 min CI.
   #

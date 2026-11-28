@@ -16,9 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -216,13 +214,6 @@ func (r *restorer) restoreOne(ctx context.Context,
 
 	if err := fw.Write(ctx, desc, materializedName, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("write files: %w", err)
-	}
-
-	// The records name the node the backup was taken on, so under a node mapping
-	// the shard would set them aside and serve the migrated indexes empty.
-	indexPath := filepath.Join(fw.tempDir, materializedName, strings.ToLower(materializedName))
-	if err := r.sourcer.AdoptRestoredMigrationRecords(indexPath, desc, r.node, store.node); err != nil {
-		return fmt.Errorf("adopt migration records: %w", err)
 	}
 	return nil
 }

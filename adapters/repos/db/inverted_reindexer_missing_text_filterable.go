@@ -70,10 +70,12 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(c
 	}
 
 	for propName := range props {
-		bucketNameSearchable := helpers.BucketSearchableFromPropNameLSM(propName)
 		bucketNameFilterable := helpers.BucketFromPropNameLSM(propName)
+		if shard.servedIndexName(propName, indexTypeFilterable) != bucketNameFilterable {
+			continue // a reindex run already built it
+		}
 
-		bucketSearchable := shard.Store().Bucket(bucketNameSearchable)
+		bucketSearchable := shard.Store().Bucket(shard.servedIndexName(propName, indexTypeSearchable))
 		bucketFilterable := shard.Store().Bucket(bucketNameFilterable)
 
 		// exists bucket searchable of strategy map and either of

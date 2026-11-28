@@ -38,11 +38,11 @@ type lsmSorter struct {
 	bucket                 *lsmkv.Bucket
 	dataTypesHelper        *dataTypesHelper
 	valueExtractor         *comparableValueExtractor
-	store                  *lsmkv.Store
+	store                  lsmkv.BucketLookup
 	invertedSorterDisabled *runtime.DynamicValue[bool]
 }
 
-func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className schema.ClassName,
+func NewLSMSorter(store lsmkv.BucketLookup, fn func(string) *models.Class, className schema.ClassName,
 	invertedDisabled *runtime.DynamicValue[bool],
 ) (LSMSorter, error) {
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)

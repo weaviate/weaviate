@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -21,7 +22,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
@@ -333,29 +333,6 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 	return refusable, refusablePayload
 }
 
-func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection, propertyName string,
-	logger logrus.FieldLogger,
-) []distributedtask.TaskDescriptor {
-	var out []distributedtask.TaskDescriptor
-	for _, task := range tasks {
-		header, ok := db.ReindexHeaderOf(task)
-		if !ok {
-			logger.WithField("task_id", task.ID).
-				Warn("skipping reindex task with an undecodable payload")
-			continue
-		}
-		payload := header.ReindexTaskPayload
-		if !strings.EqualFold(payload.Collection, collection) {
-			continue
-		}
-		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
-			continue
-		}
-		out = append(out, task.TaskDescriptor)
-	}
-	return out
-}
-
 // cancelPreflight answers a cancel that owes no RAFT apply: there is
 // nothing to cancel, or DTM would refuse it. It reads the predicate the
 // FSM guard applies, so the two answers cannot drift.
@@ -409,10 +386,10 @@ func (h *indexesHandlers) cancelTooLateResponder(target *distributedtask.Task, c
 		"index_type":  indexType,
 		"taskID":      target.ID,
 		"principal":   principalUsername(principal),
-	}).Info("cancel: the task is SWAPPING and ends once every replica that owes a swap has swapped; refusing")
+	}).Info("cancel: the task is SWAPPING and ends once its flip lands; refusing")
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s has reached %s and can no longer be cancelled: "+
-			"it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. Nothing was cancelled",
+			"it ends once its flip lands; if the flip keeps failing, the task fails and a resubmit of the same target finishes it. Nothing was cancelled",
 			target.ID, collection, propertyName, distributedtask.TaskStatusSwapping)))
 }
 
@@ -500,76 +477,6 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 		return h.cancelApplyFailureResponder(err, target, collection, propertyName, indexType, principal)
 	}
 
-	// Drain the local reindex goroutine BEFORE cleaning partial on-disk
-	// state. Without this, the cleanup races against the worker which is
-	// still writing to the __reindex / __ingest buckets — ShutdownBucket
-	// would tear those buckets out from under the writer and corrupt the
-	// store. CancelDistributedTask above cancels the per-task ctx, so the
-	// worker should be exiting; the wait simply blocks until it does.
-	//
-	// Bounded (same 10s timeout as the DTM scheduler) so a stuck goroutine
-	// can't hang the cancel request. On timeout we still return 202; the
-	// next submit retries the drain and returns 503 meanwhile.
-	if h.appState.ReindexProvider != nil {
-		h.appState.Logger.WithFields(logrus.Fields{
-			"taskID":     target.ID,
-			"collection": collection,
-			"property":   propertyName,
-			"index_type": indexType,
-		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
-		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-		unseal, drainErr := h.appState.ReindexProvider.SealLocalTaskDrain(drainCtx, target.TaskDescriptor)
-		drainCancel()
-		if drainErr != nil {
-			h.appState.Logger.WithFields(logrus.Fields{
-				"taskID":     target.ID,
-				"collection": collection,
-				"property":   propertyName,
-				"index_type": indexType,
-			}).Errorf("cancel: timed out waiting for local reindex goroutine to drain (%v); skipping inline cleanup — next submit will retry", drainErr)
-		} else {
-			h.appState.Logger.WithFields(logrus.Fields{
-				"taskID":     target.ID,
-				"collection": collection,
-				"property":   propertyName,
-				"index_type": indexType,
-			}).Info("cancel: drain complete, running on-disk cleanup")
-			defer unseal()
-			// Goroutine has drained. Wipe the sidecars and migration
-			// directories for every indexType this migration touches —
-			// change-tokenization spawns both a searchable and a
-			// filterable strategy under one task, so cleaning only the
-			// URL's indexType leaves the sibling orphaned. Errors are
-			// logged; submit-time pre-cleanup will retry.
-			indexTypesToClean, known := indexTypesFromMigrationType(targetPayload.MigrationType)
-			if !known || len(indexTypesToClean) == 0 {
-				// Unknown migration type: fall back to the indexType
-				// named in the URL.
-				indexTypesToClean = []string{indexType}
-			}
-			// One cache for the whole loop; see the submit path for why.
-			sweep := h.appState.DB.NewStalePartialReindexSweep(targetPayload.Tenants)
-			cleanupFailures, cleanupDropped := sweepStaleReindexState(indexTypesToClean, func(it string) error {
-				return sweep(ctx, collection, propertyName, it)
-			})
-			// The log fields name every strategy this migration touches, not just
-			// the URL's index type; each failure line adds its own index_type.
-			logCancelCleanupOutcome(h.appState.Logger.WithFields(logrus.Fields{
-				"taskID":     target.ID,
-				"collection": collection,
-				"property":   propertyName,
-				"strategies": indexTypesToClean,
-			}), cleanupFailures, cleanupDropped)
-		}
-	} else {
-		h.appState.Logger.WithFields(logrus.Fields{
-			"taskID":     target.ID,
-			"collection": collection,
-			"property":   propertyName,
-			"index_type": indexType,
-		}).Warn("cancel: appState.ReindexProvider is nil; skipping drain+cleanup")
-	}
-
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event":    "reindex_task_cancelled",
 		"taskID":         target.ID,
@@ -593,113 +500,6 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 // as a single success path rather than the previous "200 vs 404"
 // disambiguation — see the cancelReindexTask godoc.
 const reindexCancelStatusNoOp = "NO_OP"
-
-// reindexCancelDrainTimeout caps how long the cancel handler waits for
-// the local reindex goroutine to exit before falling back to "let the
-// next submit clean up". 10s matches the DTM scheduler's analogous
-// waits and is comfortably above the per-iteration cycle (which checks
-// ctx.Err() every checkProcessingEveryNoObjects=1000 objects, with a
-// processingDuration cap of 600s but a per-iteration cap that's much
-// shorter in practice — empirically <1s on test corpora).
-const reindexCancelDrainTimeout = 10 * time.Second
-
-// staleSweepFailure pairs a sweep error with its index type and with what the
-// sweep left behind, so a handler can name the index type as a structured
-// field and pick its wording from the outcome rather than from the error text.
-type staleSweepFailure struct {
-	indexType string
-	outcome   db.CleanupSweepOutcome
-	err       error
-}
-
-func (f staleSweepFailure) Error() string {
-	return fmt.Sprintf("indexType=%q: %v", f.indexType, f.err)
-}
-
-// sweepStaleReindexState runs sweep once per index type and splits the
-// results by [db.ClassifyCleanupSweep]. A dropped collection is not a
-// failure (nothing left to short-circuit on) but also not a completed
-// cleanup, so it comes back as its own count rather than folded into either.
-func sweepStaleReindexState(
-	indexTypes []string, sweep func(indexType string) error,
-) (failures []staleSweepFailure, dropped int) {
-	for _, indexType := range indexTypes {
-		outcome, failure := db.ClassifyCleanupSweep(sweep(indexType))
-		switch {
-		case outcome == db.CleanupSweepDropped:
-			dropped++
-		case failure != nil:
-			failures = append(failures, staleSweepFailure{
-				indexType: indexType, outcome: outcome, err: failure,
-			})
-		}
-	}
-	return failures, dropped
-}
-
-// The two handlers that sweep, passed to [db.CleanupSweepSummary] so an
-// operator can tell which one ran, and used to word what the outcome means for
-// the caller (see [sweepConsequence]).
-const (
-	sweepPhaseSubmit = "submit"
-	sweepPhaseCancel = "cancel"
-)
-
-// sweepConsequence is what this caller does next about what the sweep left,
-// which is all the handlers add to the shared summary. The phases differ on an
-// incomplete walk: cancel is done once it has swept, so the state waits for a
-// later submit, while the submit that logs this dispatches its task anyway and
-// the task can resume against the state the sweep could not verify.
-func sweepConsequence(phase string, outcome db.CleanupSweepOutcome) string {
-	switch {
-	case outcome == db.CleanupSweepFailed:
-		return "a later task may short-circuit on the stale state and report a false success — " +
-			"operator inspection recommended"
-	case outcome == db.CleanupSweepWithheld:
-		return "no submit cleans up this shard until that fault is cleared"
-	case phase == sweepPhaseSubmit:
-		return "this submit proceeds anyway, so the task it dispatches may resume against them"
-	default:
-		return "the next submit sweeps them again"
-	}
-}
-
-// logStaleSweepFailures emits one operator-facing line per sweep that did not
-// finish. What it left behind and how loudly to say so both come from
-// [db.CleanupSweepSummary], so the handlers cannot rank the same outcome
-// differently from the sweep itself.
-func logStaleSweepFailures(entry *logrus.Entry, phase string, failures []staleSweepFailure) {
-	for _, failure := range failures {
-		msg, level := db.CleanupSweepSummary(phase, failure.outcome)
-		entry.WithField("index_type", failure.indexType).
-			Logf(level, "%s: %v; %s", msg, failure, sweepConsequence(phase, failure.outcome))
-	}
-}
-
-// logCancelCleanupOutcome reports what the cancel handler's on-disk cleanup
-// did. Only a run whose sweeps all reached every shard is a finished sweep: a
-// run a collection delete suppressed swept nothing past the delete, and
-// reporting it as finished would claim work that did not happen.
-func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, dropped int) {
-	if len(failures) > 0 {
-		logStaleSweepFailures(entry, sweepPhaseCancel, failures)
-		return
-	}
-	outcome := db.CleanupSweepClean
-	if dropped > 0 {
-		outcome = db.CleanupSweepDropped
-	}
-	msg, level := db.CleanupSweepSummary(sweepPhaseCancel, outcome)
-	entry.Log(level, msg)
-}
-
-// indexTypesFromMigrationType returns the canonical inverted-index types
-// ("filterable", "searchable", "rangeable") that a migration type targets,
-// for use by submit-time pre-cleanup. Returns (nil, false) only for unknown
-// migration types — every known type returns at least one indexType.
-func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
-	return db.ReindexIndexTypes(mt)
-}
 
 // migrationTypeTargetsIndex returns:
 //
@@ -802,7 +602,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// deliberately do NOT block fresh submits; see checkReindexConflict).
 	// Pick the most useful one to surface rather than the first in the list:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
-	//   newer StartedAt > older StartedAt          (within the same priority)
+	//   higher Version, then newer StartedAt       (versions follow the log, start times do not)
 	// FINISHED tasks stay in the loop for the tiebreak; see [taskStatusPriority].
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
@@ -841,8 +641,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			continue
 		}
 
-		if best == nil || taskStatusPriority(task) > taskStatusPriority(best) ||
-			(taskStatusPriority(task) == taskStatusPriority(best) && task.StartedAt.After(best.StartedAt)) {
+		if best == nil || reindexRunOutranks(task, best) {
 			best = task
 			bestPayload = payload
 		}
@@ -877,9 +676,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if best.Status == distributedtask.TaskStatusCancelled {
 			idx.Status = models.IndexStatusStatusCancelled
 		}
-		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
+		if run := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); run != nil {
 			idx.Status = models.IndexStatusStatusPartial
-			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
+			idx.MigratedTenants, idx.TotalTenants = int64(len(run.Task.SwapDecidedGroups)), int64(run.Task.GroupTotal())
 		}
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
@@ -961,9 +760,27 @@ func taskStatusPriority(task *distributedtask.Task) int {
 	return 1
 }
 
+func reindexRunOutranks(task, best *distributedtask.Task) bool {
+	return cmp.Or(
+		cmp.Compare(taskStatusPriority(task), taskStatusPriority(best)),
+		cmp.Compare(task.Version, best.Version),
+		task.StartedAt.Compare(best.StartedAt),
+	) > 0
+}
+
 // aggregateProgress averages Unit.Progress across all units in the task.
 // Returns 0 when there are no units.
 func aggregateProgress(task *distributedtask.Task) float32 {
+	if s := task.Summary; s != nil {
+		units := 0
+		for _, n := range s.Counts {
+			units += n
+		}
+		if units == 0 {
+			return 0
+		}
+		return float32(s.Counts[distributedtask.UnitStatusCompleted]) / float32(units)
+	}
 	if len(task.Units) == 0 {
 		return 0
 	}

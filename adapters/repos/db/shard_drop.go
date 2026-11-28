@@ -66,6 +66,7 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	defer s.releaseCountedStatus()
 
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
+	s.closeViews()
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()

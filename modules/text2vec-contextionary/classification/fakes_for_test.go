@@ -51,6 +51,10 @@ func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
 	return nil
 }
 
+func (f *fakeSchemaGetter) ClassLive(string) map[string]map[string]uint64 {
+	return nil
+}
+
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	panic("not implemented")
 }

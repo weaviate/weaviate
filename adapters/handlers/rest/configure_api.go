@@ -500,6 +500,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
+		ReindexStagingFailureTimeout:        appState.ServerConfig.Config.ReindexStagingFailureTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
 		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
@@ -698,6 +699,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			db.ReindexNamespace:         db.ReindexDetector{},
 			db.DropVectorIndexNamespace: dropVectorDetector,
 		},
+		DistributedTaskRules: map[string]distributedtask.TaskRules{
+			db.ReindexNamespace: db.ReindexTaskRules{},
+		},
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		MaxCollections:                         appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
@@ -783,7 +787,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	})
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
-	repo.SetEndedReindexTaskReader(appState.ClusterService.Raft)
+	repo.SetReindexTaskReader(appState.ClusterService.Raft)
+	repo.SetReindexTaskStateSource(appState.ClusterService.Raft)
+	appState.ClusterService.SetDistributedTaskStateListener(repo.ReindexTaskStateListener)
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
 	repo.SetTenantsActivityManager(appState.SchemaManager)
@@ -834,17 +840,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, catchUpRetryLister{appState.ClusterService.Raft}, appState.Logger,
+		repo, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
 	)
-	// The reindexer is set before any shard loads, so each load re-arms its mirrors before its first write.
-	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
-		appState.Logger,
-		appState.SchemaManager,
-		reindexProvider,
-	))
+	reindexProvider.SetReindexFlipper(appState.ClusterService.Raft)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1037,54 +1038,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 
-		raft := appState.ClusterService.Raft
-		repo.SetMigrationTaskSources(serverShutdownCtx,
-			newMigrationLocalTaskSource(raft), newMigrationClusterTaskSource(raft))
-
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("failed to start distributed task scheduler: %v", err)
 			return
 		}
-
-		// Install the backup-gate activity lookup so refuseIfReindexInFlight
-		// consults DTM rather than per-shard filesystem markers. Built per
-		// backup precheck so the snapshot is fresh; on list failure we
-		// fall back to refusing every backup until DTM is reachable, to
-		// avoid races against in-flight reindexes that the local node
-		// cannot see.
-		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx, raft, appState.Logger))
-		// S1: the DTM-activity lookup flips a shard "free" the moment a
-		// task lands in a terminal status; autoCleanupAfterTerminal then
-		// tears the sidecar __reindex / __ingest dirs over the next
-		// tens of seconds. The cleanup-in-progress lookup keeps the gate
-		// closed for that window so a backup landing in the gap doesn't
-		// snapshot half-removed sidecars.
-		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 	}, appState.Logger)
 
 	return appState
-}
-
-type reindexGateSource interface {
-	distributedtask.TaskHeaderLister
-	LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(node string) string) (has, known bool)
-}
-
-func shardReindexActivityBuilder(ctx context.Context, source reindexGateSource, logger logrus.FieldLogger,
-) db.ShardReindexActivityLookupBuilder {
-	return func() (db.ShardReindexActivityLookup, error) {
-		tasksByNamespace, err := listTaskHeaders(ctx, source)
-		if err != nil {
-			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
-		}
-		hasUnit := func(desc distributedtask.TaskDescriptor, shard string) (bool, bool) {
-			return source.LocalTaskHasUnit(db.ReindexNamespace, desc, func(node string) string {
-				return db.MigrationUnitID(shard, node)
-			})
-		}
-		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], hasUnit, logger), nil
-	}
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
@@ -1108,8 +1069,6 @@ func initReindexAndDistributedTasks(
 ) {
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
-
-	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
 	// The drop-vector-index provider. Its guards are registered separately,
 	// in the rConfig DistributedTask*Detectors maps in MakeAppState.

@@ -387,21 +387,6 @@ func TestUpdateTaskCopyReportsTheGroupsAnApplyChanged(t *testing.T) {
 			want:    changedGroups{groups: map[string]struct{}{"g0": {}}},
 		},
 		{
-			name:    "post-completion ack that pays the swap",
-			barrier: true,
-			before: func(t *testing.T, m *Manager) {
-				complete(t, m, "g0", "")
-				complete(t, m, "g1", "")
-				prepAck(t, m, "g0")
-			},
-			apply: func(t *testing.T, m *Manager) {
-				require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-					Namespace: copyNamespace, Id: desc.ID, Version: 1, GroupId: "g0", NodeId: node, Success: true,
-				})))
-			},
-			want: changedGroups{groups: map[string]struct{}{"g0": {}}},
-		},
-		{
 			name:   "successful post-completion ack",
 			before: func(t *testing.T, m *Manager) { complete(t, m, "g0", ""); complete(t, m, "g1", "") },
 			apply:  func(t *testing.T, m *Manager) { postAck(t, m, true) },

@@ -14,7 +14,6 @@ package reindex_singlenode
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,13 +30,12 @@ const (
 	indexOffTenant    = "tenantone"
 	indexOffProp      = "score"
 	indexOffCanonical = "property_score"
-	indexOffStaged    = "property_score__enable_filterable_ingest"
+	indexOffServed    = "property_score.gen1"
 	indexOffObjects   = 25
 )
 
-// Deleting an index while its tenant is inactive leaves the shard in the same
-// state as the finalize-deferral window: the rebuilt data must survive
-// repeated shard loads under its staged name until the index is on again.
+// Deleting an index while its tenant is inactive reaches the shard only when
+// it loads: every load serves the objects and opens no folder of that index.
 func TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff(t *testing.T) {
 	ctx := context.Background()
 
@@ -88,11 +86,8 @@ func TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff(t *testing.T) {
 	requireIndexOffFilterableFlag(t, true)
 
 	dirs := listLSMDirs(ctx, t, container, indexOffClass, indexOffTenant)
-	require.NotEmpty(t, indexOffStagedDir(dirs),
-		"fixture: the finished migration leaves its data under a staged name, got %v", dirs)
+	require.Contains(t, dirs, indexOffServed, "fixture: the finished run serves its generation folder")
 
-	// The delete only reaches loaded shards, so an inactive tenant keeps the
-	// rebuilt index on disk after the flag turns off.
 	setIndexOffTenantStatus(t, models.TenantActivityStatusINACTIVE)
 	deleteIndex(t, restURI, indexOffClass, indexOffProp, "filterable")
 	requireIndexOffFilterableFlag(t, false)
@@ -106,23 +101,12 @@ func TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff(t *testing.T) {
 			"load %d: activating the tenant must load its shard and serve its objects", load)
 
 		dirs := listLSMDirs(ctx, t, container, indexOffClass, indexOffTenant)
-		assert.NotContainsf(t, dirs, indexOffCanonical,
-			"load %d: the canonical directory must stay absent while the class turns the index off — "+
-				"the next load's sweep deletes what is there", load)
-		assert.NotEmptyf(t, indexOffStagedDir(dirs),
-			"load %d: the rebuilt index must keep its staged name until the flag lands, got %v", load, dirs)
+		for _, dir := range []string{indexOffCanonical, indexOffServed} {
+			assert.NotContainsf(t, dirs, dir, "load %d: the load sweep deletes an index the class turns off", load)
+		}
 
 		setIndexOffTenantStatus(t, models.TenantActivityStatusINACTIVE)
 	}
-}
-
-func indexOffStagedDir(dirs []string) string {
-	for _, dir := range dirs {
-		if strings.HasPrefix(dir, indexOffStaged) {
-			return dir
-		}
-	}
-	return ""
 }
 
 func indexOffTenantObjects(t *testing.T) ([]string, error) {

@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -21,12 +22,35 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/filters"
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 )
+
+// rangeableDocIDsAtLeast returns every docID whose value is >= v in a
+// RoaringSetRange bucket.
+func rangeableDocIDsAtLeast(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
+	t.Helper()
+	reader := b.ReaderRoaringSetRange()
+	defer reader.Close()
+	lex, err := entinverted.LexicographicallySortableInt64(v)
+	require.NoError(t, err)
+	key := binary.BigEndian.Uint64(lex)
+	bm, release, err := reader.Read(context.Background(), key, filters.OperatorGreaterThanEqual)
+	require.NoError(t, err)
+	if release != nil {
+		defer release()
+	}
+	if bm == nil {
+		return nil
+	}
+	return bm.ToArray()
+}
 
 // A property that gets no in-memory rep still answers range filters from its
 // disk segments.

@@ -44,7 +44,6 @@ func newRetryFlipProvider(t *testing.T) *retryFlipProvider {
 }
 
 func (p *retryFlipProvider) OnGroupCompleted(_ *Task, _ string, _ []string) error { return nil }
-func (p *retryFlipProvider) OnSwapRequested(_ *Task, _ string, _ []string) error  { return nil }
 
 func (p *retryFlipProvider) OnTaskCompleted(task *Task) error {
 	p.mu.Lock()

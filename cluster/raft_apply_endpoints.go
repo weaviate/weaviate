@@ -84,11 +84,11 @@ func (s *Raft) DeleteClass(ctx context.Context, name string) (uint64, error) {
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
+func (s *Raft) RestoreClass(ctx context.Context, req cmd.AddClassRequest) (uint64, error) {
+	cls := req.Class
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
-	req := cmd.AddClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)
@@ -131,27 +131,14 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 // This is the public entry point: callers reach it from the REST / gRPC
 // schema handlers. The cluster-side MutationGuard at apply time blocks
 // updates while a reindex on the same (collection, property) is STARTED
-// or FINALIZING. Internal callers driven by the distributed-task
-// scheduler's own completion path must use
-// [Raft.UpdatePropertyFromMigration] instead, which sets the migration
-// flag.
+// or FINALIZING.
 func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
-	return s.updateProperty(ctx, class, property, nil, fields...)
-}
-
-func (s *Raft) UpdatePropertyFromMigration(ctx context.Context, class string, run cmd.MigrationRun, property *models.Property, fields ...string) (uint64, error) {
-	return s.updateProperty(ctx, class, property, &run, fields...)
-}
-
-func (s *Raft) updateProperty(ctx context.Context, class string, property *models.Property, run *cmd.MigrationRun, fields ...string) (uint64, error) {
 	if class == "" || property == nil {
 		return 0, fmt.Errorf("empty property or empty class name: %w", schema.ErrBadRequest)
 	}
 	req := cmd.UpdatePropertyRequest{
-		Property:              property,
-		FieldsToUpdate:        fields,
-		FromInFlightMigration: run != nil,
-		MigrationRun:          run,
+		Property:       property,
+		FieldsToUpdate: fields,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
@@ -163,6 +150,17 @@ func (s *Raft) updateProperty(ctx context.Context, class string, property *model
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
+}
+
+func (s *Raft) ReindexFlip(ctx context.Context, class string, req cmd.ReindexFlipRequest) (uint64, error) {
+	if class == "" || req.Prop == "" {
+		return 0, fmt.Errorf("empty class or property: %w", schema.ErrBadRequest)
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	return s.Execute(ctx, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_REINDEX_FLIP, Class: class, SubCommand: subCommand})
 }
 
 func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, targetNode string) (uint64, error) {

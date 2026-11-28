@@ -444,7 +444,7 @@ func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
 func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 	detector := ReindexDetector{}
 
-	require.NoError(t, detector.CheckPropertyUpdate("C", "name", nil))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "name", "", nil))
 
 	// FINISHED / FAILED / CANCELLED in the task list also must not block.
 	terminalPayload, _ := json.Marshal(ReindexTaskPayload{
@@ -463,22 +463,27 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 				Status:         status,
 				Payload:        terminalPayload,
 			}}
-			require.NoError(t, detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...)))
+			require.NoError(t, detector.CheckPropertyUpdate("C", "name", "", loadTasks(t, ReindexNamespace, tasks...)))
 		})
 	}
 }
 
-// A cutover write lands only while the run it names is SWAPPING, even if another run on the property is.
+// A cutover write lands only while the run it names is SWAPPING and built the generation it names,
+// even if another run on the property is SWAPPING.
 func TestCheckMigrationPropertyUpdate(t *testing.T) {
-	payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}})
-	require.NoError(t, err)
 	for _, tc := range []struct {
 		status     distributedtask.TaskStatus
 		class      string
 		prop       string
 		run        api.MigrationRun
+		runGen     uint64 // the generation T1 built
+		gen        uint64 // the generation the write names
 		wantRefuse bool
 	}{
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", runGen: 2, gen: 2},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", runGen: 2, gen: 1, wantRefuse: true},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", runGen: 2, gen: 3, wantRefuse: true},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", gen: 1, wantRefuse: true},
 		{status: distributedtask.TaskStatusSwapping, class: "c", prop: "name"},
 		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "other", wantRefuse: true},
 		{status: distributedtask.TaskStatusSwapping, class: "D", prop: "name", wantRefuse: true},
@@ -497,10 +502,17 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 		if tc.run == (api.MigrationRun{}) {
 			tc.run = api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 1}
 		}
-		t.Run(fmt.Sprintf("%s/%s.%s/%s.v%d", tc.status, tc.class, tc.prop, tc.run.ID, tc.run.Version), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s/%s.%s/%s.v%d/gen%d-of-%d", tc.status, tc.class, tc.prop, tc.run.ID, tc.run.Version, tc.gen, tc.runGen), func(t *testing.T) {
+			payload := func(gen uint64) []byte {
+				raw, err := json.Marshal(ReindexTaskPayload{
+					Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}, Generation: gen,
+				})
+				require.NoError(t, err)
+				return raw
+			}
 			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: {
-				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload},
-				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "U", Version: 1}, Status: distributedtask.TaskStatusSwapping, Payload: payload},
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload(tc.runGen)},
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "U", Version: 1}, Status: distributedtask.TaskStatusSwapping, Payload: payload(tc.gen)},
 			}}})
 			require.NoError(t, err)
 			logger, _ := test.NewNullLogger()
@@ -509,7 +521,7 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
 			})
 			require.NoError(t, mgr.Restore(snapshot))
-			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.run)
+			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.gen, tc.run)
 			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
 		})
 	}
@@ -537,7 +549,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 				Status:         status,
 				Payload:        payload,
 			}}
-			err := detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...))
+			err := detector.CheckPropertyUpdate("C", "name", "", loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_change_tok")
 			require.Contains(t, err.Error(), "change-tokenization")
@@ -567,8 +579,8 @@ func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, detector.CheckPropertyUpdate("C", "category", loadTasks(t, ReindexNamespace, tasks...)))
-	require.NoError(t, detector.CheckPropertyUpdate("C", "title", loadTasks(t, ReindexNamespace, tasks...)))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "category", "", loadTasks(t, ReindexNamespace, tasks...)))
+	require.NoError(t, detector.CheckPropertyUpdate("C", "title", "", loadTasks(t, ReindexNamespace, tasks...)))
 }
 
 // TestCheckPropertyUpdate_DifferentCollectionAllows pins the per-
@@ -590,7 +602,7 @@ func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
 		Payload:        payload,
 	}}
 
-	require.NoError(t, detector.CheckPropertyUpdate("B", "name", loadTasks(t, ReindexNamespace, tasks...)))
+	require.NoError(t, detector.CheckPropertyUpdate("B", "name", "", loadTasks(t, ReindexNamespace, tasks...)))
 }
 
 // TestCheckPropertyUpdate_EveryMigrationTypeRejects walks every reindex
@@ -628,7 +640,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        payload,
 			}}
-			err := detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...))
+			err := detector.CheckPropertyUpdate("C", "name", "", loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err, "migration type %s in flight on name must block schema mutations on name", mt)
 			require.Contains(t, err.Error(), string(mt))
 		})
@@ -657,7 +669,7 @@ func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
 
 	for _, prop := range []string{"name", "category", "title", "description"} {
 		t.Run(prop, func(t *testing.T) {
-			err := detector.CheckPropertyUpdate("C", prop, loadTasks(t, ReindexNamespace, tasks...))
+			err := detector.CheckPropertyUpdate("C", prop, "", loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_wildcard")
 		})
@@ -678,7 +690,7 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 		Payload:        []byte("garbage"),
 	}}
 
-	err := detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...))
+	err := detector.CheckPropertyUpdate("C", "name", "", loadTasks(t, ReindexNamespace, tasks...))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "T_garbage")
 	require.Contains(t, err.Error(), "unparseable")
@@ -853,7 +865,7 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        b,
 			}}
-			err := detector.CheckPropertyUpdate("C", "name", loadTasks(t, ReindexNamespace, tasks...))
+			err := detector.CheckPropertyUpdate("C", "name", "", loadTasks(t, ReindexNamespace, tasks...))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_empty")
 		})
@@ -905,7 +917,7 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 	}{
 		"property update": {
 			call: func(tasks []*distributedtask.Task) error {
-				return detector.CheckPropertyUpdate("C", "name", tasks)
+				return detector.CheckPropertyUpdate("C", "name", "", tasks)
 			},
 			cancelAdvice: "cancel it via the reindex REST API before retrying",
 		},
@@ -930,7 +942,7 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 	}{
 		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
 		{status: distributedtask.TaskStatusPreparing, wantCancelAdvice: true},
-		{status: distributedtask.TaskStatusSwapping, wantReason: "ends once every replica that owes a swap has swapped, so wait for it"},
+		{status: distributedtask.TaskStatusSwapping, wantReason: "ends once its flip lands, so wait for it"},
 		{
 			status:     unknownFutureStatus,
 			wantReason: "cannot classify that status",
@@ -1008,8 +1020,13 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 		return payload
 	}
 	partial := reindexTaskOnC(t, "partial", distributedtask.TaskStatusFailed, "name")
+	var err error
+	partial.Payload, err = json.Marshal(ReindexTaskPayload{
+		Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}, TargetTokenization: "field",
+		ViewServed: true, Generation: 1,
+	})
+	require.NoError(t, err)
 	partial.SwapDecidedGroups = map[string]time.Time{"tenant-a": {}}
-	classC := &models.Class{Class: "C", Properties: []*models.Property{{Name: "name", Tokenization: "field"}}}
 
 	for _, tc := range []struct {
 		name  string
@@ -1021,19 +1038,19 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 			return errText(d.CheckClassMutation("C", ts))
 		}, "is in flight"},
 		{"property update on the property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
-			return errText(d.CheckPropertyUpdate("C", "name", ts))
+			return errText(d.CheckPropertyUpdate("C", "name", "", ts))
 		}, "is in flight"},
 		{"property update after a partial run", partial, func(ts []*distributedtask.Task) string {
-			return errText(d.CheckPropertyUpdate("C", "name", ts))
+			return errText(d.CheckPropertyUpdate("C", "name", "", ts))
 		}, "are migrated"},
 		{"submit on the property", reindexTaskOnC(t, "T", distributedtask.TaskStatusStarted, "name"), func(ts []*distributedtask.Task) string {
 			return errText(d.CheckConflict(headerOf(t, d, submitOn("name")), ts))
 		}, "conflicts"},
 		{"the run's own flip", reindexTaskOnC(t, "T", distributedtask.TaskStatusSwapping, "name"), func(ts []*distributedtask.Task) string {
-			return errText(d.CheckMigrationPropertyUpdate("C", "name", ts[0]))
+			return errText(d.CheckMigrationPropertyUpdate("C", "name", 0, ts[0]))
 		}, ""},
 		{"cutover", reindexTaskOnC(t, "T", distributedtask.TaskStatusSwapping, "name"), func(ts []*distributedtask.Task) string {
-			return fmt.Sprint(d.CutoverLanded(ts[0], func(string) *models.Class { return classC }))
+			return fmt.Sprint(d.CutoverLanded(ts[0], func(string) map[string]map[string]uint64 { return nil }))
 		}, "true"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1090,7 +1107,7 @@ func payloadWithUnitMaps(t *testing.T) []byte {
 	}
 	raw, err := json.Marshal(map[string]any{
 		"collection": "C", "migrationType": ReindexTypeChangeTokenization, "properties": []string{"name"},
-		"unitToNode": unitToNode, "unitToShard": unitToShard,
+		"unitToNode": unitToNode, "unitToShard": unitToShard, "viewServed": true, "generation": 1,
 	})
 	require.NoError(t, err)
 	return raw

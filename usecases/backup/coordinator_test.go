@@ -617,7 +617,7 @@ func (s *fakeSelector) ListClasses(ctx context.Context) []string {
 	return args.Get(0).([]string)
 }
 
-func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
+func (s *fakeSelector) Backupable(ctx context.Context, _ string, classes []string) error {
 	args := s.Called(ctx, classes)
 	return args.Error(0)
 }

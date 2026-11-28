@@ -37,8 +37,8 @@ func (f *fakeSchemaManager) AddClass(_ context.Context, cls *models.Class, ss *s
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) RestoreClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
-	args := f.Called(cls, ss)
+func (f *fakeSchemaManager) RestoreClass(_ context.Context, req command.AddClassRequest) (uint64, error) {
+	args := f.Called(req)
 	return 0, args.Error(0)
 }
 
@@ -63,11 +63,6 @@ func (f *fakeSchemaManager) AddProperty(_ context.Context, class string, p ...*m
 }
 
 func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
-	args := f.Called(class, property, fields)
-	return 0, args.Error(0)
-}
-
-func (f *fakeSchemaManager) UpdatePropertyFromMigration(_ context.Context, class string, _ command.MigrationRun, property *models.Property, fields ...string) (uint64, error) {
 	args := f.Called(class, property, fields)
 	return 0, args.Error(0)
 }

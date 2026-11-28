@@ -20,7 +20,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -39,6 +38,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -242,16 +242,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		convertToVectorIndexConfigs(class.VectorConfig),
 		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled, m.db.tenantsManager)
+		m.db.memMonitor, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled, m.db.tenantsManager)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
 
 	idx.usageLimits = m.db.usageLimits
 	idx.SetReplicationFSMReader(m.db.replicationFSM)
-	m.db.indexLock.Lock()
-	m.db.indices[idx.ID()] = idx
-	m.db.indexLock.Unlock()
+	m.db.registerIndex(idx)
 
 	// Shards built inside NewIndex read the read-only flag as they come up, but
 	// a transition landing after that read reaches them through neither path -
@@ -432,6 +430,8 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		ec.Add(m.updateIndexAddMissingProperties(ctx, idx, incomingClass))
 	}
 
+	// A snapshot install changes tasks and Live without the applies that send notices.
+	m.db.reindexRefresher().notify(incomingClass.Class, nil)
 	return ec.ToError()
 }
 
@@ -575,7 +575,7 @@ func shardHasProperty(shard ShardLike, prop *models.Property) bool {
 	if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
 		return shard.hasGeoIndexForProp(prop.Name)
 	}
-	return shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name)) != nil
+	return shard.hasFilterableIndexForProp(prop.Name)
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
@@ -603,7 +603,8 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 		return errors.Errorf("cannot update property for a non-existing index for %s", className)
 	}
 
-	return idx.updateProperty(ctx, property)
+	idx.updateProperty()
+	return nil
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
@@ -1176,6 +1177,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 			}
 			tasks[name] = &ShardInvertedReindexTask_SpecifiedIndex{
 				classNamesWithPropertyNames: classNamesWithPropertyNames,
+				runServed:                   logrusext.NewSampler(m.logInvertedReindex(), maxReportedErrors, time.Minute),
 			}
 		}
 	}

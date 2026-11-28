@@ -97,7 +97,7 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
 			h := gateWithTasks(buildTask(t, "T1", tc.status, payload, nil))
-			conflict := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true)
+			conflict := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title", "", true)
 			if !tc.blocked {
 				require.Empty(t, conflict, "a task this build knows is done must not block")
 				return
@@ -119,9 +119,9 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 	refusals := func(status distributedtask.TaskStatus) (string, error) {
 		task := buildTask(t, "T1", status, payload, nil)
 		return gateWithTasks(task).
-				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true),
+				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", "", true),
 			db.ReindexDetector{}.
-				CheckPropertyUpdate("C", "title", withHeaders(task))
+				CheckPropertyUpdate("C", "title", "", withHeaders(task))
 	}
 
 	// The remedy for the cancellable statuses; elsewhere it must be gone,
@@ -230,7 +230,7 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 			}
 
 			restReason := gateWithTasks(withHeader(task)).
-				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true)
+				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", "", true)
 			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {db.ReindexNamespace: {task}}})
 			require.NoError(t, err)
 			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
@@ -238,7 +238,7 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}},
 			})
 			require.NoError(t, mgr.Restore(snapshot))
-			fsmErr := mgr.CheckPropertyUpdate("C", "title")
+			fsmErr := mgr.CheckPropertyUpdate("C", "title", "")
 
 			require.Equal(t, tc.wantBlocked, restReason != "",
 				"REST pre-flight verdict (reason=%q)", restReason)
@@ -257,7 +257,7 @@ func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProper
 		}, nil))
 
 	require.Contains(t,
-		h.checkReindexConflictForPropertyMutation(context.Background(), "C", "any-property", true),
+		h.checkReindexConflictForPropertyMutation(context.Background(), "C", "any-property", "", true),
 		"T_all")
 }
 
@@ -339,7 +339,7 @@ func TestCheckReindexConflictForPropertyMutation_DifferentPropertyAllows(t *test
 			Properties:    []string{"other"},
 		}, nil))
 
-	require.Empty(t, h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true))
+	require.Empty(t, h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title", "", true))
 }
 
 // Pins that an index DELETE is refused, naming the resubmit, while a partial run stands on the property.
@@ -347,6 +347,7 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 	run := func(id string, version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, decided bool) *distributedtask.Task {
 		task := buildTask(t, id, status, db.ReindexTaskPayload{
 			MigrationType: mt, Collection: "C", Properties: []string{"title"}, TargetTokenization: models.PropertyTokenizationField,
+			ViewServed: true, Generation: version,
 		}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 		task.Version = version
 		if decided {
@@ -355,31 +356,40 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 		return task
 	}
 	cancelled, finished := distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFinished
+	partialRangeable := []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeEnableRangeable, true)}
 	for _, tc := range []struct {
 		name     string
 		property string
+		indexOff string
 		tasks    []*distributedtask.Task
 		resubmit string // empty: not refused
 	}{
 		{
-			name: "a partial enable-rangeable on the property", property: "title",
-			tasks:    []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeEnableRangeable, true)},
+			name: "a partial enable-rangeable on the property", property: "title", tasks: partialRangeable,
 			resubmit: `PUT /v1/schema/C/properties/title/index/rangeFilters -d '{}'`,
 		},
 		{
-			name: "an older partial run on another index type than a newer, covered one", property: "title",
+			name: "turning off the index a partial run builds", property: "title", indexOff: "rangeable",
+			tasks: partialRangeable,
+		},
+		{
+			name: "turning off another index than a partial run builds", property: "title", indexOff: "filterable",
+			tasks: partialRangeable, resubmit: `PUT /v1/schema/C/properties/title/index/rangeFilters -d '{}'`,
+		},
+		{
+			name: "a partial run on another index type than a newer finished one", property: "title",
 			tasks: []*distributedtask.Task{
 				run("P1", 10, cancelled, db.ReindexTypeChangeTokenizationFilterable, true),
-				run("P2", 20, cancelled, db.ReindexTypeChangeAlgorithm, true),
 				run("F", 30, finished, db.ReindexTypeChangeAlgorithm, false),
 			},
 			resubmit: `PUT /v1/schema/C/properties/title/index/filterable -d '{"tokenization":"field"}'`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			preflight := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, true)
-			withoutCounts := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, false)
-			applied := db.ReindexDetector{}.CheckPropertyUpdate("C", tc.property, withHeaders(tc.tasks...))
+			gate := gateWithTasks(tc.tasks...)
+			preflight := gate.checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, tc.indexOff, true)
+			withoutCounts := gate.checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, tc.indexOff, false)
+			applied := db.ReindexDetector{}.CheckPropertyUpdate("C", tc.property, tc.indexOff, withHeaders(tc.tasks...))
 			if tc.resubmit == "" {
 				require.Empty(t, preflight)
 				require.NoError(t, applied)

@@ -12,45 +12,22 @@
 package db
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // MapToBlockmaxStrategy implements MigrationStrategy for the
 // MapCollection → Inverted (blockmax WAND) migration of searchable properties.
 type MapToBlockmaxStrategy struct {
 	noAnalyzerOverlay
-	schemaManager *schema.Manager
-	generation    int // see genSuffix godoc
-}
-
-func (s *MapToBlockmaxStrategy) StrategyCode() MigrationStrategyCode {
-	return StrategyCodeSearchableMapToBlockmax
+	generation int // see genSuffix godoc
 }
 
 func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName)
-}
-
-func (s *MapToBlockmaxStrategy) ReindexSuffix() string {
-	return "__blockmax_reindex" + genSuffix(s.generation)
-}
-
-func (s *MapToBlockmaxStrategy) IngestSuffix() string {
-	return "__blockmax_ingest" + genSuffix(s.generation)
-}
-
-func (s *MapToBlockmaxStrategy) SourceStrategy() string {
-	return lsmkv.StrategyMapCollection
-}
-
-func (s *MapToBlockmaxStrategy) SourceIndexType() PropertyIndexType {
-	return IndexTypePropSearchableValue
 }
 
 func (s *MapToBlockmaxStrategy) TargetStrategy() string {
@@ -110,16 +87,6 @@ func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) stri
 		}
 		return nil
 	}
-}
-
-func (s *MapToBlockmaxStrategy) PreReindexHook(shard *Shard, props []string) {
-	shard.markSearchableBlockmaxProperties(props...)
-}
-
-// OnMigrationComplete: no-op for a semantic migration. Class-level flip
-// happens cluster-wide in flipSemanticMigrationSchema (weaviate/0-weaviate-issues#254).
-func (s *MapToBlockmaxStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
-	return nil
 }
 
 // calcPropLenInverted computes property length as the sum of term frequencies.

@@ -175,7 +175,7 @@ func TestShardReleasesCounterAndVersionFiles(t *testing.T) {
 	loadShard := func() (*Shard, error) {
 		return NewShard(ctx, nil, s.Name(), index, &models.Class{Class: className},
 			index.centralJobQueue, index.scheduler, index.indexCheckpoints,
-			index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+			false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	}
 
 	// Round 0 shuts down the shard testShard created, and every later round shuts down one loaded from disk.
@@ -336,7 +336,7 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 
 			s, err := NewShard(ctx, nil, s.Name(), index, class,
 				index.centralJobQueue, index.scheduler, index.indexCheckpoints,
-				index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+				false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
 			defer s.Shutdown(ctx)
 

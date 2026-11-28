@@ -16,6 +16,7 @@ package db
 import (
 	"maps"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -237,4 +238,8 @@ func (s *Shard) hasGeoIndexForProp(propName string) bool {
 	defer s.propertyIndicesLock.RUnlock()
 
 	return s.propertyIndices[propName].Type == schema.DataTypeGeoCoordinates
+}
+
+func (s *Shard) hasFilterableIndexForProp(propName string) bool {
+	return s.loadView().Bucket(helpers.BucketFromPropNameLSM(propName)) != nil
 }

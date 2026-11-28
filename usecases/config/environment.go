@@ -75,6 +75,9 @@ const (
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 	DefaultHaltForTransferTimeout    = time.Hour
 
+	// DefaultReindexStagingFailureTimeout is a guess, not a measurement.
+	DefaultReindexStagingFailureTimeout = 30 * time.Minute
+
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
@@ -240,6 +243,14 @@ func FromEnv(config *Config) error {
 		DefaultHaltForTransferTimeout,
 	)
 	if err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"REINDEX_STAGING_FAILURE_TIMEOUT",
+		func(val time.Duration) { config.ReindexStagingFailureTimeout = val },
+		DefaultReindexStagingFailureTimeout,
+	); err != nil {
 		return err
 	}
 

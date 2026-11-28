@@ -78,11 +78,11 @@ func newTestSearcher() *Searcher {
 	class := nestedSearcherClass()
 	logger, _ := test.NewNullLogger()
 	return &Searcher{
-		getClass:               func(name string) *models.Class { return class },
-		stopwordProvider:       stopwords.NewProvider(fakeStopwordDetector{}, nil),
-		isFallbackToSearchable: func() bool { return false },
-		logger:                 logger,
-		nestedBitmapOps:        invnested.NewBitmapOps(roaringset.NewBitmapBufPoolNoop()),
+		store:            storeView{},
+		getClass:         func(name string) *models.Class { return class },
+		stopwordProvider: stopwords.NewProvider(fakeStopwordDetector{}, nil),
+		logger:           logger,
+		nestedBitmapOps:  invnested.NewBitmapOps(roaringset.NewBitmapBufPoolNoop()),
 	}
 }
 

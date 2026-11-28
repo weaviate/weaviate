@@ -119,22 +119,18 @@ type DB struct {
 	// covering both local and coordinator ingress.
 	queryAdmission *queryadmission.Limiter
 
-	reindexer      ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexLookupsMu guards the two lookups below: written at scheduler start, read from backup.
-	reindexLookupsMu                   sync.RWMutex
-	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
-	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
+	// reindexLookupsMu guards the lookup below: written at startup, read from backups and shards.
+	reindexLookupsMu  sync.RWMutex
+	reindexTaskStates ReindexTaskStateSource
 
-	endedReindexTasks EndedReindexTaskReader
+	reindexTasks    ReindexTaskReader
+	backupPrechecks backupPrechecks
 
-	// Both carry their own lock; see [migrationUnitSeals] and
-	// [migrationClusterReconciler].
-	migrationSeals   migrationUnitSeals
-	migrationCluster migrationClusterReconciler
+	reindexRefresh *reindexRefresh
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
@@ -192,6 +188,7 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 	}
 
 	db.startupComplete.Store(true)
+	db.reindexRefresh.start()
 	// Only once init has returned: unlike AddClass, it does not settle the
 	// indices it builds against the read-only flag, so a transition landing
 	// while one is still being assembled would reach its shards through neither
@@ -344,7 +341,6 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		memMonitor:                memMonitor,
 		shardLoadLimiter:          loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
 		bucketLoadLimiter:         loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
-		reindexer:                 NewShardReindexerV3Noop(),
 		nodeSelector:              nodeSelector,
 		schemaReader:              schemaReader,
 		replicationFSM:            replicationFSM,
@@ -363,8 +359,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	// over a loopback round-trip.
 	db.replicaClient = newRoutingReplicationClient(replicaClient, db, nodeResolver, localNodeName)
 
-	// The reconciler walks this node's loaded shards, so it needs a way back.
-	db.migrationCluster.db = db
+	db.reindexRefresh = newReindexRefresh(db)
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
@@ -442,6 +437,7 @@ type Config struct {
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
+	ReindexStagingFailureTimeout        time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	LSMSkipWriteClassNameEnabled        bool
 	NamespacesEnabled                   bool
@@ -522,6 +518,14 @@ func (db *DB) registeredIndex(className schema.ClassName) *Index {
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
 	return db.indices[indexID(className)]
+}
+
+// registerIndex makes idx visible, then refreshes the shards whose own notices found no index.
+func (db *DB) registerIndex(idx *Index) {
+	db.indexLock.Lock()
+	db.indices[idx.ID()] = idx
+	db.indexLock.Unlock()
+	db.reindexRefresher().notify(idx.Config.ClassName.String(), nil)
 }
 
 // indexForRead returns className's index, or nil and no error if this node has
@@ -739,6 +743,7 @@ func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error)
 func (db *DB) Shutdown(ctx context.Context) error {
 	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
+	db.reindexRefresh.shutdown()
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {
@@ -811,10 +816,6 @@ func (db *DB) batchWorker(first bool) {
 			checkTime = time.Now().Add(time.Second)
 		}
 	}
-}
-
-func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
-	db.reindexer = reindexer
 }
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {

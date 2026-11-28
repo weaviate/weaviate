@@ -224,7 +224,7 @@ func TestUnfilteredCount_FromLengthIndex(t *testing.T) {
 				before := openedReplaceCursors(t)
 				logger, _ := test.NewNullLogger()
 				ua := unfilteredAggregator{Aggregator: &Aggregator{
-					store:     store,
+					store:     storeView{store},
 					logger:    logger,
 					getSchema: lengthTestSchema(t, indexPropertyLength),
 					params: aggregation.Params{

@@ -296,32 +296,6 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, lastStatus.Status, backup.Success)
 	})
 
-	t.Run("AdoptsMigrationRecordsFromTheBackupNode", func(t *testing.T) {
-		const sourceNode = "Node-0"
-		req := req
-		req.Duration = time.Hour
-		req.NodeMapping = map[string]string{sourceNode: nodeName}
-		sourceHome := backupID + "/" + sourceNode
-		dataPath := t.TempDir()
-		backend := newFakeBackend()
-		backend.chunks = map[string][]byte{chunkKey(cls, 1): tarGzWithFile(t, strings.ToLower(cls)+"/Shard1/marker")}
-		sourcer := &fakeSourcer{}
-		backend.On("GetObject", ctx, sourceHome, BackupFile).Return(marshalMeta(metadata), nil)
-		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		backend.On("SourceDataPath").Return(dataPath)
-		backend.On("Read", any, sourceHome, chunkKey(cls, 1), mock.Anything).Return(int64(0), nil)
-		m := createManager(sourcer, nil, backend, nil)
-		assert.Empty(t, m.OnCanCommit(ctx, &req).Err)
-		assert.Nil(t, m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend}))
-		assert.Equal(t, backup.Success, m.restorer.waitForCompletion(req.Backend, req.ID, 12, 50).Status)
-		assert.Equal(t, []adoptedRecords{{
-			indexPath:    filepath.Join(dataPath, TempDirectory, cls, strings.ToLower(cls)),
-			node:         nodeName,
-			sourceNode:   sourceNode,
-			stagedShards: []string{"Shard1"},
-		}}, sourcer.adoptedCalls())
-	})
-
 	t.Run("RefusesForeignTopLevelStagedEntries", func(t *testing.T) {
 		req := req
 		req.Duration = time.Hour

@@ -66,7 +66,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
+	"slices"
 	"testing"
 	"time"
 
@@ -151,56 +151,13 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 	require.Contains(t, transitions, "FINISHED",
 		"task must reach FINISHED within 180s; observed transitions: %v", transitions)
 
-	// LOAD-BEARING ASSERTION: the task MUST go through the barrier
-	// path (PHASE A then PHASE B), not the legacy single-phase path.
-	//
-	// Two independent signals confirm this:
-	//
-	//  1. REST /v1/tasks polling MAY observe PREPARING in the
-	//     transition sequence. With moderate datasets PREPARING is
-	//     usually observable; with very small ones (PREP completing
-	//     in <50ms total cluster-wide) the polling can miss it
-	//     between samples. SWAPPING is always observable (the
-	//     scheduler-tick latency between PHASE B firing and FINISHED
-	//     is bounded below by the per-node ack roundtrip).
-	//
-	//  2. Container-log scan for the unique start-of-phase log lines
-	//     emitted by OnGroupCompleted (barrier mode) and
-	//     OnSwapRequested. These two logs are emitted ONLY on the
-	//     barrier path — the non-barrier path emits a different
-	//     group-completion log ("group-completion → starting swap
-	//     phase (no-barrier path)") and never emits a swap-requested
-	//     log. Container-log scan is robust against PREPARING being
-	//     too fast to observe at the REST polling layer.
-	//
-	// We require either (1) the REST polling sees PREPARING, OR (2)
-	// the container logs confirm both barrier-mode start-of-phase
-	// log lines. Failing both is unambiguous proof the barrier
-	// degenerated.
-	sawPreparingViaREST := false
-	for _, st := range transitions {
-		if st == "PREPARING" {
-			sawPreparingViaREST = true
-			break
-		}
-	}
+	// PREPARING can be too short to sample; SWAPPING lasts until the flip.
+	sawBarrier := slices.ContainsFunc(transitions, func(st string) bool {
+		return st == "PREPARING" || st == "SWAPPING"
+	})
+	require.True(t, sawBarrier,
+		"task must go through the barrier (PREPARING or SWAPPING); observed transitions: %v", transitions)
 
-	barrierPrepLogPresent, barrierSwapLogPresent := scanForBarrierPhaseLogs(ctx, t, compose, taskID)
-	require.True(t, sawPreparingViaREST || (barrierPrepLogPresent && barrierSwapLogPresent),
-		"task MUST go through the two-phase barrier path. Signals checked: "+
-			"sawPreparingViaREST=%v (observed transitions: %v); "+
-			"barrierPrepLogPresent=%v; barrierSwapLogPresent=%v. "+
-			"If all three are false, the FSM has silently degenerated to "+
-			"a legacy single-phase path which re-introduces the cross-"+
-			"replica stagger bug — check handlers_indexes.go (submit handler "+
-			"NeedsPreparationBarrier wiring) and manager.go (AllUnitsTerminal "+
-			"routing to PREPARING).",
-		sawPreparingViaREST, transitions, barrierPrepLogPresent, barrierSwapLogPresent)
-
-	// Wait for schema tokenization to flip cluster-wide. OnTaskCompleted
-	// fires after FINISHED and issues the cluster-wide schema flip via
-	// flipSemanticMigrationSchema; the apply propagates to every node
-	// within RAFT-apply latency.
 	require.Eventually(t, func() bool {
 		for i := 1; i <= 3; i++ {
 			if tryGetPropertyTokenization(compose.GetWeaviateNode(i).URI(), className, "text") != "field" {
@@ -246,69 +203,6 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 			"should match at least one shard's copy")
 }
 
-// scanForBarrierPhaseLogs reads each cluster node's container logs and
-// reports whether the unique start-of-phase log lines that
-// OnGroupCompleted (barrier mode) and OnSwapRequested emit are present,
-// scoped to the given taskID. These logs are emitted ONLY on the
-// barrier code path:
-//
-//   - "reindex provider: group-completion → starting PREP phase
-//     (barrier mode)" — fires once per node per task in PHASE A. The
-//     non-barrier path emits a different message ("group-completion
-//     → starting swap phase (no-barrier path)") instead.
-//   - "reindex provider: swap-requested → starting OVERLAY+SWAP for a
-//     decided group" — fires once per node per decided group in
-//     PHASE B. The non-barrier path never invokes OnSwapRequested at
-//     all.
-//
-// The needles MUST stay in sync with [ReindexProvider.OnGroupCompleted]
-// and [ReindexProvider.OnSwapRequested]'s Info() log strings — if the
-// production logs change, this test's log-based fallback path silently
-// fails closed (the REST poll still works, but the safety net is gone).
-//
-// Both signals must be present for the test's barrier-active
-// assertion to hold via the log path (it ORs with the REST-polled
-// PREPARING transition).
-//
-// Returns (prepLogPresent, swapLogPresent). At least one node must
-// emit each signal — we don't require all three nodes to have the
-// log (a node with no local units in the group doesn't fire the
-// callbacks).
-func scanForBarrierPhaseLogs(ctx context.Context, t *testing.T, compose *docker.DockerCompose, taskID string) (bool, bool) {
-	t.Helper()
-	const (
-		prepNeedle = "group-completion → starting PREP phase (barrier mode)"
-		swapNeedle = "swap-requested → starting OVERLAY+SWAP for a decided group"
-	)
-	var prepFound, swapFound bool
-	for i := 1; i <= 3; i++ {
-		node := compose.GetWeaviateNode(i)
-		if node == nil {
-			continue
-		}
-		reader, err := node.Container().Logs(ctx)
-		if err != nil {
-			t.Logf("scanForBarrierPhaseLogs: cannot read logs for node %d: %v", i, err)
-			continue
-		}
-		logs, _ := io.ReadAll(reader)
-		reader.Close()
-		text := string(logs)
-		for _, line := range strings.Split(text, "\n") {
-			if !strings.Contains(line, taskID) {
-				continue
-			}
-			if strings.Contains(line, prepNeedle) {
-				prepFound = true
-			}
-			if strings.Contains(line, swapNeedle) {
-				swapFound = true
-			}
-		}
-	}
-	return prepFound, swapFound
-}
-
 // collectTaskStatusTransitions polls /v1/tasks for the named task at
 // 50ms intervals and returns the ordered list of unique statuses
 // observed. Stops when the task reaches FINISHED, when it reaches
@@ -332,40 +226,16 @@ func collectTaskStatusTransitions(t *testing.T, restURI, taskID string, timeout 
 	defer ticker.Stop()
 	var transitions []string
 	var lastSeen string
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	for {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			select {
-			case <-ctx.Done():
+		if task, ok := poller.Poll(); ok && task.Status != lastSeen {
+			transitions = append(transitions, task.Status)
+			lastSeen = task.Status
+			if task.Status == "FAILED" {
+				t.Fatalf("reindex task failed: %s", task.Error)
+			}
+			if task.Status == "FINISHED" {
 				return transitions
-			case <-ticker.C:
-				continue
-			}
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			select {
-			case <-ctx.Done():
-				return transitions
-			case <-ticker.C:
-				continue
-			}
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID != taskID {
-				continue
-			}
-			if task.Status != lastSeen {
-				transitions = append(transitions, task.Status)
-				lastSeen = task.Status
-				if task.Status == "FAILED" {
-					t.Fatalf("reindex task failed: %s", task.Error)
-				}
-				if task.Status == "FINISHED" {
-					return transitions
-				}
 			}
 		}
 		select {
@@ -380,20 +250,29 @@ func collectTaskStatusTransitions(t *testing.T, restURI, taskID string, timeout 
 const perTenantLargeObjects = 60_000
 
 // perTenantSwapFixture builds a small and a large tenant of two-word phrases.
-func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className string) {
+func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className string, props []*models.Property) {
 	t.Helper()
 	restURI := compose.GetWeaviate().URI()
-	createMTCollection(t, restURI, className, 3, textProps("text"))
+	createMTCollection(t, restURI, className, 3, props)
 	createTenants(t, restURI, className, []string{"small", "large"})
 	importObjectsTenant(t, restURI, className, "small", []string{"needle phrase", "other words"})
+	bulk := make([]string, perTenantLargeObjects)
+	for i := range bulk {
+		bulk[i] = fmt.Sprintf("bulk %d", i)
+	}
+	batchImportTenant(t, restURI, className, "large", bulk)
+}
 
+// batchImportTenant writes at consistency ALL, so every replica answers for the objects at once.
+func batchImportTenant(t *testing.T, restURI, className, tenant string, texts []string) {
+	t.Helper()
 	const batchSize = 1000
-	for start := 0; start < perTenantLargeObjects; start += batchSize {
+	for start := 0; start < len(texts); start += batchSize {
 		objects := make([]map[string]any, 0, batchSize)
-		for i := start; i < start+batchSize; i++ {
+		for _, text := range texts[start:min(start+batchSize, len(texts))] {
 			objects = append(objects, map[string]any{
-				"class": className, "tenant": "large",
-				"properties": map[string]any{"text": fmt.Sprintf("bulk %d", i)},
+				"class": className, "tenant": tenant,
+				"properties": map[string]any{"text": text},
 			})
 		}
 		body, err := json.Marshal(map[string]any{"objects": objects})
@@ -446,7 +325,7 @@ func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "PerTenantSwap"
-	perTenantSwapFixture(t, compose, className)
+	perTenantSwapFixture(t, compose, className, textProps("text"))
 	restURI := compose.GetWeaviate().URI()
 
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
@@ -482,7 +361,7 @@ func cancelThenResubmitWhileFinishedTenantIs(t *testing.T, parked string) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "PerTenantPartial"
-	perTenantSwapFixture(t, compose, className)
+	perTenantSwapFixture(t, compose, className, textProps("text"))
 	restURI := compose.GetWeaviate().URI()
 
 	reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)

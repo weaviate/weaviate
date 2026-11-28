@@ -414,6 +414,10 @@ func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo,
 }
 
 func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error {
+	return s.addClassWithLive(cls, ss, v, nil)
+}
+
+func (s *schema) addClassWithLive(cls *models.Class, ss *sharding.State, v uint64, live map[string]map[string]uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -423,7 +427,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 	}
 
 	s.classes[cls.Class] = &metaClass{
-		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
+		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v, Live: cloneLive(live),
 	}
 
 	ns := namespacing.NamespaceFromQualified(cls.Class)
@@ -658,13 +662,27 @@ func (s *schema) tenantCapUsage(class string, incoming []string) (current, addit
 	}
 	meta.RLock()
 	defer meta.RUnlock()
-	current = len(meta.Sharding.Physical)
-	for _, name := range incoming {
-		if _, exists := meta.Sharding.Physical[name]; !exists {
-			additions++
+	return len(meta.Sharding.Physical), len(absentIn(meta.Sharding.Physical, incoming)), true
+}
+
+func (s *schema) absentTenants(class string, names []string) []string {
+	meta := s.metaClass(class)
+	if meta == nil {
+		return nil
+	}
+	meta.RLock()
+	defer meta.RUnlock()
+	return absentIn(meta.Sharding.Physical, names)
+}
+
+func absentIn(physical map[string]sharding.Physical, names []string) []string {
+	var absent []string
+	for _, name := range names {
+		if _, exists := physical[name]; !exists {
+			absent = append(absent, name)
 		}
 	}
-	return current, additions, true
+	return absent
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {

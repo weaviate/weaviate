@@ -2277,7 +2277,7 @@ func TestCheckTenantMutation_NeverBlocks(t *testing.T) {
 
 func TestCheckPropertyUpdate_NeverConflicts(t *testing.T) {
 	p := NewDropVectorIndexDetector(logrus.New())
-	require.NoError(t, p.CheckPropertyUpdate("C", "someProp", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
+	require.NoError(t, p.CheckPropertyUpdate("C", "someProp", "", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
 }
 
 // TestDecodeDropVectorIndexPayload_Rejects pins the only guard before

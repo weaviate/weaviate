@@ -74,7 +74,7 @@ type Selector interface {
 	ListClasses(ctx context.Context) []string
 
 	// Backupable returns whether all given class can be backed up.
-	Backupable(_ context.Context, classes []string) error
+	Backupable(_ context.Context, bakid string, classes []string) error
 }
 
 // UserLister resolves includeUsers selectors. ListAllUsers returns qualified

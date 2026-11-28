@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -266,19 +267,110 @@ func TryGetIndexes(restURI, collection string) (*IndexesResponse, bool) {
 	return &out, true
 }
 
-// fetchReindexTask returns the reindex task with the given ID; ok=false
-// means keep polling.
-func fetchReindexTask(restURI, taskID string) (models.DistributedTask, bool) {
-	tasks, ok := TryFetchTasks(restURI)
+// RunPoller reports FINISHED for a run that is gone once its indexes show
+// the target settings: a finished full run removes itself, while a failed or
+// cancelled one is retained and only goes when a later run flips the class.
+type RunPoller struct {
+	restURI string
+	taskID  string
+	payload *db.ReindexTaskPayload
+}
+
+func NewRunPoller(restURI, taskID string) *RunPoller {
+	return &RunPoller{restURI: restURI, taskID: taskID}
+}
+
+// Poll returns the task; ok=false means keep polling.
+func (p *RunPoller) Poll() (models.DistributedTask, bool) {
+	tasks, ok := TryFetchTasks(p.restURI)
 	if !ok {
 		return models.DistributedTask{}, false
 	}
 	for _, task := range tasks["reindex"] {
-		if task.ID == taskID {
+		if task.ID == p.taskID {
+			p.remember(task)
 			return task, true
 		}
 	}
-	return models.DistributedTask{}, false
+	// A run fast enough to end before the first poll, or a second submit
+	// that joined it, never shows its payload; its ID still names the scope.
+	if p.payload == nil {
+		p.payload = payloadFromTaskID(p.taskID)
+	}
+	if p.payload == nil || !p.indexesShowTarget() {
+		return models.DistributedTask{}, false
+	}
+	return models.DistributedTask{ID: p.taskID, Status: "FINISHED"}, true
+}
+
+// payloadFromTaskID reads collection:migrationType:firstProperty:suffix, the
+// shape the upsert handler mints, or returns nil for any other ID.
+func payloadFromTaskID(taskID string) *db.ReindexTaskPayload {
+	parts := strings.Split(taskID, ":")
+	if len(parts) != 4 {
+		return nil
+	}
+	mt := db.ReindexMigrationType(parts[1])
+	if _, known := db.ReindexIndexTypes(mt); !known {
+		return nil
+	}
+	return &db.ReindexTaskPayload{Collection: parts[0], MigrationType: mt, Properties: []string{parts[2]}}
+}
+
+func (p *RunPoller) remember(task models.DistributedTask) {
+	if p.payload != nil {
+		return
+	}
+	raw, err := json.Marshal(task.Payload)
+	if err != nil {
+		return
+	}
+	var payload db.ReindexTaskPayload
+	if json.Unmarshal(raw, &payload) == nil && payload.Collection != "" {
+		p.payload = &payload
+	}
+}
+
+func (p *RunPoller) indexesShowTarget() bool {
+	resp, ok := TryGetIndexes(p.restURI, p.payload.Collection)
+	if !ok {
+		return false
+	}
+	indexTypes, _ := db.ReindexIndexTypes(p.payload.MigrationType)
+	for _, prop := range p.payload.Properties {
+		// change-tokenization covers both types, but a property with one
+		// of them off has no entry for it, and nothing to wait for there.
+		checked := 0
+		for _, indexType := range indexTypes {
+			if indexType == "rangeable" {
+				indexType = models.IndexStatusTypeRangeFilters
+			}
+			e, found := resp.find(prop, indexType)
+			if !found {
+				continue
+			}
+			checked++
+			if e.Status != "ready" || e.TaskID != "" {
+				return false
+			}
+			if p.payload.TargetTokenization != "" && e.Tokenization != p.payload.TargetTokenization {
+				return false
+			}
+		}
+		if checked == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// Status does one poll and returns the task's status, or "" while unknown.
+func (p *RunPoller) Status() string {
+	task, ok := p.Poll()
+	if !ok {
+		return ""
+	}
+	return task.Status
 }
 
 // AwaitReindexLive blocks until the task reaches a live status.
@@ -293,8 +385,9 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	// safe today, but a switch to assert.Eventually (returns on timeout)
 	// would make a plain capture a live race.
 	var terminalErr atomic.Pointer[error]
+	poller := NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		task, ok := fetchReindexTask(restURI, taskID)
+		task, ok := poller.Poll()
 		if !ok {
 			return false
 		}
@@ -323,22 +416,23 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	}
 }
 
-// AwaitReindexFinished polls /v1/tasks until the named reindex task
-// reaches FINISHED. Fails on FAILED or on timeout (default 120s).
+// AwaitReindexFinished polls until RunPoller reports FINISHED. Fails on
+// FAILED, CANCELLED or on timeout (default 120s).
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
 	// atomic.Pointer for the same future-proofing as AwaitReindexLive.
 	var terminalErr atomic.Pointer[error]
+	poller := NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		task, ok := fetchReindexTask(restURI, taskID)
+		task, ok := poller.Poll()
 		if !ok {
 			return false
 		}
 		t.Logf("task %s status: %s", taskID, task.Status)
-		if task.Status == "FAILED" {
-			err := fmt.Errorf("reindex task failed: %s", task.Error)
+		if task.Status == "FAILED" || task.Status == "CANCELLED" {
+			err := fmt.Errorf("reindex task %s: %s", task.Status, task.Error)
 			terminalErr.Store(&err)
 			return true // exit Eventually; Fatalf below on the test goroutine
 		}

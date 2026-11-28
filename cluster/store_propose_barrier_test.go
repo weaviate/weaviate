@@ -25,6 +25,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -208,26 +210,25 @@ func TestProposeBarrier_ReconfirmsAfterWaitingOnALock(t *testing.T) {
 		Tenants:      []*command.Tenant{{Name: "t1", Status: "HOT"}},
 	})
 	require.NoError(t, err)
-	deleteT1, err := proto.Marshal(&command.DeleteTenantsRequest{Tenants: []string{"t1"}})
-	require.NoError(t, err)
-
 	for _, tc := range []struct {
 		name  string
-		locks func(*Store) *evictingKeyRWLocker
+		locks func(*Store) *evictingKeyLocker
 		key   string
 		req   *command.ApplyRequest
 	}{
 		{
-			name: "tenant add waits on the tenant lock", locks: func(st *Store) *evictingKeyRWLocker { return st.tenantAddLocks }, key: class,
+			name: "tenant add waits on the tenant lock", locks: func(st *Store) *evictingKeyLocker { return st.tenantAddLocks }, key: class,
 			req: &command.ApplyRequest{Type: command.ApplyRequest_TYPE_ADD_TENANT, Class: class, SubCommand: addT1},
 		},
 		{
-			name: "tenant delete waits on the task lock", locks: func(st *Store) *evictingKeyRWLocker { return st.taskMovementLocks }, key: classLockKey(class),
-			req: &command.ApplyRequest{Type: command.ApplyRequest_TYPE_DELETE_TENANT, Class: class, SubCommand: deleteT1},
+			name: "task submit waits on the task lock", locks: func(st *Store) *evictingKeyLocker { return st.taskMovementLocks }, key: classLockKey(class),
+			req: reindexTitleTaskCmd(t, class),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv, m := newBarrierTestStore(t)
+			srv, m := newBarrierTestStore(t, func(c *Config) {
+				c.DistributedTaskSchemaMutationDetectors = map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}}
+			})
 			st := srv.store
 			m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
 			st.schemaManager.SetTenantLimit(func() int { return 100 }, nil)

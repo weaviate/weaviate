@@ -124,23 +124,6 @@ type PropertyOverlay struct {
 	Tokenization string
 }
 
-func (o PropertyOverlay) Empty() bool {
-	return o == PropertyOverlay{}
-}
-
-func (o PropertyOverlay) BeyondLiveSchema(live *models.Property) PropertyOverlay {
-	if live == nil {
-		return o
-	}
-	o.ForceFilterable = o.ForceFilterable && !HasFilterableIndex(live)
-	o.ForceSearchable = o.ForceSearchable && !HasSearchableIndex(live)
-	o.ForceRangeable = o.ForceRangeable && !HasRangeableIndex(live)
-	if o.Tokenization == live.Tokenization {
-		o.Tokenization = ""
-	}
-	return o
-}
-
 type analyzerCacheEntry struct {
 	fold     bool     // whether ASCIIFold was enabled
 	ignore   []string // the ASCIIFoldIgnore list used to build prepared

@@ -113,9 +113,7 @@ type ShardLike interface {
 	// against the halt watchdog. No-op on unhalted shards.
 	MayResetTransferInactivityTimer()
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
-	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.
-	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)
-	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error)
+	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
 	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
@@ -124,7 +122,6 @@ type ShardLike interface {
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error)
-	AnalyzeObjectForMigrationWithOverlay(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	HashTreeRoot() (root hashtree.Digest, ok bool)
@@ -150,8 +147,6 @@ type ShardLike interface {
 
 	isReadOnly() error
 	pathLSM() string
-	migrationRecordStore() *MigrationRecordStore
-	migrationMirrorRegistry() *migrationMirrorRegistry
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -182,6 +177,8 @@ type ShardLike interface {
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 	hasGeoIndexForProp(propName string) bool
+	hasFilterableIndexForProp(propName string) bool
+	servedIndexName(propName, indexType string) string
 	// addTargetNodeOverride adds a target node override to the shard.
 	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 	// removeTargetNodeOverride removes a target node override from the shard.
@@ -358,6 +355,10 @@ type Shard struct {
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
+	// haltResumed closes when the halt count drops to 0. Under haltForTransferMux.
+	haltResumed chan struct{}
+	// reindexScans counts running build scans; it rises only under haltForTransferMux.
+	reindexScans atomic.Int32
 
 	status ShardStatus
 	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""
@@ -387,24 +388,7 @@ type Shard struct {
 	// being enabled, only searchable bucket exists
 	fallbackToSearchable bool
 
-	// rangeableLocalReadyMu guards rangeableLocalReady. Holds the per-prop
-	// "is this shard's rangeable bucket fully populated and safe to
-	// query?" answer that gates whether the query path can route range
-	// queries to the local rangeable bucket.
-	//
-	// repair-rangeable is where the false earns its keep: it runs with
-	// the cluster-wide flag already true, so only this entry keeps range
-	// queries off the empty bucket until the local swap catches up.
-	rangeableLocalReadyMu sync.RWMutex
-	rangeableLocalReady   map[string]bool
-
-	// Shard-wide because an unreadable migration record names no property.
-	rangeableUndecidable atomic.Bool
-
-	// Bridges this shard's bucket swap and the cluster-wide schema flip: a
-	// write in that window is otherwise lost (weaviate/etienne-claude-issues#449).
-	propertyOverlayMu sync.RWMutex
-	propertyOverlay   map[string]inverted.PropertyOverlay
+	view shardViewState
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
@@ -418,6 +402,8 @@ type Shard struct {
 	// unreadableRowSampler rate-limits FindUUIDs' warning about rows with no readable id.
 	// Such a row is never pruned or deleted, so every later call would warn about it again.
 	unreadableRowSampler *logrusext.Sampler
+	// scratchDropSampler rate-limits the warning about a scan scratch that cannot be deleted.
+	scratchDropSampler *logrusext.Sampler
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
@@ -439,24 +425,6 @@ type Shard struct {
 
 	shutCtx       context.Context
 	shutCtxCancel context.CancelCauseFunc
-
-	reindexer ShardReindexerV3
-
-	// Folded snapshot (propValueIndexState) for lock-free reads on the write
-	// path; registration/arm/disarm publish a fresh copy under the mutex.
-	propValueIndexState           atomic.Value // *propValueIndexState
-	propertyValueIndexCallbacksMu sync.Mutex
-
-	migrationRecords *MigrationRecordStore
-
-	migrationMirrors migrationMirrorRegistry
-	// Held by the retry goroutine, not its caller, so a lift arriving during a stuck retry is refused.
-	liftRetry sync.Mutex
-	// stores names of properties that are searchable and use buckets of
-	// inverted strategy. for such properties delta analyzer should avoid
-	// computing delta between previous and current values of properties
-	searchableBlockmaxPropNames     []string
-	searchableBlockmaxPropNamesLock *sync.Mutex
 
 	usingBlockMaxWAND bool
 
@@ -694,197 +662,6 @@ func (s *Shard) VectorStorageUsage(ctx context.Context, lsmPath string, director
 
 func (s *Shard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
-}
-
-// IsRangeableLocallyReady reports whether this shard's local rangeable
-// bucket for the given property is fully populated and safe to query.
-// See [rangeableLocalReady] for the full rationale.
-func (s *Shard) IsRangeableLocallyReady(propName string) bool {
-	s.rangeableLocalReadyMu.RLock()
-	if s.rangeableLocalReady != nil {
-		if ready, set := s.rangeableLocalReady[propName]; set {
-			s.rangeableLocalReadyMu.RUnlock()
-			return ready
-		}
-	}
-	s.rangeableLocalReadyMu.RUnlock()
-
-	if s.rangeableUndecidable.Load() {
-		return false
-	}
-
-	// Default: ready iff the rangeable bucket physically exists in the
-	// store. Cheap (a map lookup under bucketAccessLock.RLock in
-	// lsmkv.Store.Bucket). We avoid materializing the explicit entry
-	// here on purpose — the migration hooks own the lifecycle of the
-	// map, and adding a "shadow" entry from a query goroutine would
-	// race the hook's clear-then-set sequence.
-	return s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName)) != nil
-}
-
-// setRangeableLocallyReady is invoked by the rangeable migration's
-// lifecycle hooks. It is intentionally NOT exported beyond the package
-// because outside callers should observe the state via
-// [IsRangeableLocallyReady] only; mutating it from outside the
-// migration code paths would corrupt the per-replica routing invariant.
-func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
-	s.rangeableLocalReadyMu.Lock()
-	defer s.rangeableLocalReadyMu.Unlock()
-	if s.rangeableLocalReady == nil {
-		s.rangeableLocalReady = map[string]bool{}
-	}
-	s.rangeableLocalReady[propName] = ready
-}
-
-func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) {
-	if propName == "" || o.Empty() {
-		return
-	}
-	s.propertyOverlayMu.Lock()
-	defer s.propertyOverlayMu.Unlock()
-	if s.propertyOverlay == nil {
-		s.propertyOverlay = map[string]inverted.PropertyOverlay{}
-	}
-	s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
-}
-
-// A tokenization change that failed after a partial swap keeps its entry on
-// purpose, so a second migration must fold into it rather than replace it.
-func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOverlay {
-	o.ForceFilterable = o.ForceFilterable || prev.ForceFilterable
-	o.ForceSearchable = o.ForceSearchable || prev.ForceSearchable
-	o.ForceRangeable = o.ForceRangeable || prev.ForceRangeable
-	if o.Tokenization == "" {
-		o.Tokenization = prev.Tokenization
-	}
-	return o
-}
-
-// SwapBucketAndSetOverlay runs propName's bucket flip and overlay set as ONE
-// critical section, so no query sees a mixed pair.
-//
-// CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
-// query may hold another prop's pin and need propertyOverlayMu next, so
-// draining here would invert lock order and deadlock. Phase-2b teardown
-// must happen strictly after this method returns.
-func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOverlay,
-	flip func() (*lsmkv.Bucket, error),
-) (*lsmkv.Bucket, error) {
-	s.propertyOverlayMu.Lock()
-	defer s.propertyOverlayMu.Unlock()
-
-	oldMainBucket, err := flip()
-	if err != nil {
-		return nil, err
-	}
-
-	if propName != "" && !o.Empty() {
-		if s.propertyOverlay == nil {
-			s.propertyOverlay = map[string]inverted.PropertyOverlay{}
-		}
-		s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
-	}
-
-	return oldMainBucket, nil
-}
-
-// PinTokenizationAndSearchableBucket resolves propName's tokenization AND
-// pins its bucket under one RLock. Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
-func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
-) (string, *lsmkv.Bucket, func()) {
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-
-	if propName == "" {
-		bucket, release := s.store.AcquireBucketForRead(bucketName)
-		return liveTokenization, bucket, release
-	}
-
-	s.propertyOverlayMu.RLock()
-	var overlay inverted.PropertyOverlay
-	if s.propertyOverlay != nil {
-		overlay = s.propertyOverlay[propName]
-	}
-	// Pin the bucket pointer under the SAME RLock as the overlay so the
-	// (tokenization, pinned bucket) pair is a single consistent snapshot.
-	bucket, release := s.store.AcquireBucketForRead(bucketName)
-	s.propertyOverlayMu.RUnlock()
-
-	if overlay.Tokenization == "" {
-		return liveTokenization, bucket, release
-	}
-	return overlay.Tokenization, bucket, release
-}
-
-// Runs ahead of the indexType bucket's removal, so a removal that fails after
-// the store dropped the bucket leaves no overlay field aimed at it.
-func (s *Shard) retirePropertyOverlay(propName, indexType string) {
-	if propName == "" {
-		return
-	}
-	s.propertyOverlayMu.Lock()
-	defer s.propertyOverlayMu.Unlock()
-	s.retirePropertyOverlayLocked(propName, indexType)
-}
-
-func (s *Shard) retirePropertyOverlayLocked(propName, indexType string) {
-	entry, ok := s.propertyOverlay[propName]
-	if !ok {
-		return
-	}
-	switch indexType {
-	case "filterable":
-		entry.ForceFilterable = false
-	case "searchable":
-		entry.ForceSearchable = false
-		entry.Tokenization = ""
-	case "rangeable":
-		entry.ForceRangeable = false
-	default:
-		return
-	}
-	if entry.Empty() {
-		delete(s.propertyOverlay, propName)
-		return
-	}
-	s.propertyOverlay[propName] = entry
-}
-
-// TokenizationFor returns the active query-time tokenization for propName
-func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
-	if propName == "" {
-		return liveTokenization
-	}
-	s.propertyOverlayMu.RLock()
-	var overlay inverted.PropertyOverlay
-	if s.propertyOverlay != nil {
-		overlay = s.propertyOverlay[propName]
-	}
-	s.propertyOverlayMu.RUnlock()
-	if overlay.Tokenization == "" {
-		return liveTokenization
-	}
-	return overlay.Tokenization
-}
-
-func (s *Shard) SnapshotPropertyOverlay(propNames []string) map[string]inverted.PropertyOverlay {
-	if len(propNames) == 0 {
-		return nil
-	}
-	s.propertyOverlayMu.RLock()
-	defer s.propertyOverlayMu.RUnlock()
-	if len(s.propertyOverlay) == 0 {
-		return nil
-	}
-	var out map[string]inverted.PropertyOverlay
-	for _, name := range propNames {
-		if v, ok := s.propertyOverlay[name]; ok {
-			if out == nil {
-				out = make(map[string]inverted.PropertyOverlay, len(propNames))
-			}
-			out[name] = v
-		}
-	}
-	return out
 }
 
 func (s *Shard) tenant() string {

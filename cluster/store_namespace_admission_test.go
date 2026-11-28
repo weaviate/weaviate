@@ -91,6 +91,7 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_CLASS:                                               {},
 	api.ApplyRequest_TYPE_ADD_PROPERTY:                                               {},
 	api.ApplyRequest_TYPE_UPDATE_PROPERTY:                                            {},
+	api.ApplyRequest_TYPE_REINDEX_FLIP:                                               {},
 	api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:                                       {},
 	api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:                                  {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},
@@ -597,9 +598,9 @@ func admitProposeBytes(t *testing.T, ms *MockStore, data []byte) error {
 	t.Helper()
 	req := &api.ApplyRequest{}
 	require.NoError(t, gproto.Unmarshal(data, req))
-	collection, task, err := ms.store.taskOrMovementCollection(req)
+	collection, err := ms.store.taskOrMovementCollection(req)
 	require.NoError(t, err)
-	return ms.store.admitPropose(req, collection, task)
+	return ms.store.admitPropose(req, collection)
 }
 
 // TestExecuteGate_DestructiveApplyTypes drives the three destructive commands

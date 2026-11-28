@@ -6310,7 +6310,7 @@ func init() {
             }
           },
           "409": {
-            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
+            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once its flip lands, and if the flip keeps failing, the task fails and a resubmit of the same target finishes it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9262,6 +9262,9 @@ func init() {
           "description": "The status of the task.",
           "type": "string"
         },
+        "unitSummary": {
+          "$ref": "#/definitions/DistributedTaskUnitSummary"
+        },
         "units": {
           "description": "Units of the task. Only present for tasks that use unit tracking.",
           "type": "array",
@@ -9313,6 +9316,31 @@ func init() {
           "type": "string",
           "format": "date-time",
           "x-nullable": true
+        }
+      }
+    },
+    "DistributedTaskUnitSummary": {
+      "description": "What an ended task's units reached, listed in place of the units once the task is compacted. A caller without read permission on the collection's tenants sees the counts but not the errors.",
+      "type": "object",
+      "properties": {
+        "counts": {
+          "description": "The number of units per unit status.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "errors": {
+          "description": "The errors of the first 20 failed units.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "groups": {
+          "description": "The number of unit groups (tenants) the task had.",
+          "type": "integer"
         }
       }
     },
@@ -9606,7 +9634,7 @@ func init() {
           "format": "float"
         },
         "status": {
-          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. A replica that still owes a tenant's swap answers with the old index until its retry lands. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
+          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
           "type": "string",
           "enum": [
             "ready",
@@ -19140,7 +19168,7 @@ func init() {
             }
           },
           "409": {
-            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once every replica that owes a swap has swapped, and a node lost for good, or a swap that never succeeds, holds it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
+            "description": "The target task could not be cancelled, and this request cancelled nothing. This happens for one of three reasons. It has reached SWAPPING, so it can no longer be cancelled; it ends once its flip lands, and if the flip keeps failing, the task fails and a resubmit of the same target finishes it. It carries a status this build does not recognize and has to terminate on the nodes that do. Or it stopped being cancellable between the read and the cancel, and it isn't possible to tell whether it reached such a status or a terminal one, possibly CANCELLED if a concurrent cancel won the race — re-read the index status to see where it landed.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -22203,6 +22231,9 @@ func init() {
           "description": "The status of the task.",
           "type": "string"
         },
+        "unitSummary": {
+          "$ref": "#/definitions/DistributedTaskUnitSummary"
+        },
         "units": {
           "description": "Units of the task. Only present for tasks that use unit tracking.",
           "type": "array",
@@ -22254,6 +22285,31 @@ func init() {
           "type": "string",
           "format": "date-time",
           "x-nullable": true
+        }
+      }
+    },
+    "DistributedTaskUnitSummary": {
+      "description": "What an ended task's units reached, listed in place of the units once the task is compacted. A caller without read permission on the collection's tenants sees the counts but not the errors.",
+      "type": "object",
+      "properties": {
+        "counts": {
+          "description": "The number of units per unit status.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "errors": {
+          "description": "The errors of the first 20 failed units.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "groups": {
+          "description": "The number of unit groups (tenants) the task had.",
+          "type": "integer"
         }
       }
     },
@@ -22583,7 +22639,7 @@ func init() {
           "format": "float"
         },
         "status": {
-          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. A replica that still owes a tenant's swap answers with the old index until its retry lands. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
+          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
           "type": "string",
           "enum": [
             "ready",

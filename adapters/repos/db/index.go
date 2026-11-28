@@ -16,7 +16,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -240,10 +239,6 @@ var (
 	errIndexShutdown = stderrors.New("node is shutting down")
 )
 
-// errShardsSkipped signals a walk that didn't reach every shard the index
-// held when it started — not a close cause, it describes the walk itself.
-var errShardsSkipped = stderrors.New("shard walk did not reach every shard")
-
 // Index is the logical unit which contains all the data for one particular
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
@@ -374,8 +369,6 @@ type Index struct {
 	// instead of holding closeLock across teardown.
 	inflight sync.WaitGroup
 
-	shardReindexer ShardReindexerV3
-
 	router         routerTypes.Router
 	shardResolver  *resolver.ShardResolver
 	bitmapBufPool  roaringset.BitmapBufPool
@@ -386,11 +379,19 @@ type Index struct {
 	// docs/usage_limits.md.
 	usageLimits *usagelimits.Manager
 
-	// db is the owning *DB, set by the caller right after NewIndex
-	// returns. Used by [Index.refuseIfReindexInFlight] to consult the
-	// DTM-backed backup gate. Nil is treated conservatively by the gate
-	// (refuses).
+	// db is the owning *DB, set by the caller right after NewIndex returns.
 	db *DB
+
+	// buildOpenSampler bounds the load warning across a wave of shard loads.
+	buildOpenSampler     *logrusext.Sampler
+	buildOpenSamplerOnce sync.Once
+}
+
+func (i *Index) buildOpenWarnings() *logrusext.Sampler {
+	i.buildOpenSamplerOnce.Do(func() {
+		i.buildOpenSampler = logrusext.NewSampler(i.logger.WithField("action", "reindex_load"), maxReportedErrors, time.Minute)
+	})
+	return i.buildOpenSampler
 }
 
 func (i *Index) ID() string {
@@ -439,7 +440,6 @@ func NewIndex(
 	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
-	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
 	asyncIndexingEnabled bool,
 	tenantsManager schemaUC.TenantsActivityManager,
@@ -499,7 +499,6 @@ func NewIndex(
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		namespacesExister:       cfg.NamespacesExister,
 		namespace:               namespacing.NamespaceFromQualified(string(cfg.ClassName)),
-		shardReindexer:          shardReindexer,
 		router:                  router,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
@@ -638,7 +637,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			switch {
 			case i.Config.EnableLazyLoadShards:
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
+					i.allocChecker, i.shardLoadLimiter, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
 				startupShards.lazy.Add(1)
 				return nil
@@ -647,7 +646,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				if i.skipLoadingEmptyShard(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
-						i.shardReindexer, false, i.bitmapBufPool))
+						false, i.bitmapBufPool))
 					startupShards.lazy.Add(1)
 					return nil
 				}
@@ -658,7 +657,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				defer i.shardLoadLimiter.Release()
 
 				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
+					i.indexCheckpoints, false, i.bitmapBufPool,
 					monitoring.ShardRegistrationEager)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -925,7 +924,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		defer i.shardLoadLimiter.Release()
 
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-			i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
+			i.indexCheckpoints, false, i.bitmapBufPool,
 			monitoring.ShardRegistrationEager)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -937,7 +936,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	}
 
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading, i.bitmapBufPool)
+		i.allocChecker, i.shardLoadLimiter, implicitShardLoading, i.bitmapBufPool)
 	return shard, nil
 }
 
@@ -1012,77 +1011,6 @@ func (i *Index) beingDropped() bool {
 	return i.getSchema != nil && i.getSchema.ReadOnlyClass(i.Config.ClassName.String()) == nil
 }
 
-// forEachShardStrict is [Index.ForEachShard] for callers that must not
-// mistake a walk that skipped shards for one that reached them all.
-//
-// A close is checked both before and after the walk ([Index.closeCause]),
-// since sync.Map.Range can skip an entry removed mid-walk before the close
-// became visible. A removal with no close cause (e.g. one tenant deleted)
-// is instead caught by diffing unvisited names against the shard set
-// captured before the walk, reported as [errShardsSkipped]. A shard added
-// mid-walk is out of scope either way: Range makes no consistent-snapshot
-// guarantee.
-//
-// A non-empty scope limits the walk to those names, so a shard outside it
-// that is removed mid-walk is not reported as skipped.
-func (i *Index) forEachShardStrict(scope map[string]struct{}, f func(name string, shard ShardLike) error) error {
-	if cause := i.closeRequestedCause(); cause != nil {
-		return cause
-	}
-	inScope := func(name string) bool {
-		_, ok := scope[name]
-		return len(scope) == 0 || ok
-	}
-	unvisited := i.shardNameSet()
-	maps.DeleteFunc(unvisited, func(name string, _ struct{}) bool { return !inScope(name) })
-	err := i.shards.Range(func(name string, shard ShardLike) error {
-		if !inScope(name) {
-			return nil
-		}
-		delete(unvisited, name)
-		return f(name, shard)
-	})
-	if err != nil {
-		return err
-	}
-	if cause := i.closeCause(); cause != nil {
-		return cause
-	}
-	if len(unvisited) > 0 {
-		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(reportedShardNames(unvisited), ", "))
-	}
-	return nil
-}
-
-// shardNameSet snapshots the shards currently in the map, used to detect
-// shards skipped mid-walk. Paid once per walk rather than shared across
-// walks: sharing would be cheaper, but a tenant dropped between two walks
-// would then read as skipped in the later one, falsely reporting it truncated.
-func (i *Index) shardNameSet() map[string]struct{} {
-	names := map[string]struct{}{}
-	i.shards.Range(func(name string, _ ShardLike) error {
-		names[name] = struct{}{}
-		return nil
-	})
-	return names
-}
-
-// reportedShardNames orders and caps names at [maxReportedErrors] for an
-// operator-facing message; the cap itself is reported as an entry so the
-// count of unaccounted shards isn't lost.
-func reportedShardNames(names map[string]struct{}) []string {
-	sorted := make([]string, 0, len(names))
-	for name := range names {
-		sorted = append(sorted, name)
-	}
-	slices.Sort(sorted)
-	if len(sorted) <= maxReportedErrors {
-		return sorted
-	}
-	return append(sorted[:maxReportedErrors:maxReportedErrors],
-		fmt.Sprintf("(and %d more)", len(sorted)-maxReportedErrors))
-}
-
 // ForEachShard applies func f on each shard in the index.
 //
 // WARNING: only use this if you expect all LazyLoadShards to be loaded!
@@ -1117,10 +1045,12 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 }
 
 // publishShard makes the shard visible under shardName, reconciling it against
-// the resource-pressure flag it may have read before becoming visible.
+// the resource-pressure flag it may have read before becoming visible. The
+// refresh notice repairs a task change its load read too early to see.
 func (i *Index) publishShard(shardName string, shard ShardLike) {
 	i.shards.Store(shardName, shard)
 	i.db.reconcileShardResourcePressure(shardName, shard)
+	i.db.reindexRefresher().notify(i.Config.ClassName.String(), []string{shardName})
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
@@ -1158,30 +1088,9 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	return nil
 }
 
-func (i *Index) updateProperty(ctx context.Context, property *models.Property) error {
-	eg := enterrors.NewErrorGroupWrapper(i.logger)
-	eg.SetLimit(_NUMCPU)
-
-	// Shards sweep concurrently under eg, so the count is atomic.
-	var counts migrationSweepCounts
-	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.updatePropertyBuckets(ctx, eg, property, &counts)
-		return nil
-	})
-
-	err := eg.Wait()
-	if recordSetReads := counts.recordSetReads.Load(); recordSetReads > 0 {
-		i.logger.WithFields(map[string]any{
-			"property":         property.Name,
-			"index_types":      disabledIndexTypes(property),
-			"record_set_reads": recordSetReads,
-		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
-	}
-	if err != nil {
-		return errors.Wrapf(err, "update property '%v' idx '%s'", property.Name, i.ID())
-	}
-
-	return nil
+// updateProperty leaves every bucket change to the shards' view refresh.
+func (i *Index) updateProperty() {
+	i.db.reindexRefresher().notify(i.Config.ClassName.String(), nil)
 }
 
 func (i *Index) updateVectorIndexConfig(ctx context.Context,

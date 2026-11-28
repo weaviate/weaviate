@@ -67,15 +67,12 @@ func TestReindexHeaderReaders(t *testing.T) {
 			reason, err := checkReindexConflict("C", db.ReindexTypeChangeTokenization, []string{"name"}, tasks)
 			return err == nil && reason != ""
 		}},
-		{"reindexTaskDescriptorsForProperty", func(tasks []*distributedtask.Task) bool {
-			return len(reindexTaskDescriptorsForProperty(tasks, "C", "name", logger)) == 1
-		}},
 		{"readClassAndTasks", func(tasks []*distributedtask.Task) bool {
 			_, runs := readClassAndTasks("C", staticTasks{db.ReindexNamespace: tasks}, classes)
 			return len(runs) == 1
 		}},
 		{"checkReindexConflictForPropertyMutation", func(tasks []*distributedtask.Task) bool {
-			reason := gateWithTasks(tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", "name", true)
+			reason := gateWithTasks(tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", "name", "", true)
 			return reason != "" && !strings.Contains(reason, "unparseable")
 		}},
 	} {

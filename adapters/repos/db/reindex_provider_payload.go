@@ -28,11 +28,13 @@ type ReindexTaskHeader struct {
 
 func (h ReindexTaskHeader) Collection() string { return h.ReindexTaskPayload.Collection }
 
+func (h ReindexTaskHeader) SwitchedByView() bool { return h.Generation > 0 }
+
 func (h ReindexTaskHeader) VisiblePayload() map[string]any {
 	return visibleFields(ReindexTaskPayload{
 		MigrationType: h.MigrationType, Collection: h.ReindexTaskPayload.Collection,
 		TargetTokenization: h.TargetTokenization, OriginalTokenization: h.OriginalTokenization,
-		BucketStrategy: h.BucketStrategy,
+		BucketStrategy: h.BucketStrategy, ViewServed: h.ViewServed, Generation: h.Generation,
 	}, ReindexTaskVisiblePayloadFields)
 }
 
@@ -80,6 +82,17 @@ func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader,
 		return nil, fmt.Errorf("reindex payload missing collection or migrationType")
 	}
 	return ReindexTaskHeader{p}, nil
+}
+
+var _ distributedtask.CollectionRenamer = ReindexDetector{}
+
+func (ReindexDetector) RenameCollection(payload []byte, collection string) ([]byte, error) {
+	var p ReindexTaskPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+	p.Collection = collection
+	return json.Marshal(p)
 }
 
 // ReindexHeaderOf is how every reader gets a reindex task's payload, and is false when the payload did not decode.
@@ -155,6 +168,10 @@ type ReindexTaskPayload struct {
 
 	// Tenants scopes the cancel and terminal sweeps (MT only).
 	Tenants []string `json:"tenants,omitempty"`
+
+	// ReindexTaskRules.Admit gives a generation only to ViewServed runs, so v1.39.x payloads pass unchanged.
+	ViewServed bool   `json:"viewServed,omitempty"`
+	Generation uint64 `json:"generation,omitempty"`
 }
 
 // ReindexTaskVisiblePayloadFields are the payload fields GET /v1/tasks shows a
@@ -162,4 +179,5 @@ type ReindexTaskPayload struct {
 // nodes, so it stays hidden until it is listed here.
 var ReindexTaskVisiblePayloadFields = []string{
 	"migrationType", "collection", "targetTokenization", "originalTokenization", "bucketStrategy",
+	"viewServed", "generation",
 }

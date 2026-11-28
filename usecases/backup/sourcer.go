@@ -25,7 +25,7 @@ type Sourcer interface { // implemented by the index
 	ReleaseBackup(_ context.Context, id, class string) error
 
 	// Backupable returns whether all given class can be backed up.
-	Backupable(_ context.Context, classes []string) error
+	Backupable(_ context.Context, bakid string, classes []string) error
 
 	// BackupDescriptors returns a channel of class descriptors, closed on every exit
 	// of the producer, and stops between classes once ctx is cancelled. A descriptor
@@ -38,9 +38,4 @@ type Sourcer interface { // implemented by the index
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
 	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BaseBackupDescriptor,
 	) <-chan backup.ClassDescriptor
-
-	// AdoptRestoredMigrationRecords renames the records of desc's shards staged
-	// under indexPath from sourceNode (the backup's origin) to node, before the
-	// shards load.
-	AdoptRestoredMigrationRecords(indexPath string, desc *backup.ClassDescriptor, node, sourceNode string) error
 }

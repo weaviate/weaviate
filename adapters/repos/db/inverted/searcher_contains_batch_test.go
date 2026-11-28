@@ -49,7 +49,6 @@ const containsBatchTestClass = "ContainsBatchGateTest"
 type containsBatchGateFixture struct {
 	searcher *Searcher
 	class    *models.Class
-	fallback bool // read by the Searcher's isFallbackToSearchable closure
 }
 
 func newContainsBatchGateFixture(t testing.TB) *containsBatchGateFixture {
@@ -105,14 +104,13 @@ func newContainsBatchGateFixture(t testing.TB) *containsBatchGateFixture {
 
 	f := &containsBatchGateFixture{class: class}
 	f.searcher = &Searcher{
-		store:  store,
+		store:  storeView{BucketLookup: store},
 		logger: logger,
 		// production's Searcher always has one — NewSearcher dereferences it at
 		// construction — so a fixture without one is a shape only a test can make
 		bitmapFactory: roaringset.NewBitmapFactory(
 			roaringset.NewBitmapBufPoolNoop(), func() uint64 { return 300_000 }),
 		getClass:               func(name string) *models.Class { return f.class },
-		isFallbackToSearchable: func() bool { return f.fallback },
 		stopwordProvider:       stopwords.NewProvider(fakeStopwordDetector{}, nil),
 		batchedContainsEnabled: runtime.NewDynamicValue(true),
 	}
@@ -347,8 +345,9 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			path: containsPath("prop-fallback"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
 			setup: func(t *testing.T) {
-				f.fallback = true
-				t.Cleanup(func() { f.fallback = false })
+				plain := f.searcher.store.(storeView)
+				f.searcher.store = storeView{BucketLookup: plain.BucketLookup, fallback: true}
+				t.Cleanup(func() { f.searcher.store = plain })
 			},
 			wantReason: containsDeclineFallbackToSearchable,
 		},

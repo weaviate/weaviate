@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"slices"
 	"testing"
 	"time"
 
@@ -21,147 +20,42 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/models"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-// TestIndexStatusAfterTaskTTL treats every record as past the TTL, then
-// checks C.foo's index status against only the ones still active or kept
-// by ShouldRetainCompletedTask.
-func TestIndexStatusAfterTaskTTL(t *testing.T) {
-	type rec struct {
+// TestShouldRetainCompletedTask asks the TTL sweep's retainer about one ended task each.
+func TestShouldRetainCompletedTask(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
 		status     distributedtask.TaskStatus
-		mt         db.ReindexMigrationType
-		prop       string
-		collection string // empty means "C"
+		generation uint64
+		tenants    []string
+		switched   bool
 		badBytes   bool
-		// partial: the run decided tenant t1's swap out of t1 and t2.
-		partial bool
-		owed    bool
-	}
-	failed := func(mt db.ReindexMigrationType, prop string) rec {
-		return rec{status: distributedtask.TaskStatusFailed, mt: mt, prop: prop}
-	}
-	withStatus := func(r rec, s distributedtask.TaskStatus) rec { r.status = s; return r }
-	filterable := failed(db.ReindexTypeEnableFilterable, "foo")
-	onD := filterable
-	onD.collection = "D"
-	partialRun := rec{status: distributedtask.TaskStatusCancelled, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}
-	partialChangeTok := partialRun
-	partialChangeTok.mt = db.ReindexTypeChangeTokenization
-	partialOwed := partialRun
-	partialOwed.owed = true
-	changeTokThenFixes := []rec{
-		failed(db.ReindexTypeChangeTokenization, "foo"),
-		withStatus(filterable, distributedtask.TaskStatusFinished),
-		withStatus(failed(db.ReindexTypeRebuildSearchable, "foo"), distributedtask.TaskStatusFinished),
-	}
-
-	for _, tt := range []struct {
-		name     string
-		records  []rec // oldest first
-		wantKept []int // indexes into records
-		// wantKeptFirst, if set, is checked after the first sweep.
-		wantKeptFirst []int
-		// resweep: sweep again once the records released by the first sweep are deleted.
-		resweep bool
-		// failedCleanup: these released records' cleanup write fails on a second sweep.
-		failedCleanup []int
-		filterableOff bool // the schema has C.foo's filterable index dropped
-		filterable    string
-		searchable    string
+		want       bool
 	}{
-		{name: "a failed migration still reads failed", records: []rec{filterable}, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
-		{name: "a newer failed run replaces it", records: []rec{filterable, filterable}, wantKept: []int{1}, filterable: "failed", searchable: "ready"},
-		{name: "a newer successful run releases it", records: []rec{filterable, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{1}, filterable: "ready", searchable: "ready"},
-		{name: "a newer run kept for it is released once it is deleted", records: []rec{filterable, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKeptFirst: []int{1}, resweep: true, filterable: "ready", searchable: "ready"},
-		{name: "a running retry releases it", records: []rec{filterable, withStatus(filterable, distributedtask.TaskStatusStarted)}, wantKept: []int{1}, filterable: "pending", searchable: "ready"},
-		{name: "a run on another property keeps it", records: []rec{filterable, failed(db.ReindexTypeEnableFilterable, "bar")}, wantKept: []int{0, 1}, filterable: "failed", searchable: "ready"},
-		{name: "a run on another collection keeps it", records: []rec{filterable, withStatus(onD, distributedtask.TaskStatusFinished)}, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
-		{name: "a successful run of another type on the same index releases it", records: []rec{filterable, withStatus(failed(db.ReindexTypeRepairFilterable, "foo"), distributedtask.TaskStatusFinished)}, wantKept: []int{1}, filterable: "ready", searchable: "ready"},
-		{name: "a run on another index keeps it", records: []rec{filterable, withStatus(failed(db.ReindexTypeEnableRangeable, "foo"), distributedtask.TaskStatusFinished)}, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
-		{name: "a run covering only one of its indexes keeps both", records: []rec{failed(db.ReindexTypeChangeTokenization, "foo"), withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1}, filterable: "ready", searchable: "failed"},
-		{name: "runs covering all of its indexes release it", records: changeTokThenFixes, wantKept: []int{1, 2}, filterable: "ready", searchable: "ready"},
-		{name: "a failed cleanup of it does not bring it back", records: changeTokThenFixes, failedCleanup: []int{0}, wantKept: []int{1, 2}, filterable: "ready", searchable: "ready"},
-		{name: "a failed repair on an index dropped since is not kept", records: []rec{failed(db.ReindexTypeRepairFilterable, "foo")}, filterableOff: true, filterable: "ready", searchable: "ready"},
-		{name: "a failed enable on an index still off is kept", records: []rec{filterable}, filterableOff: true, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
-		{name: "a cancelled migration is not kept", records: []rec{withStatus(filterable, distributedtask.TaskStatusCancelled)}, filterable: "ready", searchable: "ready"},
-		{name: "a newer cancelled run keeps a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusCancelled)}, wantKept: []int{0, 1}, filterable: "partial", searchable: "ready"},
-		{name: "finished runs that flip nothing keep a partial run", records: []rec{partialChangeTok, withStatus(failed(db.ReindexTypeRebuildSearchable, "foo"), distributedtask.TaskStatusFinished), withStatus(failed(db.ReindexTypeRepairFilterable, "foo"), distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1, 2}, filterable: "ready", searchable: "ready"},
-		{name: "a finished flip releases a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{1}, filterable: "ready", searchable: "ready"},
-		{name: "a swap a replica still owes keeps a partial run past a finished flip", records: []rec{partialOwed, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1}, filterable: "ready", searchable: "ready"},
-		{name: "an unreadable record is not kept", records: []rec{{status: distributedtask.TaskStatusFailed, badBytes: true}}, filterable: "ready", searchable: "ready"},
+		{name: "failed with a generation and no switched tenant", status: distributedtask.TaskStatusFailed, generation: 2, want: true},
+		{name: "cancelled with a generation and switched tenants", status: distributedtask.TaskStatusCancelled, generation: 2, switched: true, want: true},
+		{name: "cancelled with a generation and no switched tenant", status: distributedtask.TaskStatusCancelled, generation: 2, want: true},
+		{name: "finished scoped run with switched tenants", status: distributedtask.TaskStatusFinished, generation: 2, tenants: []string{"t1"}, switched: true, want: true},
+		{name: "finished with no switched tenant", status: distributedtask.TaskStatusFinished, generation: 2},
+		{name: "failed without a generation", status: distributedtask.TaskStatusFailed},
+		{name: "cancelled partial run without a generation", status: distributedtask.TaskStatusCancelled, switched: true},
+		{name: "unreadable payload", status: distributedtask.TaskStatusFailed, badBytes: true},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			now := time.Now()
-			var all []*distributedtask.Task
-			for i, r := range tt.records {
-				collection := r.collection
-				if collection == "" {
-					collection = "C"
-				}
-				task := buildTask(t, string(rune('a'+i)), r.status, db.ReindexTaskPayload{
-					MigrationType: r.mt, Collection: collection, Properties: []string{r.prop},
-				}, nil)
-				task.Version = uint64(i + 1)
-				task.StartedAt = now.Add(time.Duration(i) * time.Minute)
-				if r.badBytes {
-					task.Payload = []byte("{")
-				}
-				if r.partial {
-					task.Units = map[string]*distributedtask.Unit{
-						"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"},
-					}
-					task.IndexGroups()
-					task.SwapDecidedGroups = map[string]time.Time{"t1": now}
-				}
-				if r.owed {
-					task.SwapsOwed = map[string][]string{"t1": {"n2"}}
-				}
-				all = append(all, task)
+		t.Run(tc.name, func(t *testing.T) {
+			task := buildTask(t, "a", tc.status, db.ReindexTaskPayload{
+				MigrationType: db.ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"foo"},
+				Tenants: tc.tenants, ViewServed: tc.generation > 0, Generation: tc.generation,
+			}, nil)
+			if tc.switched {
+				task.SwapDecidedGroups = map[string]time.Time{"t1": {}}
 			}
-
-			reader := schemaUC.NewMockSchemaReader(t)
-			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
-				{Name: "foo", IndexFilterable: boolPtr(!tt.filterableOff)},
-			}}).Maybe()
-			retainer := db.NewReindexProvider(nil, &schemaUC.Manager{SchemaReader: reader}, nil, logrus.New(), "", nil, nil)
-			sweep := func(present []int) []int {
-				namespace := map[distributedtask.TaskDescriptor]*distributedtask.Task{}
-				for _, i := range present {
-					namespace[all[i].TaskDescriptor] = all[i]
-				}
-				var kept []int
-				for _, i := range present {
-					if all[i].Status.IsActive() || retainer.ShouldRetainCompletedTask(all[i], namespace) {
-						kept = append(kept, i)
-					}
-				}
-				return kept
+			if tc.badBytes {
+				task.Payload = []byte("{")
+				task = withHeader(task)
 			}
-			var present []int
-			for i := range all {
-				present = append(present, i)
-			}
-			keptIdx := sweep(present)
-			if tt.wantKeptFirst != nil {
-				require.Equal(t, tt.wantKeptFirst, keptIdx, "first sweep")
-			}
-			if tt.resweep || tt.failedCleanup != nil {
-				keptIdx = sweep(append(keptIdx, tt.failedCleanup...))
-				slices.Sort(keptIdx)
-			}
-
-			var kept []*distributedtask.Task
-			for _, i := range keptIdx {
-				kept = append(kept, all[i])
-			}
-			for indexType, want := range map[string]string{"filterable": tt.filterable, "searchable": tt.searchable} {
-				idx := &models.IndexStatus{Type: indexType, Status: "ready"}
-				mergeReindexStatus(idx, "C", "foo", indexType, db.ReindexRuns(kept), nil)
-				require.Equal(t, want, idx.Status, indexType)
-			}
-			require.Equal(t, tt.wantKept, keptIdx)
+			retainer := db.NewReindexProvider(nil, logrus.New(), "", nil, nil)
+			require.Equal(t, tc.want, retainer.ShouldRetainCompletedTask(task, nil))
 		})
 	}
 }

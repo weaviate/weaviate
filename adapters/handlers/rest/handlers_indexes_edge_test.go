@@ -274,6 +274,61 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 		"progress recorded before cancellation is preserved")
 }
 
+// An ended generation run reports from its summary once compacted.
+func TestMergeReindexStatus_EndedGenerationRun(t *testing.T) {
+	summary := &distributedtask.UnitSummary{Groups: 4, Counts: map[distributedtask.UnitStatus]int{
+		distributedtask.UnitStatusCompleted: 3, distributedtask.UnitStatusFailed: 1,
+	}}
+	for _, tc := range []struct {
+		name         string
+		summary      *distributedtask.UnitSummary
+		units        map[string]*distributedtask.Unit
+		switched     []string
+		wantStatus   string
+		wantProgress float32
+		wantTotal    int64
+	}{
+		{name: "compacted, no switched tenant", summary: summary, wantStatus: "failed", wantProgress: 0.75},
+		{name: "compacted, one switched tenant", summary: summary, switched: []string{"t1"}, wantStatus: "partial", wantProgress: 0.75, wantTotal: 4},
+		{
+			name: "taken over, switched tenant without a unit",
+			units: map[string]*distributedtask.Unit{
+				"u2": {ID: "u2", GroupID: "t2", Status: distributedtask.UnitStatusFailed, Progress: 0.5},
+			},
+			switched: []string{"t1"}, wantStatus: "partial", wantProgress: 0.5, wantTotal: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := &distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+				Status:         distributedtask.TaskStatusFailed,
+				Units:          tc.units,
+				Summary:        tc.summary,
+			}
+			payload, err := json.Marshal(db.ReindexTaskPayload{
+				MigrationType: db.ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"foo"},
+				ViewServed: true, Generation: 2,
+			})
+			require.NoError(t, err)
+			task.Payload = payload
+			for _, g := range tc.switched {
+				if task.SwapDecidedGroups == nil {
+					task.SwapDecidedGroups = map[string]time.Time{}
+				}
+				task.SwapDecidedGroups[g] = time.Time{}
+			}
+
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(withHeader(task)), nil)
+
+			require.Equal(t, tc.wantStatus, idx.Status)
+			require.InDelta(t, tc.wantProgress, idx.Progress, 0.0001)
+			require.Equal(t, tc.wantTotal, idx.TotalTenants)
+			require.Equal(t, int64(len(tc.switched)), idx.MigratedTenants)
+		})
+	}
+}
+
 // Edge case 6: Two overlapping STARTED tasks targeting the same property.
 // One is enable-filterable (progress 0.2), the other is change-tokenization
 // (progress 0.9). For indexType="filterable", both match. The current
@@ -345,13 +400,16 @@ type taskAttempt struct {
 	status   distributedtask.TaskStatus
 	unit     distributedtask.UnitStatus
 	progress float32
+	version  uint64 // 0 means 1
 }
+
+func atVersion(a taskAttempt, v uint64) taskAttempt { a.version = v; return a }
 
 // Two matching tasks, and which one the entry reports. The merge loop ranks
 // on two rules and the rows hold them apart:
 //
 //   - an in-flight task beats a terminal one, whichever started first;
-//   - between two of equal standing, the later StartedAt wins.
+//   - between two of equal standing, the higher version, then the later StartedAt wins.
 //
 // Every row runs the list both ways round, because the merge loop must not
 // rank on slice position.
@@ -368,20 +426,20 @@ type taskAttempt struct {
 func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 	now := time.Now()
 	live := func(p float32) taskAttempt {
-		return taskAttempt{distributedtask.TaskStatusStarted, distributedtask.UnitStatusInProgress, p}
+		return taskAttempt{distributedtask.TaskStatusStarted, distributedtask.UnitStatusInProgress, p, 0}
 	}
 	// A live task in a status this build cannot classify.
 	unrecognized := func(p float32) taskAttempt {
-		return taskAttempt{unknownFutureStatus, distributedtask.UnitStatusInProgress, p}
+		return taskAttempt{unknownFutureStatus, distributedtask.UnitStatusInProgress, p, 0}
 	}
 	failed := func(p float32) taskAttempt {
-		return taskAttempt{distributedtask.TaskStatusFailed, distributedtask.UnitStatusFailed, p}
+		return taskAttempt{distributedtask.TaskStatusFailed, distributedtask.UnitStatusFailed, p, 0}
 	}
 	cancelled := func(p float32) taskAttempt {
-		return taskAttempt{distributedtask.TaskStatusCancelled, distributedtask.UnitStatusCompleted, p}
+		return taskAttempt{distributedtask.TaskStatusCancelled, distributedtask.UnitStatusCompleted, p, 0}
 	}
 	done := func(p float32) taskAttempt {
-		return taskAttempt{distributedtask.TaskStatusFinished, distributedtask.UnitStatusCompleted, p}
+		return taskAttempt{distributedtask.TaskStatusFinished, distributedtask.UnitStatusCompleted, p, 0}
 	}
 
 	const (
@@ -411,6 +469,7 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 		{"a completed migration outranks the failure before it", failed(0.4), done(0.7), "ready", 0, ""},
 		{"a completed migration outranks the cancel before it", cancelled(0.4), done(0.7), "ready", 0, ""},
 		{"the newer cancel is the one reported", done(0.4), cancelled(0.7), "cancelled", 0.7, newerID},
+		{"a higher version outranks a later start", atVersion(failed(0.4), 2), done(0.7), "failed", 0.4, olderID},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			build := func(id string, a taskAttempt, startedAt time.Time) *distributedtask.Task {
@@ -423,6 +482,7 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 					map[string]*distributedtask.Unit{"u": {ID: "u", Status: a.unit, Progress: a.progress}},
 				)
 				task.StartedAt = startedAt
+				task.Version = max(a.version, 1)
 				if a.status.IsTerminal() {
 					task.FinishedAt = now
 				}
@@ -775,7 +835,7 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			http.StatusConflict, "cannot classify that status",
 		},
 		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, 0, ""},
-		// A SWAPPING task ends once every replica that owes a swap has swapped.
+		// A SWAPPING task ends once its flip lands.
 		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusConflict, "can no longer be cancelled"},
 		// The three terminal rows never reach the refusal logic: they
 		// are filtered out as cancel targets, so what they pin is that a

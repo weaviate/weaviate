@@ -111,9 +111,6 @@ func newRepo(t *testing.T, p repoParams, classes ...*models.Class) (*db.DB, *fak
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	repo.SetShardReindexActivityLookup(func() (db.ShardReindexActivityLookup, error) {
-		return func(string, string) bool { return false }, nil
-	})
 	require.NoError(t, repo.WaitForStartup(context.Background()))
 	t.Cleanup(func() {
 		require.NoError(t, repo.Shutdown(context.Background()))
@@ -161,6 +158,10 @@ func (f *fakeSchemaGetter) ResolveAlias(string) string {
 }
 
 func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
+
+func (f *fakeSchemaGetter) ClassLive(string) map[string]map[string]uint64 {
 	return nil
 }
 

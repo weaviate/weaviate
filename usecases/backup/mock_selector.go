@@ -32,17 +32,17 @@ func (_m *MockSelector) EXPECT() *MockSelector_Expecter {
 	return &MockSelector_Expecter{mock: &_m.Mock}
 }
 
-// Backupable provides a mock function with given fields: _a0, classes
-func (_m *MockSelector) Backupable(_a0 context.Context, classes []string) error {
-	ret := _m.Called(_a0, classes)
+// Backupable provides a mock function with given fields: _a0, bakid, classes
+func (_m *MockSelector) Backupable(_a0 context.Context, bakid string, classes []string) error {
+	ret := _m.Called(_a0, bakid, classes)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Backupable")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, []string) error); ok {
-		r0 = rf(_a0, classes)
+	if rf, ok := ret.Get(0).(func(context.Context, string, []string) error); ok {
+		r0 = rf(_a0, bakid, classes)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -57,14 +57,15 @@ type MockSelector_Backupable_Call struct {
 
 // Backupable is a helper method to define mock.On call
 //   - _a0 context.Context
+//   - bakid string
 //   - classes []string
-func (_e *MockSelector_Expecter) Backupable(_a0 interface{}, classes interface{}) *MockSelector_Backupable_Call {
-	return &MockSelector_Backupable_Call{Call: _e.mock.On("Backupable", _a0, classes)}
+func (_e *MockSelector_Expecter) Backupable(_a0 interface{}, bakid interface{}, classes interface{}) *MockSelector_Backupable_Call {
+	return &MockSelector_Backupable_Call{Call: _e.mock.On("Backupable", _a0, bakid, classes)}
 }
 
-func (_c *MockSelector_Backupable_Call) Run(run func(_a0 context.Context, classes []string)) *MockSelector_Backupable_Call {
+func (_c *MockSelector_Backupable_Call) Run(run func(_a0 context.Context, bakid string, classes []string)) *MockSelector_Backupable_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]string))
+		run(args[0].(context.Context), args[1].(string), args[2].([]string))
 	})
 	return _c
 }
@@ -74,7 +75,7 @@ func (_c *MockSelector_Backupable_Call) Return(_a0 error) *MockSelector_Backupab
 	return _c
 }
 
-func (_c *MockSelector_Backupable_Call) RunAndReturn(run func(context.Context, []string) error) *MockSelector_Backupable_Call {
+func (_c *MockSelector_Backupable_Call) RunAndReturn(run func(context.Context, string, []string) error) *MockSelector_Backupable_Call {
 	_c.Call.Return(run)
 	return _c
 }

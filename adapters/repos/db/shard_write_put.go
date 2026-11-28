@@ -543,12 +543,11 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
-	// One snapshot for the whole write, loaded before analysis: the swap
-	// publishes the overlay before it disarms, so a disarmed snapshot means
-	// the analysis below already sees the overlay.
-	st := s.loadPropValueIndexState()
+	// One view gives the write its analysis and buckets and holds off their retire.
+	buckets := s.acquireView()
+	defer buckets.release()
 
-	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
+	props, nilprops, nestedProps, err := s.analyzeObjectInView(object, buckets)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
@@ -558,7 +557,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	var prevNestedProps []inverted.NestedProperty
 
 	if prevObject != nil {
-		prevProps, prevNilprops, prevNestedProps, err = s.AnalyzeObject(prevObject)
+		prevProps, prevNilprops, prevNestedProps, err = s.analyzeObjectInView(prevObject, buckets)
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
@@ -590,7 +589,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	// determine only changed properties to avoid unnecessary updates of inverted indexes
 	if status.docIDPreserved {
-		delta := inverted.DeltaSkipSearchable(prevProps, props, s.getSearchableBlockmaxProperties())
+		delta := inverted.DeltaSkipSearchable(prevProps, props, buckets.servesBlockmax)
 
 		propsToAdd = delta.ToAdd
 		propsToDel = delta.ToDelete
@@ -606,10 +605,10 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if prevObject != nil {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
+		if err := s.deleteFromInvertedIndicesLSM(buckets, propsToDel, nilpropsToDel, status.oldDocID); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
-		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
+		if err := s.deleteNestedInvertedIndicesLSM(buckets, prevNestedProps, status.oldDocID); err != nil {
 			return fmt.Errorf("delete nested inverted indices: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
@@ -626,11 +625,14 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
+	if err := s.extendInvertedIndicesLSM(buckets, propsToAdd, nilpropsToAdd, status.docID); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
-	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
+	if err := s.extendNestedInvertedIndicesLSM(buckets, nestedProps, status.docID); err != nil {
 		return fmt.Errorf("put nested inverted indices: %w", err)
+	}
+	if err := s.writeStaged(buckets, object, prevObject, status.docID, status.oldDocID); err != nil {
+		return fmt.Errorf("staged reindex builds: %w", err)
 	}
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
@@ -644,12 +646,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err != nil {
 			return err
 		}
-	}
-
-	// Mirrors this write into the ingest bucket under the TARGET analysis for
-	// scope props suppressed above; no-op absent a migration.
-	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
-		return fmt.Errorf("migration double-write: %w", err)
 	}
 
 	return nil

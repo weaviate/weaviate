@@ -13,6 +13,7 @@ package db
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -114,10 +115,8 @@ func (ReindexDetector) CheckConflict(newHeader distributedtask.TaskHeader, exist
 }
 
 // typesConflictReason returns a non-empty reason if two reindex migrations
-// on the same collection target overlapping properties, whatever their types.
-// The UpdateProperty completing a semantic migration ([IsSemanticMigration])
-// runs updatePropertyBuckets, which deletes the working dirs of an overlapping
-// enable-* migration whose flag is still false (weaviate/weaviate#10675).
+// on the same collection target overlapping properties, whatever their types
+// (weaviate/weaviate#10675).
 //
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
@@ -198,7 +197,7 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 		return whenCancellable
 	}
 	if status == distributedtask.TaskStatusSwapping {
-		return "the task is SWAPPING and ends once every replica that owes a swap has swapped, so wait for it; a node lost for good, or a swap that never succeeds, holds it"
+		return "the task is SWAPPING and ends once its flip lands, so wait for it; if the flip keeps failing, the task fails and a resubmit of the same target finishes it"
 	}
 	return "this build cannot classify that status, so a cancel via the reindex REST API is " +
 		"refused on every node — the task has to reach a terminal state on the nodes that do " +
@@ -211,9 +210,8 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // reindex migration on the same (collection, property).
 //
 // Without it, an external UpdateProperty such as DELETE /index/searchable
-// runs updatePropertyBuckets, which deletes the working dirs of an in-flight
-// enable-* migration whose flag is still false. Mid change-tokenization, the
-// same DELETE wipes the searchable sub-task while the filterable sub-task
+// turns an index off under an in-flight migration. Mid change-tokenization,
+// that DELETE wipes the searchable sub-task while the filterable sub-task
 // commits, leaving the schema at the old tokenization and the filterable
 // bucket on the new one.
 //
@@ -222,7 +220,7 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // Must stay a pure function of (className, propertyName, existingTasks) for
 // RAFT determinism; an unparseable payload is a hard reject, same as
 // [ConflictDetector.CheckConflict].
-func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckPropertyUpdate(className, propertyName, indexOff string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
@@ -252,10 +250,21 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, nil, false); msg != "" {
+	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, IndexOffOfRun(indexOff), false); msg != "" {
 		return fmt.Errorf("%s", msg)
 	}
 	return nil
+}
+
+// IndexOffOfRun admits turning off an index a partial run builds, which then serves no tenant.
+func IndexOffOfRun(indexOff string) func(*ReindexRun) bool {
+	if indexOff == "" {
+		return nil
+	}
+	return func(run *ReindexRun) bool {
+		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
+		return slices.Contains(types, indexOff)
+	}
 }
 
 // CheckClassMutation implements

@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 
@@ -48,28 +47,8 @@ type FilterableToRangeableStrategy struct {
 	generation int // see genSuffix godoc
 }
 
-func (s *FilterableToRangeableStrategy) StrategyCode() MigrationStrategyCode {
-	return StrategyCodeFilterableToRangeable
-}
-
 func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketRangeableFromPropNameLSM(propName)
-}
-
-func (s *FilterableToRangeableStrategy) ReindexSuffix() string {
-	return "__rangeable_reindex" + genSuffix(s.generation)
-}
-
-func (s *FilterableToRangeableStrategy) IngestSuffix() string {
-	return "__rangeable_ingest" + genSuffix(s.generation)
-}
-
-func (s *FilterableToRangeableStrategy) SourceStrategy() string {
-	return lsmkv.StrategyRoaringSet
-}
-
-func (s *FilterableToRangeableStrategy) SourceIndexType() PropertyIndexType {
-	return IndexTypePropValue
 }
 
 func (s *FilterableToRangeableStrategy) TargetStrategy() string {
@@ -132,14 +111,6 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 	}
 }
 
-// PreReindexHook routes this shard's range queries to the filterable bucket until OnMigrationComplete
-// flips it back. https://github.com/weaviate/0-weaviate-issues/issues/212 (Issue C)
-func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []string) {
-	for _, propName := range props {
-		shard.setRangeableLocallyReady(propName, false)
-	}
-}
-
 func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
@@ -149,21 +120,4 @@ func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[stri
 		out[p] = inverted.PropertyOverlay{ForceRangeable: true}
 	}
 	return out
-}
-
-// OnMigrationComplete marks each migrated property "locally ready" so this
-// shard's query path stops falling back to the filterable bucket walk
-// (weaviate/0-weaviate-issues#212, Shard.rangeableLocalReady). It does not
-// flip IndexRangeFilters: that happens once, cluster-wide, from
-// [ReindexProvider.OnTaskCompleted], because a per-shard flip would let
-// range queries run against shards whose bucket is still empty.
-func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	concrete, err := unwrapShard(ctx, shard)
-	if err != nil || concrete == nil {
-		return nil
-	}
-	for _, propName := range s.propNames {
-		concrete.setRangeableLocallyReady(propName, true)
-	}
-	return nil
 }

@@ -12,15 +12,8 @@
 package db
 
 import (
-	"context"
-	"fmt"
-	"time"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Bucket-suffix naming convention: all reindex-track sidecar buckets carry a
@@ -32,31 +25,20 @@ import (
 // reserved namespace for any future user-defined property whose name happens
 // to collide with a suffix base.
 
-// MigrationStrategy encapsulates the parts that differ per migration type
-// (e.g., Map→Blockmax, Set→RoaringSet); the lifecycle lives in ShardReindexTaskGeneric.
+type MigrationStrategyCode string
+
+const (
+	StrategyCodeSearchableMapToBlockmax     MigrationStrategyCode = "searchable_map_to_blockmax"
+	StrategyCodeFilterableRoaringsetRefresh MigrationStrategyCode = "filterable_roaringset_refresh"
+	StrategyCodeFilterableToRangeable       MigrationStrategyCode = "filterable_to_rangeable"
+	StrategyCodeSearchableRetokenize        MigrationStrategyCode = "searchable_retokenize"
+	StrategyCodeFilterableRetokenize        MigrationStrategyCode = "filterable_retokenize"
+	StrategyCodeEnableFilterable            MigrationStrategyCode = "enable_filterable"
+	StrategyCodeEnableSearchable            MigrationStrategyCode = "enable_searchable"
+	StrategyCodeRebuildSearchable           MigrationStrategyCode = "rebuild_searchable"
+)
+
 type MigrationStrategy interface {
-	StrategyCode() MigrationStrategyCode
-
-	// SourceBucketName returns the original bucket name for the given property.
-	// e.g. helpers.BucketSearchableFromPropNameLSM(propName)
-	SourceBucketName(propName string) string
-
-	// ReindexSuffix returns the suffix for reindex buckets.
-	// Default is "__reindex"; blockmax overrides to "__blockmax_reindex" for backward compat.
-	ReindexSuffix() string
-
-	// IngestSuffix returns the suffix for ingest buckets.
-	// Default is "__ingest"; blockmax overrides to "__blockmax_ingest" for backward compat.
-	IngestSuffix() string
-
-	// SourceStrategy returns the LSM strategy of source buckets to discover.
-	// e.g. lsmkv.StrategyMapCollection
-	SourceStrategy() string
-
-	// SourceIndexType returns the property index type to filter during discovery.
-	// e.g. IndexTypePropSearchableValue
-	SourceIndexType() PropertyIndexType
-
 	// TargetStrategy returns the LSM strategy for reindex/ingest buckets.
 	// e.g. lsmkv.StrategyInverted
 	TargetStrategy() string
@@ -74,16 +56,9 @@ type MigrationStrategy interface {
 	MakeDeleteCallback(bucketNamer func(string) string, armed armedMirror,
 	) onDeleteFromPropertyValueIndex
 
-	// PreReindexHook is called before the reindex/ingest phase begins on a shard.
-	// e.g. shard.markSearchableBlockmaxProperties(props...)
-	PreReindexHook(shard *Shard, props []string)
-
 	// AnalyzerOverlay returns a per-property override map applied by the
 	// analyzer; without it a property whose schema flag is false is skipped.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
-
-	// No heavy disk I/O on the new main bucket: it is live, and a stalled compaction shows as latency.
-	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 
 // noAnalyzerOverlay supplies the default "no overlay" implementation of
@@ -96,86 +71,4 @@ type noAnalyzerOverlay struct{}
 
 func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
 	return nil
-}
-
-// applyPerPropertySchemaUpdate is the shared body of every strategy's
-// OnMigrationComplete that flips one or more property fields via
-// per-property RAFT UpdateProperty commands.
-//
-// Concurrency: `fields` is the fieldmask passed all the way down to the
-// FSM apply path (see cluster/proto/api.PropertyField* and
-// cluster/schema/meta_class.go MergePropsMasked). Two strategies running
-// in parallel on the same property — each touching different fields —
-// no longer clobber each other on RAFT apply: the FSM merges only the
-// listed fields onto the live class state, leaving the rest of the
-// property untouched. An empty `fields` falls back to the legacy
-// "replace every field" semantics for callers that don't care.
-//
-// We still re-read the class right before each per-property update.
-// The mask closes the cross-strategy clobber path, but a strategy still
-// has to make a decision (apply / skip) based on the current schema
-// state — re-reading per-property keeps that decision fresh.
-//
-// The mutate callback is called with a *fresh* shallow copy of the
-// property; the strategy mutates only the fields it owns. Return
-// apply=false to skip the RAFT update for this property (e.g. the
-// target state is already satisfied).
-//
-// Returns the names of properties that were not found in the class
-// (e.g. dropped between task scheduling and completion). Multi-property
-// strategies typically ignore this list — a missing property is the
-// same as "already migrated" for them — while single-property strategies
-// (FilterableRetokenize) treat it as a hard error to match the pre-helper
-// behavior.
-func applyPerPropertySchemaUpdate(
-	ctx context.Context,
-	mgr *schema.Manager,
-	run api.MigrationRun,
-	className string,
-	propNames []string,
-	fields []string,
-	mutate func(prop *models.Property) (apply bool),
-) (missing []string, err error) {
-	for _, propName := range propNames {
-		// Re-read the class right before each property update to minimize the
-		// staleness window where a concurrent strategy could clobber our flag.
-		class := mgr.ReadOnlyClass(className)
-		if class == nil {
-			return nil, fmt.Errorf("class %q not found", className)
-		}
-
-		var prop *models.Property
-		for _, p := range class.Properties {
-			if p.Name == propName {
-				prop = p
-				break
-			}
-		}
-		if prop == nil {
-			missing = append(missing, propName)
-			continue
-		}
-
-		updated := *prop
-		if !mutate(&updated) {
-			continue
-		}
-		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, run, &updated, fields...); err != nil {
-			return missing, fmt.Errorf("updating property %q: %w", propName, err)
-		}
-	}
-	return missing, nil
-}
-
-// reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
-// Renamed from mapToBlockmaxConfig to be strategy-agnostic.
-type reindexTaskConfig struct {
-	concurrency                   int
-	memtableOptFactor             int
-	processingDuration            time.Duration
-	pauseDuration                 time.Duration
-	checkProcessingEveryNoObjects int
-	selectionEnabled              bool
-	selectedPropsByCollection     map[string]map[string]struct{}
-	selectedShardsByCollection    map[string]map[string]struct{}
 }

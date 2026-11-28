@@ -371,49 +371,30 @@ func BucketRangeableFromPropNameLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + schema.InternalRangeableSuffix)
 }
 
-// propertyBucketGenSuffix returns the suffix appended to a property bucket
-// name to disambiguate generations created by semantic runtime-reindex
-// migrations. Generation 0 (the default for never-migrated properties)
-// returns "" so the bucket name matches the legacy unsuffixed form —
-// existing clusters on disk continue to find their buckets without a
-// rename. Generations >= 1 return "__gen<N>".
-//
-// The double-underscore is chosen to be unambiguous: property names are
-// user-supplied identifiers that, in practice, do not end in "__gen<digits>".
-// Even if one did, the suffix would never collide because the resolver
-// only appends a non-empty suffix when the schema-tracked
-// BucketGeneration is non-zero.
-func propertyBucketGenSuffix(gen int64) string {
+// propertyBucketAtGen names a property index folder at a generation.
+// Generation 0 keeps the plain name. Above 0, ".gen<N>" follows the property
+// name. A property name never holds a ".", so no two triples of property,
+// generation and index type share a folder.
+func propertyBucketAtGen(propName string, gen int64, indexSuffix string) string {
 	if gen <= 0 {
-		return ""
+		return BucketFromPropNameLSM(propName + indexSuffix)
 	}
-	return fmt.Sprintf("__gen%d", gen)
+	return BucketFromPropNameLSM(fmt.Sprintf("%s.gen%d%s", propName, gen, indexSuffix))
 }
 
-// BucketFromPropNameLSMAtGen is the generation-aware variant of
-// [BucketFromPropNameLSM]. For gen=0 it returns the legacy unsuffixed
-// bucket name (no behavior change for properties that have never been
-// semantically reindexed). For gen>=1 the returned name includes a
-// "__gen<N>" suffix so old and new generations can coexist on disk during
-// a migration: the reindex builds the next-generation bucket alongside
-// the active one, and the cluster-wide cutover is the RAFT commit that
-// bumps the property's BucketGeneration field.
+// BucketFromPropNameLSMAtGen names the filterable folder of a generation.
 func BucketFromPropNameLSMAtGen(propName string, gen int64) string {
-	return BucketFromPropNameLSM(propName) + propertyBucketGenSuffix(gen)
+	return propertyBucketAtGen(propName, gen, "")
 }
 
-// BucketSearchableFromPropNameLSMAtGen is the generation-aware variant of
-// [BucketSearchableFromPropNameLSM]. See [BucketFromPropNameLSMAtGen] for
-// the cutover semantics.
+// BucketSearchableFromPropNameLSMAtGen names the searchable folder of a generation.
 func BucketSearchableFromPropNameLSMAtGen(propName string, gen int64) string {
-	return BucketSearchableFromPropNameLSM(propName) + propertyBucketGenSuffix(gen)
+	return propertyBucketAtGen(propName, gen, schema.InternalSearchableSuffix)
 }
 
-// BucketRangeableFromPropNameLSMAtGen is the generation-aware variant of
-// [BucketRangeableFromPropNameLSM]. See [BucketFromPropNameLSMAtGen] for
-// the cutover semantics.
+// BucketRangeableFromPropNameLSMAtGen names the rangeable folder of a generation.
 func BucketRangeableFromPropNameLSMAtGen(propName string, gen int64) string {
-	return BucketRangeableFromPropNameLSM(propName) + propertyBucketGenSuffix(gen)
+	return propertyBucketAtGen(propName, gen, schema.InternalRangeableSuffix)
 }
 
 // BucketFromPropertyLSM returns the filterable bucket name for a property

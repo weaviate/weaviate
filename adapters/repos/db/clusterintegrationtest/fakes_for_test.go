@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -113,6 +114,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ClassLive(mock.Anything).Return(nil).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(className string) *models.Class {
 		return n.schemaManager.ReadOnlyClass(className)
@@ -159,6 +161,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		panic(err)
 	}
 
+	n.repo.SetReindexTaskReader(noReindexTasks{})
 	n.repo.SetSchemaGetter(n.schemaManager)
 	err = n.repo.WaitForStartup(context.Background())
 	if err != nil {
@@ -259,6 +262,10 @@ func (f *fakeSchemaManager) ResolveAlias(string) string {
 }
 
 func (f *fakeSchemaManager) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
+
+func (f *fakeSchemaManager) ClassLive(string) map[string]map[string]uint64 {
 	return nil
 }
 
@@ -575,4 +582,15 @@ func (f *fakeAuthorizer) AuthorizeSilent(ctx context.Context, _ *models.Principa
 
 func (f *fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
 	return resources, nil
+}
+
+// noReindexTasks is a db.ReindexTaskReader that reports no reindex tasks.
+type noReindexTasks struct{}
+
+func (noReindexTasks) LocalEndedTasks(namespace, collection string) []*distributedtask.Task {
+	return nil
+}
+
+func (noReindexTasks) LocalTaskPrints(namespace, collection string) []distributedtask.TaskPrint {
+	return nil
 }

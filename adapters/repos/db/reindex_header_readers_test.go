@@ -25,17 +25,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-type staticTaskLister map[string][]*distributedtask.Task
-
-func (l staticTaskLister) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
-	return l, nil
-}
-
 // Blanking the payload bytes after the header is built catches a reader that still decodes them.
 func TestReindexHeaderReaders(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	raw := payloadWithUnitMaps(t)
-	other := distributedtask.TaskDescriptor{ID: "other", Version: 9}
 
 	for _, tc := range []struct {
 		name   string
@@ -50,22 +43,8 @@ func TestReindexHeaderReaders(t *testing.T) {
 				map[distributedtask.TaskDescriptor]*distributedtask.Task{task.TaskDescriptor: task})
 		}},
 		{"StartTask", distributedtask.TaskStatusStarted, func(task *distributedtask.Task) bool {
-			_, err := NewReindexProvider(&DB{}, nil, nil, logger, "n1", nil, context.Background()).StartTask(task)
+			_, err := NewReindexProvider(&DB{}, logger, "n1", nil, context.Background()).StartTask(task)
 			return err != nil && strings.Contains(err.Error(), `collection "C" not found`)
-		}},
-		{"payloadOf", distributedtask.TaskStatusSwapping, func(task *distributedtask.Task) bool {
-			_, err := NewReindexProvider(nil, nil, nil, logger, "n1", nil, nil).payloadOf(task)
-			return err == nil
-		}},
-		{"reindexRunsWith", distributedtask.TaskStatusFailed, func(task *distributedtask.Task) bool {
-			lister := staticTaskLister{ReindexNamespace: {task}}
-			p := NewReindexProvider(nil, nil, lister, logger, "n1", nil, context.Background())
-			self := &distributedtask.Task{TaskDescriptor: other}
-			return len(p.reindexRunsWith(self, &ReindexTaskPayload{})) == 2
-		}},
-		{"NewShardReindexActivityLookup", distributedtask.TaskStatusStarted, func(task *distributedtask.Task) bool {
-			hasUnit := func(distributedtask.TaskDescriptor, string) (bool, bool) { return true, true }
-			return NewShardReindexActivityLookup([]*distributedtask.Task{task}, hasUnit, logger)("C", "s1")
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,0 +1,656 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package db
+
+// Generator for #718 prototype-2 legacy-step fixtures. Drives the real v1.39.17
+// per-shard migration code (ReindexProvider.createReindexTasks, then the same
+// RunReindexOnlyOnShard / RunPrepareOnShard / RunSwapOnShard calls the
+// provider's phase callbacks make, then a real shard load for promotion), and
+// copies each shard directory out as tar.gz + manifest.json.
+//
+// Run: Q718V2_FIXTURE_OUT=<dir> go test -v -count=1 -run TestQ718v2GenerateLegacyFixtures ./adapters/repos/db
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"testing"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+)
+
+const (
+	q718Prop      = "title"
+	q718RangeProp = "score" // only in the enable-rangeable class, valued 0..9
+	q718Equal     = "hello world"
+	q718TaskID    = "q718-legacy-fixture"
+	q718NodeName  = "node1"
+	q718TenantRef = "foo-tenant" // the multi-tenant test helper's only tenant
+)
+
+// 5 x "hello world", 3 x "hello there world", 2 x "world hello".
+// word tokenization: Equal "hello world" matches all 10 (both tokens), BM25 "hello" 10.
+// field tokenization: Equal "hello world" matches 5 (exact value), BM25 "hello" 0, BM25 "hello world" 5.
+var q718Values = func() []string {
+	var out []string
+	for i := 0; i < 5; i++ {
+		out = append(out, "hello world")
+	}
+	for i := 0; i < 3; i++ {
+		out = append(out, "hello there world")
+	}
+	for i := 0; i < 2; i++ {
+		out = append(out, "world hello")
+	}
+	return out
+}()
+
+type q718Stop string
+
+const (
+	q718StopIterated q718Stop = "iterated"
+	q718StopMerged   q718Stop = "merged"
+	q718StopSwapped  q718Stop = "swapped"
+	q718StopPromoted q718Stop = "promoted"
+)
+
+type q718Counts struct {
+	EqualHelloWorld int `json:"filterEqual_title_hello_world"`
+	BM25Hello       int `json:"bm25_title_hello"`
+	BM25HelloWorld  int `json:"bm25_title_hello_world"`
+	RangeScore      int `json:"rangeGreaterThanEqual_score_5,omitempty"`
+}
+
+type q718Case struct {
+	name  string
+	mtype ReindexMigrationType
+	// blockmax: the class starts with blockmax searchable buckets.
+	blockmax bool
+	stop     q718Stop
+	// effectShown: the class at upgrade shows the migration's effect.
+	effectShown bool
+	// promoteStatus: task status the v1.39.17 load that promotes the record sees.
+	promoteStatus distributedtask.TaskStatus
+	// precedingFailedRun: a failed earlier run (task version 1) left an iterated record first.
+	precedingFailedRun bool
+	how                string
+	expected           q718Counts
+	expectedNote       string
+}
+
+func q718Class(className string, blockmax bool, mtype ReindexMigrationType) *models.Class {
+	class := &models.Class{
+		Class:              className,
+		VectorIndexConfig:  enthnsw.NewDefaultUserConfig(),
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			Stopwords:              &models.StopwordConfig{Preset: "none"},
+			IndexNullState:         true,
+			IndexPropertyLength:    true,
+			UsingBlockMaxWAND:      blockmax,
+		},
+		Properties: []*models.Property{{
+			Name:            q718Prop,
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWord,
+			IndexFilterable: boolPtr(true),
+			IndexSearchable: boolPtr(true),
+		}},
+	}
+	if mtype == ReindexTypeEnableRangeable {
+		class.Properties = append(class.Properties, &models.Property{
+			Name: q718RangeProp, DataType: schema.DataTypeInt.PropString(),
+			IndexFilterable: boolPtr(true), IndexRangeFilters: boolPtr(false),
+		})
+	}
+	return class
+}
+
+func q718MigratedProp(mtype ReindexMigrationType) string {
+	if mtype == ReindexTypeEnableRangeable {
+		return q718RangeProp
+	}
+	return q718Prop
+}
+
+// The class as the schema holds it once the migration's flip landed.
+func q718ApplyEffect(class *models.Class, mtype ReindexMigrationType) {
+	prop := class.Properties[0]
+	switch mtype {
+	case ReindexTypeEnableRangeable:
+		class.Properties[1].IndexRangeFilters = boolPtr(true)
+	case ReindexTypeChangeTokenization:
+		prop.Tokenization = models.PropertyTokenizationField
+	case ReindexTypeChangeAlgorithm:
+		// stampSearchableBlockmax, then the class flag (one searchable property, so not deferred).
+		prop.SearchableBlockmax = boolPtr(true)
+		class.InvertedIndexConfig.UsingBlockMaxWAND = true
+	case ReindexTypeRebuildSearchable:
+		// No setting changes.
+	}
+}
+
+func q718Payload(class *models.Class, mtype ReindexMigrationType, unitID, shardName string) *ReindexTaskPayload {
+	p := &ReindexTaskPayload{
+		MigrationType: mtype,
+		Collection:    class.Class,
+		Properties:    []string{q718MigratedProp(mtype)},
+		Tenants:      []string{shardName},
+		UnitToNode:    map[string]string{unitID: q718NodeName},
+		UnitToShard:   map[string]string{unitID: shardName},
+	}
+	if mtype == ReindexTypeChangeTokenization {
+		p.TargetTokenization = models.PropertyTokenizationField
+		p.OriginalTokenization = models.PropertyTokenizationWord
+		// As the submit handler picks it (handlers_reindex.go validateTokenizationChange).
+		p.BucketStrategy = lsmkv.DefaultSearchableStrategy(SearchablePropertyIsBlockmax(class, q718Prop))
+	}
+	return p
+}
+
+func q718Count(t *testing.T, ctx context.Context, s *Shard, class *models.Class) q718Counts {
+	t.Helper()
+	className := class.Class
+	res, _, err := s.ObjectSearch(ctx, 100, &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorEqual,
+		On:       &filters.Path{Class: schema.ClassName(className), Property: q718Prop},
+		Value:    &filters.Value{Value: q718Equal, Type: schema.DataTypeText},
+	}}, nil, nil, nil, additional.Properties{}, nil)
+	require.NoError(t, err)
+	rangeScore := 0
+	if len(class.Properties) > 1 {
+		r, _, err := s.ObjectSearch(ctx, 100, &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorGreaterThanEqual,
+			On:       &filters.Path{Class: schema.ClassName(className), Property: q718RangeProp},
+			Value:    &filters.Value{Value: 5, Type: schema.DataTypeInt},
+		}}, nil, nil, nil, additional.Properties{}, nil)
+		require.NoError(t, err)
+		rangeScore = len(r)
+	}
+	bm25 := func(q string) int {
+		r, _, err := s.ObjectSearch(ctx, 100, nil, &searchparams.KeywordRanking{
+			Type: "bm25", Properties: []string{q718Prop}, Query: q,
+		}, nil, nil, additional.Properties{}, nil)
+		require.NoError(t, err)
+		return len(r)
+	}
+	return q718Counts{
+		EqualHelloWorld: len(res), BM25Hello: bm25("hello"), BM25HelloWorld: bm25("hello world"), RangeScore: rangeScore,
+	}
+}
+
+func q718Tasks(t *testing.T, p *ReindexProvider, version uint64, unitID string, payload *ReindexTaskPayload,
+) []*ShardReindexTaskGeneric {
+	t.Helper()
+	tasks, err := p.createReindexTasks(distributedtask.TaskDescriptor{ID: q718TaskID, Version: version}, unitID, payload)
+	require.NoError(t, err)
+	require.NotEmpty(t, tasks)
+	return tasks
+}
+
+func q718Drive(t *testing.T, ctx context.Context, tasks []*ShardReindexTaskGeneric, shard *Shard, stop q718Stop) {
+	t.Helper()
+	for _, task := range tasks {
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard), task.Name())
+	}
+	if stop == q718StopIterated {
+		return
+	}
+	for _, task := range tasks {
+		require.NoError(t, task.RunPrepareOnShard(ctx, shard), task.Name())
+	}
+	if stop == q718StopMerged {
+		return
+	}
+	for _, task := range tasks {
+		require.NoError(t, task.RunSwapOnShard(ctx, shard), task.Name())
+	}
+}
+
+func q718SetLocalTasks(idx *Index, entries []distributedtask.TaskStatusEntry, readable bool) {
+	idx.db.migrationCluster.local = func(string) ([]distributedtask.TaskStatusEntry, bool) { return entries, readable }
+}
+
+func TestQ718v2GenerateLegacyFixtures(t *testing.T) {
+	out := os.Getenv("Q718V2_FIXTURE_OUT")
+	if out == "" {
+		t.Skip("Q718V2_FIXTURE_OUT not set")
+	}
+	word := q718Counts{EqualHelloWorld: 10, BM25Hello: 10, BM25HelloWorld: 10}
+	field := q718Counts{EqualHelloWorld: 5, BM25Hello: 0, BM25HelloWorld: 10 - 5}
+	unchanged := word
+
+	cases := []q718Case{
+		// --- change-tokenization word -> field: changes a setting ---
+		{
+			name: "01-changetok-swapped-effect-shown", mtype: ReindexTypeChangeTokenization, blockmax: true,
+			stop: q718StopSwapped, effectShown: true,
+			how: "Run reached the swap on this tenant (record swapped), shard shut down / unloaded before any further load, " +
+				"then the task FINISHED and the tokenization flip landed. v1.39.17 promotes only at shard load " +
+				"(shard_init.go:160 -> inverted_reindex_shard_wiring.go:35), so on disk the record stays swapped. " +
+				"NOTE: the swap itself already deleted the plain (old, word) folders (inverted_reindex_task_generic.go:1258-1276, " +
+				"'displaced directory'); the staged folders are the only copy.",
+			expected: field,
+		},
+		{
+			name: "02-changetok-swapped-effect-not-shown", mtype: ReindexTypeChangeTokenization, blockmax: true,
+			stop: q718StopSwapped, effectShown: false,
+			how: "Failed partial run: this tenant's group was decided (swapped), then the task FAILED, so the class never flipped. " +
+				"Terminal cleanup never discards a flip-decided record (inverted_reindex_reconcile.go DiscardTask skips FlipDecided).",
+			expected: field,
+			expectedNote: "CONFLICT: the class says word, but the swap deleted the plain (word) folders " +
+				"(inverted_reindex_task_generic.go:1258-1276); the staged folders hold the only copy, field-tokenized. " +
+				"v1.39.17 serves field for this tenant through the record's overlay (load_overlay.go:39-55, failed task -> overrides). " +
+				"Listed counts = what v1.39.17 serves. The planned rule (class does not show effect -> delete staged) deletes the " +
+				"only copy of this property's filterable and searchable index: data loss.",
+		},
+		{
+			name: "03-changetok-promoted-effect-shown", mtype: ReindexTypeChangeTokenization, blockmax: true,
+			stop: q718StopPromoted, effectShown: true, promoteStatus: distributedtask.TaskStatusSwapping,
+			how: "Swapped, then the shard was loaded once more while the task was still SWAPPING (promotion renamed the staged " +
+				"folders onto the plain names, record -> promoted), then the flip landed with no later load. " +
+				"The record is only removed by a load that sees the effect (reconcilePromotedSealed).",
+			expected: field,
+		},
+		{
+			name: "04-changetok-promoted-effect-not-shown", mtype: ReindexTypeChangeTokenization, blockmax: true,
+			stop: q718StopPromoted, effectShown: false, promoteStatus: distributedtask.TaskStatusFailed,
+			how: "Failed partial run, tenant swapped, then loaded: v1.39.17 promotes regardless of task status " +
+				"(reconcileSwapped has no verdict) and keeps the record because it overrides the schema " +
+				"(inverted_reindex_load_overlay.go:39-55: failed task -> true). The word-tokenized data was deleted by the swap.",
+			expected: field,
+			expectedNote: "CONFLICT: the class says word, but the plain folders hold field-tokenized data and the word data is gone " +
+				"(deleted at the swap, task_generic.go:1258-1276). v1.39.17 serves field for this tenant via the record's overlay. " +
+				"The listed counts are what v1.39.17 serves (field). If the new code follows the class (word) with this data, " +
+				"Equal 'hello world' returns 0 and BM25 'hello' returns 0.",
+		},
+		{
+			name: "05-changetok-merged-not-switched", mtype: ReindexTypeChangeTokenization, blockmax: true,
+			stop: q718StopMerged, effectShown: false,
+			how: "Run failed or was cancelled after this tenant merged but before its swap; the tenant was COLD/unloaded during " +
+				"terminal cleanup, which skips unmapped tenants (reindex_provider.go:1742-1755, sweep doc ~1790).",
+			expected: word,
+		},
+		{
+			name: "06-changetok-iterated-not-switched", mtype: ReindexTypeChangeTokenization, blockmax: true,
+			stop: q718StopIterated, effectShown: false,
+			how:  "As 05, but the run died before prepare: record iterated, staged folders hold the rebuilt data.",
+			expected: word,
+		},
+		{
+			name: "07-changetok-iterated-v1-plus-swapped-v2-effect-shown", mtype: ReindexTypeChangeTokenization, blockmax: true,
+			stop: q718StopSwapped, effectShown: true, precedingFailedRun: true,
+			how: "Attempt at a not-switched record WITH effect shown: run v1 (task version 1) left iterated records on this tenant " +
+				"and its task was GC'd; a load with v1's task gone leaves them (verdictFrom: taskListMayLag -> Leave). Run v2 of the " +
+				"same change then swapped this tenant and FINISHED. RESULT: v2's swap retired v1's records and folders " +
+				"(RetireSuperseded, inverted_reindex_task_generic.go:1250), so the cell collapses to 01 with task version 2.",
+			expected: field,
+		},
+		// --- rebuild-searchable: changes no setting ---
+		{
+			name: "08-rebuildsearchable-swapped", mtype: ReindexTypeRebuildSearchable, blockmax: true,
+			stop: q718StopSwapped,
+			how:  "Swapped, not reloaded since. Effect never observable (schema_effect.go: nil reader), so shown/not-shown is one cell.",
+			expected: unchanged,
+		},
+		{
+			name: "09-rebuildsearchable-promoted", mtype: ReindexTypeRebuildSearchable, blockmax: true,
+			stop: q718StopPromoted, promoteStatus: distributedtask.TaskStatusStarted,
+			how:  "Swapped, then loaded once while the task was still running (record promoted); no later load.",
+			expected: unchanged,
+		},
+		{
+			name: "10-rebuildsearchable-iterated-not-switched", mtype: ReindexTypeRebuildSearchable, blockmax: true,
+			stop: q718StopIterated,
+			how:  "Run failed/cancelled before this tenant's swap; tenant unloaded during cleanup.",
+			expected: unchanged,
+		},
+		// --- change-algorithm (map -> blockmax): v1.39.17 stamps searchableBlockmax, so it DOES change a setting ---
+		{
+			name: "11-changealgo-swapped-effect-shown", mtype: ReindexTypeChangeAlgorithm, blockmax: false,
+			stop: q718StopSwapped, effectShown: true,
+			how:  "Swapped, unloaded, task FINISHED: searchableBlockmax stamped and class usingBlockMaxWAND flipped.",
+			expected: unchanged,
+		},
+		{
+			name: "12-changealgo-swapped-effect-not-shown", mtype: ReindexTypeChangeAlgorithm, blockmax: false,
+			stop: q718StopSwapped, effectShown: false,
+			how:  "Failed partial run: tenant swapped, task FAILED, no stamp.",
+			expected: unchanged,
+			expectedNote: "CONFLICT: the class says map (no searchableBlockmax), but the swap deleted the plain map-format searchable " +
+				"folder; the staged blockmax folder is the only copy. v1.39.17 serves it through the record's overlay (counts listed). " +
+				"The planned rule (class does not show effect -> delete staged) leaves no searchable index: BM25 returns 0 or the load fails.",
+		},
+		{
+			name: "13-changealgo-merged-not-switched", mtype: ReindexTypeChangeAlgorithm, blockmax: false,
+			stop: q718StopMerged, effectShown: false,
+			how:  "Run failed/cancelled before this tenant's swap.",
+			expected: unchanged,
+		},
+		// --- enable-rangeable on the int property score ---
+		{
+			name: "14-enablerangeable-swapped-effect-shown", mtype: ReindexTypeEnableRangeable, blockmax: true,
+			stop: q718StopSwapped, effectShown: true,
+			how: "Swapped, unloaded, task FINISHED: indexRangeFilters flipped on. Before the run score had no range " +
+				"index, so the staged rangeable folder is the only one.",
+			expected: q718Counts{EqualHelloWorld: 10, BM25Hello: 10, BM25HelloWorld: 10, RangeScore: 5},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			q718GenerateOne(t, out, tc)
+		})
+	}
+}
+
+func q718GenerateOne(t *testing.T, outRoot string, tc q718Case) {
+	ctx := testCtx()
+	className := "Q718Legacy"
+	class := q718Class(className, tc.blockmax, tc.mtype)
+	shd, idx := testShardWithMultiTenantSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, true, false, false)
+	shard := shd.(*Shard)
+	shardName, lsm, shardDir := shard.Name(), shard.pathLSM(), shard.path()
+	require.Equal(t, q718TenantRef, shardName)
+	unitID := shard.migrationUnit()
+
+	type objRow struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	var objs []objRow
+	for i, v := range q718Values {
+		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("q718-%d", i))).String()
+		obj := createTestObjectWithText(className, v)
+		obj.Object.ID = strfmt.UUID(id)
+		if len(class.Properties) > 1 {
+			obj.Object.Properties.(map[string]interface{})[q718RangeProp] = int64(i)
+		}
+		require.NoError(t, shard.PutObject(ctx, obj))
+		objs = append(objs, objRow{ID: id, Title: v})
+	}
+	wantBaseline := q718Counts{EqualHelloWorld: 10, BM25Hello: 10, BM25HelloWorld: 10}
+	if len(class.Properties) > 1 {
+		wantBaseline.RangeScore = 5
+	}
+	baseline := q718Count(t, ctx, shard, class)
+	require.Equal(t, wantBaseline, baseline, "word baseline")
+
+	p := NewReindexProvider(idx.db, nil, nil, idx.logger, q718NodeName, nil, ctx)
+	version := uint64(1)
+	if tc.precedingFailedRun {
+		v1 := q718Tasks(t, p, 1, unitID, q718Payload(class, tc.mtype, unitID, shardName))
+		q718Drive(t, ctx, v1, shard, q718StopIterated)
+		require.NoError(t, shard.Shutdown(ctx))
+		simulateProcessRestartBucketCleanup(t, lsm)
+		// v1's task is gone from this node's list and the effect is not visible: the load leaves the record.
+		q718SetLocalTasks(idx, nil, true)
+		shard = openShardFromDisk(t, ctx, idx, class, shardName)
+		for _, st := range migrationRecordStates(t, lsm) {
+			require.Equal(t, MigrationStateIterated, st)
+		}
+		version = 2
+	}
+
+	tasks := q718Tasks(t, p, version, unitID, q718Payload(class, tc.mtype, unitID, shardName))
+	driveTo := tc.stop
+	if driveTo == q718StopPromoted {
+		driveTo = q718StopSwapped
+	}
+	q718Drive(t, ctx, tasks, shard, driveTo)
+	require.NoError(t, shard.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, lsm)
+
+	if tc.stop == q718StopPromoted {
+		// The one v1.39.17 load between the swap and the upgrade; the class is still pre-flip.
+		q718SetLocalTasks(idx, []distributedtask.TaskStatusEntry{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: q718TaskID, Version: version},
+			Status:         tc.promoteStatus, GroupDecided: true, PrepAckedBy: []string{q718NodeName},
+		}}, true)
+		shard = openShardFromDisk(t, ctx, idx, class, shardName)
+		require.NoError(t, shard.Shutdown(ctx))
+		simulateProcessRestartBucketCleanup(t, lsm)
+	}
+
+	upgradeClass := q718Class(className, tc.blockmax, tc.mtype)
+	if tc.effectShown {
+		q718ApplyEffect(upgradeClass, tc.mtype)
+	}
+
+	// ---- capture ----
+	dir := filepath.Join(outRoot, tc.name)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	tarPath := filepath.Join(dir, "shard.tar.gz")
+	require.NoError(t, q718Tar(shardDir, tarPath))
+
+	records := q718Records(t, lsm)
+	gotStates := make([]string, 0, len(records))
+	for _, r := range records {
+		gotStates = append(gotStates, r.State)
+	}
+	t.Logf("%s: record states %v", tc.name, gotStates)
+
+	lsmEntries := q718LsmDirs(t, lsm)
+	files := q718Files(t, shardDir)
+
+	// ---- what v1.39.17 itself serves after one more load with the upgrade-time class ----
+	// (destroys nothing captured: the tarball is already written)
+	status := distributedtask.TaskStatusFinished
+	if !tc.effectShown && tc.mtype != ReindexTypeRebuildSearchable {
+		status = distributedtask.TaskStatusFailed
+	}
+	if tc.mtype == ReindexTypeRebuildSearchable {
+		status = distributedtask.TaskStatusFinished
+		if tc.stop == q718StopIterated {
+			status = distributedtask.TaskStatusFailed
+		}
+	}
+	switched := tc.stop == q718StopSwapped || tc.stop == q718StopPromoted
+	q718SetLocalTasks(idx, []distributedtask.TaskStatusEntry{{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: q718TaskID, Version: version},
+		Status:         status, GroupDecided: switched, PrepAckedBy: []string{q718NodeName},
+	}}, true)
+	// The index's schema getter holds `class` by pointer, so the flip is applied to it in place.
+	if tc.effectShown {
+		q718ApplyEffect(class, tc.mtype)
+	}
+	require.NoError(t, idx.updateProperty(ctx, class.Properties[len(class.Properties)-1]))
+	loaded := openShardFromDisk(t, ctx, idx, class, shardName)
+	v13917 := q718Count(t, ctx, loaded, class)
+	v13917States := migrationRecordStates(t, lsm)
+	require.NoError(t, loaded.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, lsm)
+	t.Logf("%s: v1.39.17 after one more load (task %s): %+v, records after: %v", tc.name, status, v13917, v13917States)
+
+	classJSON, err := json.Marshal(upgradeClass)
+	require.NoError(t, err)
+
+	manifest := map[string]any{
+		"generatedBy":    "v1.39.17 (7fd11ac128) adapters/repos/db TestQ718v2GenerateLegacyFixtures",
+		"fixture":        tc.name,
+		"migrationType":  tc.mtype,
+		"howV13917GotHere": tc.how,
+		"recordStateAtUpgrade": tc.stop,
+		"effectShownByClass":   tc.effectShown,
+		"classAtUpgrade":       json.RawMessage(classJSON),
+		"tenant":               shardName,
+		"shardDirName":         filepath.Base(shardDir),
+		"nodeName":             q718NodeName,
+		"unitID":               unitID,
+		"taskID":               q718TaskID,
+		"taskVersion":          version,
+		"objectCount":          len(objs),
+		"objects":              objs,
+		"records":              records,
+		"lsmTopLevelDirs":      lsmEntries,
+		"files":                files,
+		"tarball":              "shard.tar.gz (root entry = shard directory, i.e. <indexDir>/" + filepath.Base(shardDir) + ")",
+		"queries": map[string]string{
+			"filterEqual_title_hello_world": "where title Equal \"hello world\" (valueText)",
+			"bm25_title_hello":              "bm25 query \"hello\" on title",
+			"bm25_title_hello_world":        "bm25 query \"hello world\" on title",
+			"rangeGreaterThanEqual_score_5": "where score GreaterThanEqual 5 (enable-rangeable only)",
+		},
+		"expectedOnNewCode":      map[string]any{shardName: tc.expected},
+		"expectedNote":           tc.expectedNote,
+		"v13917AfterOneMoreLoad": map[string]any{"taskStatusSeen": status, "counts": v13917, "recordStatesAfter": v13917States},
+		"baselineBeforeMigration": baseline,
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644))
+}
+
+type q718Record struct {
+	File    string          `json:"file"`
+	State   string          `json:"state"`
+	Decoded json.RawMessage `json:"decoded"`
+}
+
+func q718Records(t *testing.T, lsm string) []q718Record {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	store := NewMigrationRecordStore(lsm, logger)
+	require.NoError(t, store.Load())
+	require.Empty(t, store.Unreadable())
+	entries, err := os.ReadDir(store.Dir())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+	var out []q718Record
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(store.Dir(), e.Name()))
+		require.NoError(t, err)
+		rec, err := decodeMigrationRecord(raw)
+		require.NoError(t, err, e.Name())
+		out = append(out, q718Record{File: filepath.Join(migrationsDir, migrationRecordsDirName, e.Name()), State: string(rec.State()), Decoded: raw})
+	}
+	return out
+}
+
+func q718LsmDirs(t *testing.T, lsm string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(lsm)
+	require.NoError(t, err)
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func q718Files(t *testing.T, root string) []string {
+	t.Helper()
+	var out []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			out = append(out, rel+"/")
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		out = append(out, fmt.Sprintf("%s (%d B)", rel, info.Size()))
+		return nil
+	}))
+	return out
+}
+
+func q718Tar(srcDir, dst string) error {
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	base := filepath.Dir(srcDir)
+	walkErr := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return err
+		}
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		hdr.Name = filepath.ToSlash(rel)
+		if d.IsDir() {
+			hdr.Name += "/"
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		_, err = io.Copy(tw, src)
+		return err
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		return err
+	}
+	return f.Close()
+}

@@ -27,13 +27,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -110,7 +108,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 		resolver.NewShardResolver(className, false, sg),
 		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		roaringset.NewBitmapBufPoolNoop(), false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1828,21 +1826,12 @@ func reloadState(partitioned bool, shards map[string]sharding.Physical) *shardin
 }
 
 // seedShardMissingProperty registers a shard the reload finds open and without
-// the class's property bucket: an empty store answers every bucket lookup with
-// nil. The expectations are what say the property step ran at all.
+// the class's property index. The expectations are what say the property step ran at all.
 func seedShardMissingProperty(t *testing.T, idx *Index, name string) {
 	t.Helper()
 
-	dir := t.TempDir()
-	store, err := lsmkv.New(dir, dir, idx.logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Shutdown(context.Background()) })
-
 	shard := NewMockShardLike(t)
-	shard.EXPECT().Store().Return(store)
+	shard.EXPECT().hasFilterableIndexForProp(mock.Anything).Return(false)
 	shard.EXPECT().initPropertyBuckets(mock.Anything, mock.Anything, false, mock.Anything)
 	idx.shards.Store(name, shard)
 }

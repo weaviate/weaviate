@@ -37,7 +37,6 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -136,10 +135,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 
-		// enable-rangeable now conflicts with anything else on the same prop —
-		// shared on-disk migration state (filterable_to_rangeable_<prop>) is
-		// destroyed by the OnMigrationComplete updatePropertyBuckets path
-		// otherwise. Same prop = conflict.
+		// enable-rangeable conflicts with anything else on the same prop.
 		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
@@ -626,38 +622,6 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 	}
 }
 
-func TestIndexTypesFromMigrationType(t *testing.T) {
-	cases := []struct {
-		mt        db.ReindexMigrationType
-		wantTypes []string
-		wantKnown bool
-	}{
-		{db.ReindexTypeEnableSearchable, []string{"searchable"}, true},
-		{db.ReindexTypeChangeAlgorithm, []string{"searchable"}, true},
-		{db.ReindexTypeEnableFilterable, []string{"filterable"}, true},
-		{db.ReindexTypeRepairFilterable, []string{"filterable"}, true},
-		{db.ReindexTypeEnableRangeable, []string{"rangeable"}, true},
-		{db.ReindexTypeRepairRangeable, []string{"rangeable"}, true},
-		// change-tok-filterable retokenizes only the filterable bucket.
-		{db.ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, true},
-		// change-tok-both spawns one sub-task per inverted index, each with
-		// its own per-property migration dir on disk. Pre-cleanup must wipe
-		// both — see godoc on indexTypesFromMigrationType.
-		{db.ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, true},
-		// Unknown migration type — must return false so the submit handler
-		// degrades to "no pre-cleanup" rather than panicking.
-		{db.ReindexMigrationType("never-heard-of-this"), nil, false},
-	}
-	for _, c := range cases {
-		t.Run(string(c.mt), func(t *testing.T) {
-			gotTypes, gotKnown := indexTypesFromMigrationType(c.mt)
-			require.Equal(t, c.wantKnown, gotKnown, "isKnown")
-			require.ElementsMatch(t, c.wantTypes, gotTypes,
-				"indexTypes for %s", c.mt)
-		})
-	}
-}
-
 // -----------------------------------------------------------------------------
 // validateEnableFilterableProperty — type allow-list and already-filterable.
 // -----------------------------------------------------------------------------
@@ -840,35 +804,6 @@ func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
 	require.Equal(t, "node-1", unitToNode["shard-a__node-1"])
 	require.Equal(t, "shard-b", unitToShard["shard-b__node-2"])
 	require.Equal(t, "node-2", unitToNode["shard-b__node-2"])
-}
-
-// A group per shard puts a run on the per-tenant barrier, which only a multi-tenant semantic run may use.
-func TestBuildReindexUnitSpecs(t *testing.T) {
-	ownership := map[string][]string{"node-2": {"shard-b", "shard-a"}, "node-1": {"shard-a"}}
-	for _, tc := range []struct {
-		name    string
-		isMT    bool
-		mt      db.ReindexMigrationType
-		grouped bool
-	}{
-		{name: "multi-tenant semantic run", isMT: true, mt: db.ReindexTypeChangeTokenization, grouped: true},
-		{name: "single-tenant semantic run", mt: db.ReindexTypeChangeTokenization},
-		{name: "multi-tenant rebuild", isMT: true, mt: db.ReindexTypeRebuildSearchable},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			want := []distributedtask.UnitSpec{
-				{ID: "shard-a__node-1", Shard: "shard-a", Node: "node-1"},
-				{ID: "shard-a__node-2", Shard: "shard-a", Node: "node-2"},
-				{ID: "shard-b__node-2", Shard: "shard-b", Node: "node-2"},
-			}
-			if tc.grouped {
-				for i := range want {
-					want[i].GroupID = want[i].Shard
-				}
-			}
-			require.Equal(t, want, buildReindexUnitSpecs(ownership, tc.isMT, tc.mt))
-		})
-	}
 }
 
 func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
@@ -1211,7 +1146,7 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 	}
 }
 
-// gateSourceOver answers the gate's two reads from one Manager, as the leader and this node would.
+// gateSourceOver answers task listings from one Manager, as the leader would.
 type gateSourceOver struct {
 	mgr *distributedtask.Manager
 	err error
@@ -1226,29 +1161,23 @@ func (s gateSourceOver) ListDistributedTaskHeaders(context.Context) (map[string]
 	return realFSMCanceller{s.mgr}.ListDistributedTaskHeaders(context.Background())
 }
 
-func (s gateSourceOver) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(string) string) (bool, bool) {
-	return s.mgr.TaskHasUnit(namespace, desc, unitID)
+// A new leader's one refusal must not make an index delete look served by a run.
+func TestReindexRunServesIndexRetriesANewLeader(t *testing.T) {
+	refusals := &atomic.Int32{}
+	refusals.Store(1)
+	h := &schemaHandlers{reindexTaskLister: gateSourceOver{
+		mgr: newReindexManager(), err: fmt.Errorf("%w: catching up", types.ErrFSMNotCaughtUp), refusals: refusals,
+	}}
+	require.False(t, h.reindexRunServesIndex(context.Background(), "C", "title", "filterable"))
 }
 
-func TestShardReindexActivityBuilder(t *testing.T) {
+func TestListTaskHeadersRetriesANewLeader(t *testing.T) {
 	errNoLeader := errors.New("no leader")
-	logger, _ := test.NewNullLogger()
-	unitOn := func(shard string) map[string]*distributedtask.Unit {
-		id := db.MigrationUnitID(shard, "node-1")
-		return map[string]*distributedtask.Unit{id: {ID: id, Shard: shard, NodeID: "node-1"}}
-	}
 	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {
 		db.ReindexNamespace: {{
 			Namespace: db.ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
 			Status:  distributedtask.TaskStatusStarted,
 			Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C", MigrationType: db.ReindexTypeRepairFilterable}),
-			Units:   unitOn("shard1"),
-		}},
-		db.DropVectorIndexNamespace: {{
-			Namespace: db.DropVectorIndexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "D", Version: 1},
-			Status:  distributedtask.TaskStatusStarted,
-			Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),
-			Units:   unitOn("shard2"),
 		}},
 	}})
 	require.NoError(t, err)
@@ -1268,21 +1197,20 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 		wantErr error
 	}{
 		{name: "the task list is unavailable", source: gateSourceOver{err: errNoLeader}, wantErr: errNoLeader},
-		{name: "a reindex task is running", source: gateSourceOver{mgr: mgr}},
+		{name: "the task list is read", source: gateSourceOver{mgr: mgr}},
 		{name: "a new leader refuses once", source: gateSourceOver{mgr: mgr, err: notCaughtUp, refusals: once()}},
 		{name: "a new leader's refusal is forwarded once", source: gateSourceOver{mgr: mgr, err: forwarded, refusals: once()}},
 		{name: "a new leader keeps refusing", source: gateSourceOver{err: notCaughtUp}, wantErr: types.ErrFSMNotCaughtUp},
 		{name: "another node refuses", source: gateSourceOver{mgr: mgr, err: errNoLeader, refusals: once()}, wantErr: errNoLeader},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			lookup, err := shardReindexActivityBuilder(context.Background(), tc.source, logger)()
+			tasks, err := listTaskHeaders(context.Background(), tc.source)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			require.True(t, lookup("C", "shard1"))
-			require.False(t, lookup("C", "shard2"))
+			require.Len(t, tasks[db.ReindexNamespace], 1)
 		})
 	}
 }

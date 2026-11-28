@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/tokenizer"
@@ -2607,7 +2608,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		require.Nil(t, err)
 
 		descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
-		fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("RestoreClass", mock.Anything).Return(nil)
 		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, false)
 		assert.Nil(t, err, "class passes validation")
 		fakeSchemaManager.AssertExpectations(t)
@@ -2644,19 +2645,22 @@ func TestRestoreClass_StripNamespaces(t *testing.T) {
 
 	fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
 
-	var applied *models.Class
-	var appliedState *sharding.State
-	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			applied = args.Get(0).(*models.Class)
-			appliedState = args.Get(1).(*sharding.State)
-		}).
+	var req command.AddClassRequest
+	fakeSchemaManager.On("RestoreClass", mock.Anything).
+		Run(func(args mock.Arguments) { req = args.Get(0).(command.AddClassRequest) }).
 		Return(nil)
 
-	descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
+	tasks := json.RawMessage(`[{"ID":"run"}]`)
+	descriptor := backup.ClassDescriptor{
+		Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes,
+		ReindexTasks: tasks, ReindexLive: json.RawMessage(`{"title":{"searchable":2}}`),
+	}
 	err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, true)
 	require.NoError(t, err)
 	fakeSchemaManager.AssertExpectations(t)
+	applied, appliedState := req.Class, req.State
+	assert.Equal(t, tasks, req.DistributedTasks, "the class's ended reindex tasks are restored with it")
+	assert.Equal(t, map[string]map[string]uint64{"title": {"searchable": 2}}, req.Live)
 
 	require.NotNil(t, applied)
 	assert.Equal(t, "Movies", applied.Class, "class name must be stripped")
@@ -2696,7 +2700,7 @@ func TestRestoreClass_StripNamespaces_StripsAlias(t *testing.T) {
 	require.Nil(t, err)
 
 	fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
-	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
+	fakeSchemaManager.On("RestoreClass", mock.Anything).Return(nil)
 
 	// ResolveAlias returns "" (fake default), so restore takes the create path.
 	var createdAlias string
@@ -2727,7 +2731,7 @@ func TestRestoreClass_StripNamespaces_StripsAlias(t *testing.T) {
 func TestRestoreClass_RejectsShardNameOutsideIndexDir(t *testing.T) {
 	t.Parallel()
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+	fakeSchemaManager.On("RestoreClass", mock.Anything).Return(nil).Maybe()
 
 	schemaBytes, err := json.Marshal(&models.Class{Class: "Class_A", Vectorizer: "none"})
 	require.NoError(t, err)
@@ -2741,7 +2745,7 @@ func TestRestoreClass_RejectsShardNameOutsideIndexDir(t *testing.T) {
 	descriptor := backup.ClassDescriptor{Name: "Class_A", Schema: schemaBytes, ShardingState: shardingBytes}
 	err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, false)
 	require.ErrorContains(t, err, "not a valid tenant name")
-	fakeSchemaManager.AssertNotCalled(t, "RestoreClass", mock.Anything, mock.Anything)
+	fakeSchemaManager.AssertNotCalled(t, "RestoreClass", mock.Anything)
 }
 
 func TestRestoreClass_WithNodeMapping(t *testing.T) {
@@ -2770,7 +2774,9 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		expectedShardingState := shardingState
 		expectedShardingState.ApplyNodeMapping(map[string]string{"node1": "new-node1"})
 		expectedShardingState.SetLocalName("")
-		fakeSchemaManager.On("RestoreClass", mock.Anything, shardingState).Return(nil)
+		fakeSchemaManager.On("RestoreClass", mock.MatchedBy(func(req command.AddClassRequest) bool {
+			return assert.ObjectsAreEqual(shardingState, req.State)
+		})).Return(nil)
 		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{"node1": "new-node1"}, false, false)
 		assert.NoError(t, err)
 	}

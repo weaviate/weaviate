@@ -93,12 +93,23 @@ func (s *Raft) LocalTaskStatuses(namespace, shard string) []distributedtask.Task
 	return s.store.LocalTaskStatuses(namespace, shard)
 }
 
-// LocalTaskHasUnit reads this node's FSM; known is false while it has not applied desc.
-func (s *Raft) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(node string) string) (has, known bool) {
-	return s.store.distributedTasksManager.TaskHasUnit(namespace, desc, unitID)
+// SetDistributedTaskStateListener is called once at startup. A change applied
+// before it is set reaches no listener, and every shard load makes up for it.
+func (s *Raft) SetDistributedTaskStateListener(l distributedtask.StateListener) {
+	s.store.distributedTasksManager.SetStateListener(l)
 }
 
-func (s *Raft) LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error) {
+// ShardTaskStates reads this node's FSM.
+func (s *Raft) ShardTaskStates(namespace, collection, shard, node string) []distributedtask.ShardTaskState {
+	return s.store.distributedTasksManager.ShardTaskStates(namespace, collection, shard, node)
+}
+
+// LocalTaskPrints reads this node's FSM.
+func (s *Raft) LocalTaskPrints(namespace, collection string) []distributedtask.TaskPrint {
+	return s.store.distributedTasksManager.LocalTaskPrints(namespace, collection)
+}
+
+func (s *Raft) LocalEndedTasks(namespace, collection string) []*distributedtask.Task {
 	return s.store.LocalEndedTasks(namespace, collection)
 }
 

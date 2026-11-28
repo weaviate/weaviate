@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -242,14 +243,6 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testChangeTokDeleteJourneys(t, restURI)
 	})
 
-	t.Run("TornResumeReindexedNotTidied", func(t *testing.T) {
-		testTornResumeReindexedNotTidied(t, compose)
-	})
-
-	t.Run("PromotionRunsOnRecordedHandles", func(t *testing.T) {
-		testPromotionRunsOnRecordedHandles(t, compose)
-	})
-
 	t.Run("DeleteDuringDeferredPromotion", func(t *testing.T) {
 		testDeleteDuringDeferredPromotion(t, compose)
 	})
@@ -277,23 +270,29 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testEnableFilterablePostRestart(t)
 		testEnableSearchablePostRestart(t)
 
-		// Post-restart: verify filesystem cleanup for all migrations.
+		// Post-restart: every migrated index is served from its run's
+		// generation folder, the folder it replaced is gone, and no build
+		// scratch is left. Each property here sees one run, so generation 1.
 		for _, si := range shardInfos {
 			dirs := listLSMDirs(ctx, t, container, si.className, si.shardName)
+			assertNoSuffixedBuckets(t, dirs, ".build")
 			switch si.className {
 			case "ReindexTest":
 				assertNoSuffixedBuckets(t, dirs, "__blockmax_")
 			case "RetokenizeTest":
 				assertNoSuffixedBuckets(t, dirs, "__retokenize_")
 				assertNoSuffixedBuckets(t, dirs, "__filt_retokenize_")
-				assertBucketExists(t, dirs, "property_filepath_searchable")
+				assertBucketExists(t, dirs, helpers.BucketSearchableFromPropNameLSMAtGen("filepath", 1))
+				assertBucketExists(t, dirs, helpers.BucketFromPropNameLSMAtGen("filepath", 1))
+				assertBucketAbsent(t, dirs, "property_filepath_searchable")
+				assertBucketAbsent(t, dirs, "property_filepath")
+				// description is not migrated and keeps its plain folders.
 				assertBucketExists(t, dirs, "property_description_searchable")
-				assertBucketExists(t, dirs, "property_filepath")
 				assertBucketExists(t, dirs, "property_description")
 			case "EnableRangeableTest":
 				assertNoSuffixedBuckets(t, dirs, "__rangeable_")
-				assertBucketExists(t, dirs, "property_score_rangeable")
-				assertBucketExists(t, dirs, "property_price_rangeable")
+				assertBucketExists(t, dirs, helpers.BucketRangeableFromPropNameLSMAtGen("score", 1))
+				assertBucketExists(t, dirs, helpers.BucketRangeableFromPropNameLSMAtGen("price", 1))
 				assertBucketExists(t, dirs, "property_score")
 				assertBucketExists(t, dirs, "property_price")
 			case "RoaringSetRefreshTest":
@@ -301,13 +300,11 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 			case "EnableFilterableTest":
 				// Reindex/ingest staging dirs must not leak across restart.
 				assertNoSuffixedBuckets(t, dirs, "__enable_filterable_")
-				// The freshly-created filterable buckets must survive the
-				// restart under their canonical names.
-				assertBucketExists(t, dirs, "property_score")
-				assertBucketExists(t, dirs, "property_available")
+				assertBucketExists(t, dirs, helpers.BucketFromPropNameLSMAtGen("score", 1))
+				assertBucketExists(t, dirs, helpers.BucketFromPropNameLSMAtGen("available", 1))
 			case "EnableSearchableTest":
 				assertNoSuffixedBuckets(t, dirs, "__enable_searchable_")
-				assertBucketExists(t, dirs, "property_description_searchable")
+				assertBucketExists(t, dirs, helpers.BucketSearchableFromPropNameLSMAtGen("description", 1))
 			}
 		}
 	})
@@ -412,4 +409,9 @@ func assertBucketExists(t *testing.T, dirs []string, bucketName string) {
 		}
 	}
 	assert.True(t, found, "expected bucket directory %q not found in %v", bucketName, dirs)
+}
+
+func assertBucketAbsent(t *testing.T, dirs []string, bucketName string) {
+	t.Helper()
+	assert.NotContains(t, dirs, bucketName, "bucket directory %q should have been retired", bucketName)
 }

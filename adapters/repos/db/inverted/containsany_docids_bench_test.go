@@ -190,9 +190,8 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 
 	maxDocID := uint64(numDocs + 1)
 	bitmapFactory := roaringset.NewBitmapFactory(bufPool, newFakeMaxIDGetter(maxDocID))
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
-		func(string) bool { return false }, "",
+	searcher := NewSearcher(logger, storeView{BucketLookup: store}, createSchema().GetClass, nil, nil,
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
 		WithBatchedContainsEnabled(configRuntime.NewDynamicValue(true))
 

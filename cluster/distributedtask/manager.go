@@ -25,7 +25,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -53,7 +53,11 @@ type Manager struct {
 	// [SchemaMutationDetector] godoc for the motivating bug).
 	schemaMutationDetectors map[string]SchemaMutationDetector
 
-	readOnlyClass func(collection string) *models.Class
+	taskRules     map[string]TaskRules
+	classLive     func(collection string) map[string]map[string]uint64
+	readSharding  func(collection string, read func(*sharding.State)) error
+	stateListener StateListener
+	pendingStates []stateNote
 
 	headerDecoders         map[string]HeaderDecoder
 	targetVectorExtractors map[string]TargetVectorExtractor
@@ -173,13 +177,13 @@ func changedGroupsOf(changed *changedGroups, src *Task, change *taskChange) {
 // Returns nil when no detectors are registered or no task in any
 // namespace flags the update. Empty fast-path keeps the schema apply
 // path free of allocations in the common case.
-func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
+func (m *Manager) CheckPropertyUpdate(className, propertyName, indexOff string) error {
 	return m.dispatchSchemaMutation(className, func(d SchemaMutationDetector, existing []*Task) error {
-		return d.CheckPropertyUpdate(className, propertyName, existing)
+		return d.CheckPropertyUpdate(className, propertyName, indexOff, existing)
 	})
 }
 
-func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, run api.MigrationRun) error {
+func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, gen uint64, run api.MigrationRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	gate, ok := m.schemaMutationDetectors[run.Namespace].(CutoverOutcome)
@@ -190,7 +194,7 @@ func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, r
 	if task != nil && task.Version != run.Version {
 		task = nil
 	}
-	return gate.CheckMigrationPropertyUpdate(className, propertyName, task)
+	return gate.CheckMigrationPropertyUpdate(className, propertyName, gen, task)
 }
 
 // CheckClassMutation consults every registered
@@ -328,7 +332,10 @@ type ManagerParameters struct {
 	// replayed entry gets the verdict this build gives it live.
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
-	ReadOnlyClass           func(collection string) *models.Class
+	TaskRules               map[string]TaskRules
+	ClassLive               func(collection string) map[string]map[string]uint64
+	// ReadSharding runs read on the collection's sharding state as applied so far.
+	ReadSharding func(collection string, read func(*sharding.State)) error
 }
 
 func NewManager(params ManagerParameters) *Manager {
@@ -349,7 +356,9 @@ func NewManager(params ManagerParameters) *Manager {
 
 		conflictDetectors:       params.ConflictDetectors,
 		schemaMutationDetectors: params.SchemaMutationDetectors,
-		readOnlyClass:           params.ReadOnlyClass,
+		taskRules:               params.TaskRules,
+		classLive:               params.ClassLive,
+		readSharding:            params.ReadSharding,
 
 		logger: params.Logger,
 	}
@@ -548,8 +557,10 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		return fmt.Errorf("unmarshal add task request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task := m.findTaskWithLock(r.Namespace, r.Id)
 	if task != nil {
@@ -571,14 +582,11 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	// of (newHeader, existingTasks) — see the ConflictDetector
 	// godoc on the FSM-determinism contract.
 	header := m.headerFor(r.Namespace, r.Payload)
+	existing := m.namespaceTasksWithLock(r.Namespace)
 	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
 		if header == nil {
 			return wrapPermanent(ErrTaskConflict,
 				fmt.Sprintf("task %s/%s conflicts with existing task: its payload has no readable header", r.Namespace, r.Id))
-		}
-		var existing []*Task
-		for _, t := range m.tasks[r.Namespace] {
-			existing = append(existing, t)
 		}
 		if err := cd.CheckConflict(header, existing); err != nil {
 			// Wrap the permanent-rejection sentinel (see [ErrTaskConflict]) so
@@ -595,6 +603,16 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		NeedsPreparationBarrier: r.NeedsPreparationBarrier,
 		Status:                  TaskStatusStarted,
 		StartedAt:               time.UnixMilli(r.SubmittedAtUnixMillis),
+	}
+
+	newTask.header = header
+	rules := m.taskRules[r.Namespace]
+	var kept *Task
+	if rules != nil && header != nil {
+		var err error
+		if kept, err = rules.Admit(newTask, existing, m.classLive(header.Collection())); err != nil {
+			return err
+		}
 	}
 
 	if len(r.UnitSpecs) > 0 {
@@ -616,17 +634,59 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 				Status: UnitStatusPending,
 			}
 		}
+	} else if rules != nil && header != nil {
+		specs, err := m.unitsFromSharding(rules, header, newTask.SwapDecidedGroups)
+		if err != nil && (kept == nil || !errors.Is(err, ErrTaskHasNoUnits)) {
+			return err
+		}
+		newTask.Units = make(map[string]*Unit, len(specs))
+		for _, spec := range specs {
+			newTask.Units[spec.ID] = &Unit{
+				ID: spec.ID, GroupID: spec.GroupID, Shard: spec.Shard, NodeID: spec.Node, Status: UnitStatusPending,
+			}
+		}
 	} else {
 		return fmt.Errorf("task %s/%s must have at least one unit", r.Namespace, r.Id)
 	}
 	newTask.IndexGroups()
 
-	newTask.header = header
+	if kept != nil {
+		delete(m.tasks[kept.Namespace], kept.ID)
+		m.markWithLock(kept.Namespace, kept.ID).addedOrRemoved = true
+		m.notifyStateWithLock(kept, nil)
+		if len(newTask.Units) == 0 {
+			// Nothing is left to build: a full run (born-switched tenants) still owes its flip, a scoped one is done.
+			if rules.BornSwitched(newTask) {
+				newTask.Status = TaskStatusSwapping
+			} else {
+				newTask.markTerminal(TaskStatusFinished, newTask.StartedAt)
+			}
+		}
+	}
 	m.setTaskWithLock(newTask)
 	m.markWithLock(newTask.Namespace, newTask.ID).addedOrRemoved = true
+	m.notifyStateWithLock(newTask, nil)
 	m.notifySchedulerWithLock()
 
 	return nil
+}
+
+// unitsFromSharding reads the sharding state at this log index, so every replica builds the same units.
+func (m *Manager) unitsFromSharding(rules TaskRules, header TaskHeader, switched map[string]time.Time) ([]UnitSpec, error) {
+	var specs []UnitSpec
+	var rulesErr error
+	if err := m.readSharding(header.Collection(), func(state *sharding.State) {
+		specs, rulesErr = rules.Units(header, state, switched)
+	}); err != nil {
+		return nil, err
+	}
+	if rulesErr != nil {
+		return nil, rulesErr
+	}
+	if len(specs) == 0 {
+		return nil, NewHasNoUnitsError(header.Collection())
+	}
+	return specs, nil
 }
 
 // findStartedUnitWithLock validates that the task exists, is running, has units, the unit
@@ -672,8 +732,10 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal record unit completion request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, u, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
 	if err != nil {
@@ -745,8 +807,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // any Success=false flips to FAILED, which skips the cluster-wide schema
 // flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
 // late acks against terminal states are silently dropped.
-// A barrier task's successful ack pays a swap debt instead, and a failed one
-// changes nothing: its node retries the swap until it pays.
+// A barrier task's ack changes nothing.
 func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -756,22 +817,19 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		return fmt.Errorf("post-completion ack for task %s/%s missing node_id", r.Namespace, r.Id)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
 		return err
 	}
-	change := m.markWithLock(r.Namespace, r.Id)
 	if task.NeedsPreparationBarrier {
-		if r.Success {
-			change.group(r.GroupId)
-			task.paySwap(r.GroupId, r.NodeId)
-		}
-		m.notifySchedulerWithLock()
 		return nil
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
 
 	switch task.Status {
 	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled:
@@ -847,8 +905,10 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		return fmt.Errorf("prep-complete ack for task %s/%s missing node_id", r.Namespace, r.Id)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -912,6 +972,11 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	task.PreparedGroups[group] = acks
 	if len(acks) == len(expected) {
 		task.decideSwap(group, ackedAt)
+		var decided []string
+		if group != "" {
+			decided = []string{group}
+		}
+		m.notifyStateWithLock(task, decided)
 		if task.Status == TaskStatusPreparing && task.AllGroupsSwapDecided() {
 			task.Status = TaskStatusSwapping
 			change.taskLevel = true
@@ -937,8 +1002,10 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal mark task finalized request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -983,8 +1050,10 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal mark task failed request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -1006,7 +1075,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	}
 	change.taskLevel = true
 
-	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.readOnlyClass) {
+	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.classLive) {
 		task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FailedAtUnixMillis))
 		m.notifySchedulerWithLock()
 		return nil
@@ -1097,8 +1166,10 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal cancel task request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.applyEndRulesWithLock()
 
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
@@ -1108,7 +1179,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	if task.Status == TaskStatusSwapping {
 		return wrapPermanent(ErrNothingLeftToCancel,
-			fmt.Sprintf("task %s/%s/%d is SWAPPING and ends once every replica that owes a swap has swapped", r.Namespace, r.Id, task.Version))
+			fmt.Sprintf("task %s/%s/%d is SWAPPING and ends once its flip lands", r.Namespace, r.Id, task.Version))
 	}
 	// Follower apply errors are discarded, so two binaries disagreeing on
 	// what may be cancelled would diverge here silently.
@@ -1130,6 +1201,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return fmt.Errorf("unmarshal clean up task request: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1144,6 +1216,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 
 	delete(m.tasks[task.Namespace], task.ID)
 	m.markWithLock(task.Namespace, task.ID).addedOrRemoved = true
+	m.notifyStateWithLock(task, nil)
 	return nil
 }
 
@@ -1351,22 +1424,6 @@ func (m *Manager) DecodeTaskHeaders(data []byte) (map[string][]*Task, error) {
 	return tasks, nil
 }
 
-// TaskHasUnit checks one unit ID per node of the task, and known is false when this node holds no such version.
-func (m *Manager) TaskHasUnit(namespace string, desc TaskDescriptor, unitID func(node string) string) (has, known bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	task := m.tasks[namespace][desc.ID]
-	if task == nil || task.Version != desc.Version {
-		return false, false
-	}
-	for node := range task.unitCounts {
-		if node != "" && task.Units[unitID(node)] != nil {
-			return true, true
-		}
-	}
-	return false, true
-}
-
 func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {
 	task := m.findTaskWithLock(namespace, taskID)
 	if task == nil || task.Version != taskVersion {
@@ -1389,6 +1446,13 @@ func (m *Manager) findTaskWithLock(namespace, taskID string) *Task {
 	}
 
 	return task
+}
+
+// namespaceTasksWithLock orders by Version so every replica's rules see one order.
+func (m *Manager) namespaceTasksWithLock(namespace string) []*Task {
+	tasks := slices.Collect(maps.Values(m.tasks[namespace]))
+	slices.SortFunc(tasks, byVersion)
+	return tasks
 }
 
 func (m *Manager) setTaskWithLock(task *Task) {
@@ -1430,6 +1494,7 @@ func (m *Manager) Restore(bytes []byte) error {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
 
+	defer m.fireStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1457,6 +1522,7 @@ func (m *Manager) Restore(bytes []byte) error {
 			m.tasks[namespace][task.ID] = task
 		}
 	}
+	m.applyEndRulesWithLock()
 
 	return nil
 }

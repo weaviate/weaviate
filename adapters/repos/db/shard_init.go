@@ -37,7 +37,7 @@ import (
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
-	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
+	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 	registration monitoring.ShardRegistration,
 ) (_ *Shard, err error) {
 	start := time.Now()
@@ -75,6 +75,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			index.Config.QuerySlowLogThreshold, index.logger),
 		unreadableRowSampler: logrusext.NewSampler(index.logger.WithField("shard", shardName),
 			1, unreadableRowLogWindow),
+		scratchDropSampler: logrusext.NewSampler(index.logger.WithField("shard", shardName),
+			maxReportedErrors, migrationUnitContentionWindow),
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:  jobQueueCh,
 		scheduler:        scheduler,
@@ -84,14 +86,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shutCtx:       shutCtx,
 		shutCtxCancel: shutCtxCancel,
 
-		status:                          ShardStatus{Status: storagestate.StatusLoading},
-		searchableBlockmaxPropNamesLock: new(sync.Mutex),
-		reindexer:                       reindexer,
-		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
-		bitmapBufPool:                   bitmapBufPool,
-		HFreshEnabled:                   index.HFreshEnabled,
-		lazySegmentLoadingEnabled:       lazyLoadSegments,
-		registration:                    registration,
+		status:                    ShardStatus{Status: storagestate.StatusLoading},
+		usingBlockMaxWAND:         index.invertedIndexConfig.UsingBlockMaxWAND,
+		bitmapBufPool:             bitmapBufPool,
+		HFreshEnabled:             index.HFreshEnabled,
+		lazySegmentLoadingEnabled: lazyLoadSegments,
+		registration:              registration,
 	}
 
 	s.registerCountedStatus(storagestate.StatusLoading)
@@ -154,21 +154,24 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
-	// Ahead of initNonVector because reconciliation renames directories: a bucket
-	// opened at a name it is about to move would serve the wrong data.
-	s.finalizeLegacyMigrations(class)
-	recovered := s.reconcileMigrationRecords(ctx, class)
-	s.restoreMigratedOverlays(class, reindexer.UnbuildableFaults())
-
-	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
-		index.path(), shardName, class, s.migratedIndexStands); err != nil {
-		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
+	// Both legacy steps rename folders, so they run before any bucket opens.
+	keep, err := s.finalizeLegacyMigrations(class)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
-
-	markInFlightRangeableMigrationsNotReady(s)
+	if err := s.convertLegacyRecords(class); err != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, err)
+	}
+	viewClass, err := s.loadReindexView(class, keep)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, err)
+	}
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
+	}
+	if err := s.finishViewLoad(ctx, viewClass); err != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
 
 	// Needs the dimensions bucket, which initNonVector opens.
@@ -196,13 +199,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
-	}
-
-	// This ignores ctx's cancellation because a lazy load's client can disconnect mid-load.
-	// Otherwise OnAfterLsmInit fails on the cancelled ctx, and AbandonUnarmed marks the
-	// migration Unmirrored, so it is never swapped in and has to be resubmitted.
-	if unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(ctx), recovered); err != nil {
-		s.holdReadOnlyForUnarmed(unarmed, err)
 	}
 	return s, nil
 }
@@ -242,36 +238,4 @@ func (s *Shard) NotifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
-}
-
-func markInFlightRangeableMigrationsNotReady(s *Shard) {
-	if s.migrationRecords == nil {
-		return
-	}
-	if migrationFaultCouldHideARangeableRecord(s.migrationRecords.Unreadable()) {
-		s.rangeableUndecidable.Store(true)
-	}
-	for _, rec := range s.migrationRecords.Records() {
-		if rec.Subject().Key.StrategyCode != StrategyCodeFilterableToRangeable ||
-			rec.State() == MigrationStatePromoted {
-			continue
-		}
-		for _, propName := range rec.Subject().Properties() {
-			s.setRangeableLocallyReady(propName, false)
-		}
-	}
-}
-
-// A store-scope fault read no file; an unparseable name could be any strategy.
-func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable) bool {
-	for _, fault := range faults {
-		if fault.Scope != MigrationRecordFaultFile {
-			return true
-		}
-		code, known := migrationStrategyCodeOfRecordFile(fault.FileName)
-		if !known || code == StrategyCodeFilterableToRangeable {
-			return true
-		}
-	}
-	return false
 }

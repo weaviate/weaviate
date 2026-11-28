@@ -62,7 +62,6 @@ func TestTask_Clone_WritesToCloneDoNotReachOriginal(t *testing.T) {
 			"g1": {"node-1": {Success: true, AckedAt: now}},
 		},
 		SwapDecidedGroups:   map[string]time.Time{"g0": now},
-		SwapsOwed:           map[string][]string{"g0": {"node-1"}},
 		NodePreparationAcks: map[string]PostCompletionAck{"node-1": {Success: true, AckedAt: now}},
 	}, map[string]*Unit{
 		"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted},
@@ -76,7 +75,6 @@ func TestTask_Clone_WritesToCloneDoNotReachOriginal(t *testing.T) {
 	clone.PreparedGroups["g1"] = map[string]PostCompletionAck{"node-1": {Success: false, Error: "prep"}}
 	clone.PreparedGroups["g2"] = map[string]PostCompletionAck{"node-2": {Success: true}}
 	clone.SwapDecidedGroups["g1"] = now
-	clone.SwapsOwed["g1"] = []string{"node-2"}
 	clone.NodePreparationAcks["node-2"] = PostCompletionAck{Success: true}
 	clone.countUnit(clone.Units["u-1"], 1)
 
@@ -88,7 +86,6 @@ func TestTask_Clone_WritesToCloneDoNotReachOriginal(t *testing.T) {
 	assert.True(t, orig.PreparedGroups["g1"]["node-1"].Success, "PreparedGroups must not alias clone")
 	assert.NotContains(t, orig.PreparedGroups, "g2", "PreparedGroups must not alias clone")
 	assert.NotContains(t, orig.SwapDecidedGroups, "g1", "SwapDecidedGroups must not alias clone")
-	assert.NotContains(t, orig.SwapsOwed, "g1", "SwapsOwed must not alias clone")
 	assert.NotContains(t, orig.NodePreparationAcks, "node-2", "NodePreparationAcks must not alias clone")
 }
 
@@ -162,7 +159,7 @@ func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
 	require.Empty(t, task.LocalGroupUnitIDs("g2", "n1"))
 	require.Empty(t, task.groupNodes("g2"))
 	require.False(t, task.AllGroupsSwapDecided(), "g1 is still undecided")
-	task.SwapDecidedGroups["g1"] = time.Time{}
+	task.decideSwap("g1", time.Time{})
 	require.True(t, task.AllGroupsSwapDecided())
 
 	require.ElementsMatch(t, []string{"g1", "g2", "g3"}, clone.Groups(), "a copy taken before keeps the tenant")

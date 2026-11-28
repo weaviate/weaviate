@@ -12,7 +12,9 @@
 package db
 
 import (
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,18 +47,31 @@ func TestReindexDecodeHeader(t *testing.T) {
 // Adding a payload field must force a decision on whether GET /v1/tasks may show
 // it to a caller without tenant read.
 func TestTaskPayloadFieldsAreClassifiedForTasksList(t *testing.T) {
+	reindex := ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization, Collection: "C", Properties: []string{"p"},
+		TargetTokenization: "word", OriginalTokenization: "field", BucketStrategy: "roaringset",
+		Tenants: []string{"t1"}, ViewServed: true, Generation: 2,
+	}
+	drop := DropVectorIndexTaskPayload{
+		Collection: "C", Targets: []string{"v"}, OpID: "op", UnitToNode: map[string]string{"u": "n"},
+		UnitToShard: map[string]string{"u": "s"}, DropEpochID: "e", CleanedShards: []string{"s"},
+		DeferredShards: []string{"s"}, VerifyOnly: true,
+	}
 	tests := []struct {
 		payload any
+		shown   map[string]any
 		visible []string
 		hidden  []string
 	}{
 		{
 			payload: ReindexTaskPayload{},
+			shown:   ReindexTaskHeader{reindex}.VisiblePayload(),
 			visible: ReindexTaskVisiblePayloadFields,
 			hidden:  []string{"properties", "tenants"},
 		},
 		{
 			payload: DropVectorIndexTaskPayload{},
+			shown:   dropVectorIndexTaskHeader{&drop}.VisiblePayload(),
 			visible: DropVectorIndexTaskVisiblePayloadFields,
 			hidden:  []string{"targets", "unitToNode", "unitToShard", "cleanedShards", "deferredShards"},
 		},
@@ -73,6 +88,8 @@ func TestTaskPayloadFieldsAreClassifiedForTasksList(t *testing.T) {
 
 			require.ElementsMatch(t, fields, append(append([]string{}, tt.visible...), tt.hidden...),
 				"each payload field must be in exactly one of the visible or hidden lists")
+			require.ElementsMatch(t, tt.visible, slices.Collect(maps.Keys(tt.shown)),
+				"VisiblePayload must copy every visible field and nothing else")
 		})
 	}
 }

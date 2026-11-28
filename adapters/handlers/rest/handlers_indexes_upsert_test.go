@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -115,6 +115,7 @@ func partlyMigratedRun(t *testing.T, prop string, mt db.ReindexMigrationType, to
 	}
 	task := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
 		Collection: "C", Properties: []string{prop}, MigrationType: mt, TargetTokenization: tok,
+		ViewServed: true, Generation: 1,
 	}, units)
 	task.SwapDecidedGroups = map[string]time.Time{groups[0]: {}}
 	return task
@@ -633,6 +634,36 @@ func TestResolveRebuildPlan(t *testing.T) {
 			wantErr:   `1 of 2 tenants of property "t" are migrated; finish the migration with PUT /v1/schema/C/properties/t/index/filterable -d '{"tokenization":"field"}'`,
 		},
 		{
+			name:      "partial rebuild-searchable run, rebuild searchable -> admitted to take it over",
+			indexType: "searchable",
+			prop:      textProp("t", "word", boolPtr(true), boolPtr(true)),
+			blockmax:  true,
+			tasks:     []*distributedtask.Task{partlyMigratedRun(t, "t", db.ReindexTypeRebuildSearchable, "", "a", "b")},
+			wantMT:    db.ReindexTypeRebuildSearchable,
+		},
+		{
+			name:      "partial repair-filterable run, rebuild filterable -> admitted to take it over",
+			indexType: "filterable",
+			prop:      textProp("t", "word", boolPtr(true), boolPtr(true)),
+			tasks:     []*distributedtask.Task{partlyMigratedRun(t, "t", db.ReindexTypeRepairFilterable, "", "a", "b")},
+			wantMT:    db.ReindexTypeRepairFilterable,
+		},
+		{
+			name:      "partial repair-rangeable run, rebuild rangeFilters -> admitted to take it over",
+			indexType: "rangeable",
+			prop:      &models.Property{Name: "n", DataType: []string{"int"}, IndexRangeFilters: boolPtr(true)},
+			tasks:     []*distributedtask.Task{partlyMigratedRun(t, "n", db.ReindexTypeRepairRangeable, "", "a", "b")},
+			wantMT:    db.ReindexTypeRepairRangeable,
+		},
+		{
+			name:      "partial repair-filterable run, rebuild searchable -> refused naming the rebuild that finishes it",
+			indexType: "searchable",
+			prop:      textProp("t", "word", boolPtr(true), boolPtr(true)),
+			blockmax:  true,
+			tasks:     []*distributedtask.Task{partlyMigratedRun(t, "t", db.ReindexTypeRepairFilterable, "", "a", "b")},
+			wantErr:   "finish the migration with POST /v1/schema/C/properties/t/index/filterable/rebuild",
+		},
+		{
 			name:      "partial single-tenant run -> refused, never named in tenants",
 			indexType: "filterable",
 			prop:      textProp("t", "word", boolPtr(true), boolPtr(true)),
@@ -654,6 +685,44 @@ func TestResolveRebuildPlan(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, plan.noop)
 			assert.Equal(t, tc.wantMT, plan.migrationType)
+		})
+	}
+}
+
+type capturedTaskAdd struct {
+	payload db.ReindexTaskPayload
+	specs   []distributedtask.UnitSpec
+	barrier bool
+}
+
+func (c *capturedTaskAdd) AddDistributedTaskWithGroupsBarrier(_ context.Context, _, _ string, payload any,
+	specs []distributedtask.UnitSpec, barrier bool,
+) error {
+	c.payload, c.specs, c.barrier = payload.(db.ReindexTaskPayload), specs, barrier
+	return nil
+}
+
+// Every submit is a generation run that switches per tenant through the barrier.
+func TestAddReindexTask(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		class *models.Class
+		plan  upsertPlan
+	}{
+		{"single-tenant repair-filterable", &models.Class{Class: "C"}, upsertPlan{migrationType: db.ReindexTypeRepairFilterable}},
+		{
+			"multi-tenant change-tokenization",
+			&models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+			upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got capturedTaskAdd
+			payload := buildReindexPayload(tc.class, "C", []string{"p"}, tc.plan, nil)
+			require.NoError(t, addReindexTask(context.Background(), &got, "C:p:ab3f", payload))
+			require.True(t, got.payload.ViewServed)
+			require.True(t, got.barrier)
+			require.Nil(t, got.specs)
 		})
 	}
 }
@@ -729,123 +798,14 @@ func TestValidateTenants(t *testing.T) {
 	}
 }
 
-// TestSubmitReindexTask_RefusesNonHotTenants pins that a submit targeting a
-// non-HOT tenant starts no task.
-func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
-	cases := []struct {
-		name     string
-		statuses map[string]string
-		tenants  []string
-		plan     upsertPlan
-		tasks    []*distributedtask.Task
-		reader   bool
-		wantCode int
-		wantErr  string
-	}{
-		{
-			name:     "named COLD tenant",
-			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
-			tenants:  []string{"cold"},
-			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
-			wantErr:  db.ErrTenantsNotHot.Error(),
-		},
-		{
-			name:     "collection-wide with a COLD tenant",
-			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
-			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
-			wantErr:  db.ErrTenantsNotHot.Error(),
-		},
-		{
-			name:     "a resubmit after a partial run, to a tenant reader, counts only tenants still needing work",
-			statuses: map[string]string{"a": models.TenantActivityStatusCOLD, "b": models.TenantActivityStatusCOLD, "c": models.TenantActivityStatusHOT, "d": models.TenantActivityStatusFROZEN},
-			plan:     upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField, bucketStrategy: "mapcollection"},
-			tasks: []*distributedtask.Task{func() *distributedtask.Task {
-				run := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
-					Collection: "C", Properties: []string{"p"}, MigrationType: db.ReindexTypeChangeTokenization,
-					TargetTokenization: models.PropertyTokenizationField, BucketStrategy: "mapcollection",
-				}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}, "c": {ID: "c", GroupID: "c"}})
-				run.SwapDecidedGroups = map[string]time.Time{"a": {}}
-				return run
-			}()},
-			reader:  true,
-			wantErr: db.ErrTenantsNotHot.Error() + " (tenants still needing work that are not HOT: 2)",
-		},
-		{
-			name:     "a rerun after every tenant finished needs them all HOT",
-			statuses: map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusCOLD},
-			plan:     upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField, bucketStrategy: "mapcollection"},
-			tasks: []*distributedtask.Task{func() *distributedtask.Task {
-				run := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
-					Collection: "C", Properties: []string{"p"}, MigrationType: db.ReindexTypeChangeTokenization,
-					TargetTokenization: models.PropertyTokenizationField, BucketStrategy: "mapcollection",
-				}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
-				run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
-				return run
-			}()},
-			wantErr: db.ErrTenantsNotHot.Error(),
-		},
-		{
-			name:     "collection-wide with a FROZEN tenant",
-			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "frozen": models.TenantActivityStatusFROZEN},
-			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
-			wantErr:  db.ErrTenantsNotHot.Error(),
-		},
-		{
-			name:     "collection-wide format-only with an OFFLOADED tenant",
-			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "off": models.TenantActivityStatusOFFLOADED},
-			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
-			wantErr:  db.ErrTenantsNotHot.Error(),
-		},
-		{
-			// Past the tenant check, the stale-state sweep stops the submit
-			// because the collection has no local index here.
-			name:     "collection-wide with all tenants HOT, ACTIVE or unset",
-			statuses: map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusACTIVE, "c": ""},
-			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
-			wantCode: http.StatusInternalServerError,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var authz authorization.Authorizer = &collectionsOnly{}
-			if tc.reader {
-				authz = &authorization.DummyAuthorizer{}
-			}
-			h := &indexesHandlers{appState: &state.State{
-				Logger: logrus.New(), DB: dbWithTenants(t, tc.statuses), ClusterService: &rCluster.Service{}, Authorizer: authz,
-			}}
-			class := &models.Class{
-				Class:              "C",
-				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-				Properties:         []*models.Property{{Name: "p", DataType: []string{"text"}}},
-			}
-
-			resp := h.submitReindexTask(context.Background(), nil, class, "C", "p", tc.plan, tc.tenants, tc.tasks)
-
-			code, body := statusOf(t, resp)
-			if tc.wantErr == "" {
-				require.Equal(t, tc.wantCode, code)
-				return
-			}
-			require.Equal(t, http.StatusBadRequest, code)
-			require.Len(t, body.Error, 1)
-			assert.Equal(t, tc.wantErr, body.Error[0].Message)
-		})
-	}
-}
-
-// Pins that the resubmit skip and the partial status agree on which tenants already serve the target.
+// Pins that the partial status counts the newest partial generation run's switched set.
 func TestMigratedTenantsAcrossRuns(t *testing.T) {
-	hot := models.TenantActivityStatusHOT
-	target := &db.ReindexTaskPayload{
-		Collection: "C", MigrationType: db.ReindexTypeChangeTokenization,
-		TargetTokenization: models.PropertyTokenizationField, BucketStrategy: "mapcollection",
-	}
 	start := time.Now()
+	// run uses the version as the generation, and version 0 builds a run without one.
 	run := func(version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, tok string, held string, decided ...string) *distributedtask.Task {
 		task := buildTask(t, "T", status, db.ReindexTaskPayload{
 			Collection: "C", Properties: []string{"title"}, MigrationType: mt,
-			TargetTokenization: tok, BucketStrategy: "mapcollection",
+			TargetTokenization: tok, BucketStrategy: "mapcollection", ViewServed: version > 0, Generation: version,
 		}, nil)
 		task.Version, task.StartedAt = version, start.Add(time.Duration(version)*time.Minute)
 		units := map[string]*distributedtask.Unit{}
@@ -868,60 +828,40 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 
 	for _, tc := range []struct {
 		name            string
-		tenants         []string
 		tasks           []*distributedtask.Task
-		want            []string
 		status          string
 		migrated, total int64
 	}{
 		{
-			name: "a tenant a replica still owes is rerun, and still reads partial",
-			tasks: []*distributedtask.Task{func() *distributedtask.Task {
-				task := run(1, failed, changeTok, field, "abc", "a")
-				task.SwapsOwed = map[string][]string{"a": {"n2"}}
-				return task
-			}()},
-			want:   []string{"a", "b", "c"},
+			name:   "one switched tenant reads partial",
+			tasks:  []*distributedtask.Task{run(1, failed, changeTok, field, "abc", "a")},
 			status: "partial", migrated: 1, total: 3,
 		},
 		{
-			name:   "every tenant decided: rerun them all, the flip still has to land",
+			name:   "every tenant decided: the flip still has to land",
 			tasks:  []*distributedtask.Task{run(1, failed, changeTok, field, "abc", "a", "b", "c")},
-			want:   []string{"a", "b", "c"},
 			status: "partial", migrated: 3, total: 3,
 		},
 		{
-			name:    "ShardReplicaOwnershipForMT alone, as no request can name tenants here: every named tenant decided, rerun those, an unnamed one still needs work",
-			tenants: []string{"a", "b"},
-			tasks:   []*distributedtask.Task{run(1, failed, changeTok, field, "abc", "a", "b")},
-			want:    []string{"a", "b"},
-			status:  "partial", migrated: 2, total: 3,
-		},
-		{
-			name: "a resubmit that swapped some adds them to the first run's",
-			tasks: []*distributedtask.Task{
-				run(1, cancelled, changeTok, field, "abc", "a"),
-				run(2, failed, changeTok, field, "bc", "b"),
-			},
-			want:   []string{"c"},
+			name:   "a resubmit that took over counts the tenant it inherited without a unit",
+			tasks:  []*distributedtask.Task{run(2, failed, changeTok, field, "bc", "a", "b")},
 			status: "partial", migrated: 2, total: 3,
 		},
 		{
-			name: "a newer swap to another target takes the tenant back",
+			name: "after a newer run to another target ended, the newer run is counted",
 			tasks: []*distributedtask.Task{
-				run(1, failed, changeTok, field, "abc", "a", "b"),
-				run(2, failed, changeTok, whitespace, "abc", "b"),
+				run(1, failed, changeTok, field, "abc", "a"),
+				run(2, cancelled, changeTok, whitespace, "abc", "b"),
 			},
-			want:   []string{"b", "c"},
 			status: "partial", migrated: 1, total: 3,
+		},
+		{
+			name:   "a run without a generation leaves nothing partial",
+			tasks:  []*distributedtask.Task{run(0, failed, changeTok, field, "abc", "a")},
+			status: "failed",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			database := dbWithTenants(t, map[string]string{"a": hot, "b": hot, "c": hot})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), target, "title", tc.tenants, tc.tasks)
-			require.NoError(t, err)
-			require.Equal(t, map[string][]string{"node1": tc.want}, got)
-
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "C", "title", "filterable", db.ReindexRuns(tc.tasks), nil)
 			require.Equal(t, tc.status, idx.Status)
@@ -950,7 +890,7 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 		require.NoError(t, err)
 		task := buildTask(t, id, status, db.ReindexTaskPayload{
 			Collection: "C", Properties: []string{prop.Name}, MigrationType: plan.migrationType,
-			TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
+			TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy, ViewServed: true, Generation: 1,
 		}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 		task.SwapDecidedGroups = map[string]time.Time{"a": {}}
 		return task
@@ -999,7 +939,63 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 	}
 }
 
-// A run whose cutover landed despite a proposer error, swap still owed: drop and re-add must lock nothing and rebuild every tenant.
+// The REST pre-checks refuse exactly the submits the AddTask apply's Admit refuses.
+func TestReindexPreChecksAgreeWithAdmit(t *testing.T) {
+	partial := func(props []string, mt db.ReindexMigrationType, tok, bucket string) *distributedtask.Task {
+		task := buildTask(t, "P", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+			Collection: "C", Properties: props, MigrationType: mt, TargetTokenization: tok, BucketStrategy: bucket,
+			ViewServed: true, Generation: 1,
+		}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+		task.SwapDecidedGroups = map[string]time.Time{"a": {}}
+		return task
+	}
+	retokenize := upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: "field", bucketStrategy: "inverted"}
+	for _, tc := range []struct {
+		name    string
+		partial *distributedtask.Task
+		plan    upsertPlan // empty: a rebuild of rebuild's index type
+		rebuild string
+		refused bool
+	}{
+		{name: "the resubmit", partial: partial([]string{"t"}, db.ReindexTypeChangeTokenization, "field", "inverted"), plan: retokenize},
+		{
+			name: "the same tokenization on another bucket strategy", refused: true,
+			partial: partial([]string{"t"}, db.ReindexTypeChangeTokenization, "field", "mapcollection"), plan: retokenize,
+		},
+		{
+			name: "another target", refused: true,
+			partial: partial([]string{"t"}, db.ReindexTypeRepairFilterable, "", ""), rebuild: "searchable",
+		},
+		{name: "a same-type rebuild", partial: partial([]string{"t"}, db.ReindexTypeRepairFilterable, "", ""), rebuild: "filterable"},
+		{
+			name:    "a partial run over another property set",
+			partial: partial([]string{"t", "u"}, db.ReindexTypeChangeTokenizationFilterable, "field", ""), rebuild: "filterable",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			existing := []*distributedtask.Task{tc.partial}
+			var restRefused bool
+			payload := db.ReindexTaskPayload{
+				Collection: "C", Properties: []string{"t"}, MigrationType: tc.plan.migrationType,
+				TargetTokenization: tc.plan.targetTok, BucketStrategy: tc.plan.bucketStrategy, ViewServed: true,
+			}
+			if tc.rebuild != "" {
+				payload.MigrationType = rebuildTypes[tc.rebuild]
+				restRefused = refusePartlyMigratedRebuild("C", "t", payload.MigrationType, existing, true) != nil
+			} else {
+				restRefused = refuseOtherThanPartialRun("C", "t", tc.plan.targetTok, tc.plan, existing, true) != ""
+			}
+			raw, err := json.Marshal(payload)
+			require.NoError(t, err)
+			submit := withHeader(&distributedtask.Task{Namespace: db.ReindexNamespace, Payload: raw})
+			_, err = db.ReindexTaskRules{}.Admit(submit, existing, nil)
+			require.Equal(t, tc.refused, errors.Is(err, distributedtask.ErrTaskPartlyMigrated), "Admit: %v", err)
+			require.Equal(t, tc.refused, restRefused, "the REST pre-check")
+		})
+	}
+}
+
+// A run whose cutover landed despite a proposer error: drop and re-add must lock nothing and rebuild every tenant.
 func TestDropAndReAddAfterALandedRun(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -1027,26 +1023,28 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 				db.ReindexTaskPayload{Collection: "C", Properties: []string{"p"}, MigrationType: tc.mt, TargetTokenization: tc.tok},
 				map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 			run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
-			run.SwapsOwed = map[string][]string{"b": {"n2"}}
-			require.True(t, db.ReindexDetector{}.CutoverLanded(withHeader(run), func(string) *models.Class { return class }))
 			run.Status = distributedtask.TaskStatusFinished
 			tasks := []*distributedtask.Task{run}
 
-			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", tasks), "the drop")
+			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", "", tasks), "the drop")
 			tc.drop(p)
-			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", tasks), "a change after the drop")
+			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", "", tasks), "a change after the drop")
 			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, p, "filterable", tasks, true)
 			require.NotErrorIs(t, err, errRebuildPropertyPartlyMigrated)
 			plan, err := resolveUpsertPlan(class, "C", p, tc.idx, tc.readd, tasks, true)
 			require.NoError(t, err)
 			require.Empty(t, plan.conflict)
 			require.Equal(t, tc.mt, plan.migrationType)
-			database := dbWithTenants(t, map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusHOT})
-			got, err := database.ShardReplicaOwnershipForMT(context.Background(), &db.ReindexTaskPayload{
+			state := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{
+				"a": {Name: "a", BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusHOT},
+				"b": {Name: "b", BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusHOT},
+			}}
+			specs, err := db.ReindexTaskRules{}.Units(db.ReindexTaskHeader{ReindexTaskPayload: db.ReindexTaskPayload{
 				Collection: "C", MigrationType: plan.migrationType, TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
-			}, "p", nil, tasks)
+			}}, state, nil)
 			require.NoError(t, err)
-			require.Equal(t, map[string][]string{"node1": {"a", "b"}}, got)
+			require.Equal(t, []string{"a", "b"}, []string{specs[0].Shard, specs[1].Shard})
+			require.Len(t, specs, 2)
 		})
 	}
 }
@@ -1087,7 +1085,7 @@ func TestPartialRunRefusalsCountTenantsOnlyForTenantReaders(t *testing.T) {
 			h := gateWithTasks(partial)
 			h.authorizer = authz
 			return h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
-				HTTPRequest: httptest.NewRequest(http.MethodDelete, "/", nil), ClassName: "C", PropertyName: "title", IndexName: "filterable",
+				HTTPRequest: httptest.NewRequest(http.MethodDelete, "/", nil), ClassName: "C", PropertyName: "title", IndexName: "rangeable",
 			}, nil)
 		}},
 	} {

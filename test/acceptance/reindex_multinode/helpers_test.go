@@ -238,29 +238,20 @@ func httpGetJSON(url string, out any) bool {
 func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string {
 	t.Helper()
 	var observed string
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		var tasks models.DistributedTasks
-		if !httpGetJSON(fmt.Sprintf("http://%s/v1/tasks", restURI), &tasks) {
+		task, ok := poller.Poll()
+		if !ok {
 			return false
 		}
-		for _, task := range tasks["reindex"] {
-			if task.ID != taskID {
-				continue
-			}
-			if task.Status == "FAILED" {
-				t.Fatalf("reindex task failed before reaching coordination phase: %s", task.Error)
-			}
-			// New two-phase barrier (per weaviate/0-weaviate-issues#225 design):
-			// PREPARING is the per-node PREP coordination phase; SWAPPING is
-			// the post-barrier per-node swap phase. FINISHED here means
-			// either window was so short we missed it — the rolling restart
-			// will already be too late. Return the observed status so the
-			// test caller can re-tune dataset size / poll cadence rather
-			// than silently passing on a stale repro.
-			if task.Status == "PREPARING" || task.Status == "SWAPPING" || task.Status == "FINISHED" {
-				observed = task.Status
-				return true
-			}
+		if task.Status == "FAILED" {
+			t.Fatalf("reindex task failed before reaching coordination phase: %s", task.Error)
+		}
+		// FINISHED means the window was missed; the caller reports it so the
+		// dataset can be re-tuned rather than passing on a stale repro.
+		if task.Status == "PREPARING" || task.Status == "SWAPPING" || task.Status == "FINISHED" {
+			observed = task.Status
+			return true
 		}
 		return false
 	}, 240*time.Second, 50*time.Millisecond,
@@ -276,32 +267,27 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 // asserting on a non-zero floor flakes on fast CI runners.
 func awaitReindexMidFlight(t *testing.T, restURI, taskID string, timeout time.Duration) {
 	t.Helper()
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	require.Eventually(t, func() bool {
-		var tasks models.DistributedTasks
-		if !httpGetJSON(fmt.Sprintf("http://%s/v1/tasks", restURI), &tasks) {
+		task, ok := poller.Poll()
+		if !ok {
 			return false
 		}
-		for _, task := range tasks["reindex"] {
-			if task.ID != taskID {
-				continue
-			}
-			if task.Status == "FAILED" {
-				t.Fatalf("reindex task %s failed before mid-flight check: %s", taskID, task.Error)
-			}
-			if task.Status == "FINISHED" || task.Status == "PREPARING" || task.Status == "SWAPPING" {
-				t.Fatalf("reindex task %s reached %s before mid-flight check — "+
-					"dataset too small for the iteration window. Bump totalObjects.",
-					taskID, task.Status)
-			}
-			if task.Status != "STARTED" {
-				return false
-			}
-			for _, u := range task.Units {
-				if u.Status == "IN_PROGRESS" {
-					return true
-				}
-			}
+		if task.Status == "FAILED" {
+			t.Fatalf("reindex task %s failed before mid-flight check: %s", taskID, task.Error)
+		}
+		if task.Status == "FINISHED" || task.Status == "PREPARING" || task.Status == "SWAPPING" {
+			t.Fatalf("reindex task %s reached %s before mid-flight check — "+
+				"dataset too small for the iteration window. Bump totalObjects.",
+				taskID, task.Status)
+		}
+		if task.Status != "STARTED" {
 			return false
+		}
+		for _, u := range task.Units {
+			if u.Status == "IN_PROGRESS" {
+				return true
+			}
 		}
 		return false
 	}, timeout, 50*time.Millisecond,

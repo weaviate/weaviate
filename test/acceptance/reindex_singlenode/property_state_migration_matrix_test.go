@@ -671,36 +671,20 @@ func awaitTaskTerminal(t *testing.T, restURI, taskID string, timeout time.Durati
 	defer cancel()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
+	poller := reindexhelpers.NewRunPoller(restURI, taskID)
 	for {
 		select {
 		case <-ctx.Done():
 			return "TIMEOUT", ""
 		case <-ticker.C:
 		}
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			// transient error — retry on next tick.
+		task, ok := poller.Poll()
+		if !ok {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			// transient error — retry on next tick.
-			continue
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID != taskID {
-				continue
-			}
-			switch task.Status {
-			case "FINISHED":
-				return "FINISHED", ""
-			case "FAILED":
-				return "FAILED", task.Error
-			case "CANCELLED":
-				return "CANCELLED", task.Error
-			}
+		switch task.Status {
+		case "FINISHED", "FAILED", "CANCELLED":
+			return task.Status, task.Error
 		}
 	}
 }

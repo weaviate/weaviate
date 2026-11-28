@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -280,8 +281,8 @@ func TestDropVectorIndex_DimensionsClearSurvivesProcessCrash(t *testing.T) {
 func dimensionsAfterCrash(t *testing.T, ctx context.Context, s *Shard, targetVector string) int {
 	t.Helper()
 	crashed := t.TempDir()
-	copyDirTree(t, filepath.Join(s.path(), "lsm", helpers.DimensionsBucketLSM),
-		filepath.Join(crashed, s.name, "lsm", helpers.DimensionsBucketLSM))
+	require.NoError(t, os.CopyFS(filepath.Join(crashed, s.name, "lsm", helpers.DimensionsBucketLSM),
+		os.DirFS(filepath.Join(s.path(), "lsm", helpers.DimensionsBucketLSM))))
 	got, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, logrus.New(), crashed, s.name, targetVector)
 	require.NoError(t, err)
 	return got.Count * got.Dimensions
@@ -329,7 +330,7 @@ func TestDropVectorIndex_DimensionsClearFailsWhenShardIsNotLoaded(t *testing.T) 
 
 	const cold = "cold-tenant"
 	lazy := NewLazyLoadShard(ctx, nil, cold, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(cold, lazy)
 	t.Cleanup(func() { idx.shards.LoadAndDelete(cold) })

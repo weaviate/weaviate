@@ -134,7 +134,7 @@ func newHotTenantsIndex(t *testing.T, dirName string, cfg IndexConfig, globalCfg
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, globalCfg,
 		monitoring.GetMetrics(),
 		class, nil, scheduler, nil, allocChecker,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
 	return index, hook

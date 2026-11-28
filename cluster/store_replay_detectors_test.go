@@ -58,7 +58,7 @@ func (refuseWhileTaskExists) CheckClassMutation(class string, existing []*distri
 	return nil
 }
 
-func (refuseWhileTaskExists) CheckPropertyUpdate(string, string, []*distributedtask.Task) error {
+func (refuseWhileTaskExists) CheckPropertyUpdate(string, string, string, []*distributedtask.Task) error {
 	return nil
 }
 

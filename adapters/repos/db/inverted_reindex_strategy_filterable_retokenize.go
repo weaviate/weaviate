@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -22,8 +21,7 @@ import (
 
 // FilterableRetokenizeStrategy implements MigrationStrategy for rebuilding the
 // filterable (RoaringSet) index for a text property with a different tokenization
-// strategy (e.g. WORD → FIELD). This runs after the searchable strategy and
-// performs the schema update in OnMigrationComplete.
+// strategy (e.g. WORD → FIELD).
 type FilterableRetokenizeStrategy struct {
 	noAnalyzerOverlay
 	propName           string
@@ -32,28 +30,8 @@ type FilterableRetokenizeStrategy struct {
 	generation         int // see genSuffix godoc
 }
 
-func (s *FilterableRetokenizeStrategy) StrategyCode() MigrationStrategyCode {
-	return StrategyCodeFilterableRetokenize
-}
-
 func (s *FilterableRetokenizeStrategy) SourceBucketName(_ string) string {
 	return helpers.BucketFromPropNameLSM(s.propName)
-}
-
-func (s *FilterableRetokenizeStrategy) ReindexSuffix() string {
-	return "__filt_retokenize_reindex" + genSuffix(s.generation)
-}
-
-func (s *FilterableRetokenizeStrategy) IngestSuffix() string {
-	return "__filt_retokenize_ingest" + genSuffix(s.generation)
-}
-
-func (s *FilterableRetokenizeStrategy) SourceStrategy() string {
-	return lsmkv.StrategyRoaringSet
-}
-
-func (s *FilterableRetokenizeStrategy) SourceIndexType() PropertyIndexType {
-	return IndexTypePropValue
 }
 
 func (s *FilterableRetokenizeStrategy) TargetStrategy() string {
@@ -140,23 +118,4 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		}
 		return nil
 	}
-}
-
-func (s *FilterableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
-	// No-op: the filterable bucket already exists.
-}
-
-// OnMigrationComplete is a no-op for semantic migrations. The schema
-// cutover (Tokenization flip via RAFT) now happens once cluster-wide
-// from [ReindexProvider.OnTaskCompleted] after every node's local
-// OnGroupCompleted has run the bucket pointer swap. See the Journey 3
-// canonical pattern in cluster/distributedtask/doc.go:111-137.
-//
-// Per-shard schema flips would re-introduce the first-shard-flips
-// problem: the first shard on the first node to call RunSwapOnShard
-// would flip the cluster-wide schema flag while other nodes / other
-// shards still serve the old bucket — producing partial results
-// during the cross-node swap stagger window.
-func (s *FilterableRetokenizeStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
-	return nil
 }
