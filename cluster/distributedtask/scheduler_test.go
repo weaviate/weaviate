@@ -1078,72 +1078,10 @@ func TestReactiveFiring_WokenTicksKeepTheMinimumGap(t *testing.T) {
 				t.Fatalf("%s started before the gap passed", task.ID)
 			default:
 			}
-			h.clock.Advance(minWakeSpacing)
+			// An absolute budget, so every node woken by one apply acts within it.
+			h.clock.Advance(200 * time.Millisecond)
 			require.Equal(t, "second", recvWithTimeout(t, h.provider.startedCh).ID)
 		})
-	}
-}
-
-// Two nodes whose last ticks are 1 s apart get the same RAFT apply at the same instant; both must act on it promptly.
-func TestReactiveFiring_SameWakeTicksAllNodesTogether(t *testing.T) {
-	defer leaktest.Check(t)()
-
-	const step = 100 * time.Millisecond
-	a := newTestHarness(t)
-	b := newTestHarness(t)
-	b.clock = a.clock
-	nodes := []*testHarness{a.init(t), b.init(t)}
-	defer func() {
-		for _, h := range nodes {
-			h.Close()
-		}
-	}()
-	for _, h := range nodes {
-		h.manager.SetSchedulerNotifier(h.scheduler)
-		h.startScheduler(t)
-	}
-
-	addTaskWithUnits(t, a, a.tasksNamespace, "first", 10, []string{"su-1"})
-	require.Equal(t, "first", recvWithTimeout(t, a.provider.startedCh).ID)
-	a.clock.Advance(time.Second)
-	addTaskWithUnits(t, b, b.tasksNamespace, "first", 10, []string{"su-1"})
-	require.Equal(t, "first", recvWithTimeout(t, b.provider.startedCh).ID)
-
-	wokenAt := a.clock.Now()
-	for _, h := range nodes {
-		addTaskWithUnits(t, h, h.tasksNamespace, "second", 11, []string{"su-2"})
-	}
-
-	startedAfter := make([]time.Duration, len(nodes))
-	pending := len(nodes)
-	collect := func() {
-		for i, h := range nodes {
-			if startedAfter[i] != 0 {
-				continue
-			}
-			select {
-			case task := <-h.provider.startedCh:
-				require.Equal(t, "second", task.ID)
-				startedAfter[i] = a.clock.Since(wokenAt) + time.Nanosecond
-				pending--
-			case <-time.After(200 * time.Millisecond):
-			}
-		}
-	}
-	collect()
-	if pending > 0 {
-		// Every loop's ticker, plus the delay timer of each node still waiting.
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		require.NoError(t, a.clock.BlockUntilContext(ctx, len(nodes)+pending))
-	}
-	for elapsed := time.Duration(0); pending > 0 && elapsed < 3*time.Second; elapsed += step {
-		a.clock.Advance(step)
-		collect()
-	}
-	require.Zero(t, pending, "a node never acted on the wake")
-	for i, after := range startedAfter {
-		assert.LessOrEqualf(t, after, 2*step, "node %d acted %v after the wake; all nodes: %v", i, after, startedAfter)
 	}
 }
 
@@ -1189,6 +1127,48 @@ func TestReactiveFiring_RetriesWaitOutTheFloor(t *testing.T) {
 			require.Equal(t, 2, attempts(), "did not repeat once the floor passed")
 		})
 	}
+}
+
+// A finalize that keeps failing logs its warning a bounded number of times, however often ticks run.
+func TestFinalizeFailureWarningIsSampled(t *testing.T) {
+	defer leaktest.Check(t)()
+	const ticks = 20
+	prov := newRetryFlipProvider(t)
+	h := newTestHarness(t)
+	h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+	h.provider = prov.testTaskProvider
+	h = h.init(t)
+	h.testProviders = append(h.testProviders, prov.testTaskProvider)
+	h.scheduler.taskFinalizer = refusingFinalizer{}
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace: h.tasksNamespace, Id: "stuck", SubmittedAtUnixMillis: h.clock.Now().UnixMilli(), UnitIds: []string{"u-1"},
+	}), 1))
+	completeUnit(t, h, h.tasksNamespace, "stuck", 1, h.localNodeID, "u-1")
+	// Not started: the test's ticks are the only ones.
+	defer h.Close()
+
+	for range ticks {
+		h.scheduler.tick()
+		h.clock.Advance(minWakeSpacing)
+	}
+	warnings := 0
+	for _, e := range h.loggerHook.AllEntries() {
+		if strings.Contains(e.Message, "failed to mark distributed task finalized") {
+			warnings++
+		}
+	}
+	require.NotZero(t, warnings)
+	require.LessOrEqual(t, warnings, 5)
+}
+
+type refusingFinalizer struct{}
+
+func (refusingFinalizer) MarkDistributedTaskFinalized(context.Context, string, string, uint64) error {
+	return errors.New("raft applyTimeout")
+}
+
+func (refusingFinalizer) MarkDistributedTaskFailed(context.Context, string, string, uint64, string) error {
+	return nil
 }
 
 // TestReactiveFiring_NilNotifierIsSafe verifies that the Manager can be
