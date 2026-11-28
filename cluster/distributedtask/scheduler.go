@@ -1161,7 +1161,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 
-	// Clear the fired mark so the next tick re-fires; a permanent error fails
+	// Clear the fired mark so the next tick after retryFloor re-fires; a permanent error fails
 	// now, a transient one only once the retry budget is exhausted.
 	failMsg := func() string {
 		s.mu.Lock()
@@ -1180,8 +1180,8 @@ func (s *Scheduler) runCompletedCallbackPhase(
 			return cbErr.Error()
 		}
 		s.loggerWithTask(namespace, desc).
-			Warnf("OnTaskCompleted failed (attempt %d/%d); withholding finalize, will retry next tick: %v",
-				state.completedCallbackAttempts, maxCompletedCallbackAttempts, cbErr)
+			Warnf("OnTaskCompleted failed (attempt %d/%d); withholding finalize, will retry after %s: %v",
+				state.completedCallbackAttempts, maxCompletedCallbackAttempts, retryFloor, cbErr)
 		return ""
 	}()
 	if failMsg == "" {
@@ -1189,7 +1189,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	}
 
 	// Fired mark stays cleared so a failed MarkDistributedTaskFailed call
-	// retries next tick (idempotent at the FSM layer).
+	// retries after retryFloor (idempotent at the FSM layer).
 	if s.taskFinalizer == nil {
 		return
 	}
@@ -1197,7 +1197,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		context.Background(), namespace, task.ID, task.Version, failMsg,
 	); err != nil {
 		s.loggerWithTask(namespace, desc).
-			Warnf("failed to mark distributed task failed after OnTaskCompleted error; will retry on next tick: %v", err)
+			Warnf("failed to mark distributed task failed after OnTaskCompleted error; will retry after %s: %v", retryFloor, err)
 		return
 	}
 	s.loggerWithTask(namespace, desc).
