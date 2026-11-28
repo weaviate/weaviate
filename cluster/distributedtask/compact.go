@@ -57,11 +57,25 @@ func (t *Task) compactCopy() *Task {
 	}
 }
 
+// GroupTotal counts a task's groups, switched ones without units (born, taken over) included.
+func (t *Task) GroupTotal() int {
+	if t.Summary != nil {
+		return t.Summary.Groups
+	}
+	n := t.groupCount
+	for group := range t.SwapDecidedGroups {
+		if !t.hasGroup(group) {
+			n++
+		}
+	}
+	return n
+}
+
 func (t *Task) summarizeUnits() *UnitSummary {
 	if t.Summary != nil {
 		return t.Summary
 	}
-	s := &UnitSummary{Groups: t.groupCount, Counts: map[UnitStatus]int{}}
+	s := &UnitSummary{Groups: t.GroupTotal(), Counts: map[UnitStatus]int{}}
 	var failed []*Unit
 	for _, u := range t.Units {
 		s.Counts[u.Status]++

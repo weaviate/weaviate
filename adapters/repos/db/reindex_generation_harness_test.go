@@ -255,7 +255,6 @@ func (c *genCluster) newNode(name, root string) *genNode {
 		SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
 		TaskRules:               map[string]distributedtask.TaskRules{ReindexNamespace: ReindexTaskRules{}},
 		ClassLive:               n.sr.ClassLive,
-		ReadOnlyClass:           n.sr.ReadOnlyClass,
 		ReadSharding: func(class string, read func(*sharding.State)) error {
 			return n.sr.Read(class, false, func(_ *models.Class, st *sharding.State) error {
 				read(st)

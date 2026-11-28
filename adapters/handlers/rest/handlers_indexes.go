@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -802,7 +803,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// deliberately do NOT block fresh submits; see checkReindexConflict).
 	// Pick the most useful one to surface rather than the first in the list:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
-	//   newer StartedAt > older StartedAt          (within the same priority)
+	//   higher Version, then newer StartedAt       (versions follow the log, start times do not)
 	// FINISHED tasks stay in the loop for the tiebreak; see [taskStatusPriority].
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
@@ -841,8 +842,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			continue
 		}
 
-		if best == nil || taskStatusPriority(task) > taskStatusPriority(best) ||
-			(taskStatusPriority(task) == taskStatusPriority(best) && task.StartedAt.After(best.StartedAt)) {
+		if best == nil || reindexRunOutranks(task, best) {
 			best = task
 			bestPayload = payload
 		}
@@ -877,9 +877,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if best.Status == distributedtask.TaskStatusCancelled {
 			idx.Status = models.IndexStatusStatusCancelled
 		}
-		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
+		if run := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); run != nil {
 			idx.Status = models.IndexStatusStatusPartial
-			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
+			idx.MigratedTenants, idx.TotalTenants = int64(len(run.Task.SwapDecidedGroups)), int64(run.Task.GroupTotal())
 		}
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
@@ -961,9 +961,27 @@ func taskStatusPriority(task *distributedtask.Task) int {
 	return 1
 }
 
+func reindexRunOutranks(task, best *distributedtask.Task) bool {
+	return cmp.Or(
+		cmp.Compare(taskStatusPriority(task), taskStatusPriority(best)),
+		cmp.Compare(task.Version, best.Version),
+		task.StartedAt.Compare(best.StartedAt),
+	) > 0
+}
+
 // aggregateProgress averages Unit.Progress across all units in the task.
 // Returns 0 when there are no units.
 func aggregateProgress(task *distributedtask.Task) float32 {
+	if s := task.Summary; s != nil {
+		units := 0
+		for _, n := range s.Counts {
+			units += n
+		}
+		if units == 0 {
+			return 0
+		}
+		return float32(s.Counts[distributedtask.UnitStatusCompleted]) / float32(units)
+	}
 	if len(task.Units) == 0 {
 		return 0
 	}

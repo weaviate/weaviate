@@ -443,7 +443,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 		// Per-property truth: the class-wide flag only flips once every
 		// property has migrated, so an already-migrated property must
 		// NO_OP even while siblings are still pending.
-		run, _, _ := db.ReindexPartialRun(db.ReindexRuns(reindexTasks), collection, prop.Name, []string{"searchable"})
+		run := db.ReindexPartialRun(db.ReindexRuns(reindexTasks), collection, prop.Name, []string{"searchable"})
 		if db.SearchablePropertyIsBlockmax(class, prop.Name) && (run == nil || run.Payload.MigrationType != db.ReindexTypeChangeAlgorithm) {
 			return upsertPlan{noop: true}, nil
 		}

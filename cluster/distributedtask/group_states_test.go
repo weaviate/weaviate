@@ -159,7 +159,8 @@ func TestManager_StateListenerHearsADecisionOnceOutsideTheLock(t *testing.T) {
 
 func TestManager_RestoreCompactsAnEndedTaskOnce(t *testing.T) {
 	rules := &endRecordingRules{}
-	m := newRulesTestManager(t, rules, seededTask("T", TaskStatusFailed, true, "t1"))
+	// t2 is switched without a unit, as a born or taken-over tenant is.
+	m := newRulesTestManager(t, rules, seededTask("T", TaskStatusFailed, true, "t1", "t2"))
 	rules.ended = []string{"T"} // newRulesTestManager clears what its Restore recorded
 	addCompactTestTask(t, m, "reindex", "other", `{"collection":"C"}`, false, spec("u1", "t9", "n1"))
 	finishCompactTestUnit(t, m, "reindex", "other", "n1", "u1", "")
@@ -168,6 +169,7 @@ func TestManager_RestoreCompactsAnEndedTaskOnce(t *testing.T) {
 	restored := taskByID(m, "T")
 	require.Nil(t, restored.Units)
 	require.Equal(t, 1, restored.Summary.Counts[UnitStatusFailed])
+	require.Equal(t, 2, restored.Summary.Groups, "the summary counts the switched tenant without a unit")
 	require.Contains(t, restored.SwapDecidedGroups, "t1")
 }
 

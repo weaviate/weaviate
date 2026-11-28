@@ -114,6 +114,7 @@ func partlyMigratedRun(t *testing.T, prop string, mt db.ReindexMigrationType, to
 	}
 	task := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
 		Collection: "C", Properties: []string{prop}, MigrationType: mt, TargetTokenization: tok,
+		ViewServed: true, Generation: 1,
 	}, units)
 	task.SwapDecidedGroups = map[string]time.Time{groups[0]: {}}
 	return task
@@ -766,13 +767,14 @@ func TestValidateTenants(t *testing.T) {
 	}
 }
 
-// Pins which tenants the partial status counts as already serving the target.
+// Pins that the partial status counts the newest partial generation run's switched set.
 func TestMigratedTenantsAcrossRuns(t *testing.T) {
 	start := time.Now()
+	// run uses the version as the generation, and version 0 builds a run without one.
 	run := func(version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, tok string, held string, decided ...string) *distributedtask.Task {
 		task := buildTask(t, "T", status, db.ReindexTaskPayload{
 			Collection: "C", Properties: []string{"title"}, MigrationType: mt,
-			TargetTokenization: tok, BucketStrategy: "mapcollection",
+			TargetTokenization: tok, BucketStrategy: "mapcollection", ViewServed: version > 0, Generation: version,
 		}, nil)
 		task.Version, task.StartedAt = version, start.Add(time.Duration(version)*time.Minute)
 		units := map[string]*distributedtask.Unit{}
@@ -800,12 +802,8 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 		migrated, total int64
 	}{
 		{
-			name: "a tenant a replica still owes reads partial",
-			tasks: []*distributedtask.Task{func() *distributedtask.Task {
-				task := run(1, failed, changeTok, field, "abc", "a")
-				task.SwapsOwed = map[string][]string{"a": {"n2"}}
-				return task
-			}()},
+			name:   "one switched tenant reads partial",
+			tasks:  []*distributedtask.Task{run(1, failed, changeTok, field, "abc", "a")},
 			status: "partial", migrated: 1, total: 3,
 		},
 		{
@@ -814,20 +812,22 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 			status: "partial", migrated: 3, total: 3,
 		},
 		{
-			name: "a resubmit that swapped some adds them to the first run's",
-			tasks: []*distributedtask.Task{
-				run(1, cancelled, changeTok, field, "abc", "a"),
-				run(2, failed, changeTok, field, "bc", "b"),
-			},
+			name:   "a resubmit that took over counts the tenant it inherited without a unit",
+			tasks:  []*distributedtask.Task{run(2, failed, changeTok, field, "bc", "a", "b")},
 			status: "partial", migrated: 2, total: 3,
 		},
 		{
-			name: "a newer swap to another target takes the tenant back",
+			name: "after a newer run to another target ended, the newer run is counted",
 			tasks: []*distributedtask.Task{
-				run(1, failed, changeTok, field, "abc", "a", "b"),
-				run(2, failed, changeTok, whitespace, "abc", "b"),
+				run(1, failed, changeTok, field, "abc", "a"),
+				run(2, cancelled, changeTok, whitespace, "abc", "b"),
 			},
 			status: "partial", migrated: 1, total: 3,
+		},
+		{
+			name:   "a run without a generation leaves nothing partial",
+			tasks:  []*distributedtask.Task{run(0, failed, changeTok, field, "abc", "a")},
+			status: "failed",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -859,7 +859,7 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 		require.NoError(t, err)
 		task := buildTask(t, id, status, db.ReindexTaskPayload{
 			Collection: "C", Properties: []string{prop.Name}, MigrationType: plan.migrationType,
-			TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
+			TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy, ViewServed: true, Generation: 1,
 		}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 		task.SwapDecidedGroups = map[string]time.Time{"a": {}}
 		return task
@@ -937,7 +937,6 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 				map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 			run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
 			run.SwapsOwed = map[string][]string{"b": {"n2"}}
-			require.True(t, db.ReindexDetector{}.CutoverLanded(withHeader(run), func(string) *models.Class { return class }))
 			run.Status = distributedtask.TaskStatusFinished
 			tasks := []*distributedtask.Task{run}
 

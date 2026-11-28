@@ -347,6 +347,7 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 	run := func(id string, version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, decided bool) *distributedtask.Task {
 		task := buildTask(t, id, status, db.ReindexTaskPayload{
 			MigrationType: mt, Collection: "C", Properties: []string{"title"}, TargetTokenization: models.PropertyTokenizationField,
+			ViewServed: true, Generation: version,
 		}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 		task.Version = version
 		if decided {
@@ -376,10 +377,9 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 			tasks: partialRangeable, resubmit: `PUT /v1/schema/C/properties/title/index/rangeFilters -d '{}'`,
 		},
 		{
-			name: "an older partial run on another index type than a newer, covered one", property: "title",
+			name: "a partial run on another index type than a newer finished one", property: "title",
 			tasks: []*distributedtask.Task{
 				run("P1", 10, cancelled, db.ReindexTypeChangeTokenizationFilterable, true),
-				run("P2", 20, cancelled, db.ReindexTypeChangeAlgorithm, true),
 				run("F", 30, finished, db.ReindexTypeChangeAlgorithm, false),
 			},
 			resubmit: `PUT /v1/schema/C/properties/title/index/filterable -d '{"tokenization":"field"}'`,

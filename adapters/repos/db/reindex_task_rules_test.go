@@ -399,6 +399,63 @@ func sumCounts(s *distributedtask.UnitSummary) int {
 	return total
 }
 
+// TestReindexCutoverLanded fails a SWAPPING full run through Manager.MarkTaskFailed.
+func TestReindexCutoverLanded(t *testing.T) {
+	const gen = 2
+	searchableAt := func(g uint64) map[string]map[string]uint64 {
+		return map[string]map[string]uint64{"title": {"searchable": g}}
+	}
+	for _, tc := range []struct {
+		name       string
+		mt         ReindexMigrationType
+		generation uint64
+		live       map[string]map[string]uint64
+		wantFailed bool
+	}{
+		{name: "Live holds the generation", mt: ReindexTypeRebuildSearchable, generation: gen, live: searchableAt(gen)},
+		{name: "Live holds an older generation", mt: ReindexTypeRebuildSearchable, generation: gen, live: searchableAt(1), wantFailed: true},
+		{name: "Live is absent", mt: ReindexTypeRebuildSearchable, generation: gen, wantFailed: true},
+		{name: "Live is absent for one of two index types", mt: ReindexTypeChangeTokenization, generation: gen, live: searchableAt(gen), wantFailed: true},
+		{name: "a run without a generation", mt: ReindexTypeRebuildSearchable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seed := reindexSeed(t, "run", 5, distributedtask.TaskStatusSwapping, ReindexTaskPayload{
+				Collection: "C", Properties: []string{"title"}, MigrationType: tc.mt, Generation: tc.generation,
+			}, "t1")
+			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: {seed}}})
+			require.NoError(t, err)
+			logger, _ := test.NewNullLogger()
+			m := distributedtask.NewManager(distributedtask.ManagerParameters{
+				Logger:                  logger,
+				ConflictDetectors:       map[string]distributedtask.ConflictDetector{ReindexNamespace: ReindexDetector{}},
+				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
+				TaskRules:               map[string]distributedtask.TaskRules{ReindexNamespace: ReindexTaskRules{}},
+				ClassLive:               func(string) map[string]map[string]uint64 { return tc.live },
+			})
+			require.NoError(t, m.Restore(snapshot))
+
+			raw, err := json.Marshal(&api.MarkTaskFailedRequest{
+				Namespace: ReindexNamespace, Id: "run", Version: 5, Error: "flip failed", FailedAtUnixMillis: 1,
+			})
+			require.NoError(t, err)
+			require.NoError(t, m.MarkTaskFailed(&api.ApplyRequest{SubCommand: raw}))
+
+			task := findTask(m.LocalDistributedTasks()[ReindexNamespace], "run")
+			switch {
+			case tc.wantFailed:
+				require.NotNil(t, task)
+				require.Equal(t, distributedtask.TaskStatusFailed, task.Status)
+				require.Contains(t, task.SwapDecidedGroups, "t1")
+			case tc.generation > 0:
+				require.Nil(t, task, "a FINISHED full run removes itself")
+			default:
+				require.NotNil(t, task)
+				require.Equal(t, distributedtask.TaskStatusFinished, task.Status)
+			}
+		})
+	}
+}
+
 func TestReindexTaskRulesBornSwitched(t *testing.T) {
 	for _, tc := range []struct {
 		name string

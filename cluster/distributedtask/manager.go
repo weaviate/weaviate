@@ -25,7 +25,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -54,7 +53,6 @@ type Manager struct {
 	// [SchemaMutationDetector] godoc for the motivating bug).
 	schemaMutationDetectors map[string]SchemaMutationDetector
 
-	readOnlyClass func(collection string) *models.Class
 	taskRules     map[string]TaskRules
 	classLive     func(collection string) map[string]map[string]uint64
 	readSharding  func(collection string, read func(*sharding.State)) error
@@ -334,7 +332,6 @@ type ManagerParameters struct {
 	// replayed entry gets the verdict this build gives it live.
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
-	ReadOnlyClass           func(collection string) *models.Class
 	TaskRules               map[string]TaskRules
 	ClassLive               func(collection string) map[string]map[string]uint64
 	// ReadSharding runs read on the collection's sharding state as applied so far.
@@ -359,7 +356,6 @@ func NewManager(params ManagerParameters) *Manager {
 
 		conflictDetectors:       params.ConflictDetectors,
 		schemaMutationDetectors: params.SchemaMutationDetectors,
-		readOnlyClass:           params.ReadOnlyClass,
 		taskRules:               params.TaskRules,
 		classLive:               params.ClassLive,
 		readSharding:            params.ReadSharding,
@@ -1082,7 +1078,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	}
 	change.taskLevel = true
 
-	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.readOnlyClass) {
+	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.classLive) {
 		task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FailedAtUnixMillis))
 		m.notifySchedulerWithLock()
 		return nil

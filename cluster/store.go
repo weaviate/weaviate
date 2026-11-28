@@ -426,11 +426,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		Logger:                  cfg.Logger,
 		ConflictDetectors:       cfg.DistributedTaskConflictDetectors,
 		SchemaMutationDetectors: cfg.DistributedTaskSchemaMutationDetectors,
-		ReadOnlyClass: func(collection string) *models.Class {
-			return schemaReader.ReadOnlyVersionedClass(collection).Class
-		},
-		TaskRules: cfg.DistributedTaskRules,
-		ClassLive: schemaReader.ClassLive,
+		TaskRules:               cfg.DistributedTaskRules,
+		ClassLive:               schemaReader.ClassLive,
 		ReadSharding: func(collection string, read func(*sharding.State)) error {
 			err := schemaReader.Read(collection, false, func(_ *models.Class, state *sharding.State) error {
 				read(state)

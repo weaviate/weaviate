@@ -1008,8 +1008,13 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 		return payload
 	}
 	partial := reindexTaskOnC(t, "partial", distributedtask.TaskStatusFailed, "name")
+	var err error
+	partial.Payload, err = json.Marshal(ReindexTaskPayload{
+		Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}, TargetTokenization: "field",
+		ViewServed: true, Generation: 1,
+	})
+	require.NoError(t, err)
 	partial.SwapDecidedGroups = map[string]time.Time{"tenant-a": {}}
-	classC := &models.Class{Class: "C", Properties: []*models.Property{{Name: "name", Tokenization: "field"}}}
 
 	for _, tc := range []struct {
 		name  string
@@ -1033,7 +1038,7 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 			return errText(d.CheckMigrationPropertyUpdate("C", "name", ts[0]))
 		}, ""},
 		{"cutover", reindexTaskOnC(t, "T", distributedtask.TaskStatusSwapping, "name"), func(ts []*distributedtask.Task) string {
-			return fmt.Sprint(d.CutoverLanded(ts[0], func(string) *models.Class { return classC }))
+			return fmt.Sprint(d.CutoverLanded(ts[0], func(string) map[string]map[string]uint64 { return nil }))
 		}, "true"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1090,7 +1095,7 @@ func payloadWithUnitMaps(t *testing.T) []byte {
 	}
 	raw, err := json.Marshal(map[string]any{
 		"collection": "C", "migrationType": ReindexTypeChangeTokenization, "properties": []string{"name"},
-		"unitToNode": unitToNode, "unitToShard": unitToShard,
+		"unitToNode": unitToNode, "unitToShard": unitToShard, "viewServed": true, "generation": 1,
 	})
 	require.NoError(t, err)
 	return raw

@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 type testHeader string
@@ -1512,7 +1511,9 @@ type landedDetector struct {
 	landed bool
 }
 
-func (d *landedDetector) CutoverLanded(*Task, func(string) *models.Class) bool     { return d.landed }
+func (d *landedDetector) CutoverLanded(*Task, func(string) map[string]map[string]uint64) bool {
+	return d.landed
+}
 func (d *landedDetector) CheckMigrationPropertyUpdate(string, string, *Task) error { return nil }
 
 // TestManager_SnapshotRestore_WithPostCompletionAcks pins the
