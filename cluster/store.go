@@ -487,12 +487,6 @@ func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sc
 	st.distributedTasksManager.SetSchedulerNotifier(notifier)
 }
 
-// LocalUnrecognizedDistributedTasks backs
-// [distributedtask.LocalTaskInspector] on [Raft].
-func (st *Store) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
-	return st.distributedTasksManager.LocalUnrecognizedDistributedTasks()
-}
-
 // LocalDistributedTasks reads the task map this node has applied, with no
 // leader round-trip. [Raft.LocalDistributedTasks] exposes it to the
 // index-status read; callers that decide a mutation want the leader-routed

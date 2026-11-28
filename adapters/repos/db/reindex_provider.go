@@ -1637,8 +1637,6 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping:
-				// FINISHED comes from the leader's task list, not this node's
-				// schema, and only removing an index retires its overlay fields.
 			}
 		}
 		return nil
@@ -1657,6 +1655,17 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{Namespace: task.Namespace, ID: task.ID, Version: task.Version}, payload, logger); err != nil {
+		// A node whose flip arrives after another node's has finalized the run is refused,
+		// though the schema did flip; an error with the schema at target is not half-applied.
+		if ReindexRunLanded(p.schemaManager.ReadOnlyClass(payload.Collection), payload.MigrationType,
+			payload.TargetTokenization, payload.Properties) {
+			logger.Debugf("reindex provider: task-completion: schema flip refused, schema already at target: %v", err)
+			return nil
+		}
+		if !errors.Is(err, distributedtask.ErrTaskCompletionPermanent) {
+			logger.Warnf("reindex provider: task-completion: schema flip not confirmed on this attempt: %v", err)
+			return fmt.Errorf("schema flip: %w", err)
+		}
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		return fmt.Errorf("schema flip: %w", err)
 	}
