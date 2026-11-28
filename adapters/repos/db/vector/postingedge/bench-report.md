@@ -3206,6 +3206,9 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 - Mientras corren escribo el prototipo sin compilar, en un árbol aparte sobre `m2` `8ed921ed59`. La rama `feat/posting-edge-next` se crea desde la base cuando quede congelada.
 - **El troceo del volcado por presupuesto no entra en la base:** el encargo pide proponerlo, y la base solo recibe arreglos. Queda en la lista de la rama nueva.
 
+**Enmienda de las 14:43, antes de correr nada** (*mía*). La matriz de 10M de la primera tanda, que acaba ahora, da los eventos con grupos de 64 mucho peor a 0.99 que a 1M (con el 10 % pendiente, +32.6 % contra +8.6 %). Añado una fila que no estaba: **el insert en dos tiempos tal como correría** (`proto`). Los vectores llegan en 10 oleadas; cada uno recibe sus aristas provisionales al llegar, y después un evento lo conecta comparando exactamente esas provisionales con los candidatos de su grupo, así que puede conservar aristas que salen del grupo. Con grupos de 64, y con 64 dentro de 128; y la variante con la última oleada aún pendiente.
+- **No cambia la puerta:** la deciden las filas escritas arriba. Si esas fallan y esta pasa, lo digo tal cual, con las dos cosas a la vista, y no doy la puerta por pasada por mi cuenta: sigo escribiendo el prototipo sin gastar máquina en él hasta que el usuario lo vea.
+
 #### HFresh a 10M en el arnés de inserts, con 8 escritores y hasta vaciar sus colas (pre-registro, 28 de noviembre a las 14:42, por encargo del usuario)
 
 **Qué es.** La medida de HFresh de las definitivas de 1M, a 10M: el mismo arnés (`TestHFreshDiskInserts`), el mismo binario (el de las 05:10, de integración `20e89f0873`), wiki-dpr de 768 dimensiones, **8 escritores**, sus 9 workers de fondo por defecto. Dos relojes: hasta que vuelve el último insert, y hasta que sus colas quedan vacías. Al final, su recall con 1 000 queries y la configuración del arnés (256 postings, rescore 350).
