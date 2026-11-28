@@ -1598,6 +1598,15 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 - **Duración estimada:** unas dos horas y media. Crecer el índice de 100k, 20 pasadas a 100k y 19 a 10M.
 - **Dónde va en el orden:** detrás de la propagación, que compila y corre tests. Nada compila mientras corre.
 
+**Enmienda 3 (28 de noviembre a las 03:57, con las 39 pasadas hechas y leídas, antes de ejecutar esta comprobación).**
+- **El control de las filas nuevas a 100k no pasa el 5 %:** las filas nuevas dan 969 inserts por segundo y las repetidas 1 327 y 1 335, con un 22 % más de cargas por insert (43.7 frente a 35.9).
+- **Hay dos explicaciones y las pasadas no las separan.** O una fila repetida es más barata porque encuentra a su gemela, o las filas 100 000 a 119 999 del dataset no son una muestra de lo que el índice tiene: el dataset va en el orden de Wikipedia, y son los artículos siguientes.
+- **La comprobación:** crecer otra vez el índice de 100k, con el mismo binario y el mismo arnés, guardando sus contadores en cada tramo de 10 s. Las cargas por insert de sus últimos tramos son las de filas nuevas de las mismas 100 000, que entran en orden aleatorio.
+  - Si quedan cerca de 35.9, las repetidas cuestan lo que una fila nueva de la misma distribución, y las 43.7 son de las filas de después.
+  - Si quedan cerca de 43.7, las repetidas son más baratas, y las fases a 100k se leen con esa advertencia.
+- **Solo cuenta, sin cronómetro:** cargas, filas y vectores por insert. No da ritmos.
+- **A 10M no hace falta:** las filas repetidas dan 108.6 cargas por insert, y las filas nuevas de la corrida de crecimiento daban 108.7 en su último tramo entero.
+
 #### El 10M crecido con la serie: resultado (28 de noviembre, cerrado a las 02:10)
 
 **Los 10 000 000 de vectores entraron en 8 h 49 min 45 s, a 314 inserts por segundo de media: 619 en el primer tramo y 233 en el último entero. El índice queda sin reorganización final, por falta de sitio, y no se usa para búsqueda en frío hasta reorganizarlo. A 0.95 carga 19.53 postings por query y a 0.99 carga 62.90. Abierto en `routing`, su heap son 1 308 MB.**
