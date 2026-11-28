@@ -1466,8 +1466,10 @@ log after the upgrade: for a task without a generation the cutover check
 reports it landed and records `FINISHED`. A v1.39.x run whose flip did not
 land is then recorded `FINISHED`, and the boot check does not see it as
 partial. A node whose snapshot already held the v1.39.x verdict keeps it,
-so replicas can disagree on that old task's status. The task has no
-generation and never serves, so only its status is affected.
+so replicas can disagree on that old task's status. The recorded status
+decides more than the listing: on a node that records `FINISHED`, the next
+shard load deletes that run's new index copy. Losing it needs a run left
+failed partway at upgrade, which the precondition above rules out.
 
 ### Legacy records at load
 
@@ -1500,7 +1502,11 @@ gone serves what the class names (the accepted limitation above).
 - **Downgrade.** An older binary cannot apply `TYPE_REINDEX_FLIP`, and it
   does not know generation folders: downgrade only before the first run on
   this version. Roll a cluster back below this version after a run only by
-  restoring from a backup.
+  restoring a backup taken before the first run on this version; a later
+  backup restores every rebuilt index empty on an older build.
+- **Upgrading to the next minor.** After a run, upgrade only to a v1.40 or
+  v1.41 patch released together with or after this version. An earlier
+  patch does not read live generations and loads every rebuilt index empty.
 - **Metrics.** `migration_records_wedged_total`,
   `migration_records_not_understood_total`, `reindex_held_shards` and
   `rangeable_inmemory_rebuild_degraded_total` no longer exist, and
