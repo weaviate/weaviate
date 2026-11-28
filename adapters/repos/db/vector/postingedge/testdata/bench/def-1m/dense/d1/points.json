@@ -1,0 +1,236 @@
+{
+  "dir": "/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/def1m/dense/d1/index",
+  "dataset": "/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.bin",
+  "cacheMode": "routing",
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1147499,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 0,
+    "postings": 8143,
+    "splits": 4050,
+    "splitsFailed": 0,
+    "live": 990000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 4,
+    "vectorsLaidOut": 640364,
+    "refreshedAt": 10000
+  },
+  "livePostings": 4093,
+  "deleted": 0,
+  "queries": 1000,
+  "k": 10,
+  "threads": 8,
+  "points": [
+    {
+      "target": 0.95,
+      "ef": 21,
+      "recall": 0.9514,
+      "loads": 18.952,
+      "rounds": 4.488,
+      "members": 4854.248,
+      "rescored": 64,
+      "blockBytes": 1223299.634
+    },
+    {
+      "target": 0.99,
+      "ef": 173,
+      "recall": 0.99,
+      "loads": 75.724,
+      "rounds": 18.681,
+      "members": 19285.862,
+      "rescored": 64,
+      "blockBytes": 4864633.436
+    }
+  ],
+  "tried": [
+    {
+      "ef": 10,
+      "recall": 0.9152,
+      "loads": 12.616,
+      "rounds": 2.904,
+      "members": 3234.59,
+      "rescored": 64,
+      "blockBytes": 813947.597
+    },
+    {
+      "ef": 20,
+      "recall": 0.9498,
+      "loads": 18.448,
+      "rounds": 4.362,
+      "members": 4724.613,
+      "rescored": 64,
+      "blockBytes": 1190602.259
+    },
+    {
+      "ef": 40,
+      "recall": 0.9723,
+      "loads": 28.54,
+      "rounds": 6.885,
+      "members": 7291.773,
+      "rescored": 64,
+      "blockBytes": 1839362.774
+    },
+    {
+      "ef": 30,
+      "recall": 0.962,
+      "loads": 23.712,
+      "rounds": 5.678,
+      "members": 6057.929,
+      "rescored": 64,
+      "blockBytes": 1527387.163
+    },
+    {
+      "ef": 25,
+      "recall": 0.9567,
+      "loads": 21.096,
+      "rounds": 5.024,
+      "members": 5395.959,
+      "rescored": 64,
+      "blockBytes": 1360182.645
+    },
+    {
+      "ef": 22,
+      "recall": 0.9523,
+      "loads": 19.496,
+      "rounds": 4.624,
+      "members": 4991.488,
+      "rescored": 64,
+      "blockBytes": 1258012.719
+    },
+    {
+      "ef": 21,
+      "recall": 0.9514,
+      "loads": 18.952,
+      "rounds": 4.488,
+      "members": 4854.248,
+      "rescored": 64,
+      "blockBytes": 1223299.634
+    },
+    {
+      "ef": 10,
+      "recall": 0.9152,
+      "loads": 12.616,
+      "rounds": 2.904,
+      "members": 3234.59,
+      "rescored": 64,
+      "blockBytes": 813947.597
+    },
+    {
+      "ef": 20,
+      "recall": 0.9498,
+      "loads": 18.448,
+      "rounds": 4.362,
+      "members": 4724.613,
+      "rescored": 64,
+      "blockBytes": 1190602.259
+    },
+    {
+      "ef": 40,
+      "recall": 0.9723,
+      "loads": 28.54,
+      "rounds": 6.885,
+      "members": 7291.773,
+      "rescored": 64,
+      "blockBytes": 1839362.774
+    },
+    {
+      "ef": 80,
+      "recall": 0.9835,
+      "loads": 44.56,
+      "rounds": 10.89,
+      "members": 11365.32,
+      "rescored": 64,
+      "blockBytes": 2868272.327
+    },
+    {
+      "ef": 160,
+      "recall": 0.9893,
+      "loads": 71.712,
+      "rounds": 17.678,
+      "members": 18264.256,
+      "rescored": 64,
+      "blockBytes": 4607155.868
+    },
+    {
+      "ef": 320,
+      "recall": 0.9947,
+      "loads": 116.116,
+      "rounds": 28.779,
+      "members": 29529.265,
+      "rescored": 64,
+      "blockBytes": 7444300.735
+    },
+    {
+      "ef": 240,
+      "recall": 0.9928,
+      "loads": 94.972,
+      "rounds": 23.493,
+      "members": 24173.176,
+      "rescored": 64,
+      "blockBytes": 6095903.5
+    },
+    {
+      "ef": 200,
+      "recall": 0.9915,
+      "loads": 83.848,
+      "rounds": 20.712,
+      "members": 21344.033,
+      "rescored": 64,
+      "blockBytes": 5383085.776
+    },
+    {
+      "ef": 180,
+      "recall": 0.9904,
+      "loads": 77.896,
+      "rounds": 19.224,
+      "members": 19836.923,
+      "rescored": 64,
+      "blockBytes": 5003724.919
+    },
+    {
+      "ef": 170,
+      "recall": 0.9898,
+      "loads": 74.72,
+      "rounds": 18.43,
+      "members": 19031.621,
+      "rescored": 64,
+      "blockBytes": 4800429.575
+    },
+    {
+      "ef": 175,
+      "recall": 0.99,
+      "loads": 76.32,
+      "rounds": 18.83,
+      "members": 19437.909,
+      "rescored": 64,
+      "blockBytes": 4902909.377
+    },
+    {
+      "ef": 172,
+      "recall": 0.9898,
+      "loads": 75.384,
+      "rounds": 18.596,
+      "members": 19199.523,
+      "rescored": 64,
+      "blockBytes": 4842815.297
+    },
+    {
+      "ef": 173,
+      "recall": 0.99,
+      "loads": 75.724,
+      "rounds": 18.681,
+      "members": 19285.862,
+      "rescored": 64,
+      "blockBytes": 4864633.436
+    }
+  ],
+  "denseIDs": true
+}

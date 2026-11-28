@@ -1,0 +1,15 @@
+== 10:05:27 waiting for 900 s of idle (now 3670 s)
+== 2026-11-28 10:05:27 idle for 3670 s
+== 2026-11-28 10:05:27 d1: grow, routing, 8 callers, dense doc ids (idle 3670 s)
+d1 grow exit 0
+== 10:29:18 d1: points (idle 5100 s)
+d1 points exit 0
+0.76 GB  index/lsm
+6.15 GB  index/main.postingedge.d
+== 2026-11-28 10:29:36 d2: grow, routing, 8 callers, dense doc ids (idle 5119 s)
+d2 grow exit 0
+== 10:53:16 d2: points (idle 6539 s)
+d2 points exit 0
+0.84 GB  index/lsm
+6.16 GB  index/main.postingedge.d
+== 2026-11-28 10:53:36 done (idle 6558 s)

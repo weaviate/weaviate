@@ -1,0 +1,227 @@
+{
+  "dir": "/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/def1m/dense/d2/index",
+  "dataset": "/Users/abdel/Documents/datasets/dbpedia-openai-1000k-angular.bin",
+  "cacheMode": "routing",
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 1536,
+    "keys": 1109499,
+    "scanCodeWords": 25,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 0,
+    "postings": 8195,
+    "splits": 4076,
+    "splitsFailed": 0,
+    "live": 990000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 4,
+    "vectorsLaidOut": 640368,
+    "refreshedAt": 10000
+  },
+  "livePostings": 4119,
+  "deleted": 0,
+  "queries": 1000,
+  "k": 10,
+  "threads": 8,
+  "points": [
+    {
+      "target": 0.95,
+      "ef": 20,
+      "recall": 0.9514,
+      "loads": 18.49,
+      "rounds": 4.373,
+      "members": 4676.342,
+      "rescored": 64,
+      "blockBytes": 1176972.241
+    },
+    {
+      "target": 0.99,
+      "ef": 176,
+      "recall": 0.99,
+      "loads": 76.496,
+      "rounds": 18.874,
+      "members": 19327.028,
+      "rescored": 64,
+      "blockBytes": 4870502.198
+    }
+  ],
+  "tried": [
+    {
+      "ef": 10,
+      "recall": 0.9217,
+      "loads": 12.674,
+      "rounds": 2.92,
+      "members": 3208.543,
+      "rescored": 64,
+      "blockBytes": 806398.43
+    },
+    {
+      "ef": 20,
+      "recall": 0.9514,
+      "loads": 18.49,
+      "rounds": 4.373,
+      "members": 4676.342,
+      "rescored": 64,
+      "blockBytes": 1176972.241
+    },
+    {
+      "ef": 15,
+      "recall": 0.9389,
+      "loads": 15.769,
+      "rounds": 3.693,
+      "members": 3990.146,
+      "rescored": 64,
+      "blockBytes": 1003473.829
+    },
+    {
+      "ef": 17,
+      "recall": 0.9443,
+      "loads": 16.87,
+      "rounds": 3.968,
+      "members": 4267.884,
+      "rescored": 64,
+      "blockBytes": 1073757.479
+    },
+    {
+      "ef": 18,
+      "recall": 0.9472,
+      "loads": 17.338,
+      "rounds": 4.085,
+      "members": 4385.788,
+      "rescored": 64,
+      "blockBytes": 1103506.727
+    },
+    {
+      "ef": 19,
+      "recall": 0.9493,
+      "loads": 17.946,
+      "rounds": 4.237,
+      "members": 4539.597,
+      "rescored": 64,
+      "blockBytes": 1142380.539
+    },
+    {
+      "ef": 10,
+      "recall": 0.9217,
+      "loads": 12.674,
+      "rounds": 2.92,
+      "members": 3208.543,
+      "rescored": 64,
+      "blockBytes": 806398.43
+    },
+    {
+      "ef": 20,
+      "recall": 0.9514,
+      "loads": 18.49,
+      "rounds": 4.373,
+      "members": 4676.342,
+      "rescored": 64,
+      "blockBytes": 1176972.241
+    },
+    {
+      "ef": 40,
+      "recall": 0.9705,
+      "loads": 28.228,
+      "rounds": 6.807,
+      "members": 7145.687,
+      "rescored": 64,
+      "blockBytes": 1800905.828
+    },
+    {
+      "ef": 80,
+      "recall": 0.9815,
+      "loads": 44.596,
+      "rounds": 10.899,
+      "members": 11276.056,
+      "rescored": 64,
+      "blockBytes": 2843141.152
+    },
+    {
+      "ef": 160,
+      "recall": 0.9896,
+      "loads": 71.68,
+      "rounds": 17.67,
+      "members": 18114.845,
+      "rescored": 64,
+      "blockBytes": 4565653.76
+    },
+    {
+      "ef": 320,
+      "recall": 0.9933,
+      "loads": 116.224,
+      "rounds": 28.806,
+      "members": 29317.275,
+      "rescored": 64,
+      "blockBytes": 7383650.109
+    },
+    {
+      "ef": 240,
+      "recall": 0.9922,
+      "loads": 94.9,
+      "rounds": 23.475,
+      "members": 23959.256,
+      "rescored": 64,
+      "blockBytes": 6036295.04
+    },
+    {
+      "ef": 200,
+      "recall": 0.9911,
+      "loads": 83.732,
+      "rounds": 20.683,
+      "members": 21153.268,
+      "rescored": 64,
+      "blockBytes": 5330096.896
+    },
+    {
+      "ef": 180,
+      "recall": 0.9903,
+      "loads": 77.728,
+      "rounds": 19.182,
+      "members": 19640.107,
+      "rescored": 64,
+      "blockBytes": 4949398.101
+    },
+    {
+      "ef": 170,
+      "recall": 0.9897,
+      "loads": 74.8,
+      "rounds": 18.45,
+      "members": 18901.6,
+      "rescored": 64,
+      "blockBytes": 4763315.165
+    },
+    {
+      "ef": 175,
+      "recall": 0.9899,
+      "loads": 76.292,
+      "rounds": 18.823,
+      "members": 19274.463,
+      "rescored": 64,
+      "blockBytes": 4857297.177
+    },
+    {
+      "ef": 177,
+      "recall": 0.99,
+      "loads": 76.832,
+      "rounds": 18.958,
+      "members": 19412.664,
+      "rescored": 64,
+      "blockBytes": 4892083.782
+    },
+    {
+      "ef": 176,
+      "recall": 0.99,
+      "loads": 76.496,
+      "rounds": 18.874,
+      "members": 19327.028,
+      "rescored": 64,
+      "blockBytes": 4870502.198
+    }
+  ],
+  "denseIDs": true
+}

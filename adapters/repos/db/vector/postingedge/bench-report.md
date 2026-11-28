@@ -2630,6 +2630,60 @@ A igual ef, recall y cargas de los tres crecidos:
 - **Entre las dos corridas, menos de un 2 % en la media.**
 - **El recall y las cargas, como en la primera parte:** 0.95 con ef 19 a 21 y de 17.9 a 18.7 cargas.
 
+#### La celda principal con doc ids densos, dos veces: resultado (28 de noviembre, cerrado a las 10:54)
+
+**Con los doc ids en orden de llegada, como en un shard, la celda principal da 690 y 694 inserts por segundo: un 4.3 % más que los 663 de la primera parte, con los doc ids repartidos. Las dos corridas se separan un 0.6 %. La diferencia está al principio de la curva, un 9 % en los primeros 100 000, y desaparece al final.**
+
+**La corrida,** de 10:05:27 a 10:53:36, las dos pasadas sin error y sin teclado ni trackpad: 3 670 s sin tocar al empezar y 6 558 al acabar. Ninguna entrada de sueño en el registro de energía.
+
+| | doc ids repartidos (primera parte) | densos, 1 | densos, 2 |
+|---|---:|---:|---:|
+| segundos de inserts tras la base | 1 478 | 1 421 | 1 412 |
+| inserts por segundo, media | 663 | 690 | 694 |
+| primer tramo | 834 | 889 | 895 |
+| último tramo entero | 574 | 558 | 576 |
+| ms de CPU por insert, sin el primer tramo | 9.73 | 9.45 | 9.40 |
+| búsqueda del plan, ms por insert | 7.76 | 7.45 | 7.41 |
+| cargas por insert | 62.06 | 62.10 | 61.94 |
+| escrito, veces los vectores | 4.44 | 4.42 | 4.33 |
+| `keys` al acabar | 1 237 381 | 1 147 499 | 1 109 499 |
+| postings vivos | 4 070 | 4 093 | 4 119 |
+| 0.95: ef, cargas | 21, 18.74 | 21, 18.95 | 20, 18.49 |
+| 0.99: ef, cargas | 164, 72.44 | 173, 75.72 | 176, 76.50 |
+
+Por tramos de unos 100 000 vectores, inserts por segundo (los cortes caen en bordes de tramo, que no son los mismos en cada corrida):
+
+| miles dentro, hacia | repartidos | densos, 1 | densos, 2 |
+|---:|---:|---:|---:|
+| 110 | 792 | 860 | 868 |
+| 210 | 759 | 797 | 812 |
+| 300 | 726 | 782 | 797 |
+| 400 | 703 | 754 | 763 |
+| 490 | 673 | 708 | 720 |
+| 610 | 656 | 682 | 686 |
+| 690 | 626 | 654 | 630 |
+| 800 | 595 | 606 | 615 |
+| 905 | 588 | 600 | 580 |
+| 990 | 575 | 567 | 578 |
+
+**Frente a lo que esperaba:**
+
+| | esperaba | salió | |
+|---|---|---|---|
+| la media | entre 685 y 715 | 690 y 694 | sí |
+| el primer tramo | entre 880 y 920 | 889 y 895 | sí |
+| el último tramo entero | entre 570 y 600 | 558 y 576 | la primera, fuera por abajo |
+| entre las dos corridas | menos de un 2 % | 0.6 % en la media | sí |
+| 0.95 | ef 19 a 21, de 17.9 a 18.7 cargas | ef 21 y 20, 18.95 y 18.49 | la primera, 0.25 cargas por encima |
+
+- **El ruido entre dos corridas iguales es del 0.6 % en la media,** y de hasta un 4 % en un tramo suelto (654 y 630 hacia los 690 000, donde cae el layout de 640 000).
+- **Lo que cuestan los doc ids repartidos, a 1M:** un 4.3 % en la media, 692 frente a 663, siete veces el ruido. Un 9 % al principio y nada al final, como a 100k decía el control (un 7 %).
+- **El recall y las cargas no cambian:** a 0.95, de 18.5 a 19.0 cargas. A 0.99 las dos densas dan ef 173 y 176 con 75.7 y 76.5 cargas, junto al lote (ef 187, 76.3); las tres corridas de la primera parte iban de 63.5 a 78.4.
+- **La celda principal de las definitivas es esta:** `routing`, 8 llamadores, doc ids densos, 692 inserts por segundo, con la nota del recolector que ya tiene. La de la primera parte queda como el caso de doc ids repartidos.
+- **No repetí con doc ids densos las otras dos celdas** (`none` con 8 y `routing` con 1). A 100k lo denso daba un 13 % más con 1 llamador.
+
+**Datos:** `testdata/bench/def-1m/dense/` (por pasada, `grow.json`, `grow.log`, `stretches.tsv`, `groups.txt`, `points.json` y `monitor.jsonl.gz`; `chain.out.txt`, `dense.sh.txt` y los tres ficheros del arnés).
+
 #### Huecos del diagnóstico (pre-registro, 28 de noviembre a las 10:15, antes de compilar)
 
 **El encargo** (del usuario, punto 3 del orden de las 10:00): cuatro huecos, sobre los clones y antes de reorganizar el 10M. Solo medir.
