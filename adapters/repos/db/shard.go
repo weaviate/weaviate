@@ -355,6 +355,10 @@ type Shard struct {
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
+	// haltResumed closes when the halt count drops to 0. Under haltForTransferMux.
+	haltResumed chan struct{}
+	// reindexScans counts running build scans; it rises only under haltForTransferMux.
+	reindexScans atomic.Int32
 
 	status ShardStatus
 	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""

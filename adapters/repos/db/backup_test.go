@@ -1459,6 +1459,78 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 	}
 }
 
+// changingReindexState answers its first read with the state before the shard snapshots, then the one after.
+type changingReindexState struct {
+	schemaUC.SchemaReader
+	taskReads, liveReads  atomic.Int32
+	tasksBefore, tasksNow []*distributedtask.Task
+	liveBefore, liveNow   map[string]map[string]uint64
+}
+
+func (c *changingReindexState) LocalEndedTasks(string, string) []*distributedtask.Task {
+	if c.taskReads.Add(1) == 1 {
+		return c.tasksBefore
+	}
+	return c.tasksNow
+}
+
+func (c *changingReindexState) ClassLive(string) map[string]map[string]uint64 {
+	if c.liveReads.Add(1) == 1 {
+		return c.liveBefore
+	}
+	return c.liveNow
+}
+
+// A run that ends or flips Live while the shards are snapshotted would pair its
+// task state with files from before it, so the backup fails instead.
+func TestDescriptorRefusesReindexStateChangedDuringBackup(t *testing.T) {
+	const className = "TestClass"
+	ended := []*distributedtask.Task{{
+		Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "a", Version: 1},
+		Status: distributedtask.TaskStatusCancelled, SwapDecidedGroups: map[string]time.Time{"t1": {}},
+	}}
+	switchedMore := []*distributedtask.Task{{
+		Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "a", Version: 1},
+		Status: distributedtask.TaskStatusCancelled, SwapDecidedGroups: map[string]time.Time{"t1": {}, "t2": {}},
+	}}
+	live := map[string]map[string]uint64{"body": {"searchable": 2}}
+	for _, tc := range []struct {
+		name    string
+		state   *changingReindexState
+		changed bool
+	}{
+		{name: "unchanged state is captured", state: &changingReindexState{
+			tasksBefore: ended, tasksNow: ended, liveBefore: live, liveNow: live,
+		}},
+		{name: "a run that ended during the backup", changed: true, state: &changingReindexState{tasksNow: ended}},
+		{name: "a run gone during the backup", changed: true, state: &changingReindexState{tasksBefore: ended}},
+		{name: "a group switched during the backup", changed: true, state: &changingReindexState{
+			tasksBefore: ended, tasksNow: switchedMore,
+		}},
+		{name: "Live flipped during the backup", changed: true, state: &changingReindexState{liveNow: live}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			state := NewMultiTenantShardingStateBuilder().AddTenant("t1", models.TenantActivityStatusCOLD).WithReplicationFactor(1).Build()
+			createColdShardFiles(t, rootDir, className, "t1")
+			idx := newDescriptorTestIndex(t, rootDir, className, state)
+			idx.db = &DB{}
+			idx.db.SetEndedReindexTaskReader(tc.state)
+			tc.state.SchemaReader = idx.schemaReader
+			idx.schemaReader = tc.state
+
+			var desc backup.ClassDescriptor
+			err := idx.descriptor(context.Background(), "b1", &desc, nil, newReindexGate(stubDBWithNoLiveReindex(), reindexGateMaxAge))
+			if tc.changed {
+				require.ErrorContains(t, err, "reindex state of class TestClass changed during the backup; retry")
+				return
+			}
+			require.NoError(t, err)
+			require.JSONEq(t, string(mustJSON(t, ended)), string(desc.ReindexTasks))
+		})
+	}
+}
+
 type liveSchemaReader struct {
 	schemaUC.SchemaReader
 	live map[string]map[string]map[string]uint64

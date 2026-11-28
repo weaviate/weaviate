@@ -641,30 +641,15 @@ func (s *Shard) ReindexBuild(ctx context.Context, taskID string, gen uint64, pro
 func (s *Shard) scanIntoBuild(ctx context.Context, b *stagedBuild) error {
 	name := b.name + reindexBuildSuffix
 	dir := filepath.Join(s.pathLSM(), name)
-	if s.store.Bucket(name) != nil {
-		if err := s.store.ShutdownBucket(context.Background(), name); err != nil {
-			return fmt.Errorf("close stale scratch: %w", err)
-		}
+	end, err := s.beginScan(ctx, name)
+	if err != nil {
+		return err
 	}
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("empty scratch: %w", err)
-	}
+	defer end()
 	if err := s.store.CreateOrLoadBucket(ctx, name, s.makeDefaultBucketOptions(b.strategy.TargetStrategy(),
 		lsmkv.WithKeepSegmentsInMemory(false))...); err != nil {
 		return fmt.Errorf("open scratch: %w", err)
 	}
-	defer func() {
-		if s.store.Bucket(name) != nil {
-			if err := s.store.ShutdownBucket(context.Background(), name); err != nil {
-				s.index.logger.WithField("action", "reindex_build").WithField("bucket", name).
-					Errorf("cannot close the scan scratch: %v", err)
-			}
-		}
-		if err := os.RemoveAll(dir); err != nil {
-			s.index.logger.WithField("action", "reindex_build").WithField("dir", dir).
-				Errorf("cannot delete the scan scratch: %v", err)
-		}
-	}()
 	scratch := s.store.Bucket(name)
 	if err := s.scanObjects(ctx, b, scratch); err != nil {
 		return err
@@ -680,6 +665,75 @@ func (s *Shard) scanIntoBuild(ctx context.Context, b *stagedBuild) error {
 		return fmt.Errorf("place the scan under live writes: %w", err)
 	}
 	return b.bucket.FlushAndSwitch()
+}
+
+// beginScan counts the scan, which a backup halt refuses, so no listing sees the scratch change.
+func (s *Shard) beginScan(ctx context.Context, name string) (end func(), err error) {
+	if !s.whenNotHalted(ctx, func() {
+		if err = s.dropScratch(name); err == nil {
+			s.reindexScans.Add(1)
+		}
+	}) {
+		return nil, errors.Join(ctx.Err(), s.shutCtx.Err())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		defer s.reindexScans.Add(-1)
+		s.whenNotHalted(context.Background(), func() {
+			if err := s.dropScratch(name); err != nil {
+				s.index.logger.WithField("action", "reindex_build").WithField("bucket", name).
+					Errorf("cannot delete the scan scratch: %v", err)
+			}
+		})
+	}, nil
+}
+
+func (s *Shard) dropScratch(name string) error {
+	if s.store.Bucket(name) != nil {
+		if err := s.store.ShutdownBucket(context.Background(), name); err != nil {
+			return fmt.Errorf("close scratch: %w", err)
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(s.pathLSM(), name)); err != nil {
+		return fmt.Errorf("delete scratch: %w", err)
+	}
+	return nil
+}
+
+// whenNotHalted runs del once no backup halts the shard, holding the halt lock
+// so none starts mid-delete. It gives up when ctx or the shard ends.
+func (s *Shard) whenNotHalted(ctx context.Context, del func()) bool {
+	for {
+		s.haltForTransferMux.Lock()
+		if s.haltForTransferCount.Load() == 0 {
+			del()
+			s.haltForTransferMux.Unlock()
+			return true
+		}
+		resumed := s.haltResumed
+		s.haltForTransferMux.Unlock()
+		select {
+		case <-resumed:
+		case <-ctx.Done():
+			return false
+		case <-s.shutCtx.Done():
+			return false
+		}
+	}
+}
+
+func (s *Shard) reindexDeletePending() (bool, string) {
+	if s.reindexScans.Load() > 0 {
+		return true, "a reindex build is scanning"
+	}
+	s.view.retireMu.Lock()
+	defer s.view.retireMu.Unlock()
+	if len(s.view.retiring) > 0 {
+		return true, "a replaced reindex folder awaits deletion"
+	}
+	return false, ""
 }
 
 // scanObjects has no time filter, since the coordinator stamps update times on
@@ -780,9 +834,11 @@ func (s *Shard) retireBuckets(buckets []*lsmkv.Bucket, replaced *shardView) {
 		defer s.view.retires.Done()
 		select {
 		case <-replaced.drained:
-			for _, b := range buckets {
-				s.retireBucket(b)
-			}
+			s.whenNotHalted(context.Background(), func() {
+				for _, b := range buckets {
+					s.retireBucket(b)
+				}
+			})
 		case <-s.shutCtx.Done():
 		}
 		s.view.retireMu.Lock()

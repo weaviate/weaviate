@@ -100,10 +100,7 @@ func TestCancelledRunSurvivesBackupRestore(t *testing.T) {
 	require.Equal(t, "CANCELLED", reindexhelpers.CancelIndex(t, restURI, className, "text", "searchable").Status)
 	requireCounts("after the cancel")
 
-	const backupID = "reindex-backup-cancelled-run"
-	_, err = helper.CreateBackup(t, helper.DefaultBackupConfig(), className, "filesystem", backupID)
-	require.NoError(t, err)
-	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithDeadline(2*time.Minute))
+	backupID := backUpOnceTheCancelledScanEnds(t, className)
 	helper.DeleteClass(t, className)
 	_, err = helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, "filesystem", backupID, nil, false)
 	require.NoError(t, err)
@@ -114,4 +111,29 @@ func TestCancelledRunSurvivesBackupRestore(t *testing.T) {
 	require.NoError(t, compose.StartAt(ctx, 0))
 	helper.SetupClient(compose.GetWeaviate().URI())
 	requireCounts("after the restore and a restart")
+}
+
+// backUpOnceTheCancelledScanEnds retries a backup the halt refuses while the cancelled run's scan winds down.
+func backUpOnceTheCancelledScanEnds(t *testing.T, className string) string {
+	deadline := time.Now().Add(2 * time.Minute)
+	for attempt := 0; ; attempt++ {
+		backupID := fmt.Sprintf("reindex-backup-cancelled-run-%d", attempt)
+		_, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, "filesystem", backupID)
+		require.NoError(t, err)
+		var status, reason string
+		require.Eventually(t, func() bool {
+			resp, err := helper.CreateBackupStatus(t, "filesystem", backupID, "", "")
+			if err != nil || resp.Payload == nil {
+				return false
+			}
+			status, reason = *resp.Payload.Status, resp.Payload.Error
+			return status == "SUCCESS" || status == "FAILED"
+		}, 2*time.Minute, 500*time.Millisecond, "backup %s never ended", backupID)
+		if status == "SUCCESS" {
+			return backupID
+		}
+		require.Contains(t, reason, "a reindex build is scanning", "backup %s failed", backupID)
+		require.True(t, time.Now().Before(deadline), "the cancelled run's scan never ended: %s", reason)
+		time.Sleep(time.Second)
+	}
 }

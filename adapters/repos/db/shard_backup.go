@@ -66,9 +66,15 @@ func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivity
 			return fmt.Errorf("%w: shard %q: %s; transfer deferred until it completes",
 				enterrors.ErrShardBusyStructuralOp, s.name, reason)
 		}
+		if busy, reason := s.reindexDeletePending(); busy {
+			return fmt.Errorf("%w: shard %q: %s; transfer deferred until it completes",
+				enterrors.ErrShardBusyStructuralOp, s.name, reason)
+		}
 	}
 
-	s.haltForTransferCount.Add(1)
+	if s.haltForTransferCount.Add(1) == 1 {
+		s.haltResumed = make(chan struct{})
+	}
 
 	defer func() {
 		if err != nil {
@@ -488,6 +494,11 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 			// maintenance cycles are not resumed as there is at least one active halt request
 			return nil
 		}
+	}
+
+	if s.haltResumed != nil {
+		close(s.haltResumed)
+		s.haltResumed = nil
 	}
 
 	// terminate the inactivity monitor synchronously under the mux, so a subsequent

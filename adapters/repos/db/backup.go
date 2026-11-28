@@ -316,6 +316,10 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
+	reindexBefore, err := i.reindexStateFingerprint()
+	if err != nil {
+		return err
+	}
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(_NUMCPU)
@@ -354,7 +358,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 		}
 	}
 
-	return i.marshalBackupMetadata(desc, stateBytes)
+	return i.marshalBackupMetadata(desc, stateBytes, reindexBefore)
 }
 
 // backupShardWithHardlinks backs up a single shard using hardlinks. Under backupLock.Lock,
@@ -510,6 +514,10 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
+	reindexBefore, err := i.reindexStateFingerprint()
+	if err != nil {
+		return err
+	}
 
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
@@ -533,7 +541,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}
 
-	return i.marshalBackupMetadata(desc, stateBytes)
+	return i.marshalBackupMetadata(desc, stateBytes, reindexBefore)
 }
 
 // backupShardWithoutHardlinks backs up a single shard without hardlinks. Compaction
@@ -656,7 +664,7 @@ func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*back
 }
 
 // marshalBackupMetadata marshals sharding state, schema, aliases and reindex state into the class descriptor.
-func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingState []byte) error {
+func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingState []byte, reindexBefore string) error {
 	var err error
 	desc.ShardingState = shardingState
 	if desc.Schema, err = i.marshalSchema(); err != nil {
@@ -670,7 +678,7 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingStat
 	// newer backups. To avoid failing to backup old backups that doesn't
 	// understand `aliases` key in the ClassDescriptor.
 	desc.AliasesIncluded = true
-	return i.marshalReindexState(desc)
+	return i.marshalReindexState(desc, reindexBefore)
 }
 
 type EndedReindexTaskReader interface {
@@ -681,21 +689,58 @@ func (db *DB) SetEndedReindexTaskReader(reader EndedReindexTaskReader) {
 	db.endedReindexTasks = reader
 }
 
-func (i *Index) marshalReindexState(desc *backup.ClassDescriptor) error {
+func (i *Index) reindexState() ([]*distributedtask.Task, map[string]map[string]uint64, error) {
 	reader := i.db.endedReindexTasks
 	if reader == nil {
-		return fmt.Errorf("no reader for the ended reindex tasks of class %s", i.Config.ClassName)
+		return nil, nil, fmt.Errorf("no reader for the ended reindex tasks of class %s", i.Config.ClassName)
 	}
 	className := i.Config.ClassName.String()
 	tasks := reader.LocalEndedTasks(ReindexNamespace, className)
 	if tasks == nil {
 		tasks = []*distributedtask.Task{}
 	}
-	var err error
+	return tasks, i.schemaReader.ClassLive(className), nil
+}
+
+// reindexFingerprint changes whenever a run ends, switches a group, goes away or flips Live.
+func reindexFingerprint(tasks []*distributedtask.Task, live map[string]map[string]uint64) string {
+	type taskPrint struct {
+		Desc     distributedtask.TaskDescriptor
+		Status   distributedtask.TaskStatus
+		Switched int
+	}
+	prints := make([]taskPrint, len(tasks))
+	for n, t := range tasks {
+		prints[n] = taskPrint{Desc: t.TaskDescriptor, Status: t.Status, Switched: len(t.SwapDecidedGroups)}
+	}
+	raw, _ := json.Marshal(struct {
+		Tasks []taskPrint
+		Live  map[string]map[string]uint64
+	}{prints, live})
+	return string(raw)
+}
+
+func (i *Index) reindexStateFingerprint() (string, error) {
+	tasks, live, err := i.reindexState()
+	if err != nil {
+		return "", err
+	}
+	return reindexFingerprint(tasks, live), nil
+}
+
+// marshalReindexState refuses a capture whose state differs from the one before the shard snapshots.
+func (i *Index) marshalReindexState(desc *backup.ClassDescriptor, before string) error {
+	tasks, live, err := i.reindexState()
+	if err != nil {
+		return err
+	}
+	if reindexFingerprint(tasks, live) != before {
+		return fmt.Errorf("reindex state of class %s changed during the backup; retry", i.Config.ClassName)
+	}
 	if desc.ReindexTasks, err = json.Marshal(tasks); err != nil {
 		return fmt.Errorf("marshal ended reindex tasks: %w", err)
 	}
-	if live := i.schemaReader.ClassLive(className); len(live) > 0 {
+	if len(live) > 0 {
 		if desc.ReindexLive, err = json.Marshal(live); err != nil {
 			return fmt.Errorf("marshal live index generations: %w", err)
 		}

@@ -182,8 +182,16 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	// Backup must succeed. canCommit refuses while any in-flight tracker
 	// is present, so a green backup here proves the inflight registration
 	// was cleared on every node.
-	backupID := "cancel-clears-backup"
-	require.NoError(t, createS3Backup(t, uri, className, backupID, backupBucket), "backup must succeed after cancel-cleanup drains")
+	// A halt is refused while the cancelled run's scan winds down, so the backup retries that refusal only.
+	var backupErr error
+	for attempt, deadline := 0, time.Now().Add(2*time.Minute); time.Now().Before(deadline); attempt++ {
+		backupErr = createS3Backup(t, uri, className, fmt.Sprintf("cancel-clears-backup-%d", attempt), backupBucket)
+		if backupErr == nil || !strings.Contains(backupErr.Error(), "a reindex build is scanning") {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	require.NoError(t, backupErr, "backup must succeed after cancel-cleanup drains")
 
 	// DELETE class must succeed (MutationGuard treats CANCELLED tasks as
 	// not-in-flight) and the on-disk class dir must disappear on every node.
