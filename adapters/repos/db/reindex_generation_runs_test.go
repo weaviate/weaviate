@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -610,6 +611,51 @@ func TestReindexGenerationRuns_DuplicateScanLayer(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A scan whose run was cancelled still frees its scratch folder, so a takeover
+// of the same generation, which reuses the folder name, can scan again.
+func TestReindexGenerationRuns_ScanAfterCancelledScan(t *testing.T) {
+	c := newGenCluster(t, genDefaultOpts(), 1)
+	c.addTenants("t1")
+	c.put("t1", genObject(c.class, "t1", "hello world", 1)) // one object: the scan checks ctx once
+	release := c.holdUnitsOf("")
+	id, err := c.submit(ReindexTypeRepairFilterable, "")
+	require.NoError(t, err)
+	c.awaitHeld(genCompleted, anyEntry, 1)
+	s := c.nodes[0].shard("t1")
+	for _, b := range s.loadView().staged {
+		ctx := &cancelAfterCheck{Context: context.Background(), done: make(chan struct{}), armed: func() bool {
+			return s.store.Bucket(b.name+reindexBuildSuffix) != nil
+		}}
+		require.ErrorIs(t, s.scanIntoBuild(ctx, b), context.Canceled)
+		require.NoError(t, s.scanIntoBuild(context.Background(), b))
+	}
+	release()
+	c.waitGone(id)
+}
+
+// cancelAfterCheck is cancelled right after the first Err check made once armed,
+// which lands the cancel between the scan's last check and the scratch close.
+type cancelAfterCheck struct {
+	context.Context
+	done  chan struct{}
+	once  sync.Once
+	armed func() bool
+}
+
+func (c *cancelAfterCheck) Done() <-chan struct{} { return c.done }
+
+func (c *cancelAfterCheck) Err() error {
+	select {
+	case <-c.done:
+		return context.Canceled
+	default:
+	}
+	if c.armed() {
+		c.once.Do(func() { close(c.done) })
+	}
+	return nil
 }
 
 // genScores is each BM25 hit's score over the top one: a term's weight counts stale entries

@@ -642,7 +642,7 @@ func (s *Shard) scanIntoBuild(ctx context.Context, b *stagedBuild) error {
 	name := b.name + reindexBuildSuffix
 	dir := filepath.Join(s.pathLSM(), name)
 	if s.store.Bucket(name) != nil {
-		if err := s.store.ShutdownBucket(ctx, name); err != nil {
+		if err := s.store.ShutdownBucket(context.Background(), name); err != nil {
 			return fmt.Errorf("close stale scratch: %w", err)
 		}
 	}
@@ -672,7 +672,8 @@ func (s *Shard) scanIntoBuild(ctx context.Context, b *stagedBuild) error {
 	if err := scratch.FlushAndSwitch(); err != nil {
 		return fmt.Errorf("flush scratch: %w", err)
 	}
-	if err := s.store.ShutdownBucket(ctx, name); err != nil {
+	// Not ctx: a failed close keeps the folder claimed and drops the store entry, so nothing retries it.
+	if err := s.store.ShutdownBucket(context.Background(), name); err != nil {
 		return fmt.Errorf("close scratch: %w", err)
 	}
 	if err := b.bucket.PrependSegmentsFromBucket(ctx, dir); err != nil {
