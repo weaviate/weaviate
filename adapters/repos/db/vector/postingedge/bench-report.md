@@ -3407,6 +3407,31 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 
 **Lo que espero** (*mío*): parecido a la variante por código o algo mejor a 0.95, y fuera de los umbrales de la puerta igualmente.
 
+#### Plan B: las palancas pequeñas, medidas (pre-registro, 28 de noviembre a las 16:18, con las palancas escritas y sin compilar)
+
+**Por qué.** La puerta del insert en dos tiempos no pasó y el encargo fija el plan B: las palancas pequeñas en la rama nueva. El usuario no ha contestado a si seguir con él; lo preparo sin gastar máquina hasta el hueco, como dije.
+
+**Las palancas** (escritas por un subagente sobre `m2` `8ed921ed59`, sin compilar; todas apagadas por defecto, para medir antes y después con un solo binario).
+- **A1. Aplicar el lote por trozos** (`applyChunk`): el paso del diario acaba cada N inserts, se suelta el cerrojo del índice y se vuelve a tomar, como ya se hace cuando un insert debe mantenimiento. Las búsquedas que esperaban entran entre trozo y trozo. Si el proceso cae, queda un prefijo del lote en trozos enteros; a nadie se le había confirmado nada.
+- **A2. Una cuota para el volcado por presupuesto** (`budgetRows`): cada retención escribe como mucho N filas por presupuesto, las de más cambios, y las siguientes siguen hasta bajar a nueve décimos. El orden se calcula una vez al pasar el presupuesto.
+- **B. La marca de borrado por posting** (`postingMarks`): el índice guarda qué postings tienen algún miembro marcado, y el bucle por miembro solo lee la tabla por doc id en esos. La tabla es exacta: se mantiene al marcar, al limpiar, en el split y al abrir.
+- **C. El posting en la arista:** solo diseño por ahora (cambia el formato de las filas). Lo que estima sobre el papel: +35 % de bytes por carga con un posting por arista, +9 % con un diccionario por fila.
+
+**Qué mido,** sobre clones del 10M, sin mantenimiento y tras 15 s de almacén quieto, con el binario que junta las palancas y los relojes del diagnóstico.
+- **A:** 1 hilo de queries a 0.95 con 8 llamadores, 180 s, cuatro veces: todo apagado; trozos de 8; trozos de 8 con cuota de 2 filas; lote entero con cuota de 16. De cada una: espera de una query por el cerrojo (p50, p99, p99.9, máximo), retenciones (p50, p99, máximo), inserts por segundo y filas por presupuesto por retención. Y los inserts solos, 16 000 con 8 llamadores, apagado y con trozos de 8 y cuota de 2.
+- **B:** la búsqueda de un insert sola, con 1 hilo y 8 000 planes, dos rondas alternadas con la marca por miembro y por posting: ms del recorrido por plan y ns por miembro. Y 8 000 inserts con 8 llamadores, con cada una.
+
+**Lo que espero** (*mío*).
+- **A:** con trozos de 8 la retención corriente baja de 20–26 ms a unos 4, y el p99 de la espera de 15 ms a menos de 6. Con la cuota desaparece la retención de 400 ms: máximo por debajo de 60 ms. Los inserts, entre igual y un 5 % más lentos (más registros del diario, y las queries entran más).
+- **B:** el recorrido baja de 9.7 a 8.3 ms por plan, lo que dio quitar la tabla entera, porque el índice de 10M no tiene borrados; los inserts con 8 llamadores suben entre el 3 y el 6 %.
+
+**Reglas** (*mías*).
+- **A vale** si el máximo de la espera queda por debajo de 60 ms, el p99 baja a la mitad o menos, y los inserts solos no pierden más del 5 %.
+- **B vale** si el recorrido por plan baja un 10 % o más con las mismas cargas por plan.
+- Lo que no valga se queda apagado y lo digo.
+
+**Antes de medir:** compilar, los tests nuevos de cada palanca y los del paquete que tocan (lotes, presupuesto, borrados, caída a mitad de un paso). Si un test nuevo sale rojo, esa palanca no se mide hasta entenderlo.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
