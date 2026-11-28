@@ -1,0 +1,643 @@
+{
+  "coverage": [
+    {
+      "group": 32,
+      "byCentroids": {
+        "edges": 0.7504270315038947,
+        "meanPerVector": 0.7977484345862459,
+        "vectorsWith90": 0.5355742534387385,
+        "vectorsWithAll": 0.4772057732657949
+      },
+      "byEdges": {
+        "edges": 0.8023338926237951,
+        "meanPerVector": 0.8498418099178603,
+        "vectorsWith90": 0.6153275544157853,
+        "vectorsWithAll": 0.5476018905114131
+      }
+    },
+    {
+      "group": 64,
+      "byCentroids": {
+        "edges": 0.8662115025584072,
+        "meanPerVector": 0.8955467464405953,
+        "vectorsWith90": 0.7116122332195918,
+        "vectorsWithAll": 0.639499395968887
+      },
+      "byEdges": {
+        "edges": 0.8998029667186458,
+        "meanPerVector": 0.9276948157635986,
+        "vectorsWith90": 0.7857173134391624,
+        "vectorsWithAll": 0.7096835724731365
+      }
+    },
+    {
+      "group": 128,
+      "byCentroids": {
+        "edges": 0.9456614229509106,
+        "meanPerVector": 0.9593735703071848,
+        "vectorsWith90": 0.8729733166606617,
+        "vectorsWithAll": 0.8107581120318759
+      },
+      "byEdges": {
+        "edges": 0.9569501819689966,
+        "meanPerVector": 0.9693211540524019,
+        "vectorsWith90": 0.903408007121209,
+        "vectorsWithAll": 0.8422737002734035
+      }
+    },
+    {
+      "group": 256,
+      "byCentroids": {
+        "edges": 0.9907698164678476,
+        "meanPerVector": 0.9933568497042061,
+        "vectorsWith90": 0.9787211495665812,
+        "vectorsWithAll": 0.9558739376470339
+      },
+      "byEdges": {
+        "edges": 0.9707941966576197,
+        "meanPerVector": 0.9785266731751608,
+        "vectorsWith90": 0.9321895597990801,
+        "vectorsWithAll": 0.8837822944704661
+      }
+    },
+    {
+      "group": 320,
+      "byCentroids": {
+        "edges": 0.9971749738738659,
+        "meanPerVector": 0.9980370637817427,
+        "vectorsWith90": 0.9941186444270182,
+        "vectorsWithAll": 0.9852489244007375
+      },
+      "byEdges": {
+        "edges": 0.9709164757893622,
+        "meanPerVector": 0.978600169535058,
+        "vectorsWith90": 0.9324862768369964,
+        "vectorsWithAll": 0.8841743848419982
+      }
+    }
+  ],
+  "coverageEdges": 793267,
+  "coverageVectorsWithEdges": 94366,
+  "dataset": "/Users/abdel/Documents/datasets/wikidpr-10m-e5-inplace.bin",
+  "dense": false,
+  "dir": "/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/sim/smoke/index",
+  "gomaxprocs": 10,
+  "k": 10,
+  "livePostings": 411,
+  "meta": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 768,
+    "keys": 124996,
+    "scanCodeWords": 13,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 0,
+    "postings": 779,
+    "splits": 368,
+    "splitsFailed": 0,
+    "live": 100000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 3,
+    "vectorsLaidOut": 100000,
+    "refreshedAt": 10000
+  },
+  "queries": 1000,
+  "rescore": 150,
+  "scenarios": [
+    {
+      "name": "base",
+      "edges": 793267,
+      "vectorsWithNoEdge": 5634,
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.9189,
+            "loads": 9.74
+          },
+          {
+            "ef": 20,
+            "recall": 0.9567,
+            "loads": 13.288
+          },
+          {
+            "ef": 40,
+            "recall": 0.9806,
+            "loads": 19.384
+          },
+          {
+            "ef": 80,
+            "recall": 0.9923,
+            "loads": 29.572
+          },
+          {
+            "ef": 160,
+            "recall": 0.9969,
+            "loads": 47.092
+          },
+          {
+            "ef": 320,
+            "recall": 0.9983,
+            "loads": 75.504
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 17,
+            "recall": 0.951,
+            "loads": 12.336
+          },
+          {
+            "target": 0.99,
+            "ef": 69,
+            "recall": 0.99,
+            "loads": 26.976
+          }
+        ]
+      },
+      "seconds": 3.96848475
+    },
+    {
+      "name": "strip:10",
+      "pendingShare": 0.1,
+      "ownEdgesTakenAway": 79880,
+      "inverseEdgesTakenAway": 44100,
+      "edges": 669287,
+      "vectorsWithNoEdge": 15579,
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.9095,
+            "loads": 9.592
+          },
+          {
+            "ef": 20,
+            "recall": 0.9466,
+            "loads": 12.932
+          },
+          {
+            "ef": 40,
+            "recall": 0.9726,
+            "loads": 18.608
+          },
+          {
+            "ef": 80,
+            "recall": 0.9869,
+            "loads": 28.24
+          },
+          {
+            "ef": 160,
+            "recall": 0.9938,
+            "loads": 45.016
+          },
+          {
+            "ef": 320,
+            "recall": 0.9969,
+            "loads": 72.352
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 22,
+            "recall": 0.9513,
+            "loads": 13.584
+          },
+          {
+            "target": 0.99,
+            "ef": 104,
+            "recall": 0.9901,
+            "loads": 33.704
+          }
+        ]
+      },
+      "seconds": 4.550064333
+    },
+    {
+      "name": "po:10:a:32",
+      "pendingShare": 0.1,
+      "groupBy": "a",
+      "groupSize": 32,
+      "ownEdgesTakenAway": 79880,
+      "inverseEdgesTakenAway": 44100,
+      "edges": 743211,
+      "vectorsWithNoEdge": 6184,
+      "events": {
+        "events": 411,
+        "vectorsConnected": 10000,
+        "postingsLoaded": 13563,
+        "candidatesScoredByCode": 82937613,
+        "exactDistances": 1500000,
+        "exactVectorsDistinctPerEvent": 109228,
+        "ownEdges": 73924,
+        "inverseChecks": 65939,
+        "inverseEdges": 32529,
+        "seconds": 0.905069084,
+        "cpuSeconds": 4.111576958,
+        "groupPostingsMean": 32,
+        "connectedPerEvent": 24.330900243309003
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.9142,
+            "loads": 9.684
+          },
+          {
+            "ef": 20,
+            "recall": 0.9551,
+            "loads": 13.24
+          },
+          {
+            "ef": 40,
+            "recall": 0.9783,
+            "loads": 19.22
+          },
+          {
+            "ef": 80,
+            "recall": 0.991,
+            "loads": 29.34
+          },
+          {
+            "ef": 160,
+            "recall": 0.9959,
+            "loads": 46.772
+          },
+          {
+            "ef": 320,
+            "recall": 0.9977,
+            "loads": 74.82
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 18,
+            "recall": 0.9515,
+            "loads": 12.632
+          },
+          {
+            "target": 0.99,
+            "ef": 78,
+            "recall": 0.9902,
+            "loads": 28.912
+          }
+        ]
+      },
+      "seconds": 4.613944125
+    },
+    {
+      "name": "ra:10:a:32",
+      "pendingShare": 0.1,
+      "groupBy": "a",
+      "groupSize": 32,
+      "ownEdgesTakenAway": 79880,
+      "inverseEdgesTakenAway": 44100,
+      "edges": 819077,
+      "vectorsWithNoEdge": 5890,
+      "events": {
+        "events": 411,
+        "vectorsConnected": 100000,
+        "postingsLoaded": 13563,
+        "candidatesScoredByCode": 829320917,
+        "exactDistances": 15000000,
+        "exactVectorsDistinctPerEvent": 497680,
+        "ownEdges": 819077,
+        "inverseChecks": 336263,
+        "inverseEdges": 35562,
+        "seconds": 7.7209225,
+        "cpuSeconds": 43.103406667,
+        "groupPostingsMean": 32,
+        "connectedPerEvent": 243.30900243309003
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.9175,
+            "loads": 9.684
+          },
+          {
+            "ef": 20,
+            "recall": 0.9573,
+            "loads": 13.28
+          },
+          {
+            "ef": 40,
+            "recall": 0.9802,
+            "loads": 19.068
+          },
+          {
+            "ef": 80,
+            "recall": 0.9916,
+            "loads": 29.536
+          },
+          {
+            "ef": 160,
+            "recall": 0.9961,
+            "loads": 46.936
+          },
+          {
+            "ef": 320,
+            "recall": 0.998,
+            "loads": 75.236
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 18,
+            "recall": 0.9518,
+            "loads": 12.58
+          },
+          {
+            "target": 0.99,
+            "ef": 71,
+            "recall": 0.99,
+            "loads": 27.444
+          }
+        ]
+      },
+      "seconds": 11.427286584
+    },
+    {
+      "name": "po:10:b:32",
+      "pendingShare": 0.1,
+      "groupBy": "b",
+      "groupSize": 32,
+      "ownEdgesTakenAway": 79880,
+      "inverseEdgesTakenAway": 44100,
+      "edges": 744372,
+      "vectorsWithNoEdge": 6170,
+      "events": {
+        "events": 411,
+        "vectorsConnected": 10000,
+        "postingsLoaded": 13438,
+        "candidatesScoredByCode": 84334966,
+        "exactDistances": 1500000,
+        "exactVectorsDistinctPerEvent": 109821,
+        "ownEdges": 75085,
+        "inverseChecks": 67201,
+        "inverseEdges": 33103,
+        "seconds": 0.92576975,
+        "cpuSeconds": 4.112091709,
+        "groupPostingsMean": 31.695863746958636,
+        "connectedPerEvent": 24.330900243309003
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.916,
+            "loads": 9.768
+          },
+          {
+            "ef": 20,
+            "recall": 0.9561,
+            "loads": 13.296
+          },
+          {
+            "ef": 40,
+            "recall": 0.9792,
+            "loads": 19.292
+          },
+          {
+            "ef": 80,
+            "recall": 0.9912,
+            "loads": 29.372
+          },
+          {
+            "ef": 160,
+            "recall": 0.996,
+            "loads": 46.664
+          },
+          {
+            "ef": 320,
+            "recall": 0.9977,
+            "loads": 74.768
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 18,
+            "recall": 0.9525,
+            "loads": 12.692
+          },
+          {
+            "target": 0.99,
+            "ef": 77,
+            "recall": 0.99,
+            "loads": 28.66
+          }
+        ]
+      },
+      "seconds": 4.722392792
+    },
+    {
+      "name": "ra:0:a:32",
+      "groupBy": "a",
+      "groupSize": 32,
+      "edges": 827278,
+      "vectorsWithNoEdge": 5809,
+      "events": {
+        "events": 411,
+        "vectorsConnected": 100000,
+        "postingsLoaded": 13563,
+        "candidatesScoredByCode": 829320917,
+        "exactDistances": 15000000,
+        "exactVectorsDistinctPerEvent": 504739,
+        "ownEdges": 827278,
+        "inverseChecks": 328607,
+        "inverseEdges": 18250,
+        "seconds": 7.75034975,
+        "cpuSeconds": 42.436322376,
+        "groupPostingsMean": 32,
+        "connectedPerEvent": 243.30900243309003
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.9201,
+            "loads": 9.716
+          },
+          {
+            "ef": 20,
+            "recall": 0.9595,
+            "loads": 13.28
+          },
+          {
+            "ef": 40,
+            "recall": 0.9828,
+            "loads": 19.28
+          },
+          {
+            "ef": 80,
+            "recall": 0.9922,
+            "loads": 29.712
+          },
+          {
+            "ef": 160,
+            "recall": 0.9967,
+            "loads": 47.204
+          },
+          {
+            "ef": 320,
+            "recall": 0.9982,
+            "loads": 75.464
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 17,
+            "recall": 0.9523,
+            "loads": 12.376
+          },
+          {
+            "target": 0.99,
+            "ef": 66,
+            "recall": 0.9901,
+            "loads": 26.384
+          }
+        ]
+      },
+      "seconds": 11.4066655
+    },
+    {
+      "name": "del:10",
+      "removedShare": 0.1,
+      "edges": 643930,
+      "vectorsWithNoEdge": 5544,
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.9172,
+            "loads": 9.948
+          },
+          {
+            "ef": 20,
+            "recall": 0.9539,
+            "loads": 13.356
+          },
+          {
+            "ef": 40,
+            "recall": 0.979,
+            "loads": 19.516
+          },
+          {
+            "ef": 80,
+            "recall": 0.9905,
+            "loads": 30.244
+          },
+          {
+            "ef": 160,
+            "recall": 0.9962,
+            "loads": 48.32
+          },
+          {
+            "ef": 320,
+            "recall": 0.998,
+            "loads": 77.016
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 19,
+            "recall": 0.9517,
+            "loads": 13.016
+          },
+          {
+            "target": 0.99,
+            "ef": 79,
+            "recall": 0.9903,
+            "loads": 30.04
+          }
+        ]
+      },
+      "seconds": 5.764347792
+    },
+    {
+      "name": "delra:10:a:32",
+      "removedShare": 0.1,
+      "groupBy": "a",
+      "groupSize": 32,
+      "edges": 750268,
+      "vectorsWithNoEdge": 4934,
+      "events": {
+        "events": 411,
+        "vectorsConnected": 90044,
+        "postingsLoaded": 13563,
+        "candidatesScoredByCode": 672901667,
+        "exactDistances": 13506600,
+        "exactVectorsDistinctPerEvent": 459792,
+        "ownEdges": 750268,
+        "inverseChecks": 308916,
+        "inverseEdges": 18523,
+        "seconds": 5.907449542,
+        "cpuSeconds": 33.347097083,
+        "groupPostingsMean": 32,
+        "connectedPerEvent": 219.08515815085158
+      },
+      "search": {
+        "grid": [
+          {
+            "ef": 10,
+            "recall": 0.9204,
+            "loads": 10.064
+          },
+          {
+            "ef": 20,
+            "recall": 0.9554,
+            "loads": 13.452
+          },
+          {
+            "ef": 40,
+            "recall": 0.9803,
+            "loads": 19.516
+          },
+          {
+            "ef": 80,
+            "recall": 0.9915,
+            "loads": 30.504
+          },
+          {
+            "ef": 160,
+            "recall": 0.9962,
+            "loads": 48.568
+          },
+          {
+            "ef": 320,
+            "recall": 0.998,
+            "loads": 77.672
+          }
+        ],
+        "points": [
+          {
+            "target": 0.95,
+            "ef": 18,
+            "recall": 0.9509,
+            "loads": 12.784
+          },
+          {
+            "target": 0.99,
+            "ef": 68,
+            "recall": 0.9901,
+            "loads": 27.46
+          }
+        ]
+      },
+      "seconds": 11.202716709
+    }
+  ]
+}

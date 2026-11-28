@@ -1,0 +1,60 @@
+#!/bin/bash
+# The insert in two steps, a simulation (bench-report.md of
+# feat/posting-edge-index, "Insert en dos tiempos: simulación", pre-registered
+# on 2026-11-28 by the user's order): over a clone of the 1M index grown for
+# it (dbpedia, dense doc ids) and over a clone of the 10M index, the copy in
+# memory and its scenarios; and the batch build of 1M with the CPU of its
+# stages. Nothing of an index is written: the clones are opened with no cycle
+# and no maintenance, and removed at the end. The binary is built before
+# (sim.test); nothing here builds. The marker is up all along: the batch
+# build is timed, and the events count their CPU.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/sim
+P=$S/diag/src/adapters/repos/db/vector/postingedge
+D1=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+D10=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+mkdir -p $W/1m $W/10m $W/batch
+
+printf 'the simulation of the insert in two steps (sim/sim.sh), since %s for about three hours; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+# 1M: every scenario of the matrix.
+SIM1="cov,base,strip:5,strip:10,strip:25,strip:50"
+SIM1="$SIM1,po:5:a:64,po:10:a:64,po:25:a:64,po:50:a:64,ra:5:a:64,ra:10:a:64,ra:25:a:64,ra:50:a:64"
+SIM1="$SIM1,po:10:a:32,po:10:a:128,po:10:b:32,po:10:b:64,po:10:b:128,po:25:a:32,po:25:a:128,po:25:b:32,po:25:b:64,po:25:b:128"
+SIM1="$SIM1,ra:10:a:32,ra:10:a:128,ra:10:b:32,ra:10:b:64,ra:10:b:128,ra:25:a:32,ra:25:a:128,ra:25:b:32,ra:25:b:64,ra:25:b:128"
+SIM1="$SIM1,ra:0:a:64,ra:0:a:128,del:10,del:30,delra:10:a:64,delra:30:a:64"
+mkdir -p /Volumes/v40bench/sim1m/clone
+cp -c -R /Volumes/v40bench/sim1m/index /Volumes/v40bench/sim1m/clone/index || exit 3
+find /Volumes/v40bench/sim1m/clone/index -type f -exec cat {} + > /dev/null
+date "+== %Y-%m-%d %H:%M:%S 1M (idle $(hid_idle) s)"
+(cd $P && PE_DENSE=1 PE_DATASET=$D1 PE_DIR=/Volumes/v40bench/sim1m/clone/index PE_OUT=$W/1m/result.json PE_QUERIES=1000 \
+  PE_SIM="$SIM1" $W/sim.test -test.run '^TestSimTwoStep$' -test.v -test.timeout 0 > $W/1m/run.log 2>&1)
+echo "1M exit $?"
+find /Volumes/v40bench/sim1m/clone -type d -name index -prune -exec rm -rf {} +
+
+# The batch build of 1M, timed.
+date "+== %Y-%m-%d %H:%M:%S batch build of 1M (idle $(hid_idle) s)"
+(cd $P && PE_DATASET=$D1 PE_OUT=$W/batch/result.json PE_BATCHBUILD=1 \
+  $W/sim.test -test.run '^TestSimBatchBuild$' -test.v -test.timeout 0 > $W/batch/run.log 2>&1)
+echo "batch exit $?"
+
+# 10M: the reduced matrix.
+SIM10="cov,base,strip:5,strip:10,strip:25,strip:50,po:10:a:64,po:10:b:64,po:25:a:64,ra:10:a:64,ra:10:b:64,ra:0:a:64,del:10,delra:10:a:64"
+mkdir -p /Volumes/v40bench/grow10m/clones/sim
+cp -c -R /Volumes/v40bench/grow10m/index /Volumes/v40bench/grow10m/clones/sim/index || exit 3
+find /Volumes/v40bench/grow10m/clones/sim/index -type f -exec cat {} + > /dev/null
+date "+== %Y-%m-%d %H:%M:%S 10M (idle $(hid_idle) s)"
+(cd $P && PE_DATASET=$D10 PE_DIR=/Volumes/v40bench/grow10m/clones/sim/index PE_OUT=$W/10m/result.json \
+  PE_SIM="$SIM10" $W/sim.test -test.run '^TestSimTwoStep$' -test.v -test.timeout 0 > $W/10m/run.log 2>&1)
+echo "10M exit $?"
+find /Volumes/v40bench/grow10m/clones -type d -name index -prune -exec rm -rf {} +
+
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $W/end.txt
+pmset -g log 2>/dev/null | grep -E '^[0-9-]+ [0-9:]+ \+[0-9]+ (Sleep|Wake|DarkWake)' | tail -n 5 > $W/pmset-sleep-wake.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock
