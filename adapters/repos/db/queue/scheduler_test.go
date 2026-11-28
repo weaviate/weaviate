@@ -507,6 +507,10 @@ func makeScheduler(t testing.TB, workers ...int) *Scheduler {
 var queueIDCounter atomic.Int32
 
 func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64, dir string) *DiskQueue {
+	return makeQueueWithStaleTimeout(t, s, decoder, chunkSize, dir, 500*time.Millisecond)
+}
+
+func makeQueueWithStaleTimeout(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64, dir string, staleTimeout time.Duration) *DiskQueue {
 	t.Helper()
 
 	logger := logrus.New()
@@ -518,7 +522,7 @@ func makeQueueWith(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize ui
 		Logger:       newTestLogger(),
 		Dir:          dir,
 		TaskDecoder:  decoder,
-		StaleTimeout: 500 * time.Millisecond,
+		StaleTimeout: staleTimeout,
 		ChunkSize:    chunkSize,
 	})
 	require.NoError(t, err)
