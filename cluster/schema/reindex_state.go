@@ -28,7 +28,7 @@ func (s *SchemaManager) ReindexFlip(cmd *command.ApplyRequest, schemaOnly bool) 
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	if s.mutationGuard != nil && s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Prop, req.Run) != nil {
+	if s.mutationGuard != nil && s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Prop, req.Gen, req.Run) != nil {
 		return nil
 	}
 	return s.apply(applyOp{

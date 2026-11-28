@@ -318,7 +318,8 @@ type SchemaMutationDetector interface {
 // CutoverOutcome judges a run's cutover write: did it land, may it still land. Called under [Manager.mu].
 type CutoverOutcome interface {
 	CutoverLanded(task *Task, classLive func(collection string) map[string]map[string]uint64) bool
-	CheckMigrationPropertyUpdate(className, propertyName string, run *Task) error
+	// CheckMigrationPropertyUpdate admits a write that names run's generation; 0 names a run without one.
+	CheckMigrationPropertyUpdate(className, propertyName string, gen uint64, run *Task) error
 }
 
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also

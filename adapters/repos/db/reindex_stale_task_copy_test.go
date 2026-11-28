@@ -105,7 +105,7 @@ type flipTarget struct {
 }
 
 func (f *flipTarget) flip(leader *distributedtask.Manager, run api.MigrationRun, target string) error {
-	if err := leader.CheckMigrationPropertyUpdate("C", "name", run); err != nil {
+	if err := leader.CheckMigrationPropertyUpdate("C", "name", 0, run); err != nil {
 		return err
 	}
 	f.mu.Lock()

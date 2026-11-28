@@ -468,17 +468,22 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 	}
 }
 
-// A cutover write lands only while the run it names is SWAPPING, even if another run on the property is.
+// A cutover write lands only while the run it names is SWAPPING and built the generation it names,
+// even if another run on the property is SWAPPING.
 func TestCheckMigrationPropertyUpdate(t *testing.T) {
-	payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}})
-	require.NoError(t, err)
 	for _, tc := range []struct {
 		status     distributedtask.TaskStatus
 		class      string
 		prop       string
 		run        api.MigrationRun
+		runGen     uint64 // the generation T1 built
+		gen        uint64 // the generation the write names
 		wantRefuse bool
 	}{
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", runGen: 2, gen: 2},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", runGen: 2, gen: 1, wantRefuse: true},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", runGen: 2, gen: 3, wantRefuse: true},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", gen: 1, wantRefuse: true},
 		{status: distributedtask.TaskStatusSwapping, class: "c", prop: "name"},
 		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "other", wantRefuse: true},
 		{status: distributedtask.TaskStatusSwapping, class: "D", prop: "name", wantRefuse: true},
@@ -497,10 +502,17 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 		if tc.run == (api.MigrationRun{}) {
 			tc.run = api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 1}
 		}
-		t.Run(fmt.Sprintf("%s/%s.%s/%s.v%d", tc.status, tc.class, tc.prop, tc.run.ID, tc.run.Version), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s/%s.%s/%s.v%d/gen%d-of-%d", tc.status, tc.class, tc.prop, tc.run.ID, tc.run.Version, tc.gen, tc.runGen), func(t *testing.T) {
+			payload := func(gen uint64) []byte {
+				raw, err := json.Marshal(ReindexTaskPayload{
+					Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}, Generation: gen,
+				})
+				require.NoError(t, err)
+				return raw
+			}
 			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: {
-				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload},
-				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "U", Version: 1}, Status: distributedtask.TaskStatusSwapping, Payload: payload},
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload(tc.runGen)},
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "U", Version: 1}, Status: distributedtask.TaskStatusSwapping, Payload: payload(tc.gen)},
 			}}})
 			require.NoError(t, err)
 			logger, _ := test.NewNullLogger()
@@ -509,7 +521,7 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
 			})
 			require.NoError(t, mgr.Restore(snapshot))
-			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.run)
+			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.gen, tc.run)
 			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
 		})
 	}
@@ -1035,7 +1047,7 @@ func TestReindexApplyChecks_ReadTheCachedHeader(t *testing.T) {
 			return errText(d.CheckConflict(headerOf(t, d, submitOn("name")), ts))
 		}, "conflicts"},
 		{"the run's own flip", reindexTaskOnC(t, "T", distributedtask.TaskStatusSwapping, "name"), func(ts []*distributedtask.Task) string {
-			return errText(d.CheckMigrationPropertyUpdate("C", "name", ts[0]))
+			return errText(d.CheckMigrationPropertyUpdate("C", "name", 0, ts[0]))
 		}, ""},
 		{"cutover", reindexTaskOnC(t, "T", distributedtask.TaskStatusSwapping, "name"), func(ts []*distributedtask.Task) string {
 			return fmt.Sprint(d.CutoverLanded(ts[0], func(string) map[string]map[string]uint64 { return nil }))

@@ -62,8 +62,8 @@ type replicationFSM interface {
 type MutationGuard interface {
 	CheckPropertyUpdate(className, propertyName, indexOff string) error
 
-	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
-	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
+	// CheckMigrationPropertyUpdate admits a flip only while its run is SWAPPING and built gen (0: none).
+	CheckMigrationPropertyUpdate(className, propertyName string, gen uint64, run command.MigrationRun) error
 
 	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
 	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
@@ -1003,7 +1003,7 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		case !req.FromInFlightMigration:
 			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name, indexOff)
 		case req.MigrationRun != nil:
-			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, *req.MigrationRun)
+			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, 0, *req.MigrationRun)
 		}
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)

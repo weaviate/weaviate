@@ -183,7 +183,7 @@ func (m *Manager) CheckPropertyUpdate(className, propertyName, indexOff string) 
 	})
 }
 
-func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, run api.MigrationRun) error {
+func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, gen uint64, run api.MigrationRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	gate, ok := m.schemaMutationDetectors[run.Namespace].(CutoverOutcome)
@@ -194,7 +194,7 @@ func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, r
 	if task != nil && task.Version != run.Version {
 		task = nil
 	}
-	return gate.CheckMigrationPropertyUpdate(className, propertyName, task)
+	return gate.CheckMigrationPropertyUpdate(className, propertyName, gen, task)
 }
 
 // CheckClassMutation consults every registered

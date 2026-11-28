@@ -110,7 +110,7 @@ type runGuard struct {
 	err error
 }
 
-func (g runGuard) CheckMigrationPropertyUpdate(string, string, command.MigrationRun) error {
+func (g runGuard) CheckMigrationPropertyUpdate(string, string, uint64, command.MigrationRun) error {
 	return g.err
 }
 

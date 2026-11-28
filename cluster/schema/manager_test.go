@@ -729,7 +729,7 @@ type recordingMutationGuard struct {
 	rejectMigrationWith error
 }
 
-func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string, run cmd.MigrationRun) error {
+func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string, _ uint64, run cmd.MigrationRun) error {
 	g.migrationCalls++
 	g.lastRun = run
 	return g.rejectMigrationWith

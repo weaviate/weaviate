@@ -1514,7 +1514,10 @@ type landedDetector struct {
 func (d *landedDetector) CutoverLanded(*Task, func(string) map[string]map[string]uint64) bool {
 	return d.landed
 }
-func (d *landedDetector) CheckMigrationPropertyUpdate(string, string, *Task) error { return nil }
+
+func (d *landedDetector) CheckMigrationPropertyUpdate(string, string, uint64, *Task) error {
+	return nil
+}
 
 // TestManager_SnapshotRestore_WithPostCompletionAcks pins the
 // crash-safety property the https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A fix relies on:
