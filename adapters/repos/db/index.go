@@ -1096,8 +1096,7 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	return nil
 }
 
-// updateProperty leaves every bucket change to the shards' view refresh,
-// which retires an index turned off once its readers release it.
+// updateProperty leaves every bucket change to the shards' view refresh.
 func (i *Index) updateProperty() {
 	i.db.reindexRefresher().notify(i.Config.ClassName.String(), nil)
 }

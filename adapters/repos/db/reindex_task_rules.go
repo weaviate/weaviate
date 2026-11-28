@@ -116,8 +116,7 @@ func (ReindexTaskRules) Ended(task *distributedtask.Task, existing []*distribute
 	return ruling
 }
 
-// IndexOff removes an ended run once Live, counting this off, covers every
-// index type it builds at its generation; a two-index run needs both turned off.
+// IndexOff removes an ended run once Live, counting this off, covers every index type it builds.
 func (ReindexTaskRules) IndexOff(collection, property, indexType string, existing []*distributedtask.Task,
 	classLive map[string]map[string]uint64,
 ) (uint64, distributedtask.EndRuling) {

@@ -27,14 +27,12 @@ type TaskRules interface {
 	// Admit may rewrite the task before AddTask stores it, and names the ended task it takes over.
 	Admit(task *Task, existing []*Task, live map[string]map[string]uint64) (takesOver *Task, err error)
 	Ended(task *Task, existing []*Task) EndRuling
-	// IndexOff returns the live generation that turns a property's index off for every tenant, and what it covers
-	// given the collection's live generations.
+	// IndexOff returns the live generation that turns a property's index off for every tenant, and what it covers.
 	IndexOff(collection, property, indexType string, existing []*Task, classLive map[string]map[string]uint64,
 	) (live uint64, covered EndRuling)
 	BornSwitched(task *Task) bool
 	// Units lists the units of a task submitted without any, from the sharding state at the task's log index,
-	// in an order that never follows a map, so every replica stores the same task. A group in switched,
-	// which a taken-over run already switched, gets none.
+	// in an order that never follows a map, so every replica stores the same task. A switched group gets none.
 	Units(header TaskHeader, state *sharding.State, switched map[string]time.Time) ([]UnitSpec, error)
 }
 

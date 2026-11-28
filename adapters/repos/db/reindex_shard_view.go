@@ -372,7 +372,6 @@ func (s *Shard) resolveServed(ctx context.Context, class *models.Class, next *sh
 			return err
 		}
 		if !governed {
-			// The retire deletes the plain folder of an index turned off once readers release it.
 			for _, t := range reindexIndexTypes {
 				if !classIndexOn(prop, t) {
 					next.served[reindexBucketName(prop.Name, t, 0)] = nil

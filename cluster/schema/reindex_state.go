@@ -22,8 +22,7 @@ import (
 )
 
 // ReindexFlip needs no shard work: every tenant already serves the generation it makes live.
-// A flip whose run is no longer SWAPPING on this class and property changes
-// nothing, so a late flip cannot raise Live on a class created again.
+// A flip whose run is not SWAPPING changes nothing, so it cannot reach a class created again.
 func (s *SchemaManager) ReindexFlip(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := command.ReindexFlipRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {

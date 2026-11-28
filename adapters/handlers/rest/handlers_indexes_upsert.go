@@ -641,8 +641,7 @@ var rebuildTypes = map[string]db.ReindexMigrationType{
 	"rangeable":  db.ReindexTypeRepairRangeable,
 }
 
-// refusePartlyMigratedRebuild admits a rebuild of the same type as the partial
-// run, which takes that run over.
+// refusePartlyMigratedRebuild admits a same-type rebuild, which takes the partial run over.
 func refusePartlyMigratedRebuild(collection, propName string, mt db.ReindexMigrationType, reindexTasks []*distributedtask.Task,
 	tenantCounts bool,
 ) error {

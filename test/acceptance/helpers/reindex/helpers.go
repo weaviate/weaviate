@@ -267,10 +267,8 @@ func TryGetIndexes(restURI, collection string) (*IndexesResponse, bool) {
 	return &out, true
 }
 
-// RunPoller reads one reindex task across polls. A successful full run is
-// removed in the apply that flips it, so the poller remembers the task's
-// payload and reports FINISHED once the task is gone and its indexes show
-// the target settings.
+// RunPoller reports FINISHED for a full run that is gone, since the apply
+// that flips it removes it, once its indexes show the target settings.
 type RunPoller struct {
 	restURI string
 	taskID  string
@@ -281,8 +279,7 @@ func NewRunPoller(restURI, taskID string) *RunPoller {
 	return &RunPoller{restURI: restURI, taskID: taskID}
 }
 
-// Poll returns the task, with Status FINISHED for a finished run that is
-// gone; ok=false means keep polling.
+// Poll returns the task; ok=false means keep polling.
 func (p *RunPoller) Poll() (models.DistributedTask, bool) {
 	tasks, ok := TryFetchTasks(p.restURI)
 	if !ok {
@@ -314,8 +311,6 @@ func (p *RunPoller) remember(task models.DistributedTask) {
 	}
 }
 
-// indexesShowTarget reports whether every index the run builds is ready,
-// driven by no task, at the run's target tokenization.
 func (p *RunPoller) indexesShowTarget() bool {
 	resp, ok := TryGetIndexes(p.restURI, p.payload.Collection)
 	if !ok {
@@ -391,9 +386,8 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	}
 }
 
-// AwaitReindexFinished polls until the named reindex task reaches FINISHED,
-// or is gone with its indexes at the target (RunPoller). Fails on FAILED,
-// CANCELLED or on timeout (default 120s).
+// AwaitReindexFinished polls until RunPoller reports FINISHED. Fails on
+// FAILED, CANCELLED or on timeout (default 120s).
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
