@@ -255,8 +255,8 @@ func installNoLiveReindexLookup(db *DB) {
 // fakeEndedReindexTasks answers LocalEndedTasks by namespace and collection.
 type fakeEndedReindexTasks map[[2]string][]*distributedtask.Task
 
-func (f fakeEndedReindexTasks) LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error) {
-	return f[[2]string{namespace, collection}], nil
+func (f fakeEndedReindexTasks) LocalEndedTasks(namespace, collection string) []*distributedtask.Task {
+	return f[[2]string{namespace, collection}]
 }
 
 // stubDBWithNoLiveReindex returns a minimally initialized *DB that

@@ -12,6 +12,7 @@
 package api
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -22,6 +23,9 @@ import (
 type AddClassRequest struct {
 	Class *models.Class
 	State *sharding.State
+	// DistributedTasks and Live carry a restored class's ended reindex tasks and live index generations.
+	DistributedTasks json.RawMessage              `json:",omitempty"`
+	Live             map[string]map[string]uint64 `json:",omitempty"`
 }
 
 type UpdateClassRequest struct {

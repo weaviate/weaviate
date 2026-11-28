@@ -97,6 +97,7 @@ type distributedTaskCascadeDeleter interface {
 	ForgetGroupsForCollection(collection string, groups []string)
 	MarkTenantsBornSwitched(collection string, tenants []string)
 	TurnIndexOff(collection, property, indexType string) uint64
+	RestoreCollectionTasks(raw []byte, class string, hasTenant func(string) bool) error
 }
 
 type SchemaManager struct {
@@ -536,13 +537,29 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 
 	return s.apply(
 		applyOp{
-			op:                   cmd.GetType().String(),
-			updateSchema:         func() error { return s.schema.addClass(req.Class, req.State, cmd.Version) },
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				if err := s.restoreCollectionTasks(req); err != nil {
+					return err
+				}
+				return s.schema.addClassWithLive(req.Class, req.State, cmd.Version, req.Live)
+			},
 			updateStore:          func() error { return s.db.AddClass(req) },
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// restoreCollectionTasks runs before the class exists, so the index's shards load with the restored tasks.
+func (s *SchemaManager) restoreCollectionTasks(req command.AddClassRequest) error {
+	if s.distributedTaskManager == nil || s.schema.ClassInfo(req.Class.Class).Exists {
+		return nil
+	}
+	return s.distributedTaskManager.RestoreCollectionTasks(req.DistributedTasks, req.Class.Class, func(tenant string) bool {
+		_, ok := req.State.Physical[tenant]
+		return ok
+	})
 }
 
 // ReplaceStatesNodeName it update the node name inside sharding states.

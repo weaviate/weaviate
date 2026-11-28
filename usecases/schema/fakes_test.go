@@ -37,8 +37,8 @@ func (f *fakeSchemaManager) AddClass(_ context.Context, cls *models.Class, ss *s
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) RestoreClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
-	args := f.Called(cls, ss)
+func (f *fakeSchemaManager) RestoreClass(_ context.Context, req command.AddClassRequest) (uint64, error) {
+	args := f.Called(req)
 	return 0, args.Error(0)
 }
 

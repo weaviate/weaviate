@@ -413,7 +413,13 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return fmt.Errorf("error while migrating replication factor: %w", err)
 	}
 	shardingState.ApplyNodeMapping(m)
-	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
+	req := command.AddClassRequest{Class: class, State: &shardingState, DistributedTasks: d.ReindexTasks}
+	if len(d.ReindexLive) > 0 {
+		if err := json.Unmarshal(d.ReindexLive, &req.Live); err != nil {
+			return fmt.Errorf("unmarshal live index generations: %w", err)
+		}
+	}
+	_, err = h.schemaManager.RestoreClass(ctx, req)
 	if err != nil {
 		return fmt.Errorf("error when trying to restore class: %w", err)
 	}

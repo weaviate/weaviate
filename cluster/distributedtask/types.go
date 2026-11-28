@@ -687,6 +687,7 @@ type Task struct {
 	// (no OnGroupCompleted to ack).
 	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
 
+	// Summary replaces Units once the end rules compact an ended task.
 	Summary *UnitSummary `json:"summary,omitempty"`
 }
 

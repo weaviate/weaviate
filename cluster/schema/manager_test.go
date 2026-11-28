@@ -1038,6 +1038,10 @@ func (f *fakeCascadeDeleter) TurnIndexOff(collection, property, indexType string
 	return f.indexOffLive
 }
 
+func (f *fakeCascadeDeleter) RestoreCollectionTasks([]byte, string, func(string) bool) error {
+	return nil
+}
+
 func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
 	if f.activeMatch {
 		return nil, distributedtask.ErrTaskStillActiveForTargetVectors

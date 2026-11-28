@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -25,9 +26,35 @@ type UnitSummary struct {
 	Errors []string           `json:"errors,omitempty"`
 }
 
-// LocalEndedTasks returns no task: no Task records the index generation a restore needs.
-func (m *Manager) LocalEndedTasks(namespace, collection string) ([]*Task, error) {
-	return nil, nil
+// LocalEndedTasks copies collection's ended tasks with a generation, which the end rules already compacted.
+func (m *Manager) LocalEndedTasks(namespace, collection string) []*Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var out []*Task
+	for _, task := range m.tasks[namespace] {
+		if task.Status.IsTerminal() && switchedByView(task.header) && strings.EqualFold(task.collection(), collection) {
+			out = append(out, task.compactCopy())
+		}
+	}
+	sortTasksForDisplay(out)
+	return out
+}
+
+// compactCopy builds the copy field by field, because Clone copies every unit.
+func (t *Task) compactCopy() *Task {
+	return &Task{
+		Namespace:               t.Namespace,
+		TaskDescriptor:          t.TaskDescriptor,
+		Payload:                 t.Payload,
+		NeedsPreparationBarrier: t.NeedsPreparationBarrier,
+		Status:                  t.Status,
+		StartedAt:               t.StartedAt,
+		FinishedAt:              t.FinishedAt,
+		Error:                   t.Error,
+		SwapDecidedGroups:       maps.Clone(t.SwapDecidedGroups),
+		Summary:                 t.Summary,
+	}
 }
 
 func (t *Task) summarizeUnits() *UnitSummary {

@@ -48,7 +48,7 @@ var (
 type SchemaManager interface {
 	// Schema writes operation.
 	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
-	RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	RestoreClass(ctx context.Context, req command.AddClassRequest) (uint64, error)
 	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State, field string, more ...string) (uint64, error)
 	ReplaceClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)

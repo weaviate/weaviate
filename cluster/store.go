@@ -513,7 +513,7 @@ func (st *Store) LocalTaskStatuses(namespace, shard string) []distributedtask.Ta
 	return st.distributedTasksManager.LocalTaskStatuses(namespace, shard)
 }
 
-func (st *Store) LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error) {
+func (st *Store) LocalEndedTasks(namespace, collection string) []*distributedtask.Task {
 	return st.distributedTasksManager.LocalEndedTasks(namespace, collection)
 }
 

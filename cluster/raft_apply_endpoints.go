@@ -84,11 +84,11 @@ func (s *Raft) DeleteClass(ctx context.Context, name string) (uint64, error) {
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
+func (s *Raft) RestoreClass(ctx context.Context, req cmd.AddClassRequest) (uint64, error) {
+	cls := req.Class
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
-	req := cmd.AddClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)

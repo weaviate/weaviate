@@ -414,6 +414,10 @@ func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo,
 }
 
 func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error {
+	return s.addClassWithLive(cls, ss, v, nil)
+}
+
+func (s *schema) addClassWithLive(cls *models.Class, ss *sharding.State, v uint64, live map[string]map[string]uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -423,7 +427,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 	}
 
 	s.classes[cls.Class] = &metaClass{
-		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
+		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v, Live: cloneLive(live),
 	}
 
 	ns := namespacing.NamespaceFromQualified(cls.Class)

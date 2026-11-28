@@ -674,7 +674,7 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingStat
 }
 
 type EndedReindexTaskReader interface {
-	LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error)
+	LocalEndedTasks(namespace, collection string) []*distributedtask.Task
 }
 
 func (db *DB) SetEndedReindexTaskReader(reader EndedReindexTaskReader) {
@@ -687,13 +687,11 @@ func (i *Index) marshalReindexState(desc *backup.ClassDescriptor) error {
 		return fmt.Errorf("no reader for the ended reindex tasks of class %s", i.Config.ClassName)
 	}
 	className := i.Config.ClassName.String()
-	tasks, err := reader.LocalEndedTasks(ReindexNamespace, className)
-	if err != nil {
-		return fmt.Errorf("read ended reindex tasks: %w", err)
-	}
+	tasks := reader.LocalEndedTasks(ReindexNamespace, className)
 	if tasks == nil {
 		tasks = []*distributedtask.Task{}
 	}
+	var err error
 	if desc.ReindexTasks, err = json.Marshal(tasks); err != nil {
 		return fmt.Errorf("marshal ended reindex tasks: %w", err)
 	}

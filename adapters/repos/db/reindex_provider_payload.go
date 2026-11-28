@@ -84,6 +84,17 @@ func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader,
 	return ReindexTaskHeader{p}, nil
 }
 
+var _ distributedtask.CollectionRenamer = ReindexDetector{}
+
+func (ReindexDetector) RenameCollection(payload []byte, collection string) ([]byte, error) {
+	var p ReindexTaskPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+	p.Collection = collection
+	return json.Marshal(p)
+}
+
 // ReindexHeaderOf is how every reader gets a reindex task's payload, and is false when the payload did not decode.
 func ReindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {
 	h, ok := task.Header().(ReindexTaskHeader)
