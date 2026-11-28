@@ -1,0 +1,88 @@
+#!/bin/bash
+# The definitive measures at 1M, first part: the inserts (bench-report.md of
+# feat/posting-edge-index, "Medidas definitivas a 1M, primera parte",
+# pre-registered on 2026-11-28). dbpedia 1M (990 000 vectors of 1536
+# dimensions). HFresh with 8 writers in its harness of inserts, and the base
+# of the index (m2, 8ed921ed59) grown by inserts with the harness of the 10M:
+# with its codes in memory by 8 callers, with no code in memory by 8 callers,
+# and with its codes in memory by 1 caller. After each of ours, its heap and
+# its recall and loads. One index at a time: each is removed once it is read.
+# The binaries are built before (base.test, hfresh-v50i.test); nothing here
+# builds. Timed: marker, idle wait, caffeinate.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/def1m
+D=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+BASE=$S/diag/m2/adapters/repos/db/vector/postingedge
+HFDIR=$S/prop/integ/adapters/repos/db/vector/hfresh
+
+printf 'the definitive measures at 1M, the inserts (def1m/chain.sh), timed, since %s for about three hours and a half; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+# An index of 1M takes some 8 GB, and its last layout as much again while it
+# runs; HFresh some 11 GB and more while it compacts. None starts with less
+# than 16 GiB free.
+room() {
+  local free=$(df -k $W | tail -n 1 | awk '{print int($4/1048576)}')
+  if [ "$free" -lt 16 ]; then
+    date "+== %H:%M:%S $1 NOT RUN: $free GiB free, under 16"
+    return 1
+  fi
+  return 0
+}
+clear_index() {
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/def1m -type d -name index -prune -exec rm -rf {} +
+}
+
+hfresh() { # name writers
+  local C=$W/$1
+  room $1 || return
+  mkdir -p $C
+  date "+== %Y-%m-%d %H:%M:%S $1: HFresh, $2 writers"
+  (cd $HFDIR && exec $W/hfresh-v50i.test -test.run 'TestHFreshDiskInserts$' -test.timeout 0 -test.v \
+    -bench.hfresh.dataset $D -bench.hfresh.dir $C/index -bench.hfresh.writers $2 -bench.hfresh.queries 1000 \
+    -bench.hfresh.out $C/result.json > $C/run.log 2>&1) &
+  local pid=$!
+  python3 -I -B $W/monitor.py $pid $C/monitor.jsonl 10 > $C/monitor.err 2>&1 &
+  wait $pid
+  echo "$1 exit $?"
+  wait
+  du -sk $C/index | awk '{printf "index: %.1f GB\n", $1/976562.5}'
+  clear_index
+}
+
+ours() { # name cacheMode callers
+  local C=$W/$1 mode=$2 callers=$3
+  room $1 || return
+  mkdir -p $C
+  date "+== %Y-%m-%d %H:%M:%S $1: grow, $mode, $callers callers"
+  (cd $BASE && exec env PE_DATASET=$D PE_DIR=$C/index PE_OUT=$C/grow.json PE_CALLERS=$callers PE_CACHE=$mode \
+    PE_STRETCH=60 PE_MINFREE=3 $W/base.test -test.run '^TestNightGrow$' -test.v -test.timeout 0 > $C/grow.log 2>&1) &
+  local pid=$!
+  python3 -I -B $W/monitor.py $pid $C/monitor.jsonl 10 > $C/monitor.err 2>&1 &
+  wait $pid
+  echo "$1 grow exit $?"
+  wait
+  date "+== %H:%M:%S $1: heap"
+  (cd $BASE && PE_DIR=$C/index PE_CACHE=$mode PE_HEAP=$C/heap.heap PE_OUT=$C/heap.json \
+    $W/base.test -test.run '^TestNightHeap$' -test.v -test.timeout 0 -test.memprofilerate=1 > $C/heap.log 2>&1)
+  echo "$1 heap exit $?"
+  date "+== %H:%M:%S $1: points"
+  (cd $BASE && PE_DATASET=$D PE_DIR=$C/index PE_CACHE=$mode PE_POINTS=$C/points.json PE_THREADS=8 PE_QUERIES=1000 \
+    $W/base.test -test.run '^TestNightPoints$' -test.v -test.timeout 0 > $C/points.log 2>&1)
+  echo "$1 points exit $?"
+  du -sk $C/index/lsm $C/index/*.postingedge.d | awk '{printf "%.2f GB  %s\n", $1/976562.5, $2}' | sed "s#$C/##"
+  clear_index
+}
+
+hfresh hfresh-w8 8
+ours routing-c8 routing 8
+ours none-c8 none 8
+ours routing-c1 routing 1
+date "+== %Y-%m-%d %H:%M:%S done" | tee $W/end.txt
+pmset -g log 2>/dev/null | grep -E '^[0-9-]+ [0-9:]+ \+[0-9]+ (Sleep|Wake|DarkWake)' | tail -n 5 > $W/pmset-sleep-wake.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

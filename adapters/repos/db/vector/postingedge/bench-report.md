@@ -2169,6 +2169,45 @@ Y las líneas del perfil donde está. Lo que no quede explicado se da como no ex
 
 **Datos.** `testdata/bench/diag-insert/tables10m/`: la cadena y su salida, `tables10m.py` con lo que da, `results.tar.gz` con el resultado, el log y el monitor de cada pasada, y los dos perfiles del heap.
 
+#### Medidas definitivas a 1M, primera parte: los inserts (pre-registro, 28 de noviembre a las 05:12, antes de ejecutarlas)
+
+**El encargo (del usuario, plan del 27 a las 12:20, punto 2):** 1M de dbpedia crecido por inserts con 1 y 8 llamadores, con inserts por segundo por tramo, amplificación de escritura, heap por componente en `none` y en `routing`, y recall y cargas a 0.95 y 0.99 frente al índice en lote; y HFresh en el mismo arnés a 1M.
+
+**Por qué ahora y en este orden** (*mío*; el usuario puede corregirlo).
+- **La base ya es la que se va a congelar:** las tablas por docID quedan fuera por la regla, así que es `m2` en `8ed921ed59`.
+- **Lo que iba antes está esperando sitio:** HFresh a 10M y la reorganización de nuestro índice de 10M no caben hasta que se borren `tenm` y `codes/`, que lo ejecuta el usuario. Estas medidas no dependen de ellas.
+- **Cabe de uno en uno:** hay 18 GiB libres. Un índice nuestro de 1M son unos 8 GB, y otro tanto mientras hace su último layout; HFresh, unos 11. Cada índice se borra en cuanto se han leído sus números.
+- **La segunda parte queda para después:** la búsqueda en frío y en caliente de v4.0 sobre el índice crecido, que necesita conservar el índice y más sitio, y la de punta a punta por un shard, cuyo arnés está por escribir.
+
+**El dataset:** dbpedia con embeddings de OpenAI, 990 000 vectores de 1 536 dimensiones. Las queries son las 1 000 primeras de sus 10 000, como en las demás medidas de dbpedia, contra los vecinos exactos que trae.
+
+**HFresh, con 8 escritores.** Su arnés de inserts de v5.0 (`TestHFreshDiskInserts`), con el HFresh de integración (`20e89f0873`, el de `main` al último merge) y su configuración por defecto, sus 9 workers de fondo y los ciclos del store.
+- Da los inserts por segundo hasta el último insert y hasta que sus colas de fondo quedan vacías, lo que deja en disco y su recall con la configuración por defecto.
+- **Lo que no es igual que en el nuestro,** como ya anoté al proponerlo: cada escritor llama a `Add` vector a vector, sin lotes ni `Flush`, y los vectores exactos se escriben como objetos antes de arrancar el reloj. El nuestro entrega lotes de 100 con un `Flush` por ronda y escribe su vector exacto dentro del reloj. Doy también lo que tardó en escribir los objetos.
+- En v5.0, con 1 escritor, fueron 2 089 inserts por segundo y 10.5 GB en disco.
+
+**El nuestro, tres crecimientos,** con el arnés del 10M (`TestNightGrow`): la base por defecto, de 10 000 vectores; lotes de 100 y `Flush` tras cada ronda; el store y los ciclos de un shard; tramos de 60 s; el monitor de fuera cada 10 s.
+1. **`routing`, 8 llamadores.**
+2. **`none`, 8 llamadores:** un índice crecido en `routing` no abre en `none`, así que el heap de `none` pide el suyo.
+3. **`routing`, 1 llamador.**
+- **De cada uno:** inserts por segundo por tramo, lo escrito frente a los vectores, y lo que ocupa. Después, el heap por componente al abrirlo en su modo, y el recall y las cargas a 0.95 y 0.99 con k = 10 y rescore 150, sin cronometrar.
+- **Acaban reorganizados:** el `Settle` final cabe a este tamaño.
+- **El binario** es `m2` en `8ed921ed59` con el arnés. Al test de los puntos le he añadido un tope de queries, para usar las 1 000 primeras; sin él hace lo de antes.
+
+**El orden de la cadena:** HFresh, `routing` con 8, `none` con 8 y `routing` con 1, que es el largo.
+
+**Frente al índice en lote:** las celdas de dbpedia 1M de v4.0 que haya con el mismo rescore. Digo cuáles al dar el resultado, y si no hay ninguna comparable, lo digo.
+
+**Lo que espero** (*mío*).
+- **Con 8 llamadores:** cerca de 1 100 inserts por segundo al empezar y entre 550 y 650 al acabar. A 100k de dbpedia la serie daba 1 190, y en wiki-dpr el ritmo a 1M fue un 25 % menor que a 200 000. Unos 30 minutos.
+- **Con 1 llamador:** entre 160 y 250 por segundo al acabar. Hora y media o algo más.
+- **`none` frente a `routing`:** un ritmo parecido; no lo he medido a esta escala con la serie.
+- **HFresh:** varios miles por segundo hasta el último insert, y un total de 5 a 10 minutos con sus colas.
+- **Heap:** en `routing`, unos 250 MB, de ellos 89 de códigos de ruteo y hasta 128 de cambios pendientes. En `none`, sin los códigos.
+- **Recall y cargas:** no doy cifra; no hay medida del índice integrado crecido en dbpedia con la serie.
+
+**Duración estimada:** unas tres horas y media.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
