@@ -27,6 +27,7 @@ type fakeClassUpdater struct {
 	updateErr   error // returned by every UpdateClassInternal
 	updateCalls int
 	updated     *models.Class
+	fields      []string
 }
 
 func (f *fakeClassUpdater) ReadOnlyClass(string) *models.Class {
@@ -41,12 +42,13 @@ func (f *fakeClassUpdater) ReadOnlyClass(string) *models.Class {
 	return &cp
 }
 
-func (f *fakeClassUpdater) UpdateClassInternal(_ context.Context, _ string, updated *models.Class) error {
+func (f *fakeClassUpdater) UpdateClassInternal(_ context.Context, _ string, updated *models.Class, field string, more ...string) error {
 	f.updateCalls++
 	if f.updateErr != nil {
 		return f.updateErr
 	}
 	f.updated = updated
+	f.fields = append([]string{field}, more...)
 	return nil
 }
 
@@ -57,17 +59,20 @@ func droppedCfg() models.VectorConfig {
 func TestRemoveDroppedVectorConfig(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("removes the dropped entry and keeps the rest", func(t *testing.T) {
+	t.Run("removes the dropped entries and keeps the rest", func(t *testing.T) {
 		up := &fakeClassUpdater{class: &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
-			"drop": droppedCfg(),
-			"keep": {VectorIndexType: "hnsw"},
+			"drop":  droppedCfg(),
+			"drop2": droppedCfg(),
+			"keep":  {VectorIndexType: "hnsw"},
 		}}}
 		f := &schemaVectorConfigFinalizer{mgr: up}
 
-		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}))
+		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop2", "drop"}))
 		require.Equal(t, 1, up.updateCalls)
 		require.NotContains(t, up.updated.VectorConfig, "drop")
+		require.NotContains(t, up.updated.VectorConfig, "drop2")
 		require.Contains(t, up.updated.VectorConfig, "keep")
+		require.Equal(t, []string{"vectorConfig/drop", "vectorConfig/drop2"}, up.fields)
 	})
 
 	t.Run("case-differing sibling is a different vector; its marker stays", func(t *testing.T) {
@@ -84,6 +89,7 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		require.Equal(t, 1, up.updateCalls)
 		require.NotContains(t, up.updated.VectorConfig, "drop")
 		require.Contains(t, up.updated.VectorConfig, "Drop", "the sibling's marker must survive")
+		require.Equal(t, []string{"vectorConfig/drop"}, up.fields)
 	})
 
 	t.Run("no-change is an idempotent no-op (entry already gone)", func(t *testing.T) {
@@ -136,27 +142,6 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		require.Error(t, f.RemoveDroppedVectorConfig(cctx, "C", []string{"drop"}))
 		require.LessOrEqual(t, up.updateCalls, dropVectorFinalizeMaxAttempts)
 	})
-}
-
-// TestDeepCopyClass pins the finalize-safety fix: ReadOnlyClass returns a
-// shallow clone whose nested pointers are shared with the live FSM class, so the
-// finalizer must deep-copy before the update path mutates anything through them.
-func TestDeepCopyClass(t *testing.T) {
-	orig := &models.Class{
-		Class:               "C",
-		VectorConfig:        map[string]models.VectorConfig{"v1": droppedCfg()},
-		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2}},
-	}
-
-	cp, err := deepCopyClass(orig)
-	require.NoError(t, err)
-
-	cp.InvertedIndexConfig.Bm25.K1 = 9.9
-	delete(cp.VectorConfig, "v1")
-
-	require.Equal(t, float32(1.2), orig.InvertedIndexConfig.Bm25.K1,
-		"mutating the copy's nested pointer must not touch the original")
-	require.Contains(t, orig.VectorConfig, "v1")
 }
 
 // TestRemoveDroppedVectorConfig_UpdatedClassDoesNotAliasOriginal pins the

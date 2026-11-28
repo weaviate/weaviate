@@ -176,7 +176,7 @@ func TestDropVectorIndex_UpdateClassAllowsExistingNoneOnStaleNode(t *testing.T) 
 	fakeSchemaManager.On("ReadOnlyClass", className).Return(stale)
 	fakeSchemaManager.On("QueryReadOnlyClasses", []string{className}).
 		Return(map[string]versioned.Class{className: {Class: dropped}}, nil)
-	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+	fakeSchemaManager.On("ReplaceClass", mock.Anything, mock.Anything).Return(nil)
 
 	updated := &models.Class{
 		Class:       className,
@@ -309,7 +309,7 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
 			Return(map[string]versioned.Class{"C": {Class: live}}, nil).Maybe()
 		fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(nil, nil).Maybe()
-		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+		fakeSchemaManager.On("ReplaceClass", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		// The downstream internal update may fail or panic on unrelated nil
 		// fakes; the pin is only that NO second authorize fires first.

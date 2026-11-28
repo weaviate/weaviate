@@ -211,19 +211,6 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
-func distributedTaskCollectionExtractors() map[string]distributedtask.CollectionExtractor {
-	return map[string]distributedtask.CollectionExtractor{
-		db.ReindexNamespace:         db.ExtractReindexTaskCollection,
-		db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
-	}
-}
-
-func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardReplicasExtractor {
-	return map[string]distributedtask.ShardReplicasExtractor{
-		db.ReindexNamespace: db.ExtractReindexTaskReplicas,
-	}
-}
-
 func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	build.Version = ParseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 
@@ -717,7 +704,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			db.ReindexNamespace:         db.ReindexDetector{},
 			db.DropVectorIndexNamespace: dropVectorDetector,
 		},
-		DistributedTaskShardReplicasExtractors: distributedTaskShardReplicasExtractors(),
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		MaxCollections:                         appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
@@ -853,7 +839,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
+		repo, appState.SchemaManager, catchUpRetryLister{appState.ClusterService.Raft}, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
@@ -1072,8 +1058,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx,
-			appState.ClusterService.ListDistributedTasks, appState.Logger))
+		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx, raft, appState.Logger))
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
@@ -1086,15 +1071,24 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	return appState
 }
 
-func shardReindexActivityBuilder(ctx context.Context,
-	listTasks func(context.Context) (map[string][]*distributedtask.Task, error), logger logrus.FieldLogger,
+type reindexGateSource interface {
+	distributedtask.TaskHeaderLister
+	LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(node string) string) (has, known bool)
+}
+
+func shardReindexActivityBuilder(ctx context.Context, source reindexGateSource, logger logrus.FieldLogger,
 ) db.ShardReindexActivityLookupBuilder {
 	return func() (db.ShardReindexActivityLookup, error) {
-		tasksByNamespace, err := listTasks(ctx)
+		tasksByNamespace, err := listTaskHeaders(ctx, source)
 		if err != nil {
 			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
 		}
-		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], logger), nil
+		hasUnit := func(desc distributedtask.TaskDescriptor, shard string) (bool, bool) {
+			return source.LocalTaskHasUnit(db.ReindexNamespace, desc, func(node string) string {
+				return db.MigrationUnitID(shard, node)
+			})
+		}
+		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], hasUnit, logger), nil
 	}
 }
 
@@ -1158,20 +1152,19 @@ func initReindexAndDistributedTasks(
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
-		TaskLister:         appState.ClusterService.Raft,
+		TaskSource:         appState.ClusterService.SchedulerTaskSource(),
 		TaskCleaner:        appState.ClusterService.Raft,
 		TaskFinalizer:      appState.ClusterService.Raft,
 		// AckRecorder gates MarkDistributedTaskFinalized on per-node acks
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
-		AckRecorder:        appState.ClusterService.Raft,
-		LocalTaskInspector: appState.ClusterService.Raft,
-		Providers:          providers,
-		Logger:             appState.Logger,
-		MetricsRegisterer:  metricsRegisterer,
-		LocalNode:          appState.Cluster.LocalName(),
-		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
-		CompletedTaskTTL:   appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		AckRecorder:       appState.ClusterService.Raft,
+		Providers:         providers,
+		Logger:            appState.Logger,
+		MetricsRegisterer: metricsRegisterer,
+		LocalNode:         appState.Cluster.LocalName(),
+		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+		CompletedTaskTTL:  appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 	})
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].

@@ -195,9 +195,6 @@ type Config struct {
 	// extractors. See [distributedtask.ManagerParameters].
 	DistributedTaskConflictDetectors       map[string]distributedtask.ConflictDetector
 	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
-	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
-	// whose units no longer match the current replicas of the shards they name.
-	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
@@ -257,6 +254,7 @@ type Store struct {
 	// lock-free reader can peek it.
 	fsmCatchUpMu    sync.Mutex
 	fsmCaughtUpTerm atomic.Uint64
+	catchUpRunning  atomic.Bool
 
 	// raft snapshot store
 	snapshotStore *raft.FileSnapshotStore
@@ -487,16 +485,9 @@ func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sc
 	st.distributedTasksManager.SetSchedulerNotifier(notifier)
 }
 
-// LocalUnrecognizedDistributedTasks backs
-// [distributedtask.LocalTaskInspector] on [Raft].
-func (st *Store) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
-	return st.distributedTasksManager.LocalUnrecognizedDistributedTasks()
-}
-
 // LocalDistributedTasks reads the task map this node has applied, with no
 // leader round-trip. [Raft.LocalDistributedTasks] exposes it to the
-// index-status read; callers that decide a mutation want the leader-routed
-// [Raft.ListDistributedTasks] instead.
+// index-status read.
 func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return st.distributedTasksManager.LocalDistributedTasks()
 }

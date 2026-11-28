@@ -2352,7 +2352,7 @@ func Test_UpdateClass(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("ReplaceClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				fakeSchemaManager.On("CopyShardingState", mock.Anything).Return(&sharding.State{}, nil)
@@ -2364,7 +2364,7 @@ func Test_UpdateClass(t *testing.T) {
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
 
-				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("ReplaceClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				err = handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
 				if err == nil {
@@ -2452,7 +2452,7 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			store.parser = handler.parser
 
 			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("ReplaceClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 			fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 

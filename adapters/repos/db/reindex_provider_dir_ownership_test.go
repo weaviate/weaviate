@@ -158,7 +158,6 @@ func TestRehydrateRebuildsTheDirectoryNamesTheMigrationWrote(t *testing.T) {
 
 				unitID := shard.migrationUnit()
 				payload := tc.payload()
-				payload.UnitToShard = map[string]string{unitID: shard.Name()}
 				desc := taskDescAt(11)
 
 				started, err := p.createReindexTasks(desc, unitID, payload)
@@ -175,8 +174,9 @@ func TestRehydrateRebuildsTheDirectoryNamesTheMigrationWrote(t *testing.T) {
 					require.NoError(t, store.Load())
 				}
 
-				got := p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc},
-					payload, unitID, idx, logger)
+				got := p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc, Units: map[string]*distributedtask.Unit{
+					unitID: {ID: unitID, Shard: shard.Name()},
+				}}, payload, unitID, idx, logger)
 
 				switch {
 				case tt.wantErrs:

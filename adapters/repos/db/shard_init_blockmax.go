@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -60,5 +61,5 @@ func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager
 		class.VectorConfig[i] = tempConfig
 	}
 	class.InvertedIndexConfig.UsingBlockMaxWAND = true
-	return schema.UpdateClassInternal(&sc.Handler, ctx, className, class)
+	return schema.UpdateClassInternal(&sc.Handler, ctx, className, class, api.ClassFieldUsingBlockMaxWAND)
 }

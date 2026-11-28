@@ -165,17 +165,17 @@ func classLockKey(class string) string {
 
 // admitTaskReplicas refuses a task naming a shard that is not HOT, or one whose units no longer match the current replicas of the shards they name. A replica with no unit is never reindexed.
 // A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
-// A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
 func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
 	if task == nil || collection == "" {
 		return nil
 	}
-	extract := st.cfg.DistributedTaskShardReplicasExtractors[task.Namespace]
-	if extract == nil {
-		return nil
+	taskReplicas := map[string][]string{}
+	for _, spec := range task.UnitSpecs {
+		if spec.Shard != "" {
+			taskReplicas[spec.Shard] = append(taskReplicas[spec.Shard], spec.Node)
+		}
 	}
-	taskReplicas, ok := extract(task.Payload)
-	if !ok {
+	if len(taskReplicas) == 0 {
 		return nil
 	}
 

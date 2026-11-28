@@ -14,6 +14,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
@@ -21,26 +22,53 @@ import (
 // ReindexNamespace is the DTM namespace for reindex tasks.
 const ReindexNamespace = "reindex"
 
-// ExtractReindexTaskCollection is read only by the task-list REST handler, until the task header replaces it there.
-func ExtractReindexTaskCollection(payload []byte) (string, bool) {
-	var p ReindexTaskPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return "", false
-	}
-	return p.Collection, p.Collection != ""
-}
-
 type ReindexTaskHeader struct {
-	MigrationType      ReindexMigrationType
-	Class              string
-	Properties         []string
-	TargetTokenization string
-	BucketStrategy     string
+	ReindexTaskPayload
 }
 
-func (h ReindexTaskHeader) Collection() string { return h.Class }
+func (h ReindexTaskHeader) Collection() string { return h.ReindexTaskPayload.Collection }
+
+func (h ReindexTaskHeader) VisiblePayload() map[string]any {
+	return visibleFields(ReindexTaskPayload{
+		MigrationType: h.MigrationType, Collection: h.ReindexTaskPayload.Collection,
+		TargetTokenization: h.TargetTokenization, OriginalTokenization: h.OriginalTokenization,
+		BucketStrategy: h.BucketStrategy,
+	}, ReindexTaskVisiblePayloadFields)
+}
+
+// visibleFields encodes only what the caller copied into payload, so a large hidden field costs nothing.
+func visibleFields(payload any, fields []string) map[string]any {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return map[string]any{}
+	}
+	var all map[string]any
+	if err := json.Unmarshal(raw, &all); err != nil {
+		return map[string]any{}
+	}
+	for key := range all {
+		if !slices.Contains(fields, key) {
+			delete(all, key)
+		}
+	}
+	return all
+}
 
 var _ distributedtask.HeaderDecoder = ReindexDetector{}
+
+func (ReindexDetector) DecodeCollection(payload []byte) (string, error) {
+	return decodePayloadCollection(payload)
+}
+
+func decodePayloadCollection(payload []byte) (string, error) {
+	var p struct {
+		Collection string `json:"collection"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return "", err
+	}
+	return p.Collection, nil
+}
 
 // DecodeHeader unmarshals the whole payload, so a malformed field anywhere yields no header and the checks refuse.
 func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
@@ -51,28 +79,13 @@ func (ReindexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader,
 	if p.Collection == "" || p.MigrationType == "" {
 		return nil, fmt.Errorf("reindex payload missing collection or migrationType")
 	}
-	return ReindexTaskHeader{
-		MigrationType: p.MigrationType, Class: p.Collection, Properties: p.Properties,
-		TargetTokenization: p.TargetTokenization, BucketStrategy: p.BucketStrategy,
-	}, nil
+	return ReindexTaskHeader{p}, nil
 }
 
-func reindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {
+// ReindexHeaderOf is how every reader gets a reindex task's payload, and is false when the payload did not decode.
+func ReindexHeaderOf(task *distributedtask.Task) (ReindexTaskHeader, bool) {
 	h, ok := task.Header().(ReindexTaskHeader)
 	return h, ok
-}
-
-// ExtractReindexTaskReplicas lets the leader refuse a reindex task whose units no longer match the collection's replicas.
-func ExtractReindexTaskReplicas(payload []byte) (map[string][]string, bool) {
-	var p ReindexTaskPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return nil, false
-	}
-	nodesByShard := make(map[string][]string, len(p.UnitToShard))
-	for unit, shard := range p.UnitToShard {
-		nodesByShard[shard] = append(nodesByShard[shard], p.UnitToNode[unit])
-	}
-	return nodesByShard, true
 }
 
 // ReindexMigrationType identifies which migration strategy a reindex task uses.
@@ -142,11 +155,6 @@ type ReindexTaskPayload struct {
 
 	// Tenants scopes the cancel and terminal sweeps (MT only).
 	Tenants []string `json:"tenants,omitempty"`
-
-	// UnitToNode maps unit IDs to the node name that should process them.
-	UnitToNode map[string]string `json:"unitToNode"`
-	// UnitToShard maps unit IDs to shard names.
-	UnitToShard map[string]string `json:"unitToShard"`
 }
 
 // ReindexTaskVisiblePayloadFields are the payload fields GET /v1/tasks shows a

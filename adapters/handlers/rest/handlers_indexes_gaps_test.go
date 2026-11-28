@@ -30,18 +30,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -211,7 +216,7 @@ func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
 			}
 
 			reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-				[]string{"foo"}, []*distributedtask.Task{existing})
+				[]string{"foo"}, withHeaders(existing))
 			require.NoError(t, err)
 			require.NotEmpty(t, reason)
 			require.Contains(t, reason, "conflicts")
@@ -232,7 +237,7 @@ func TestCheckReindexConflict_AllowsSameTypeDifferentProperty(t *testing.T) {
 	}
 
 	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-		[]string{"bar"}, []*distributedtask.Task{existing})
+		[]string{"bar"}, withHeaders(existing))
 	require.NoError(t, err)
 	require.Empty(t, reason, "different property must not conflict")
 }
@@ -257,7 +262,7 @@ func TestCheckReindexConflict_IgnoresTerminalTasks(t *testing.T) {
 				}),
 			}
 			reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-				[]string{"foo"}, []*distributedtask.Task{existing})
+				[]string{"foo"}, withHeaders(existing))
 			require.NoError(t, err)
 			require.Empty(t, reason,
 				"%s task must not block new submission", status)
@@ -278,7 +283,7 @@ func TestCheckReindexConflict_DifferentCollections(t *testing.T) {
 	}
 
 	reason, err := checkReindexConflict("B", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
+		[]string{"foo"}, withHeaders(existing))
 	require.NoError(t, err)
 	require.Empty(t, reason)
 }
@@ -296,7 +301,7 @@ func TestCheckReindexConflict_CollectionMatchIsCaseInsensitive(t *testing.T) {
 	}
 
 	reason, err := checkReindexConflict("myclass", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
+		[]string{"foo"}, withHeaders(existing))
 	require.NoError(t, err)
 	require.NotEmpty(t, reason, "case-insensitive collection match expected")
 }
@@ -314,7 +319,7 @@ func TestCheckReindexConflict_MalformedPayloadIsRejected(t *testing.T) {
 		Payload:        []byte(`{not valid json`),
 	}
 	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
+		[]string{"foo"}, withHeaders(existing))
 	require.Empty(t, reason)
 	require.Error(t, err, "unparseable payload must surface as an error so the handler can refuse the submit")
 	require.Contains(t, err.Error(), "unparseable")
@@ -331,7 +336,7 @@ func TestCheckReindexConflict_MalformedPayloadDifferentCollectionAlsoRejected(t 
 		Payload:        []byte(`{still not valid`),
 	}
 	_, err := checkReindexConflict("OtherCollection", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
+		[]string{"foo"}, withHeaders(existing))
 	require.Error(t, err)
 }
 
@@ -358,9 +363,9 @@ func TestCheckReindexConflict_EmptyJsonPayloadIsRejected(t *testing.T) {
 				Payload:        []byte(c.payload),
 			}
 			_, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-				[]string{"foo"}, []*distributedtask.Task{existing})
+				[]string{"foo"}, withHeaders(existing))
 			require.Error(t, err, "payload %q parses but is informationally empty; must be rejected", c.payload)
-			require.Contains(t, err.Error(), "empty Collection or MigrationType")
+			require.Contains(t, err.Error(), "unparseable")
 		})
 	}
 }
@@ -837,23 +842,33 @@ func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
 	require.Equal(t, "node-2", unitToNode["shard-b__node-2"])
 }
 
-func TestReindexPayload_LeaderReadsItsReplicas(t *testing.T) {
-	_, unitToShard, unitToNode := buildUnitMaps(map[string][]string{
-		"node-2": {"shard-b", "shard-a"},
-		"node-1": {"shard-a"},
-	})
-	payload := buildReindexPayload(nil, "C", nil, upsertPlan{}, nil)
-	payload.UnitToShard, payload.UnitToNode = unitToShard, unitToNode
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-
-	extract := distributedTaskShardReplicasExtractors()[db.ReindexNamespace]
-	require.NotNil(t, extract, "without it the leader admits a reindex built against stale replicas")
-	got, ok := extract(raw)
-	require.True(t, ok)
-	require.Len(t, got, 2)
-	require.ElementsMatch(t, []string{"node-1", "node-2"}, got["shard-a"])
-	require.ElementsMatch(t, []string{"node-2"}, got["shard-b"])
+// A group per shard puts a run on the per-tenant barrier, which only a multi-tenant semantic run may use.
+func TestBuildReindexUnitSpecs(t *testing.T) {
+	ownership := map[string][]string{"node-2": {"shard-b", "shard-a"}, "node-1": {"shard-a"}}
+	for _, tc := range []struct {
+		name    string
+		isMT    bool
+		mt      db.ReindexMigrationType
+		grouped bool
+	}{
+		{name: "multi-tenant semantic run", isMT: true, mt: db.ReindexTypeChangeTokenization, grouped: true},
+		{name: "single-tenant semantic run", mt: db.ReindexTypeChangeTokenization},
+		{name: "multi-tenant rebuild", isMT: true, mt: db.ReindexTypeRebuildSearchable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := []distributedtask.UnitSpec{
+				{ID: "shard-a__node-1", Shard: "shard-a", Node: "node-1"},
+				{ID: "shard-a__node-2", Shard: "shard-a", Node: "node-2"},
+				{ID: "shard-b__node-2", Shard: "shard-b", Node: "node-2"},
+			}
+			if tc.grouped {
+				for i := range want {
+					want[i].GroupID = want[i].Shard
+				}
+			}
+			require.Equal(t, want, buildReindexUnitSpecs(ownership, tc.isMT, tc.mt))
+		})
+	}
 }
 
 func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
@@ -870,6 +885,7 @@ func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
 	groupsForTenantA := 0
 	groupsForTenantB := 0
 	for _, s := range specs {
+		require.Empty(t, s.Shard+s.Node, "a drop-vector unit is claimed by the first node to report")
 		// Pull the shard prefix back out and compare to GroupID.
 		switch s.GroupID {
 		case "tenant-a":
@@ -1195,41 +1211,71 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 	}
 }
 
+// gateSourceOver answers the gate's two reads from one Manager, as the leader and this node would.
+type gateSourceOver struct {
+	mgr *distributedtask.Manager
+	err error
+	// refusals counts down the listings refused with err before the rest succeed; nil refuses every one.
+	refusals *atomic.Int32
+}
+
+func (s gateSourceOver) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
+	if s.err != nil && (s.refusals == nil || s.refusals.Add(-1) >= 0) {
+		return nil, s.err
+	}
+	return realFSMCanceller{s.mgr}.ListDistributedTaskHeaders(context.Background())
+}
+
+func (s gateSourceOver) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(string) string) (bool, bool) {
+	return s.mgr.TaskHasUnit(namespace, desc, unitID)
+}
+
 func TestShardReindexActivityBuilder(t *testing.T) {
 	errNoLeader := errors.New("no leader")
 	logger, _ := test.NewNullLogger()
+	unitOn := func(shard string) map[string]*distributedtask.Unit {
+		id := db.MigrationUnitID(shard, "node-1")
+		return map[string]*distributedtask.Unit{id: {ID: id, Shard: shard, NodeID: "node-1"}}
+	}
+	snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {
+		db.ReindexNamespace: {{
+			Namespace: db.ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+			Status:  distributedtask.TaskStatusStarted,
+			Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C", MigrationType: db.ReindexTypeRepairFilterable}),
+			Units:   unitOn("shard1"),
+		}},
+		db.DropVectorIndexNamespace: {{
+			Namespace: db.DropVectorIndexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "D", Version: 1},
+			Status:  distributedtask.TaskStatusStarted,
+			Payload: mustPayload(t, db.ReindexTaskPayload{Collection: "C"}),
+			Units:   unitOn("shard2"),
+		}},
+	}})
+	require.NoError(t, err)
+	mgr := newReindexManager()
+	require.NoError(t, mgr.Restore(snapshot))
+
+	once := func() *atomic.Int32 {
+		n := &atomic.Int32{}
+		n.Store(1)
+		return n
+	}
+	notCaughtUp := fmt.Errorf("%w: catching up", types.ErrFSMNotCaughtUp)
+	forwarded := fmt.Errorf("failed to execute query: %w", status.Error(codes.Unavailable, notCaughtUp.Error()))
 	for _, tc := range []struct {
 		name    string
-		list    func(context.Context) (map[string][]*distributedtask.Task, error)
+		source  gateSourceOver
 		wantErr error
 	}{
-		{
-			name:    "the task list is unavailable",
-			list:    func(context.Context) (map[string][]*distributedtask.Task, error) { return nil, errNoLeader },
-			wantErr: errNoLeader,
-		},
-		{
-			name: "a reindex task is running",
-			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
-				return map[string][]*distributedtask.Task{
-					db.ReindexNamespace: {{
-						Status: distributedtask.TaskStatusStarted,
-						Payload: mustPayload(t, db.ReindexTaskPayload{
-							Collection: "C", UnitToShard: map[string]string{"u1": "shard1"},
-						}),
-					}},
-					db.DropVectorIndexNamespace: {{
-						Status: distributedtask.TaskStatusStarted,
-						Payload: mustPayload(t, db.ReindexTaskPayload{
-							Collection: "C", UnitToShard: map[string]string{"u2": "shard2"},
-						}),
-					}},
-				}, nil
-			},
-		},
+		{name: "the task list is unavailable", source: gateSourceOver{err: errNoLeader}, wantErr: errNoLeader},
+		{name: "a reindex task is running", source: gateSourceOver{mgr: mgr}},
+		{name: "a new leader refuses once", source: gateSourceOver{mgr: mgr, err: notCaughtUp, refusals: once()}},
+		{name: "a new leader's refusal is forwarded once", source: gateSourceOver{mgr: mgr, err: forwarded, refusals: once()}},
+		{name: "a new leader keeps refusing", source: gateSourceOver{err: notCaughtUp}, wantErr: types.ErrFSMNotCaughtUp},
+		{name: "another node refuses", source: gateSourceOver{mgr: mgr, err: errNoLeader, refusals: once()}, wantErr: errNoLeader},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			lookup, err := shardReindexActivityBuilder(context.Background(), tc.list, logger)()
+			lookup, err := shardReindexActivityBuilder(context.Background(), tc.source, logger)()
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return

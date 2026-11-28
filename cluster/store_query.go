@@ -16,14 +16,36 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+// leaderReadReady never waits, since a query can run inside an FSM apply that a barrier waits on; only a leader starts the catch-up.
+func (st *Store) leaderReadReady() error {
+	rn := st.raft.Load()
+	if rn == nil || st.fsmCaughtUpForTerm(rn.CurrentTerm()) {
+		return nil
+	}
+	if rn.State() == raft.Leader && st.catchUpRunning.CompareAndSwap(false, true) {
+		enterrors.GoWrapper(func() {
+			defer st.catchUpRunning.Store(false)
+			_ = st.waitLeaderFSMCaughtUp()
+		}, st.log)
+	}
+	return fmt.Errorf("%w: this leader has not applied its inherited log yet", types.ErrFSMNotCaughtUp)
+}
 
 func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	st.log.WithFields(logrus.Fields{"type": req.Type, "type_name": req.Type.String()}).Debug("server.query")
+	if req.Type == cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST || req.Type == cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_HEADERS {
+		if err := st.leaderReadReady(); err != nil {
+			return &cmd.QueryResponse{}, err
+		}
+	}
 
 	var payload []byte
 	var err error
@@ -181,6 +203,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.distributedTasksManager.ListDistributedTasksPayload(context.Background())
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task list: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_HEADERS:
+		payload, err = st.distributedTasksManager.ListTaskHeadersPayload()
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task headers: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE:
 		payload, err = st.replicationManager.GetReplicationOperationState(req)

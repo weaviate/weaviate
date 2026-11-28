@@ -12,6 +12,8 @@
 package api
 
 import (
+	"strings"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -25,6 +27,24 @@ type AddClassRequest struct {
 type UpdateClassRequest struct {
 	Class *models.Class
 	State *sharding.State
+	// FieldsToUpdate names the ClassField* fields taken from Class, which stays complete
+	// for nodes without this field. Nil, sent only by the REST update, replaces the class.
+	FieldsToUpdate []string `json:",omitempty"`
+}
+
+// A ClassFieldVectorConfig entry absent from the request's class removes that entry.
+const (
+	ClassFieldUsingBlockMaxWAND  = "invertedIndexConfig.usingBlockMaxWAND"
+	classFieldVectorConfigPrefix = "vectorConfig/"
+)
+
+func ClassFieldVectorConfig(name string) string {
+	return classFieldVectorConfigPrefix + name
+}
+
+func VectorConfigOfClassField(field string) (string, bool) {
+	name, ok := strings.CutPrefix(field, classFieldVectorConfigPrefix)
+	return name, ok && name != ""
 }
 
 type AddPropertyRequest struct {

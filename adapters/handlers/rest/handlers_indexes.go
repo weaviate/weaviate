@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -104,7 +103,7 @@ type indexesHandlers struct {
 	// once at wiring. Reaching for appState.ClusterService inside getIndexes
 	// would put the leader-routed methods back within reach.
 	taskSource localTaskLister
-	taskLister distributedtask.TaskLister
+	taskLister distributedtask.TaskHeaderLister
 }
 
 // resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
@@ -288,7 +287,7 @@ func principalUsername(principal *models.Principal) string {
 // needs. *cluster.Service satisfies it (both methods hang off the embedded
 // *Raft).
 type reindexTaskCanceller interface {
-	distributedtask.TaskLister
+	distributedtask.TaskHeaderLister
 	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
@@ -304,14 +303,15 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 		if !task.Status.IsActive() {
 			continue
 		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		header, ok := db.ReindexHeaderOf(task)
+		if !ok {
 			// Undecodable in-flight task: it may be the very one the
 			// operator is trying to cancel, and they get a NO_OP instead.
 			logger.WithField("task_id", task.ID).
-				Warnf("cancel: skipping in-flight reindex task with an undecodable payload: %v", err)
+				Warn("cancel: skipping in-flight reindex task with an undecodable payload")
 			continue
 		}
+		payload := header.ReindexTaskPayload
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}
@@ -338,12 +338,13 @@ func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection
 ) []distributedtask.TaskDescriptor {
 	var out []distributedtask.TaskDescriptor
 	for _, task := range tasks {
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		header, ok := db.ReindexHeaderOf(task)
+		if !ok {
 			logger.WithField("task_id", task.ID).
-				Warnf("skipping reindex task with an undecodable payload: %v", err)
+				Warn("skipping reindex task with an undecodable payload")
 			continue
 		}
+		payload := header.ReindexTaskPayload
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}
@@ -480,7 +481,7 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 // svc is appState.ClusterService in production; the interface lets the
 // idempotent-cancel error mapping be tested against a real Manager.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTaskCanceller, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	tasks, err := svc.ListDistributedTasks(ctx)
+	tasks, err := listTaskHeaders(ctx, svc)
 	if err != nil {
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			fmt.Sprintf("listing tasks: %v", err)))
@@ -740,15 +741,15 @@ func firstActiveReindexTask(
 		if !t.Status.IsActive() {
 			continue
 		}
-		var p db.ReindexTaskPayload
-		if err := json.Unmarshal(t.Payload, &p); err != nil {
+		h, ok := db.ReindexHeaderOf(t)
+		if !ok {
 			if policy == decodeUndecodableIsHit {
 				return t, db.ReindexTaskPayload{}, true
 			}
 			continue
 		}
-		if match(p) {
-			return t, p, true
+		if match(h.ReindexTaskPayload) {
+			return t, h.ReindexTaskPayload, true
 		}
 	}
 	return nil, db.ReindexTaskPayload{}, false
@@ -1098,11 +1099,7 @@ func countInFlightTasksForCollection(collection string, tasks []*distributedtask
 		if !task.Status.IsActive() {
 			continue
 		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		if strings.EqualFold(payload.Collection, collection) {
+		if h, ok := db.ReindexHeaderOf(task); ok && strings.EqualFold(h.Collection(), collection) {
 			n++
 		}
 	}
@@ -1128,21 +1125,13 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 			continue
 		}
 
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		header, ok := db.ReindexHeaderOf(task)
+		if !ok {
 			return "", fmt.Errorf(
 				"in-flight reindex task %q has an unparseable payload; cannot verify conflict; "+
-					"retry after operator inspects the task: %w", task.ID, err)
-		}
-		// Parsed but empty (`{}`, or missing Collection/MigrationType) is the
-		// same unprovable-non-conflict state as unparseable, so it's refused
-		// too — likely an older binary's shape whose fields zeroed on Unmarshal.
-		if payload.Collection == "" || payload.MigrationType == "" {
-			return "", fmt.Errorf(
-				"in-flight reindex task %q has an empty Collection or MigrationType "+
-					"(payload may have been written by an older binary); cannot verify conflict; "+
 					"retry after operator inspects the task", task.ID)
 		}
+		payload := header.ReindexTaskPayload
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}

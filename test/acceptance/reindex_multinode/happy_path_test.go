@@ -94,6 +94,9 @@ func TestMultiNode_HappyPath(t *testing.T) {
 	t.Run("ChangeTokenization", func(t *testing.T) {
 		testChangeTokenization(t, compose)
 	})
+	t.Run("NonLeaderSubmitStatusCancel", func(t *testing.T) {
+		testNonLeaderSubmitStatusCancel(t, compose)
+	})
 }
 
 // testMapToBlockmaxMultiPropertyDefersFlip: first property's reindex must

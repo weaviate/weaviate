@@ -25,32 +25,36 @@ import (
 // a statement about what this package treats as a live reindex, and the
 // transport layer only snapshots it.
 
-// lookupTask builds a task carrying payload, in status.
-func lookupTask(t *testing.T, id string, status distributedtask.TaskStatus,
-	payload ReindexTaskPayload,
-) *distributedtask.Task {
+// gateTaskOnC is a reindex task on collection C, in status, with one unit on shard-1.
+func gateTaskOnC(t *testing.T, status distributedtask.TaskStatus) *distributedtask.Task {
 	t.Helper()
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(ReindexTaskPayload{MigrationType: ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"foo"}})
 	require.NoError(t, err)
+	unitID := MigrationUnitID("shard-1", "node-1")
 	return &distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
 		Payload:        raw,
 		Status:         status,
+		Units:          map[string]*distributedtask.Unit{unitID: {ID: unitID, Shard: "shard-1", NodeID: "node-1"}},
 	}
+}
+
+// gateLookup builds the backup gate as a node does: the leader's tasks without units, and units from local.
+func gateLookup(t *testing.T, leader, local *distributedtask.Manager) ShardReindexActivityLookup {
+	t.Helper()
+	raw, err := leader.ListTaskHeadersPayload()
+	require.NoError(t, err)
+	headers, err := local.DecodeTaskHeaders(raw)
+	require.NoError(t, err)
+	hasUnit := func(desc distributedtask.TaskDescriptor, shard string) (bool, bool) {
+		return local.TaskHasUnit(ReindexNamespace, desc, func(node string) string { return MigrationUnitID(shard, node) })
+	}
+	logger, _ := logrustest.NewNullLogger()
+	return NewShardReindexActivityLookup(headers[ReindexNamespace], hasUnit, logger)
 }
 
 // Pins: the lookup treats an unrecognized status as in-flight.
 func TestReindexLookups_LivenessRule(t *testing.T) {
-	payload := ReindexTaskPayload{
-		MigrationType: ReindexTypeEnableFilterable,
-		Collection:    "C",
-		Properties:    []string{"foo"},
-		UnitToShard:   map[string]string{"u1": "shard-1"},
-	}
-
-	logger, _ := logrustest.NewNullLogger()
-
 	statuses := []struct {
 		status   distributedtask.TaskStatus
 		inFlight bool
@@ -73,40 +77,36 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 			name = "empty"
 		}
 		t.Run(name, func(t *testing.T) {
-			task := lookupTask(t, "T1", s.status, payload)
-			require.Equal(t, s.inFlight,
-				NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1"),
+			node := managerHolding(t, ReindexNamespace, gateTaskOnC(t, s.status))
+			require.Equal(t, s.inFlight, gateLookup(t, node, node)("C", "shard-1"),
 				"the backup gate must read %q as in-flight=%v", s.status, s.inFlight)
 		})
 	}
 }
 
-// Pins: the lookup key includes collection, so a shared shard name
-// doesn't falsely flag an unrelated collection as busy.
+// Pins: a task this node has not applied yet covers every shard of its collection.
 func TestShardReindexActivityLookup_KeyIsCollectionAndShard(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
-
-	task := lookupTask(t, "T1", distributedtask.TaskStatusStarted,
-		ReindexTaskPayload{
-			MigrationType: ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-			UnitToShard:   map[string]string{"u1": "shard-1"},
-		})
+	live := managerHolding(t, ReindexNamespace, gateTaskOnC(t, distributedtask.TaskStatusStarted))
+	ended := managerHolding(t, ReindexNamespace, gateTaskOnC(t, distributedtask.TaskStatusFinished))
+	notApplied := managerHolding(t, ReindexNamespace)
 
 	for _, tc := range []struct {
 		name       string
+		leader     *distributedtask.Manager
+		local      *distributedtask.Manager
 		collection string
 		shard      string
 		want       bool
 	}{
-		{"migrating collection and shard", "C", "shard-1", true},
-		{"same shard name under another collection", "Other", "shard-1", false},
-		{"migrating collection, other shard", "C", "shard-2", false},
+		{"live task with a unit on the shard", live, live, "C", "shard-1", true},
+		{"same shard name under another collection", live, live, "Other", "shard-1", false},
+		{"shard of the collection without a unit", live, live, "C", "shard-2", false},
+		{"ended task", ended, ended, "C", "shard-1", false},
+		{"task this node has not applied, any shard of its collection", live, notApplied, "C", "shard-2", true},
+		{"task this node has not applied, another collection", live, notApplied, "Other", "shard-1", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want,
-				NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)(tc.collection, tc.shard))
+			require.Equal(t, tc.want, gateLookup(t, tc.leader, tc.local)(tc.collection, tc.shard))
 		})
 	}
 }

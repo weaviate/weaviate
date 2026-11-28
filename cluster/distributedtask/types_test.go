@@ -78,8 +78,10 @@ func TestTask_Clone_WritesToCloneDoNotReachOriginal(t *testing.T) {
 	clone.SwapDecidedGroups["g1"] = now
 	clone.SwapsOwed["g1"] = []string{"node-2"}
 	clone.NodePreparationAcks["node-2"] = PostCompletionAck{Success: true}
+	clone.countUnit(clone.Units["u-1"], 1)
 
 	// Original must be untouched on EVERY map.
+	assert.Equal(t, map[string]unitCount{"node-1": {total: 1}}, orig.unitCounts, "unitCounts must not alias clone")
 	assert.Equal(t, UnitStatusCompleted, orig.Units["u-1"].Status, "Units value-level deep copy")
 	assert.True(t, orig.PostCompletionAcks["node-1"].Success, "PostCompletionAcks must not alias clone")
 	assert.NotContains(t, orig.PostCompletionAcks, "node-2", "PostCompletionAcks must not alias clone")

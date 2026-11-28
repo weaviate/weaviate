@@ -78,17 +78,11 @@ func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sche
 	s.store.SetDistributedTaskSchedulerNotifier(notifier)
 }
 
-// LocalUnrecognizedDistributedTasks implements
-// [distributedtask.LocalTaskInspector].
-func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
-	return s.store.LocalUnrecognizedDistributedTasks()
-}
-
 // LocalDistributedTasks reads this node's own FSM, not the leader. The schema
 // lives in that same FSM at the same applied index, so a caller that reads
 // tasks and then a schema flag gets a flag at least as new as the tasks. It
-// can trail the leader: use [Raft.ListDistributedTasks] when a decision needs
-// the cluster's latest state.
+// can trail the leader. A decision that needs the leader's state uses
+// [Raft.ListDistributedTaskHeaders], or [Raft.ListDistributedTasks] where it reads units.
 func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }
@@ -99,8 +93,25 @@ func (s *Raft) LocalTaskStatuses(namespace, shard string) []distributedtask.Task
 	return s.store.LocalTaskStatuses(namespace, shard)
 }
 
+// LocalTaskHasUnit reads this node's FSM; known is false while it has not applied desc.
+func (s *Raft) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(node string) string) (has, known bool) {
+	return s.store.distributedTasksManager.TaskHasUnit(namespace, desc, unitID)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
+}
+
+// SchedulerTaskSource fails while no leader is known, so a quorum loss skips the tick.
+func (s *Raft) SchedulerTaskSource() distributedtask.TaskCopySource { return schedulerTaskSource{s} }
+
+type schedulerTaskSource struct{ s *Raft }
+
+func (l schedulerTaskSource) UpdateTaskCopy(c *distributedtask.TaskCopy) error {
+	if l.s.store.Leader() == "" {
+		return l.s.leaderErr()
+	}
+	return l.s.store.distributedTasksManager.UpdateTaskCopy(c)
 }
 
 // FSMHasCaughtUp reports only that the log held at store open was replayed.

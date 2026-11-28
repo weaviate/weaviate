@@ -535,9 +535,8 @@ Validation, dispatch, response shaping. Two structural details worth
 calling out:
 
 **Per-`(collection, property)` submit lock.** Held across class read,
-validation, conflict check, and the RAFT `AddDistributedTaskWithBarrier`
-(or `AddDistributedTaskWithGroupsBarrier` for a multi-tenant semantic
-migration) call.
+validation, conflict check, and the RAFT `AddDistributedTaskWithGroupsBarrier`
+call, whose unit specs name each unit's shard and node.
 Without this, a parallel `DELETE /properties/{p}/index/{name}` could
 win the lock between the PUT's `ReadOnlyClass` snapshot and its
 RAFT task-add, leaving the PUT validating against a schema that no
@@ -688,7 +687,8 @@ both active **and** recognized, so an unrecognized-status task is deleted
 once its `completedTaskTTL` has elapsed. That is sound because the
 `Scheduler` TTL sweep is the only proposer of `CLEAN_UP` (pinned by
 `TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer`) and it filters
-on `IsActive()` against the list it read from the leader. So a `CLEAN_UP`
+on `IsActive()` against this node's own task copy, where a terminal status
+never changes once applied. So a `CLEAN_UP`
 naming a status this build cannot classify can only come from a node that
 does recognize it and reads it as terminal, which is exactly when deleting
 the local copy is right. Without the exit the entry is unreachable
@@ -702,7 +702,7 @@ unrecognized status on one aggregated warn line, sampled at three lines
 an hour. The condition holds until an operator acts on it, so the log is
 the diagnostic and not the signal: the per-namespace gauge
 `weaviate_distributed_tasks_unrecognized_status` is written on every
-tick, which is what makes the state alertable. The line does not offer a
+tick at which this node knows a leader, which is what makes the state alertable. The line does not offer a
 cancel — the FSM refuses one for exactly this task set.
 
 The cost of the two directions is asymmetric, which is what governs how
@@ -750,7 +750,8 @@ semantics for callers that don't care.
 migration's own schema flip, because its run is still in flight. The
 flag routes the flip to `CheckMigrationPropertyUpdate` instead, which
 admits it only while a run on that property is `SWAPPING`, so a flip
-arriving after its run ended is refused.
+arriving after its run ended is refused. The provider treats that refusal
+as done when the schema already shows the target (`ReindexRunLanded`).
 
 **`MutationGuard` (cross-FSM).** The schema FSM consults
 `distributedtask.SchemaMutationDetector` on every `UpdateProperty`,
@@ -1517,8 +1518,8 @@ the query-side resolver is in [`adapters/repos/db/inverted/tokenization.go`](../
 
 The problem: on each replica, the bucket pointer flips to the migrated
 content at the end of `RunSwapOnShard` (Phase 2a), but the cluster-wide
-schema flip (`OnTaskCompleted`'s RAFT commit) doesn't propagate to the
-local FSM for tens to hundreds of milliseconds afterward. In that window
+schema flip (`OnTaskCompleted`'s RAFT commit) waits until every replica has swapped and acked, then
+reaches the local FSM after up to `minWakeSpacing` (100 ms) plus commit and apply latency, longer if the flip is retried (`retryFloor`, 2 s apart). In that window
 the analyzer still describes the property the pre-migration way, which
 breaks two things:
 

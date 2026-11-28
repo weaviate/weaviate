@@ -13,7 +13,6 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,7 +51,7 @@ import (
 // [MutationGuard] — that is the load-bearing check; this one is a
 // pre-flight optimization.
 type reindexInFlightChecker interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
 
 // reindexSubmitLockProvider returns the per-(collection, property)
@@ -328,7 +327,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 	if s.reindexTaskLister == nil {
 		return ""
 	}
-	tasksByNamespace, err := s.reindexTaskLister.ListDistributedTasks(ctx)
+	tasksByNamespace, err := listTaskHeaders(ctx, s.reindexTaskLister)
 	if err != nil {
 		return ""
 	}
@@ -336,34 +335,21 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !task.Status.IsActive() {
 			continue
 		}
-		// Deciding the collection first looks like it would spare
-		// unrelated collections a garbage payload, but a payload of
-		// literal null decodes with no error and leaves Collection empty,
-		// so this side would allow what the apply then rejects.
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			// Unparseable payload in flight is a hard reject reason on
-			// the apply side; mirror that here so the REST caller
-			// doesn't get a spurious "ok-then-FAILED" two-step.
-			//
+		header, ok := db.ReindexHeaderOf(task)
+		if !ok {
 			// This fires BEFORE the collection filter, so task.ID may name a
 			// namespace the caller can't see (StripErrorMessage strips only the
 			// caller's own). Log it server-side instead.
 			if s.logger != nil {
 				s.logger.WithField("task_id", task.ID).
-					Errorf("refusing property mutation on %s.%s: in-flight reindex task has an unparseable payload: %v", className, propertyName, err)
+					Errorf("refusing property mutation on %s.%s: in-flight reindex task has an unparseable payload", className, propertyName)
 			}
 			return fmt.Sprintf(
 				"an in-flight reindex task has an unparseable payload; "+
 					"refusing property mutation on %s.%s until an operator "+
 					"inspects the task store", className, propertyName)
 		}
-		if payload.Collection == "" || payload.MigrationType == "" {
-			return fmt.Sprintf(
-				"in-flight reindex task %q has empty Collection or "+
-					"MigrationType; refusing property mutation on %s.%s "+
-					"until the task is inspected", task.ID, className, propertyName)
-		}
+		payload := header.ReindexTaskPayload
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
 		}

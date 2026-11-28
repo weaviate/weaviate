@@ -14,7 +14,10 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -39,6 +42,29 @@ type classReaderStub struct {
 
 func (r classReaderStub) ReadOnlyClass(string) *models.Class { return r.class }
 
+// flippingReader serves `first` on the first read and `after` on every later one.
+type flippingReader struct {
+	schema.SchemaReader
+	first, after *models.Class
+	reads        atomic.Int32
+}
+
+func (r *flippingReader) ReadOnlyClass(string) *models.Class {
+	if r.reads.Add(1) == 1 {
+		return r.first
+	}
+	return r.after
+}
+
+// refusingSchemaManager refuses every migration flip, as the FSM does once the run left SWAPPING.
+type refusingSchemaManager struct{ schema.SchemaManager }
+
+func (refusingSchemaManager) UpdatePropertyFromMigration(context.Context, string, api.MigrationRun,
+	*models.Property, ...string,
+) (uint64, error) {
+	return 0, errors.New("no reindex run is completing; its cutover write is refused")
+}
+
 // newClassificationProvider wires a ReindexProvider with just the schema
 // reader the flip path reads; cls=nil models a class that's not locally readable.
 func newClassificationProvider(cls *models.Class) *ReindexProvider {
@@ -46,7 +72,7 @@ func newClassificationProvider(cls *models.Class) *ReindexProvider {
 	return &ReindexProvider{
 		logger:        logger,
 		schemaManager: &schema.Manager{SchemaReader: classReaderStub{class: cls}},
-		payloads:      make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		seenTasks:     make(map[distributedtask.TaskDescriptor]struct{}),
 		reindexTasks:  make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		endedTasks:    make(map[distributedtask.TaskDescriptor]struct{}),
 	}
@@ -60,7 +86,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		// Never becomes parsable, so this must be permanent, not transient.
 		p := &ReindexProvider{
 			logger:       logger,
-			payloads:     make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+			seenTasks:    make(map[distributedtask.TaskDescriptor]struct{}),
 			reindexTasks: make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 			endedTasks:   make(map[distributedtask.TaskDescriptor]struct{}),
 		}
@@ -166,17 +192,65 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 				// The class is not locally readable, so a flip that runs
 				// errors and one that never runs cannot.
 				p := newClassificationProvider(nil)
-				err := p.OnTaskCompleted(&distributedtask.Task{
-					Namespace:      ReindexNamespace,
+				err := p.OnTaskCompleted(loadTasks(t, ReindexNamespace, &distributedtask.Task{
 					TaskDescriptor: distributedtask.TaskDescriptor{ID: "t2", Version: 1},
 					Status:         tc.status,
 					Payload:        payloadJSON,
-				})
+				})[0])
 				if tc.wantFlip {
 					require.Error(t, err, "swapping is the status that owns the cluster-wide flip")
 					return
 				}
 				require.NoError(t, err, "a non-swapping status must not touch the schema")
+			})
+		}
+	})
+
+	t.Run("a refused flip is done when the schema already shows the target", func(t *testing.T) {
+		// Another node's flip landed and finalized the run, so ours is refused; retrying or
+		// failing the run would act on a migration that already succeeded.
+		payload := ReindexTaskPayload{
+			MigrationType: ReindexTypeChangeTokenization, Collection: "Docs",
+			Properties: []string{"title"}, TargetTokenization: models.PropertyTokenizationField,
+		}
+		payloadJSON, err := json.Marshal(payload)
+		require.NoError(t, err)
+		task := loadTasks(t, ReindexNamespace, &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t3", Version: 1},
+			Status:         distributedtask.TaskStatusSwapping,
+			Payload:        payloadJSON,
+		})[0]
+		classWith := func(tok string) *models.Class {
+			return &models.Class{Class: "Docs", Properties: []*models.Property{
+				{Name: "title", DataType: []string{"text"}, Tokenization: tok},
+			}}
+		}
+
+		for _, tc := range []struct {
+			name    string
+			after   string
+			wantErr bool
+		}{
+			{name: "schema flipped meanwhile", after: models.PropertyTokenizationField},
+			{name: "schema still pre-flip", after: models.PropertyTokenizationWord, wantErr: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				// The first read is the stale one the flip is built from; the refusal comes after the flip landed.
+				reader := &flippingReader{first: classWith(models.PropertyTokenizationWord), after: classWith(tc.after)}
+				handler, err := schema.NewHandler(reader, refusingSchemaManager{}, nil, logger, nil, nil,
+					config.Config{Raft: config.Raft{ConsistencyWaitTimeout: time.Second}},
+					nil, nil, nil, nil, nil, nil, schema.Parser{}, nil, nil, nil)
+				require.NoError(t, err)
+				p := newClassificationProvider(nil)
+				p.serverCtx = ctx
+				p.schemaManager = &schema.Manager{SchemaReader: reader, Handler: handler}
+
+				err = p.OnTaskCompleted(task)
+				if tc.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
 			})
 		}
 	})

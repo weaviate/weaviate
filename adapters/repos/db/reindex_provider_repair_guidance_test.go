@@ -286,15 +286,14 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			// Terminal-status cleanup needs a DB; an empty one is a no-op.
 			p := NewReindexProvider(&DB{}, nil, nil, logger, "", nil, context.Background())
 
-			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-				Namespace:          ReindexNamespace,
+			require.NoError(t, p.OnTaskCompleted(loadTasks(t, ReindexNamespace, &distributedtask.Task{
 				TaskDescriptor:     distributedtask.TaskDescriptor{ID: "T_cancel", Version: 1},
 				Status:             distributedtask.TaskStatusCancelled,
 				Payload:            payload,
 				PostCompletionAcks: tc.postAcks,
 				PreparedGroups:     tc.prepAcks,
 				SwapDecidedGroups:  tc.decided,
-			}))
+			})[0]))
 
 			var guided, resubmitSeen bool
 			var guidance string
@@ -369,15 +368,24 @@ func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
 		nil, nil, logger, "n1", nil, ctx)
 
-	require.False(t, p.hasLocalPostMergeState(ctx, &ReindexTaskPayload{
+	require.False(t, p.hasLocalPostMergeState(ctx, shardTask(shard.Name(), shard.Name()), &ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    "C",
 		Properties:    []string{"title", "author", "isbn"},
-		UnitToShard:   map[string]string{"u1": shard.Name(), "u2": shard.Name()},
 	}))
 
 	require.Equal(t, 1, recordSetReadsReported(hook),
-		"one read for the one shard the payload names, whatever the property count")
+		"one read for the one shard the units name, whatever the property count")
+}
+
+// shardTask holds one unit on each of shards.
+func shardTask(shards ...string) *distributedtask.Task {
+	task := &distributedtask.Task{Units: map[string]*distributedtask.Unit{}}
+	for i, shard := range shards {
+		id := fmt.Sprintf("u%d", i+1)
+		task.Units[id] = &distributedtask.Unit{ID: id, Shard: shard}
+	}
+	return task
 }
 
 // recordSetReadsReported totals the record_set_reads every walk reports. The
@@ -396,7 +404,7 @@ func recordSetReadsReported(hook *logrustest.Hook) int {
 	return total
 }
 
-func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvider, *ReindexTaskPayload) {
+func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvider, *distributedtask.Task, *ReindexTaskPayload) {
 	t.Helper()
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
@@ -409,12 +417,11 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    "C",
 		Properties:    []string{"title"},
-		UnitToShard:   map[string]string{"u1": shard.Name()},
 	}
 	p := NewReindexProvider(
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
 		nil, nil, logrus.New(), "n1", nil, ctx)
-	return p, payload
+	return p, shardTask(shard.Name()), payload
 }
 
 // Pins that the evidence probe answers to a context. It reads a
@@ -423,14 +430,14 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 // scheduler tick and outlives shutdown.
 func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 	ctx := context.Background()
-	p, payload := postMergeEvidenceFixture(t, ctx)
+	p, task, payload := postMergeEvidenceFixture(t, ctx)
 
-	require.True(t, p.hasLocalPostMergeState(ctx, payload),
+	require.True(t, p.hasLocalPostMergeState(ctx, task, payload),
 		"the committed record is on disk, so a live context must find it")
 
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	require.False(t, p.hasLocalPostMergeState(cancelled, payload),
+	require.False(t, p.hasLocalPostMergeState(cancelled, task, payload),
 		"a shut-down node must not walk the task's shards")
 }
 
@@ -452,7 +459,6 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    "C",
 		Properties:    []string{"title"},
-		UnitToShard:   map[string]string{"u1": shard.Name()},
 	})
 	require.NoError(t, err)
 
@@ -462,12 +468,10 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 		nil, nil, logger, "n1", nil, ctx)
 	idx.db.SetReindexUnitSeal(p.ReindexUnitSealBuilder())
 
-	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_cancel_disk", Version: 1},
-		Status:         distributedtask.TaskStatusCancelled,
-		Payload:        payload,
-	}))
+	task := shardTask(shard.Name())
+	task.TaskDescriptor = distributedtask.TaskDescriptor{ID: "T_cancel_disk", Version: 1}
+	task.Status, task.Payload = distributedtask.TaskStatusCancelled, payload
+	require.NoError(t, p.OnTaskCompleted(loadTasks(t, ReindexNamespace, task)[0]))
 
 	require.Empty(t, concrete.migrationRecords.Records(), "fixture: the cleanup has to remove the evidence")
 	require.True(t, loggedRepairGuidance(hook),
@@ -490,7 +494,6 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    className,
 		Properties:    []string{"title"},
-		UnitToShard:   map[string]string{"u1": shard.Name()},
 	})
 	require.NoError(t, err)
 
@@ -510,12 +513,10 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	// rather than the "nothing is running here" short-circuit.
 	structuralInvariantInjectHandle(p, desc)
 
-	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: desc,
-		Status:         distributedtask.TaskStatusCancelled,
-		Payload:        payload,
-	}))
+	task := shardTask(shard.Name())
+	task.TaskDescriptor = desc
+	task.Status, task.Payload = distributedtask.TaskStatusCancelled, payload
+	require.NoError(t, p.OnTaskCompleted(loadTasks(t, ReindexNamespace, task)[0]))
 
 	var drainTimedOut bool
 	for _, e := range hook.AllEntries() {
@@ -642,11 +643,10 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 				nil, nil, logger, "n1", nil, ctx)
 
-			got := p.hasLocalPostMergeState(ctx, &ReindexTaskPayload{
+			got := p.hasLocalPostMergeState(ctx, shardTask(tenant), &ReindexTaskPayload{
 				Collection:    className,
 				MigrationType: tc.migrationType,
 				Properties:    []string{prop},
-				UnitToShard:   map[string]string{"u1": tenant},
 			})
 
 			require.Equal(t, tc.want, got)

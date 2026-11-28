@@ -54,7 +54,7 @@ func (d *denyAuthorizer) FilterAuthorizedResources(context.Context, *models.Prin
 // was consulted.
 type recordingReindexLister struct{ consulted bool }
 
-func (r *recordingReindexLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+func (r *recordingReindexLister) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
 	r.consulted = true
 	return nil, nil
 }

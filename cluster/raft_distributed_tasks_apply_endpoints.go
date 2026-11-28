@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/utils"
 )
 
 func (s *Raft) applyDistributedTaskCommand(ctx context.Context, cmdType cmd.ApplyRequest_Type, req any) error {
@@ -38,13 +39,30 @@ func (s *Raft) applyDistributedTaskCommand(ctx context.Context, cmdType cmd.Appl
 	return nil
 }
 
+// applyBoundedTaskCommand is for commands whose payload does not grow with the tenant count.
+func (s *Raft) applyBoundedTaskCommand(ctx context.Context, cmdType cmd.ApplyRequest_Type, req any) error {
+	ctx, cancel := utils.BoundIfNoDeadline(ctx, s.store.cfg.ConsistencyWaitTimeout)
+	defer cancel()
+	return s.applyDistributedTaskCommand(ctx, cmdType, req)
+}
+
 // AddDistributedTask is the no-barrier variant — task uses pre-barrier
 // semantics (STARTED → SWAPPING directly on AllUnitsTerminal). Use
-// AddDistributedTaskWithBarrier when the task needs cluster-wide swap
+// AddDistributedTaskWithGroupsBarrier when the task needs cluster-wide swap
 // coordination (semantic migrations in the reindex provider; future
 // providers needing the same property).
 func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string, taskPayload any, unitIDs []string) error {
-	return s.AddDistributedTaskWithBarrier(ctx, namespace, taskID, taskPayload, unitIDs, false)
+	payloadBytes, err := json.Marshal(taskPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal task payload: %w", err)
+	}
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		Payload:               payloadBytes,
+		SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		UnitIds:               unitIDs,
+	})
 }
 
 // AddDistributedTaskWithGroups creates a task with units that have explicit group assignments.
@@ -56,38 +74,8 @@ func (s *Raft) AddDistributedTaskWithGroups(
 	return s.AddDistributedTaskWithGroupsBarrier(ctx, namespace, taskID, taskPayload, unitSpecs, false)
 }
 
-// AddDistributedTaskWithBarrier is the PREP-barrier-aware counterpart
-// to AddDistributedTask. When needsPreparationBarrier=true the task uses the
-// two-phase RAFT-coordinated swap: AllUnitsTerminal routes to
-// PREPARING (not SWAPPING directly), and each node's PREP completion
-// must ack before any node fires its atomic swap.
-//
-// AddDistributedTask is equivalent to AddDistributedTaskWithBarrier(...,
-// false) for callers that don't need cluster-wide swap coordination
-// (format-only migrations, debug-originated tasks).
-func (s *Raft) AddDistributedTaskWithBarrier(
-	ctx context.Context, namespace, taskID string,
-	taskPayload any, unitIDs []string, needsPreparationBarrier bool,
-) error {
-	payloadBytes, err := json.Marshal(taskPayload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal task payload: %w", err)
-	}
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
-		Namespace:               namespace,
-		Id:                      taskID,
-		Payload:                 payloadBytes,
-		SubmittedAtUnixMillis:   time.Now().UnixMilli(),
-		UnitIds:                 unitIDs,
-		NeedsPreparationBarrier: needsPreparationBarrier,
-	})
-}
-
-// AddDistributedTaskWithGroupsBarrier is the grouped, PREP-barrier-aware
-// counterpart to AddDistributedTaskWithGroups. See
-// AddDistributedTaskWithBarrier for the barrier semantics; this variant
-// takes UnitSpecs (with optional GroupID per unit) instead of bare
-// unit IDs.
+// AddDistributedTaskWithGroupsBarrier with needsPreparationBarrier routes AllUnitsTerminal to
+// PREPARING, and every node's PREP completion must ack before any node fires its swap.
 func (s *Raft) AddDistributedTaskWithGroupsBarrier(
 	ctx context.Context, namespace, taskID string,
 	taskPayload any, unitSpecs []distributedtask.UnitSpec, needsPreparationBarrier bool,
@@ -98,7 +86,7 @@ func (s *Raft) AddDistributedTaskWithGroupsBarrier(
 	}
 	protoSpecs := make([]*cmd.UnitSpec, len(unitSpecs))
 	for i, spec := range unitSpecs {
-		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID}
+		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID, Shard: spec.Shard, Node: spec.Node}
 	}
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
 		Namespace:               namespace,
@@ -128,7 +116,7 @@ func (s *Raft) RecordDistributedTaskUnitFailure(ctx context.Context, namespace, 
 }
 
 func (s *Raft) recordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &cmd.RecordDistributedTaskUnitCompletionRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &cmd.RecordDistributedTaskUnitCompletionRequest{
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              version,
@@ -140,7 +128,7 @@ func (s *Raft) recordDistributedTaskUnitCompletion(ctx context.Context, namespac
 }
 
 func (s *Raft) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS, &cmd.UpdateDistributedTaskUnitProgressRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS, &cmd.UpdateDistributedTaskUnitProgressRequest{
 		Namespace:           namespace,
 		Id:                  taskID,
 		Version:             version,
@@ -152,7 +140,7 @@ func (s *Raft) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace,
 }
 
 func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP, &cmd.CleanUpDistributedTaskRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP, &cmd.CleanUpDistributedTaskRequest{
 		Namespace: namespace,
 		Id:        taskID,
 		Version:   taskVersion,
@@ -160,7 +148,7 @@ func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID str
 }
 
 func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED, &cmd.MarkTaskFinalizedRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED, &cmd.MarkTaskFinalizedRequest{
 		Namespace:             namespace,
 		Id:                    taskID,
 		Version:               taskVersion,
@@ -169,7 +157,7 @@ func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, task
 }
 
 func (s *Raft) MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED, &cmd.MarkTaskFailedRequest{
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED, &cmd.MarkTaskFailedRequest{
 		Namespace:          namespace,
 		Id:                 taskID,
 		Version:            taskVersion,
@@ -194,7 +182,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 	success bool,
 	errMsg string,
 ) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK,
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK,
 		&cmd.RecordDistributedTaskPostCompletionAckRequest{
 			Namespace:         namespace,
 			Id:                taskID,
@@ -216,7 +204,7 @@ func (s *Raft) RecordDistributedTaskPreparationCompleteAck(
 	success bool,
 	errMsg string,
 ) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK,
+	return s.applyBoundedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK,
 		&cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 			Namespace:         namespace,
 			Id:                taskID,

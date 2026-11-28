@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,7 +32,19 @@ import (
 // namespace holds a task.
 type refuseWhileTaskExists struct{}
 
-func (refuseWhileTaskExists) CheckConflict(_ []byte, existing []*distributedtask.Task) error {
+// replayHeader names no collection, so every check sees every task of its namespace.
+type replayHeader struct{}
+
+func (replayHeader) Collection() string             { return "" }
+func (replayHeader) VisiblePayload() map[string]any { return nil }
+
+func (refuseWhileTaskExists) DecodeHeader([]byte) (distributedtask.TaskHeader, error) {
+	return replayHeader{}, nil
+}
+
+func (refuseWhileTaskExists) DecodeCollection([]byte) (string, error) { return "", nil }
+
+func (refuseWhileTaskExists) CheckConflict(_ distributedtask.TaskHeader, existing []*distributedtask.Task) error {
 	if len(existing) > 0 {
 		return fmt.Errorf("conflicts with task %s", existing[0].ID)
 	}
@@ -60,7 +73,9 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 	ctx := context.Background()
 	const ns = "test-ns"
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(cfg *Config) {
-		cfg.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{ns: refuseWhileTaskExists{}}
+		cfg.DistributedTaskConflictDetectors = map[string]distributedtask.ConflictDetector{
+			ns: refuseWhileTaskExists{}, db.ReindexNamespace: db.ReindexDetector{},
+		}
 		cfg.DistributedTaskSchemaMutationDetectors = map[string]distributedtask.SchemaMutationDetector{ns: refuseWhileTaskExists{}}
 	})
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
@@ -90,6 +105,8 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, srv.AddDistributedTask(ctx, ns, "T1", map[string]string{}, []string{"u1"}))
 	require.ErrorContains(t, srv.AddDistributedTask(ctx, ns, "T2", map[string]string{}, []string{"u1"}), "conflicts with task T1")
+	require.ErrorIs(t, srv.AddDistributedTask(ctx, db.ReindexNamespace, "R1", map[string]string{"collection": "C"}, []string{"u1"}),
+		distributedtask.ErrTaskConflict, "a reindex payload with no migration type has no header")
 	_, err = srv.DeleteClass(ctx, "C")
 	require.ErrorContains(t, err, "task in flight on C")
 	lastIndex := srv.store.raft.Load().LastIndex()
@@ -107,6 +124,7 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 	tasks, err := srv.store.distributedTasksManager.ListDistributedTasks(ctx)
 	require.NoError(t, err)
 	require.Len(t, tasks[ns], 1, "the replayed conflicting task must stay refused")
+	require.Empty(t, tasks[db.ReindexNamespace], "the replayed headerless task must stay refused")
 	require.NoError(t, srv.Close(ctx))
 }
 

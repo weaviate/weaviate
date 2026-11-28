@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/runtime"
@@ -149,10 +150,19 @@ func TestCheckReindexAdmission(t *testing.T) {
 type fakeTaskLister struct {
 	tasks map[string][]*distributedtask.Task
 	err   error
+	// refusals counts down the listings refused with err before the rest succeed; nil refuses every one.
+	refusals *atomic.Int32
 }
 
 func (f fakeTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
-	return f.tasks, f.err
+	if f.err != nil && (f.refusals == nil || f.refusals.Add(-1) >= 0) {
+		return nil, f.err
+	}
+	return f.tasks, nil
+}
+
+func (f fakeTaskLister) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return f.ListDistributedTasks(ctx)
 }
 
 // Pins the live fail-closed 503 path: a list failure must reject rather than

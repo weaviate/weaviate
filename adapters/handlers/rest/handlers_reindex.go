@@ -298,13 +298,30 @@ func validateTokenizationChange(
 // buildUnitSpecs creates UnitSpec entries with GroupID = shardName (= tenant
 // name in MT). This enables per-tenant barrier semantics via OnGroupCompleted.
 func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSpec {
+	specs := unitSpecsPerReplica(shardOwnership)
+	for i := range specs {
+		specs[i].Shard, specs[i].Node = "", ""
+	}
+	return specs
+}
+
+// buildReindexUnitSpecs groups by shard only for a multi-tenant semantic run, whose tenants swap one at a time.
+func buildReindexUnitSpecs(shardOwnership map[string][]string, isMT bool, mt db.ReindexMigrationType) []distributedtask.UnitSpec {
+	specs := unitSpecsPerReplica(shardOwnership)
+	if !isMT || !db.IsSemanticMigration(mt) {
+		for i := range specs {
+			specs[i].GroupID = ""
+		}
+	}
+	return specs
+}
+
+func unitSpecsPerReplica(shardOwnership map[string][]string) []distributedtask.UnitSpec {
 	var specs []distributedtask.UnitSpec
 	for nodeName, shards := range shardOwnership {
 		for _, shardName := range shards {
-			unitID := db.MigrationUnitID(shardName, nodeName)
 			specs = append(specs, distributedtask.UnitSpec{
-				ID:      unitID,
-				GroupID: shardName,
+				ID: db.MigrationUnitID(shardName, nodeName), GroupID: shardName, Shard: shardName, Node: nodeName,
 			})
 		}
 	}

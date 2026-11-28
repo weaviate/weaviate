@@ -90,13 +90,12 @@ func TestRelaunchedUnitAfterSwapOpensNoSecondBucket(t *testing.T) {
 			unitID := shard.migrationUnit()
 			payload := &ReindexTaskPayload{
 				Collection: className, MigrationType: tc.migrationType, Properties: []string{tc.prop},
-				UnitToShard: map[string]string{unitID: shard.Name()},
-				UnitToNode:  map[string]string{unitID: "node1"},
 			}
 			task := &distributedtask.Task{
 				Namespace:      ReindexNamespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_relaunch", Version: 1},
 				Status:         distributedtask.TaskStatusStarted,
+				Units:          map[string]*distributedtask.Unit{unitID: {ID: unitID, Shard: shard.Name(), NodeID: "node1"}},
 			}
 			built, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 			require.NoError(t, err)

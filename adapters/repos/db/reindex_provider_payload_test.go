@@ -12,78 +12,32 @@
 package db
 
 import (
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestExtractReindexTaskCollection(t *testing.T) {
-	t.Run("well-formed payload returns class name", func(t *testing.T) {
-		payload, err := json.Marshal(ReindexTaskPayload{
-			MigrationType: ReindexTypeChangeTokenization,
-			Collection:    "ProductCatalog",
-		})
-		assert.NoError(t, err)
-
-		got, ok := ExtractReindexTaskCollection(payload)
-		assert.True(t, ok)
-		assert.Equal(t, "ProductCatalog", got)
-	})
-
-	t.Run("payload missing collection is rejected", func(t *testing.T) {
-		payload, err := json.Marshal(ReindexTaskPayload{
-			MigrationType: ReindexTypeEnableRangeable,
-		})
-		assert.NoError(t, err)
-
-		got, ok := ExtractReindexTaskCollection(payload)
-		assert.False(t, ok)
-		assert.Equal(t, "", got)
-	})
-
-	t.Run("unparseable payload is rejected", func(t *testing.T) {
-		got, ok := ExtractReindexTaskCollection([]byte("not json"))
-		assert.False(t, ok)
-		assert.Equal(t, "", got)
-	})
-
-	t.Run("payload with extra fields still parses", func(t *testing.T) {
-		// ReindexTaskPayload may gain fields over time; the extractor must
-		// stay forwards-compatible with unknown JSON keys.
-		got, ok := ExtractReindexTaskCollection([]byte(
-			`{"collection":"Foo","migrationType":"change-tokenization","futureField":42}`))
-		assert.True(t, ok)
-		assert.Equal(t, "Foo", got)
-	})
-}
-
-func TestExtractReindexTaskReplicas(t *testing.T) {
+// A payload without a header is refused at add, so these cases decide which tasks the conflict check ever sees.
+func TestReindexDecodeHeader(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		payload []byte
-		want    map[string][]string
-		wantOK  bool
+		name, payload, want string
 	}{
-		{
-			name: "units group by shard",
-			payload: []byte(`{"unitToShard":{"s1__n1":"s1","s1__n2":"s1","s2__n1":"s2"},` +
-				`"unitToNode":{"s1__n1":"n1","s1__n2":"n2","s2__n1":"n1"}}`),
-			want:   map[string][]string{"s1": {"n1", "n2"}, "s2": {"n1"}},
-			wantOK: true,
-		},
-		{name: "unparseable payload is rejected", payload: []byte("not json")},
+		{name: "well-formed payload names its collection", payload: `{"collection":"ProductCatalog","migrationType":"change-tokenization"}`, want: "ProductCatalog"},
+		{name: "unknown fields are skipped", payload: `{"collection":"Foo","migrationType":"change-tokenization","futureField":42}`, want: "Foo"},
+		{name: "missing collection is refused", payload: `{"migrationType":"enable-rangeable"}`},
+		{name: "missing migration type is refused", payload: `{"collection":"Foo"}`},
+		{name: "unparseable payload is refused", payload: `not json`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := ExtractReindexTaskReplicas(tc.payload)
-			require.Equal(t, tc.wantOK, ok)
-			require.Len(t, got, len(tc.want))
-			for shard, nodes := range tc.want {
-				require.ElementsMatch(t, nodes, got[shard])
+			header, err := ReindexDetector{}.DecodeHeader([]byte(tc.payload))
+			if tc.want == "" {
+				require.Error(t, err)
+				return
 			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, header.Collection())
 		})
 	}
 }
@@ -99,7 +53,7 @@ func TestTaskPayloadFieldsAreClassifiedForTasksList(t *testing.T) {
 		{
 			payload: ReindexTaskPayload{},
 			visible: ReindexTaskVisiblePayloadFields,
-			hidden:  []string{"properties", "tenants", "unitToNode", "unitToShard"},
+			hidden:  []string{"properties", "tenants"},
 		},
 		{
 			payload: DropVectorIndexTaskPayload{},

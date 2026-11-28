@@ -28,23 +28,33 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 type testHeader string
 
-func (h testHeader) Collection() string { return string(h) }
+func (h testHeader) Collection() string             { return string(h) }
+func (h testHeader) VisiblePayload() map[string]any { return nil }
 
 // decodeWith is a detector that only supplies headers, refusing nothing.
 type decodeWith func([]byte) (string, bool)
 
-func (d decodeWith) CheckConflict([]byte, []*Task) error { return nil }
+func (d decodeWith) CheckConflict(TaskHeader, []*Task) error { return nil }
 
 func (d decodeWith) DecodeHeader(payload []byte) (TaskHeader, error) {
 	if collection, ok := d(payload); ok {
 		return testHeader(collection), nil
 	}
 	return nil, errors.New("unreadable payload")
+}
+
+func (d decodeWith) DecodeCollection(payload []byte) (string, error) {
+	header, err := d.DecodeHeader(payload)
+	if err != nil {
+		return "", err
+	}
+	return header.Collection(), nil
 }
 
 // fakeConflictDetector lets the manager-side conflict-hook test pin
@@ -55,10 +65,14 @@ type fakeConflictDetector struct {
 	rejectWith error
 }
 
-func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
+func (f *fakeConflictDetector) CheckConflict(_ TaskHeader, _ []*Task) error {
 	f.called++
 	return f.rejectWith
 }
+
+func (f *fakeConflictDetector) DecodeHeader([]byte) (TaskHeader, error) { return testHeader(""), nil }
+
+func (f *fakeConflictDetector) DecodeCollection([]byte) (string, error) { return "", nil }
 
 // TestManager_AddTask_ConflictDetector pins the cluster-wide
 // conflict-rejection hook integrated into [Manager.AddTask]. Closes
@@ -394,6 +408,114 @@ func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	assertTasks(t, expectedTasks, tasks)
 }
 
+// Readers filter received tasks by their header, so a received copy must carry one.
+// A receiver holding the same task reuses its header; any other decodes it with the lock free.
+func TestManager_DecodeTaskListDerivesTheHeader(t *testing.T) {
+	add := toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", Payload: []byte("Foo"), UnitIds: []string{"u"}})
+	type codec struct {
+		encode func(*Manager) ([]byte, error)
+		decode func(*Manager, []byte) (map[string][]*Task, error)
+	}
+	list := codec{
+		encode: func(m *Manager) ([]byte, error) { return m.ListDistributedTasksPayload(context.Background()) },
+		decode: (*Manager).DecodeTaskList,
+	}
+	headers := codec{encode: (*Manager).ListTaskHeadersPayload, decode: (*Manager).DecodeTaskHeaders}
+	for _, tc := range []struct {
+		name        string
+		codec       codec
+		holdsTask   bool
+		wantDecodes int
+	}{
+		{name: "task list, receiver without the task decodes it", codec: list, wantDecodes: 1},
+		{name: "task list, receiver holding the task reuses its header", codec: list, holdsTask: true},
+		{name: "headers, receiver without the task decodes it", codec: headers, wantDecodes: 1},
+		{name: "headers, receiver holding the task reuses its header", codec: headers, holdsTask: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var receiver *Manager
+			decodes, lockedDecodes := 0, 0
+			newManager := func() *Manager {
+				return NewManager(ManagerParameters{ConflictDetectors: map[string]ConflictDetector{
+					"ns": decodeWith(func(p []byte) (string, bool) {
+						decodes++
+						if receiver != nil && !receiver.mu.TryLock() {
+							lockedDecodes++
+						} else if receiver != nil {
+							receiver.mu.Unlock()
+						}
+						return string(p), len(p) > 0
+					}),
+				}})
+			}
+			leader := newManager()
+			require.NoError(t, leader.AddTask(add, 1))
+			raw, err := tc.codec.encode(leader)
+			require.NoError(t, err)
+			receiver = newManager()
+			if tc.holdsTask {
+				require.NoError(t, receiver.AddTask(add, 1))
+			}
+
+			decodes, lockedDecodes = 0, 0
+			received, err := tc.codec.decode(receiver, raw)
+			require.NoError(t, err)
+			require.Equal(t, TaskHeader(testHeader("Foo")), received["ns"][0].Header())
+			require.Equal(t, tc.wantDecodes, decodes)
+			require.Zero(t, lockedDecodes)
+		})
+	}
+}
+
+// A writer must not wait while a decoder counts a received copy's units: only the lookup of the held copy runs under the lock.
+func TestManager_DecodeTaskListLetsWritersInDuringTheUnitWalk(t *testing.T) {
+	const units = 300_000
+	specs := make([]*cmd.UnitSpec, units)
+	for i := range specs {
+		specs[i] = &cmd.UnitSpec{Id: fmt.Sprintf("u%d", i), GroupId: fmt.Sprintf("g%d", i%1000), Node: "n1"}
+	}
+	add := toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitSpecs: specs})
+	receiver := NewManager(ManagerParameters{})
+	require.NoError(t, receiver.AddTask(add, 1))
+	raw, err := receiver.ListDistributedTasksPayload(context.Background())
+	require.NoError(t, err)
+
+	yardstick := receiver.tasks["ns"]["T"].Clone()
+	start := time.Now()
+	yardstick.countUnits()
+	walk := time.Since(start)
+
+	logger, _ := logrustest.NewNullLogger()
+	longestWait := func() time.Duration {
+		var longest time.Duration
+		stop, done := make(chan struct{}), make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(done)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				began := time.Now()
+				receiver.mu.Lock()
+				longest = max(longest, time.Since(began))
+				receiver.mu.Unlock()
+			}
+		}, logger)
+		_, err := receiver.DecodeTaskList(raw)
+		close(stop)
+		<-done
+		require.NoError(t, err)
+		return longest
+	}
+	shortest := longestWait()
+	for range 4 {
+		shortest = min(shortest, longestWait())
+	}
+	require.Less(t, shortest, walk/4, "a writer waited %s; one unit walk takes %s", shortest, walk)
+}
+
 func TestManager_SnapshotRestore(t *testing.T) {
 	var (
 		h   = newTestHarness(t).init(t)
@@ -544,6 +666,19 @@ func assertTask(t *testing.T, expected, actual *Task) {
 			assert.Equal(t, expectedSU.Error, actualSU.Error)
 		}
 	}
+}
+
+// addWithoutHeader inserts a task whose payload has no header, which AddTask refuses and only a snapshot still holds.
+func addWithoutHeader(t *testing.T, m *Manager, task *Task) {
+	t.Helper()
+	raw, err := m.Snapshot()
+	require.NoError(t, err)
+	s := snapshot{Tasks: map[string][]*Task{}}
+	require.NoError(t, json.Unmarshal(raw, &s))
+	s.Tasks[task.Namespace] = append(s.Tasks[task.Namespace], task)
+	raw, err = json.Marshal(&s)
+	require.NoError(t, err)
+	require.NoError(t, m.Restore(raw))
 }
 
 // addTaskWithUnits is a test helper that creates a task with the given units.
@@ -785,19 +920,34 @@ func TestManager_UpdateUnitProgress_Failures(t *testing.T) {
 		require.ErrorContains(t, err, "does not exist")
 	})
 
-	t.Run("terminal unit ignored", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		var version uint64 = 10
-		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1", "su-2"})
-		completeUnit(t, h, "ns", "task1", version, "node-1", "su-1")
+	for _, tc := range []struct {
+		name     string
+		progress float32
+		refused  bool
+	}{
+		{name: "terminal unit refuses a new claim", progress: 0, refused: true},
+		{name: "terminal unit ignores later progress", progress: 0.5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			var version uint64 = 10
+			addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1", "su-2"})
+			completeUnit(t, h, "ns", "task1", version, "node-1", "su-1")
 
-		// Progress update should be silently ignored
-		err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
-			Namespace: "ns", Id: "task1", Version: version,
-			NodeId: "node-1", UnitId: "su-1", Progress: 0.5, UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
-		}))
-		require.NoError(t, err)
-	})
+			err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+				Namespace: "ns", Id: "task1", Version: version,
+				NodeId: "node-1", UnitId: "su-1", Progress: tc.progress, UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+			}))
+			if !tc.refused {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrUnitAlreadyTerminal)
+			require.ErrorIs(t, err, ErrPermanentRejection)
+			tasks, _ := h.manager.ListDistributedTasks(context.Background())
+			require.Equal(t, UnitStatusCompleted, tasks["ns"][0].Units["su-1"].Status)
+		})
+	}
 }
 
 func TestManager_UpdateUnitProgress_InvalidValues(t *testing.T) {
@@ -1077,7 +1227,7 @@ func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
 		Id:                    "task1",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 		UnitSpecs: []*cmd.UnitSpec{
-			{Id: "su-1", GroupId: "g1"},
+			{Id: "su-1", GroupId: "g1", Shard: "shard-1", Node: "node-1"},
 			{Id: "su-2", GroupId: "g2"},
 		},
 	}), version))
@@ -1088,13 +1238,11 @@ func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
 	h2 := newTestHarness(t).init(t)
 	require.NoError(t, h2.manager.Restore(snap))
 
-	tasks, err := h2.manager.ListDistributedTasks(context.Background())
-	require.NoError(t, err)
-
-	task := tasks["ns"][0]
-	require.NotNil(t, task.Units)
-	assert.Equal(t, "g1", task.Units["su-1"].GroupID)
-	assert.Equal(t, "g2", task.Units["su-2"].GroupID)
+	for _, m := range []*Manager{h.manager, h2.manager} {
+		task := m.LocalDistributedTasks()["ns"][0]
+		assert.Equal(t, Unit{ID: "su-1", GroupID: "g1", Shard: "shard-1", NodeID: "node-1", Status: UnitStatusPending}, *task.Units["su-1"])
+		assert.Equal(t, Unit{ID: "su-2", GroupID: "g2", Status: UnitStatusPending}, *task.Units["su-2"])
+	}
 }
 
 // TestManager_RecordPostCompletionAck_Success pins the happy path of
@@ -1544,6 +1692,13 @@ func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
 			h.conflictDetectors = map[string]ConflictDetector{"reindex": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 })}
 			h.init(t)
 			for collection, id := range idOf {
+				if collection == "" {
+					addWithoutHeader(t, h.manager, &Task{
+						Namespace: "reindex", TaskDescriptor: TaskDescriptor{ID: id, Version: 100}, Payload: []byte{},
+						Status: TaskStatusStarted, Units: map[string]*Unit{"u": {ID: "u", Status: UnitStatusPending}},
+					})
+					continue
+				}
 				require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 					Namespace: "reindex", Id: id, Payload: []byte(collection), UnitIds: []string{"u"},
 				}), 100))
@@ -1882,7 +2037,10 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		mkTask("foo-1", map[string]string{"collection": "Foo"})
 		mkTask("foo-2", map[string]string{"collection": "Foo"})
 		mkTask("bar-1", map[string]string{"collection": "Bar"})
-		mkTask("nope", "opaque-string")
+		addWithoutHeader(t, h.manager, &Task{
+			Namespace: "scoped", TaskDescriptor: TaskDescriptor{ID: "nope", Version: 1}, Payload: []byte(`"opaque-string"`),
+			Status: TaskStatusStarted, Units: map[string]*Unit{"u-nope": {ID: "u-nope", Status: UnitStatusPending}},
+		})
 
 		decodes = 0
 		removed := h.manager.DeleteTasksForCollection("Foo")
@@ -1967,7 +2125,14 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 			decode := decodeWith(func([]byte) (string, bool) { extracts++; return tc.extracted, tc.extractOK })
 			h.conflictDetectors = map[string]ConflictDetector{"ns": decode, "ns2": decode}
 			h.init(t)
-			fixtureInStatus(t, h, tc.status)
+			if tc.extractOK {
+				fixtureInStatus(t, h, tc.status)
+			} else {
+				addWithoutHeader(t, h.manager, &Task{
+					Namespace: "ns", TaskDescriptor: TaskDescriptor{ID: "task1", Version: 10}, Payload: []byte(`{}`),
+					Status: tc.status, Units: map[string]*Unit{"u-n1": {ID: "u-n1", Status: UnitStatusPending}},
+				})
+			}
 			tasks := 1
 			if tc.runningInNS != "" {
 				addTaskWithUnits(t, h, tc.runningInNS, "task2", 11, []string{"u-n2"})
@@ -2433,9 +2598,7 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 // in a status this build cannot name arrives by snapshot (a leader
 // running a newer release), survives the restart that replays it, and is
 // then still removable. Nothing else can remove it — every status
-// transition refuses a status it cannot name, and once the peers have
-// deleted their copies the sweep's leader-routed list no longer carries
-// it either.
+// transition refuses a status it cannot name, and this node's sweep reads it as active and proposes no cleanup for it.
 func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	ns, id, version := fixtureInStatus(t, h, unknownFutureStatus)
@@ -2457,114 +2620,6 @@ func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T
 		Version:   version,
 	})))
 	require.NotContains(t, restarted.tasks[ns], id)
-}
-
-// Pins what LocalUnrecognizedDistributedTasks reads off this node: exactly
-// the tasks in a status this build cannot name, grouped by namespace, and
-// always as clones (the caller reads them outside the Manager's lock). The
-// scheduler's warn reaches this through an interface it stubs out in tests,
-// so nothing else exercises the production method.
-func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
-	const otherNamespace = "other-namespace"
-
-	type taskSpec struct {
-		namespace string
-		id        string
-		version   uint64
-		status    TaskStatus
-	}
-
-	for _, tc := range []struct {
-		name  string
-		tasks []taskSpec
-		// want lists, per namespace, the task IDs that must be reported.
-		// Empty means the whole map must come back empty.
-		want map[string][]string
-	}{
-		{
-			name: "no tasks at all",
-		},
-		{
-			name: "every status this build declared is filtered out",
-			tasks: []taskSpec{
-				{"tasks-namespace", "started", 10, TaskStatusStarted},
-				{"tasks-namespace", "preparing", 11, TaskStatusPreparing},
-				{"tasks-namespace", "swapping", 12, TaskStatusSwapping},
-				{"tasks-namespace", "finished", 13, TaskStatusFinished},
-				{"tasks-namespace", "failed", 14, TaskStatusFailed},
-				{"tasks-namespace", "cancelled", 15, TaskStatusCancelled},
-			},
-		},
-		{
-			name: "one unrecognized task next to its recognized neighbors",
-			tasks: []taskSpec{
-				{"tasks-namespace", "stuck", 10, unknownFutureStatus},
-				{"tasks-namespace", "started", 11, TaskStatusStarted},
-				{"tasks-namespace", "finished", 12, TaskStatusFinished},
-			},
-			want: map[string][]string{"tasks-namespace": {"stuck"}},
-		},
-		{
-			name: "several namespaces, one of them clean",
-			tasks: []taskSpec{
-				{"tasks-namespace", "stuck", 10, unknownFutureStatus},
-				{"tasks-namespace", "also-stuck", 11, unknownFutureStatus},
-				{otherNamespace, "elsewhere", 12, unknownFutureStatus},
-				{"third-namespace", "started", 13, TaskStatusStarted},
-			},
-			want: map[string][]string{
-				"tasks-namespace": {"also-stuck", "stuck"},
-				otherNamespace:    {"elsewhere"},
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newTestHarness(t).init(t)
-			for _, spec := range tc.tasks {
-				addTaskWithUnits(t, h, spec.namespace, spec.id, spec.version, []string{"su-" + spec.id})
-				h.manager.tasks[spec.namespace][spec.id].Status = spec.status
-			}
-
-			got := h.manager.LocalUnrecognizedDistributedTasks()
-
-			if len(tc.want) == 0 {
-				require.Empty(t, got, "nothing unrecognized means nothing to report")
-				return
-			}
-
-			gotIDs := map[string][]string{}
-			for namespace, tasks := range got {
-				for _, task := range tasks {
-					require.False(t, task.Status.IsRecognized(),
-						"%s/%s is in a status this build declared", namespace, task.ID)
-					gotIDs[namespace] = append(gotIDs[namespace], task.ID)
-				}
-				sort.Strings(gotIDs[namespace])
-			}
-			require.Equal(t, tc.want, gotIDs)
-
-			// Clones: a caller that writes through the returned tasks
-			// must not reach the FSM the RAFT applies own.
-			for namespace, tasks := range got {
-				for _, task := range tasks {
-					task.Status = TaskStatusCancelled
-					for _, unit := range task.Units {
-						unit.Status = UnitStatusFailed
-					}
-
-					stored := h.manager.tasks[namespace][task.ID]
-					require.Equal(t, unknownFutureStatus, stored.Status,
-						"writing to a returned task must not change %s/%s", namespace, task.ID)
-					require.NotEmpty(t, stored.Units)
-					for unitID, unit := range stored.Units {
-						require.Equal(t, UnitStatusPending, unit.Status,
-							"writing to a returned unit must not change %s/%s/%s",
-							namespace, task.ID, unitID)
-					}
-				}
-			}
-		})
-	}
 }
 
 func TestLocalTaskStatusesCopiesNoUnits(t *testing.T) {
@@ -2766,4 +2821,75 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n2", Success: true, AckedAtUnixMillis: at.UnixMilli(),
 	})))
 	require.Empty(t, restored.tasks[ns][id].SwapsOwed)
+}
+
+// Units added without a node are bound by their first progress report; their completions must then end the task.
+func TestManager_ProgressBindsAnUnassignedUnitsCount(t *testing.T) {
+	m := NewManager(ManagerParameters{})
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitIds: []string{"u1", "u2"}}), 1))
+	for _, unit := range []string{"u1", "u2"} {
+		require.NoError(t, m.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+			Namespace: "ns", Id: "T", Version: 1, UnitId: unit, NodeId: "A", Progress: 0.5,
+		})))
+	}
+	for _, unit := range []string{"u1", "u2"} {
+		require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: "ns", Id: "T", Version: 1, UnitId: unit, NodeId: "A",
+		})))
+	}
+	task := m.tasks["ns"]["T"]
+	require.Equal(t, TaskStatusSwapping, task.Status)
+	require.False(t, task.NodeHasNonTerminalUnits("A"))
+}
+
+// A received task counts its own units, not those of the older copy the receiver holds.
+func TestManager_DecodeTaskListCountsTheReceivedUnits(t *testing.T) {
+	add := toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitSpecs: []*cmd.UnitSpec{
+		{Id: "u1", Node: "n1"}, {Id: "u2", Node: "n2"},
+	}})
+	leader, receiver := NewManager(ManagerParameters{}), NewManager(ManagerParameters{})
+	require.NoError(t, leader.AddTask(add, 1))
+	require.NoError(t, receiver.AddTask(add, 1))
+	for _, u := range []struct{ id, node string }{{"u1", "n1"}, {"u2", "n2"}} {
+		require.NoError(t, leader.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: "ns", Id: "T", Version: 1, UnitId: u.id, NodeId: u.node,
+		})))
+	}
+	raw, err := leader.ListDistributedTasksPayload(context.Background())
+	require.NoError(t, err)
+
+	received, err := receiver.DecodeTaskList(raw)
+	require.NoError(t, err)
+	got, want := received["ns"][0], leader.tasks["ns"]["T"]
+	require.Equal(t, want.AllUnitsTerminal(), got.AllUnitsTerminal())
+	require.ElementsMatch(t, want.NodesWithLocalUnits(), got.NodesWithLocalUnits())
+}
+
+func TestManager_TaskHasUnit(t *testing.T) {
+	m := NewManager(ManagerParameters{})
+	specs := make([]*cmd.UnitSpec, 0, 3)
+	for _, node := range []string{"n1", "n2", "n3"} {
+		specs = append(specs, &cmd.UnitSpec{Id: "s-" + node + "__" + node, Node: node})
+	}
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "T", UnitSpecs: specs}), 1))
+	unitOn := func(shard string) func(string) string { return func(node string) string { return shard + "__" + node } }
+	for _, tc := range []struct {
+		name            string
+		desc            TaskDescriptor
+		shard           string
+		wantHas, wantOK bool
+	}{
+		{name: "unit on n1", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n1", wantHas: true, wantOK: true},
+		{name: "unit on n2", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n2", wantHas: true, wantOK: true},
+		{name: "unit on n3", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "s-n3", wantHas: true, wantOK: true},
+		{name: "shard with no unit", desc: TaskDescriptor{ID: "T", Version: 1}, shard: "other", wantOK: true},
+		{name: "absent task", desc: TaskDescriptor{ID: "X", Version: 1}, shard: "s-n1"},
+		{name: "other version", desc: TaskDescriptor{ID: "T", Version: 2}, shard: "s-n1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			has, known := m.TaskHasUnit("ns", tc.desc, unitOn(tc.shard))
+			require.Equal(t, tc.wantHas, has)
+			require.Equal(t, tc.wantOK, known)
+		})
+	}
 }

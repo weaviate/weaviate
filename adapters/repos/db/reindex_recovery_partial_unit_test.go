@@ -53,8 +53,6 @@ func newChangeTokenizationUnit(t *testing.T, ctx context.Context) changeTokeniza
 		payload: &ReindexTaskPayload{
 			Collection: className, MigrationType: ReindexTypeChangeTokenization,
 			Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
-			UnitToShard: map[string]string{unitID: shard.Name()},
-			UnitToNode:  map[string]string{unitID: "node1"},
 		},
 		desc: distributedtask.TaskDescriptor{ID: "T_" + className, Version: 1},
 	}
@@ -72,6 +70,7 @@ func (u changeTokenizationUnit) process(t *testing.T, ctx context.Context) *fake
 	u.p.processOneUnit(ctx, &distributedtask.Task{
 		Namespace: ReindexNamespace, TaskDescriptor: u.desc,
 		Status: distributedtask.TaskStatusStarted, Payload: raw,
+		Units: map[string]*distributedtask.Unit{u.unitID: {ID: u.unitID, Shard: u.shard.Name(), NodeID: "node1"}},
 	}, u.payload, u.idx, u.unitID, rec)
 	return rec
 }

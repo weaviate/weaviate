@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	clusterUtils "github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -534,12 +535,19 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	return UpdateClassInternal(h, ctx, className, updated)
+	return h.updateClass(ctx, className, updated, nil)
 }
 
 // bypass the auth check for internal class update requests
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+	field string, more ...string,
 ) error {
+	ctx, cancel := clusterUtils.BoundIfNoDeadline(ctx, h.config.Raft.ConsistencyWaitTimeout)
+	defer cancel()
+	return h.updateClass(ctx, className, updated, append([]string{field}, more...))
+}
+
+func (h *Handler) updateClass(ctx context.Context, className string, updated *models.Class, fields []string) error {
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
@@ -650,8 +658,12 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		}
 	}
 	// A nil sharding state means that the sharding state will not be updated.
-
-	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
+	var err error
+	if len(fields) == 0 {
+		_, err = h.schemaManager.ReplaceClass(ctx, updated, nil)
+	} else {
+		_, err = h.schemaManager.UpdateClass(ctx, updated, nil, fields[0], fields[1:]...)
+	}
 	return err
 }
 
@@ -711,6 +723,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, run command.MigrationRun,
 	prop *models.Property, fields ...string,
 ) error {
+	ctx, cancel := clusterUtils.BoundIfNoDeadline(ctx, h.config.Raft.ConsistencyWaitTimeout)
+	defer cancel()
 	setPropertyDefaults(prop)
 	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, run, prop, fields...)
 	if err != nil {

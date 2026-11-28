@@ -16,7 +16,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
+	"maps"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -640,7 +642,6 @@ type testHarness struct {
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
 	testProviders         []*testTaskProvider
-	localTaskInspector    LocalTaskInspector
 
 	conflictDetectors       map[string]ConflictDetector
 	schemaMutationDetectors map[string]SchemaMutationDetector
@@ -699,11 +700,10 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
-		TaskLister:         h.manager,
+		TaskSource:         h.manager,
 		TaskCleaner:        h.cleaner,
 		TaskFinalizer:      newDirectFinalizer(t, h.manager, h.clock),
 		AckRecorder:        h.ackRecorder,
-		LocalTaskInspector: h.localTaskInspector,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
 		Logger:             h.logger,
@@ -1047,6 +1047,130 @@ func TestReactiveFiring_WakeIsCoalesced(t *testing.T) {
 	// the test would time out.
 }
 
+// A task submitted right after a tick, woken or periodic, starts only once the minimum gap passes.
+func TestReactiveFiring_WokenTicksKeepTheMinimumGap(t *testing.T) {
+	for _, periodicFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("periodic first tick=%v", periodicFirst), func(t *testing.T) {
+			defer leaktest.Check(t)()
+
+			h := newTestHarness(t).init(t)
+			if !periodicFirst {
+				h.manager.SetSchedulerNotifier(h.scheduler)
+			}
+			h.startScheduler(t)
+			defer h.Close()
+
+			addTaskWithUnits(t, h, h.tasksNamespace, "first", 10, []string{"su-1"})
+			if periodicFirst {
+				require.NoError(t, h.clock.BlockUntilContext(context.Background(), 1))
+				h.clock.Advance(h.schedulerTickInterval)
+			}
+			require.Equal(t, "first", recvWithTimeout(t, h.provider.startedCh).ID)
+			h.manager.SetSchedulerNotifier(h.scheduler)
+
+			addTaskWithUnits(t, h, h.tasksNamespace, "second", 11, []string{"su-2"})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			// The loop's ticker plus the gap's timer.
+			require.NoError(t, h.clock.BlockUntilContext(ctx, 2), "the woken tick did not wait for the gap")
+			select {
+			case task := <-h.provider.startedCh:
+				t.Fatalf("%s started before the gap passed", task.ID)
+			default:
+			}
+			// An absolute budget, so every node woken by one apply acts within it.
+			h.clock.Advance(200 * time.Millisecond)
+			require.Equal(t, "second", recvWithTimeout(t, h.provider.startedCh).ID)
+		})
+	}
+}
+
+// Work that fails or exits early repeats once per retryFloor, however often woken ticks run.
+func TestReactiveFiring_RetriesWaitOutTheFloor(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		start func(t *testing.T) (h *testHarness, attempts func() int)
+	}{
+		{
+			name: "failing OnTaskCompleted",
+			start: func(t *testing.T) (*testHarness, func() int) {
+				prov := newRetryFlipProvider(t)
+				prov.alwaysFail = true
+				h := submitTaskToSwapping(t, prov, prov.testTaskProvider, "flip")
+				return h, func() int { n, _, _ := prov.snapshot(); return n }
+			},
+		},
+		{
+			name: "exiting handle",
+			start: func(t *testing.T) (*testHarness, func() int) {
+				prov := &relaunchCountingProvider{testTaskProvider: newTestTaskProvider(t, nil)}
+				h := newTestHarness(t)
+				h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+				h = h.init(t)
+				h.startScheduler(t)
+				addTaskWithUnits(t, h, h.tasksNamespace, "exiting", 1, []string{"u-1"})
+				return h, func() int { return int(prov.starts.Load()) }
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer leaktest.Check(t)()
+			h, attempts := tc.start(t)
+			defer h.Close()
+
+			for elapsed := time.Duration(0); elapsed < retryFloor; elapsed += minWakeSpacing {
+				h.scheduler.tick()
+				h.clock.Advance(minWakeSpacing)
+			}
+			require.Equal(t, 1, attempts(), "repeated before the floor passed")
+			h.scheduler.tick()
+			require.Equal(t, 2, attempts(), "did not repeat once the floor passed")
+		})
+	}
+}
+
+// A finalize that keeps failing logs its warning a bounded number of times, however often ticks run.
+func TestFinalizeFailureWarningIsSampled(t *testing.T) {
+	defer leaktest.Check(t)()
+	const ticks = 20
+	prov := newRetryFlipProvider(t)
+	h := newTestHarness(t)
+	h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+	h.provider = prov.testTaskProvider
+	h = h.init(t)
+	h.testProviders = append(h.testProviders, prov.testTaskProvider)
+	h.scheduler.taskFinalizer = refusingFinalizer{}
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace: h.tasksNamespace, Id: "stuck", SubmittedAtUnixMillis: h.clock.Now().UnixMilli(), UnitIds: []string{"u-1"},
+	}), 1))
+	completeUnit(t, h, h.tasksNamespace, "stuck", 1, h.localNodeID, "u-1")
+	// Not started: the test's ticks are the only ones.
+	defer h.Close()
+
+	for range ticks {
+		h.scheduler.tick()
+		h.clock.Advance(minWakeSpacing)
+	}
+	warnings := 0
+	for _, e := range h.loggerHook.AllEntries() {
+		if strings.Contains(e.Message, "failed to mark distributed task finalized") {
+			warnings++
+		}
+	}
+	require.NotZero(t, warnings)
+	require.LessOrEqual(t, warnings, 5)
+}
+
+type refusingFinalizer struct{}
+
+func (refusingFinalizer) MarkDistributedTaskFinalized(context.Context, string, string, uint64) error {
+	return errors.New("raft applyTimeout")
+}
+
+func (refusingFinalizer) MarkDistributedTaskFailed(context.Context, string, string, uint64, string) error {
+	return nil
+}
+
 // TestReactiveFiring_NilNotifierIsSafe verifies that the Manager can be
 // used without a wired notifier (the legacy path: tick-only scheduling
 // works even when reactive firing is not configured). Most existing
@@ -1077,31 +1201,23 @@ func TestReactiveFiring_NilNotifierIsSafe(t *testing.T) {
 	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
 }
 
-// flappyTasksLister proxies to inner for succeedsLeft calls, then fails
-// failsLeft of them, then proxies again. Covers both the post-restart
-// "RAFT not ready at Start() time, ready on next tick" scenario the
-// deferred bootstrap must handle, and a list that drops out after the
-// scheduler has already seen one.
+// flappyTasksLister fails failsLeft calls, as RAFT does before it is ready, then proxies to inner.
 type flappyTasksLister struct {
-	mu           sync.Mutex
-	succeedsLeft int
-	failsLeft    int
-	err          error
-	inner        TaskLister
+	mu        sync.Mutex
+	failsLeft int
+	err       error
+	inner     TaskCopySource
 }
 
-func (f *flappyTasksLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
+func (f *flappyTasksLister) UpdateTaskCopy(c *TaskCopy) error {
 	f.mu.Lock()
-	switch {
-	case f.succeedsLeft > 0:
-		f.succeedsLeft--
-	case f.failsLeft > 0:
+	if f.failsLeft > 0 {
 		f.failsLeft--
 		f.mu.Unlock()
-		return nil, f.err
+		return f.err
 	}
 	f.mu.Unlock()
-	return f.inner.ListDistributedTasks(ctx)
+	return f.inner.UpdateTaskCopy(c)
 }
 
 // unitAwareTestProvider records OnGroupCompleted / OnTaskCompleted calls so
@@ -1196,7 +1312,7 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	require.Len(t, tasks, 1)
 	require.Equal(t, TaskStatusFinished, tasks[0].Status)
 
-	// Replace the scheduler's TaskLister with a flappy one that fails the
+	// Replace the scheduler's task source with a flappy one that fails the
 	// first call (Start() time) and succeeds afterwards.
 	flappy := &flappyTasksLister{
 		failsLeft: 1,
@@ -1205,7 +1321,7 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	}
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
-		TaskLister:         flappy,
+		TaskSource:         flappy,
 		TaskCleaner:        h.cleaner,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
@@ -1345,7 +1461,7 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TaskLister:         nil,
+		TaskSource:         nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1445,7 +1561,7 @@ func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) 
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TaskLister:         nil,
+		TaskSource:         nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1498,7 +1614,7 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TaskLister:         nil,
+		TaskSource:         nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1562,7 +1678,7 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TaskLister:         nil,
+		TaskSource:         nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1786,9 +1902,6 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 		name string
 		// tasks are seeded before the first tick.
 		tasks []taskSpec
-		// localTasks are this node's own FSM copies, which the
-		// scheduler reads on top of the leader-routed list.
-		localTasks []taskSpec
 		// wantNamed is the task list the single warn line must carry;
 		// empty means no warn line at all.
 		wantNamed string
@@ -1825,46 +1938,12 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				"tasks-namespace/zeta@10=UNKNOWN_FUTURE_STATE",
 			wantGauges: map[string]float64{"tasks-namespace": 2, otherNamespace: 1},
 		},
-		{
-			// The ordinary case, not an edge case: production always
-			// wires the inspector, so such a task sits in the
-			// leader-routed list and in this node's own FSM at once.
-			name:       "the same task in both sources",
-			tasks:      []taskSpec{{"tasks-namespace", "wedged", 7, unknownFutureStatus}},
-			localTasks: []taskSpec{{"tasks-namespace", "wedged", 7, unknownFutureStatus}},
-			wantNamed:  "tasks-namespace/wedged@7=UNKNOWN_FUTURE_STATE",
-			wantGauges: map[string]float64{"tasks-namespace": 1},
-		},
-		{
-			// What a node one release behind sees: the leader finalized
-			// the task into a status this node cannot name, so its own
-			// copy is stuck there while the cluster considers it done.
-			// FINISHED rather than STARTED because that is the state the
-			// refused SWAPPING→FINISHED transition leaves behind.
-			name:       "the leader's copy is recognized and this node's is not",
-			tasks:      []taskSpec{{"tasks-namespace", "diverged", 7, TaskStatusFinished}},
-			localTasks: []taskSpec{{"tasks-namespace", "diverged", 7, unknownFutureStatus}},
-			wantNamed: "tasks-namespace/diverged@7=UNKNOWN_FUTURE_STATE " +
-				"(this node only; cluster reports FINISHED)",
-			wantGauges: map[string]float64{"tasks-namespace": 1},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defer leaktest.Check(t)()
 
 			h := newTestHarness(t)
 			h.registeredProviders[otherNamespace] = newTestTaskProvider(t, nil)
-			if len(tc.localTasks) > 0 {
-				inspector := localTaskInspectorStub{}
-				for _, spec := range tc.localTasks {
-					inspector[spec.namespace] = append(inspector[spec.namespace], &Task{
-						Namespace:      spec.namespace,
-						TaskDescriptor: TaskDescriptor{ID: spec.id, Version: spec.version},
-						Status:         spec.status,
-					})
-				}
-				h.localTaskInspector = inspector
-			}
 			h = h.init(t)
 
 			for _, spec := range tc.tasks {
@@ -1873,7 +1952,7 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				task.Status = spec.status
 				// Terminal tasks need FinishedAt stamped, or the TTL sweep
 				// deletes them before assertions run; non-terminal tasks
-				// must stay unstamped, matching how localTasks seeds above.
+				// must stay unstamped.
 				if spec.status.IsTerminal() {
 					task.FinishedAt = h.clock.Now()
 				}
@@ -1910,41 +1989,6 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Pins that a task list this node cannot get still updates the gauge.
-// The list is leader-routed; this node's own FSM copies are not, and a
-// task only this node still holds is exactly the one the leader has
-// stopped carrying. Returning early on the list error instead froze the
-// gauge at its last value for as long as the failure lasted.
-func TestSchedulerTick_UnrecognizedStatusGaugeSurvivesAFailingList(t *testing.T) {
-	const namespace = "tasks-namespace"
-	defer leaktest.Check(t)()
-
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{
-		namespace: {{
-			Namespace:      namespace,
-			TaskDescriptor: TaskDescriptor{ID: "left-behind", Version: 3},
-			Status:         unknownFutureStatus,
-		}},
-	}
-	h = h.init(t)
-
-	h.scheduler.taskLister = &flappyTasksLister{
-		failsLeft: math.MaxInt,
-		err:       errors.New("raft unavailable"),
-		inner:     h.manager,
-	}
-
-	h.startScheduler(t)
-	defer h.Close()
-
-	h.advanceClock(h.schedulerTickInterval)
-
-	require.Equal(t, 1.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)),
-		"this node's own copy is what the gauge has to report while the list is down")
 }
 
 // alwaysFailingAckRecorder makes the post-completion ack fail on every
@@ -2072,193 +2116,23 @@ func (exitedHandle) Done() <-chan struct{} {
 	return done
 }
 
-// localTaskInspectorStub stands in for this node's own FSM copies of
-// tasks the leader-routed list no longer carries.
-type localTaskInspectorStub map[string][]*Task
-
-func (s localTaskInspectorStub) LocalUnrecognizedDistributedTasks() map[string][]*Task {
-	return s
-}
-
-// Pins the two halves of the unrecognized-status report that only exist
-// together: a task the peers already deleted is still named off this
-// node's own copy, and the metric is a state, so it falls back to zero
-// when nothing is stuck rather than accumulating.
-func TestWarnOnUnrecognizedStatuses_ReportsLocalOnlyTasksAsState(t *testing.T) {
+// A namespace whose last task is gone stops reporting, or its last value would page someone forever.
+func TestWarnOnUnrecognizedStatuses_DropsANamespaceThatStoppedReporting(t *testing.T) {
 	const namespace = "tasks-namespace"
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{
-		namespace: {{
+	h := newTestHarness(t).init(t)
+
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
+		namespace: {TaskDescriptor{ID: "stuck", Version: 1}: {
 			Namespace:      namespace,
-			TaskDescriptor: TaskDescriptor{ID: "left-behind", Version: 3},
+			TaskDescriptor: TaskDescriptor{ID: "stuck", Version: 1},
 			Status:         unknownFutureStatus,
 		}},
-	}
-	h.init(t)
-
-	clusterWide := map[string]map[TaskDescriptor]*Task{
-		namespace: {
-			TaskDescriptor{ID: "healthy", Version: 1}: {
-				Namespace:      namespace,
-				TaskDescriptor: TaskDescriptor{ID: "healthy", Version: 1},
-				Status:         TaskStatusStarted,
-			},
-		},
-	}
-	h.scheduler.warnOnUnrecognizedStatuses(clusterWide, true)
-
-	var warned string
-	for _, e := range h.loggerHook.AllEntries() {
-		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
-			warned = e.Message
-		}
-	}
-	require.Contains(t, warned, "left-behind",
-		"a task only this node still holds must still be named")
-	require.Contains(t, warned, "this node only")
-	require.NotContains(t, warned, "healthy")
+	})
 	require.Equal(t, 1.0, testutil.ToFloat64(
 		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
 
-	// Every copy is gone, so the namespace stops reporting altogether.
-	// Without the reset its last value would stand forever and page
-	// someone about a task nobody can find.
-	h.scheduler.localTaskInspector = localTaskInspectorStub{}
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{}, true)
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{})
 	require.Zero(t, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus))
-}
-
-// Pins which tick may drop a series. This node's own unrecognized copies
-// say nothing about which namespaces exist, so a tick that saw no cluster
-// list has no basis to decide that a namespace stopped reporting —
-// dropping one there deletes the series sitting at a real count and the
-// ones sitting at zero alike. CollectAndCount as well as the values, for
-// the reason the sibling table documents: reading a child by label
-// creates it, so a value assertion cannot tell "written 0" from "never
-// written".
-func TestWarnOnUnrecognizedStatuses_OnlyAListedTickDropsASeries(t *testing.T) {
-	const (
-		stuckNamespace = "stuck-namespace"
-		cleanNamespace = "clean-namespace"
-	)
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{}
-	h.init(t)
-
-	gauge := h.scheduler.tasksUnrecognizedStatus
-	valueOf := func(namespace string) float64 {
-		return testutil.ToFloat64(gauge.WithLabelValues(namespace))
-	}
-
-	// One namespace stuck, one clean, both from the cluster's list.
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
-		stuckNamespace: {TaskDescriptor{ID: "stuck", Version: 1}: {
-			Namespace:      stuckNamespace,
-			TaskDescriptor: TaskDescriptor{ID: "stuck", Version: 1},
-			Status:         unknownFutureStatus,
-		}},
-		cleanNamespace: {TaskDescriptor{ID: "healthy", Version: 1}: {
-			Namespace:      cleanNamespace,
-			TaskDescriptor: TaskDescriptor{ID: "healthy", Version: 1},
-			Status:         TaskStatusStarted,
-		}},
-	}, true)
-	require.Equal(t, 2, testutil.CollectAndCount(gauge))
-	require.Equal(t, 1.0, valueOf(stuckNamespace))
-	require.Equal(t, 0.0, valueOf(cleanNamespace))
-
-	// The list is gone. Both series have to read exactly as they did.
-	h.scheduler.warnOnUnrecognizedStatuses(nil, false)
-	require.Equal(t, 2, testutil.CollectAndCount(gauge),
-		"a tick without the cluster's list must not drop a series")
-	require.Equal(t, 1.0, valueOf(stuckNamespace),
-		"the series was firing at 1 and nothing said it stopped")
-	require.Equal(t, 0.0, valueOf(cleanNamespace))
-
-	// The list is back, the stuck task cleared, and the clean namespace
-	// is gone from the cluster altogether. Now the prune must run.
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
-		stuckNamespace: {TaskDescriptor{ID: "stuck", Version: 1}: {
-			Namespace:      stuckNamespace,
-			TaskDescriptor: TaskDescriptor{ID: "stuck", Version: 1},
-			Status:         TaskStatusFinished,
-		}},
-	}, true)
-	require.Equal(t, 1, testutil.CollectAndCount(gauge),
-		"a namespace the cluster stopped listing has to be dropped")
-	require.Equal(t, 0.0, valueOf(stuckNamespace))
-}
-
-// The wiring half of the above: tick's error path is what reports that
-// there was no list. The first tick establishes the series off the
-// cluster's list, the second gets no list, and the series stays.
-func TestSchedulerTick_UnrecognizedStatusSeriesSurvivesALaterFailingList(t *testing.T) {
-	defer leaktest.Check(t)()
-
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{}
-	h = h.init(t)
-
-	// Two, because Start lists once to bootstrap before the tick loop runs
-	// at all: one for that, one for the first tick.
-	h.scheduler.taskLister = &flappyTasksLister{
-		succeedsLeft: 2,
-		failsLeft:    math.MaxInt,
-		err:          errors.New("raft unavailable"),
-		inner:        h.manager,
-	}
-
-	addTaskWithUnits(t, h, h.tasksNamespace, "stuck", 10, []string{"su-1"})
-	h.manager.tasks[h.tasksNamespace]["stuck"].Status = unknownFutureStatus
-
-	h.startScheduler(t)
-	defer h.Close()
-
-	h.advanceClock(h.schedulerTickInterval)
-	require.Equal(t, 1.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)),
-		"the first tick had the cluster's list and has to report off it")
-
-	h.advanceClock(h.schedulerTickInterval)
-	require.Equal(t, 1, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus),
-		"the list dropping out is not evidence that the namespace stopped reporting")
-	require.Equal(t, 1.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)))
-}
-
-// The ordinary case, not the edge case: a task in an unrecognized status
-// sits in both the leader-routed list and this node's own FSM at once, so
-// counting it twice would double the gauge and mislabel it as this node's own.
-func TestWarnOnUnrecognizedStatuses_CountsATaskInBothListsOnce(t *testing.T) {
-	const namespace = "tasks-namespace"
-	wedged := &Task{
-		Namespace:      namespace,
-		TaskDescriptor: TaskDescriptor{ID: "wedged", Version: 7},
-		Status:         unknownFutureStatus,
-	}
-
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{namespace: {wedged.Clone()}}
-	h.init(t)
-
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
-		namespace: {wedged.TaskDescriptor: wedged},
-	}, true)
-
-	var warned string
-	for _, e := range h.loggerHook.AllEntries() {
-		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
-			warned = e.Message
-		}
-	}
-	require.Equal(t, 1, strings.Count(warned, "tasks-namespace/wedged@7=UNKNOWN_FUTURE_STATE"),
-		"one task must be named once, not once per list it appears in")
-	require.Contains(t, warned, "1 distributed task(s)",
-		"the count must match the task set, not the number of sightings")
-	require.NotContains(t, warned, "this node only",
-		"a task the leader-routed list still carries is not this node's own leftover")
-	require.Equal(t, 1.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
 }
 
 // The warn fires for exactly the task set the FSM will not cancel, so an
@@ -2283,7 +2157,7 @@ func TestWarnOnUnrecognizedStatuses_PointsAtTheTerminalStateNotACancel(t *testin
 		"the cancel has to be refused for the advice to be wrong")
 	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
 		ns: {task.TaskDescriptor: task},
-	}, true)
+	})
 
 	var warned string
 	for _, e := range h.loggerHook.AllEntries() {
@@ -2313,4 +2187,326 @@ func TestScheduler_AckErrorIsCappedAcrossManyFailingGroups(t *testing.T) {
 	require.Contains(t, msg, "1000 group(s) failed")
 	require.Contains(t, msg, `group="tenant-0000": {swap failed}`)
 	require.Contains(t, msg, "(and 990 more)")
+}
+
+// unitReadingProvider's handle reads its task's units until terminated, as a reindex handle does.
+type unitReadingProvider struct {
+	mu      sync.Mutex
+	started []TaskDescriptor
+	handles []*unitReadingHandle
+}
+
+type unitReadingHandle struct {
+	stop, done chan struct{}
+	once       sync.Once
+}
+
+func (h *unitReadingHandle) Terminate()            { h.once.Do(func() { close(h.stop) }) }
+func (h *unitReadingHandle) Done() <-chan struct{} { return h.done }
+
+func (p *unitReadingProvider) SetCompletionRecorder(TaskCompletionRecorder) {}
+func (p *unitReadingProvider) CleanupTask(TaskDescriptor) error             { return nil }
+
+func (p *unitReadingProvider) GetLocalTasks() []TaskDescriptor {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.started)
+}
+
+func (p *unitReadingProvider) StartTask(task *Task) (TaskHandle, error) {
+	h := &unitReadingHandle{stop: make(chan struct{}), done: make(chan struct{})}
+	go func() {
+		defer close(h.done)
+		for {
+			select {
+			case <-h.stop:
+				return
+			default:
+			}
+			for _, u := range task.Units {
+				_ = u.Progress
+			}
+			runtime.Gosched()
+		}
+	}()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.started = append(p.started, task.TaskDescriptor)
+	p.handles = append(p.handles, h)
+	return h, nil
+}
+
+func (p *unitReadingProvider) stopAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, h := range p.handles {
+		h.Terminate()
+		<-h.done
+	}
+}
+
+// A started task's handle keeps reading its units after the tick, while later updates write the scheduler's copy.
+func TestStartedTaskReadsItsUnitsWhileTheCopyUpdates(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		start func(t *testing.T, s *Scheduler)
+	}{
+		{name: "started at bootstrap", start: func(t *testing.T, s *Scheduler) {
+			tasks, err := s.listTasks()
+			require.NoError(t, err)
+			s.bootstrapProviders(tasks)
+		}},
+		{name: "started by a tick", start: func(_ *testing.T, s *Scheduler) { s.tick() }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &unitReadingProvider{}
+			h := newTestHarness(t)
+			h.registeredProviders = map[string]Provider{h.tasksNamespace: p}
+			h = h.init(t)
+			addTaskWithUnits(t, h, h.tasksNamespace, "t", 1, []string{"u-1", "u-2"})
+
+			tt.start(t, h.scheduler)
+			require.Len(t, p.GetLocalTasks(), 1)
+			for i := 1; i <= 50; i++ {
+				updateProgress(t, h, h.tasksNamespace, "t", 1, h.localNodeID, "u-1", float32(i)/100)
+				h.scheduler.tick()
+			}
+			p.stopAll()
+		})
+	}
+}
+
+// groupRecordingProvider records each group callback as "completed:<group>" or "swap:<group>".
+type groupRecordingProvider struct {
+	mu     sync.Mutex
+	calls  []string
+	errFor map[string]error
+}
+
+func (p *groupRecordingProvider) SetCompletionRecorder(TaskCompletionRecorder) {}
+func (p *groupRecordingProvider) GetLocalTasks() []TaskDescriptor              { return nil }
+func (p *groupRecordingProvider) CleanupTask(TaskDescriptor) error             { return nil }
+func (p *groupRecordingProvider) StartTask(*Task) (TaskHandle, error)          { return exitedHandle{}, nil }
+func (p *groupRecordingProvider) OnTaskCompleted(*Task) error                  { return nil }
+
+func (p *groupRecordingProvider) record(call string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls = append(p.calls, call)
+	err := p.errFor[call]
+	delete(p.errFor, call)
+	return err
+}
+
+func (p *groupRecordingProvider) OnGroupCompleted(_ *Task, groupID string, _ []string) error {
+	return p.record("completed:" + groupID)
+}
+
+func (p *groupRecordingProvider) OnSwapRequested(_ *Task, groupID string, _ []string) error {
+	return p.record("swap:" + groupID)
+}
+
+func (p *groupRecordingProvider) take() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	calls := p.calls
+	p.calls = nil
+	return calls
+}
+
+func newGroupTickScheduler(t *testing.T, groups int, barrier bool, p *groupRecordingProvider) (*Scheduler, *Manager) {
+	logger, _ := logrustest.NewNullLogger()
+	m := NewManager(ManagerParameters{Logger: logger, ConflictDetectors: map[string]ConflictDetector{
+		"ns": decodeWith(func(p []byte) (string, bool) { return string(p), len(p) > 0 }),
+	}})
+	specs := make([]*cmd.UnitSpec, groups)
+	for i := range specs {
+		g := fmt.Sprintf("g%d", i)
+		specs[i] = &cmd.UnitSpec{Id: g, GroupId: g, Node: "n1"}
+	}
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace: "ns", Id: "T", Payload: []byte("C"), NeedsPreparationBarrier: barrier, UnitSpecs: specs,
+	}), 1))
+	s := NewScheduler(SchedulerParams{
+		TaskSource: m, Providers: map[string]Provider{"ns": p}, Logger: logger, LocalNode: "n1", TickInterval: time.Hour,
+		CompletedTaskTTL: time.Hour,
+	})
+	return s, m
+}
+
+func completeGroupUnit(t *testing.T, m *Manager, group string) {
+	require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace: "ns", Id: "T", Version: 1, UnitId: group, NodeId: "n1",
+	})))
+}
+
+func failGroupUnit(t *testing.T, m *Manager, group string) {
+	require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace: "ns", Id: "T", Version: 1, UnitId: group, NodeId: "n1", Error: "boom", FinishedAtUnixMillis: time.Now().UnixMilli(),
+	})))
+}
+
+func prepAckGroup(t *testing.T, m *Manager, group string) {
+	require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace: "ns", Id: "T", Version: 1, GroupId: &group, NodeId: "n1", Success: true,
+	})))
+}
+
+func cancelGroupTask(t *testing.T, m *Manager) {
+	require.NoError(t, m.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: "ns", Id: "T", Version: 1, CancelledAtUnixMillis: time.Now().UnixMilli(),
+	})))
+}
+
+// A tick looks only at groups that changed: a group made ready in the scheduler's copy with no apply behind it
+// stays unseen until an apply marks it.
+func TestSchedulerTickChecksOnlyChangedGroups(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		barrier     bool
+		readyInCopy func(task *Task)
+		apply       func(t *testing.T, m *Manager)
+		want        string
+	}{
+		{
+			name:        "preparation phase",
+			barrier:     true,
+			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusCompleted },
+			apply:       func(t *testing.T, m *Manager) { completeGroupUnit(t, m, "g7") },
+			want:        "completed:g7",
+		},
+		{
+			name:    "decided-swap phase",
+			barrier: true,
+			readyInCopy: func(task *Task) {
+				task.SwapDecidedGroups = map[string]time.Time{"g7": {}}
+				task.SwapsOwed = map[string][]string{"g7": {"n1"}}
+			},
+			apply: func(t *testing.T, m *Manager) {
+				completeGroupUnit(t, m, "g7")
+				prepAckGroup(t, m, "g7")
+			},
+			want: "swap:g7",
+		},
+		{
+			name:        "swap phase of a task without a barrier",
+			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusCompleted },
+			apply:       func(t *testing.T, m *Manager) { completeGroupUnit(t, m, "g7") },
+			want:        "completed:g7",
+		},
+		{
+			name:        "unit failure",
+			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusFailed },
+			apply:       func(t *testing.T, m *Manager) { failGroupUnit(t, m, "g7") },
+			want:        "completed:g7",
+		},
+		{
+			name:    "cancel",
+			barrier: true,
+			readyInCopy: func(task *Task) {
+				task.SwapDecidedGroups = map[string]time.Time{"g7": {}}
+				task.SwapsOwed = map[string][]string{"g7": {"n1"}}
+			},
+			apply: cancelGroupTask,
+			want:  "swap:g7",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &groupRecordingProvider{}
+			s, m := newGroupTickScheduler(t, 10_000, tc.barrier, p)
+			s.tick()
+			require.Empty(t, p.take(), "no group is ready yet")
+
+			tc.readyInCopy(s.taskCopy.tasks["ns"]["T"])
+			s.tick()
+			require.Empty(t, p.take(), "a group no apply changed is not looked at")
+
+			tc.apply(t, m)
+			s.tick()
+			require.Contains(t, p.take(), tc.want)
+		})
+	}
+}
+
+// countingAckRecorder fails every post-completion ack, so the ack gate runs again on each tick.
+type countingAckRecorder struct {
+	alwaysFailingAckRecorder
+	postAcks int
+}
+
+func (r *countingAckRecorder) RecordDistributedTaskPostCompletionAck(
+	context.Context, string, string, uint64, string, string, bool, string,
+) error {
+	r.postAcks++
+	return errors.New("raft unavailable")
+}
+
+// The ack gate waits only for the local groups still out when it first ran: a group the copy gains later is not walked.
+func TestSchedulerAckGateWaitsOnlyForGroupsStillOut(t *testing.T) {
+	p := &groupRecordingProvider{errFor: map[string]error{"completed:g2": context.Canceled}}
+	s, m := newGroupTickScheduler(t, 3, false, p)
+	acks := &countingAckRecorder{}
+	s.ackRecorder = acks
+	for _, g := range []string{"g0", "g1", "g2"} {
+		completeGroupUnit(t, m, g)
+	}
+	s.tick()
+	require.Zero(t, acks.postAcks, "g2 has not returned")
+
+	task := s.taskCopy.tasks["ns"]["T"]
+	task.groups = maps.Clone(task.groups)
+	task.groups["g9"] = []string{"g9"}
+	task.Units["g9"] = &Unit{ID: "g9", GroupID: "g9", NodeID: "n1", Status: UnitStatusCompleted}
+	s.tick()
+	require.Equal(t, 1, acks.postAcks)
+}
+
+// A deleted tenant's group drops out of the retry a failed swap left behind.
+func TestSchedulerTickDropsADeletedTenantsSwap(t *testing.T) {
+	p := &groupRecordingProvider{errFor: map[string]error{"swap:g0": errors.New("disk full")}}
+	s, m := newGroupTickScheduler(t, 2, true, p)
+	s.tick()
+	completeGroupUnit(t, m, "g0")
+	s.tick()
+	prepAckGroup(t, m, "g0")
+	cancelGroupTask(t, m)
+	s.tick()
+	require.Contains(t, p.take(), "swap:g0")
+
+	m.ForgetGroupsForCollection("C", []string{"g0"})
+	s.tick()
+	require.NotContains(t, p.take(), "swap:g0")
+}
+
+// A group whose callback asks for a retry fires again on the next tick, with no new apply.
+func TestSchedulerTickRetriesAGroupCallback(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		barrier bool
+		decide  bool
+		call    string
+		err     error
+	}{
+		{name: "preparation phase", barrier: true, call: "completed:g0", err: context.Canceled},
+		{name: "decided-swap phase", barrier: true, decide: true, call: "swap:g0", err: errors.New("disk full")},
+		{name: "swap phase of a task without a barrier", call: "completed:g0", err: context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &groupRecordingProvider{errFor: map[string]error{tc.call: tc.err}}
+			s, m := newGroupTickScheduler(t, 2, tc.barrier, p)
+			s.tick()
+			completeGroupUnit(t, m, "g0")
+			if tc.decide {
+				s.tick()
+				prepAckGroup(t, m, "g0")
+				p.take()
+			}
+			s.tick()
+			require.Contains(t, p.take(), tc.call)
+			s.tick()
+			require.Equal(t, []string{tc.call}, p.take(), "the group fires again with no new apply")
+			s.tick()
+			require.Empty(t, p.take())
+		})
+	}
 }

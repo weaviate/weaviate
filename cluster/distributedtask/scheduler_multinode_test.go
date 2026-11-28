@@ -34,6 +34,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -320,7 +321,7 @@ func newMultiSchedulerHarnessWithOptions(t *testing.T, nodeIDs []string, withAck
 		prov := newRecordingUnitAwareProvider(t)
 		params := SchedulerParams{
 			CompletionRecorder: h.completionRec,
-			TaskLister:         mgr,
+			TaskSource:         mgr,
 			TaskCleaner:        h.cleaner,
 			TaskFinalizer:      h.finalizer,
 			Providers:          map[string]Provider{h.namespace: prov},
@@ -940,4 +941,33 @@ func TestMultiScheduler_AckBarrier_ContextCanceledIsTransient(t *testing.T) {
 		"recovery's re-fire should produce a success ack")
 	require.Equal(t, TaskStatusFinished, tasks[0].Status,
 		"with all three acks landed (1 via recovery), task must transition to FINISHED")
+}
+
+// relaunchCountingProvider's handles exit at once, as a reindex handle does once its node's units are done.
+type relaunchCountingProvider struct {
+	*testTaskProvider
+	starts atomic.Int32
+}
+
+func (p *relaunchCountingProvider) StartTask(*Task) (TaskHandle, error) {
+	p.starts.Add(1)
+	return exitedHandle{}, nil
+}
+
+// A node whose own units are done never starts the task again while another node's unit is still pending.
+func TestFinishedNodeStopsStartingWhileAnotherNodeWorks(t *testing.T) {
+	p := &relaunchCountingProvider{testTaskProvider: newTestTaskProvider(t, nil)}
+	h := newTestHarness(t)
+	h.registeredProviders = map[string]Provider{h.tasksNamespace: p}
+	h = h.init(t)
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace: h.tasksNamespace, Id: "t",
+		UnitSpecs: []*cmd.UnitSpec{{Id: "u-local", Node: h.localNodeID}, {Id: "u-remote", Node: "remote-node"}},
+	}), 1))
+	completeUnit(t, h, h.tasksNamespace, "t", 1, h.localNodeID, "u-local")
+
+	for range 3 {
+		h.scheduler.tick()
+	}
+	require.Zero(t, p.starts.Load())
 }

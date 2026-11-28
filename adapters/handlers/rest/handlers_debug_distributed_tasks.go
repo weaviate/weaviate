@@ -34,7 +34,7 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 		}
 
 		// Find the task version by listing tasks
-		tasks, err := appState.ClusterService.ListDistributedTasks(r.Context())
+		tasks, err := listTaskHeaders(r.Context(), appState.ClusterService)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)

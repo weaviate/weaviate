@@ -80,8 +80,12 @@ func TestFindCancelTargetTask_IsActive(t *testing.T) {
 // genuine FSM rejections (ErrTaskNotRunning) without a RAFT stack.
 type realFSMCanceller struct{ mgr *distributedtask.Manager }
 
-func (c realFSMCanceller) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	return c.mgr.ListDistributedTasks(ctx)
+func (c realFSMCanceller) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
+	raw, err := c.mgr.ListTaskHeadersPayload()
+	if err != nil {
+		return nil, err
+	}
+	return c.mgr.DecodeTaskHeaders(raw)
 }
 
 func (c realFSMCanceller) CancelDistributedTask(_ context.Context, namespace, taskID string, version uint64) error {
@@ -155,7 +159,7 @@ func cancelResponse(t *testing.T, resp middleware.Responder) (int, string, strin
 // TestCancelReindexTask_StartedTaskCancels pins the happy path: a STARTED
 // task cancels through the real FSM and returns 202 CANCELLED.
 func TestCancelReindexTask_StartedTaskCancels(t *testing.T) {
-	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
+	mgr := newReindexManager()
 	seedReindexTask(t, mgr, "C:enable-filterable:p:aaaa", "C", "p",
 		db.ReindexTypeEnableFilterable, distributedtask.TaskStatusStarted, nil)
 

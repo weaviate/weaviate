@@ -1728,18 +1728,28 @@ func namesExclusionCollection([]byte) (string, bool) { return exclusionCollectio
 
 type collectionHeader string
 
-func (h collectionHeader) Collection() string { return string(h) }
+func (h collectionHeader) Collection() string             { return string(h) }
+func (h collectionHeader) VisiblePayload() map[string]any { return nil }
 
 // decodeCollection is a detector that only supplies headers, refusing nothing.
 type decodeCollection func([]byte) (string, bool)
 
-func (d decodeCollection) CheckConflict([]byte, []*distributedtask.Task) error { return nil }
+func (d decodeCollection) CheckConflict(distributedtask.TaskHeader, []*distributedtask.Task) error {
+	return nil
+}
 
 func (d decodeCollection) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
 	if collection, ok := d(payload); ok {
 		return collectionHeader(collection), nil
 	}
 	return nil, errors.New("unreadable payload")
+}
+
+func (d decodeCollection) DecodeCollection(payload []byte) (string, error) {
+	if collection, ok := d(payload); ok {
+		return collection, nil
+	}
+	return "", errors.New("unreadable payload")
 }
 
 func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
@@ -1940,7 +1950,7 @@ func TestStoreWaitForAppliedIndexDeadlineBranch(t *testing.T) {
 }
 
 func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
-	// placement is the sharding state the leader reads when it admits the task. Each case's taskReplicas stands for a payload built from an earlier read.
+	// placement is the sharding state the leader reads when it admits the task. Each case's taskReplicas stands for units built from an earlier read.
 	placement := map[string]sharding.Physical{
 		"shard1": {BelongsToNodes: []string{"node1", "node2"}},
 		"shard2": {BelongsToNodes: []string{"node1"}},
@@ -1949,9 +1959,11 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		taskReplicas map[string][]string
+		unplaced     bool
 		collection   string
 		wantRefused  bool
 	}{
+		{name: "units without a shard are not checked", taskReplicas: map[string][]string{"shard3": {"node1"}}, unplaced: true},
 		{name: "matching replicas are admitted", taskReplicas: map[string][]string{"shard1": {"node2", "node1"}, "shard2": {"node1"}}},
 		{name: "a subset of shards with matching replicas is admitted", taskReplicas: map[string][]string{"shard2": {"node1"}}},
 		{name: "a replica added after the payload was built is refused", taskReplicas: map[string][]string{"shard1": {"node1"}}, wantRefused: true},
@@ -1962,13 +1974,23 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := replicasAdmissionStore(t, placement)
-			payload := replicasPayload{Collection: exclusionCollection, Replicas: tc.taskReplicas}
+			payload := replicasPayload{Collection: exclusionCollection}
 			if tc.collection != "" {
 				payload.Collection = tc.collection
 			}
 			payloadBytes, err := json.Marshal(payload)
 			require.NoError(t, err)
-			sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{Namespace: exclusionNamespace, Id: "task1", Payload: payloadBytes})
+			var specs []*cmd.UnitSpec
+			for shard, nodes := range tc.taskReplicas {
+				for _, node := range nodes {
+					spec := &cmd.UnitSpec{Id: shard + "__" + node, Node: node}
+					if !tc.unplaced {
+						spec.Shard = shard
+					}
+					specs = append(specs, spec)
+				}
+			}
+			sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{Namespace: exclusionNamespace, Id: "task1", Payload: payloadBytes, UnitSpecs: specs})
 			require.NoError(t, err)
 			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
 
@@ -1989,7 +2011,6 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 
 type replicasPayload struct {
 	Collection string
-	Replicas   map[string][]string
 }
 
 func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical) *Store {
@@ -2001,13 +2022,6 @@ func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical
 				err := json.Unmarshal(payload, &p)
 				return p.Collection, err == nil
 			}),
-		}
-		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{
-			exclusionNamespace: func(payload []byte) (map[string][]string, bool) {
-				var p replicasPayload
-				err := json.Unmarshal(payload, &p)
-				return p.Replicas, err == nil
-			},
 		}
 	})
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -2154,7 +2168,6 @@ const heldClass = "Held"
 func reindexTenantsStore(t *testing.T, tweaks ...func(*Config)) (*Store, *MockStore) {
 	t.Helper()
 	srv, m := newBarrierTestStore(t, append([]func(*Config){func(c *Config) {
-		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{db.ReindexNamespace: db.ExtractReindexTaskReplicas}
 		c.DistributedTaskSchemaMutationDetectors = map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}}
 	}}, tweaks...)...)
 	m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -2186,13 +2199,15 @@ func reindexTitleTaskCmd(t *testing.T, class string) *cmd.ApplyRequest {
 	payload, err := json.Marshal(db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization, Collection: class, Properties: []string{"title"},
 		TargetTokenization: "field",
-		UnitToShard:        map[string]string{"u1": "t1", "u2": "t2"},
-		UnitToNode:         map[string]string{"u1": "Node-1", "u2": "Node-1"},
 	})
 	require.NoError(t, err)
 	sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
 		Namespace: db.ReindexNamespace, Id: class + ":change-tokenization:title:abcd", Payload: payload,
-		UnitIds: []string{"u1", "u2"}, SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		UnitSpecs: []*cmd.UnitSpec{
+			{Id: "u1", Shard: "t1", Node: "Node-1"},
+			{Id: "u2", Shard: "t2", Node: "Node-1"},
+		},
+		SubmittedAtUnixMillis: time.Now().UnixMilli(),
 	})
 	require.NoError(t, err)
 	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}

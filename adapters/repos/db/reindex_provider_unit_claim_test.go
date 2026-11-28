@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -86,8 +87,6 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
 		Properties: []string{prop}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
-		UnitToShard: map[string]string{unitID: tenant},
-		UnitToNode:  map[string]string{unitID: node},
 	}
 	desc := distributedtask.TaskDescriptor{ID: "T_swap", Version: 1}
 
@@ -103,11 +102,12 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	require.NoError(t, p.OnSwapRequested(&distributedtask.Task{
-		Namespace: ReindexNamespace, TaskDescriptor: desc,
-		Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
+	require.NoError(t, p.OnSwapRequested(loadTasks(t, ReindexNamespace, &distributedtask.Task{
+		TaskDescriptor: desc,
+		Status:         distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
 		SwapDecidedGroups: map[string]time.Time{"g1": {}},
-	}, "g1", []string{unitID}))
+		Units:             map[string]*distributedtask.Unit{unitID: {ID: unitID, Shard: tenant, NodeID: node}},
+	})[0], "g1", []string{unitID}))
 
 	got, err := os.ReadFile(filepath.Join(tenantLSM, canonical, "promoted.marker"))
 	require.NoError(t, err, "the canonical name must hold the migrated data")
@@ -130,8 +130,6 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
 		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
-		UnitToShard: map[string]string{"u1": hot.Name()},
-		UnitToNode:  map[string]string{"u1": "node1"},
 	}
 	desc := distributedtask.TaskDescriptor{ID: "T_hold", Version: 1}
 
@@ -151,6 +149,7 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	task := &distributedtask.Task{
 		Namespace: ReindexNamespace, TaskDescriptor: desc,
 		Status: distributedtask.TaskStatusSwapping, Payload: raw,
+		Units: map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: hot.Name(), NodeID: "node1"}},
 	}
 
 	ran, sealedDuring := false, false
@@ -201,8 +200,6 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 
 			payload := tt.payload
 			payload.Collection = className
-			payload.UnitToShard = map[string]string{"u1": hot.Name()}
-			payload.UnitToNode = map[string]string{"u1": "node1"}
 			desc := distributedtask.TaskDescriptor{ID: "T_sealed", Version: 1}
 
 			release, sealed := p.SealLocalUnit(desc, "u1")
@@ -210,10 +207,11 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 			defer release()
 
 			rec := newFakeRecorder()
-			p.processOneUnit(ctx, &distributedtask.Task{
+			require.True(t, p.processOneUnit(ctx, &distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: desc,
 				Status: distributedtask.TaskStatusStarted,
-			}, &payload, idx, "u1", rec)
+				Units:  map[string]*distributedtask.Unit{"u1": {ID: "u1", Shard: hot.Name(), NodeID: "node1"}},
+			}, &payload, idx, "u1", rec), "a sealed unit is retried")
 
 			require.Empty(t, rec.progress, "a sealed unit reports no progress: it never started")
 			require.Empty(t, rec.completed)
@@ -222,7 +220,7 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 	}
 }
 
-// The contention line must be sampled: the scheduler retries every unit it
+// The contention line must be sampled: the handle retries every unit it
 // could not start, and a unit count is a tenant count.
 func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 	ctx := testCtx()
@@ -240,21 +238,19 @@ func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
 		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
-		UnitToShard: map[string]string{},
-		UnitToNode:  map[string]string{},
-	}
-	unitIDs := make([]string, 0, units)
-	for i := 0; i < units; i++ {
-		id := fmt.Sprintf("u%d__node1", i)
-		unitIDs = append(unitIDs, id)
-		payload.UnitToShard[id] = hot.Name()
-		payload.UnitToNode[id] = "node1"
 	}
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 	task := &distributedtask.Task{
 		Namespace: ReindexNamespace, TaskDescriptor: desc,
 		Status: distributedtask.TaskStatusStarted, Payload: raw,
+		Units: map[string]*distributedtask.Unit{},
+	}
+	unitIDs := make([]string, 0, units)
+	for i := 0; i < units; i++ {
+		id := fmt.Sprintf("u%d__node1", i)
+		unitIDs = append(unitIDs, id)
+		task.Units[id] = &distributedtask.Unit{ID: id, Shard: hot.Name(), NodeID: "node1"}
 	}
 
 	// A teardown holds every unit, so the provider declines each in turn.
@@ -263,7 +259,7 @@ func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 		require.True(t, sealed)
 	}
 	for _, id := range unitIDs {
-		p.processOneUnit(ctx, task, payload, idx, id, nil)
+		require.True(t, p.processOneUnit(ctx, task, payload, idx, id, nil))
 	}
 
 	held := 0
@@ -365,12 +361,12 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 			p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
 			payload := &ReindexTaskPayload{
 				Collection: className, MigrationType: ReindexTypeRebuildSearchable, Properties: []string{"title"},
-				UnitToShard: map[string]string{unit: name}, UnitToNode: map[string]string{unit: "node1"},
 			}
 			rec := newFakeRecorder()
 			p.processOneUnit(ctx, &distributedtask.Task{
 				Namespace: ReindexNamespace, Status: distributedtask.TaskStatusStarted,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
+				Units:          map[string]*distributedtask.Unit{unit: {ID: unit, Shard: name, NodeID: "node1"}},
 			}, payload, idx, unit, rec)
 			require.NoError(t, frozen.Shutdown(ctx))
 
@@ -444,7 +440,6 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 			payload := &ReindexTaskPayload{
 				Collection: className, MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
 				TargetTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
-				UnitToShard: map[string]string{unit: shard.Name()},
 			}
 			desc := distributedtask.TaskDescriptor{ID: "R1", Version: 1}
 			tasks, err := p.createReindexTasks(desc, unit, payload)
@@ -455,7 +450,9 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 				require.NoError(t, shard.migrationRecords.Load())
 			}
 			resolve := func() phaseUnitResolution {
-				return p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc}, payload, unit, idx, p.logger)
+				return p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc, Units: map[string]*distributedtask.Unit{
+					unit: {ID: unit, Shard: shard.Name()},
+				}}, payload, unit, idx, p.logger)
 			}
 
 			got := resolve()
@@ -469,26 +466,45 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 	}
 }
 
-// Pins that a swap retried after OnTaskCompleted decodes the payload once and frees it when the task leaves.
-func TestLoadPayloadIsKeptUntilTheTaskLeavesTheList(t *testing.T) {
+func TestPayloadOfKeepsTheTaskListedUntilCleanup(t *testing.T) {
 	p := NewReindexProvider(nil, nil, nil, logrus.New(), "node-0", nil, nil)
 	raw, err := json.Marshal(ReindexTaskPayload{Collection: "Docs", MigrationType: ReindexTypeChangeTokenization})
 	require.NoError(t, err)
-	task := &distributedtask.Task{
+	task := loadTasks(t, ReindexNamespace, &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
 		Status:         distributedtask.TaskStatusFailed, Payload: raw,
-	}
+	})[0]
 
-	first, err := p.loadPayload(task)
+	_, err = p.payloadOf(task)
 	require.NoError(t, err)
-	again, err := p.loadPayload(task)
-	require.NoError(t, err)
-	require.Same(t, first, again, "a retry reuses the decoded payload")
 	require.Equal(t, []distributedtask.TaskDescriptor{task.TaskDescriptor}, p.GetLocalTasks())
 
 	require.NoError(t, p.CleanupTask(task.TaskDescriptor))
 	require.Empty(t, p.GetLocalTasks())
-	fresh, err := p.loadPayload(task)
+}
+
+// Each unit is bound to one node; another node's unit names a shard this node does not hold.
+func TestStartTaskWorksOnlyThisNodesUnits(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	db := &DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): {}}}
+	p := NewReindexProvider(db, nil, nil, logger, "node1", func() int { return 2 }, context.Background())
+	rec := newFakeRecorder()
+	p.SetCompletionRecorder(rec)
+	raw, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeRepairFilterable, Properties: []string{"title"}})
 	require.NoError(t, err)
-	require.NotSame(t, first, fresh, "a cleaned-up task decodes again")
+
+	handle, err := p.StartTask(loadTasks(t, ReindexNamespace, &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+		Status:         distributedtask.TaskStatusStarted, Payload: raw,
+		Units: map[string]*distributedtask.Unit{
+			"s1__node1": {ID: "s1__node1", Shard: "s1", NodeID: "node1"},
+			"s2__node2": {ID: "s2__node2", Shard: "s2", NodeID: "node2"},
+		},
+	})[0])
+	require.NoError(t, err)
+	<-handle.Done()
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	require.Equal(t, []string{"s1__node1"}, slices.Collect(maps.Keys(rec.failed)), "this node fails its own unit, whose shard it lacks")
 }

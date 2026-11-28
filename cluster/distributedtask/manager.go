@@ -62,13 +62,105 @@ type Manager struct {
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
-	// the Scheduler runs an immediate scheduling cycle instead of waiting
+	// the Scheduler runs a scheduling cycle, paced by a minimum gap, instead of waiting
 	// for its next periodic tick. nil-safe so the Manager can be used in
 	// tests and during bootstrap before the Scheduler is wired up. The
 	// notifier's Wake() must be non-blocking — it is called under the
 	// Manager's write lock to ensure every successful apply produces a
 	// wake-up that observers cannot miss.
 	notifier SchedulerNotifier
+
+	changes map[string]map[string]*taskChange
+	copied  *TaskCopy
+}
+
+// taskChange marks what changed in one task, and taskLevel makes the scheduler check every group.
+type taskChange struct {
+	addedOrRemoved bool
+	taskLevel      bool
+	units          map[string]struct{}
+	groups         map[string]struct{}
+}
+
+func (c *taskChange) unit(id string) {
+	if c.units == nil {
+		c.units = map[string]struct{}{}
+	}
+	c.units[id] = struct{}{}
+}
+
+func (c *taskChange) group(group string) {
+	if c.groups == nil {
+		c.groups = map[string]struct{}{}
+	}
+	c.groups[group] = struct{}{}
+}
+
+func (m *Manager) markWithLock(namespace, taskID string) *taskChange {
+	byID := m.changes[namespace]
+	if byID == nil {
+		byID = map[string]*taskChange{}
+		m.changes[namespace] = byID
+	}
+	change := byID[taskID]
+	if change == nil {
+		change = &taskChange{}
+		byID[taskID] = change
+	}
+	return change
+}
+
+// UpdateTaskCopy brings c up to date in time proportional to the entries changed
+// since the last call. A copy other than the last one gets a full copy, so the
+// change log serves one consumer, the scheduler.
+func (m *Manager) UpdateTaskCopy(c *TaskCopy) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	defer clear(m.changes)
+
+	if c != m.copied {
+		m.copied = c
+		c.tasks = make(map[string]map[string]*Task, len(m.tasks))
+		for namespace, tasks := range m.tasks {
+			for id, task := range tasks {
+				c.set(namespace, id, task.Clone())
+				c.changedOf(task.TaskDescriptor).all = true
+			}
+		}
+		return nil
+	}
+	for namespace, byID := range m.changes {
+		for id, change := range byID {
+			src, dst := m.tasks[namespace][id], c.tasks[namespace][id]
+			switch {
+			case src == nil:
+				delete(c.tasks[namespace], id)
+			case dst == nil || change.addedOrRemoved:
+				c.set(namespace, id, src.Clone())
+				c.changedOf(src.TaskDescriptor).all = true
+			default:
+				changedGroupsOf(c.changedOf(src.TaskDescriptor), src, change)
+				dst.copyChangesFrom(src, change)
+			}
+		}
+	}
+	return nil
+}
+
+// changedGroupsOf needs no group for a removed unit: forgetGroups, which removes units, marks their group.
+func changedGroupsOf(changed *changedGroups, src *Task, change *taskChange) {
+	if change.taskLevel {
+		changed.all = true
+		return
+	}
+	for id := range change.units {
+		if u := src.Units[id]; u != nil {
+			changed.add(u.GroupID)
+		}
+	}
+	for group := range change.groups {
+		changed.add(group)
+	}
 }
 
 // CheckPropertyUpdate returns the first conflict a detector reports for this update, before the FSM applies it.
@@ -242,9 +334,7 @@ type ManagerParameters struct {
 func NewManager(params ManagerParameters) *Manager {
 	headerDecoders := map[string]HeaderDecoder{}
 	for namespace, detector := range params.ConflictDetectors {
-		if decoder, ok := detector.(HeaderDecoder); ok {
-			headerDecoders[namespace] = decoder
-		}
+		headerDecoders[namespace] = detector
 	}
 	for namespace, detector := range params.SchemaMutationDetectors {
 		if decoder, ok := detector.(HeaderDecoder); ok {
@@ -253,6 +343,7 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 	return &Manager{
 		tasks:                  make(map[string]map[string]*Task),
+		changes:                make(map[string]map[string]*taskChange),
 		headerDecoders:         headerDecoders,
 		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
@@ -367,6 +458,7 @@ func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, target
 	var removed []TaskDescriptor
 	for _, hit := range matches {
 		delete(m.tasks[hit.namespace], hit.taskID)
+		m.markWithLock(hit.namespace, hit.taskID).addedOrRemoved = true
 		removed = append(removed, hit.desc)
 	}
 	return removed, nil
@@ -382,7 +474,7 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	defer m.mu.Unlock()
 
 	var removed []TaskDescriptor
-	for _, tasksByID := range m.tasks {
+	for namespace, tasksByID := range m.tasks {
 		for taskID, task := range tasksByID {
 			// EqualFold, matching PurgeTasksForCollectionTargetVectors and every
 			// payload consumer: collection names are case-insensitive
@@ -392,6 +484,7 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 				continue
 			}
 			delete(tasksByID, taskID)
+			m.markWithLock(namespace, taskID).addedOrRemoved = true
 			removed = append(removed, task.TaskDescriptor)
 		}
 	}
@@ -408,16 +501,28 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 				!strings.EqualFold(task.collection(), collection) {
 				continue
 			}
+			change := m.markWithLock(namespace, task.ID)
+			for _, group := range groups {
+				change.group(group)
+				for _, id := range task.groups[group] {
+					change.unit(id)
+				}
+			}
 			task.forgetGroups(groups)
 		}
 	}
 }
 
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {
-	if header := m.headerFor(namespace, payload); header != nil {
-		return header.Collection()
+	decoder := m.headerDecoders[namespace]
+	if decoder == nil {
+		return ""
 	}
-	return ""
+	collection, err := decoder.DecodeCollection(payload)
+	if err != nil {
+		return ""
+	}
+	return collection
 }
 
 func (m *Manager) HasActiveTaskForCollection(collection string) bool {
@@ -463,14 +568,19 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	// closes the multi-node parallel-submit race the REST handler's
 	// per-node submit lock cannot cover (#10675 family,
 	// parallel-migration bug). The detector must be a pure function
-	// of (newPayload, existingTasks) — see the ConflictDetector
+	// of (newHeader, existingTasks) — see the ConflictDetector
 	// godoc on the FSM-determinism contract.
+	header := m.headerFor(r.Namespace, r.Payload)
 	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
+		if header == nil {
+			return wrapPermanent(ErrTaskConflict,
+				fmt.Sprintf("task %s/%s conflicts with existing task: its payload has no readable header", r.Namespace, r.Id))
+		}
 		var existing []*Task
 		for _, t := range m.tasks[r.Namespace] {
 			existing = append(existing, t)
 		}
-		if err := cd.CheckConflict(r.Payload, existing); err != nil {
+		if err := cd.CheckConflict(header, existing); err != nil {
 			// Wrap the permanent-rejection sentinel (see [ErrTaskConflict]) so
 			// the REST submit path classifies this as 409, not 500.
 			return wrapPermanent(ErrTaskConflict,
@@ -493,6 +603,8 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			newTask.Units[spec.Id] = &Unit{
 				ID:      spec.Id,
 				GroupID: spec.GroupId,
+				Shard:   spec.Shard,
+				NodeID:  spec.Node,
 				Status:  UnitStatusPending,
 			}
 		}
@@ -509,8 +621,9 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	}
 	newTask.IndexGroups()
 
-	newTask.header = m.headerFor(newTask.Namespace, newTask.Payload)
+	newTask.header = header
 	m.setTaskWithLock(newTask)
+	m.markWithLock(newTask.Namespace, newTask.ID).addedOrRemoved = true
 	m.notifySchedulerWithLock()
 
 	return nil
@@ -566,34 +679,39 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
+	change.unit(r.UnitId)
 
 	if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 		return wrapPermanent(ErrUnitAlreadyTerminal,
 			fmt.Sprintf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version))
 	}
 
-	// Defense in depth for weaviate/0-weaviate-issues#240:
-	// LocalGroupUnitIDs orphans units with empty NodeID, suppressing
-	// every post-completion callback for that (shard, replica).
-	if u.NodeID == "" {
-		u.NodeID = r.NodeId
-	}
-
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
+	task.updateUnit(u, func() {
+		// Defense in depth for weaviate/0-weaviate-issues#240: an unbound unit gets no post-completion callback.
+		if u.NodeID == "" {
+			u.NodeID = r.NodeId
+		}
+		if r.Error != "" {
+			u.markTerminal(UnitStatusFailed, finishedAt)
+			u.Error = r.Error
+			return
+		}
+		u.markTerminal(UnitStatusCompleted, finishedAt)
+		u.Progress = 1.0
+	})
 
 	if r.Error != "" {
-		u.markTerminal(UnitStatusFailed, finishedAt)
-		u.Error = r.Error
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
 		task.markTerminal(TaskStatusFailed, finishedAt)
+		change.taskLevel = true
 		m.notifySchedulerWithLock()
 		return nil
 	}
 
-	u.markTerminal(UnitStatusCompleted, finishedAt)
-	u.Progress = 1.0
-
 	if task.AllUnitsTerminal() {
+		change.taskLevel = true
 		if task.AnyUnitFailed() {
 			// Failures are terminal immediately — there are no
 			// post-task callbacks to wait for on the failure path
@@ -645,8 +763,10 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
 	if task.NeedsPreparationBarrier {
 		if r.Success {
+			change.group(r.GroupId)
 			task.paySwap(r.GroupId, r.NodeId)
 		}
 		m.notifySchedulerWithLock()
@@ -684,6 +804,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
+		change.taskLevel = true
 	}
 
 	m.notifySchedulerWithLock()
@@ -708,8 +829,8 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		return
 	}
-	for _, u := range task.Units {
-		if ack, ok := task.NodePreparationAcks[u.NodeID]; u.NodeID != "" && (!ok || !ack.Success) {
+	for _, node := range task.NodesWithLocalUnits() {
+		if ack, ok := task.NodePreparationAcks[node]; !ok || !ack.Success {
 			return
 		}
 	}
@@ -733,6 +854,10 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
+	if r.GroupId != nil {
+		change.group(*r.GroupId)
+	}
 
 	switch task.Status {
 	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled, TaskStatusSwapping:
@@ -745,7 +870,9 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	}
 
 	if r.GroupId == nil {
+		before := task.Status
 		recordNodePreparationAck(task, &r)
+		change.taskLevel = task.Status != before
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -768,6 +895,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		ackErr := fmt.Sprintf("prep failed on node %s for group %q: %s", r.NodeId, group, r.Error)
 		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
+		change.taskLevel = true
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -786,6 +914,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		task.decideSwap(group, ackedAt)
 		if task.Status == TaskStatusPreparing && task.AllGroupsSwapDecided() {
 			task.Status = TaskStatusSwapping
+			change.taskLevel = true
 		}
 	}
 
@@ -815,6 +944,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
 
 	switch task.Status {
 	case TaskStatusFinished:
@@ -833,6 +963,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	}
 
 	task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FinalizedAtUnixMillis))
+	change.taskLevel = true
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -859,6 +990,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
 
 	switch task.Status {
 	case TaskStatusFailed:
@@ -872,6 +1004,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 			fmt.Sprintf("task %s/%s/%d cannot be failed from status %s",
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
+	change.taskLevel = true
 
 	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.readOnlyClass) {
 		task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FailedAtUnixMillis))
@@ -890,6 +1023,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 // unassigned unit sets its NodeID, claiming it for that node. After assignment, updates from
 // other nodes are rejected. Progress updates to terminal units are silently ignored (no error)
 // because in-flight Raft commands may arrive after a unit has already completed.
+// A 0.0 update is a claim, refused for good so a relaunch from a trailing copy never redoes the unit.
 //
 // Stored Progress is monotonic per task version; only NodeID and UpdatedAt are applied when
 // the requested Progress regresses. Receiver-side defence against sender-side miscomputation.
@@ -903,13 +1037,18 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, u, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
+	task, u, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
 	if err != nil {
 		return err
 	}
+	m.markWithLock(r.Namespace, r.Id).unit(r.UnitId)
 
 	if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
-		return nil // silently ignore progress updates for terminal units
+		if r.Progress == 0 {
+			return wrapPermanent(ErrUnitAlreadyTerminal,
+				fmt.Sprintf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version))
+		}
+		return nil
 	}
 
 	if r.Progress < 0 || r.Progress > 1 {
@@ -917,7 +1056,7 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 			r.UnitId, r.Namespace, r.Id, r.Version, r.Progress)
 	}
 
-	u.NodeID = r.NodeId
+	task.updateUnit(u, func() { u.NodeID = r.NodeId })
 	if r.Progress > u.Progress {
 		u.Progress = r.Progress
 	} else if r.Progress < u.Progress {
@@ -965,6 +1104,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	if err != nil {
 		return err
 	}
+	change := m.markWithLock(r.Namespace, r.Id)
 
 	if task.Status == TaskStatusSwapping {
 		return wrapPermanent(ErrNothingLeftToCancel,
@@ -977,6 +1117,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	}
 
 	task.markTerminal(TaskStatusCancelled, time.UnixMilli(r.CancelledAtUnixMillis))
+	change.taskLevel = true
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -1002,6 +1143,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	}
 
 	delete(m.tasks[task.Namespace], task.ID)
+	m.markWithLock(task.Namespace, task.ID).addedOrRemoved = true
 	return nil
 }
 
@@ -1053,13 +1195,6 @@ func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	return out
 }
 
-// This is not reached through the [TaskLister] interface in production —
-// [cluster.Raft] is the concrete TaskLister the wiring hands out. It still
-// has two direct production callers: [Manager.Snapshot], on the RAFT FSM's
-// own snapshot path, and [Manager.ListDistributedTasksPayload], on the
-// leader-routed distributed-task-list query dispatch. The TaskLister-shaped
-// signature stays because six scheduler tests drive the Manager directly and
-// need it that way.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	return m.LocalDistributedTasks(), nil
 }
@@ -1093,31 +1228,6 @@ func sortTasksForDisplay(tasks []*Task) {
 	})
 }
 
-// LocalUnrecognizedDistributedTasks returns this node's own copies of tasks in a
-// status this build never declared, grouped by namespace.
-//
-// The leader-routed list stops carrying such a task once the peers clean
-// their copies up, which is exactly when a leftover local copy starts
-// silently refusing schema mutations.
-func (m *Manager) LocalUnrecognizedDistributedTasks() map[string][]*Task {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var result map[string][]*Task
-	for namespace, tasks := range m.tasks {
-		for _, task := range tasks {
-			if task.Status.IsRecognized() {
-				continue
-			}
-			if result == nil {
-				result = map[string][]*Task{}
-			}
-			result[namespace] = append(result[namespace], task.Clone())
-		}
-	}
-	return result
-}
-
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {
 	tasks, err := m.ListDistributedTasks(ctx)
 	if err != nil {
@@ -1134,14 +1244,127 @@ func (m *Manager) DecodeTaskList(data []byte) (map[string][]*Task, error) {
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, err
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	held := m.heldCopies(response.Tasks)
 	for namespace, list := range response.Tasks {
-		for _, task := range list {
-			task.shareGroups(m.tasks[namespace][task.ID])
+		for i, task := range list {
+			task.adoptGroups(held[namespace][i])
+			m.adoptHeader(namespace, task, held[namespace][i])
 		}
 	}
 	return response.Tasks, nil
+}
+
+type heldCopy struct {
+	sameVersion, sameUnits bool
+	header                 TaskHeader
+	groups                 map[string][]string
+	groupCount             int
+}
+
+func (m *Manager) heldCopies(tasks map[string][]*Task) map[string][]heldCopy {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string][]heldCopy, len(tasks))
+	for namespace, list := range tasks {
+		out[namespace] = make([]heldCopy, len(list))
+		for i, task := range list {
+			out[namespace][i] = m.heldFor(namespace, task.ID, task.Version, len(task.Units))
+		}
+	}
+	return out
+}
+
+// heldFor runs under m.mu and is given no *Task, so a walk of the received units cannot join the lock hold.
+func (m *Manager) heldFor(namespace, id string, version uint64, units int) heldCopy {
+	held := m.tasks[namespace][id]
+	if held == nil || held.Version != version {
+		return heldCopy{}
+	}
+	return heldCopy{
+		sameVersion: true, sameUnits: len(held.Units) == units,
+		header: held.header, groups: held.groups, groupCount: held.groupCount,
+	}
+}
+
+func (m *Manager) adoptHeader(namespace string, task *Task, held heldCopy) {
+	if held.sameVersion {
+		task.header = held.header
+		return
+	}
+	task.header = m.headerFor(namespace, task.Payload)
+}
+
+// taskHeaderEntry carries a task without its units, plus the group IDs a header copy cannot derive from units.
+type taskHeaderEntry struct {
+	Task   *Task    `json:"task"`
+	Groups []string `json:"groups"`
+}
+
+type listTaskHeadersResponse struct {
+	Tasks map[string][]taskHeaderEntry `json:"tasks"`
+}
+
+// ListTaskHeadersPayload answers the header query, whose size follows the tasks and groups, not the units.
+func (m *Manager) ListTaskHeadersPayload() ([]byte, error) {
+	response := listTaskHeadersResponse{Tasks: map[string][]taskHeaderEntry{}}
+	func() {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		for namespace, byID := range m.tasks {
+			tasks := make([]*Task, 0, len(byID))
+			for _, task := range byID {
+				tasks = append(tasks, task)
+			}
+			sortTasksForDisplay(tasks)
+			for _, task := range tasks {
+				response.Tasks[namespace] = append(response.Tasks[namespace],
+					taskHeaderEntry{Task: task.cloneWithoutUnits(), Groups: task.Groups()})
+			}
+		}
+	}()
+	return json.Marshal(&response)
+}
+
+func (m *Manager) DecodeTaskHeaders(data []byte) (map[string][]*Task, error) {
+	var response listTaskHeadersResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, err
+	}
+	tasks := make(map[string][]*Task, len(response.Tasks))
+	for namespace, entries := range response.Tasks {
+		for _, entry := range entries {
+			tasks[namespace] = append(tasks[namespace], entry.Task)
+		}
+	}
+	held := m.heldCopies(tasks)
+	for namespace, entries := range response.Tasks {
+		for i, entry := range entries {
+			task := entry.Task
+			task.groups = make(map[string][]string, len(entry.Groups))
+			for _, group := range entry.Groups {
+				task.groups[group] = nil
+			}
+			task.groupCount = len(task.groups)
+			m.adoptHeader(namespace, task, held[namespace][i])
+		}
+	}
+	return tasks, nil
+}
+
+// TaskHasUnit checks one unit ID per node of the task, and known is false when this node holds no such version.
+func (m *Manager) TaskHasUnit(namespace string, desc TaskDescriptor, unitID func(node string) string) (has, known bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	task := m.tasks[namespace][desc.ID]
+	if task == nil || task.Version != desc.Version {
+		return false, false
+	}
+	for node := range task.unitCounts {
+		if node != "" && task.Units[unitID(node)] != nil {
+			return true, true
+		}
+	}
+	return false, true
 }
 
 func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {
@@ -1215,6 +1438,7 @@ func (m *Manager) Restore(bytes []byte) error {
 	// (e.g. records purged on a drop-vector marker introduction), and this
 	// node alone would then refuse applies its peers accept.
 	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
+	m.copied = nil
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {

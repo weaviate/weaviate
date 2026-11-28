@@ -11,7 +11,18 @@
 
 package utils
 
-import "net"
+import (
+	"context"
+	"net"
+	"time"
+)
+
+func BoundIfNoDeadline(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
+}
 
 func MustGetFreeTCPPort() (port int) {
 	lAddr, err := net.ResolveTCPAddr("tcp", "localhost:0")

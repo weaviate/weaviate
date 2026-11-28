@@ -295,6 +295,8 @@ const (
 	QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE                 QueryRequest_Type = 207
 	QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN                      QueryRequest_Type = 208
 	QueryRequest_TYPE_DISTRIBUTED_TASK_LIST                           QueryRequest_Type = 300
+	// 301 is TYPE_DISTRIBUTED_TASK_GET on later release branches.
+	QueryRequest_TYPE_DISTRIBUTED_TASK_HEADERS QueryRequest_Type = 302
 )
 
 // Enum value maps for QueryRequest_Type.
@@ -330,6 +332,7 @@ var (
 		207: "TYPE_GET_REPLICATION_OPERATION_STATE",
 		208: "TYPE_GET_REPLICATION_SCALE_PLAN",
 		300: "TYPE_DISTRIBUTED_TASK_LIST",
+		302: "TYPE_DISTRIBUTED_TASK_HEADERS",
 	}
 	QueryRequest_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED":                                     0,
@@ -362,6 +365,7 @@ var (
 		"TYPE_GET_REPLICATION_OPERATION_STATE":                 207,
 		"TYPE_GET_REPLICATION_SCALE_PLAN":                      208,
 		"TYPE_DISTRIBUTED_TASK_LIST":                           300,
+		"TYPE_DISTRIBUTED_TASK_HEADERS":                        302,
 	}
 )
 
@@ -1313,6 +1317,8 @@ type UnitSpec struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	GroupId       string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	Shard         string                 `protobuf:"bytes,3,opt,name=shard,proto3" json:"shard,omitempty"`
+	Node          string                 `protobuf:"bytes,4,opt,name=node,proto3" json:"node,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1357,6 +1363,20 @@ func (x *UnitSpec) GetId() string {
 func (x *UnitSpec) GetGroupId() string {
 	if x != nil {
 		return x.GroupId
+	}
+	return ""
+}
+
+func (x *UnitSpec) GetShard() string {
+	if x != nil {
+		return x.Shard
+	}
+	return ""
+}
+
+func (x *UnitSpec) GetNode() string {
+	if x != nil {
+		return x.Node
 	}
 	return ""
 }
@@ -2576,11 +2596,11 @@ const file_api_message_proto_rawDesc = "" +
 	"\x13TYPE_CLUSTER_ID_SET\x10\x90\x03\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xc1\b\n" +
+	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xe5\b\n" +
 	"\fQueryRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.QueryRequest.TypeR\x04type\x12\x1f\n" +
 	"\vsub_command\x18\x02 \x01(\fR\n" +
-	"subCommand\"\xcd\a\n" +
+	"subCommand\"\xf1\a\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TYPE_GET_CLASSES\x10\x01\x12\x13\n" +
@@ -2611,7 +2631,8 @@ const file_api_message_proto_rawDesc = "" +
 	" TYPE_GET_ALL_REPLICATION_DETAILS\x10\xce\x01\x12)\n" +
 	"$TYPE_GET_REPLICATION_OPERATION_STATE\x10\xcf\x01\x12$\n" +
 	"\x1fTYPE_GET_REPLICATION_SCALE_PLAN\x10\xd0\x01\x12\x1f\n" +
-	"\x1aTYPE_DISTRIBUTED_TASK_LIST\x10\xac\x02\")\n" +
+	"\x1aTYPE_DISTRIBUTED_TASK_LIST\x10\xac\x02\x12\"\n" +
+	"\x1dTYPE_DISTRIBUTED_TASK_HEADERS\x10\xae\x02\")\n" +
 	"\rQueryResponse\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\"u\n" +
 	"\x11AddTenantsRequest\x12#\n" +
@@ -2641,10 +2662,12 @@ const file_api_message_proto_rawDesc = "" +
 	"\atenants\x18\x01 \x03(\tR\atenants\"4\n" +
 	"\x06Tenant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"5\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"_\n" +
 	"\bUnitSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\xb7\x02\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x14\n" +
+	"\x05shard\x18\x03 \x01(\tR\x05shard\x12\x12\n" +
+	"\x04node\x18\x04 \x01(\tR\x04node\"\xb7\x02\n" +
 	"\x19AddDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +

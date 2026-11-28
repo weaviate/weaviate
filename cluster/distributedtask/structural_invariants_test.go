@@ -14,6 +14,9 @@ package distributedtask
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -241,11 +244,8 @@ func structuralInvariantSeedTask(
 
 // TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer pins the fact
 // [Manager.CleanUpTask]'s unrecognized-status exit rests on. That exit is
-// only sound because the sweep filters on the leader's view, so a CLEAN_UP
-// for a task this build cannot classify exists only once the cluster
-// already considers it done. A second proposer reading local state would
-// let one node delete a task the rest still considers live, so adding one
-// has to fail here rather than in production.
+// only sound because the sweep proposes CLEAN_UP only for a recognized terminal status, which
+// never changes. A second proposer without that filter could delete a task others consider live.
 //
 // Two spellings count as proposing: calling the service method, and
 // building the command directly. The second is how the first one is
@@ -318,4 +318,101 @@ func TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer(t *testing.T) {
 		"CLEAN_UP must have exactly one proposer, found: %v", callSites)
 	require.ElementsMatch(t, wantFiles, gotFiles,
 		"unexpected CLEAN_UP site; only the TTL sweep may propose one (found: %v)", callSites)
+}
+
+// fullTaskListReaders also counts building the full list's query, which is how a caller could skip the method.
+func fullTaskListReaders(t *testing.T, root string) (readers, declared map[string]bool) {
+	t.Helper()
+	readers, declared = map[string]bool{}, map[string]bool{}
+	for _, dir := range []string{"adapters", "cluster", "usecases"} {
+		require.NoError(t, filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			name := d.Name()
+			if d.IsDir() {
+				if strings.HasPrefix(name, ".") || name == "vendor" {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") ||
+				strings.HasSuffix(name, ".pb.go") || strings.HasPrefix(name, "mock_") {
+				return nil
+			}
+			file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				key := filepath.ToSlash(rel) + ":" + funcName(fn)
+				declared[key] = true
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if sel, ok := n.(*ast.SelectorExpr); ok &&
+						(sel.Sel.Name == "ListDistributedTasks" || sel.Sel.Name == "QueryRequest_TYPE_DISTRIBUTED_TASK_LIST") {
+						readers[key] = true
+					}
+					return true
+				})
+			}
+			return nil
+		}))
+	}
+	return readers, declared
+}
+
+func funcName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return fn.Name.Name
+	}
+	recv := fn.Recv.List[0].Type
+	if star, ok := recv.(*ast.StarExpr); ok {
+		recv = star.X
+	}
+	if ident, ok := recv.(*ast.Ident); ok {
+		return ident.Name + "." + fn.Name.Name
+	}
+	return fn.Name.Name
+}
+
+// Only callers that need units read the leader's full task list, and passing ListDistributedTasks as a value counts.
+func TestStructuralInvariant_OnlyUnitReadersListTheFullTaskList(t *testing.T) {
+	root := filepath.Join("..", "..")
+	require.FileExists(t, filepath.Join(root, "go.mod"))
+	readers, declared := fullTaskListReaders(t, root)
+
+	allowedFiles := map[string]bool{
+		"usecases/distributedtask/handler.go":                  true, // GET /v1/tasks renders every unit
+		"adapters/handlers/rest/drop_vector_index_enqueuer.go": true, // drop-vector keeps the full list
+		"adapters/repos/db/drop_vector_index_provider.go":      true,
+		"cluster/raft_distributed_tasks_query_endpoints.go":    true, // the query itself
+		"cluster/store_query.go":                               true,
+		"cluster/distributedtask/manager.go":                   true, // reads this node's copy, not the leader
+	}
+	for reader := range readers {
+		require.True(t, allowedFiles[reader[:strings.Index(reader, ":")]], "%s reads the full task list; list headers instead", reader)
+	}
+
+	for _, tc := range []struct{ name, file, fn string }{
+		{"backup gate wiring", "adapters/handlers/rest/configure_api.go", "MakeAppState"},
+		{"backup gate builder", "adapters/handlers/rest/configure_api.go", "shardReindexActivityBuilder"},
+		{"submit and rebuild pre-checks", "adapters/handlers/rest/handlers_indexes_upsert.go", "reindexTasksOrFailClosed"},
+		{"cancel", "adapters/handlers/rest/handlers_indexes.go", "indexesHandlers.cancelReindexTask"},
+		{"migration reconciler", "adapters/handlers/rest/configure_reindex_task_sources.go", "newMigrationClusterTaskSource"},
+		{"property-index delete check", "adapters/handlers/rest/handlers_schema.go", "schemaHandlers.checkReindexConflictForPropertyMutation"},
+		{"repair guidance", "adapters/repos/db/reindex_provider.go", "ReindexProvider.reindexRunsWith"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.True(t, declared[tc.file+":"+tc.fn], "the row names a function that no longer exists")
+			require.NotContains(t, readers, tc.file+":"+tc.fn)
+		})
+	}
 }

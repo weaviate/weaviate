@@ -38,7 +38,7 @@ type fakeReindexTaskLister struct {
 	tasks map[string][]*distributedtask.Task
 }
 
-func (f fakeReindexTaskLister) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+func (f fakeReindexTaskLister) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return f.tasks, nil
 }
 

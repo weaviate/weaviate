@@ -874,7 +874,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 			sm.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 
 			var captured *models.Class
-			sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
+			sm.On("ReplaceClass", mock.MatchedBy(func(c *models.Class) bool {
 				captured = c
 				return true
 			}), mock.Anything).Return(nil).Maybe()

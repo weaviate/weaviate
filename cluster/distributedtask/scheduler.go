@@ -59,6 +59,10 @@ type taskSchedulerState struct {
 	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
 	// retrying and fails the task (weaviate/0-weaviate-issues#297).
 	completedCallbackAttempts int
+	completedCallbackRetryAt  time.Time
+	// swapCheck and prepCheck name the changed groups a phase looks at, since only those can have become ready.
+	swapCheck, prepCheck changedGroups
+	localGroupsOut       map[string]struct{}
 }
 
 // maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
@@ -102,12 +106,13 @@ const maxCompletedCallbackAttempts = 5
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
-	// startLogged holds the started tasks whose first start was logged; pruned each tick, since some providers never report tasks for cleanup.
-	startLogged map[string]map[TaskDescriptor]struct{}
+	// startLogged holds each started task's last launch time; pruned each tick, since some providers never report tasks for cleanup.
+	startLogged map[string]map[TaskDescriptor]time.Time
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
-	taskLister         TaskLister
+	taskSource         TaskCopySource
+	taskCopy           TaskCopy
 	taskCleaner        TaskCleaner
 	taskFinalizer      TaskFinalizer
 	ackRecorder        PostCompletionAckRecorder
@@ -127,6 +132,7 @@ type Scheduler struct {
 	postCompletionAckLogger  *logrusext.Sampler
 	relaunchLogger           *logrusext.Sampler
 	swapRetryLogger          *logrusext.Sampler
+	finalizeLogger           *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
@@ -137,8 +143,6 @@ type Scheduler struct {
 	// The label set the gauge carried last tick, so a namespace that
 	// stopped reporting can be dropped one series at a time. Tick loop only.
 	unrecognizedStatusNamespaces map[string]struct{}
-
-	localTaskInspector LocalTaskInspector
 
 	// perTaskState holds all per-scheduler-instance per-task state for
 	// the two-phase callback firing and ack emission. Entries are
@@ -169,41 +173,37 @@ type Scheduler struct {
 
 	stopCh chan struct{}
 
-	// wakeCh signals the run loop to fire a scheduling cycle immediately
+	// wakeCh signals the run loop to fire a scheduling cycle
 	// instead of waiting for the next periodic tick. Sized 1 so concurrent
-	// callers coalesce — a pending wake-up is equivalent to any number of
-	// queued wake-ups, because the next loop iteration reads cluster-wide
-	// task state from scratch.
-	//
-	// Why this exists: with the default 1-minute tickInterval, a barrier
-	// opening (last unit terminal) on the leader was followed by up to a
-	// minute of "the followers haven't fired their OnGroupCompleted /
-	// OnTaskCompleted yet" — the FSM apply path knows the barrier is open,
-	// but the followers' scheduler loops are still asleep on their ticker.
-	// Wake() (called from the Manager's RAFT-apply paths) lets us collapse
-	// that gap to roughly one channel-send + one loop iteration.
+	// callers coalesce. One pending wake-up covers any number, because
+	// UpdateTaskCopy hands the next tick every change logged since the last one.
 	wakeCh chan struct{}
 }
 
 type SchedulerParams struct {
 	CompletionRecorder TaskCompletionRecorder
-	TaskLister         TaskLister
+	TaskSource         TaskCopySource
 	TaskCleaner        TaskCleaner
 	TaskFinalizer      TaskFinalizer
 	// AckRecorder publishes per-node phase results via RAFT. nil in unit
 	// tests; production wiring in configure_api.go always sets this.
-	AckRecorder PostCompletionAckRecorder
-	// nil in unit tests that don't exercise the unrecognized-status warn.
-	LocalTaskInspector LocalTaskInspector
-	Providers          map[string]Provider
-	Clock              clockwork.Clock
-	Logger             logrus.FieldLogger
-	MetricsRegisterer  prometheus.Registerer
+	AckRecorder       PostCompletionAckRecorder
+	Providers         map[string]Provider
+	Clock             clockwork.Clock
+	Logger            logrus.FieldLogger
+	MetricsRegisterer prometheus.Registerer
 
 	LocalNode        string
 	CompletedTaskTTL time.Duration
 	TickInterval     time.Duration
 }
+
+// minWakeSpacing folds a burst of wakes, one per apply, into one tick. It is short so
+// that nodes woken by the same apply act on it at nearly the same time.
+const minWakeSpacing = 100 * time.Millisecond
+
+// retryFloor keeps work that fails or exits early from repeating on every woken tick.
+const retryFloor = 2 * time.Second
 
 func NewScheduler(params SchedulerParams) *Scheduler {
 	if params.Clock == nil {
@@ -216,16 +216,15 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
-		startLogged:  map[string]map[TaskDescriptor]struct{}{},
+		startLogged:  map[string]map[TaskDescriptor]time.Time{},
 
 		providers:          params.Providers,
 		completionRecorder: params.CompletionRecorder,
 		perTaskState:       map[TaskDescriptor]*taskSchedulerState{},
-		taskLister:         params.TaskLister,
+		taskSource:         params.TaskSource,
 		taskCleaner:        params.TaskCleaner,
 		taskFinalizer:      params.TaskFinalizer,
 		ackRecorder:        params.AckRecorder,
-		localTaskInspector: params.LocalTaskInspector,
 		clock:              params.Clock,
 
 		localNode:        params.LocalNode,
@@ -239,6 +238,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 		relaunchLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 		swapRetryLogger:          logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		finalizeLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -256,10 +256,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
-// Wake requests an immediate scheduling cycle. Non-blocking: a pending
-// wake-up coalesces additional calls (the next loop iteration sees the
-// latest cluster-wide task state regardless of how many wakes accumulated).
-// Safe to call from any goroutine, including RAFT-apply paths.
+// Wake requests a scheduling cycle, at least minWakeSpacing after the last one. Safe to call from any goroutine, including RAFT-apply paths.
 //
 // Wake is a no-op after [Scheduler.Close] returns — the run loop has
 // already exited and won't observe the signal.
@@ -290,7 +287,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	// once the cluster is ready, and will run the deferred bootstrap on the
 	// first successful tick so post-restart callback replay is still
 	// suppressed.
-	tasksByNamespace, err := s.listTasks(ctx)
+	tasksByNamespace, err := s.listTasks()
 	if err != nil {
 		s.logger.Warnf("initial distributed task listing failed; bootstrap deferred to first successful tick: %v", err)
 	} else {
@@ -408,7 +405,8 @@ func (s *Scheduler) cleanupStaleTasks(namespace string, provider Provider, tasks
 // startActiveTasks launches tasks that are currently active and have pending work on this node.
 func (s *Scheduler) startActiveTasks(namespace string, provider Provider, startedTasks map[TaskDescriptor]*Task) {
 	for desc, task := range startedTasks {
-		handle, err := provider.StartTask(task)
+		// StartTask gets a clone, because its handle reads the task after later updates write the copy.
+		handle, err := provider.StartTask(task.Clone())
 		if err != nil {
 			s.loggerWithTask(namespace, desc).
 				Errorf("failed to start distributed task during bootstrap: %v", err)
@@ -447,18 +445,22 @@ func filterTasks(tasks map[TaskDescriptor]*Task, predicate func(task *Task) bool
 func (s *Scheduler) loop() {
 	ticker := s.clock.NewTicker(s.tickInterval)
 	defer ticker.Stop()
+	var lastTick time.Time
 
 	for {
 		select {
 		case <-ticker.Chan():
+			lastTick = s.clock.Now()
 			s.tick()
 		case <-s.wakeCh:
-			// Reactive wake-up from a RAFT-apply path (typically the
-			// Manager observing a unit transition that opens a group
-			// barrier). Fire a tick immediately instead of waiting for
-			// the next ticker. The periodic ticker keeps running as a
-			// fallback — late wake-ups, missed signals, and any state
-			// drift get cleaned up at the next periodic tick.
+			if wait := minWakeSpacing - s.clock.Since(lastTick); wait > 0 {
+				select {
+				case <-s.clock.After(wait):
+				case <-s.stopCh:
+					return
+				}
+			}
+			lastTick = s.clock.Now()
 			s.tick()
 		case <-s.stopCh:
 			return
@@ -476,14 +478,7 @@ const unrecognizedStatusWarnWindow = time.Hour
 // One aggregated sorted line per tick: naming the tasks one at a time let
 // the sampler's budget pick an arbitrary three by map-iteration order,
 // which is not a set an operator can act on.
-//
-// leaderListAvailable says whether tasksByNamespace is the cluster's task
-// list or nothing at all. It gates the metric prune: only the cluster's
-// list knows which namespaces exist.
-func (s *Scheduler) warnOnUnrecognizedStatuses(
-	tasksByNamespace map[string]map[TaskDescriptor]*Task,
-	leaderListAvailable bool,
-) {
+func (s *Scheduler) warnOnUnrecognizedStatuses(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
 	counts := make(map[string]int, len(tasksByNamespace))
 	var named []string
 	for namespace, tasks := range tasksByNamespace {
@@ -497,33 +492,6 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(
 				namespace, task.ID, task.Version, task.Status))
 		}
 	}
-	if s.localTaskInspector != nil {
-		for namespace, tasks := range s.localTaskInspector.LocalUnrecognizedDistributedTasks() {
-			if _, ok := counts[namespace]; !ok {
-				counts[namespace] = 0
-			}
-			for _, task := range tasks {
-				// Skip only what the loop above already counted. Skipping on
-				// the leader having any copy at all loses the task whose copy
-				// the leader can name and this node cannot — counted nowhere,
-				// while this node keeps refusing schema mutations for it.
-				leaderCopy, onLeaderList := tasksByNamespace[namespace][task.TaskDescriptor]
-				if onLeaderList && !leaderCopy.Status.IsRecognized() {
-					continue
-				}
-				counts[namespace]++
-				// Naming the cluster's status is what makes the line
-				// actionable: it says this node has fallen behind the rest,
-				// rather than that the task exists nowhere else.
-				where := "this node only"
-				if onLeaderList {
-					where = fmt.Sprintf("this node only; cluster reports %s", leaderCopy.Status)
-				}
-				named = append(named, fmt.Sprintf("%s/%s@%d=%s (%s)",
-					namespace, task.ID, task.Version, task.Status, where))
-			}
-		}
-	}
 
 	// Write every namespace's value before dropping the ones that stopped
 	// reporting. Reset-then-Set drops every series first, and a scrape in
@@ -532,16 +500,10 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(
 		s.tasksUnrecognizedStatus.WithLabelValues(namespace).Set(float64(count))
 		s.unrecognizedStatusNamespaces[namespace] = struct{}{}
 	}
-	// A tick without the cluster's list saw only this node's own
-	// unrecognized copies, which say nothing about the namespaces that
-	// have none. Pruning off that view drops the series reporting zero
-	// and the ones reporting a real count alike.
-	if leaderListAvailable {
-		for namespace := range s.unrecognizedStatusNamespaces {
-			if _, stillReporting := counts[namespace]; !stillReporting {
-				s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
-				delete(s.unrecognizedStatusNamespaces, namespace)
-			}
+	for namespace := range s.unrecognizedStatusNamespaces {
+		if _, stillReporting := counts[namespace]; !stillReporting {
+			s.tasksUnrecognizedStatus.DeleteLabelValues(namespace)
+			delete(s.unrecognizedStatusNamespaces, namespace)
 		}
 	}
 
@@ -561,15 +523,11 @@ func (s *Scheduler) warnOnUnrecognizedStatuses(
 }
 
 func (s *Scheduler) tick() {
-	tasksByNamespace, err := s.listTasks(context.Background())
+	tasksByNamespace, err := s.listTasks()
 	if err != nil {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 			l.Errorf("failed to list distributed tasks: %v", err)
 		})
-		// Warn on the error path rather than returning: returning would
-		// freeze the gauge at its last value for as long as the failure
-		// lasts, and this node's own copies need no leader anyway.
-		s.warnOnUnrecognizedStatuses(nil, false)
 		return
 	}
 
@@ -597,7 +555,7 @@ func (s *Scheduler) tick() {
 		s.logger.Info("distributed task scheduler: deferred bootstrap pre-mark complete on first successful tick")
 	}
 
-	s.warnOnUnrecognizedStatuses(tasksByNamespace, true)
+	s.warnOnUnrecognizedStatuses(tasksByNamespace)
 
 	for namespace, provider := range providers {
 		tasks := tasksByNamespace[namespace]
@@ -757,6 +715,9 @@ func (s *Scheduler) reconcileRunningTasks(
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.TaskDescriptor]; alreadyLaunched {
 				continue
 			}
+			if launchedAt, ok := s.startLogged[namespace][activeTask.TaskDescriptor]; ok && s.clock.Since(launchedAt) < retryFloor {
+				continue
+			}
 			toStart = append(toStart, activeTask)
 		}
 		for desc, taskHandle := range s.runningTasks[namespace] {
@@ -771,7 +732,7 @@ func (s *Scheduler) reconcileRunningTasks(
 	// Phase 2: launch and terminate without the lock — both can block on
 	// I/O. Each per-handle commit is its own deferred-Unlock closure.
 	for _, activeTask := range toStart {
-		handle, err := provider.StartTask(activeTask)
+		handle, err := provider.StartTask(activeTask.Clone())
 		if err != nil {
 			s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 				s.loggerWithTask(namespace, activeTask.TaskDescriptor).
@@ -784,17 +745,17 @@ func (s *Scheduler) reconcileRunningTasks(
 			defer s.mu.Unlock()
 			s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
 			if s.startLogged[namespace] == nil {
-				s.startLogged[namespace] = map[TaskDescriptor]struct{}{}
+				s.startLogged[namespace] = map[TaskDescriptor]time.Time{}
 			}
 			_, logged := s.startLogged[namespace][activeTask.TaskDescriptor]
-			s.startLogged[namespace][activeTask.TaskDescriptor] = struct{}{}
+			s.startLogged[namespace][activeTask.TaskDescriptor] = s.clock.Now()
 			return logged
 		}()
 		if !relaunch {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 			continue
 		}
-		// A task whose unit waits on an operator is relaunched on every tick and wake.
+		// A handle that ends before the apply finishing its last unit lands is relaunched once per retryFloor.
 		s.relaunchLogger.WithSampling(func(logrus.FieldLogger) {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 		})
@@ -827,9 +788,10 @@ func (s *Scheduler) runPreparationPhase(
 		state := s.perTaskStateLockedOrInit(desc)
 		if state.prepPending == nil {
 			state.prepPending = task.groupSet()
+			state.prepCheck.all = true
 		}
 		var list []preparationGroupWork
-		for groupID := range state.prepPending {
+		for _, groupID := range state.prepCheck.take(state.prepPending) {
 			if task.GroupSwapDecided(groupID) {
 				delete(state.prepPending, groupID)
 				continue
@@ -860,6 +822,7 @@ func (s *Scheduler) runPreparationPhase(
 		for i, w := range worklist {
 			if errors.Is(groupErrors[i], context.Canceled) {
 				state.prepPending[w.groupID] = struct{}{}
+				state.prepCheck.add(w.groupID)
 				// This line is at Debug because a step that waits on an operator re-fires every tick, and the provider logs that wait itself.
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
@@ -944,9 +907,10 @@ func (s *Scheduler) runSwapPhase(
 		state := s.perTaskStateLockedOrInit(desc)
 		if state.swapPending == nil {
 			state.swapPending = task.groupSet()
+			state.swapCheck.all = true
 		}
 		var list []swapGroupWork
-		for groupID := range state.swapPending {
+		for _, groupID := range state.swapCheck.take(state.swapPending) {
 			if !postStarted && !task.AllGroupUnitsTerminal(groupID) {
 				continue
 			}
@@ -978,6 +942,7 @@ func (s *Scheduler) runSwapPhase(
 		for i, w := range worklist {
 			if errors.Is(groupErrors[i], context.Canceled) {
 				state.swapPending[w.groupID] = struct{}{}
+				state.swapCheck.add(w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
 					Debugf("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack: %v", groupErrors[i])
@@ -988,13 +953,14 @@ func (s *Scheduler) runSwapPhase(
 				state.postCompletionGroupErrors = map[string]error{}
 			}
 			state.postCompletionGroupErrors[w.groupID] = groupErrors[i]
+			delete(state.localGroupsOut, w.groupID)
 		}
 		if s.ackRecorder == nil || state.postCompletionAckEmitted || task.Status != TaskStatusSwapping {
 			return swapAckSnapshot{}
 		}
 		// A failure is acked at once; only a success waits for every group.
 		success, joined := s.joinGroupErrors(state.postCompletionGroupErrors)
-		if success && !s.allLocalGroupsReturnedLocked(task, desc) {
+		if success && !s.allLocalGroupsReturnedLocked(task, state) {
 			return swapAckSnapshot{}
 		}
 		return swapAckSnapshot{eligible: true, success: success, joined: joined}
@@ -1022,7 +988,7 @@ func (s *Scheduler) runSwapPhase(
 	if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
 		afterAckState.postCompletionAckEmitted = true
 	}
-	// Mirrors the FSM's ack record onto the per-tick clone so later phases see it without re-listing.
+	// Mirrors the FSM's ack record onto the copy so later phases see it before the next update brings the FSM's value.
 	if task.PostCompletionAcks == nil {
 		task.PostCompletionAcks = map[string]PostCompletionAck{}
 	}
@@ -1051,11 +1017,13 @@ func (s *Scheduler) runDecidedSwapPhase(
 			for groupID := range task.SwapsOwed {
 				state.swapPending[groupID] = struct{}{}
 			}
+			state.swapCheck.all = true
 		} else if state.swapPending == nil {
 			state.swapPending = task.groupSet()
+			state.swapCheck.all = true
 		}
 		var list []swapGroupWork
-		for groupID := range state.swapPending {
+		for _, groupID := range state.swapCheck.take(state.swapPending) {
 			if !task.GroupSwapDecided(groupID) {
 				if task.Status.IsTerminal() {
 					delete(state.swapPending, groupID)
@@ -1087,6 +1055,7 @@ func (s *Scheduler) runDecidedSwapPhase(
 			err := groupErrors[i]
 			if err != nil {
 				state.swapPending[w.groupID] = struct{}{}
+				state.swapCheck.add(w.groupID)
 				if errors.Is(err, context.Canceled) {
 					// Checked first so a discarded debug line spends no sampler budget.
 					if logrusext.LevelEnabled(s.logger, logrus.DebugLevel) {
@@ -1136,7 +1105,7 @@ func (s *Scheduler) runDecidedSwapPhase(
 // see the "Idempotency contract" note at the rollback site.
 //
 // SWAPPING-path error handling (weaviate/0-weaviate-issues#297): a non-nil
-// error withholds FINISHED and retries next tick; [ErrTaskCompletionPermanent]
+// error withholds FINISHED and retries after [retryFloor]; [ErrTaskCompletionPermanent]
 // or exhausting [maxCompletedCallbackAttempts] fails the task instead.
 // Terminal-status errors are best-effort cleanup and never reopen the task.
 func (s *Scheduler) runCompletedCallbackPhase(
@@ -1166,7 +1135,8 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	alreadyFired := func() bool {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if phase2State := s.perTaskStateLocked(desc); phase2State != nil && phase2State.completedCallbackFired {
+		if phase2State := s.perTaskStateLocked(desc); phase2State != nil &&
+			(phase2State.completedCallbackFired || s.clock.Now().Before(phase2State.completedCallbackRetryAt)) {
 			return true
 		}
 		s.perTaskStateLockedOrInit(desc).completedCallbackFired = true
@@ -1191,7 +1161,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 
-	// Clear the fired mark so the next tick re-fires; a permanent error fails
+	// Clear the fired mark so the next tick after retryFloor re-fires; a permanent error fails
 	// now, a transient one only once the retry budget is exhausted.
 	failMsg := func() string {
 		s.mu.Lock()
@@ -1204,13 +1174,14 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		}
 		state.completedCallbackFired = false
 		state.completedCallbackAttempts++
+		state.completedCallbackRetryAt = s.clock.Now().Add(retryFloor)
 		permanent := errors.Is(cbErr, ErrTaskCompletionPermanent)
 		if permanent || state.completedCallbackAttempts >= maxCompletedCallbackAttempts {
 			return cbErr.Error()
 		}
 		s.loggerWithTask(namespace, desc).
-			Warnf("OnTaskCompleted failed (attempt %d/%d); withholding finalize, will retry next tick: %v",
-				state.completedCallbackAttempts, maxCompletedCallbackAttempts, cbErr)
+			Warnf("OnTaskCompleted failed (attempt %d/%d); withholding finalize, will retry after %s: %v",
+				state.completedCallbackAttempts, maxCompletedCallbackAttempts, retryFloor, cbErr)
 		return ""
 	}()
 	if failMsg == "" {
@@ -1218,7 +1189,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	}
 
 	// Fired mark stays cleared so a failed MarkDistributedTaskFailed call
-	// retries next tick (idempotent at the FSM layer).
+	// retries after retryFloor (idempotent at the FSM layer).
 	if s.taskFinalizer == nil {
 		return
 	}
@@ -1226,7 +1197,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		context.Background(), namespace, task.ID, task.Version, failMsg,
 	); err != nil {
 		s.loggerWithTask(namespace, desc).
-			Warnf("failed to mark distributed task failed after OnTaskCompleted error; will retry on next tick: %v", err)
+			Warnf("failed to mark distributed task failed after OnTaskCompleted error; will retry after %s: %v", retryFloor, err)
 		return
 	}
 	s.loggerWithTask(namespace, desc).
@@ -1293,8 +1264,10 @@ func (s *Scheduler) runFinalizePhase(
 		if finErr == nil {
 			continue
 		}
-		s.loggerWithTask(namespace, w.desc).
-			Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
+		s.finalizeLogger.WithSampling(func(logrus.FieldLogger) {
+			s.loggerWithTask(namespace, w.desc).
+				Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
+		})
 		// Clearing completedCallbackFired re-fires OnTaskCompleted next tick;
 		// safe now that [UnitAwareProvider.OnTaskCompleted] requires idempotency.
 		if providerIsUnitAware {
@@ -1305,20 +1278,30 @@ func (s *Scheduler) runFinalizePhase(
 	}
 }
 
-func (s *Scheduler) listTasks(ctx context.Context) (map[string]map[TaskDescriptor]*Task, error) {
-	tasksByNamespace, err := s.taskLister.ListDistributedTasks(ctx)
-	if err != nil {
+func (s *Scheduler) listTasks() (map[string]map[TaskDescriptor]*Task, error) {
+	if err := s.taskSource.UpdateTaskCopy(&s.taskCopy); err != nil {
 		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}
+	s.mergeChanged(s.taskCopy.takeChanged())
+	return s.taskCopy.Tasks(), nil
+}
 
-	result := make(map[string]map[TaskDescriptor]*Task, len(tasksByNamespace))
-	for namespace, tasks := range tasksByNamespace {
-		result[namespace] = make(map[TaskDescriptor]*Task, len(tasks))
-		for _, task := range tasks {
-			result[namespace][task.TaskDescriptor] = task
+// mergeChanged skips a task with no scheduler state yet, whose phases start by checking every group.
+func (s *Scheduler) mergeChanged(changed map[TaskDescriptor]*changedGroups) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for desc, groups := range changed {
+		state := s.perTaskStateLocked(desc)
+		if state == nil {
+			continue
+		}
+		if len(state.prepPending) > 0 {
+			state.prepCheck.merge(groups)
+		}
+		if len(state.swapPending) > 0 {
+			state.swapCheck.merge(groups)
 		}
 	}
-	return result, nil
 }
 
 // recordRunningTaskHandleLocked stores a freshly-launched task handle in
@@ -1365,20 +1348,17 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 	})
 }
 
-func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, desc TaskDescriptor) bool {
-	state := s.perTaskStateLocked(desc)
-	for _, groupID := range task.Groups() {
-		if !task.groupHasUnitOn(groupID, s.localNode) {
-			continue
-		}
-		if state == nil {
-			return false
-		}
-		if _, returned := state.postCompletionGroupErrors[groupID]; !returned {
-			return false
+// allLocalGroupsReturnedLocked builds localGroupsOut once per task version; a non-barrier task loses no group, so it only shrinks.
+func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, state *taskSchedulerState) bool {
+	if state.localGroupsOut == nil {
+		state.localGroupsOut = map[string]struct{}{}
+		for _, groupID := range task.Groups() {
+			if _, returned := state.postCompletionGroupErrors[groupID]; !returned && task.groupHasUnitOn(groupID, s.localNode) {
+				state.localGroupsOut[groupID] = struct{}{}
+			}
 		}
 	}
-	return true
+	return len(state.localGroupsOut) == 0
 }
 
 // maxReportedGroupErrors bounds the ack error (stored in the RAFT log and

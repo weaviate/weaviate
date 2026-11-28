@@ -42,7 +42,12 @@ func (f *fakeSchemaManager) RestoreClass(_ context.Context, cls *models.Class, s
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
+func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss *sharding.State, field string, more ...string) (uint64, error) {
+	args := f.Called(cls, ss, append([]string{field}, more...))
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) ReplaceClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	args := f.Called(cls, ss)
 	return 0, args.Error(0)
 }

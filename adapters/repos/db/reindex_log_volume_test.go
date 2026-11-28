@@ -24,7 +24,6 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -176,9 +175,8 @@ func TestAUnitWaitingOnAHoldLogsASampledWarn(t *testing.T) {
 	unitID := fx.subject.Key.UnitID
 	repair := ReindexTaskPayload{
 		MigrationType: ReindexTypeRepairFilterable, Collection: fx.className, Properties: []string{"title"},
-		UnitToShard: map[string]string{unitID: fx.name},
 	}
-	task := &distributedtask.Task{TaskDescriptor: fx.desc}
+	task := fx.unitTask()
 	fx.requireStepsWait(t)
 	for range maxReportedErrors - 1 {
 		fx.provider.processOneUnit(fx.ctx, task, &repair, fx.idx, unitID, nil)

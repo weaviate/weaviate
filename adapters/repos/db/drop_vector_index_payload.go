@@ -540,25 +540,30 @@ func ExtractDropVectorIndexTaskTargets(payload []byte) (collection string, targe
 	return p.Collection, p.Targets, true
 }
 
-// ExtractDropVectorIndexTaskCollection is read only by the task-list REST handler, until the task header replaces it there.
-func ExtractDropVectorIndexTaskCollection(payload []byte) (collection string, ok bool) {
-	p, err := decodeDropVectorIndexPayload(payload)
-	if err != nil {
-		return "", false
-	}
-	return p.Collection, true
-}
-
 var _ distributedtask.HeaderDecoder = (*DropVectorIndexDetector)(nil)
 
-type dropVectorIndexTaskHeader string
+type dropVectorIndexTaskHeader struct {
+	*DropVectorIndexTaskPayload
+}
 
-func (h dropVectorIndexTaskHeader) Collection() string { return string(h) }
+func (h dropVectorIndexTaskHeader) Collection() string {
+	return h.DropVectorIndexTaskPayload.Collection
+}
+
+func (h dropVectorIndexTaskHeader) VisiblePayload() map[string]any {
+	return visibleFields(DropVectorIndexTaskPayload{
+		Collection: h.DropVectorIndexTaskPayload.Collection, OpID: h.OpID, DropEpochID: h.DropEpochID, VerifyOnly: h.VerifyOnly,
+	}, DropVectorIndexTaskVisiblePayloadFields)
+}
+
+func (*DropVectorIndexDetector) DecodeCollection(payload []byte) (string, error) {
+	return decodePayloadCollection(payload)
+}
 
 func (*DropVectorIndexDetector) DecodeHeader(payload []byte) (distributedtask.TaskHeader, error) {
 	p, err := decodeDropVectorIndexPayload(payload)
 	if err != nil {
 		return nil, err
 	}
-	return dropVectorIndexTaskHeader(p.Collection), nil
+	return dropVectorIndexTaskHeader{p}, nil
 }

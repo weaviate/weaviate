@@ -26,8 +26,96 @@ type TaskLister interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*Task, error)
 }
 
+// TaskHeaderLister lists tasks without their units, for callers that read only headers, statuses and groups.
+type TaskHeaderLister interface {
+	ListDistributedTaskHeaders(ctx context.Context) (map[string][]*Task, error)
+}
+
+type TaskCopySource interface {
+	UpdateTaskCopy(c *TaskCopy) error
+}
+
+// TaskCopy holds the [Scheduler]'s own copy of every task, updated by [Manager.UpdateTaskCopy]. The scheduler also mirrors this node's post-completion ack into it until that ack's apply brings the FSM's value.
+type TaskCopy struct {
+	tasks   map[string]map[string]*Task
+	changed map[TaskDescriptor]*changedGroups
+}
+
+func (c *TaskCopy) changedOf(desc TaskDescriptor) *changedGroups {
+	if c.changed == nil {
+		c.changed = map[TaskDescriptor]*changedGroups{}
+	}
+	if c.changed[desc] == nil {
+		c.changed[desc] = &changedGroups{}
+	}
+	return c.changed[desc]
+}
+
+func (c *TaskCopy) takeChanged() map[TaskDescriptor]*changedGroups {
+	changed := c.changed
+	c.changed = nil
+	return changed
+}
+
+type changedGroups struct {
+	all    bool
+	groups map[string]struct{}
+}
+
+func (g *changedGroups) add(group string) {
+	if g.groups == nil {
+		g.groups = map[string]struct{}{}
+	}
+	g.groups[group] = struct{}{}
+}
+
+func (g *changedGroups) merge(other *changedGroups) {
+	g.all = g.all || other.all
+	for group := range other.groups {
+		g.add(group)
+	}
+}
+
+// take returns the groups of pending it names and empties g, in time proportional to the groups it names.
+func (g *changedGroups) take(pending map[string]struct{}) []string {
+	named := g.groups
+	if g.all {
+		named = pending
+	}
+	var groups []string
+	for group := range named {
+		if _, ok := pending[group]; ok {
+			groups = append(groups, group)
+		}
+	}
+	*g = changedGroups{}
+	return groups
+}
+
+// Tasks returns the copy's tasks, which the next update may change.
+func (c *TaskCopy) Tasks() map[string]map[TaskDescriptor]*Task {
+	result := make(map[string]map[TaskDescriptor]*Task, len(c.tasks))
+	for namespace, tasks := range c.tasks {
+		if len(tasks) == 0 {
+			continue
+		}
+		result[namespace] = make(map[TaskDescriptor]*Task, len(tasks))
+		for _, task := range tasks {
+			result[namespace][task.TaskDescriptor] = task
+		}
+	}
+	return result
+}
+
+func (c *TaskCopy) set(namespace, taskID string, task *Task) {
+	if c.tasks[namespace] == nil {
+		c.tasks[namespace] = map[string]*Task{}
+	}
+	c.tasks[namespace][taskID] = task
+}
+
 // SchedulerNotifier is implemented by the [Scheduler] and consumed by the
-// [Manager] to request an immediate scheduling cycle after a task-state
+// [Manager] to request an early scheduling cycle after a task-state
 // change applies via Raft. Without this hook the scheduler only reacts on
 // its periodic tick (default 1 minute, see
 // DefaultDistributedTasksSchedulerTickInterval), so a barrier opening from
@@ -39,20 +127,19 @@ type SchedulerNotifier interface {
 	Wake()
 }
 
-// CollectionExtractor feeds only the task-list REST handler until the task header replaces it there too.
-type CollectionExtractor func(payload []byte) (collection string, ok bool)
-
 type TaskHeader interface {
 	Collection() string
+	// VisiblePayload returns the payload fields a caller without tenant read may see.
+	VisiblePayload() map[string]any
 }
 
 // HeaderDecoder is implemented by the detector whose checks read the header, so the two cannot be registered apart. DecodeHeader must be a pure function of the payload.
+// The Manager derives the header when a task copy enters memory (add, restore, receive). Its checks and the reindex readers read the header; drop-vector readers still decode the payload.
 type HeaderDecoder interface {
 	DecodeHeader(payload []byte) (TaskHeader, error)
+	// DecodeCollection reads only the header's collection, for a propose that needs nothing else.
+	DecodeCollection(payload []byte) (string, error)
 }
-
-// ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
-type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
 
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
 // for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
@@ -73,13 +160,6 @@ type CompletedTaskRetainer interface {
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
-}
-
-// LocalTaskInspector exposes the part of this node's own FSM state that
-// the leader-routed [TaskLister] cannot report: a task the rest of the
-// cluster has already deleted but this node still holds.
-type LocalTaskInspector interface {
-	LocalUnrecognizedDistributedTasks() map[string][]*Task
 }
 
 // TaskFinalizer is how the [Scheduler] transitions a task out of
@@ -194,7 +274,7 @@ type Provider interface {
 // the conflict error to the originating client.
 //
 // FSM-determinism contract: CheckConflict MUST be a pure function of
-// (newPayload, existingTasks). It must not read mutable process state
+// (newHeader, existingTasks). It must not read mutable process state
 // (clocks, network, schema, RNG) — different nodes applying the same
 // log entry must reach the same accept/reject decision.
 type ConflictDetector interface {
@@ -203,7 +283,8 @@ type ConflictDetector interface {
 	// namespace-scoped task list at apply time. Return a non-nil error
 	// to reject the new task; the error propagates back to the
 	// AddDistributedTask caller.
-	CheckConflict(newPayload []byte, existingTasks []*Task) error
+	CheckConflict(newHeader TaskHeader, existingTasks []*Task) error
+	HeaderDecoder
 }
 
 // SchemaMutationDetector lets the schema FSM's UpdateProperty, DeleteClass,
@@ -379,15 +460,12 @@ const (
 // Unit represents a trackable work unit within a distributed task (e.g. a single shard
 // in a reindex operation). Units follow the lifecycle PENDING → IN_PROGRESS → COMPLETED/FAILED.
 //
-// NodeID starts empty (unassigned) and is set on the first progress update. The [Scheduler]
-// treats unassigned units as belonging to any node, which is how initial assignment happens:
-// the first node to report progress claims the unit.
-//
 // Unit values are owned by the [Manager] and mutated under its lock. Callers outside the
 // Manager should only access units via cloned [Task] snapshots from ListDistributedTasks.
 type Unit struct {
 	ID         string     `json:"id"`
 	GroupID    string     `json:"groupId,omitempty"`
+	Shard      string     `json:"shard,omitempty"`
 	NodeID     string     `json:"nodeId"`
 	Status     UnitStatus `json:"status"`
 	Progress   float32    `json:"progress"`
@@ -411,6 +489,8 @@ func (u *Unit) markTerminal(status UnitStatus, at time.Time) {
 type UnitSpec struct {
 	ID      string
 	GroupID string
+	Shard   string
+	Node    string
 }
 
 type TaskStatus string
@@ -583,6 +663,9 @@ type Task struct {
 
 	groupCount int
 
+	// unitCounts lets the per-tick checks answer per node without walking every unit.
+	unitCounts map[string]unitCount
+
 	header TaskHeader
 
 	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
@@ -619,22 +702,60 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-// IndexGroups rebuilds the group index.
+// unitCount counts one node's units, and unbound units count under node "".
+type unitCount struct {
+	total, notTerminal, failed int
+}
+
 func (t *Task) IndexGroups() {
 	groups := map[string][]string{}
 	for id, u := range t.Units {
 		groups[u.GroupID] = append(groups[u.GroupID], id)
 	}
 	t.groups, t.groupCount = groups, len(groups)
+	t.countUnits()
 }
 
-// shareGroups reuses held's index when it has as many units (units are only removed).
-func (t *Task) shareGroups(held *Task) {
-	if held == nil || held.Version != t.Version || len(held.Units) != len(t.Units) {
+// adoptGroups shares held's index when it has as many units (units are only removed), never its counts, which follow t's own units.
+func (t *Task) adoptGroups(held heldCopy) {
+	if !held.sameUnits {
 		t.IndexGroups()
 		return
 	}
 	t.groups, t.groupCount = held.groups, held.groupCount
+	t.countUnits()
+}
+
+func (t *Task) countUnits() {
+	t.unitCounts = make(map[string]unitCount, 1)
+	for _, u := range t.Units {
+		t.countUnit(u, 1)
+	}
+}
+
+func (t *Task) countUnit(u *Unit, delta int) {
+	c := t.unitCounts[u.NodeID]
+	c.total += delta
+	if u.Status == UnitStatusFailed {
+		c.failed += delta
+	}
+	if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+		c.notTerminal += delta
+	}
+	if c.total == 0 {
+		delete(t.unitCounts, u.NodeID)
+		return
+	}
+	if t.unitCounts == nil {
+		t.unitCounts = map[string]unitCount{}
+	}
+	t.unitCounts[u.NodeID] = c
+}
+
+func (t *Task) updateUnit(u *Unit, write func()) {
+	t.countUnit(u, -1)
+	write()
+	t.countUnit(u, 1)
 }
 
 func (t *Task) forgetGroups(groups []string) {
@@ -643,6 +764,9 @@ func (t *Task) forgetGroups(groups []string) {
 			continue
 		}
 		for _, id := range t.groups[group] {
+			if u := t.Units[id]; u != nil {
+				t.countUnit(u, -1)
+			}
 			delete(t.Units, id)
 		}
 		t.groupCount--
@@ -653,11 +777,15 @@ func (t *Task) forgetGroups(groups []string) {
 }
 
 func (t *Task) hasGroup(group string) bool {
+	if t.Units == nil {
+		_, ok := t.groups[group]
+		return ok
+	}
 	return slices.ContainsFunc(t.groups[group], func(id string) bool { return t.Units[id] != nil })
 }
 
 func (t *Task) Clone() *Task {
-	clone := *t
+	clone := t.cloneWithoutUnits()
 	if t.Units != nil {
 		copies := make([]Unit, 0, len(t.Units))
 		clone.Units = make(map[string]*Unit, len(t.Units))
@@ -666,6 +794,12 @@ func (t *Task) Clone() *Task {
 			clone.Units[k] = &copies[len(copies)-1]
 		}
 	}
+	return clone
+}
+
+func (t *Task) cloneWithoutUnits() *Task {
+	clone := *t
+	clone.Units = nil
 	if t.PostCompletionAcks != nil {
 		clone.PostCompletionAcks = make(map[string]PostCompletionAck, len(t.PostCompletionAcks))
 		for k, v := range t.PostCompletionAcks {
@@ -677,7 +811,42 @@ func (t *Task) Clone() *Task {
 	clone.SwapsOwed = maps.Clone(t.SwapsOwed)
 	clone.PreparedGroups = maps.Clone(t.PreparedGroups)
 	clone.NodePreparationAcks = maps.Clone(t.NodePreparationAcks)
+	clone.unitCounts = maps.Clone(t.unitCounts)
 	return &clone
+}
+
+func (t *Task) copyChangesFrom(src *Task, change *taskChange) {
+	t.Status, t.StartedAt, t.FinishedAt, t.Error = src.Status, src.StartedAt, src.FinishedAt, src.Error
+	t.NodePreparationAcks = maps.Clone(src.NodePreparationAcks)
+	t.PostCompletionAcks = maps.Clone(src.PostCompletionAcks)
+	t.groups, t.groupCount = src.groups, src.groupCount
+	t.unitCounts = maps.Clone(src.unitCounts)
+	for id := range change.units {
+		u, ok := src.Units[id]
+		if !ok {
+			delete(t.Units, id)
+			continue
+		}
+		cp := *u
+		t.Units[id] = &cp
+	}
+	for group := range change.groups {
+		copyEntry(&t.PreparedGroups, src.PreparedGroups, group)
+		copyEntry(&t.SwapDecidedGroups, src.SwapDecidedGroups, group)
+		copyEntry(&t.SwapsOwed, src.SwapsOwed, group)
+	}
+}
+
+func copyEntry[V any](dst *map[string]V, src map[string]V, key string) {
+	v, ok := src[key]
+	if !ok {
+		delete(*dst, key)
+		return
+	}
+	if *dst == nil {
+		*dst = map[string]V{}
+	}
+	(*dst)[key] = v
 }
 
 func (t *Task) decideSwap(group string, at time.Time) {
@@ -740,8 +909,8 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 
 // AllUnitsTerminal returns true if all units are in a terminal state (COMPLETED or FAILED).
 func (t *Task) AllUnitsTerminal() bool {
-	for _, u := range t.Units {
-		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+	for _, c := range t.unitCounts {
+		if c.notTerminal > 0 {
 			return false
 		}
 	}
@@ -750,15 +919,27 @@ func (t *Task) AllUnitsTerminal() bool {
 
 // AnyUnitFailed returns true if any unit has FAILED status.
 func (t *Task) AnyUnitFailed() bool {
-	for _, u := range t.Units {
-		if u.Status == UnitStatusFailed {
+	for _, c := range t.unitCounts {
+		if c.failed > 0 {
 			return true
 		}
 	}
 	return false
 }
 
-// Header is nil when the payload did not decode, its namespace has no decoder, or the task came off the wire.
+func (t *Task) singleGroup(groupID string) bool {
+	_, ok := t.groups[groupID]
+	return ok && len(t.groups) == 1
+}
+
+func (t *Task) UnitShard(unitID string) string {
+	if u := t.Units[unitID]; u != nil {
+		return u.Shard
+	}
+	return ""
+}
+
+// Header is nil when the payload did not decode or its namespace has no decoder.
 func (t *Task) Header() TaskHeader {
 	return t.header
 }
@@ -789,6 +970,9 @@ func (t *Task) Groups() []string {
 
 // AllGroupUnitsTerminal returns true if all units in the given group are terminal.
 func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
+	if t.singleGroup(groupID) {
+		return t.AllUnitsTerminal()
+	}
 	for _, id := range t.groups[groupID] {
 		if u := t.Units[id]; u != nil && u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
@@ -817,6 +1001,9 @@ func (t *Task) groupSet() map[string]struct{} {
 }
 
 func (t *Task) groupHasUnitOn(groupID, nodeID string) bool {
+	if t.singleGroup(groupID) {
+		return t.unitCounts[nodeID].total > 0
+	}
 	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { u := t.Units[id]; return u != nil && u.NodeID == nodeID })
 }
 
@@ -834,15 +1021,7 @@ func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 // NodeHasNonTerminalUnits returns true if the given node has units that are not yet terminal.
 // Unassigned units (empty NodeID) are considered as belonging to any node.
 func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
-	for _, u := range t.Units {
-		if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
-			continue
-		}
-		if u.NodeID == "" || u.NodeID == nodeID {
-			return true
-		}
-	}
-	return false
+	return t.unitCounts[nodeID].notTerminal > 0 || t.unitCounts[""].notTerminal > 0
 }
 
 // NodesWithLocalUnits returns the set of node IDs that own at least one
@@ -855,16 +1034,11 @@ func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
 // Returned slice is unsorted; callers that need determinism must sort
 // it themselves.
 func (t *Task) NodesWithLocalUnits() []string {
-	seen := map[string]struct{}{}
-	for _, u := range t.Units {
-		if u.NodeID == "" {
-			continue
+	nodes := make([]string, 0, len(t.unitCounts))
+	for n := range t.unitCounts {
+		if n != "" {
+			nodes = append(nodes, n)
 		}
-		seen[u.NodeID] = struct{}{}
-	}
-	nodes := make([]string, 0, len(seen))
-	for n := range seen {
-		nodes = append(nodes, n)
 	}
 	return nodes
 }

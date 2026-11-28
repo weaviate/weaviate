@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	clustertypes "github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -209,6 +211,7 @@ func TestReconciliation_FollowerSkipsRound(t *testing.T) {
 type fakeClusterDropClient struct {
 	tasks        map[string][]*distributedtask.Task
 	listErr      error
+	listRefusals *atomic.Int32 // nil refuses every listing with listErr
 	gotNamespace string
 	gotTaskID    string
 	gotPayload   any
@@ -216,7 +219,7 @@ type fakeClusterDropClient struct {
 }
 
 func (f *fakeClusterDropClient) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	if f.listErr != nil {
+	if f.listErr != nil && (f.listRefusals == nil || f.listRefusals.Add(-1) >= 0) {
 		return nil, f.listErr
 	}
 	return f.tasks, nil
@@ -317,6 +320,14 @@ func TestLiveOpIDs_SpansRoundsWhileMarkerPending(t *testing.T) {
 			"an unverifiable marker must not authorize a sweep")
 		require.Equal(t, 2, state.classReads,
 			"a failed read is memoized too: a partitioned leader costs one RPC per collection, not one per record")
+	})
+
+	t.Run("refused task list reports liveness unknown", func(t *testing.T) {
+		refused := fmt.Errorf("query: %w", clustertypes.ErrFSMNotCaughtUp)
+		enq := &dropVectorIndexEnqueuer{clusterService: &fakeClusterDropClient{listErr: refused}, schemaState: &fakeShardingState{}}
+		live, err := enq.LiveOpIDs(context.Background())
+		require.ErrorIs(t, err, clustertypes.ErrFSMNotCaughtUp)
+		require.Nil(t, live)
 	})
 
 	t.Run("no tasks at all: empty non-nil set means sweep everything", func(t *testing.T) {
@@ -1168,8 +1179,10 @@ func TestEnqueueDropVectorIndex_DeletedDeferredTenant_FinalizesWithoutReclean(t 
 	logger, _ := test.NewNullLogger()
 	raw, err := json.Marshal(p)
 	require.NoError(t, err)
-	require.NoError(t, db.NewDropVectorIndexDetector(logger).
-		CheckConflict(raw, cluster.tasks[db.DropVectorIndexNamespace]),
+	detector := db.NewDropVectorIndexDetector(logger)
+	header, err := detector.DecodeHeader(raw)
+	require.NoError(t, err)
+	require.NoError(t, detector.CheckConflict(header, cluster.tasks[db.DropVectorIndexNamespace]),
 		"the add-task guard must accept the round's cleaned-shards claim")
 }
 
@@ -1412,7 +1425,9 @@ func TestEnqueuerGuardConsistency(t *testing.T) {
 			detector := db.NewDropVectorIndexDetector(logger)
 			enc, err := json.Marshal(payload)
 			require.NoError(t, err)
-			require.NoError(t, detector.CheckConflict(enc, sc.tasks),
+			header, err := detector.DecodeHeader(enc)
+			require.NoError(t, err)
+			require.NoError(t, detector.CheckConflict(header, sc.tasks),
 				"the guard must accept every claim the enqueuer composes")
 		})
 	}

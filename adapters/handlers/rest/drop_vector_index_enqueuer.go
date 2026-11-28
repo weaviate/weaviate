@@ -107,7 +107,7 @@ func (e *dropVectorIndexEnqueuer) ListDistributedTasks(ctx context.Context) (map
 // HasActiveDrop reports whether a non-terminal drop task already covers
 // targetVector on collection.
 func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error) {
-	tasks, err := e.clusterService.ListDistributedTasks(ctx)
+	tasks, err := listRetryingCatchUp(ctx, e.clusterService.ListDistributedTasks)
 	if err != nil {
 		return false, err
 	}
