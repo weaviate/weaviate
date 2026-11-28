@@ -1141,6 +1141,10 @@ func (p *Provider) GetMeta() (map[string]interface{}, error) {
 	metaInfos := map[string]interface{}{}
 	for _, module := range p.GetAll() {
 		if c, ok := module.(modulecapabilities.MetaProvider); ok {
+			if p.cfg.RedactInternals && module.Type() == modulecapabilities.Backup {
+				metaInfos[module.Name()] = map[string]interface{}{}
+				continue
+			}
 			meta, err := c.MetaInfo()
 			if err != nil {
 				metaInfos[module.Name()] = map[string]interface{}{

@@ -1243,6 +1243,30 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 	}
 }
 
+func TestEnvironmentRedactInternals(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    []string
+		fromFile bool
+		expected bool
+	}{
+		{name: "env true", value: []string{"true"}, expected: true},
+		{name: "env on", value: []string{"on"}, expected: true},
+		{name: "file on, env not given", fromFile: true, expected: true},
+		{name: "file on, env false", value: []string{"false"}, fromFile: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("REDACT_INTERNALS", tt.value[0])
+			}
+			conf := Config{RedactInternals: tt.fromFile}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expected, conf.RedactInternals)
+		})
+	}
+}
+
 func TestEnvironmentWeaviateLicense(t *testing.T) {
 	t.Run("well-formed key enables the license gate", func(t *testing.T) {
 		t.Setenv("LICENSE_KEY", wellFormedLicenseKey())

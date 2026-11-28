@@ -33,6 +33,8 @@ func TestMetaGetLicense(t *testing.T) {
 	cases := []struct {
 		name          string
 		licenseState  *license.State
+		redact        bool
+		wantHostname  string
 		wantEdition   string
 		wantStatus    string
 		wantLicenseID string
@@ -40,13 +42,22 @@ func TestMetaGetLicense(t *testing.T) {
 		{
 			name:          "enterprise edition",
 			licenseState:  &license.State{Status: license.StatusValid, LicenseID: "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+			wantHostname:  "http://[::]:8080",
 			wantEdition:   "enterprise",
 			wantStatus:    "valid",
 			wantLicenseID: "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		},
 		{
+			name:         "enterprise edition, redacted",
+			licenseState: &license.State{Status: license.StatusValid, LicenseID: "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+			redact:       true,
+			wantEdition:  "enterprise",
+			wantStatus:   "valid",
+		},
+		{
 			name:         "community edition",
 			licenseState: &license.State{Status: license.StatusUnlicensed},
+			wantHostname: "http://[::]:8080",
 			wantEdition:  "community",
 		},
 	}
@@ -57,7 +68,12 @@ func TestMetaGetLicense(t *testing.T) {
 
 			logger := logrus.New()
 			logger.SetOutput(io.Discard)
-			setupMiscHandlers(api, &config.WeaviateConfig{}, nil, tc.licenseState, nil, logger)
+			serverConfig := &config.WeaviateConfig{
+				Config:   config.Config{RedactInternals: tc.redact},
+				Hostname: "[::]:8080",
+				Scheme:   "http",
+			}
+			setupMiscHandlers(api, serverConfig, nil, tc.licenseState, nil, logger)
 
 			responder := api.MetaMetaGetHandler.Handle(meta.MetaGetParams{}, nil)
 			rec := httptest.NewRecorder()
@@ -67,6 +83,7 @@ func TestMetaGetLicense(t *testing.T) {
 
 			var body models.Meta
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.Equal(t, tc.wantHostname, body.Hostname)
 			require.NotNil(t, body.License)
 			require.Equal(t, tc.wantEdition, body.License.Edition)
 			require.Equal(t, license.EnterpriseDocsURL, body.License.DocumentationHref)
