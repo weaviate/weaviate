@@ -105,7 +105,3 @@ func (f *fakeSchemaManager) ResolveAlias(string) string {
 func (f *fakeSchemaManager) GetAliasesForClass(string) []*models.Alias {
 	return nil
 }
-
-func (f *fakeSchemaManager) ClassLive(string) map[string]map[string]uint64 {
-	return nil
-}

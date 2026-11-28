@@ -495,9 +495,9 @@ type ClassDescriptor struct {
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 
-	// ReindexTasks is absent in a backup taken before the capture, and [] when the class had no restorable ended task.
+	// ReindexTasks is absent in an older backup, and [] when the class had no restorable ended task.
 	ReindexTasks json.RawMessage `json:"reindexTasks,omitempty"`
-	// ReindexLive is absent when every property index of the class serves generation 0.
+	// ReindexLive is absent when the class records no live index generation.
 	ReindexLive json.RawMessage `json:"reindexLive,omitempty"`
 }
 

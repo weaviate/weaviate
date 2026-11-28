@@ -655,7 +655,7 @@ func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*back
 	return result
 }
 
-// marshalBackupMetadata marshals sharding state, schema, and aliases into the class descriptor.
+// marshalBackupMetadata marshals sharding state, schema, aliases and reindex state into the class descriptor.
 func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingState []byte) error {
 	var err error
 	desc.ShardingState = shardingState
@@ -674,32 +674,20 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingStat
 }
 
 type EndedReindexTaskReader interface {
-	CompactEndedTasks(namespace, collection string) ([]*distributedtask.Task, error)
+	LocalEndedTasks(namespace, collection string) ([]*distributedtask.Task, error)
 }
 
 func (db *DB) SetEndedReindexTaskReader(reader EndedReindexTaskReader) {
-	db.reindexLookupsMu.Lock()
-	defer db.reindexLookupsMu.Unlock()
 	db.endedReindexTasks = reader
 }
 
-func (db *DB) endedReindexTaskReader() EndedReindexTaskReader {
-	db.reindexLookupsMu.RLock()
-	defer db.reindexLookupsMu.RUnlock()
-	return db.endedReindexTasks
-}
-
-// marshalReindexState fails without a reader, because a missing reindexTasks key reads as a backup taken before the capture.
 func (i *Index) marshalReindexState(desc *backup.ClassDescriptor) error {
-	var reader EndedReindexTaskReader
-	if i.db != nil {
-		reader = i.db.endedReindexTaskReader()
-	}
+	reader := i.db.endedReindexTasks
 	if reader == nil {
 		return fmt.Errorf("no reader for the ended reindex tasks of class %s", i.Config.ClassName)
 	}
 	className := i.Config.ClassName.String()
-	tasks, err := reader.CompactEndedTasks(ReindexNamespace, className)
+	tasks, err := reader.LocalEndedTasks(ReindexNamespace, className)
 	if err != nil {
 		return fmt.Errorf("read ended reindex tasks: %w", err)
 	}
@@ -709,7 +697,7 @@ func (i *Index) marshalReindexState(desc *backup.ClassDescriptor) error {
 	if desc.ReindexTasks, err = json.Marshal(tasks); err != nil {
 		return fmt.Errorf("marshal ended reindex tasks: %w", err)
 	}
-	if live := i.getSchema.ClassLive(className); len(live) > 0 {
+	if live := i.schemaReader.ClassLive(className); len(live) > 0 {
 		if desc.ReindexLive, err = json.Marshal(live); err != nil {
 			return fmt.Errorf("marshal live index generations: %w", err)
 		}

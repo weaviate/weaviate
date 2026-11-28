@@ -300,10 +300,6 @@ func (sg *fakeMigrationSchemaGetter) GetAliasesForClass(string) []*models.Alias 
 	return nil
 }
 
-func (sg *fakeMigrationSchemaGetter) ClassLive(string) map[string]map[string]uint64 {
-	return nil
-}
-
 func (sg *fakeMigrationSchemaGetter) Nodes() []string {
 	return nil
 }

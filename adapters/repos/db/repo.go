@@ -124,11 +124,12 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexLookupsMu guards the three readers below, which startup writes and backups read.
+	// reindexLookupsMu guards the two lookups below: written at scheduler start, read from backup.
 	reindexLookupsMu                   sync.RWMutex
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
-	endedReindexTasks                  EndedReindexTaskReader
+
+	endedReindexTasks EndedReindexTaskReader
 
 	// Both carry their own lock; see [migrationUnitSeals] and
 	// [migrationClusterReconciler].

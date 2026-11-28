@@ -17,8 +17,7 @@ type UnitSummary struct {
 	Errors []string           `json:"errors,omitempty"`
 }
 
-// CompactEndedTasks returns the ended tasks a restore can serve from. Only a task with a generation
-// serves, and no task has one until reindex serves from generations, which fills this in.
-func (m *Manager) CompactEndedTasks(namespace, collection string) ([]*Task, error) {
+// LocalEndedTasks returns no task: no Task records the index generation a restore needs.
+func (m *Manager) LocalEndedTasks(namespace, collection string) ([]*Task, error) {
 	return nil, nil
 }

@@ -724,6 +724,7 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, shardState)
 		}).Maybe()
+	mockReader.EXPECT().ClassLive(mock.Anything).Return(nil).Maybe()
 
 	return &Index{
 		Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
@@ -1427,7 +1428,6 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 		{name: "a class with no ended task is marked as captured", reader: fakeEndedReindexTasks{}, wantTasks: "[]"},
 		{name: "no reader fails the descriptor", wantErr: true},
 		{name: "live generations are captured", reader: fakeEndedReindexTasks{}, live: live, wantTasks: "[]", wantLive: string(mustJSON(t, live))},
-		{name: "no live generation writes no key", reader: fakeEndedReindexTasks{}, live: map[string]map[string]uint64{}, wantTasks: "[]"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rootDir := t.TempDir()
@@ -1438,7 +1438,7 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 			if tc.reader != nil {
 				idx.db.SetEndedReindexTaskReader(tc.reader)
 			}
-			idx.getSchema.(*fakeSchemaGetter).live = map[string]map[string]map[string]uint64{className: tc.live, "Other": live}
+			idx.schemaReader = liveSchemaReader{idx.schemaReader, map[string]map[string]map[string]uint64{className: tc.live, "Other": live}}
 
 			var desc backup.ClassDescriptor
 			err := idx.descriptor(context.Background(), "b1", &desc, nil, newReindexGate(stubDBWithNoLiveReindex(), reindexGateMaxAge))
@@ -1458,6 +1458,13 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 		})
 	}
 }
+
+type liveSchemaReader struct {
+	schemaUC.SchemaReader
+	live map[string]map[string]map[string]uint64
+}
+
+func (r liveSchemaReader) ClassLive(class string) map[string]map[string]uint64 { return r.live[class] }
 
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
