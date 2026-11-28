@@ -602,6 +602,56 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 	}
 }
 
+// TestCalculateUnloadedDimensionsUsage_DoesNotWriteIntoBucket pins that measuring an unloaded
+// shard leaves its dimensions bucket untouched. Opening the bucket with default options computed
+// and persisted a bloom filter sidecar for every segment that had none, so the first usage report
+// of a cold shard was smaller than every later one.
+func TestCalculateUnloadedDimensionsUsage_DoesNotWriteIntoBucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tenantName := "tenant"
+
+	dirName := t.TempDir()
+	bucketFolder := shardPathDimensionsLSM(dirName, tenantName)
+	// A shard reads small segments into memory and never writes a bloom filter for them.
+	b, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketFolder, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), lsmkv.WithUseBloomFilter(false))
+	require.NoError(t, err)
+
+	writeDims(t, b, "text", 128, []uint64{1, 2, 3})
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Shutdown(ctx))
+
+	listFiles := func() map[string]int64 {
+		t.Helper()
+		files := map[string]int64{}
+		require.NoError(t, filepath.WalkDir(bucketFolder, func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			files[d.Name()] = info.Size()
+			return nil
+		}))
+		return files
+	}
+	before := listFiles()
+
+	single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, "text")
+	require.NoError(t, err)
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 3}, single)
+	assert.Equal(t, before, listFiles(), "CalculateUnloadedDimensionsUsage must not write into the bucket")
+
+	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, map[string]int{"text": 0})
+	require.NoError(t, err)
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 3}, all["text"].Raw)
+	assert.Equal(t, before, listFiles(), "CalculateUnloadedDimensionsUsageAll must not write into the bucket")
+}
+
 // writeDims writes the dimensions-bucket row of a target vector, in whichever strategy the
 // bucket uses.
 func writeDims(t *testing.T, b *lsmkv.Bucket, targetVector string, dims uint32, docIDs []uint64) {

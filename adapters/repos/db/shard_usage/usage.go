@@ -220,7 +220,9 @@ var unloadedDimensionsBucketLocks = entsync.NewKeyLockerContext()
 
 // openUnloadedDimensionsBucket opens the dimensions bucket of an unloaded shard without
 // loading the shard into memory. The bucket is opened with a sequential-access hint, as the
-// dimension calculations scan it with cursors.
+// dimension calculations scan it with cursors. Bloom filters are disabled: cursors don't use
+// them, and building them would persist a sidecar file for every segment that has none, writing
+// into the shard whose size is being measured.
 // Callers must hold the unloadedDimensionsBucketLocks lock for bucketPath until the returned
 // bucket is shut down.
 func openUnloadedDimensionsBucket(ctx context.Context, logger logrus.FieldLogger, path, bucketPath string) (*lsmkv.Bucket, error) {
@@ -238,6 +240,7 @@ func openUnloadedDimensionsBucket(ctx context.Context, logger logrus.FieldLogger
 		cyclemanager.NewCallbackGroupNoop(),
 		lsmkv.WithStrategy(strategy),
 		lsmkv.WithSequentialAccess(true),
+		lsmkv.WithUseBloomFilter(false),
 	)
 }
 
