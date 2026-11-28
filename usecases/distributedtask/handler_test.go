@@ -134,7 +134,7 @@ func TestHandler_ListTasks(t *testing.T) {
 				Return(tt.authzErr)
 			h := NewHandler(authorizer, taskListerStub{
 				items: map[string][]*distributedtask.Task{namespace: {tt.task}},
-			}, nil)
+			}, nil, listOnce)
 
 			tasks, err := h.ListTasks(context.Background(), &models.Principal{})
 			if tt.authzErr != nil {
@@ -250,7 +250,7 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			})
 			h := NewHandler(authorizer, restoredLister(t, map[string]distributedtask.ConflictDetector{
 				boundNamespace: collectionDecoder{}, noCollectionNamespace: collectionDecoder{},
-			}, stored...), []string{boundNamespace, noCollectionNamespace})
+			}, stored...), []string{boundNamespace, noCollectionNamespace}, listOnce)
 
 			tasks, err := h.ListTasks(context.Background(), principal)
 			require.NoError(t, err)
@@ -311,7 +311,7 @@ func TestHandler_RedactedPayloadComesFromTheHeader(t *testing.T) {
 			require.NoError(t, err)
 			h := NewHandler(authorizer, restoredLister(t, map[string]distributedtask.ConflictDetector{tc.namespace: tc.detector},
 				&distributedtask.Task{Namespace: tc.namespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1}, Payload: raw},
-			), []string{tc.namespace})
+			), []string{tc.namespace}, listOnce)
 
 			var before, after runtime.MemStats
 			runtime.ReadMemStats(&before)
@@ -394,4 +394,9 @@ type taskListerStub struct {
 
 func (t taskListerStub) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return t.items, nil
+}
+
+func listOnce(ctx context.Context, list func(context.Context) (map[string][]*distributedtask.Task, error),
+) (map[string][]*distributedtask.Task, error) {
+	return list(ctx)
 }

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -210,6 +211,7 @@ func TestReconciliation_FollowerSkipsRound(t *testing.T) {
 type fakeClusterDropClient struct {
 	tasks        map[string][]*distributedtask.Task
 	listErr      error
+	listRefusals *atomic.Int32 // nil refuses every listing with listErr
 	gotNamespace string
 	gotTaskID    string
 	gotPayload   any
@@ -217,7 +219,7 @@ type fakeClusterDropClient struct {
 }
 
 func (f *fakeClusterDropClient) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	if f.listErr != nil {
+	if f.listErr != nil && (f.listRefusals == nil || f.listRefusals.Add(-1) >= 0) {
 		return nil, f.listErr
 	}
 	return f.tasks, nil

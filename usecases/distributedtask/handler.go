@@ -29,10 +29,18 @@ type Handler struct {
 	authorizer       authorization.Authorizer
 	taskLister       distributedtask.TaskLister
 	headerNamespaces []string
+	retry            ListRetrier
 }
 
-func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TaskLister, headerNamespaces []string) *Handler {
-	return &Handler{authorizer: authorizer, taskLister: taskLister, headerNamespaces: headerNamespaces}
+// ListRetrier runs list, retrying the errors its caller chooses.
+type ListRetrier func(ctx context.Context,
+	list func(context.Context) (map[string][]*distributedtask.Task, error),
+) (map[string][]*distributedtask.Task, error)
+
+func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TaskLister, headerNamespaces []string,
+	retry ListRetrier,
+) *Handler {
+	return &Handler{authorizer: authorizer, taskLister: taskLister, headerNamespaces: headerNamespaces, retry: retry}
 }
 
 // ListTasks must not leak collection, tenant, or shard names the caller lacks read access to.
@@ -41,7 +49,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 		return nil, err
 	}
 
-	tasksByNamespace, err := h.taskLister.ListDistributedTasks(ctx)
+	tasksByNamespace, err := h.retry(ctx, h.taskLister.ListDistributedTasks)
 	if err != nil {
 		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}

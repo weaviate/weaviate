@@ -29,7 +29,7 @@ import (
 func setupDistributedTasksHandlers(api *operations.WeaviateAPI, authorizer authorization.Authorizer, taskLister distributedtask.TaskLister) {
 	h := distributedTasksHandlers{
 		handler: distributedtaskUC.NewHandler(authorizer, taskLister,
-			[]string{db.ReindexNamespace, db.DropVectorIndexNamespace}),
+			[]string{db.ReindexNamespace, db.DropVectorIndexNamespace}, listRetryingCatchUp),
 	}
 
 	api.DistributedTasksDistributedTasksGetHandler = distributed_tasks.DistributedTasksGetHandlerFunc(h.getTasks)

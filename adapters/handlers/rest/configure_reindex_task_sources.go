@@ -66,11 +66,17 @@ func (l catchUpRetryLister) ListDistributedTaskHeaders(ctx context.Context) (map
 	return listTaskHeaders(ctx, l.TaskHeaderLister)
 }
 
-// listTaskHeaders must not run inside an FSM apply: its wait would stall the catch-up it waits for.
 func listTaskHeaders(ctx context.Context, lister distributedtask.TaskHeaderLister) (map[string][]*distributedtask.Task, error) {
+	return listRetryingCatchUp(ctx, lister.ListDistributedTaskHeaders)
+}
+
+// listRetryingCatchUp must not run inside an FSM apply: its wait would stall the catch-up it waits for.
+func listRetryingCatchUp(ctx context.Context,
+	list func(context.Context) (map[string][]*distributedtask.Task, error),
+) (map[string][]*distributedtask.Task, error) {
 	deadline := time.Now().Add(catchUpRetryBudget)
 	for backoff := 25 * time.Millisecond; ; backoff = min(2*backoff, 400*time.Millisecond) {
-		tasks, err := lister.ListDistributedTaskHeaders(ctx)
+		tasks, err := list(ctx)
 		if err == nil || !leaderNotCaughtUp(err) || time.Now().Add(backoff).After(deadline) {
 			return tasks, err
 		}
