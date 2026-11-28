@@ -173,8 +173,8 @@ type Scheduler struct {
 
 	stopCh chan struct{}
 
-	// wakeCh signals the run loop to fire a scheduling cycle instead of
-	// waiting for the next periodic tick. Sized 1 so concurrent
+	// wakeCh signals the run loop to fire a scheduling cycle
+	// instead of waiting for the next periodic tick. Sized 1 so concurrent
 	// callers coalesce. One pending wake-up covers any number, because
 	// UpdateTaskCopy hands the next tick every change logged since the last one.
 	wakeCh chan struct{}
@@ -715,7 +715,6 @@ func (s *Scheduler) reconcileRunningTasks(
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.TaskDescriptor]; alreadyLaunched {
 				continue
 			}
-			// A relaunch clones the whole task, so a handle that keeps exiting waits out the floor.
 			if launchedAt, ok := s.startLogged[namespace][activeTask.TaskDescriptor]; ok && s.clock.Since(launchedAt) < retryFloor {
 				continue
 			}
@@ -1175,7 +1174,6 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		}
 		state.completedCallbackFired = false
 		state.completedCallbackAttempts++
-		// The attempt budget must span seconds, not a burst of woken ticks.
 		state.completedCallbackRetryAt = s.clock.Now().Add(retryFloor)
 		permanent := errors.Is(cbErr, ErrTaskCompletionPermanent)
 		if permanent || state.completedCallbackAttempts >= maxCompletedCallbackAttempts {

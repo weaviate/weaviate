@@ -24,7 +24,6 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distribu
 	return s.queryDistributedTasks(ctx, cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST, s.store.distributedTasksManager.DecodeTaskList)
 }
 
-// ListDistributedTaskHeaders lists the leader's tasks without their units.
 func (s *Raft) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return s.queryDistributedTasks(ctx, cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_HEADERS, s.store.distributedTasksManager.DecodeTaskHeaders)
 }

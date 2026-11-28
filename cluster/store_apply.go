@@ -165,7 +165,6 @@ func classLockKey(class string) string {
 
 // admitTaskReplicas refuses a task naming a shard that is not HOT, or one whose units no longer match the current replicas of the shards they name. A replica with no unit is never reindexed.
 // A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
-// Units submitted without a shard are not checked.
 func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
 	if task == nil || collection == "" {
 		return nil

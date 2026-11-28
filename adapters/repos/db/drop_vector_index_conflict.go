@@ -36,7 +36,6 @@ func NewDropVectorIndexDetector(logger logrus.FieldLogger) *DropVectorIndexDetec
 // rejects (1) a new drop that overlaps an in-flight drop's targets on the same
 // collection, and (2) a payload whose inherited CleanedShards claim has no
 // surviving source records — the enqueue-to-commit TOCTOU guard.
-// FSM-deterministic: a pure function of (newHeader, existingTasks).
 func (p *DropVectorIndexDetector) CheckConflict(newHeader distributedtask.TaskHeader, existingTasks []*distributedtask.Task) error {
 	h, ok := newHeader.(dropVectorIndexTaskHeader)
 	if !ok {

@@ -585,7 +585,6 @@ func (p *ReindexProvider) processUnits(
 
 const deferredUnitRetryInterval = 2 * time.Second
 
-// pendingUnits tracks the units processUnits still owes, in flight or deferred to the next retry.
 type pendingUnits struct {
 	mu       sync.Mutex
 	inFlight int
@@ -1013,7 +1012,6 @@ func (p *ReindexProvider) failPanickedUnit(ctx context.Context, task *distribute
 	p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("panic: %v", r))
 }
 
-// recorderRetryMaxBackoff caps a waiting worker at one recorder write per minute.
 const recorderRetryMaxBackoff = time.Minute
 
 // recordOutcome retries a write until it lands, the FSM rejects it for good, or ctx ends. The worker

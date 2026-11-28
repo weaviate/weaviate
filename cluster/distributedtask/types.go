@@ -57,7 +57,6 @@ func (c *TaskCopy) takeChanged() map[TaskDescriptor]*changedGroups {
 	return changed
 }
 
-// changedGroups names groups of one task; all stands for every group.
 type changedGroups struct {
 	all    bool
 	groups map[string]struct{}
@@ -461,9 +460,6 @@ const (
 // Unit represents a trackable work unit within a distributed task (e.g. a single shard
 // in a reindex operation). Units follow the lifecycle PENDING → IN_PROGRESS → COMPLETED/FAILED.
 //
-// NodeID is the node the unit's spec names, or empty until the first progress update claims it.
-// The [Scheduler] treats an unassigned unit as belonging to any node.
-//
 // Unit values are owned by the [Manager] and mutated under its lock. Callers outside the
 // Manager should only access units via cloned [Task] snapshots from ListDistributedTasks.
 type Unit struct {
@@ -711,7 +707,6 @@ type unitCount struct {
 	total, notTerminal, failed int
 }
 
-// IndexGroups rebuilds the group index and the unit counts.
 func (t *Task) IndexGroups() {
 	groups := map[string][]string{}
 	for id, u := range t.Units {

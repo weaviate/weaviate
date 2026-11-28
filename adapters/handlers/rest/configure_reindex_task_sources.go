@@ -57,8 +57,7 @@ func newMigrationClusterTaskSource(raft migrationTaskRaft) db.MigrationClusterTa
 
 const catchUpRetryBudget = 2 * time.Second
 
-// catchUpRetryLister retries a listing refused by a new leader that has not applied its inherited log yet.
-// The refusal starts that catch-up, and nothing else starts it on a cluster with no writes.
+// catchUpRetryLister retries a new leader's refusal, which also starts the catch-up nothing else starts without writes.
 type catchUpRetryLister struct {
 	distributedtask.TaskHeaderLister
 }
@@ -83,7 +82,6 @@ func listTaskHeaders(ctx context.Context, lister distributedtask.TaskHeaderListe
 	}
 }
 
-// leaderNotCaughtUp also matches the refusal forwarded from the leader, which arrives as a bare Unavailable status.
 func leaderNotCaughtUp(err error) bool {
 	return errors.Is(err, types.ErrFSMNotCaughtUp) ||
 		(status.Code(err) == codes.Unavailable && strings.Contains(err.Error(), types.ErrFSMNotCaughtUp.Error()))

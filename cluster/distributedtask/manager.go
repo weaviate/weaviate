@@ -1022,8 +1022,8 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 // UpdateUnitProgress also handles initial node assignment: the first progress update for an
 // unassigned unit sets its NodeID, claiming it for that node. After assignment, updates from
 // other nodes are rejected. Progress updates to terminal units are silently ignored (no error)
-// because in-flight Raft commands may arrive after a unit has already completed. A 0.0 update
-// is a worker's claim, so it is refused permanently: a node relaunching from a trailing copy must not redo the unit.
+// because in-flight Raft commands may arrive after a unit has already completed.
+// A 0.0 update is a claim, refused for good so a relaunch from a trailing copy never redoes the unit.
 //
 // Stored Progress is monotonic per task version; only NodeID and UpdatedAt are applied when
 // the requested Progress regresses. Receiver-side defence against sender-side miscomputation.
@@ -1325,7 +1325,6 @@ func (m *Manager) ListTaskHeadersPayload() ([]byte, error) {
 	return json.Marshal(&response)
 }
 
-// DecodeTaskHeaders gives each task the group IDs it was sent, since it has no units to derive them from.
 func (m *Manager) DecodeTaskHeaders(data []byte) (map[string][]*Task, error) {
 	var response listTaskHeadersResponse
 	if err := json.Unmarshal(data, &response); err != nil {
