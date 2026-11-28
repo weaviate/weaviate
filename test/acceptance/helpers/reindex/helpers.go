@@ -267,8 +267,9 @@ func TryGetIndexes(restURI, collection string) (*IndexesResponse, bool) {
 	return &out, true
 }
 
-// RunPoller reports FINISHED for a full run that is gone, since the apply
-// that flips it removes it, once its indexes show the target settings.
+// RunPoller reports FINISHED for a run that is gone once its indexes show
+// the target settings: a finished full run removes itself, while a failed or
+// cancelled one is retained and only goes when a later run flips the class.
 type RunPoller struct {
 	restURI string
 	taskID  string
@@ -291,10 +292,29 @@ func (p *RunPoller) Poll() (models.DistributedTask, bool) {
 			return task, true
 		}
 	}
+	// A run fast enough to end before the first poll, or a second submit
+	// that joined it, never shows its payload; its ID still names the scope.
+	if p.payload == nil {
+		p.payload = payloadFromTaskID(p.taskID)
+	}
 	if p.payload == nil || !p.indexesShowTarget() {
 		return models.DistributedTask{}, false
 	}
 	return models.DistributedTask{ID: p.taskID, Status: "FINISHED"}, true
+}
+
+// payloadFromTaskID reads collection:migrationType:firstProperty:suffix, the
+// shape the upsert handler mints, or returns nil for any other ID.
+func payloadFromTaskID(taskID string) *db.ReindexTaskPayload {
+	parts := strings.Split(taskID, ":")
+	if len(parts) != 4 {
+		return nil
+	}
+	mt := db.ReindexMigrationType(parts[1])
+	if _, known := db.ReindexIndexTypes(mt); !known {
+		return nil
+	}
+	return &db.ReindexTaskPayload{Collection: parts[0], MigrationType: mt, Properties: []string{parts[2]}}
 }
 
 func (p *RunPoller) remember(task models.DistributedTask) {
@@ -318,17 +338,27 @@ func (p *RunPoller) indexesShowTarget() bool {
 	}
 	indexTypes, _ := db.ReindexIndexTypes(p.payload.MigrationType)
 	for _, prop := range p.payload.Properties {
+		// change-tokenization covers both types, but a property with one
+		// of them off has no entry for it, and nothing to wait for there.
+		checked := 0
 		for _, indexType := range indexTypes {
 			if indexType == "rangeable" {
 				indexType = models.IndexStatusTypeRangeFilters
 			}
 			e, found := resp.find(prop, indexType)
-			if !found || e.Status != "ready" || e.TaskID != "" {
+			if !found {
+				continue
+			}
+			checked++
+			if e.Status != "ready" || e.TaskID != "" {
 				return false
 			}
 			if p.payload.TargetTokenization != "" && e.Tokenization != p.payload.TargetTokenization {
 				return false
 			}
+		}
+		if checked == 0 {
+			return false
 		}
 	}
 	return true
