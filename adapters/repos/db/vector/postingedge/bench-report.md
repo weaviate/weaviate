@@ -3706,7 +3706,7 @@ Al escribir el lector que aplica la fórmula (`gate.py`, antes de que exista nin
 
 **Lo que no esperaba.**
 - **Una retención de 184 ms sin presupuesto:** un lote con un split que tardó 169.6 ms, de ellos 165.2 en leer los 361 vectores exactos del posting, que se leen uno a uno con el índice tomado. Lo normal de esa lectura son 14 ms. Esperaba que no hubiera ninguna otra de más de 100 ms.
-- **Vinieron cinco eventos y no dos,** porque la pasada hizo 45 600 inserts y no los 20 000 con los que conté.
+- **Vinieron cinco eventos y no dos.** Conté mal al pre-registrar: 180 s a 252 inserts por segundo son 45 600 inserts, y hay un evento cada 9 100.
 - **`extend` tarda menos de lo que esperaba** (300 a 600 ms a 10M):
 
 | dar sitio a un cuarto más de doc ids | primera vez | segunda |
