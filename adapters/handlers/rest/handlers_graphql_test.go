@@ -267,6 +267,7 @@ func TestGraphQLPostVariables(t *testing.T) {
 				return
 			}
 			assert.Contains(t, rec.Body.String(), tt.wantMsg)
+			assert.Contains(t, rec.Body.String(), `"code":422`)
 		})
 	}
 }

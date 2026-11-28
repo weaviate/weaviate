@@ -40,6 +40,22 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+func TestSearchErrPayloadCodeMatchesHTTPStatus(t *testing.T) {
+	for _, status := range []int{
+		http.StatusBadRequest,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusUnprocessableEntity,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+	} {
+		payload := searchErrPayload(&restsearch.APIError{Status: status, Err: fmt.Errorf("boom")})
+		require.Len(t, payload.Error, 1)
+		assert.Equal(t, int64(status), payload.Error[0].Code)
+		assert.Equal(t, "boom", payload.Error[0].Message)
+	}
+}
+
 func TestSearchErrPayloadDocsLink(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -72,6 +88,7 @@ func TestSearchErrPayloadDocsLink(t *testing.T) {
 			payload := searchErrPayload(apiErr)
 			require.Len(t, payload.Error, 1)
 			assert.Equal(t, tt.want, payload.Error[0].Message)
+			assert.Equal(t, int64(http.StatusInternalServerError), payload.Error[0].Code)
 		})
 	}
 }

@@ -185,7 +185,9 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 	if err != nil {
 		if errors.Is(err, queryadmission.ErrOverloaded) {
 			// Not admitted itself, but a cross-reference in the where filter
-			// runs a nested object search that is; mirror Get's 429 mapping.
+			// runs a nested object search that is. makeResolveClass wraps this
+			// in ErrGraphQLUser. ErrRateLimit carries status 429, which the
+			// response builder copies onto errors[].code.
 			return nil, enterrors.NewErrRateLimit()
 		}
 		return nil, err

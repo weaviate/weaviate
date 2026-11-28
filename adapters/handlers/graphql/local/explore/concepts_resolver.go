@@ -133,7 +133,8 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 	res, err := resources.resolver.Explore(p.Context, principal, params)
 	if err != nil && errors.Is(err, queryadmission.ErrOverloaded) {
 		// Explore runs a cross-class vector search, which is admitted per
-		// shard; mirror Get's 429 mapping.
+		// shard. resolve wraps this in ErrGraphQLUser. ErrRateLimit carries
+		// status 429, which the response builder copies onto errors[].code.
 		return nil, enterrors.NewErrRateLimit()
 	}
 	return res, err
