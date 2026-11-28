@@ -108,10 +108,30 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 		if createsGeoIndex(prop) {
 			geoProps = append(geoProps, &propCopy)
 		}
+		// one job per index family, as before: value buckets, null, length
+		var value, null, length []bucketNeed
 		for _, need := range s.propertyBucketNeeds(prop, s.loadView().props[prop.Name].gen, makeBucketOptions) {
+			switch need.kind {
+			case bucketNeedNull:
+				null = append(null, need)
+			case bucketNeedLength:
+				length = append(length, need)
+			default:
+				value = append(value, need)
+			}
+		}
+		for _, job := range []struct {
+			family string
+			needs  []bucketNeed
+		}{{"value", value}, {"null", null}, {"length", length}} {
+			if len(job.needs) == 0 {
+				continue
+			}
 			eg.Go(func() error {
-				if err := s.openBucketNeed(ctx, need); err != nil {
-					return fmt.Errorf("init prop %q: %s index: %w", prop.Name, need.kind, err)
+				for _, need := range job.needs {
+					if err := s.openBucketNeed(ctx, need); err != nil {
+						return fmt.Errorf("init prop %q: %s index: %w", prop.Name, job.family, err)
+					}
 				}
 				return nil
 			})

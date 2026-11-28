@@ -726,7 +726,7 @@ func TestInitPropertyBucketsGeoBatchContinuesAfterError(t *testing.T) {
 	s.initPropertyBuckets(ctx, eg, false, geoProp("alpha"), geoProp("beta"))
 
 	err := eg.Wait()
-	require.ErrorContains(t, err, `init prop "alpha": value index:`)
+	require.ErrorContains(t, err, `init prop "alpha": geo index:`)
 
 	s.propertyIndicesLock.RLock()
 	defer s.propertyIndicesLock.RUnlock()
