@@ -59,6 +59,7 @@ type taskSchedulerState struct {
 	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
 	// retrying and fails the task (weaviate/0-weaviate-issues#297).
 	completedCallbackAttempts int
+	completedCallbackRetryAt  time.Time
 	// swapCheck and prepCheck name the changed groups a phase looks at, since only those can have become ready.
 	swapCheck, prepCheck changedGroups
 	localGroupsOut       map[string]struct{}
@@ -105,8 +106,8 @@ const maxCompletedCallbackAttempts = 5
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
-	// startLogged holds the started tasks whose first start was logged; pruned each tick, since some providers never report tasks for cleanup.
-	startLogged map[string]map[TaskDescriptor]struct{}
+	// startLogged holds each started task's last launch time; pruned each tick, since some providers never report tasks for cleanup.
+	startLogged map[string]map[TaskDescriptor]time.Time
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
@@ -131,6 +132,7 @@ type Scheduler struct {
 	postCompletionAckLogger  *logrusext.Sampler
 	relaunchLogger           *logrusext.Sampler
 	swapRetryLogger          *logrusext.Sampler
+	finalizeLogger           *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
@@ -171,8 +173,8 @@ type Scheduler struct {
 
 	stopCh chan struct{}
 
-	// wakeCh signals the run loop to fire a scheduling cycle, paced by minWakeSpacing,
-	// instead of waiting for the next periodic tick. Sized 1 so concurrent
+	// wakeCh signals the run loop to fire a scheduling cycle instead of
+	// waiting for the next periodic tick. Sized 1 so concurrent
 	// callers coalesce. One pending wake-up covers any number, because
 	// UpdateTaskCopy hands the next tick every change logged since the last one.
 	wakeCh chan struct{}
@@ -196,8 +198,12 @@ type SchedulerParams struct {
 	TickInterval     time.Duration
 }
 
-// minWakeSpacing folds the burst of wakes a run of applies sends, one per apply, into one tick.
-const minWakeSpacing = 2 * time.Second
+// minWakeSpacing folds a burst of wakes, one per apply, into one tick. It is short so
+// that nodes woken by the same apply act on it at nearly the same time.
+const minWakeSpacing = 100 * time.Millisecond
+
+// retryFloor keeps work that fails or exits early from repeating on every woken tick.
+const retryFloor = 2 * time.Second
 
 func NewScheduler(params SchedulerParams) *Scheduler {
 	if params.Clock == nil {
@@ -210,7 +216,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
-		startLogged:  map[string]map[TaskDescriptor]struct{}{},
+		startLogged:  map[string]map[TaskDescriptor]time.Time{},
 
 		providers:          params.Providers,
 		completionRecorder: params.CompletionRecorder,
@@ -232,6 +238,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 		relaunchLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 		swapRetryLogger:          logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		finalizeLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -249,7 +256,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
-// Wake requests a scheduling cycle, paced by minWakeSpacing. Safe to call from any goroutine, including RAFT-apply paths.
+// Wake requests a scheduling cycle, at least minWakeSpacing after the last one. Safe to call from any goroutine, including RAFT-apply paths.
 //
 // Wake is a no-op after [Scheduler.Close] returns — the run loop has
 // already exited and won't observe the signal.
@@ -708,6 +715,10 @@ func (s *Scheduler) reconcileRunningTasks(
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.TaskDescriptor]; alreadyLaunched {
 				continue
 			}
+			// A relaunch clones the whole task, so a handle that keeps exiting waits out the floor.
+			if launchedAt, ok := s.startLogged[namespace][activeTask.TaskDescriptor]; ok && s.clock.Since(launchedAt) < retryFloor {
+				continue
+			}
 			toStart = append(toStart, activeTask)
 		}
 		for desc, taskHandle := range s.runningTasks[namespace] {
@@ -735,17 +746,17 @@ func (s *Scheduler) reconcileRunningTasks(
 			defer s.mu.Unlock()
 			s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
 			if s.startLogged[namespace] == nil {
-				s.startLogged[namespace] = map[TaskDescriptor]struct{}{}
+				s.startLogged[namespace] = map[TaskDescriptor]time.Time{}
 			}
 			_, logged := s.startLogged[namespace][activeTask.TaskDescriptor]
-			s.startLogged[namespace][activeTask.TaskDescriptor] = struct{}{}
+			s.startLogged[namespace][activeTask.TaskDescriptor] = s.clock.Now()
 			return logged
 		}()
 		if !relaunch {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 			continue
 		}
-		// A handle that ends before the apply finishing its last unit lands is relaunched on every tick and wake.
+		// A handle that ends before the apply finishing its last unit lands is relaunched once per retryFloor.
 		s.relaunchLogger.WithSampling(func(logrus.FieldLogger) {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 		})
@@ -1095,7 +1106,7 @@ func (s *Scheduler) runDecidedSwapPhase(
 // see the "Idempotency contract" note at the rollback site.
 //
 // SWAPPING-path error handling (weaviate/0-weaviate-issues#297): a non-nil
-// error withholds FINISHED and retries next tick; [ErrTaskCompletionPermanent]
+// error withholds FINISHED and retries after [retryFloor]; [ErrTaskCompletionPermanent]
 // or exhausting [maxCompletedCallbackAttempts] fails the task instead.
 // Terminal-status errors are best-effort cleanup and never reopen the task.
 func (s *Scheduler) runCompletedCallbackPhase(
@@ -1125,7 +1136,8 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	alreadyFired := func() bool {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if phase2State := s.perTaskStateLocked(desc); phase2State != nil && phase2State.completedCallbackFired {
+		if phase2State := s.perTaskStateLocked(desc); phase2State != nil &&
+			(phase2State.completedCallbackFired || s.clock.Now().Before(phase2State.completedCallbackRetryAt)) {
 			return true
 		}
 		s.perTaskStateLockedOrInit(desc).completedCallbackFired = true
@@ -1163,6 +1175,8 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		}
 		state.completedCallbackFired = false
 		state.completedCallbackAttempts++
+		// The attempt budget must span seconds, not a burst of woken ticks.
+		state.completedCallbackRetryAt = s.clock.Now().Add(retryFloor)
 		permanent := errors.Is(cbErr, ErrTaskCompletionPermanent)
 		if permanent || state.completedCallbackAttempts >= maxCompletedCallbackAttempts {
 			return cbErr.Error()
@@ -1252,8 +1266,10 @@ func (s *Scheduler) runFinalizePhase(
 		if finErr == nil {
 			continue
 		}
-		s.loggerWithTask(namespace, w.desc).
-			Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
+		s.finalizeLogger.WithSampling(func(logrus.FieldLogger) {
+			s.loggerWithTask(namespace, w.desc).
+				Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
+		})
 		// Clearing completedCallbackFired re-fires OnTaskCompleted next tick;
 		// safe now that [UnitAwareProvider.OnTaskCompleted] requires idempotency.
 		if providerIsUnitAware {

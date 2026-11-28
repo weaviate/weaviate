@@ -1093,10 +1093,14 @@ func TestReactiveFiring_SameWakeTicksAllNodesTogether(t *testing.T) {
 	b := newTestHarness(t)
 	b.clock = a.clock
 	nodes := []*testHarness{a.init(t), b.init(t)}
+	defer func() {
+		for _, h := range nodes {
+			h.Close()
+		}
+	}()
 	for _, h := range nodes {
 		h.manager.SetSchedulerNotifier(h.scheduler)
 		h.startScheduler(t)
-		defer h.Close()
 	}
 
 	addTaskWithUnits(t, a, a.tasksNamespace, "first", 10, []string{"su-1"})
@@ -1140,6 +1144,50 @@ func TestReactiveFiring_SameWakeTicksAllNodesTogether(t *testing.T) {
 	require.Zero(t, pending, "a node never acted on the wake")
 	for i, after := range startedAfter {
 		assert.LessOrEqualf(t, after, 2*step, "node %d acted %v after the wake; all nodes: %v", i, after, startedAfter)
+	}
+}
+
+// Work that fails or exits early repeats once per retryFloor, however often woken ticks run.
+func TestReactiveFiring_RetriesWaitOutTheFloor(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		start func(t *testing.T) (h *testHarness, attempts func() int)
+	}{
+		{
+			name: "failing OnTaskCompleted",
+			start: func(t *testing.T) (*testHarness, func() int) {
+				prov := newRetryFlipProvider(t)
+				prov.alwaysFail = true
+				h := submitTaskToSwapping(t, prov, prov.testTaskProvider, "flip")
+				return h, func() int { n, _, _ := prov.snapshot(); return n }
+			},
+		},
+		{
+			name: "exiting handle",
+			start: func(t *testing.T) (*testHarness, func() int) {
+				prov := &relaunchCountingProvider{testTaskProvider: newTestTaskProvider(t, nil)}
+				h := newTestHarness(t)
+				h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+				h = h.init(t)
+				h.startScheduler(t)
+				addTaskWithUnits(t, h, h.tasksNamespace, "exiting", 1, []string{"u-1"})
+				return h, func() int { return int(prov.starts.Load()) }
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer leaktest.Check(t)()
+			h, attempts := tc.start(t)
+			defer h.Close()
+
+			for elapsed := time.Duration(0); elapsed < retryFloor; elapsed += minWakeSpacing {
+				h.scheduler.tick()
+				h.clock.Advance(minWakeSpacing)
+			}
+			require.Equal(t, 1, attempts(), "repeated before the floor passed")
+			h.scheduler.tick()
+			require.Equal(t, 2, attempts(), "did not repeat once the floor passed")
+		})
 	}
 }
 

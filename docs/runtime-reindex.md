@@ -1519,7 +1519,7 @@ the query-side resolver is in [`adapters/repos/db/inverted/tokenization.go`](../
 The problem: on each replica, the bucket pointer flips to the migrated
 content at the end of `RunSwapOnShard` (Phase 2a), but the cluster-wide
 schema flip (`OnTaskCompleted`'s RAFT commit) waits until every replica has swapped and acked, then
-reaches the local FSM after up to `minWakeSpacing` (2 s) plus commit and apply latency, longer if the flip is retried. In that window
+reaches the local FSM after up to `minWakeSpacing` (100 ms) plus commit and apply latency, longer if the flip is retried (`retryFloor`, 2 s apart). In that window
 the analyzer still describes the property the pre-migration way, which
 breaks two things:
 
