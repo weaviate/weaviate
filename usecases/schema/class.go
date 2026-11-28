@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -165,6 +166,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
+		return nil, 0, err
+	}
+	if err := h.moduleConfig.ValidateModuleConfigKeys(cls, nil); err != nil {
 		return nil, 0, err
 	}
 
@@ -399,6 +403,9 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	if err != nil {
 		return err
 	}
+	if err := h.moduleConfig.ValidateModuleConfigKeys(class, nil); err != nil {
+		return err
+	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(class)
 
@@ -588,6 +595,9 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	// Initial class is read up-front for the grandfather-on-tighten skip
 	// in validateVectorSettingsAgainst.
 	initial := h.schemaReader.ReadOnlyClass(className)
+	if err := h.moduleConfig.ValidateModuleConfigKeys(updated, initial); err != nil {
+		return err
+	}
 
 	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
 		vclasses, qErr := h.schemaManager.QueryReadOnlyClasses(className)
@@ -639,13 +649,11 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
-			return h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector)
-		})
-		if err != nil {
+		allowed := mutableSettingsChanges(h.parser.modules, initial, updated)
+		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
 			return err
 		}
-		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
+		if err := h.validateChangedModuleConfigs(ctx, initial, updated); err != nil {
 			return err
 		}
 	}
@@ -1908,39 +1916,60 @@ func deepEqualVectorizerSettings(initial, updated any) bool {
 }
 
 // mutableSettingsChanges returns the modules whose settings changed in a way the module allows, keyed by target
-// vector ("" for the class-level moduleConfig), and stops at the first error validate returns for one of them.
-// It must run before MigrateVectorizerSettings overwrites initial.
-func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class,
-	validate func(module, targetVector string) error,
-) (map[string][]string, error) {
+// vector ("" for the class-level moduleConfig). It must run before MigrateVectorizerSettings overwrites initial.
+func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class) map[string][]string {
 	changes := map[string][]string{}
-	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) error {
+	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) {
 		for module := range updatedConfig {
 			initialSettings, _ := initialConfig[module].(map[string]any)
 			updatedSettings, _ := updatedConfig[module].(map[string]any)
 			if initialSettings != nil && updatedSettings != nil && !reflect.DeepEqual(initialSettings, updatedSettings) &&
 				modulesProvider.MutableSettings(module, initialSettings, updatedSettings) {
-				if err := validate(module, targetVector); err != nil {
-					return err
-				}
 				changes[targetVector] = append(changes[targetVector], module)
 			}
 		}
-		return nil
 	}
 
-	if err := collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)); err != nil {
-		return nil, err
-	}
+	collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig))
 	for name, vectorConfig := range updated.VectorConfig {
 		initialVectorizer, updatedVectorizer := structToMap(initial.VectorConfig[name].Vectorizer), structToMap(vectorConfig.Vectorizer)
 		if len(initialVectorizer) == 1 && len(updatedVectorizer) == 1 {
-			if err := collect(name, initialVectorizer, updatedVectorizer); err != nil {
-				return nil, err
+			collect(name, initialVectorizer, updatedVectorizer)
+		}
+	}
+	return changes
+}
+
+// validateChangedModuleConfigs runs module validation on every module config that updated adds or changes: a
+// generative or reranker module set or replaced, a module added to the class-level moduleConfig, a vectorizer whose
+// settings the module allows to change, and the vectorizer of a named vector the update adds. Settings left as
+// initial holds them are not validated again, so a stored class keeps accepting updates that leave them alone.
+func (h *Handler) validateChangedModuleConfigs(ctx context.Context, initial, updated *models.Class) error {
+	initialModuleConfig, updatedModuleConfig := structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)
+	for _, module := range slices.Sorted(maps.Keys(updatedModuleConfig)) {
+		if err := h.validateChangedModuleConfig(ctx, updated, module, "", initialModuleConfig, updatedModuleConfig); err != nil {
+			return err
+		}
+	}
+	for _, targetVector := range slices.Sorted(maps.Keys(updated.VectorConfig)) {
+		initialVectorizer := structToMap(initial.VectorConfig[targetVector].Vectorizer)
+		updatedVectorizer := structToMap(updated.VectorConfig[targetVector].Vectorizer)
+		for _, module := range slices.Sorted(maps.Keys(updatedVectorizer)) {
+			if err := h.validateChangedModuleConfig(ctx, updated, module, targetVector, initialVectorizer, updatedVectorizer); err != nil {
+				return err
 			}
 		}
 	}
-	return changes, nil
+	return nil
+}
+
+func (h *Handler) validateChangedModuleConfig(ctx context.Context, updated *models.Class, module, targetVector string,
+	initialConfig, updatedConfig map[string]any,
+) error {
+	if stored, ok := initialConfig[module]; ok && reflect.DeepEqual(stored, updatedConfig[module]) {
+		return nil
+	}
+	return h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector)
 }
 
 func structToMap(obj any) (objMap map[string]any) {

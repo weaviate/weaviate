@@ -19,9 +19,11 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
+	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "https://api.openai.com,https://proxy.weaviate.dev,https://azure-gateway.example")
 	tests := []struct {
 		name                 string
 		cfg                  moduletools.ClassConfig
@@ -160,7 +162,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]any{
 					"isAzure":          true,
-					"baseURL":          "some-base-url",
+					"baseURL":          "https://azure-gateway.example",
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
 					"maxTokens":        4096,
@@ -180,7 +182,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
-			wantBaseURL:          "some-base-url",
+			wantBaseURL:          "https://azure-gateway.example",
 			wantApiVersion:       "2024-06-01",
 		},
 		{

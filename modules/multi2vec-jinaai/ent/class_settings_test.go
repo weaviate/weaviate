@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -270,6 +271,7 @@ func (f fakeClassConfig) Config() *config.Config {
 }
 
 func Test_classSettings_ValidateBaseURL(t *testing.T) {
+	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "https://api.openai.com,http://api.example.com,https://127.0.0.1,https://192.168.1.1,https://localhost,https://myhost.local")
 	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
 	tests := []struct {
 		name    string

@@ -13,6 +13,7 @@ package ent
 
 import (
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -84,6 +85,9 @@ func (ic *classSettings) Properties() ([]string, error) {
 }
 
 func (ic *classSettings) Validate() error {
+	if err := modulecomponents.ValidateCollectionBaseURL("baseURL", ic.BaseURL(), DefaultBaseURL); err != nil {
+		return err
+	}
 	if err := ic.base.ValidateMultiModal(fields); err != nil {
 		return err
 	}

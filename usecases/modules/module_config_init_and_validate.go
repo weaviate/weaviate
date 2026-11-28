@@ -14,6 +14,8 @@ package modules
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -161,8 +163,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 	case 0:
 		// legacy configuration
 		if class.Vectorizer == "none" {
-			// the class does not use a vectorizer, nothing to do for us
-			return nil
+			return p.validateEnabledNonVectorizers(ctx, class)
 		}
 		if err := p.validateClassesModuleConfig(ctx, class, class.ModuleConfig); err != nil {
 			return err
@@ -201,12 +202,36 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 				}
 			}
 		}
+		// a class with named vectors can also keep a legacy vector, vectorized with these class-level settings
+		if class.Vectorizer != "" && class.Vectorizer != "none" {
+			if err := p.validateClassModuleConfig(ctx, class, class.Vectorizer, ""); err != nil {
+				return err
+			}
+		}
 		// check module config configuration in case that there are other none vectorizer modules defined
 		if err := p.validateClassesModuleConfigNoneVectorizers(ctx, class, "", class.ModuleConfig); err != nil {
 			return err
 		}
 		return nil
 	}
+}
+
+// validateEnabledNonVectorizers validates the class-level settings of the enabled generative, reranker and other
+// non-vectorizer modules of a class without a vectorizer. Settings of vectorizers and of modules that are not enabled
+// are left alone: such a class never reads them.
+func (p *Provider) validateEnabledNonVectorizers(ctx context.Context, class *models.Class) error {
+	modConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	for _, modName := range slices.Sorted(maps.Keys(modConfig)) {
+		if mod := p.GetByName(modName); mod != nil && !p.isVectorizerModule(mod.Type()) {
+			if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (p *Provider) validateClassesModuleConfigNoneVectorizers(ctx context.Context,
@@ -371,13 +396,15 @@ func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, 
 	}
 
 	// named vector props need to be a string array
-	props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
+	vectorizer, _ := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})
+	settings, _ := vectorizer[moduleName].(map[string]interface{})
+	props, ok := settings["properties"]
 	if ok {
 		propsTyped := make([]string, len(props.([]interface{})))
 		for i, v := range props.([]interface{}) {
 			propsTyped[i] = v.(string) // was validated by the module
 		}
-		class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
+		settings["properties"] = propsTyped
 	}
 }
 

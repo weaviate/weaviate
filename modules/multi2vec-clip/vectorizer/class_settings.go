@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -56,5 +57,8 @@ func (ic *classSettings) Properties() ([]string, error) {
 }
 
 func (ic *classSettings) Validate() error {
+	if err := modulecomponents.ValidateCollectionBaseURL("inferenceUrl", ic.InferenceURL()); err != nil {
+		return err
+	}
 	return ic.base.ValidateMultiModal(fields)
 }

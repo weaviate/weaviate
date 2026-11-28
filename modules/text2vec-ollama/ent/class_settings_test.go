@@ -21,9 +21,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
+	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "http://localhost:11434,https://localhost:11434,http://localhost:8080")
 	tests := []struct {
 		name            string
 		cfg             moduletools.ClassConfig

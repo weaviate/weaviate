@@ -248,6 +248,10 @@ func (f *fakeModuleConfig) ValidateModuleConfig(ctx context.Context, class *mode
 	return nil
 }
 
+func (f *fakeModuleConfig) ValidateModuleConfigKeys(class, initial *models.Class) error {
+	return nil
+}
+
 func (f *fakeModuleConfig) GetByName(name string) modulecapabilities.Module {
 	return nil
 }

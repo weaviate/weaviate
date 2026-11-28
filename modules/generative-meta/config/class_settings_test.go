@@ -19,9 +19,11 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func TestClassSettings(t *testing.T) {
+	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "https://api.meta.ai,https://proxy.meta.ai")
 	tests := []struct {
 		name                    string
 		cfg                     moduletools.ClassConfig

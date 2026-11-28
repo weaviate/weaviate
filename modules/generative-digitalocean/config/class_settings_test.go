@@ -21,9 +21,11 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func TestClassSettings(t *testing.T) {
+	t.Setenv(modulecomponents.AllowedBaseURLsEnv, "https://inference.do-ai.run,https://custom.do-ai.run")
 	tests := []struct {
 		name                string
 		cfg                 moduletools.ClassConfig

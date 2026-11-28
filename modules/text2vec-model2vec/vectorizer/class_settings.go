@@ -14,6 +14,7 @@ package vectorizer
 import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -37,6 +38,9 @@ func (ic *classSettings) InferenceURL() string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
+	if err := modulecomponents.ValidateCollectionBaseURL("inferenceUrl", ic.InferenceURL()); err != nil {
+		return err
+	}
 	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}

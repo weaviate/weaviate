@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -84,6 +85,9 @@ func (ic *classSettings) Validate() error {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
+	}
+	if err := modulecomponents.ValidateCollectionBaseURL("baseURL", ic.BaseURL(), DefaultBaseURL); err != nil {
+		return err
 	}
 
 	var errorMessages []string

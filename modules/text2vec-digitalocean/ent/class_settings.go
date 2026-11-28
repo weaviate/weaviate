@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -88,6 +89,9 @@ func (cs *classSettings) WeaviateUUID() string {
 }
 
 func (cs *classSettings) Validate(ctx context.Context, class *models.Class) error {
+	if err := modulecomponents.ValidateCollectionBaseURL("baseURL", cs.BaseURL(), DefaultBaseURL); err != nil {
+		return err
+	}
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
