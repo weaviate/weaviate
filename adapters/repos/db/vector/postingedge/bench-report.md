@@ -3284,6 +3284,26 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 - **Reconectar a todos** en vez de solo a los pendientes: tras un split, que deja dos postings nuevos con las aristas del viejo; tras una limpieza de borrados; y por edad de las aristas, en lugar del refresco de hoy.
 - **Qué pasa con un split con pendientes:** las dos mitades heredan cada una sus pendientes; el contador de conectados se rehace por mitad (los conectados no son ya un prefijo: hace falta una marca por miembro, un bit en la fila).
 
+#### Reorganizar el índice de 10M y medir su búsqueda en frío y en caliente (pre-registro, 28 de noviembre a las 14:56, por encargo del usuario)
+
+**Qué es.** El protocolo de la segunda parte (a) de las definitivas de 1M, pre-registrado a las 09:35, sobre el índice crecido de 10M (wiki-dpr, 768 dimensiones, códigos de enrutado en memoria), con el mismo binario (`m2` `8ed921ed59` con el arnés de la noche).
+1. **Los puntos** de 0.95 y 0.99, con las 1 000 queries del dataset.
+2. **La búsqueda cronometrada tal como lo dejó el crecimiento:** en caliente, 3 pasadas con 1 y con 8 hilos; en frío, las primeras 500 queries en tandas de 10, con el índice cerrado y la caché soltada antes de cada tanda (desmontar y montar el volumen).
+3. **La reorganización** entera, con los ciclos del almacén como en un shard, y la espera a que sus segmentos se estén quietos.
+4. **Los puntos y la búsqueda cronometrada otra vez,** reorganizado.
+
+**Sobre un clon.** El índice crecido se queda como está; el clon reorganizado se guarda para las medidas que vengan.
+
+**Lo que no separa** (dicho antes): el estado «como lo dejó el crecimiento» tiene además el almacén sin compactar (5.4 GB que un nodo compactaría al arrancar). El estado reorganizado sale con el almacén ya quieto, así que la diferencia entre los dos es de la reorganización y de la compactación juntas. El arnés compilado no tiene un paso que haga solo lo segundo.
+
+**Con qué se compara.** Con la celda del lote de 10M de v4.0 (4.02 ms en frío a 0.95 con 1 hilo, 16.21 a 0.99) y con HFresh a 10M (92.62 y 595.74 ms).
+
+**Lo que espero** (*mío*): tal como quedó, el 26 % reorganizado (2 561 320 de 10M) y las cargas del crecido (19.5 a 0.95), en frío entre 1.5 y 3 veces el lote; reorganizado, a menos de 1.3 veces el lote en frío a 0.95, como a 1M (1.07 en frío, 1.34 en caliente).
+
+**Humo antes:** el mismo guion con 50 queries, 20 en frío y una pasada, sin reorganizar, sobre otro clon que se borra. Este protocolo no ha corrido nunca.
+
+**Orden.** Detrás de HFresh a 10M.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
