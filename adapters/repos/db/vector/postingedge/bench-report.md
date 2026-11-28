@@ -3665,6 +3665,17 @@ El mapa compacto, las hojas con solape, la poda del halo y los centroides en RQ1
 
 **Orden.** En la misma sesión que el micro-benchmark de los extremos, que no ha corrido, con un binario nuevo. Va detrás de las medidas de la base.
 
+#### El evento por búsqueda conjunta: lo que la fórmula dejaba sin decir, fijado al escribir su lector (28 de noviembre a las 18:27; nada compilado, ninguna medida cronometrada de la búsqueda conjunta)
+
+Al escribir el lector que aplica la fórmula (`gate.py`, antes de que exista ningún dato) han salido cuatro cosas que el pre-registro no decía. Las fijo aquí (*mío*).
+- **Cómo se parte el recorrido entre miembros y extremos.** El pase instrumentado da el recorrido entero y los miembros por plan, no las dos partes. La de miembros es miembros por plan por los ns por miembro del micro-benchmark de miembros en separado, con la tabla de ese tamaño; la de extremos es el resto. A 10M lo comparo con el censo archivado (2.07 ms por plan, 73.3 ns por miembro): si se apartan más de un 15 %, doy la estimación con los dos repartos.
+- **La escritura de hoy.** El tiempo de aplicar los lotes entre los inserts aplicados, de una pasada de inserts con 8 llamadores: a 10M la de las palancas con todo apagado, a 1M una nueva sobre el clon, la última que lo usa.
+- **El rescore.** No separo el cálculo exacto de las lecturas: 150 distancias exactas son una parte mínima de los 1.9 ms que tarda a 10M. Todo el rescore va por la fracción de vectores distintos, lo que favorece al evento en esa parte mínima.
+- **Lo que queda entero:** la búsqueda de centroides, la parte de la búsqueda que no es filas, recorrido ni rescore, y la escritura.
+- **Las lecturas por vector:** dos filas por carga, que es lo que lee hoy una carga, más los vectores exactos.
+
+**Una corrección a lo que espero,** antes de los datos. En el humo a 100k, con una tabla de 200 000 doc ids, puntuar los extremos en conjunto quedó entre 0.90 y 0.95 de hacerlo por separado: traer los códigos una vez casi no ahorra, porque el cálculo se repite por consulta y la búsqueda ya adelanta las lecturas. Los extremos son a 10M unos 7.6 de los 14.9 ms de la búsqueda de un insert. Si con la tabla de 10M la razón no baja de 0.8, la CPU estimada quedará cerca de 0.7 de la de hoy, no de la mitad, y la enmienda de los miembros la moverá poco. Lo dejo dicho; decide la medida.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
