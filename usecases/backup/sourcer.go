@@ -25,7 +25,7 @@ type Sourcer interface { // implemented by the index
 	ReleaseBackup(_ context.Context, id, class string) error
 
 	// Backupable returns whether all given class can be backed up.
-	Backupable(_ context.Context, classes []string) error
+	Backupable(_ context.Context, bakid string, classes []string) error
 
 	// BackupDescriptors returns a channel of class descriptors, closed on every exit
 	// of the producer, and stops between classes once ctx is cancelled. A descriptor

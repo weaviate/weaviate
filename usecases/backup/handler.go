@@ -304,7 +304,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 
 	switch req.Method {
 	case OpCreate:
-		if err := m.backupper.sourcer.Backupable(ctx, req.Classes); err != nil {
+		if err := m.backupper.sourcer.Backupable(ctx, req.ID, req.Classes); err != nil {
 			ret.Err = err.Error()
 			ret.ErrKind = classifyCanCommitErr(err)
 			return ret

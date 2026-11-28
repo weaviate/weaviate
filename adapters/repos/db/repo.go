@@ -127,7 +127,8 @@ type DB struct {
 	reindexLookupsMu  sync.RWMutex
 	reindexTaskStates ReindexTaskStateSource
 
-	reindexTasks ReindexTaskReader
+	reindexTasks    ReindexTaskReader
+	backupPrechecks backupPrechecks
 
 	reindexRefresh *reindexRefresh
 

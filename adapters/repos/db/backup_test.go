@@ -779,6 +779,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 
 	// FROZEN tenant: no directory at all.
 
+	require.NoError(t, idx.precheckBackup("test-backup"))
 	var desc backup.ClassDescriptor
 	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
@@ -826,6 +827,7 @@ func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203456"), []byte("commitlog"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
 
+	require.NoError(t, idx.precheckBackup("test-backup"))
 	var desc backup.ClassDescriptor
 	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
@@ -878,6 +880,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
 	// No directories, no shards in map.
 
+	require.NoError(t, idx.precheckBackup("test-backup"))
 	var desc backup.ClassDescriptor
 	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
@@ -925,6 +928,7 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 
 	var desc backup.ClassDescriptor
 	backupID := "test-backup"
+	require.NoError(t, idx.precheckBackup(backupID))
 	err := idx.descriptor(ctx, backupID, &desc, nil)
 	require.NoError(t, err)
 
@@ -988,6 +992,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		createColdShardFiles(t, rootDir, className, name)
 	}
 
+	require.NoError(t, idx.precheckBackup("test-backup"))
 	var desc backup.ClassDescriptor
 	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
@@ -1318,10 +1323,14 @@ func TestBackupRefusesWhileAReindexRunHasNotEnded(t *testing.T) {
 				db.SetReindexTaskReader(tc.tasks)
 				db.config.RuntimeReindexDisabled = tc.disabled
 
-				err := db.Backupable(context.Background(), classes)
+				err := db.Backupable(context.Background(), "backup-1", classes)
 				if tc.refused {
 					require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
 					require.ErrorContains(t, err, `collection "ClassB"`)
+					// The run starts after the precheck instead: the capture refuses it.
+					db.SetReindexTaskReader(fakeReindexTasks{})
+					require.NoError(t, db.Backupable(context.Background(), "backup-1", classes))
+					db.SetReindexTaskReader(tc.tasks)
 				} else {
 					require.NoError(t, err)
 				}
@@ -1389,7 +1398,10 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 			idx.schemaReader = liveSchemaReader{idx.schemaReader, map[string]map[string]map[string]uint64{className: tc.live, "Other": live}}
 
 			var desc backup.ClassDescriptor
-			err := idx.descriptor(context.Background(), "b1", &desc, nil)
+			err := idx.precheckBackup("b1")
+			if err == nil {
+				err = idx.descriptor(context.Background(), "b1", &desc, nil)
+			}
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -1407,7 +1419,7 @@ func TestDescriptorCarriesEndedReindexTasks(t *testing.T) {
 	}
 }
 
-// changingReindexState answers its first read with the state before the shard snapshots, then the one after.
+// changingReindexState answers its first read with the state at the precheck, then the one after.
 type changingReindexState struct {
 	schemaUC.SchemaReader
 	printReads, liveReads atomic.Int32
@@ -1434,9 +1446,9 @@ func (c *changingReindexState) ClassLive(string) map[string]map[string]uint64 {
 	return c.liveNow
 }
 
-// A run that ends, switches a group or flips Live while the shards are
-// snapshotted would pair its task state with files from before it, so the
-// backup fails instead.
+// A run that ends, switches a group or flips Live after the precheck would
+// pair its task state with files from before it, or with another node's state
+// on restore, so the backup fails instead.
 func TestDescriptorRefusesReindexStateChangedDuringBackup(t *testing.T) {
 	const className = "TestClass"
 	run := func(status distributedtask.TaskStatus, groups ...string) []*distributedtask.Task {
@@ -1451,11 +1463,16 @@ func TestDescriptorRefusesReindexStateChangedDuringBackup(t *testing.T) {
 	}
 	ended := run(distributedtask.TaskStatusCancelled, "t1")
 	live := map[string]map[string]uint64{"body": {"searchable": 2}}
-	const changed, running = "reindex state of class TestClass changed during the backup; retry", `collection "TestClass" has an active runtime-reindex task`
+	const (
+		changed = "reindex state of class TestClass changed during the backup; retry"
+		running = `collection "TestClass" has an active runtime-reindex task`
+		missing = "class TestClass has no reindex state recorded for backup b1 on this node; retry"
+	)
 	for _, tc := range []struct {
-		name    string
-		state   *changingReindexState
-		wantErr string
+		name       string
+		state      *changingReindexState
+		noPrecheck bool
+		wantErr    string
 	}{
 		{name: "unchanged state is captured", state: &changingReindexState{
 			tasksBefore: ended, tasksNow: ended, liveBefore: live, liveNow: live,
@@ -1466,12 +1483,13 @@ func TestDescriptorRefusesReindexStateChangedDuringBackup(t *testing.T) {
 			tasksBefore: ended, tasksNow: run(distributedtask.TaskStatusCancelled, "t1", "t2"),
 		}},
 		{name: "Live flipped during the backup", wantErr: changed, state: &changingReindexState{liveNow: live}},
-		{name: "a started run switched a group during the backup", wantErr: running, state: &changingReindexState{
-			tasksBefore: run(distributedtask.TaskStatusStarted, "t1"), tasksNow: run(distributedtask.TaskStatusStarted, "t1", "t2"),
-		}},
-		{name: "a run applied after the capture started", wantErr: running, state: &changingReindexState{
+		{name: "a run applied after the precheck", wantErr: running, state: &changingReindexState{
 			tasksNow: run(distributedtask.TaskStatusStarted),
 		}},
+		{name: "a run that started and ended between the precheck and the capture", wantErr: changed, state: &changingReindexState{
+			tasksNow: run(distributedtask.TaskStatusFinished, "t1"),
+		}},
+		{name: "no precheck for this backup", noPrecheck: true, wantErr: missing, state: &changingReindexState{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rootDir := t.TempDir()
@@ -1482,6 +1500,9 @@ func TestDescriptorRefusesReindexStateChangedDuringBackup(t *testing.T) {
 			idx.db.SetReindexTaskReader(tc.state)
 			tc.state.SchemaReader = idx.schemaReader
 			idx.schemaReader = tc.state
+			if !tc.noPrecheck {
+				require.NoError(t, idx.precheckBackup("b1"))
+			}
 
 			var desc backup.ClassDescriptor
 			err := idx.descriptor(context.Background(), "b1", &desc, nil)
@@ -1492,6 +1513,46 @@ func TestDescriptorRefusesReindexStateChangedDuringBackup(t *testing.T) {
 			require.NoError(t, err)
 			require.JSONEq(t, string(mustJSON(t, ended)), string(desc.ReindexTasks))
 		})
+	}
+}
+
+// Two backups of one class each compare against their own precheck, and
+// releasing one keeps the other's.
+func TestBackupPrecheckIsPerBackup(t *testing.T) {
+	const className = "TestClass"
+	ctx := context.Background()
+	state := NewMultiTenantShardingStateBuilder().AddTenant("t1", models.TenantActivityStatusCOLD).WithReplicationFactor(1).Build()
+	db := backupTestDBWithColdTenants(t, []string{className}, []string{"t1"}, state)
+	idx := db.GetIndex(className)
+	ended := []*distributedtask.Task{{
+		Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "a", Version: 1}, Status: distributedtask.TaskStatusFinished,
+	}}
+	reindex := &changingReindexState{SchemaReader: idx.schemaReader, tasksNow: ended}
+	db.SetReindexTaskReader(reindex)
+	idx.schemaReader = reindex
+
+	require.NoError(t, db.Backupable(ctx, "b1", []string{className}))
+	require.NoError(t, db.Backupable(ctx, "b2", []string{className}))
+
+	require.NoError(t, idx.descriptor(ctx, "b2", &backup.ClassDescriptor{}, nil))
+	require.NoError(t, db.ReleaseBackup(ctx, "b2", className))
+	_, kept := db.backupPrechecks.get("b2", className)
+	require.False(t, kept, "a released backup's precheck is dropped")
+
+	err := idx.descriptor(ctx, "b1", &backup.ClassDescriptor{}, nil)
+	require.ErrorContains(t, err, "reindex state of class TestClass changed during the backup; retry")
+}
+
+func TestBackupPrechecksDropStaleEntries(t *testing.T) {
+	var p backupPrechecks
+	now := time.Now()
+	p.record("old", "C", "x", now.Add(-backupPrecheckMaxAge-time.Second))
+	p.record("kept", "C", "y", now.Add(-backupPrecheckMaxAge+time.Second))
+	p.record("new", "C", "z", now)
+
+	for id, want := range map[string]bool{"old": false, "kept": true, "new": true} {
+		_, ok := p.get(id, "C")
+		require.Equal(t, want, ok, id)
 	}
 }
 

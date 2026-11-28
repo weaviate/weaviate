@@ -105,13 +105,13 @@ func TestBackup_DBLevel(t *testing.T) {
 		}
 
 		t.Run("doesn't fail on casing permutation of existing class", func(t *testing.T) {
-			err := db.Backupable(ctx, []string{"DBLeVELBackupClass"})
+			err := db.Backupable(ctx, backupID, []string{"DBLeVELBackupClass"})
 			require.NotNil(t, err)
 			require.Equal(t, "class DBLeVELBackupClass doesn't exist", err.Error())
 		})
 
 		t.Run("create backup", func(t *testing.T) {
-			err := db.Backupable(ctx, classes)
+			err := db.Backupable(ctx, backupID, classes)
 			assert.Nil(t, err)
 
 			ch := db.BackupDescriptors(ctx, backupID, classes, nil)
@@ -189,7 +189,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				classes = append(classes, cls)
 			}
 
-			err := db.Backupable(ctx, classes)
+			err := db.Backupable(ctx, backupID, classes)
 			assert.Nil(t, err)
 
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 0)
@@ -607,7 +607,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	}
 
 	classes := []string{className}
-	require.Nil(t, db.Backupable(ctx, classes))
+	require.Nil(t, db.Backupable(ctx, backupID, classes))
 
 	var classDescs []entBackup.ClassDescriptor
 	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
@@ -812,7 +812,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	}
 
 	classes := []string{className}
-	require.Nil(t, db.Backupable(ctx, classes))
+	require.Nil(t, db.Backupable(ctx, backupID, classes))
 
 	var classDescs []entBackup.ClassDescriptor
 	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
@@ -855,7 +855,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	for _, class := range classes {
 		require.Nil(t, db.ReleaseBackup(ctx, backupID, class))
 	}
-	require.Nil(t, db.Backupable(ctx, classes))
+	require.Nil(t, db.Backupable(ctx, backupID+"-2", classes))
 
 	var classDescs2 []entBackup.ClassDescriptor
 	ch2 := db.BackupDescriptors(ctx, backupID+"-2", classes, nil)

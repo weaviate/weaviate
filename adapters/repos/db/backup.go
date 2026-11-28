@@ -63,7 +63,8 @@ var nonVectorShardDirs = map[string]struct{}{
 // Backupable returns whether all given class can be backed up.
 // Refuses if a runtime-reindex of the class has not ended; this runs in
 // the coordinator's canCommit phase so no staging dir is created on
-// rejection.
+// rejection. It records each class's reindex state for backup bakid, which
+// the capture must still find at its end.
 //
 // All per-class failures are accumulated and joined into a
 // single error rather than short-circuiting on the first one. Joining
@@ -76,7 +77,7 @@ var nonVectorShardDirs = map[string]struct{}{
 //
 // Class-missing errors stop aggregation for that class but do not short
 // circuit the whole loop; other classes still get checked.
-func (db *DB) Backupable(ctx context.Context, classes []string) error {
+func (db *DB) Backupable(ctx context.Context, bakid string, classes []string) error {
 	nodeName := db.localNodeName
 	var errs []error
 	for _, c := range classes {
@@ -90,7 +91,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			errs = append(errs, fmt.Errorf("class %v doesn't exist", c))
 			continue
 		}
-		if _, err := idx.reindexStateFingerprint(); err != nil {
+		if err := idx.precheckBackup(bakid); err != nil {
 			errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
 		}
 	}
@@ -169,6 +170,8 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 		}
 		l.Debug("finish")
 	}()
+
+	db.backupPrechecks.forget(bakID, class)
 
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
@@ -295,7 +298,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
-	reindexBefore, err := i.reindexStateFingerprint()
+	reindexBefore, err := i.backupPrecheck(backupID)
 	if err != nil {
 		return err
 	}
@@ -489,7 +492,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
-	reindexBefore, err := i.reindexStateFingerprint()
+	reindexBefore, err := i.backupPrecheck(backupID)
 	if err != nil {
 		return err
 	}
@@ -699,6 +702,72 @@ func (i *Index) reindexStateFingerprint() (string, error) {
 		Live  map[string]map[string]uint64
 	}{prints, i.schemaReader.ClassLive(className)})
 	return string(raw), nil
+}
+
+// backupPrecheckMaxAge bounds entries whose backup never reached a release,
+// such as one aborted before its capture. It is far longer than a can-commit
+// takes to reach the capture.
+const backupPrecheckMaxAge = 24 * time.Hour
+
+type backupPrecheckKey struct{ backupID, class string }
+
+type backupPrecheck struct {
+	fingerprint string
+	at          time.Time
+}
+
+// backupPrechecks holds each class's reindex fingerprint from a backup's
+// can-commit. Restore installs one node's reindex state on every node, so each
+// node's capture must match the state it had when all nodes agreed, not the
+// state at its own capture start.
+type backupPrechecks struct {
+	mu      sync.Mutex
+	entries map[backupPrecheckKey]backupPrecheck
+}
+
+func (p *backupPrechecks) record(backupID, class, fingerprint string, now time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.entries == nil {
+		p.entries = map[backupPrecheckKey]backupPrecheck{}
+	}
+	for k, e := range p.entries {
+		if now.Sub(e.at) > backupPrecheckMaxAge {
+			delete(p.entries, k)
+		}
+	}
+	p.entries[backupPrecheckKey{backupID, class}] = backupPrecheck{fingerprint, now}
+}
+
+func (p *backupPrechecks) get(backupID, class string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	e, ok := p.entries[backupPrecheckKey{backupID, class}]
+	return e.fingerprint, ok
+}
+
+func (p *backupPrechecks) forget(backupID, class string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.entries, backupPrecheckKey{backupID, class})
+}
+
+// precheckBackup refuses a class whose reindex run has not ended, and records its state for the capture.
+func (i *Index) precheckBackup(backupID string) error {
+	fingerprint, err := i.reindexStateFingerprint()
+	if err != nil {
+		return err
+	}
+	i.db.backupPrechecks.record(backupID, i.Config.ClassName.String(), fingerprint, time.Now())
+	return nil
+}
+
+func (i *Index) backupPrecheck(backupID string) (string, error) {
+	fingerprint, ok := i.db.backupPrechecks.get(backupID, i.Config.ClassName.String())
+	if !ok {
+		return "", fmt.Errorf("class %s has no reindex state recorded for backup %s on this node; retry", i.Config.ClassName, backupID)
+	}
+	return fingerprint, nil
 }
 
 // marshalReindexState reads the fingerprint last, so an unchanged one vouches for the state read before it.

@@ -927,7 +927,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	classes = filterClasses(classes, exclude)
 	if len(classes) > 0 {
-		if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
+		if err := s.backupper.selector.Backupable(ctx, req.ID, classes); err != nil {
 			return selections, err
 		}
 	}

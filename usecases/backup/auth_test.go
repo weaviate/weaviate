@@ -280,7 +280,7 @@ func newAuthzTestScheduler(t *testing.T, methodName string, classes []string, au
 
 	selector.On("Shards", mock.Anything, classes[0]).Return([]string{"node-0"}, nil).Maybe()
 	selector.On("ListClasses", mock.Anything).Return(classes).Maybe()
-	selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
+	selector.On("Backupable", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	s := NewScheduler(authorizer, nil, selector, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, nil, nil, logger)
 	require.NotNil(t, s)

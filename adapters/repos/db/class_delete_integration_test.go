@@ -141,6 +141,7 @@ func TestDeleteClassDuringBackup(t *testing.T) {
 
 	addObject(t, ctx, repo, deleteTestOtherClass, "bystander")
 
+	require.NoError(t, repo.Backupable(ctx, deleteTestBackupID, []string{deleteTestClass}))
 	for d := range repo.BackupDescriptors(ctx, deleteTestBackupID, []string{deleteTestClass}, nil) {
 		require.NoError(t, d.Error)
 	}

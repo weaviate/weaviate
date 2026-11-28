@@ -61,7 +61,7 @@ func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error
 	return args.Error(0)
 }
 
-func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
+func (s *fakeSourcer) Backupable(ctx context.Context, _ string, classes []string) error {
 	args := s.Called(ctx, classes)
 	return args.Error(0)
 }
