@@ -3224,6 +3224,66 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 
 **Orden.** Detrás de la segunda tanda de la simulación y de las retenciones del cerrojo, en la misma cadena.
 
+#### Insert en dos tiempos: resultado a 10M, y el diseño de la autorreparación (28 de noviembre a las 14:55; cierra la primera tanda)
+
+**El índice.** El crecido de 10M (wiki-dpr, 768 dimensiones), desde un clon: 40 284 postings vivos de 248 miembros, 11.48 aristas por vector, 134 133 vectores sin ninguna (1.3 %). 1 000 queries, rescore 150. **Hoy:** 0.95 con ef 24 y 19.53 cargas; 0.99 con ef 106 y 62.90 cargas. «Más reciente» es el puesto en el orden en que entraron las filas.
+
+**1. Cobertura.**
+
+| grupo | por centroides: aristas | media por vector | vectores con ≥ 90 % | con todas | por aristas de los compañeros: aristas | media por vector | con ≥ 90 % | con todas |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 32 | 45.7 % | 50.6 % | 15.3 % | 11.6 % | 50.9 % | 56.2 % | 20.2 % | 15.3 % |
+| 64 | 56.9 % | 61.5 % | 24.9 % | 18.7 % | 62.0 % | 66.9 % | 31.4 % | 23.9 % |
+| 128 | 67.2 % | 71.2 % | 36.4 % | 27.7 % | 71.6 % | 75.8 % | 43.7 % | 33.6 % |
+| 256 | 76.2 % | 79.3 % | 48.9 % | 38.1 % | 79.3 % | 82.5 % | 54.9 % | 43.1 % |
+| 320 | 78.7 % | 81.6 % | 53.0 % | 41.7 % | 81.2 % | 84.2 % | 58.0 % | 45.7 % |
+
+- **La cobertura de un grupo fijo cae con el tamaño del índice:** un grupo de 64 tenía el 86.6 % de las aristas a 100k, el 70.5 % a 1M y tiene el 56.9 % a 10M. Con 320 postings una de cada cinco aristas de hoy queda fuera.
+
+**2. Tolerancia:** el X % más reciente sin aristas.
+
+| sin aristas | vectores sin ninguna | 0.95: ef, cargas | frente a hoy | 0.99: ef, cargas | frente a hoy | a 1M: 0.95, 0.99 |
+| --- | --- | --- | --- | --- | --- | --- |
+| hoy | 134 133 | 24, 19.53 | | 106, 62.90 | | |
+| 5 % | 632 280 | 28, 21.33 | +9.2 % | 218, 109.90 | +74.7 % | +8.5 %, +29.6 % |
+| 10 % | 1 130 975 | 39, 27.00 | +38.2 % | 445, 189.92 | +202.0 % | +18.4 %, +53.2 % |
+| 25 % | 2 630 200 | 100, 51.92 | +165.9 % | 1 778, 514.63 | +718.2 % | +63.9 %, +175.5 % |
+| 50 % | 5 143 010 | 494, 147.80 | +656.8 % | no llega a 0.99 | | +194.1 %, +344.1 % |
+
+- **A 10M tolera menos que a 1M,** y a 0.99 mucho menos: con el 5 % sin aristas las cargas a 0.99 suben un 75 %.
+
+**4. Eventos que conectan a los pendientes, y 5. reconectando también a los antiguos** (grupos de 64; cargas frente a hoy, a 0.95 y a 0.99).
+
+| pendientes | sin aristas | solo pendientes, por centroides | por aristas | reconectando a todos, por centroides | por aristas | a 1M: solo pendientes, por centroides |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 % | | | | +3.0 %, +1.9 % | | (a todos: +2.0 %, −0.0 %) |
+| 10 % | +38.2 %, +202.0 % | +4.8 %, +32.6 % | +2.8 %, +26.8 % | +2.7 %, +23.7 % | +2.1 %, +12.7 % | +4.1 %, +8.6 % |
+| 25 % | +165.9 %, +718.2 % | +20.6 %, +99.9 % | | | | +13.8 %, +47.3 % |
+
+| coste de los eventos | conectados por evento | cargas por vector | por código | exactas | vectores exactos distintos | aristas propias | inversas | CPU por vector |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10 %, solo pendientes | 24.8 | 2.62 | 16 598 | 150 | 12.7 | 10.76 | 3.86 | 0.78 ms |
+| 25 %, solo pendientes | 62.1 | 1.05 | 16 599 | 150 | 10.4 | 10.77 | 3.17 | 0.75 ms |
+| a todos | 248.2 | 0.26 | 16 601 | 150 | 8.5 | 11.79 | 0.42 | 0.74 ms |
+
+- **A 0.95 los eventos recuperan casi todo** (con el 10 % pendiente, de +38 % a +4.8 %); **a 0.99 no:** quedan en +33 %, cuatro veces peor que a 1M. Es la cobertura: a 10M un grupo de 64 solo contiene el 57 % de las aristas que una búsqueda encuentra, y las que faltan son las que hacen falta para el recall alto.
+- **El grupo por aristas de los compañeros gana aquí en todas las celdas,** y más reconectando a todos (+12.7 % contra +23.7 % a 0.99).
+- **Reconectar a todos sí ayuda a 10M:** con el 10 % pendiente, +23.7 % contra +32.6 % a 0.99 por centroides, a 10 veces el cálculo por pendiente.
+- **Reconectar el índice de hoy entero** lo deja en +3.0 % y +1.9 %: no lo mejora.
+- **El cálculo por vector es el mismo que a 1M** (0.74 a 0.78 ms): 16 600 candidatos por código y 150 comparaciones exactas.
+- **Tras borrados, a 10M reconectar con grupos de 64 no recupera:** con el 10 % borrado al azar las cargas suben +6.9 % y +29.4 %; reconectando a todos quedan en +7.5 % y +27.3 % sobre hoy. A 1M quedaban en +2.9 % y +2.7 %.
+- **Tras un split:** sin simular, como a 1M.
+
+**Qué dice esto del insert en dos tiempos, antes de la segunda tanda.** Conectar por eventos con un grupo fijo alrededor del posting pierde calidad con el tamaño del índice, y a 10M la pierde a 0.99 ya con el 10 % de pendientes. Lo que puede cambiarlo, y por eso lo mide la segunda tanda: candidatos que no dependan del grupo (las aristas provisionales, heredadas de los compañeros, salen de él), candidatos elegidos por vector y no por posting, y grupos mayores.
+
+**Autorreparación: el diseño** (sin medir; es lo que escribiría el prototipo).
+- **El estado «pendiente» sale del índice, sin cola.** La fila de aristas de un posting lleva cuántos de sus miembros están conectados: los miembros se añaden a la fila de miembros en orden de llegada, y un evento conecta un prefijo. Pendientes de un posting = miembros − conectados. Las dos cifras ya viven en memoria por posting (el tamaño está; el contador es un entero más) y se rehacen al abrir leyendo las filas.
+- **Un evento se puede repetir sin daño.** Calcula en memoria las listas de sus pendientes y sus aristas inversas, y lo escribe todo en un paso del diario con el contador avanzado. Si el proceso cae antes de ese registro, no pasó nada y el evento se repite entero; si cae después, el diario lo rehace al abrir. Repetirlo sobre vectores ya conectados da las mismas listas, salvo por lo que haya llegado entre medias, que solo las mejora.
+- **Mientras está pendiente, un vector se encuentra igual:** una búsqueda puntúa a todos los miembros del posting que carga. Lo que no hace es llevar a otros postings, o lo hace con sus aristas provisionales.
+- **Disparadores.** Por número: pendientes ≥ K en un posting, al aplicar el lote que lo cruza. Por edad: un posting con algún pendiente más viejo que T. En ocioso: los postings con más pendientes primero. Por demanda: un contador por posting de las veces que una query lo cargó con pendientes, para adelantar los que más se usan.
+- **Reconectar a todos** en vez de solo a los pendientes: tras un split, que deja dos postings nuevos con las aristas del viejo; tras una limpieza de borrados; y por edad de las aristas, en lugar del refresco de hoy.
+- **Qué pasa con un split con pendientes:** las dos mitades heredan cada una sus pendientes; el contador de conectados se rehace por mitad (los conectados no son ya un prefijo: hace falta una marca por miembro, un bit en la fila).
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

@@ -1,0 +1,92 @@
+#!/bin/bash
+# The insert in two steps, the second round of the simulation and its gate
+# (bench-report.md of feat/posting-edge-index, "Insert en dos tiempos, segunda
+# tanda" and "La puerta del insert en dos tiempos", pre-registered on
+# 2026-11-28 by the user's orders): provisional edges at the insert alone and
+# with events over them, everything by events, candidates by vector inside
+# the group loaded, the spread of the most recent vectors next to a random
+# share, and the state of an index that inserts in two steps. Over a clone of
+# the 1M index (dbpedia, dense doc ids) and over a clone of the 10M index;
+# nothing of an index is written, and the clones are removed at the end. The
+# binary is built before (lock/holds.test: the diagnostic branch, with the
+# simulator); nothing here builds. The marker is up all along: the events
+# count their CPU.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+W=$S/sim2
+B=$S/lock/holds.test
+P=$S/diag/src/adapters/repos/db/vector/postingedge
+D1=$HOME/Documents/datasets/dbpedia-openai-1000k-angular.bin
+D10=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+mkdir -p $W/1m $W/10m $W/10m-256 $W/10m-evprov $W/10m-proto
+
+printf 'the second round of the simulation of the insert in two steps (sim2/sim2.sh), since %s for three to five hours; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+# 1M: everything.
+SIM1="rdist,base,stripr:5,stripr:10,stripr:25,stripr:50"
+SIM1="$SIM1,prov:5:16,prov:10:16,prov:25:16,prov:50:16,prov:10:4,prov:10:64"
+SIM1="$SIM1,provpo:5:16:a:64,provpo:10:16:a:64,provpo:25:16:a:64,provpo:50:16:a:64"
+SIM1="$SIM1,pv:10:a:128:64,pv:10:a:256:64,pv:25:a:128:64,pv:25:a:256:64,po:10:a:256,po:25:a:256"
+SIM1="$SIM1,po:100:a:64,po:100:a:128,po:100:a:256,wave:10:a:64"
+SIM1="$SIM1,pv:100:a:128:64,pv:100:a:256:64,pv:100:a:256:128"
+SIM1="$SIM1,evprov:10:16:a:64:0,evprov:10:16:a:128:0,evprov:10:16:a:128:64,evprov:10:16:a:256:64"
+SIM1="$SIM1,proto:10:16:a:64:0,protop:10:16:a:64:0,proto:10:16:a:128:64,protop:10:16:a:128:64"
+SIM1="$SIM1,provi:5:16,provi:10:16,provi:25:16,provi:50:16,provipo:10:16:a:64,protoi:10:16:a:64:0,protoip:10:16:a:64:0"
+mkdir -p /Volumes/v40bench/sim1m/clone
+cp -c -R /Volumes/v40bench/sim1m/index /Volumes/v40bench/sim1m/clone/index || exit 3
+find /Volumes/v40bench/sim1m/clone/index -type f -exec cat {} + > /dev/null
+date "+== %Y-%m-%d %H:%M:%S 1M (idle $(hid_idle) s)"
+(cd $P && PE_DENSE=1 PE_DATASET=$D1 PE_DIR=/Volumes/v40bench/sim1m/clone/index PE_OUT=$W/1m/result.json PE_QUERIES=1000 \
+  PE_SIM="$SIM1" $B -test.run '^TestSimTwoStep$' -test.v -test.timeout 0 > $W/1m/run.log 2>&1)
+echo "1M exit $?"
+find /Volumes/v40bench/sim1m/clone -type d -name index -prune -exec rm -rf {} +
+python3 -I -B $W/gate.py table 1.88 $W/1m/result.json
+
+# 10M: reduced, in up to three passes over one clone.
+mkdir -p /Volumes/v40bench/grow10m/clones/sim2
+cp -c -R /Volumes/v40bench/grow10m/index /Volumes/v40bench/grow10m/clones/sim2/index || exit 3
+find /Volumes/v40bench/grow10m/clones/sim2/index -type f -exec cat {} + > /dev/null
+ten() { # dir scenarios
+  date "+== %Y-%m-%d %H:%M:%S 10M, $1: $2 (idle $(hid_idle) s)"
+  (cd $P && PE_DATASET=$D10 PE_DIR=/Volumes/v40bench/grow10m/clones/sim2/index PE_OUT=$W/$1/result.json \
+    PE_SIM="$2" $B -test.run '^TestSimTwoStep$' -test.v -test.timeout 0 > $W/$1/run.log 2>&1)
+  echo "$1 exit $?"
+}
+SIM10="rdist,base,stripr:10,stripr:25,prov:10:16,prov:25:16,provpo:10:16:a:64,provpo:25:16:a:64,pv:10:a:128:64"
+SIM10="$SIM10,po:100:a:64,pv:100:a:128:64,po:100:a:128"
+ten 10m "$SIM10"
+python3 -I -B $W/gate.py table 2.9 $W/10m/result.json
+# Those that load 256 postings: only if none of the above passes at 10M, and
+# of them only those that pass at 1M (the pre-registered rule).
+if [ "$(python3 -I -B $W/gate.py any 2.9 $W/10m/result.json)" != yes ]; then
+  MORE=$(python3 -I -B $W/gate.py passers256 1.88 $W/1m/result.json)
+  if [ -n "$MORE" ]; then
+    ten 10m-256 "base,$MORE"
+    python3 -I -B $W/gate.py table 2.9 $W/10m-256/result.json
+  else
+    echo "10m-256 not run: nothing that loads 256 postings passes at 1M"
+  fi
+fi
+# The state of an index that inserts in two steps, with what passes at 10M
+# with the least CPU.
+EV=$(python3 -I -B $W/gate.py evprov 2.9 $W/10m/result.json $W/10m-256/result.json)
+if [ -n "$EV" ]; then
+  ten 10m-evprov "base,$EV"
+  python3 -I -B $W/gate.py table 2.9 $W/10m-evprov/result.json
+else
+  echo "10m-evprov not run: nothing passes at 10M"
+fi
+# The insert in two steps as it would run, in 10 waves: provisional edges and
+# events over them, to the end and with the last wave pending.
+ten 10m-proto "base,proto:10:16:a:64:0,protop:10:16:a:64:0,proto:10:16:a:128:64,provi:10:16,provi:25:16,protoi:10:16:a:64:0,protoip:10:16:a:64:0"
+python3 -I -B $W/gate.py table 2.9 $W/10m-proto/result.json
+find /Volumes/v40bench/grow10m/clones -type d -name index -prune -exec rm -rf {} +
+
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $W/end.txt
+pmset -g log 2>/dev/null | grep -E '^[0-9-]+ [0-9:]+ \+[0-9]+ (Sleep|Wake|DarkWake)' | tail -n 5 > $W/pmset-sleep-wake.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

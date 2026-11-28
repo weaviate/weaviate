@@ -1,0 +1,9 @@
+== 12:49:23 waiting for 900 s of idle (now 5724 s)
+== 2026-11-28 12:49:23 idle for 5724 s
+== 2026-11-28 12:49:25 1M (idle 5725 s)
+1M exit 0
+== 2026-11-28 13:30:53 batch build of 1M (idle 8214 s)
+batch exit 0
+== 2026-11-28 13:37:08 10M (idle 8588 s)
+10M exit 0
+== 2026-11-28 14:50:56 done (idle 13016 s)

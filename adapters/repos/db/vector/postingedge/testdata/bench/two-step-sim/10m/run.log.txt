@@ -1,0 +1,24 @@
+=== RUN   TestSimTwoStep
+    bench_sim_test.go:1028: 40284 postings loaded in 9.465s
+    bench_sim_test.go:1028: the distances of the edges in 17s
+    bench_sim_test.go:1028: the nearest postings of every posting in 57.073s
+    bench_sim_test.go:1080: groups of 32: by centroids 45.7 % of the edges (mean a vector 50.6 %, 15.3 % of the vectors with 90 % or more, 11.6 % with all); by edges 50.9 % (56.2 %, 20.2 %, 15.3 %)
+    bench_sim_test.go:1080: groups of 64: by centroids 56.9 % of the edges (mean a vector 61.5 %, 24.9 % of the vectors with 90 % or more, 18.7 % with all); by edges 62.0 % (66.9 %, 31.4 %, 23.9 %)
+    bench_sim_test.go:1080: groups of 128: by centroids 67.2 % of the edges (mean a vector 71.2 %, 36.4 % of the vectors with 90 % or more, 27.7 % with all); by edges 71.6 % (75.8 %, 43.7 %, 33.6 %)
+    bench_sim_test.go:1080: groups of 256: by centroids 76.2 % of the edges (mean a vector 79.3 %, 48.9 % of the vectors with 90 % or more, 38.1 % with all); by edges 79.3 % (82.5 %, 54.9 %, 43.1 %)
+    bench_sim_test.go:1080: groups of 320: by centroids 78.7 % of the edges (mean a vector 81.6 %, 53.0 % of the vectors with 90 % or more, 41.7 % with all); by edges 81.2 % (84.2 %, 58.0 %, 45.7 %)
+    bench_sim_test.go:1151: base: 114809099 edges, 134133 vectors with none | 0.95: ef 24, 19.53 loads | 0.99: ef 106, 62.90 loads | ef 20: 0.9409, 17.21 | ef 160: 0.9928, 87.92 (12s)
+    bench_sim_test.go:1151: strip:5: 105819352 edges, 632280 vectors with none | 0.95: ef 28, 21.33 loads | 0.99: ef 218, 109.90 loads | ef 20: 0.9328, 17.11 | ef 160: 0.9879, 85.65 (16s)
+    bench_sim_test.go:1151: strip:10: 97064645 edges, 1130975 vectors with none | 0.95: ef 39, 27.00 loads | 0.99: ef 445, 189.92 loads | ef 20: 0.9196, 16.97 | ef 160: 0.9818, 83.19 (31s)
+    bench_sim_test.go:1151: strip:25: 72288819 edges, 2630200 vectors with none | 0.95: ef 100, 51.92 loads | 0.99: ef 1778, 514.63 loads | ef 20: 0.8831, 16.23 | ef 160: 0.9606, 75.62 (1m17s)
+    bench_sim_test.go:1151: strip:50: 36887732 edges, 5143010 vectors with none | 0.95: ef 494, 147.80 loads | ef 20: 0.8017, 14.85 | ef 160: 0.9134, 60.61 (23s)
+    bench_sim_test.go:1151: po:10:a:64: 107825665 edges, 142781 vectors with none | 0.95: ef 26, 20.47 loads | 0.99: ef 153, 83.43 loads | ef 20: 0.9373, 17.22 | ef 160: 0.9901, 86.34 | events 40284, 24.8 connected each, 2.62 loads, 16598 scored and 150 exact a vector, 0.775 ms of CPU a vector (2m15s)
+    bench_sim_test.go:1151: po:10:b:64: 108032504 edges, 144760 vectors with none | 0.95: ef 25, 20.08 loads | 0.99: ef 145, 79.76 loads | ef 20: 0.9382, 17.28 | ef 160: 0.9903, 86.35 | events 40284, 24.8 connected each, 2.58 loads, 16960 scored and 150 exact a vector, 0.782 ms of CPU a vector (2m11s)
+    bench_sim_test.go:1151: po:25:a:64: 99219482 edges, 160037 vectors with none | 0.95: ef 32, 23.55 loads | 0.99: ef 263, 125.74 loads | ef 20: 0.9302, 17.22 | ef 160: 0.9856, 84.32 | events 40284, 62.1 connected each, 1.05 loads, 16599 scored and 150 exact a vector, 0.748 ms of CPU a vector (4m15s)
+    bench_sim_test.go:1151: ra:10:a:64: 117887542 edges, 104907 vectors with none | 0.95: ef 25, 20.06 loads | 0.99: ef 140, 77.82 loads | ef 20: 0.9385, 17.35 | ef 160: 0.9904, 86.55 | events 40284, 248.2 connected each, 0.26 loads, 16601 scored and 150 exact a vector, 0.736 ms of CPU a vector (14m6s)
+    bench_sim_test.go:1151: ra:10:b:64: 117977127 edges, 136534 vectors with none | 0.95: ef 25, 19.94 loads | 0.99: ef 125, 70.90 loads | ef 20: 0.9395, 17.27 | ef 160: 0.9909, 86.60 | events 40284, 248.2 connected each, 0.26 loads, 16966 scored and 150 exact a vector, 0.753 ms of CPU a vector (14m24s)
+    bench_sim_test.go:1151: ra:0:a:64: 119331970 edges, 102708 vectors with none | 0.95: ef 25, 20.12 loads | 0.99: ef 109, 64.11 loads | ef 20: 0.9406, 17.28 | ef 160: 0.9928, 87.64 | events 40284, 248.2 connected each, 0.26 loads, 16601 scored and 150 exact a vector, 0.736 ms of CPU a vector (13m51s)
+    bench_sim_test.go:1151: del:10: 93019127 edges, 130008 vectors with none | 0.95: ef 26, 20.88 loads | 0.99: ef 144, 81.36 loads | ef 20: 0.9344, 17.52 | ef 160: 0.9906, 88.44 (1m58s)
+    bench_sim_test.go:1151: delra:10:a:64: 107352524 edges, 88636 vectors with none | 0.95: ef 26, 21.00 loads | 0.99: ef 140, 80.08 loads | ef 20: 0.9347, 17.43 | ef 160: 0.9913, 89.15 | events 40284, 223.4 connected each, 0.29 loads, 14942 scored and 150 exact a vector, 0.691 ms of CPU a vector (16m33s)
+--- PASS: TestSimTwoStep (4426.78s)
+PASS
