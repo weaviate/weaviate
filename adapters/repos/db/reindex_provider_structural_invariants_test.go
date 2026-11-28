@@ -243,8 +243,8 @@ func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T
 	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "task-in-swap", Version: 1}
 
-	release, entered := p.enterLocalUnit(desc, "shard-1__node-0")
-	require.True(t, entered)
+	release, refused := p.enterLocalUnit(desc, "shard-1__node-0", &Index{})
+	require.NoError(t, refused)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -258,14 +258,14 @@ func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T
 	unseal, err := p.SealLocalTaskDrain(drained, desc)
 	require.NoError(t, err, "once the last span releases, the drain returns")
 
-	_, entered = p.enterLocalUnit(desc, "shard-1__node-0")
-	require.False(t, entered, "a unit may not start again while a teardown holds the task")
-	_, entered = p.enterLocalUnit(desc, "shard-2__node-0")
-	require.False(t, entered, "the hold is task-wide: the sweep never learns which units it touched")
+	_, refused = p.enterLocalUnit(desc, "shard-1__node-0", &Index{})
+	require.ErrorIs(t, refused, errUnitTornDown, "a unit may not start again while a teardown holds the task")
+	_, refused = p.enterLocalUnit(desc, "shard-2__node-0", &Index{})
+	require.ErrorIs(t, refused, errUnitTornDown, "the hold is task-wide: the sweep never learns which units it touched")
 
 	unseal()
-	release, entered = p.enterLocalUnit(desc, "shard-1__node-0")
-	require.True(t, entered, "once the teardown releases, work may start again")
+	release, refused = p.enterLocalUnit(desc, "shard-1__node-0", &Index{})
+	require.NoError(t, refused, "once the teardown releases, work may start again")
 	release()
 	require.Empty(t, p.sealedTasks)
 	require.Empty(t, p.liveUnits)

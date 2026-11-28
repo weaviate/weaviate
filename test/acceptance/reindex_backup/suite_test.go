@@ -16,7 +16,6 @@ package reindex_backup_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,8 +100,8 @@ func TestBackupVsReindexSuite(t *testing.T) {
 		testAlgorithmVerb(t, restURI)
 	})
 
-	t.Run("MutationGuardBlocksDeleteClassDuringInFlight", func(t *testing.T) {
-		testMutationGuardBlocksDeleteClassDuringInFlight(t, restURI)
+	t.Run("DeleteClassCancelsInFlightReindex", func(t *testing.T) {
+		testDeleteClassCancelsInFlightReindex(t, restURI)
 	})
 }
 
@@ -385,13 +384,9 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 		preTaskID, string(preTasksBytes), string(postTasksBytes))
 }
 
-// testMutationGuardBlocksDeleteClassDuringInFlight asserts that
-// DELETE /v1/schema/<class> while a reindex on `body` is STARTED is
-// rejected with a structured 400 naming the in-flight task, and that
-// DELETE succeeds once the task finishes.
-func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI string) {
+func testDeleteClassCancelsInFlightReindex(t *testing.T, restURI string) {
 	const (
-		className = "ReindexBackup_MutationGuard"
+		className = "ReindexBackup_DeleteCancels"
 		propName  = "body"
 	)
 	helper.CreateClass(t, &models.Class{
@@ -401,57 +396,31 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 		},
 		Vectorizer: "none",
 	})
-	// The test drives the final DELETE itself; defer is just a bail-out
-	// cleanup for aborted runs.
-	deletedByTest := false
-	defer func() {
-		if !deletedByTest {
-			helper.DeleteClass(t, className)
-		}
-	}()
+	defer helper.DeleteClass(t, className)
 
 	importBodies(t, className, 50_000)
-
 	taskID := submitChangeTokenization(t, restURI, className, propName, "lowercase")
-	t.Logf("change-tokenization task submitted for mutation-guard probe: %s", taskID)
+	reindexhelpers.AwaitReindexLive(t, restURI, taskID, reindexhelpers.WithTimeout(30*time.Second))
 
-	awaitIndexingState(t, restURI, className, propName)
-
-	deleteURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
-	req, err := http.NewRequest(http.MethodDelete, deleteURL, nil)
+	classURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
+	req, err := http.NewRequest(http.MethodDelete, classURL, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
+	require.Equalf(t, http.StatusOK, resp.StatusCode, "DELETE during an in-flight reindex: %s", bodyBytes)
 
-	require.Equalf(t, http.StatusBadRequest, resp.StatusCode,
-		"DELETE during in-flight reindex must be refused with 400; got %d: %s",
-		resp.StatusCode, string(bodyBytes))
-
-	bodyStr := string(bodyBytes)
-	assert.Contains(t, bodyStr, "in flight",
-		"400 body must explain that a task is in flight; got: %s", bodyStr)
-	assert.Contains(t, bodyStr, className,
-		"400 body must name the class being deleted; got: %s", bodyStr)
-
-	getURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
-	resp, err = http.Get(getURL)
+	resp, err = http.Get(classURL)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"class must survive a guard-rejected DELETE; got %d on GET", resp.StatusCode)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(120*time.Second))
-
-	req, err = http.NewRequest(http.MethodDelete, deleteURL, nil)
-	require.NoError(t, err)
-	resp, err = http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	_ = resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"post-tidied DELETE must succeed; got %d", resp.StatusCode)
-	deletedByTest = true
+	tasks, ok := reindexhelpers.TryFetchTasks(restURI)
+	require.True(t, ok)
+	for _, task := range tasks["reindex"] {
+		require.NotEqual(t, taskID, task.ID, "the deleted class's reindex task must be gone")
+	}
 }
 
 // backupAndRestoreRoundTrip creates a filesystem backup, deletes the
@@ -472,64 +441,4 @@ func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCoun
 
 	postCount := moduleshelper.GetClassCount(t, className, "")
 	assert.Equal(t, preCount, postCount, msg)
-}
-
-// awaitIndexingState polls GET /v1/schema/<class>/indexes until at
-// least one index for the named property reports status "indexing".
-// Returns without failing if the migration completes before the state
-// is observed (callers see this as a too-small fixture, not a gate
-// regression).
-func awaitIndexingState(t *testing.T, restURI, collection, property string) {
-	t.Helper()
-	// BEST-EFFORT: the transient "indexing" state legitimately may not be
-	// observable on a too-small fixture, so missing it must NOT fail the
-	// test (we only warn on the deadline). A ticker drives the poll at a
-	// 50ms interval; require.Eventually is deliberately NOT used here because
-	// it would turn a tolerable miss into a hard failure.
-	deadline := time.Now().Add(30 * time.Second)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	observe := func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
-		if err != nil {
-			return false
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		var parsed struct {
-			Properties []struct {
-				Name    string `json:"name"`
-				Indexes []struct {
-					Type   string `json:"type"`
-					Status string `json:"status"`
-				} `json:"indexes"`
-			} `json:"properties"`
-		}
-		if err := json.Unmarshal(body, &parsed); err != nil {
-			return false
-		}
-		for _, p := range parsed.Properties {
-			if p.Name != property {
-				continue
-			}
-			for _, idx := range p.Indexes {
-				if idx.Status == "indexing" {
-					t.Logf("observed indexing state for %s/%s (type=%s)", collection, property, idx.Type)
-					return true
-				}
-			}
-		}
-		return false
-	}
-	// Check once immediately, then on every tick until the deadline.
-	if observe() {
-		return
-	}
-	for time.Now().Before(deadline) {
-		<-ticker.C
-		if observe() {
-			return
-		}
-	}
-	t.Logf("warning: did not observe indexing state for %s/%s within deadline; migration may have completed too fast for the test fixture", collection, property)
 }

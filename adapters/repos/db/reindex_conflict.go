@@ -276,15 +276,11 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 
 // CheckClassMutation implements
 // [distributedtask.SchemaMutationDetector] for class-wide
-// destructive mutations (DeleteClass). Stricter than
+// DeleteClass entries proposed by binaries older than this one. Stricter than
 // CheckPropertyUpdate — any reindex task on the class (regardless of
 // which property) is a conflict, because dropping the class destroys
 // every property's bucket state at once including the in-flight
 // migration's working dirs and canonical bucket pointers.
-//
-// Class-wide blast radius: DeleteClass arriving mid-reindex is the
-// catastrophic extension of the per-property bucket↔schema inversion
-// — it destroys every property's bucket state at once.
 //
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove

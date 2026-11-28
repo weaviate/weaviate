@@ -900,9 +900,8 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 
 // TestSchemaManager_DeleteClass_MutationGuard pins the class-wide
 // guard wiring on the DeleteClass apply path
-// (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). DeleteClass mid-reindex destroys
-// every property's bucket state at once; the guard rejection must
-// fire BEFORE any class-deletion side effect.
+// (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). Unmarked entries come from
+// older binaries (CancelsInFlightTasks unset). Their refusal must fire before any side effect.
 func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	mkRequest := func(class string) *cmd.ApplyRequest {
 		return &cmd.ApplyRequest{
@@ -933,6 +932,22 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 		require.Equal(t, "C", guard.lastClass)
 	})
 
+	t.Run("a marked entry skips the guard and cascades", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("reindex task on class C is in flight")}
+		sm := newSM(guard)
+		deleter := &fakeCascadeDeleter{}
+		sm.SetDistributedTaskManager(deleter)
+		addClass(t, sm, "C")
+		sub, err := json.Marshal(cmd.DeleteClassRequest{CancelsInFlightTasks: true})
+		require.NoError(t, err)
+		req := mkRequest("C")
+		req.SubCommand = sub
+
+		require.NoError(t, sm.DeleteClass(req, true, false))
+		require.Equal(t, 0, guard.called)
+		require.Equal(t, []string{"C"}, deleter.collectionCalls)
+	})
+
 	t.Run("no guard registered → DeleteClass proceeds", func(t *testing.T) {
 		sm := newSM(nil)
 		// DeleteClass with schemaOnly=true short-circuits the db side; the
@@ -941,6 +956,29 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 		require.NoError(t, err,
 			"with no guard registered and schemaOnly=true, DeleteClass on a non-existent class is a no-op")
 	})
+}
+
+// DeleteTasksForCollection matches names case-insensitively, so DeleteClass calls it only once it removed a class.
+func TestSchemaManager_DeleteClass_CascadesOnlyARemovedClass(t *testing.T) {
+	for _, tc := range []struct {
+		name, deleted string
+		wantCascade   []string
+	}{
+		{name: "case variant", deleted: "MYCLASS"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", &recordingIndexer{}, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			deleter := &fakeCascadeDeleter{}
+			sm.SetDistributedTaskManager(deleter)
+			addClass(t, sm, "MyClass")
+
+			require.NoError(t, sm.DeleteClass(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: tc.deleted}, false, false))
+			require.Equal(t, tc.wantCascade, deleter.collectionCalls)
+			require.Equal(t, tc.wantCascade == nil, sm.schema.ClassInfo("MyClass").Exists)
+		})
+	}
 }
 
 // fakeCascadeDeleter records the target-scoped purge calls the schema FSM

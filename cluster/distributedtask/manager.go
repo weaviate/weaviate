@@ -103,8 +103,7 @@ func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, r
 
 // CheckClassMutation consults every registered
 // [SchemaMutationDetector] for class-wide destructive mutations
-// (e.g. DeleteClass). Stricter than CheckPropertyUpdate — any
-// in-flight reindex on the class blocks the mutation.
+// in DeleteClass entries from older binaries. Replaying such an entry gives the verdict it got first.
 //
 // Same RAFT-determinism contract as CheckPropertyUpdate.
 func (m *Manager) CheckClassMutation(className string) error {

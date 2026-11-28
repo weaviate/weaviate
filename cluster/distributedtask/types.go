@@ -228,9 +228,7 @@ type SchemaMutationDetector interface {
 	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
 
 	// CheckClassMutation is called under [Manager.mu] from the schema FSM's
-	// destructive class-wide apply paths (DeleteClass etc.). Stricter than
-	// CheckPropertyUpdate: any in-flight reindex on the class is a conflict,
-	// because dropping the class wipes every in-flight migration's working dirs.
+	// DeleteClass apply for entries from older binaries, to keep their verdict.
 	CheckClassMutation(className string, existingTasks []*Task) error
 
 	// Today's reindex tasks are class-scoped (their payload names a

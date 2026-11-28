@@ -478,8 +478,8 @@ func TestLocalUnitSealCountsEveryWorkerOnTheUnit(t *testing.T) {
 			p := structuralInvariantNewBareProvider()
 			var releases []func()
 			for i := 0; i < tt.hold; i++ {
-				release, entered := p.enterLocalUnit(desc, "shard-1__node-0")
-				require.True(t, entered)
+				release, refused := p.enterLocalUnit(desc, "shard-1__node-0", &Index{})
+				require.NoError(t, refused)
 				releases = append(releases, release)
 			}
 			for i := 0; i < tt.release; i++ {
@@ -579,9 +579,9 @@ func TestSealedUnitRefusesLateEntrants(t *testing.T) {
 				unseals[i]()
 			}
 
-			release, entered := p.enterLocalUnit(tt.enterDesc, tt.enterUnit)
-			require.Equal(t, tt.wantEntered, entered)
-			if entered {
+			release, refused := p.enterLocalUnit(tt.enterDesc, tt.enterUnit, &Index{})
+			require.Equal(t, tt.wantEntered, refused == nil)
+			if refused == nil {
 				release()
 			}
 
@@ -609,8 +609,8 @@ func TestASealReleaseNeverFreesASealItDoesNotHold(t *testing.T) {
 	releaseFirst()
 
 	require.Equal(t, 1, p.sealedTasks[desc][""], "the teardown holding it now still does")
-	_, entered := p.enterLocalUnit(desc, unit)
-	require.False(t, entered, "a worker must not enter a unit a teardown still holds")
+	_, refused := p.enterLocalUnit(desc, unit, &Index{})
+	require.ErrorIs(t, refused, errUnitTornDown, "a worker must not enter a unit a teardown still holds")
 }
 
 func TestADropNeverUndoesAClaimItDoesNotHold(t *testing.T) {
@@ -627,16 +627,16 @@ func TestADropNeverUndoesAClaimItDoesNotHold(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &ReindexProvider{}
 			if tt.sibling != "" {
-				releaseSibling, ok := p.enterLocalUnit(desc, tt.sibling)
-				require.True(t, ok)
+				releaseSibling, refused := p.enterLocalUnit(desc, tt.sibling, &Index{})
+				require.NoError(t, refused)
 				defer releaseSibling()
 			}
 
-			releaseFirst, ok := p.enterLocalUnit(desc, unit)
-			require.True(t, ok)
+			releaseFirst, refused := p.enterLocalUnit(desc, unit, &Index{})
+			require.NoError(t, refused)
 			releaseFirst()
-			releaseSecond, ok := p.enterLocalUnit(desc, unit)
-			require.True(t, ok)
+			releaseSecond, refused := p.enterLocalUnit(desc, unit, &Index{})
+			require.NoError(t, refused)
 			defer releaseSecond()
 
 			releaseFirst()
