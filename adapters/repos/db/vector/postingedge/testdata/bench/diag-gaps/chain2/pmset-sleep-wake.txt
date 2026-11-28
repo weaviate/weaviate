@@ -1,0 +1,5 @@
+2026-11-28 08:28:33 +0100 WakeDetails         	DriverReason:smc.70070000 - DriverDetails:                                 
+2026-11-28 08:28:33 +0100 WakeTime            	WakeTime: 0.360 sec                                                        	          
+2026-11-28 08:41:05 +0100 Wake                	DarkWake to FullWake from Deep Idle [CDNVA] : due to UserActivity Assertion Using AC (Charge:100%)           
+2026-11-28 08:41:05 +0100 WakeDetails         	DriverReason:smc.70070000 - DriverDetails:                                 
+2026-11-28 08:41:05 +0100 WakeTime            	WakeTime: 0.016 sec                                                        	          

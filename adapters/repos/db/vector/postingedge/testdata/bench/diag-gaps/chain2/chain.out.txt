@@ -1,0 +1,39 @@
+== 11:19:13 waiting for 900 s of idle (now 314 s)
+== 2026-11-28 11:29:15 idle for 916 s
+== 11:29:16 q1: TestDiagQueries PE_EF=24 PE_QTHREADS=1 PE_CALLERS=0 PE_SECONDS=90 (idle 917 s)
+q1 exit 0
+== 11:30:58 q8: TestDiagQueries PE_EF=24 PE_QTHREADS=8 PE_CALLERS=0 PE_SECONDS=90 (idle 1018 s)
+q8 exit 0
+== 11:32:38 i8: TestDiagQueries PE_EF=24 PE_QTHREADS=0 PE_CALLERS=8 PE_SECONDS=90 PE_NVECTORS=60000 (idle 1118 s)
+i8 exit 0
+== 11:34:27 qi1: TestDiagQueries PE_EF=24 PE_QTHREADS=1 PE_CALLERS=8 PE_SECONDS=90 PE_NVECTORS=60000 (idle 1228 s)
+qi1 exit 0
+== 11:36:19 qi8: TestDiagQueries PE_EF=24 PE_QTHREADS=8 PE_CALLERS=8 PE_SECONDS=90 PE_NVECTORS=60000 (idle 1339 s)
+qi8 exit 0
+== 11:38:11 procs10-a: TestDiagInserts GOMAXPROCS=10 PE_CALLERBUDGET=20 PE_CALLERS=8 PE_N=8000 (idle 1451 s)
+procs10-a exit 0
+== 11:38:55 procs20-a: TestDiagInserts GOMAXPROCS=20 PE_CALLERBUDGET=20 PE_CALLERS=8 PE_N=8000 (idle 1495 s)
+procs20-a exit 0
+== 11:39:39 procs40-a: TestDiagInserts GOMAXPROCS=40 PE_CALLERBUDGET=20 PE_CALLERS=8 PE_N=8000 (idle 1539 s)
+procs40-a exit 0
+== 11:40:22 procs10-b: TestDiagInserts GOMAXPROCS=10 PE_CALLERBUDGET=20 PE_CALLERS=8 PE_N=8000 (idle 1583 s)
+procs10-b exit 0
+== 11:41:06 procs20-b: TestDiagInserts GOMAXPROCS=20 PE_CALLERBUDGET=20 PE_CALLERS=8 PE_N=8000 (idle 1627 s)
+procs20-b exit 0
+== 11:41:50 procs40-b: TestDiagInserts GOMAXPROCS=40 PE_CALLERBUDGET=20 PE_CALLERS=8 PE_N=8000 (idle 1670 s)
+procs40-b exit 0
+== 11:42:34 degree: TestDiagDegree PE_DEGREE=1 (idle 1714 s)
+degree exit 0
+== 11:42:45 search-marks-a: TestDiagSearch PE_THREADS=1 PE_N=8000 (idle 1725 s)
+search-marks-a exit 0
+== 11:44:55 search-nomarks-a: TestDiagSearch PE_THREADS=1 PE_N=8000 PE_NODELETED=1 (idle 1855 s)
+search-nomarks-a exit 0
+== 11:46:50 search-marks-b: TestDiagSearch PE_THREADS=1 PE_N=8000 (idle 1970 s)
+search-marks-b exit 0
+== 11:49:00 search-nomarks-b: TestDiagSearch PE_THREADS=1 PE_N=8000 PE_NODELETED=1 (idle 2100 s)
+search-nomarks-b exit 0
+== 11:50:58 trace-half: TestDiagInserts PE_CALLERS=8 PE_N=16000 PE_TRACE=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/gaps2/trace-half/trace.out PE_TRACE_SECONDS=600 (idle 2219 s)
+trace-half exit 0
+== 11:52:17 trace-half-100k (idle 2297 s)
+trace-half-100k exit 0
+== 2026-11-28 11:52:51 done (idle 2332 s)

@@ -2784,6 +2784,70 @@ La medida (`TestDiagReads`, nuevo): lecturas de 3 072 B en sitios al azar de un 
 
 **Duración estimada:** unos 30 minutos.
 
+#### Huecos del diagnóstico: lo que dio la enmienda 1, y enmienda 2 (28 de noviembre a las 11:58, antes de ejecutar la enmienda 2)
+
+**La cadena de la enmienda 1 corrió entera y limpia,** de 11:29:15 a 11:52:51: 916 s sin teclado ni trackpad al empezar y 2 332 al acabar, sin entradas de sueño. **Pero sus pasadas de queries, de inserts y de traza a 10M no miden lo que tenían que medir:** cada una corrió con una reorganización del índice en segundo plano.
+
+**Qué pasó** (*error mío*: no lo previ).
+- **Con sitio en el disco, el clon del 10M empieza a reorganizarse solo al abrirse.** El índice quedó con su layout a 2 561 320 vectores; en reposo la regla lo da por debido al doblar, y nada más abrir, antes del primer insert, el índice está en reposo. Anoche no había sitio y la pasada no arrancaba; hoy hay 94 GiB.
+  - **Se ve en lo que escribe y lee el proceso:** en la pasada de queries solas con 1 hilo, 43 MB por segundo escritos durante toda la pasada y 26.9 GB leídos en 98 s. En la misma pasada de la primera cadena, sin sitio, 0 MB por segundo tras el arranque y 2.5 GB leídos.
+  - En las pasadas de inserts, de 114 a 130 KB por insert son vectores de la generación nueva.
+- **Además, el store de cada clon compacta 5.4 a 5.7 GB en sus primeros 30 s,** al arrancar sus ciclos: lo que el crecimiento dejó sin compactar al cerrarse. **Esto también estaba en las pasadas de anoche:** los 264 KB de compactación por insert del diagnóstico a 10M son esa compactación de arranque repartida entre los 20 000 inserts de la pasada, no lo que compacta un índice que lleva tiempo abierto. Corrijo lo que escribí entonces, que la compactación es la mayor parte de lo que se escribe a 10M en una pasada: lo es, y es del arranque.
+- **Lo que no toca:** el grado medio y la búsqueda con y sin marcas abren el índice sin ciclos ni mantenimiento. Valen.
+
+**Lo que vale de la enmienda 1.**
+- **El grado medio:**
+
+| | 100k | 10M |
+|---|---:|---:|
+| aristas por vector | 7.93 | 11.48 |
+| mediana y percentil 90 | 8 y 14 | 12 y 16 |
+| el máximo | 16 | 16 |
+| miembros sin ninguna arista | 5.6 % | 1.3 % |
+| extremos distintos a los que lleva un posting | 979 | 1 962 |
+| miembros por posting | 243 | 248 |
+
+  - Ninguna arista lleva a un miembro del mismo posting, en ninguno de los dos.
+- **La marca de borrado explica lo que se encarece puntuar un miembro.** La búsqueda de un insert con 1 hilo, con la tabla de marcas y sin ella, dos pasadas de cada una:
+
+| | 100k, con la tabla | 100k, sin ella | 10M, con la tabla | 10M, sin ella |
+|---|---:|---:|---:|---:|
+| recorrido, ms por plan | 1.189 y 1.178 | 1.157 y 1.139 | 9.715 y 9.701 | 8.241 y 8.255 |
+| el plan entero, ms | 2.685 y 2.708 | 2.666 y 2.691 | 14.958 y 14.951 | 13.387 y 13.413 |
+| miembros por plan | 9 269 | 9 269 | 28 409 | 28 409 |
+
+  - **A 10M quitarla ahorra 1.46 ms por plan, 51.5 ns por miembro:** el 15 % del recorrido y el 10 % del plan. Esperaba entre 1.0 y 1.5 ms. El diagnóstico medía que puntuar un miembro pasa de 25.8 a 73.3 ns, 47.5 más: es esa lectura.
+  - **A 100k ahorra 0.035 ms,** 3.8 ns por miembro, el 3 % del recorrido.
+  - Las cargas y los miembros son idénticos con y sin ella: los índices no tienen ningún borrado.
+
+**Lo que no vale, y doy solo como lo que es:** con una reorganización al lado y la compactación de arranque dentro.
+
+| 10M, a 0.95 | p50, ms | p99, ms | máximo, ms | inserts/s |
+|---|---:|---:|---:|---:|
+| queries solas, 1 hilo | 1.84 | 8.93 | 38 | |
+| queries solas, 8 hilos | 2.60 | 11.79 | 45 | |
+| inserts solos | | | | 231 |
+| 1 hilo de queries y 8 llamadores | 3.70 | 31.92 | 411 | 232 |
+| 8 hilos de queries y 8 llamadores | 3.77 | 29.91 | 372 | 147 |
+
+| `GOMAXPROCS` | inserts/s | rescore, ms por insert | recorrido, ms | búsqueda del plan, ms | cores | latencia del planificador, ms por insert |
+|---:|---|---|---|---|---:|---|
+| 10 | 237.9 y 237.2 | 4.19 y 4.32 | 12.36 y 12.35 | 21.63 y 21.78 | 5.40 | 9.03 y 8.88 |
+| 20 | 239.9 y 238.8 | 3.01 y 3.09 | 13.20 y 13.19 | 21.44 y 21.45 | 5.78 | 4.50 y 4.52 |
+| 40 | 236.9 y 235.0 | 2.67 y 2.69 | 13.45 y 13.51 | 21.48 y 21.60 | 5.96 | 3.07 y 3.12 |
+
+- **El rescore de la línea base, 4.2 ms, no es el de anoche, 7.6 a 9.6.** Lo leo como efecto de la reorganización, sin haberlo medido aparte: lee el fichero de vectores entero y lo deja en la caché.
+- **Dentro de la cadena la comparación es justa:** las seis pasadas tenían lo mismo al lado. Con 20 procesadores el rescore baja un 28 % y con 40 un 37 %; el recorrido sube un 7 y un 9 %; la búsqueda del plan y los inserts por segundo no cambian. No lo doy por resultado hasta repetirlo sin la reorganización.
+
+**Enmienda 2** (*mía*): las mismas pasadas de 10M, sobre clones, con dos cambios.
+- **Sin mantenimiento del índice en segundo plano** (`PE_NOMAINTENANCE`): no hay reorganización al lado. Es el estado en que el usuario pidió medir, antes de reorganizar. Tampoco corre nada más del mantenimiento, que sin borrados no tiene nada debido.
+- **El reloj arranca con el store asentado** (`PE_SETTLE`): cuando el número de segmentos de sus buckets lleva 15 s sin cambiar. La compactación de arranque queda fuera.
+- **Qué se repite:** las cinco pasadas de queries, las seis de `GOMAXPROCS` y la traza de la segunda mitad. **Y una traza más, desde el primer insert y sin esperar al store,** para tener dentro la compactación de arranque y saber cuánta CPU es compactar esos 5.4 GB.
+- **Espero** (*mío*): el rescore de la línea base otra vez entre 7.5 y 9.5 ms; con 20 procesadores, un 25 a 35 % menos; inserts por segundo iguales con 10, 20 y 40. Queries solas, p50 de 1.7 a 1.9 ms y p99 de 8 a 9; junto a inserts, p99 de 20 a 35 ms.
+- **La regla de lectura de `GOMAXPROCS` es la de la enmienda 1:** confirmada si el rescore baja un 40 % o más.
+
+**Duración estimada:** unos 40 minutos.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

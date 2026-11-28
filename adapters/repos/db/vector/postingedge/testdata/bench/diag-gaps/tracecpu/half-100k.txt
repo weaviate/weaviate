@@ -1,0 +1,26 @@
+gaps2/trace-half-100k/trace.out: 22677373 events over 16.397 s; the goroutines ran 112.547 s in all, 6.86 cores
+  callers: the plans in line, and applying                      204 goroutines  ran   42.452 s   37.7 %   2.59 cores | in system calls    0.369 s
+      of which marked GC mark assist                              0.073 s    0.1 % of all
+      of which marked stop-the-world (GC sweep termination)       0.003 s    0.0 % of all
+      of which marked stop-the-world (read mem stats)             0.001 s    0.0 % of all
+      of which marked stop-the-world (start trace)                0.000 s    0.0 % of all
+  plans: rows from the store (the goroutines of a round)    1389544 goroutines  ran   41.574 s   36.9 %   2.54 cores | in system calls    0.000 s
+      of which marked GC mark assist                              0.326 s    0.3 % of all
+      of which marked stop-the-world (GC mark termination)        0.000 s    0.0 % of all
+      of which marked stop-the-world (GC sweep termination)       0.026 s    0.0 % of all
+  plans: exact vectors (the goroutines of a rescore)         400000 goroutines  ran   13.347 s   11.9 %   0.81 cores | in system calls    9.282 s
+      of which marked GC mark assist                              0.096 s    0.1 % of all
+      of which marked stop-the-world (GC sweep termination)       0.002 s    0.0 % of all
+  collector: mark workers                                        10 goroutines  ran   10.659 s    9.5 %   0.65 cores | in system calls    0.000 s
+      of which marked stop-the-world (GC mark termination)        0.028 s    0.0 % of all
+  collector: sweep in the background                              1 goroutines  ran    3.905 s    3.5 %   0.24 cores | in system calls    0.000 s
+  collector: scavenger                                            1 goroutines  ran    0.475 s    0.4 %   0.03 cores | in system calls    0.000 s
+  store: flush of a memtable                                      1 goroutines  ran    0.089 s    0.1 %   0.01 cores | in system calls    0.081 s
+  store: compaction                                               2 goroutines  ran    0.040 s    0.0 %   0.00 cores | in system calls    0.010 s
+  index, other                                                    2 goroutines  ran    0.006 s    0.0 %   0.00 cores | in system calls    0.021 s
+  store cycles, not seen at work                                  6 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.001 s
+  other: runtime.runFinalizers                                    1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  other: runtime.updateMaxProcsGoroutine                          1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  other: runtime.runCleanups                                      1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  other: runtime.forcegchelper                                    1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  harness: the flush of every round, and the rest                 1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s

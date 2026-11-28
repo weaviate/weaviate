@@ -1,0 +1,75 @@
+#!/bin/bash
+# The gaps of the diagnostic of the inserts, amendment 2 (bench-report.md of
+# feat/posting-edge-index, "Huecos del diagnóstico, enmienda 2", pre-registered
+# on 2026-11-28): the passes at 10M of amendment 1 again, with no maintenance
+# of the index in the background (PE_NOMAINTENANCE: a pass of the layout ran
+# next to every pass of amendment 1) and with the clock started once the
+# segments of the store have stood still for 15 s (PE_SETTLE: the store of a
+# clone compacts 5.4 GB when its cycles start). Over clones of the 10M index
+# in /Volumes/v40bench/grow10m, removed after each pass; the index itself is
+# never opened. The binary is built before (gaps3.test); nothing here builds.
+# Timed: marker, idle wait, caffeinate.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+X=$S/diag
+G=$X/gaps3
+V=/Volumes/v40bench/grow10m
+D=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+P=adapters/repos/db/vector/postingedge
+mkdir -p $G $V/clones
+
+printf 'the gaps of the diagnostic, amendment 2 (diag/gaps3.sh), timed, since %s for about forty minutes; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+clear_clones() {
+  find /Volumes/v40bench/grow10m/clones -type d -name index -prune -exec rm -rf {} +
+}
+
+# run <name> <test> [NAME=value ...]
+run() {
+  local name=$1 test=$2
+  shift 2
+  local C=$G/$name
+  local free=$(df -k $V | tail -n 1 | awk '{print int($4/1048576)}')
+  if [ "$free" -lt 10 ]; then
+    date "+== %H:%M:%S $name NOT RUN: $free GiB free, under 10"
+    return
+  fi
+  mkdir -p $C $V/clones/$name
+  cp -c -R $V/index $V/clones/$name/index || exit 3
+  find $V/clones/$name/index/lsm -type f -exec cat {} + > /dev/null
+  date "+== %H:%M:%S $name: $test $* (idle $(hid_idle) s)"
+  (cd $X/src/$P && exec env PE_DATASET=$D PE_DIR=$V/clones/$name/index PE_OUT=$C/result.json "$@" \
+    $X/gaps3.test -test.run "^$test\$" -test.v -test.timeout 0 > $C/run.log 2>&1) &
+  local pid=$!
+  python3 -I -B $X/monitor.py $pid $C/monitor.jsonl 2 > $C/monitor.err 2>&1 &
+  wait $pid
+  echo "$name exit $?"
+  wait
+  clear_clones
+}
+
+Q="PE_NOMAINTENANCE=1 PE_SETTLE=15"
+run q1 TestDiagQueries $Q PE_EF=24 PE_QTHREADS=1 PE_CALLERS=0 PE_SECONDS=90
+run q8 TestDiagQueries $Q PE_EF=24 PE_QTHREADS=8 PE_CALLERS=0 PE_SECONDS=90
+run i8 TestDiagQueries $Q PE_EF=24 PE_QTHREADS=0 PE_CALLERS=8 PE_SECONDS=90 PE_NVECTORS=60000
+run qi1 TestDiagQueries $Q PE_EF=24 PE_QTHREADS=1 PE_CALLERS=8 PE_SECONDS=90 PE_NVECTORS=60000
+run qi8 TestDiagQueries $Q PE_EF=24 PE_QTHREADS=8 PE_CALLERS=8 PE_SECONDS=90 PE_NVECTORS=60000
+for round in a b; do
+  for procs in 10 20 40; do
+    run procs$procs-$round TestDiagInserts $Q GOMAXPROCS=$procs PE_CALLERBUDGET=20 PE_CALLERS=8 PE_N=8000
+  done
+done
+# The CPU by goroutine: the second half of a pass with the store settled, and
+# a pass from its first insert with the store compacting what the clone
+# brings.
+run trace-half TestDiagInserts $Q PE_CALLERS=8 PE_N=16000 PE_TRACE=$G/trace-half/trace.out PE_TRACE_SECONDS=600
+run trace-start TestDiagInserts PE_NOMAINTENANCE=1 PE_CALLERS=8 PE_N=8000 PE_TRACE=$G/trace-start/trace.out PE_TRACE_FROM=0 PE_TRACE_SECONDS=600
+
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $G/end.txt
+pmset -g log 2>/dev/null | grep -E '^[0-9-]+ [0-9:]+ \+[0-9]+ (Sleep|Wake|DarkWake)' | tail -n 5 > $G/pmset-sleep-wake.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

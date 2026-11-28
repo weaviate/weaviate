@@ -1,0 +1,4 @@
+=== RUN   TestDiagDegree
+    bench_diag_gaps_test.go:552: 40284 postings, 10000000 members, 114809099 edges: 11.48 edges a vector (most 16), 0.0 % of them to the same posting, 1962 distinct endpoints a posting
+--- PASS: TestDiagDegree (9.80s)
+PASS

@@ -361,27 +361,31 @@ type diagStretch struct {
 }
 
 type diagResult struct {
-	Dir         string        `json:"dir"`
-	Dataset     string        `json:"dataset"`
-	Kind        string        `json:"kind"`
-	Rows        int           `json:"rows"`
-	Seed        uint64        `json:"seed"`
-	N           int           `json:"n"`
-	Callers     int           `json:"callers"`
-	Every       int           `json:"every"`
-	Branch      bool          `json:"diagnosticBranch"`
-	Clocks      bool          `json:"clocksOn"`
-	Work        bool          `json:"planWork"`
-	Compaction  bool          `json:"compaction"`
-	CacheMode   string        `json:"cacheMode"`
-	Procs       int           `json:"gomaxprocs"`
-	Pid         int           `json:"pid"`
-	OpenSeconds float64       `json:"openSeconds"`
-	Meta        growMeta      `json:"metaAtStart"`
-	Generation  int           `json:"generation"`
-	Traced      string        `json:"tracedFrom,omitempty"`
-	Stretches   []diagStretch `json:"stretches"`
-	Done        bool          `json:"done"`
+	Dir         string   `json:"dir"`
+	Dataset     string   `json:"dataset"`
+	Kind        string   `json:"kind"`
+	Rows        int      `json:"rows"`
+	Seed        uint64   `json:"seed"`
+	N           int      `json:"n"`
+	Callers     int      `json:"callers"`
+	Every       int      `json:"every"`
+	Branch      bool     `json:"diagnosticBranch"`
+	Clocks      bool     `json:"clocksOn"`
+	Work        bool     `json:"planWork"`
+	Compaction  bool     `json:"compaction"`
+	CacheMode   string   `json:"cacheMode"`
+	Procs       int      `json:"gomaxprocs"`
+	Pid         int      `json:"pid"`
+	OpenSeconds float64  `json:"openSeconds"`
+	Meta        growMeta `json:"metaAtStart"`
+	Generation  int      `json:"generation"`
+	Traced      string   `json:"tracedFrom,omitempty"`
+	// NoMaintenance and SettleSecs: PE_NOMAINTENANCE and the wait of
+	// PE_SETTLE before the clock starts.
+	NoMaintenance bool          `json:"noMaintenance"`
+	SettleSecs    float64       `json:"settleSeconds"`
+	Stretches     []diagStretch `json:"stretches"`
+	Done          bool          `json:"done"`
 }
 
 func TestDiagInserts(t *testing.T) {
@@ -412,11 +416,15 @@ func TestDiagInserts(t *testing.T) {
 	openedAt := time.Now()
 	st := openDiagStore(t, dir, logger, compaction)
 	cfg := st.config(dir, logger, 0)
+	noMaintenance := diagNoMaintenance(&cfg)
 	clocks, hooksOff := diagHooks(&cfg, clocksOn, work)
 	defer hooksOff()
 	p, err := Open(cfg, uc, st.store)
 	require.NoError(t, err)
 	opened := time.Since(openedAt)
+	settled := diagSettle(t, dir)
+	// PE_TRACE_FROM: the insert the trace starts at, the middle without it.
+	traceFrom := int(nightEnvInt(t, "PE_TRACE_FROM", int64(n/2)))
 	shut := func() {
 		if p == nil {
 			return
@@ -435,6 +443,7 @@ func TestDiagInserts(t *testing.T) {
 		Dir: dir, Dataset: datasetDir, Kind: kind, Rows: train.rows, Seed: seed, N: n, Callers: callers, Every: every,
 		Branch: diagBranch, Clocks: clocksOn && diagBranch, Work: work && diagBranch, Compaction: compaction, CacheMode: uc.RQ.CacheMode, Procs: runtime.GOMAXPROCS(0), Pid: os.Getpid(),
 		OpenSeconds: opened.Seconds(), Meta: p.g.meta, Generation: int(p.g.meta.VectorGen),
+		NoMaintenance: noMaintenance, SettleSecs: settled,
 	}
 	p.mu.RUnlock()
 	t.Logf("opened in %s: %d vectors, %d postings given out; %d %s vectors with %d callers",
@@ -497,7 +506,7 @@ func TestDiagInserts(t *testing.T) {
 	next := every
 	for at := 0; at < n; {
 		to := min(at+batch*callers, n)
-		if tracePath != "" && traceFile == nil && at >= n/2 {
+		if tracePath != "" && traceFile == nil && at >= traceFrom {
 			traceFile, err = os.Create(tracePath)
 			require.NoError(t, err)
 			require.NoError(t, trace.Start(traceFile))

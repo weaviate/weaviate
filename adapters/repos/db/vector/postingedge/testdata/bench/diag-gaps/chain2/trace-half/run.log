@@ -1,0 +1,5 @@
+=== RUN   TestDiagInserts
+    bench_diag_test.go:440: opened in 5.803s: 10000000 vectors, 80525 postings given out; 16000 repeated vectors with 8 callers
+    bench_diag_test.go:531: 16000 inserts in 1m7.257s, 237.9 a second: 1m7.234s adding and 12ms in the flush of every round
+--- PASS: TestDiagInserts (76.25s)
+PASS

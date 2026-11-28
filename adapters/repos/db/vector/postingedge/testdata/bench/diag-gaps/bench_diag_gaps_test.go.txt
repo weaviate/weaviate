@@ -56,6 +56,49 @@ func diagCallerCtx(t *testing.T, ctx context.Context) context.Context {
 	return ctx
 }
 
+// diagNoMaintenance has an index about to open do none of its maintenance
+// in the background, with PE_NOMAINTENANCE: over the 10M index, which is not
+// laid out, a pass of the layout starts as soon as it opens with room on the
+// disk, and runs next to whatever is measured.
+func diagNoMaintenance(cfg *PersistentConfig) bool {
+	if os.Getenv("PE_NOMAINTENANCE") == "" {
+		return false
+	}
+	cfg.noMaintenance = true
+	return true
+}
+
+// diagSettle waits, with PE_SETTLE, until the segments of the store under
+// dir have stood as they are for that many seconds, PE_SETTLEMAX (300) at
+// most: the store of a clone compacts what the growth left when its cycles
+// start. It tells how long it waited.
+func diagSettle(t *testing.T, dir string) float64 {
+	quiet := time.Duration(nightEnvInt(t, "PE_SETTLE", 0)) * time.Second
+	if quiet <= 0 {
+		return 0
+	}
+	longest := time.Duration(nightEnvInt(t, "PE_SETTLEMAX", 300)) * time.Second
+	begin := time.Now()
+	last, err := diagSegments(dir)
+	require.NoError(t, err)
+	stood := time.Now()
+	for time.Since(begin) < longest && time.Since(stood) < quiet {
+		time.Sleep(time.Second)
+		now, err := diagSegments(dir)
+		require.NoError(t, err)
+		same := len(now) == len(last)
+		for bucket, count := range now {
+			if last[bucket] != count {
+				same = false
+			}
+		}
+		if !same {
+			last, stood = now, time.Now()
+		}
+	}
+	return time.Since(begin).Seconds()
+}
+
 // diagPercentiles is the latencies of a set of durations, in ms.
 type diagPercentiles struct {
 	N    int     `json:"n"`
@@ -269,10 +312,12 @@ func TestDiagQueries(t *testing.T) {
 	uc.EF = ef
 	st := openDiagStore(t, dir, logger, true)
 	cfg := st.config(dir, logger, 0)
+	noMaintenance := diagNoMaintenance(&cfg)
 	clocks, hooksOff := diagHooks(&cfg, true, false)
 	defer hooksOff()
 	p, err := Open(cfg, uc, st.store)
 	require.NoError(t, err)
+	settled := diagSettle(t, dir)
 	shut := func() {
 		if p == nil {
 			return
@@ -434,6 +479,7 @@ func TestDiagQueries(t *testing.T) {
 	result := map[string]any{
 		"dir": dir, "dataset": datasetDir, "rows": train.rows, "cacheMode": uc.RQ.CacheMode, "meta": meta,
 		"ef": ef, "k": k, "queryThreads": queryThreads, "callers": callers, "seconds": took.Seconds(),
+		"noMaintenance": noMaintenance, "settleSeconds": settled,
 		"gomaxprocs": runtime.GOMAXPROCS(0), "pid": os.Getpid(),
 		"queries": len(totals), "qps": float64(len(totals)) / took.Seconds(),
 		"latency": diagPercentilesOf(totals), "lockWait": diagPercentilesOf(waits), "search": diagPercentilesOf(searches),

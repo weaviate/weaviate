@@ -1,0 +1,4 @@
+=== RUN   TestDiagQueries
+    bench_diag_gaps_test.go:453: 8 query threads, 8 callers inserting, 1m32s: 130591 queries, p50 3.774 ms, p99 29.914, max 372.2 | the wait for the index: p50 0.000 ms, p99 18.135, max 359.5, 1872 over 1 ms | 13600 inserted in 92.5 s
+--- PASS: TestDiagQueries (108.56s)
+PASS
