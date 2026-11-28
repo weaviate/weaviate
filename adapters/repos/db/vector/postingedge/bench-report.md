@@ -3012,6 +3012,57 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 
 **Duración estimada:** una hora y media de escribir el simulador; después, unos 25 minutos de crecer el índice de 1M, 10 de la construcción en lote, 45 de la simulación a 1M y hora y media a 10M.
 
+#### El cerrojo del índice retenido 355 ms a 10M: qué lo retuvo según el código y lo ya medido, y la medida que lo confirma (pre-registro, 28 de noviembre a las 13:39, sin compilar ni correr nada: la cadena de la simulación sigue)
+
+**El encargo** (del usuario): antes de congelar la base, encontrar qué retuvo el cerrojo del índice 355 ms a 10M (split, reorganización, volcado de cambios pendientes u otra cosa) y cada cuánto ocurre; si es un paso de mantenimiento, proponer cómo trocearlo; sin interrumpir la cadena de la simulación.
+
+**Respuesta corta, con lo que ya había archivado.** Es el **volcado de cambios pendientes de las aristas**: la regla del presupuesto (`capPending`). Cuando lo que espera en memoria pasa de 128 MB, **un solo insert** escribe enteras las filas de aristas de los postings con más cambios esperando hasta bajar a nueve décimos del presupuesto: 2 145 filas de golpe a 10M, dentro del cerrojo, unos 400 ms. Ocurre **cada 9 300 inserts, cada 39 s con 8 llamadores**, desde que el índice pasa de 5.5M de vectores; a 1M no ocurre nunca. No es el split, ni la reorganización, ni el volcado del diario. Falta verlo retención a retención, que es la medida de abajo.
+
+**Quién toma el cerrojo para escribir** (leído en el código de `m2`).
+- **Quien aplica un lote** (`applyBatch`): todo el lote, un paso del diario. Dentro, por insert: la fila del miembro, sus aristas, las inversas (lee las distancias de las aristas de cada vecino), el split si el posting pasa de 360, y `settle`, que escribe filas de aristas enteras por dos reglas: las de los postings que el insert tocó cuando juntan 64 cambios, y **las que haga falta por presupuesto**.
+- **El final de un paso del diario:** si el diario pasa de 64 MB, vuelca (`sync`) dentro del cerrojo: el log del grafo de centroides, los WAL de los buckets, el meta, y vacía el diario.
+- **Dar sitio a los doc ids** (`extend`, desde `admit`): cuando llega un doc id mayor que el sitio que hay, copia todas las tablas por doc id (86 B por doc id de sitio a 768 dimensiones) con un cuarto más.
+- **La reorganización:** solo su paso final (`finish`). **Limpieza y refresco:** sus pasos de escritura; sin borrados no corren. **La fusión:** solo para pedirle al almacén que compacte.
+- `Flush` no lo toma: solo el de los escritores.
+
+**Lo que descarta y lo que señala lo ya medido** (pasadas de inserts a 10M de las cadenas 2 y 3 de los huecos, por tramos de 1 600 y 2 400 inserts; el crecimiento de 10M).
+- **Las partes suman:** en cada tramo, miembro + inversas + split + filas + diario + entrega al almacén + volcados dan entre el 98.9 y el 99.9 % del tiempo que el índice estuvo tomado. No hay una parte sin reloj.
+- **El volcado del diario, no:** 0.5 a 1.0 ms cada uno (el meta 0.4). El diario crece 1.5 KB por insert: sin nadie que lo vacíe pasaría de 64 MB cada 42 000 inserts.
+- **La reorganización, no:** la cadena 3 corrió sin mantenimiento y la espera máxima fue la misma (351 y 349 ms; 407 y 360 con la reorganización al lado).
+- **`extend`, no en esas pasadas:** los doc ids nuevos (desde 10 000 000) caben en el sitio que había (12 499 156). Es, eso sí, el otro paso que crece con el índice: lo cronometro abajo.
+- **El split y las inversas hacen las retenciones corrientes:** un lote de unos 55 planes retiene el índice 9 a 37 ms de media según el tramo. Las inversas van de 0.05 a 0.51 ms por insert (lecturas de las distancias de los vecinos, frías en un clon) y un split de 17 a 45 ms (9.9 ms en el crecimiento), uno cada 248 inserts. De ahí el p99 de 10 a 23 ms y el p99.9 de 49 a 58 ms de la espera.
+- **El presupuesto, sí.** En las dos pasadas largas (16 000 inserts), el tramo 5 (inserts 8 000 a 10 400) tiene lo que ningún otro:
+
+| tramo 5 de la pasada larga | cadena 2 | cadena 3 | un tramo sin el evento |
+| --- | --- | --- | --- |
+| filas de aristas escritas por presupuesto | 2 145 | 2 145 | 0 |
+| filas leídas y escritas | 30.5 y 31.1 MB | 30.5 y 31.1 MB | 0 y 0.1 a 0.2 MB |
+| tiempo en esas filas | 119 ms | 110 ms | 0.2 a 0.3 ms |
+| el diario: bytes y tiempo | 71.2 MB, 105 ms | 71.2 MB, 122 ms | 2.3 a 3.9 MB, 1.3 a 2.4 ms |
+| entrega al almacén | 224 ms | 230 ms | 25 a 51 ms |
+| volcados (el diario pasa de 64 MB) | 3.5 ms | 3.4 ms | 1.1 a 2.4 ms |
+
+  Quitando lo de un tramo corriente: **unos 115 + 110 + 185 + 2 = 410 ms que caen en un insert**, porque la regla baja de 128 a 115.2 MB de una vez. El diario lleva 67 MB para 31 MB de filas porque una fila se reemplaza borrando su valor anterior, que el diario lleva entero, y añadiendo el nuevo.
+- **Cada cuánto.** En el crecimiento de 10M el presupuesto se alcanza por primera vez con 5.5M de vectores (125.9 MB esperando, de 21 729 postings). Desde ahí, 751 893 filas por presupuesto en 4.38M de inserts: unos 350 eventos, uno cada 12 500 inserts. En los últimos 675 000 inserts, 0.230 filas por insert, **un evento cada 9 300 inserts, cada 39 s** a 236 inserts por segundo, y el 96.2 % de las filas de aristas que se escriben son por presupuesto: a ese tamaño los cambios se reparten entre 37 000 postings y casi ninguno junta 64. A 1M lo que espera llega a 21.5 MB y no hay ni una fila por presupuesto.
+- **Por qué salía en todas las pasadas con llamadores:** el crecimiento acabó justo tras un evento, así que todo clon abre con 116.1 MB esperando y el primer evento le llega a los 9 000 inserts. Las pasadas de 8 000 inserts no llegan; las de queries junto a inserts hicieron entre 10 400 y 21 600 y todas tienen su espera máxima entre 349 y 407 ms.
+
+**Lo que no sé todavía.** Los contadores por tramo no separan una retención de otra: que los 410 ms sean una sola retención es una cuenta, no una medida. Tampoco sé cuánto dura la más larga de las corrientes (un lote con dos splits en frío), ni cuánto tarda `extend` a 10M.
+
+**La medida** (diagnóstico: solo medir; rama de diagnóstico sobre `m2`, clones del 10M abiertos sin mantenimiento y tras 15 s, como la cadena 3).
+- **Qué registra:** cada vez que se toma el cerrojo para escribir: quién, cuándo, cuánto, y de un lote sus planes, sus partes (miembro, inversas, split, filas, diario, entrega, volcado), las filas por presupuesto y cada split con las suyas (leer sus filas, leer los 361 vectores exactos uno a uno, el 2-means, escribir, el grafo de centroides). De las queries, las que esperaron más de 5 ms con su hora, para casar cada espera con su retención.
+- **Pasadas:** (1) 10M, 1 hilo de queries a 0.95 con 8 llamadores, 180 s: caben el evento de los 9 000 inserts y el siguiente. (2) 100k, lo mismo 60 s: la composición sin presupuesto. (3) `extend` cronometrado dos veces seguidas a 100k, 1M (dbpedia) y 10M.
+- **Espero** (*mío*): en (1) dos retenciones de más de 300 ms, las dos con unas 2 100 filas por presupuesto, y las esperas largas de las queries dentro de ellas; ninguna otra retención de más de 100 ms; `extend` a 10M entre 300 y 600 ms.
+- **Regla** (*mía*): si la retención del evento no llega a 200 ms, o la espera máxima cae fuera de una retención con filas por presupuesto, la causa es otra: lo digo con lo que enseñe el registro, sin más pasadas que no estén aquí.
+- **No comparable:** un clon recién abierto lee en frío filas y vectores que en un proceso con horas de marcha están en memoria; el evento del crecimiento lee las mismas filas más calientes. Lo que se compara entre sí son las retenciones de una misma pasada.
+
+**Cómo trocearlo** (propuesta; nada cambia en la base sin el visto bueno del usuario). Una fila por presupuesto cuesta 0.19 ms (0.05 leerla y escribirla, 0.05 el diario, 0.09 la entrega), y al ritmo de hoy un lote de 55 planes debe 13.
+1. **Una cuota por lote en vez de un escalón** (lo mínimo, dentro de `capPending`): mientras lo que espera pase del presupuesto, cada lote escribe como mucho 16 filas, las de más cambios. La retención de un lote sube unos 2.5 ms (de 20–26 a 23–29 ms) y desaparece la de 400 ms. Lo que espera pasa del presupuesto como mucho en lo que añade un lote.
+2. **Fuera del lote:** un paso propio que toma el cerrojo por grupos de 16 filas, cada grupo un paso del diario, con las queries entrando entre grupo y grupo. El mismo trabajo, sin alargar los lotes.
+3. **Preparar fuera del cerrojo:** leer la fila y juntarle lo que espera con el cerrojo de lectura; con el de escritura solo comprobar que el posting no cambió y escribir. Saca de la parte exclusiva la lectura.
+4. **`extend`:** copiar las tablas con el cerrojo de los escritores y el de lectura, y cambiarlas con el de escritura, que queda en microsegundos; o tablas por páginas, que crecen sin copia.
+- **Aparte, en el almacén:** que reemplazar una fila no lleve al diario su valor anterior entero quita la mitad de los 67 MB y de su entrega. Va con la propuesta del almacén bajo los postings.
+- **Cómo se mediría cada uno:** las pasadas de queries junto a 8 llamadores a 10M, antes y después: p99, p99.9 y máximo de la espera, ritmo de inserts, y el pico de lo que espera frente al presupuesto.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
