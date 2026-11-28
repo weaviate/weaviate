@@ -52,6 +52,15 @@ func TestMergePropsMasked(t *testing.T) {
 		assert.Equal(t, "field", merged[0].Tokenization, "nil mask must replace Tokenization")
 	})
 
+	t.Run("the old property, which readers may hold, is left unchanged", func(t *testing.T) {
+		old := []*models.Property{{Name: "title", DataType: []string{"text"}, IndexFilterable: mkBool(true)}}
+		next := []*models.Property{{Name: "title", DataType: []string{"text"}, IndexFilterable: mkBool(false)}}
+
+		merged := MergePropsMasked(old, next, []string{api.PropertyFieldIndexFilterable})
+		assert.False(t, *merged[0].IndexFilterable)
+		assert.True(t, *old[0].IndexFilterable)
+	})
+
 	t.Run("mask restricts overwrite to listed fields only", func(t *testing.T) {
 		old := []*models.Property{{
 			Name:            "title",

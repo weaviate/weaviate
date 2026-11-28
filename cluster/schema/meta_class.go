@@ -301,6 +301,9 @@ func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Prop
 			mergedProps = append(mergedProps, new[idx])
 			continue
 		}
+		// Readers may hold the old property, so change a copy.
+		propCopy := *mergedProps[oldIdx]
+		mergedProps[oldIdx] = &propCopy
 
 		if allow(command.PropertyFieldIndexRangeFilters) {
 			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
@@ -331,9 +334,7 @@ func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Prop
 				mergedProps[oldIdx].NestedProperties,
 				new[idx].NestedProperties)
 			if merged {
-				propCopy := *mergedProps[oldIdx]
 				propCopy.NestedProperties = nestedProperties
-				mergedProps[oldIdx] = &propCopy
 			}
 		}
 	}
