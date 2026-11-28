@@ -8,6 +8,7 @@
 //
 //  CONTACT: hello@weaviate.io
 //
+
 //go:build windows
 
 package postingedge
