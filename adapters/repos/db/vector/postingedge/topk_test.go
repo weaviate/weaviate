@@ -22,6 +22,7 @@ import (
 )
 
 func TestTopKKeepsTheBest(t *testing.T) {
+	t.Parallel()
 	nan := float32(math.NaN())
 	tests := []struct {
 		name   string
@@ -74,6 +75,7 @@ func TestTopKKeepsTheBest(t *testing.T) {
 }
 
 func TestTopKWorstIsTheThreshold(t *testing.T) {
+	t.Parallel()
 	var heap topK
 	heap.reset(3)
 	assert.True(t, math.IsInf(float64(heap.worst()), 1), "an empty heap accepts anything")
@@ -94,6 +96,7 @@ func TestTopKWorstIsTheThreshold(t *testing.T) {
 }
 
 func TestTopKMatchesSorting(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewPCG(3, 5))
 	for round := 0; round < 50; round++ {
 		n, limit := 1+rng.IntN(300), 1+rng.IntN(40)

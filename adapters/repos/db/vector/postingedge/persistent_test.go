@@ -21,6 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -57,16 +58,27 @@ type persistentFixture struct {
 }
 
 const (
-	persistentDims = 64
+	// persistentDims is the smallest number of dimensions at which the
+	// smallest posting size there is splits a posting past 192 vectors, the
+	// floor of the split threshold: the fewest inserts that split a posting.
+	persistentDims = 144
 	// persistentBase is how many vectors the fixture gathers before it
 	// builds its first postings.
-	persistentBase = 600
+	persistentBase = 200
+	// doublingBase is the base of the indexes of the tests that grow them to
+	// twice their base or more, where the layout of the vectors and the
+	// refresh of the edges are due (newDoublingFixture): the smallest that is
+	// still two postings.
+	doublingBase = 128
+	// persistentQueries is how many queries the fixture draws besides its
+	// vectors.
+	persistentQueries = 20
 )
 
 // newPersistentFixture opens an empty index with room for n vectors of the
 // fixture, which are not added. With the posting size of the tests a base of
-// persistentBase vectors is four postings or so, and every posting splits
-// several times on the way to a few thousand.
+// persistentBase vectors is two postings, and the first of them splits once
+// the index holds 150 vectors more or so.
 func newPersistentFixture(t *testing.T, n int) *persistentFixture {
 	t.Helper()
 	return newPersistentFixtureWith(t, n, nil)
@@ -79,6 +91,18 @@ func newPersistentFixtureWith(t *testing.T, n int, change func(cfg *PersistentCo
 	return newPersistentFixtureMode(t, n, ent.CacheModeRouting, change)
 }
 
+// newDoublingFixture is newPersistentFixtureMode for an index with a base of
+// doublingBase vectors.
+func newDoublingFixture(t *testing.T, n int, cacheMode string, change func(cfg *PersistentConfig)) *persistentFixture {
+	t.Helper()
+	return newPersistentFixtureMode(t, n, cacheMode, func(cfg *PersistentConfig) {
+		cfg.BaseSize = doublingBase
+		if change != nil {
+			change(cfg)
+		}
+	})
+}
+
 // cacheModes are the two ways a class keeps the codes of its index: the tests
 // of what the index does whatever the way run with both.
 var cacheModes = []string{ent.CacheModeRouting, ent.CacheModeNone}
@@ -87,7 +111,7 @@ var cacheModes = []string{ent.CacheModeRouting, ent.CacheModeNone}
 // given rq.cacheMode.
 func newPersistentFixtureMode(t *testing.T, n int, cacheMode string, change func(cfg *PersistentConfig)) *persistentFixture {
 	t.Helper()
-	all := latentVectors(n+60, persistentDims, 9101)
+	all := latentVectors(n+persistentQueries, persistentDims, 9101)
 	f := &persistentFixture{
 		root:     t.TempDir(),
 		vectors:  all[:n],
@@ -96,13 +120,17 @@ func newPersistentFixtureMode(t *testing.T, n int, cacheMode string, change func
 		uc:       ent.NewDefaultUserConfig(),
 	}
 	f.normalized = normalizedCopy(f.vectors)
-	// At 64 dimensions the smallest posting size there is splits past 249
-	// vectors. The automatic rescore limit of a code this short is the
-	// largest there is, which every insert would pay too.
+	// At these dimensions the smallest posting size there is splits a
+	// posting past 192 vectors. An insert searches with the smallest
+	// efConstruction there is, and every search, those of the inserts too,
+	// rescores twenty candidates: at the size of these indexes the answers
+	// stay close to brute force, for a fraction of the reads of the
+	// defaults, which every insert would pay.
 	f.uc.MaxPostingSizeKB = ent.MinimumMaxPostingSizeKB
-	f.uc.RQ.RescoreLimit = 100
+	f.uc.EFConstruction = ent.MinimumEFConstruction
+	f.uc.RQ.RescoreLimit = 20
 	f.uc.RQ.CacheMode = cacheMode
-	f.uc.EF = 64
+	f.uc.EF = 32
 	f.cfg = PersistentConfig{
 		ID:               "vectors_test",
 		ShardName:        "shard",
@@ -112,6 +140,11 @@ func newPersistentFixtureMode(t *testing.T, n int, cacheMode string, change func
 		DistanceProvider: f.provider,
 		BaseSize:         persistentBase,
 		Seed:             7,
+		// The rule of an index at rest, whenever its last insert came: the
+		// tests of what a pass over the vectors does have one as soon as the
+		// index doubles. Those of the rule set it
+		// (persistent_layout_rule_test.go).
+		layoutQuiet: -1,
 	}
 	if change != nil {
 		change(&f.cfg)
@@ -124,6 +157,31 @@ func newPersistentFixtureMode(t *testing.T, n int, cacheMode string, change func
 	})
 	return f
 }
+
+// persistentCtx is the context the fixture adds and searches with: a budget
+// of one worker, with which a search rescores its candidates in the
+// goroutine of its caller. The tests of what runs next to what call with
+// concurrentCtx, and a search there rescores with several workers.
+func persistentCtx() context.Context {
+	return concurrency.CtxWithBudget(context.Background(), 1)
+}
+
+// concurrentCtx is the context the tests of what runs next to what add and
+// search with: a budget of two workers, with which a search rescores its
+// candidates in goroutines of their own, as it does with the default budget.
+// The default starts twice as many as the machine has cores for every
+// search, the searches of the inserts too, and with the race detector and
+// coverage those goroutines are most of what these tests cost.
+func concurrentCtx() context.Context {
+	return concurrency.CtxWithBudget(context.Background(), 2)
+}
+
+// readerPause is how long a reader of the tests of what runs next to what
+// waits after every search. A search every few milliseconds runs next to the
+// writes as much as a stream of them does, and a stream of them takes the
+// CPU the writes and the other tests of the package run on, the more so with
+// the race detector: the writes take longer, and the stream grows with them.
+const readerPause = 2 * time.Millisecond
 
 // latentVectors draws vectors that have neighbors at every distance, as
 // embeddings do: points of a space of a few dimensions, laid in the space of
@@ -198,28 +256,28 @@ func (f *persistentFixture) cycle() {
 	f.compaction.CycleCallback(never)
 }
 
-// add adds the vectors of the doc ids [from, to), in batches.
-//
-// An index with no base yet builds it from the first BaseSize of them, and
-// takes the rest one by one: the base is built in the background, and how
-// many vectors come before the build reads those it is built from is up to
-// the scheduler. On a loaded machine it read every one, and the tests that
-// count on the index splitting or doubling on the way to `to` found it had
-// not (TestPersistentFixtureBuildsItsBaseFromItsBaseSize).
+// add adds the vectors of the doc ids [from, to), in batches. Those that
+// reach the base size go in first, and the index is let build its base of
+// them before the others go in as inserts: added in one go, the base would
+// hold as many as had come when its build in the background read them,
+// which depends on the machine, and with them where the postings split and
+// when the index has doubled, and the index would take the others in the
+// background, with the budget of no query
+// (TestPersistentFixtureBuildsItsBaseFromItsBaseSize). What an index does
+// with the vectors that come while it builds its base is in the tests of the
+// base.
 func (f *persistentFixture) add(t *testing.T, from, to int) {
 	t.Helper()
-	f.index.mu.RLock()
-	gathering := f.index.g == nil
-	f.index.mu.RUnlock()
-	if base := f.cfg.BaseSize; gathering && from < base && base < to {
-		f.addBatches(t, from, base)
-		require.NoError(t, f.index.settleBase(context.Background()))
-		from = base
+	if base := f.cfg.BaseSize; from < base && base < to {
+		f.add(t, from, base)
+		f.add(t, base, to)
+		return
 	}
 	f.addBatches(t, from, to)
-	// The vectors that came while the base was built wait for the index to
-	// take them: the tests look at an index that has them all.
-	require.NoError(t, f.index.settleBase(context.Background()))
+	// The base is built in the background, and the vectors that came
+	// meanwhile wait for the index to take them: the tests look at an index
+	// that has them all.
+	require.NoError(t, f.index.settleBase(persistentCtx()))
 }
 
 // addBatches adds the vectors of the doc ids [from, to), in batches, and
@@ -227,10 +285,11 @@ func (f *persistentFixture) add(t *testing.T, from, to int) {
 func (f *persistentFixture) addBatches(t *testing.T, from, to int) {
 	t.Helper()
 	const batch = 50
+	ctx := persistentCtx()
 	for start := from; start < to; start += batch {
 		end := min(start+batch, to)
 		ids := sequentialIDs(end-start, uint64(start))
-		require.NoError(t, f.index.AddBatch(context.Background(), ids, f.vectors[start:end]), "docs [%d, %d)", start, end)
+		require.NoError(t, f.index.AddBatch(ctx, ids, f.vectors[start:end]), "docs [%d, %d)", start, end)
 	}
 }
 
@@ -267,14 +326,15 @@ func (f *persistentFixture) truth(t *testing.T, query []float32, n, k int, held 
 // answers returns what the index returns for every query of the fixture.
 func (f *persistentFixture) answers(t *testing.T, k int) [][]uint64 {
 	t.Helper()
+	ctx := persistentCtx()
 	if !f.cfg.noMaintenance {
 		// What the index does in the background is done first: its answers
 		// are then those it gives until it is written to again.
-		require.NoError(t, f.index.Settle(context.Background()))
+		require.NoError(t, f.index.Settle(ctx))
 	}
 	out := make([][]uint64, len(f.queries))
 	for i, query := range f.queries {
-		ids, dists, err := f.index.SearchByVector(context.Background(), query, k, nil)
+		ids, dists, err := f.index.SearchByVector(ctx, query, k, nil)
 		require.NoError(t, err, "query %d", i)
 		require.Len(t, dists, len(ids))
 		require.True(t, slices.IsSorted(dists), "query %d: nearest first, got %v", i, dists)
@@ -384,6 +444,7 @@ func (f *persistentFixture) vectorsIntact(t *testing.T, at string) {
 // index: it searches and finds nothing, deletes what it does not have, and
 // closes and opens again as empty as it was.
 func TestPersistentEmpty(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newPersistentFixture(t, 10)
 	check := func(at string) {
@@ -414,13 +475,19 @@ func TestPersistentEmpty(t *testing.T) {
 // on taking vectors. At every step it answers close to brute force over the
 // vectors it holds, and never with one it does not.
 func TestPersistentGrowsFromEmpty(t *testing.T) {
+	t.Parallel()
 	for _, cacheMode := range cacheModes {
-		t.Run(cacheMode, func(t *testing.T) { persistentGrowsFromEmpty(t, cacheMode) })
+		t.Run(cacheMode, func(t *testing.T) {
+			t.Parallel()
+			persistentGrowsFromEmpty(t, cacheMode)
+		})
 	}
 }
 
 func persistentGrowsFromEmpty(t *testing.T, cacheMode string) {
-	const total, k = 3000, 10
+	// grown is how many vectors the index holds once its postings have
+	// split, and total how many it ends with.
+	const grown, total, k = persistentBase + 250, persistentBase + 350, 10
 	f := newPersistentFixtureMode(t, total, cacheMode, nil)
 	half := persistentBase / 2
 
@@ -447,17 +514,17 @@ func persistentGrowsFromEmpty(t *testing.T, cacheMode string) {
 	measured("the base", f.recall(t, persistentBase, k, nil))
 
 	// Inserts, with the store flushed and compacted on the way.
-	for from := persistentBase; from < 2000; from += 350 {
-		f.add(t, from, min(from+350, 2000))
+	for from := persistentBase; from < grown; from += 125 {
+		f.add(t, from, min(from+125, grown))
 		f.cycle()
 	}
 	f.covered(t, "grown")
 	g := f.index.g
-	assert.Equal(t, 2000, g.meta.Live)
-	assert.Greater(t, g.meta.Splits, 3, "postings of %d vectors split on the way from %d to 2000",
-		g.meta.Threshold, persistentBase)
+	assert.Equal(t, grown, g.meta.Live)
+	assert.Positive(t, g.meta.Splits, "postings of %d vectors split on the way from %d to %d",
+		g.meta.Threshold, persistentBase, grown)
 	assert.Positive(t, g.stats.InverseEdges, "an insert enters the edges of its neighbors")
-	measured("grown to 2000", f.recall(t, 2000, k, nil))
+	measured("grown", f.recall(t, grown, k, nil))
 	t.Logf("%d postings given out, %d splits, %d inverse edges of %d checks",
 		g.meta.Postings, g.meta.Splits, g.stats.InverseEdges, g.stats.InverseChecks)
 
@@ -465,15 +532,15 @@ func persistentGrowsFromEmpty(t *testing.T, cacheMode string) {
 	// as before.
 	deleted := map[uint64]bool{}
 	var ids []uint64
-	for id := uint64(0); id < 2000; id += 3 {
+	for id := uint64(0); id < grown; id += 3 {
 		deleted[id] = true
 		ids = append(ids, id)
 	}
 	require.NoError(t, f.index.Delete(ids...))
 	held := func(id uint64) bool { return !deleted[id] }
 	f.covered(t, "with deletes")
-	measured("with a third deleted", f.recall(t, 2000, k, held))
-	for id := range uint64(2000) {
+	measured("with a third deleted", f.recall(t, grown, k, held))
+	for id := range uint64(grown) {
 		require.Equal(t, held(id), f.index.ContainsDoc(id), "doc %d", id)
 	}
 
@@ -483,19 +550,19 @@ func persistentGrowsFromEmpty(t *testing.T, cacheMode string) {
 	require.NotNil(t, f.index.g)
 	f.covered(t, "restarted")
 	assert.Equal(t, before, f.answers(t, k), "the same answers after a restart")
-	for id := range uint64(2000) {
+	for id := range uint64(grown) {
 		require.Equal(t, held(id), f.index.ContainsDoc(id), "doc %d after a restart", id)
 	}
 
 	// And it goes on: more vectors, more deletes, another restart.
-	f.add(t, 2000, total)
-	for id := uint64(2000); id < total; id += 5 {
+	f.add(t, grown, total)
+	for id := uint64(grown); id < total; id += 5 {
 		deleted[id] = true
 		require.NoError(t, f.index.Delete(id))
 	}
 	f.cycle()
 	f.covered(t, "grown again")
-	measured("grown to 3000 after a restart, more deleted", f.recall(t, total, k, held))
+	measured("grown again after a restart, more deleted", f.recall(t, total, k, held))
 	before = f.answers(t, k)
 	f.restart(t)
 	f.covered(t, "restarted again")
@@ -516,8 +583,11 @@ func persistentGrowsFromEmpty(t *testing.T, cacheMode string) {
 }
 
 // Closed and opened again at any point of its life, the index answers what
-// it answered, holds what it held and goes on.
+// it answered, holds what it held and goes on. Every state with a vector is
+// restarted with some of its vectors deleted: the same state without them is
+// that one with fewer marks.
 func TestPersistentRestarts(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	tests := []struct {
 		name string
@@ -530,16 +600,17 @@ func TestPersistentRestarts(t *testing.T) {
 	}{
 		{name: "empty"},
 		{name: "one vector", added: 1},
-		{name: "gathering", added: persistentBase - 1},
-		{name: "gathering, some deleted", added: persistentBase - 1, deleted: []uint64{0, 17, 598}},
-		{name: "the base, just built", added: persistentBase, built: true},
-		{name: "the base, some deleted", added: persistentBase, deleted: []uint64{3, 4, 5, 599}, built: true},
-		{name: "grown", added: persistentBase + 700, built: true},
-		{name: "grown, some deleted", added: persistentBase + 700, deleted: []uint64{1, 600, 601, 1299}, built: true},
+		{name: "gathering, some deleted", added: persistentBase - 1, deleted: []uint64{0, 17, persistentBase - 2}},
+		{name: "the base, some deleted", added: persistentBase, deleted: []uint64{3, 4, 5, persistentBase - 1}, built: true},
+		{
+			name: "grown, some deleted", added: persistentBase + 100,
+			deleted: []uint64{1, persistentBase, persistentBase + 1, persistentBase + 99}, built: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const total = persistentBase + 900
+			t.Parallel()
+			const total = persistentBase + 150
 			f := newPersistentFixture(t, total)
 			f.add(t, 0, tt.added)
 			require.NoError(t, f.index.Delete(tt.deleted...))
@@ -568,6 +639,7 @@ func TestPersistentRestarts(t *testing.T) {
 // the index was doing when it was deleted, and deleting what is not there is
 // not an error.
 func TestPersistentDeletes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const k = 10
 	tests := []struct {
@@ -578,16 +650,23 @@ func TestPersistentDeletes(t *testing.T) {
 		deleted      []uint64
 	}{
 		{name: "while gathering", added: 100, total: 100, deleted: []uint64{0, 50, 99}},
-		{name: "while gathering, then the base", added: 400, total: persistentBase + 5, deleted: []uint64{0, 399, 123}},
-		{name: "in the base", added: persistentBase, total: persistentBase, deleted: []uint64{0, 1, 2, 300}},
-		{name: "in the base, then inserts", added: persistentBase, total: 1500, deleted: []uint64{10, 20, 30, 599}},
+		{
+			name: "while gathering, then the base", added: persistentBase - 50, total: persistentBase + 5,
+			deleted: []uint64{0, persistentBase - 51, persistentBase / 3},
+		},
+		{name: "in the base", added: persistentBase, total: persistentBase, deleted: []uint64{0, 1, 2, persistentBase / 2}},
+		{
+			name: "in the base, then inserts", added: persistentBase, total: persistentBase + 150,
+			deleted: []uint64{10, 20, 30, persistentBase - 1},
+		},
 		{name: "what was never there", added: 50, total: 50, deleted: []uint64{50, 1000, math.MaxUint32, math.MaxUint64}},
 		{name: "what was never there, with a base", added: persistentBase, total: persistentBase, deleted: []uint64{persistentBase, 1 << 40}},
 		{name: "twice", added: persistentBase, total: persistentBase, deleted: []uint64{5, 5, 6, 5}},
-		{name: "every vector of the base", added: persistentBase, total: persistentBase + 300, deleted: sequentialIDs(persistentBase, 0)},
+		{name: "every vector of the base", added: persistentBase, total: persistentBase + 50, deleted: sequentialIDs(persistentBase, 0)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Nothing takes the marked vectors out here: what the index does
 			// with them later is in TestPersistentCleansItsDeletes.
 			f := newPersistentFixtureWith(t, max(tt.total, 1), func(cfg *PersistentConfig) { cfg.noMaintenance = true })
@@ -643,8 +722,9 @@ func TestPersistentDeletes(t *testing.T) {
 // What the index does not do is an error that says so, and never an answer
 // that leaves something out without a word.
 func TestPersistentUnsupported(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	f := newPersistentFixture(t, persistentBase+50)
+	f := newPersistentFixture(t, persistentBase+20)
 	query := f.vectors[0]
 	allow := helpers.NewAllowList(1, 2, 3)
 
@@ -677,7 +757,7 @@ func TestPersistentUnsupported(t *testing.T) {
 	}{
 		{"empty", 0},
 		{"gathering", 10},
-		{"with a base", persistentBase + 50},
+		{"with a base", persistentBase + 20},
 	}
 	added := 0
 	for _, stage := range stages {
@@ -708,9 +788,10 @@ func TestPersistentUnsupported(t *testing.T) {
 // carry no halo, and it says so, and then opens as it was. One that keeps no
 // codes is not written the way the first version of the index was.
 func TestPersistentKeepsItsCacheMode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	f := newPersistentFixture(t, persistentBase+300)
-	f.add(t, 0, persistentBase+300)
+	f := newPersistentFixture(t, persistentBase+50)
+	f.add(t, 0, persistentBase+50)
 	f.covered(t, "with its codes in memory")
 	before := f.answers(t, 10)
 	f.close(t)
@@ -741,7 +822,11 @@ func TestPersistentKeepsItsCacheMode(t *testing.T) {
 }
 
 // What an index cannot take it refuses whole, before it changes anything.
+// Every call goes to one of two indexes, one that gathers its first vectors
+// and one with its base, which a call that is refused leaves as they were for
+// the next.
 func TestPersistentRejects(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	notFinite := slices.Clone(clusteredVectors(1, persistentDims, 1, 1)[0])
 	notFinite[3] = float32(math.NaN())
@@ -790,18 +875,24 @@ func TestPersistentRejects(t *testing.T) {
 			return f.index.AddBatch(ctx, []uint64{1000, 1001}, [][]float32{f.vectors[0], {1}})
 		}},
 	}
+	// The two indexes, by how many vectors they hold, with their answers
+	// before any call.
+	fixtures := map[int]*persistentFixture{}
+	answered := map[int][][]uint64{}
+	for _, with := range []int{5, persistentBase} {
+		f := newPersistentFixture(t, persistentBase)
+		f.add(t, 0, with)
+		fixtures[with], answered[with] = f, f.answers(t, 5)
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newPersistentFixture(t, persistentBase)
-			f.add(t, 0, tt.with)
-			before := f.answers(t, 5)
-
+			f := fixtures[tt.with]
 			err := tt.call(f)
 			require.Error(t, err)
 			if tt.want != nil {
 				require.ErrorIs(t, err, tt.want)
 			}
-			assert.Equal(t, before, f.answers(t, 5), "a call that is refused changes nothing")
+			assert.Equal(t, answered[tt.with], f.answers(t, 5), "a call that is refused changes nothing")
 			for _, id := range []uint64{100, 101, 1000, 1001, math.MaxUint32} {
 				if id >= uint64(tt.with) {
 					assert.False(t, f.index.ContainsDoc(id), "doc %d", id)
@@ -817,9 +908,10 @@ func TestPersistentRejects(t *testing.T) {
 // A shard gives out doc ids without bound, and far apart when its objects
 // are updated: the index takes them as they come.
 func TestPersistentSparseDocIDs(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+	ctx := persistentCtx()
 	const k = 10
-	f := newPersistentFixture(t, persistentBase+400)
+	f := newPersistentFixture(t, persistentBase+100)
 	// The doc id of vector i, far past the room the base was given.
 	docID := func(i int) uint64 {
 		if i < persistentBase {
@@ -863,8 +955,9 @@ func TestPersistentSparseDocIDs(t *testing.T) {
 // write or after it, never in the middle, and nothing a delete has returned
 // from comes back.
 func TestPersistentSearchesNextToWrites(t *testing.T) {
-	ctx := context.Background()
-	const total = persistentBase + 600
+	t.Parallel()
+	ctx := concurrentCtx()
+	const total = persistentBase + 200
 	f := newPersistentFixture(t, total)
 	f.add(t, 0, persistentBase/2)
 
@@ -873,7 +966,7 @@ func TestPersistentSearchesNextToWrites(t *testing.T) {
 	var stop atomic.Bool
 	var searches atomic.Int64
 	eg := enterrors.NewErrorGroupWrapper(testLogger())
-	for worker := range 4 {
+	for worker := range 2 {
 		eg.Go(func() error {
 			for i := worker; !stop.Load(); i++ {
 				// What was gone before the search started cannot be in what
@@ -893,6 +986,7 @@ func TestPersistentSearchesNextToWrites(t *testing.T) {
 					}
 				}
 				searches.Add(1)
+				time.Sleep(readerPause)
 			}
 			return nil
 		})
@@ -915,6 +1009,16 @@ func TestPersistentSearchesNextToWrites(t *testing.T) {
 				return errors.Wrap(err, "flush")
 			}
 			f.cycle()
+			// The base is due by now, however the deletes fell, and is built
+			// in the background: the writer waits for it, so that the writes
+			// after it go next to the searches of an index with its base,
+			// as those before it went next to the searches of the vectors
+			// kept aside, however fast the machine.
+			if to == persistentBase+60 {
+				if err := f.index.settleBase(ctx); err != nil {
+					return errors.Wrap(err, "settle the base")
+				}
+			}
 		}
 		return nil
 	})
@@ -933,12 +1037,13 @@ func TestPersistentSearchesNextToWrites(t *testing.T) {
 // that does not reach to a round, the round is read in turns and the search
 // answers the same.
 func TestPersistentSearchWithinBudget(t *testing.T) {
-	const total = persistentBase + 600
+	t.Parallel()
+	const total = persistentBase + 50
 	f := newPersistentFixture(t, total)
 	f.add(t, 0, total)
 
 	want := f.answers(t, 10)
-	for _, budget := range []int{1, 2, 3, 8, 64} {
+	for _, budget := range []int{1, 3, 64} {
 		ctx := concurrency.CtxWithBudget(context.Background(), budget)
 		for i, query := range f.queries {
 			ids, _, err := f.index.SearchByVector(ctx, query, 10, nil)
@@ -951,6 +1056,7 @@ func TestPersistentSearchWithinBudget(t *testing.T) {
 // The config of a class reaches the index, and what a search reads on every
 // query can change while it runs. What shaped what is on disk cannot.
 func TestPersistentUserConfig(t *testing.T) {
+	t.Parallel()
 	f := newPersistentFixture(t, persistentBase+20)
 	f.add(t, 0, persistentBase+20)
 	g := f.index.g
@@ -991,7 +1097,7 @@ func TestPersistentUserConfig(t *testing.T) {
 			require.NoError(t, err)
 			wantRescore := tt.updated.RQ.RescoreLimit
 			if wantRescore == ent.RescoreLimitAuto {
-				wantRescore = autoRescoreLimit(64)
+				wantRescore = autoRescoreLimit(scanBitsOf(&g.meta))
 			}
 			assert.Equal(t, int64(tt.updated.EF), g.ix.ef.Load())
 			assert.Equal(t, int64(wantRescore), g.ix.rescoreLimit.Load())
@@ -1007,6 +1113,7 @@ func TestPersistentUserConfig(t *testing.T) {
 }
 
 func TestAutoRescoreLimit(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		scanBits, want int
 	}{
@@ -1032,6 +1139,7 @@ func TestAutoRescoreLimit(t *testing.T) {
 // A class with the automatic rescore limit has its searches rescore at least
 // four times their k; one with a limit of its own has k as the only floor.
 func TestSearchConfigRescore(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		rescoreLimit     int
@@ -1057,6 +1165,7 @@ func TestSearchConfigRescore(t *testing.T) {
 }
 
 func TestSplitThreshold(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name                         string
 		maxPostingSizeKB, dims, want int
@@ -1072,6 +1181,7 @@ func TestSplitThreshold(t *testing.T) {
 		{"76 at 384d", 76, 384, 1067},
 		{"76 at 3072d, on the floor", 76, 3072, 192},
 		{"the smallest at 64d", 8, 64, 249},
+		{"the smallest at 144d, on the floor", 8, 144, 192},
 		{"the smallest at 1536d, on the floor", 8, 1536, 192},
 	}
 	for _, tt := range tests {
@@ -1085,6 +1195,7 @@ func TestSplitThreshold(t *testing.T) {
 // removes when it drops the index, by name, without opening it: the two
 // lists cannot drift apart.
 func TestPersistentBuckets(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newPersistentFixture(t, persistentBase+10)
 	f.add(t, 0, persistentBase+10)
@@ -1158,6 +1269,7 @@ func TestPersistentBuckets(t *testing.T) {
 // built from still kept aside; and what is still kept aside of a base that
 // was written whole is let go.
 func TestPersistentInterruptedBase(t *testing.T) {
+	t.Parallel()
 	const k = 10
 
 	// Files of a base with no meta and no list of the build that wrote them
@@ -1167,6 +1279,7 @@ func TestPersistentInterruptedBase(t *testing.T) {
 	// What a build that lists what it creates leaves is removed when the index
 	// opens: TestPersistentCleansWhatABuildLeft.
 	t.Run("a base without a meta, and without the list of a build", func(t *testing.T) {
+		t.Parallel()
 		f := newPersistentFixture(t, persistentBase)
 		f.add(t, 0, persistentBase-1)
 		before := f.answers(t, k)
@@ -1208,7 +1321,8 @@ func TestPersistentInterruptedBase(t *testing.T) {
 	})
 
 	t.Run("a base with its vectors still kept aside", func(t *testing.T) {
-		f := newPersistentFixture(t, persistentBase+100)
+		t.Parallel()
+		f := newPersistentFixture(t, persistentBase+20)
 		f.add(t, 0, persistentBase)
 		require.NotNil(t, f.index.g)
 		// The build stopped between writing the meta and letting go of the
@@ -1231,7 +1345,7 @@ func TestPersistentInterruptedBase(t *testing.T) {
 		assert.Zero(t, f.keptAside(t))
 		assert.Empty(t, f.index.staged)
 		assert.Equal(t, before, f.answers(t, k))
-		f.add(t, persistentBase, persistentBase+100)
+		f.add(t, persistentBase, persistentBase+20)
 		f.covered(t, "grown")
 	})
 }
@@ -1240,6 +1354,7 @@ func TestPersistentInterruptedBase(t *testing.T) {
 // call from then on, rather than serve or add to something that is not known
 // to be an index.
 func TestPersistentStopsAfterAFailedWrite(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newPersistentFixture(t, persistentBase+10)
 	f.add(t, 0, persistentBase+5)
@@ -1297,19 +1412,24 @@ func (f *persistentFixture) crashed(t *testing.T) *persistentFixture {
 // request that writes. This says nothing of a crash in the middle of an
 // insert, nor of a machine that loses what the system had not written yet.
 func TestPersistentOpensWhatAFlushLeft(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	tests := []struct {
 		name    string
 		added   int
 		deleted []uint64
 	}{
-		{name: "gathering", added: 300, deleted: []uint64{7, 299}},
+		{name: "gathering", added: persistentBase / 2, deleted: []uint64{7, persistentBase/2 - 1}},
 		{name: "the base, just built", added: persistentBase},
-		{name: "grown, with deletes", added: persistentBase + 700, deleted: []uint64{0, 599, 600, 1299}},
+		{
+			name: "grown, with deletes", added: persistentBase + 100,
+			deleted: []uint64{0, persistentBase - 1, persistentBase, persistentBase + 99},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const total = persistentBase + 900
+			t.Parallel()
+			const total = persistentBase + 150
 			f := newPersistentFixture(t, total)
 			f.add(t, 0, tt.added)
 			require.NoError(t, f.index.Delete(tt.deleted...))

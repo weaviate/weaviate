@@ -94,4 +94,9 @@
 // The configuration of a class is in entities/vectorindex/postingedge. The
 // UserConfig of this package is the internal one, with the knobs of the
 // experiments.
+//
+// The comments of this package cite bench-report.md, the report of the
+// experiments the index comes from, by its sections. It is on the branch
+// feat/posting-edge-index, at adapters/repos/db/vector/postingedge, with the
+// data and the bench harness of those experiments.
 package postingedge

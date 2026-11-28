@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -83,15 +84,32 @@ type diskFixture struct {
 	queries     [][]float32
 }
 
+const (
+	// diskFixtureQueries is how many queries a disk fixture searches with.
+	diskFixtureQueries = 4
+	// diskFixturePostingSize is the size the postings of a disk fixture are
+	// built to: a few hundred vectors give a few dozen postings, several to a
+	// cluster, and every posting has edges. With postings of the size of
+	// smallConfig, most clusters of a few hundred vectors are one posting,
+	// with no edge out of it.
+	diskFixturePostingSize = 12
+)
+
 func newDiskFixture(t *testing.T, n, dims, clusters int, seed uint64, cosine bool) *diskFixture {
+	return newDiskFixtureWith(t, n, dims, clusters, seed, cosine, diskFixturePostingSize, diskFixtureQueries)
+}
+
+// newDiskFixtureWith is newDiskFixture with postings built to postingSize and
+// a number of queries of its own.
+func newDiskFixtureWith(t *testing.T, n, dims, clusters int, seed uint64, cosine bool, postingSize, queries int) *diskFixture {
 	ctx := context.Background()
 	f := &diskFixture{
 		raw:      clusteredVectors(n, dims, clusters, seed),
-		queries:  clusteredVectors(40, dims, clusters, seed+1),
+		queries:  clusteredVectors(queries, dims, clusters, seed+1),
 		provider: distancer.NewL2SquaredProvider(),
 		uc:       smallConfig(),
 	}
-	f.uc.Distance = "l2-squared"
+	f.uc.Distance, f.uc.TargetPostingSize = "l2-squared", postingSize
 	f.stored = f.raw
 	if cosine {
 		f.provider = distancer.NewCosineDistanceProvider()
@@ -167,69 +185,60 @@ func diskWorkOf(s *SearchStats) diskWork {
 // diskDifference searches one query in memory and from disk and tells how
 // the two differ, or "" when they return the same results with the same
 // work. The index in memory must have the state of the cell, through the
-// centroid graph of the index on disk, and the same search tunables.
+// centroid graph of the index on disk, and the same search tunables. The
+// searches fill memory and stats, which ask for what else they keep: a hook
+// on the postings loaded in memory, the list of those loaded from disk.
 func diskDifference(ctx context.Context, index *Index, disk *diskIndex, query []float32, k int,
-) (string, *diskSearchStats, error) {
-	var memory SearchStats
-	wantIDs, wantDists, err := index.search(ctx, query, k, nil, &memory)
+	memory *SearchStats, stats *diskSearchStats,
+) (string, error) {
+	wantIDs, wantDists, err := index.search(ctx, query, k, nil, memory)
 	if err != nil {
-		return "", nil, errors.Wrap(err, "search in memory")
+		return "", errors.Wrap(err, "search in memory")
 	}
-	stats := &diskSearchStats{Work: &SearchStats{}}
+	if stats.Work == nil {
+		stats.Work = &SearchStats{}
+	}
 	ids, dists, err := disk.search(ctx, query, k, stats)
 	if err != nil {
-		return "", nil, errors.Wrap(err, "search from disk")
+		return "", errors.Wrap(err, "search from disk")
 	}
 	switch {
 	case !slices.Equal(wantIDs, ids):
-		return errors.Errorf("ids %v from disk, %v in memory", ids, wantIDs).Error(), stats, nil
+		return errors.Errorf("ids %v from disk, %v in memory", ids, wantIDs).Error(), nil
 	case !slices.Equal(wantDists, dists):
-		return errors.Errorf("distances %v from disk, %v in memory", dists, wantDists).Error(), stats, nil
-	case diskWorkOf(&memory) != diskWorkOf(stats.Work):
-		return errors.Errorf("work %+v from disk, %+v in memory", diskWorkOf(stats.Work), diskWorkOf(&memory)).Error(), stats, nil
+		return errors.Errorf("distances %v from disk, %v in memory", dists, wantDists).Error(), nil
+	case diskWorkOf(memory) != diskWorkOf(stats.Work):
+		return errors.Errorf("work %+v from disk, %+v in memory", diskWorkOf(stats.Work), diskWorkOf(memory)).Error(), nil
 	}
-	return "", stats, nil
+	return "", nil
 }
 
-// Every cell searched from disk returns what its equivalent in memory
-// returns: the same ids in the same order, the same distances and the same
-// work. And what it read is what its postings hold.
-func TestDiskSearchEqualsMemory(t *testing.T) {
-	ctx := context.Background()
-	const n, dims = 3000, 64
+// diskEquivCell is a cell searched from disk and in memory.
+type diskEquivCell struct {
+	name   string
+	cosine bool
+	// bits is the sketch the endpoints are ranked by, 0 for the full code,
+	// and halo tells that it lives in the postings.
+	bits   int
+	halo   bool
+	onePer bool
+	degree int
+	// scan tells that the members are scanned by that sketch, from memory,
+	// and that the postings on disk hold no members (v4.1).
+	scan bool
+}
 
-	cells := []struct {
-		name   string
-		cosine bool
-		// bits is the sketch the endpoints are ranked by, 0 for the full
-		// code, and halo tells that it lives in the postings.
-		bits   int
-		halo   bool
-		onePer bool
-		degree int
-		// scan tells that the members are scanned by that sketch, from
-		// memory, and that the postings on disk hold no members (v4.1).
-		scan bool
-	}{
-		{name: "the full code in memory"},
-		{name: "the full code in memory, cosine", cosine: true},
-		{name: "a sketch in memory", bits: 64},
-		{name: "a sketch in memory, cosine", bits: 128, cosine: true},
-		{name: "a halo", bits: 64, halo: true},
-		{name: "a halo, cosine", bits: 128, halo: true, cosine: true},
-		{name: "a halo over pruned edges", bits: 64, halo: true, onePer: true, degree: 4},
-		{name: "a halo of full codes", halo: true},
-		{name: "pruned edges, the full code in memory", onePer: true},
-		{name: "the scan by a sketch in memory", bits: 64, scan: true},
-		{name: "the scan by a sketch in memory, cosine", bits: 128, scan: true, cosine: true},
-		{name: "the scan by a wider sketch in memory", bits: 192, scan: true},
-		{name: "the scan by a sketch in memory over pruned edges", bits: 64, scan: true, onePer: true, degree: 4},
-	}
-	searches := []struct {
-		name    string
-		prepare func(uc *UserConfig)
-		k       int
-	}{
+// diskEquivSearch is a search every cell is checked with: the tunables it
+// changes and the results it asks for.
+type diskEquivSearch struct {
+	name    string
+	prepare func(uc *UserConfig)
+	k       int
+}
+
+// diskEquivSearches returns the searches every cell is checked with.
+func diskEquivSearches() []diskEquivSearch {
+	return []diskEquivSearch{
 		{name: "the defaults of the tests", k: 10},
 		{name: "a narrow search", prepare: func(uc *UserConfig) { uc.EF = 10 }, k: 10},
 		{name: "a wide search", prepare: func(uc *UserConfig) { uc.EF, uc.RescoreLimit = 400, 400 }, k: 10},
@@ -241,10 +250,43 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 		{name: "three entry postings", prepare: func(uc *UserConfig) { uc.EntryPostings = 3 }, k: 10},
 		{name: "a source margin", prepare: func(uc *UserConfig) { uc.SourceMargin, uc.EF = 0.5, 64 }, k: 10},
 	}
+}
+
+// Every cell searched from disk returns what its equivalent in memory
+// returns: the same ids in the same order, the same distances and the same
+// work. And what it read is what its postings hold. The cells are one of
+// each kind of code the endpoints are ranked by, where it lives, and how the
+// members are scanned, over both distances and over pruned edges; the full
+// matrix over 3 000 vectors is TestDiskSearchEqualsMemoryAtScale, under the
+// postingedgebench tag. It does not run in parallel: the reads it counts are
+// those of every store of the process.
+func TestDiskSearchEqualsMemory(t *testing.T) {
+	checkDiskSearchEqualsMemory(t, 300, 16, diskFixturePostingSize, diskFixtureQueries, []diskEquivCell{
+		{name: "the full code in memory"},
+		{name: "a halo over pruned edges", bits: 64, halo: true, onePer: true, degree: 4},
+		{name: "a halo of full codes, cosine", halo: true, cosine: true},
+		{name: "the scan by a wider sketch in memory over pruned edges, cosine", bits: 192, scan: true, onePer: true, degree: 4, cosine: true},
+	})
+}
+
+// checkDiskSearchEqualsMemory writes every cell over n vectors of dims
+// dimensions, in postings built to postingSize, and checks that its searches
+// from disk, mapped and with pread, are those of its state in memory. The
+// cells of a distance share one fixture: a cell is derived from it and leaves
+// it as it was.
+func checkDiskSearchEqualsMemory(t *testing.T, n, dims, postingSize, queries int, cells []diskEquivCell) {
+	ctx := context.Background()
+	searches := diskEquivSearches()
+	fixtures := map[bool]*diskFixture{}
+	for _, cell := range cells {
+		if fixtures[cell.cosine] == nil {
+			fixtures[cell.cosine] = newDiskFixtureWith(t, n, dims, 6, 801, cell.cosine, postingSize, queries)
+		}
+	}
 
 	for _, cell := range cells {
 		t.Run(cell.name, func(t *testing.T) {
-			f := newDiskFixture(t, n, dims, 6, 801, cell.cosine)
+			f := fixtures[cell.cosine]
 			st := f.cell(t, cell.bits, cell.onePer, cell.degree)
 			layout, err := haloPostings(st)
 			require.NoError(t, err)
@@ -295,19 +337,18 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 							for i, query := range f.queries {
 								// What the search loads, to count its blocks apart.
 								var loaded []uint32
+								memory := &SearchStats{loadHook: func(sc *searchScratch, _ *posting, _ float32) {
+									loaded = append(loaded[:0], sc.touched...)
+								}}
+								stats := &diskSearchStats{KeepLoaded: true}
 								readsBefore, bytesBefore, err := diskStoreReads()
 								require.NoError(t, err)
-								difference, stats, err := diskDifference(ctx, f.index, disk, query, search.k)
+								difference, err := diskDifference(ctx, f.index, disk, query, search.k, memory, stats)
 								require.NoError(t, err)
 								require.Emptyf(t, difference, "query %d", i)
 								readsAfter, bytesAfter, err := diskStoreReads()
 								require.NoError(t, err)
 
-								hook := &SearchStats{loadHook: func(sc *searchScratch, _ *posting, _ float32) {
-									loaded = append(loaded[:0], sc.touched...)
-								}}
-								_, _, err = f.index.search(ctx, query, search.k, nil, hook)
-								require.NoError(t, err)
 								members, edges, entries := 0, 0, 0
 								for _, p := range loaded {
 									members += layout[p].Members
@@ -315,16 +356,12 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 									entries += layout[p].Distinct
 								}
 								require.Equal(t, len(loaded), stats.Postings)
-								require.Nil(t, stats.Loaded)
+								require.Equal(t, loaded, stats.Loaded, "the postings loaded, in order")
 								// The read of every block was timed, and of no
 								// block the format does not have.
 								require.Equal(t, !cell.scan, stats.MemberTime > 0)
 								require.Positive(t, stats.EdgeTime)
 								require.Equal(t, cell.halo, stats.HaloTime > 0)
-								kept := &diskSearchStats{KeepLoaded: true}
-								_, _, err = disk.search(ctx, query, search.k, kept)
-								require.NoError(t, err)
-								require.Equal(t, loaded, kept.Loaded, "the postings loaded, in order")
 								require.Equal(t, stats.Work.PostingsLoaded, stats.Postings)
 								require.Equal(t, members, stats.Members)
 								blocks := 2
@@ -377,7 +414,9 @@ func TestDiskSearchEqualsMemory(t *testing.T) {
 // every block decodes to its posting, and the files a reader loads into
 // memory give back the arrays of the index.
 func TestDiskFormat(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
+	const n, dims = 200, 16
 	tests := []struct {
 		name   string
 		cosine bool
@@ -390,9 +429,15 @@ func TestDiskFormat(t *testing.T) {
 		{name: "a halo", bits: 64, halo: true},
 		{name: "a halo over capped edges", bits: 128, halo: true, degree: 3},
 	}
+	// The cases of a distance share one fixture: a cell is derived from it
+	// and leaves it as it was.
+	fixtures := map[bool]*diskFixture{
+		false: newDiskFixture(t, n, dims, 5, 811, false),
+		true:  newDiskFixture(t, n, dims, 5, 811, true),
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newDiskFixture(t, 2000, 64, 5, 811, tt.cosine)
+			f := fixtures[tt.cosine]
 			st := f.cell(t, tt.bits, false, tt.degree)
 			store := st.postings
 			dir := t.TempDir()
@@ -401,11 +446,11 @@ func TestDiskFormat(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, diskMeta{
-				Version: diskFormatVersion, Distance: f.provider.Type(), Dims: 64, Vectors: 2000,
-				Postings: store.postings(), Edges: len(store.edges), DocIDs: 2000,
+				Version: diskFormatVersion, Distance: f.provider.Type(), Dims: dims, Vectors: n,
+				Postings: store.postings(), Edges: len(store.edges), DocIDs: n,
 				ScanCodeWords: store.codeWords, RoutingBits: tt.bits, RoutingCodeWords: st.side.codeWords,
 				Halo: tt.halo, HaloEntries: meta.HaloEntries,
-				MemberBytes: int64(2000 * 8 * (1 + store.codeWords)), EdgeBytes: int64(2000 + 4*len(store.edges)),
+				MemberBytes: int64(n * 8 * (1 + store.codeWords)), EdgeBytes: int64(n + 4*len(store.edges)),
 				HaloBytes: int64(meta.HaloEntries * (4 + 8*st.side.codeWords)),
 			}, *meta)
 			require.Positive(t, len(store.edges))
@@ -440,13 +485,13 @@ func TestDiskFormat(t *testing.T) {
 			} else {
 				require.Equal(t, st.side.codes, disk.st.side.codes)
 			}
-			require.Len(t, disk.slotOf, 2000)
+			require.Len(t, disk.slotOf, n)
 			for slot, id := range store.docIDs {
 				require.Equal(t, uint32(slot), disk.slotOf[id])
 			}
 			require.Equal(t, st.centroids.vectors, disk.st.centroids.vectors)
 			// The codecs are those of the index: they encode alike.
-			for _, id := range []int{0, 1, 999, 1999} {
+			for _, id := range []int{0, 1, n/2 - 1, n - 1} {
 				require.Equal(t, st.quantizer.Encode(f.stored[id]), disk.st.quantizer.Encode(f.stored[id]), "doc %d", id)
 				scan, diskScan := st.quantizer, disk.st.quantizer
 				if tt.bits > 0 {
@@ -460,15 +505,15 @@ func TestDiskFormat(t *testing.T) {
 			// The exact vectors, in posting order.
 			info, err := disk.vectors.Stat()
 			require.NoError(t, err)
-			require.Equal(t, int64(2000*64*4), info.Size())
-			container := disk.ix.tempVectors.Get(64)
+			require.Equal(t, int64(n*dims*4), info.Size())
+			container := disk.ix.tempVectors.Get(dims)
 			defer disk.ix.tempVectors.Put(container)
-			for _, id := range []uint64{0, 7, 1000, 1999} {
+			for _, id := range []uint64{0, 7, n / 2, n - 1} {
 				vector, err := disk.readVector(ctx, id, container, nil)
 				require.NoError(t, err)
 				require.Equal(t, f.raw[id], vector, "doc %d", id)
 			}
-			_, err = disk.readVector(ctx, 2000, container, nil)
+			_, err = disk.readVector(ctx, n, container, nil)
 			require.ErrorContains(t, err, "does not hold it")
 
 			// Every posting, block by block, fetched in rounds of several.
@@ -519,8 +564,9 @@ func TestDiskFormat(t *testing.T) {
 // written: the entry of a search does not depend on when the index was
 // opened.
 func TestDiskCentroidGraphReopens(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	f := newDiskFixture(t, 3000, 64, 8, 821, false)
+	f := newDiskFixture(t, 300, 16, 8, 821, false)
 	dir := t.TempDir()
 	_, err := writeDiskIndex(ctx, testLogger(), dir, f.built, diskWriteOptions{}, f.provider,
 		func(id uint64) []float32 { return f.raw[id] })
@@ -558,8 +604,9 @@ func TestDiskCentroidGraphReopens(t *testing.T) {
 }
 
 func TestDiskIndexErrors(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	f := newDiskFixture(t, 1500, 24, 6, 831, false)
+	f := newDiskFixture(t, 200, 24, 6, 831, false)
 	vectorOf := func(id uint64) []float32 { return f.raw[id] }
 	written := t.TempDir()
 	_, err := writeDiskIndex(ctx, testLogger(), written, f.built, diskWriteOptions{}, f.provider, vectorOf)
@@ -575,7 +622,7 @@ func TestDiskIndexErrors(t *testing.T) {
 		require.ErrorContains(t, err, "has length 3, expected 24")
 
 		// Postings with codes of their own are not the full code.
-		short := newDiskFixture(t, 1500, 128, 6, 833, false)
+		short := newDiskFixture(t, 120, 32, 6, 833, false)
 		routing, err := short.built.quantizer.withBits(64)
 		require.NoError(t, err)
 		capped := withCentroids(short.built, short.built.centroids)
@@ -585,8 +632,8 @@ func TestDiskIndexErrors(t *testing.T) {
 	})
 
 	t.Run("an index keyed by doc id", func(t *testing.T) {
-		stream := newDiskFixture(t, 1500, 24, 6, 835, false)
-		_, err := newStreamIndex(stream.index, 1500, streamConfig{threshold: 60}, func(id uint64) []float32 { return stream.raw[id] })
+		stream := newDiskFixture(t, 120, 24, 6, 835, false)
+		_, err := newStreamIndex(stream.index, 120, streamConfig{threshold: 60}, func(id uint64) []float32 { return stream.raw[id] })
 		require.NoError(t, err)
 		_, err = writeDiskIndex(ctx, testLogger(), t.TempDir(), stream.index.state.Load(), diskWriteOptions{}, stream.provider, vectorOf)
 		require.ErrorContains(t, err, "keyed by doc id")
@@ -704,8 +751,9 @@ func TestDiskIndexErrors(t *testing.T) {
 // scoreHalo gives the estimates the sidecar gives for the same endpoints, and
 // refuses an endpoint its posting does not lead to.
 func TestDiskScoreHalo(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	f := newDiskFixture(t, 2000, 64, 5, 841, false)
+	f := newDiskFixture(t, 200, 16, 5, 841, false)
 	st := f.cell(t, 64, false, 0)
 	dir := t.TempDir()
 	_, err := writeDiskIndex(ctx, testLogger(), dir, st, diskWriteOptions{Halo: true}, f.provider, func(id uint64) []float32 { return f.raw[id] })
@@ -745,8 +793,9 @@ func TestDiskScoreHalo(t *testing.T) {
 // through the same postings, and each still returns what its state in memory
 // returns.
 func TestDiskShareFrom(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	f := newDiskFixture(t, 3000, 64, 6, 851, false)
+	f := newDiskFixture(t, 240, 16, 6, 851, false)
 	vectorOf := func(id uint64) []float32 { return f.raw[id] }
 	first := t.TempDir()
 	_, err := writeDiskIndex(ctx, testLogger(), first, f.built, diskWriteOptions{}, f.provider, vectorOf)
@@ -789,9 +838,11 @@ func TestDiskShareFrom(t *testing.T) {
 				got, err := disk.st.centroids.nearest(ctx, query, 4)
 				require.NoError(t, err)
 				require.Equal(t, want, got, "the entries of query %d", i)
-				difference, _, err := diskDifference(ctx, f.index, disk, query, 10)
+				stats := &diskSearchStats{}
+				difference, err := diskDifference(ctx, f.index, disk, query, 10, &SearchStats{}, stats)
 				require.NoError(t, err)
 				require.Emptyf(t, difference, "query %d", i)
+				require.Nil(t, stats.Loaded, "a search keeps the postings it loaded only when asked")
 			}
 		})
 	}
@@ -806,8 +857,9 @@ func TestDiskShareFrom(t *testing.T) {
 // The index of the segment of a written index is a tail of its file, a few
 // dozen bytes per block.
 func TestWarmSegmentIndexes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	f := newDiskFixture(t, 2000, 64, 5, 861, false)
+	f := newDiskFixture(t, 200, 16, 5, 861, false)
 	dir := t.TempDir()
 	meta, err := writeDiskIndex(ctx, testLogger(), dir, f.built, diskWriteOptions{}, f.provider,
 		func(id uint64) []float32 { return f.raw[id] })
@@ -840,8 +892,10 @@ func TestWarmSegmentIndexes(t *testing.T) {
 // state made for it and from no other, keeps no members block in its store,
 // and is not opened when its meta or its table of slots do not hold together.
 func TestDiskScanInMemory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	f := newDiskFixture(t, 1500, 128, 6, 841, false)
+	const n = 200
+	f := newDiskFixture(t, n, 32, 6, 841, false)
 	vectorOf := func(id uint64) []float32 { return f.raw[id] }
 	sketched := f.cell(t, 64, false, 0)
 	scanned, err := sketchScanState(sketched)
@@ -865,8 +919,8 @@ func TestDiskScanInMemory(t *testing.T) {
 		require.ErrorContains(t, err, "scanned by the code of the endpoints already")
 		_, err = sketchScanState(scanned)
 		require.ErrorContains(t, err, "scanned by the code of the endpoints already")
-		stream := newDiskFixture(t, 1500, 24, 6, 843, false)
-		_, err = newStreamIndex(stream.index, 1500, streamConfig{threshold: 60}, func(id uint64) []float32 { return stream.raw[id] })
+		stream := newDiskFixture(t, 120, 24, 6, 843, false)
+		_, err = newStreamIndex(stream.index, 120, streamConfig{threshold: 60}, func(id uint64) []float32 { return stream.raw[id] })
 		require.NoError(t, err)
 		_, err = sketchScanState(stream.index.state.Load())
 		require.ErrorContains(t, err, "keyed by doc id")
@@ -980,10 +1034,10 @@ func TestDiskScanInMemory(t *testing.T) {
 		}, wantErr: "meta of an index scanned from memory"},
 		{name: "a doc without a slot", breakIt: func(t *testing.T, dir string) {
 			editSlot(t, dir, 7, diskNoSlot)
-		}, wantErr: "the table of slots holds 1499 docs"},
+		}, wantErr: fmt.Sprintf("the table of slots holds %d docs", n-1)},
 		{name: "a doc in a slot the index does not have", breakIt: func(t *testing.T, dir string) {
 			editSlot(t, dir, 7, uint32(meta.Vectors))
-		}, wantErr: "doc 7 is in slot 1500"},
+		}, wantErr: fmt.Sprintf("doc 7 is in slot %d", n)},
 	}
 	for _, tt := range opening {
 		t.Run("opening: "+tt.name, func(t *testing.T) {

@@ -84,8 +84,9 @@ func writeBuilt(path string, builtAt []uint32) error {
 // openBuilt reads when the edges of every vector were built, and opens the
 // file to be written. An index that was written without it gets one in which
 // every vector it holds has edges of now: it does not know better, and the
-// next doubling is counted from here.
-func (g *growIndex) openBuilt() error {
+// next doubling is counted from here. Without keep it holds no table in
+// memory, and only writes the file.
+func (g *growIndex) openBuilt(keep bool) error {
 	path := filepath.Join(g.dir, growBuiltFile)
 	builtAt := make([]uint32, g.meta.Keys)
 	raw, err := os.ReadFile(path)
@@ -119,7 +120,9 @@ func (g *growIndex) openBuilt() error {
 	if g.built, err = os.OpenFile(path, os.O_RDWR, 0o644); err != nil {
 		return errors.Wrap(err, "open when the edges were built")
 	}
-	g.builtAt = builtAt
+	if keep {
+		g.builtAt = builtAt
+	}
 	return nil
 }
 
@@ -131,7 +134,9 @@ func (g *growIndex) setBuilt(docID uint64, held int) error {
 	if err := g.writeFile(growTargetBuilt, entry[:], int64(docID)*4); err != nil {
 		return errors.Wrapf(err, "write when the edges of doc %d were built", docID)
 	}
-	g.builtAt[docID] = uint32(held)
+	if g.builtAt != nil {
+		g.builtAt[docID] = uint32(held)
+	}
 	return nil
 }
 
@@ -142,9 +147,10 @@ func (g *growIndex) refreshDue() bool {
 }
 
 // stale tells whether the edges of a vector were built when the index held
-// half the given number of vectors, or fewer.
+// half the given number of vectors, or fewer. An index that keeps no table
+// of when they were built has nothing stale: it is not opened to refresh.
 func (g *growIndex) stale(docID uint64, held int) bool {
-	return g.holds(docID) && 2*int(g.builtAt[docID]) <= held
+	return g.builtAt != nil && g.holds(docID) && 2*int(g.builtAt[docID]) <= held
 }
 
 // staleDocs lists the vectors a refresh takes now, by doc id.

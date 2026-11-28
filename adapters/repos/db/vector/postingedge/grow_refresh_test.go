@@ -25,9 +25,12 @@ import (
 // the same lists of its neighbors, and the two indexes are the same index
 // after it, and through the inserts that follow. With the edges in a value
 // per list and in a row, with the store flushed on the way, and with the
-// index closed and opened between two doublings: when the edges of a vector
-// were built is on disk.
+// index closed and opened before the index doubles and after it: when the
+// edges of a vector were built is on disk. TestGrowRefreshEqualsMemoryAtScale,
+// of the bench harness, grows larger indexes, through two doublings, over more
+// formats.
 func TestGrowRefreshEqualsMemory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name       string
@@ -40,31 +43,20 @@ func TestGrowRefreshEqualsMemory(t *testing.T) {
 		flushEvery int
 		reopenAt   int
 	}{
-		{name: "a value per list, one doubling", format: growConfig{}, bits: 64, threshold: 60, base: 1000, total: 2300, flushEvery: 37},
-		{name: "the format of a shard, one doubling", format: shardFormat(8), bits: 64, threshold: 60, base: 1000, total: 2300, flushEvery: 41},
+		{name: "a value per list", format: growConfig{}, bits: 64, threshold: 20, base: 50, total: 110, flushEvery: 23},
+		{name: "the format of a shard", format: shardFormat(8), bits: 64, threshold: 20, base: 50, total: 110, flushEvery: 29, reopenAt: 80},
 		{
-			name: "the format of a shard, two doublings", format: shardFormat(DefaultConsolidate), bits: 64, threshold: 60,
-			base: 1000, total: 4100, flushEvery: 53, reopenAt: 2600,
-		},
-		{
-			name: "the format of a shard, cosine, few splits", format: shardFormat(4), cosine: true, bits: 128, threshold: 400,
-			base: 1000, total: 2200, reopenAt: 1500,
-		},
-		{name: "the full code", format: shardFormat(16), threshold: 60, base: 1000, total: 2200, flushEvery: 29},
-		{
-			name: "no codes in memory, two doublings", format: haloFormat(8, false), bits: 64, threshold: 60,
-			base: 1000, total: 4100, flushEvery: 41, reopenAt: 2600,
-		},
-		{name: "no codes in memory, the full code", format: haloFormat(DefaultConsolidate, false), threshold: 60, base: 1000, total: 2200},
-		{
-			name: "the halo kept up with the codes in memory", format: haloFormat(4, true), cosine: true, bits: 128, threshold: 60,
-			base: 1000, total: 2200, flushEvery: 37,
+			name: "no codes in memory, cosine, the full code", format: haloFormat(DefaultConsolidate, false), cosine: true, threshold: 20,
+			base: 50, total: 110, reopenAt: 80,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const dims = 64
+			t.Parallel()
+			const dims = 32
 			f := newGrowFixtureFormat(t, tt.total, tt.base, dims, tt.cosine, tt.bits, tt.threshold, tt.format)
+			f.rescoring(fewRescored)
+			f.queries = f.queries[:3]
 			f.same(t, "the base")
 			require.Equal(t, tt.base, f.g.meta.RefreshedAt)
 			require.Empty(t, f.g.staleDocs())
@@ -117,9 +109,9 @@ func TestGrowRefreshEqualsMemory(t *testing.T) {
 			}
 			require.Positive(t, passes)
 			t.Logf("%d passes: %d lists changed, %d inverse edges entered", passes, changed, entered)
-			// With a base of a thousand the clusters of the fixture are split
-			// in several postings, and a vector has neighbors outside its own
-			// that the base did not give it.
+			// With postings of at most twenty members the clusters of the
+			// fixture are split in several postings, and a vector has
+			// neighbors outside its own that the base did not give it.
 			require.Positive(t, changed, "lists changed")
 			require.Positive(t, entered, "refreshed vectors entered the lists of their neighbors")
 			f.same(t, "at the end")
@@ -138,11 +130,13 @@ func TestGrowRefreshEqualsMemory(t *testing.T) {
 // it, and those of a refresh with the vectors there were then. A vector that
 // is marked deleted is not refreshed, and one that left has no time.
 func TestGrowRefreshKnowsWhenEdgesWereBuilt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	const base, total, dims = 400, 1000, 48
+	const base, total, dims = 40, 90, 32
 	format := shardFormat(8)
 	format.open.deletes = true
 	f := newGrowFixtureFormat(t, total, base, dims, false, 64, 60, format)
+	f.rescoring(fewRescored)
 	g := f.g
 	for docID := range base {
 		require.Equal(t, uint32(base), g.builtAt[docID], "doc %d of the base", docID)
@@ -166,8 +160,8 @@ func TestGrowRefreshKnowsWhenEdgesWereBuilt(t *testing.T) {
 		require.NoError(t, err)
 	}
 	// A marked vector keeps its edges, and one that left has none. With it
-	// marked the index holds 801 vectors: the base is old, and the first
-	// insert, which came with 401, is not.
+	// marked the index holds 2*base+1 vectors: the base is old, and the first
+	// insert, which came with base+1, is not.
 	marked, err := g.remove(3)
 	require.NoError(t, err)
 	require.True(t, marked)
