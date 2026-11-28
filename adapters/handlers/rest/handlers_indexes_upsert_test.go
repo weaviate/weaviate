@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -934,6 +935,62 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 			}
 			require.Contains(t, plan.conflict, "1 of 2 tenants")
 			require.Contains(t, plan.conflict, tc.refusal)
+		})
+	}
+}
+
+// The REST pre-checks refuse exactly the submits the AddTask apply's Admit refuses.
+func TestReindexPreChecksAgreeWithAdmit(t *testing.T) {
+	partial := func(props []string, mt db.ReindexMigrationType, tok, bucket string) *distributedtask.Task {
+		task := buildTask(t, "P", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+			Collection: "C", Properties: props, MigrationType: mt, TargetTokenization: tok, BucketStrategy: bucket,
+			ViewServed: true, Generation: 1,
+		}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+		task.SwapDecidedGroups = map[string]time.Time{"a": {}}
+		return task
+	}
+	retokenize := upsertPlan{migrationType: db.ReindexTypeChangeTokenization, targetTok: "field", bucketStrategy: "inverted"}
+	for _, tc := range []struct {
+		name    string
+		partial *distributedtask.Task
+		plan    upsertPlan // empty: a rebuild of rebuild's index type
+		rebuild string
+		refused bool
+	}{
+		{name: "the resubmit", partial: partial([]string{"t"}, db.ReindexTypeChangeTokenization, "field", "inverted"), plan: retokenize},
+		{
+			name: "the same tokenization on another bucket strategy", refused: true,
+			partial: partial([]string{"t"}, db.ReindexTypeChangeTokenization, "field", "mapcollection"), plan: retokenize,
+		},
+		{
+			name: "another target", refused: true,
+			partial: partial([]string{"t"}, db.ReindexTypeRepairFilterable, "", ""), rebuild: "searchable",
+		},
+		{name: "a same-type rebuild", partial: partial([]string{"t"}, db.ReindexTypeRepairFilterable, "", ""), rebuild: "filterable"},
+		{
+			name:    "a partial run over another property set",
+			partial: partial([]string{"t", "u"}, db.ReindexTypeChangeTokenizationFilterable, "field", ""), rebuild: "filterable",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			existing := []*distributedtask.Task{tc.partial}
+			var restRefused bool
+			payload := db.ReindexTaskPayload{
+				Collection: "C", Properties: []string{"t"}, MigrationType: tc.plan.migrationType,
+				TargetTokenization: tc.plan.targetTok, BucketStrategy: tc.plan.bucketStrategy, ViewServed: true,
+			}
+			if tc.rebuild != "" {
+				payload.MigrationType = rebuildTypes[tc.rebuild]
+				restRefused = refusePartlyMigratedRebuild("C", "t", payload.MigrationType, existing, true) != nil
+			} else {
+				restRefused = refuseOtherThanPartialRun("C", "t", tc.plan.targetTok, tc.plan, existing, true) != ""
+			}
+			raw, err := json.Marshal(payload)
+			require.NoError(t, err)
+			submit := withHeader(&distributedtask.Task{Namespace: db.ReindexNamespace, Payload: raw})
+			_, err = db.ReindexTaskRules{}.Admit(submit, existing, nil)
+			require.Equal(t, tc.refused, errors.Is(err, distributedtask.ErrTaskPartlyMigrated), "Admit: %v", err)
+			require.Equal(t, tc.refused, restRefused, "the REST pre-check")
 		})
 	}
 }

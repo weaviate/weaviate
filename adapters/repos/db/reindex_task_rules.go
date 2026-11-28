@@ -37,41 +37,66 @@ func (ReindexTaskRules) Admit(task *distributedtask.Task, existing []*distribute
 	if !ok || !h.ViewServed {
 		return nil, nil
 	}
-	highest := uint64(0)
+	a := reindexAdmission(h, existing)
+	if a.conflict != nil {
+		return nil, distributedtask.NewTaskPartlyMigratedError(h.Collection())
+	}
+	highest := a.highest
 	for _, prop := range h.Properties {
 		for _, gen := range live[prop] {
 			highest = max(highest, gen)
 		}
 	}
-	var kept *distributedtask.Task
-	var keptGen uint64
-	for _, other := range existing {
-		oh, ok := ReindexHeaderOf(other)
-		if !ok || oh.Generation == 0 || !sameReindexProperties(oh, h) {
-			continue
-		}
-		highest = max(highest, oh.Generation)
-		if !ReindexLeftPartial(other) {
-			continue
-		}
-		if !sameReindexTarget(oh.ReindexTaskPayload, h.ReindexTaskPayload) {
-			return nil, distributedtask.NewTaskPartlyMigratedError(h.Collection())
-		}
-		if oh.Generation > keptGen {
-			kept, keptGen = other, oh.Generation
-		}
-	}
 	h.Generation = highest + 1
-	if kept != nil {
-		h.Generation = keptGen
-		task.TakeOver(kept)
+	if a.kept != nil {
+		h.Generation = a.keptGen
+		task.TakeOver(a.kept)
 	}
 	payload, err := json.Marshal(h.ReindexTaskPayload)
 	if err != nil {
 		return nil, fmt.Errorf("encode reindex payload: %w", err)
 	}
 	task.SetHeader(payload, h)
-	return kept, nil
+	return a.kept, nil
+}
+
+type admission struct {
+	highest, keptGen uint64
+	kept, conflict   *distributedtask.Task
+}
+
+// reindexAdmission is the one rule for which partial run a submit takes over or is refused by.
+func reindexAdmission(h ReindexTaskHeader, existing []*distributedtask.Task) admission {
+	var a admission
+	for _, other := range existing {
+		oh, ok := ReindexHeaderOf(other)
+		if !ok || oh.Generation == 0 || !sameReindexProperties(oh, h) {
+			continue
+		}
+		a.highest = max(a.highest, oh.Generation)
+		switch {
+		case !ReindexLeftPartial(other):
+		case !sameReindexTarget(oh.ReindexTaskPayload, h.ReindexTaskPayload):
+			if a.conflict == nil || other.Version > a.conflict.Version {
+				a.conflict = other
+			}
+		case oh.Generation > a.keptGen:
+			a.kept, a.keptGen = other, oh.Generation
+		}
+	}
+	return a
+}
+
+// ReindexAdmissionConflict is the 409 text for a submit that Admit would refuse, or "".
+func ReindexAdmissionConflict(payload ReindexTaskPayload, existing []*distributedtask.Task, tenantCounts bool) string {
+	conflict := reindexAdmission(ReindexTaskHeader{ReindexTaskPayload: payload}, existing).conflict
+	if conflict == nil {
+		return ""
+	}
+	h, _ := ReindexHeaderOf(conflict)
+	return fmt.Sprintf("%s; finish the migration with %s",
+		ReindexMigratedPhrase(conflict.SwapDecidedGroups, conflict.GroupTotal(), payload.Properties[0], tenantCounts),
+		ReindexResubmitCommand(&h.ReindexTaskPayload, payload.Properties[0]))
 }
 
 // Ended takes the run's switched tenants from older ended runs on its properties

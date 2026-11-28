@@ -641,26 +641,27 @@ var rebuildTypes = map[string]db.ReindexMigrationType{
 	"rangeable":  db.ReindexTypeRepairRangeable,
 }
 
-// refusePartlyMigratedRebuild admits a same-type rebuild, which takes the partial run over.
 func refusePartlyMigratedRebuild(collection, propName string, mt db.ReindexMigrationType, reindexTasks []*distributedtask.Task,
 	tenantCounts bool,
 ) error {
-	sameType := func(run *db.ReindexRun) bool { return run.Payload.MigrationType == mt }
-	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, sameType, tenantCounts); msg != "" {
+	payload := db.ReindexTaskPayload{MigrationType: mt, Collection: collection, Properties: []string{propName}}
+	if msg := db.ReindexAdmissionConflict(payload, reindexTasks, tenantCounts); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPropertyPartlyMigrated, msg)
 	}
 	return nil
 }
 
+// A tokenization NO_OP names no target, so any partial run refuses it. The AddTask apply decides.
 func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task,
 	tenantCounts bool,
 ) string {
 	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
 		return ""
 	}
-	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, func(run *db.ReindexRun) bool {
-		return plan.migrationType == run.Payload.MigrationType && plan.targetTok == run.Payload.TargetTokenization
-	}, tenantCounts)
+	return db.ReindexAdmissionConflict(db.ReindexTaskPayload{
+		MigrationType: plan.migrationType, Collection: collection, Properties: []string{propName},
+		TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
+	}, reindexTasks, tenantCounts)
 }
 
 // validateTenantScope enforces the tenants contract: honored only on
