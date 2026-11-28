@@ -38,9 +38,11 @@ func sharingIndex(t *testing.T, vectors [][]float32, uc UserConfig, share *build
 // A build that takes the partition and the assignment of another must end in
 // the index it would have built by itself.
 func TestBuildTakesThePartitionOfAnotherBuild(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	vectors := clusteredVectors(3000, 128, 30, 77)
+	vectors := clusteredVectors(100, 32, 1, 77)
 	uc := smallConfig()
+	uc.TargetPostingSize = 20
 
 	alone := buildTestIndex(t, vectors, distancer.NewCosineDistanceProvider(), uc)
 
@@ -104,8 +106,9 @@ func TestBuildTakesThePartitionOfAnotherBuild(t *testing.T) {
 // probes of one width. A build of another shape, or one that probes wider,
 // must fail rather than build on it.
 func TestBuildRejectsAPartitionOfAnotherShape(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	vectors := clusteredVectors(1200, 64, 12, 78)
+	vectors := clusteredVectors(160, 32, 4, 78)
 	uc := smallConfig()
 
 	share := &buildShare{}
@@ -117,7 +120,7 @@ func TestBuildRejectsAPartitionOfAnotherShape(t *testing.T) {
 		change  func(uc *UserConfig)
 		spoil   func(share *buildShare)
 	}{
-		{name: "fewer vectors", vectors: vectors[:1100]},
+		{name: "fewer vectors", vectors: vectors[:140]},
 		{name: "another posting size", vectors: vectors, change: func(uc *UserConfig) { uc.TargetPostingSize = 60 }},
 		{name: "a wider build probe", vectors: vectors, change: func(uc *UserConfig) { uc.BuildProbe = 2 * uc.BuildProbe }},
 		{

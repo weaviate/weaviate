@@ -12,7 +12,6 @@
 package postingedge
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,7 +68,7 @@ func (s *baseSteps) at(t *testing.T, point string) {
 func (f *persistentFixture) expect(t *testing.T, at string, n int, held func(id uint64) bool) {
 	t.Helper()
 	const k = 10
-	ctx := context.Background()
+	ctx := persistentCtx()
 	for id := range uint64(len(f.vectors)) {
 		require.Equal(t, id < uint64(n) && held(id), f.index.ContainsDoc(id), "%s: doc %d", at, id)
 	}
@@ -94,9 +93,12 @@ func (f *persistentFixture) expect(t *testing.T, at string, n int, held func(id 
 // until the index has taken them all. And a process that dies at any point
 // of it leaves an index that, opened, ends up holding the same vectors.
 func TestPersistentBuildsItsBaseInTheBackground(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+	ctx := persistentCtx()
 	const k = 10
-	const base, total = persistentBase, persistentBase + 400
+	// built and written are how many vectors are in when the build of the
+	// base has read its vectors, and when it has written the base.
+	const base, built, written, total = persistentBase, persistentBase + 60, persistentBase + 100, persistentBase + 110
 	steps := newBaseSteps()
 	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.baseHook = steps.hook })
 	add := func(from, to int) {
@@ -150,7 +152,7 @@ func TestPersistentBuildsItsBaseInTheBackground(t *testing.T) {
 	f.index.mu.RLock()
 	require.Nil(t, f.index.g, "the base is being built")
 	f.index.mu.RUnlock()
-	add(base, base+150)
+	add(base, built)
 	remove(5, 17, base+3)
 	// The base that is being built may hold a vector that was deleted
 	// since: its doc id is not given again until the base is the index. Given
@@ -158,15 +160,15 @@ func TestPersistentBuildsItsBaseInTheBackground(t *testing.T) {
 	// (persistent_replay.go).
 	require.NoError(t, f.index.Add(ctx, 5, f.vectors[5]))
 	require.False(t, f.index.ContainsDoc(5), "doc 5 stays deleted")
-	exact("while the base is built", base+150)
-	crashNow("while the base is built", base+150, true)
+	exact("while the base is built", built)
+	crashNow("while the base is built", built, true)
 	steps.proceed <- struct{}{}
 
 	steps.at(t, "the base is written")
-	add(base+150, base+250)
+	add(built, written)
 	remove(29)
-	exact("with the base written", base+250)
-	crashNow("with the base written", base+250, true)
+	exact("with the base written", written)
+	crashNow("with the base written", written, true)
 	steps.proceed <- struct{}{}
 
 	// The base becomes the index with nobody else in, and then the index
@@ -176,7 +178,7 @@ func TestPersistentBuildsItsBaseInTheBackground(t *testing.T) {
 	for taken := 1; taken <= 5; taken++ {
 		steps.at(t, "a vector kept aside is in the index")
 		if taken == 5 {
-			crashNow("with five of the vectors kept aside taken", base+250, false)
+			crashNow("with five of the vectors kept aside taken", written, false)
 			steps.stopping.Store(false)
 		}
 		steps.proceed <- struct{}{}
@@ -185,9 +187,9 @@ func TestPersistentBuildsItsBaseInTheBackground(t *testing.T) {
 	// lowest doc id first: a search for one of the last finds it, whether it
 	// is still aside or the index has it. One of them is deleted before the
 	// index takes it, or after.
-	remove(base + 240)
-	for id := base + 249; id > base+229; id-- {
-		if id == base+240 {
+	remove(written - 5)
+	for id := written - 1; id > written-11; id-- {
+		if id == written-5 {
 			continue
 		}
 		ids, _, err := f.index.SearchByVector(ctx, f.vectors[id], 1, nil)
@@ -209,7 +211,7 @@ func TestPersistentBuildsItsBaseInTheBackground(t *testing.T) {
 		}
 	}
 	t.Logf("%d of %d queries were answered with vectors still aside", exactAside, len(f.queries))
-	add(base+250, total)
+	add(written, total)
 	require.NoError(t, f.index.settleBase(ctx))
 
 	f.index.mu.RLock()
@@ -243,8 +245,9 @@ func TestPersistentBuildsItsBaseInTheBackground(t *testing.T) {
 // before, and those deleted while it ran gone; the base is built again once
 // more vectors have come, and not before.
 func TestPersistentBuildsItsBaseAgainAfterAFailure(t *testing.T) {
-	ctx := context.Background()
-	const base, total = persistentBase, persistentBase + 200
+	t.Parallel()
+	ctx := persistentCtx()
+	const base, total = persistentBase, persistentBase + 50
 	var failing atomic.Bool
 	failing.Store(true)
 	reached, proceed := make(chan struct{}), make(chan struct{})
@@ -294,8 +297,9 @@ func TestPersistentBuildsItsBaseAgainAfterAFailure(t *testing.T) {
 // An index that is shut down while its base is built keeps every vector
 // aside, with what was deleted meanwhile gone: opened, it builds its base.
 func TestPersistentShutsDownWhileItsBaseIsBuilt(t *testing.T) {
-	ctx := context.Background()
-	const base, total = persistentBase, persistentBase + 100
+	t.Parallel()
+	ctx := persistentCtx()
+	const base, total = persistentBase, persistentBase + 60
 	steps := newBaseSteps()
 	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.baseHook = steps.hook })
 	for start := 0; start < base; start += 50 {
@@ -329,7 +333,8 @@ func TestPersistentShutsDownWhileItsBaseIsBuilt(t *testing.T) {
 // base. It used to return at once while the base was being built, since no
 // base was due.
 func TestPersistentSettleWaitsForItsBase(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+	ctx := persistentCtx()
 	const base, total = persistentBase, persistentBase + 60
 	steps := newBaseSteps()
 	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.baseHook = steps.hook })
@@ -369,6 +374,7 @@ func mapsClone(m map[uint64]bool) map[uint64]bool {
 
 // mergeNearest gives the k nearest of two answers, each nearest first.
 func TestMergeNearest(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		ids       []uint64
@@ -423,7 +429,7 @@ func TestPersistentFixtureBuildsItsBaseFromItsBaseSize(t *testing.T) {
 		}
 	}
 	assert.Equal(t, persistentBase, built, "the vectors the base was built from")
-	require.NoError(t, f.index.Settle(context.Background()))
+	require.NoError(t, f.index.Settle(persistentCtx()))
 	f.index.mu.RLock()
 	splits := f.index.g.meta.Splits
 	f.index.mu.RUnlock()

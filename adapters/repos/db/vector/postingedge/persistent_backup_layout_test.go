@@ -51,7 +51,7 @@ func TestPersistentBackupHoldsTheLayout(t *testing.T) {
 	gen := generation()
 
 	require.NoError(t, f.index.PrepareForBackup(ctx))
-	require.NoError(t, f.index.maintain(ctx))
+	require.NoError(t, f.index.maintain(ctx, true))
 	require.NoError(t, f.index.Settle(ctx), "nothing is due while the backup holds the index")
 	require.Equal(t, gen, generation(), "no pass starts during a backup")
 	require.Zero(t, f.index.layouts.Load())

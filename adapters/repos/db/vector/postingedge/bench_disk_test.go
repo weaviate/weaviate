@@ -427,7 +427,9 @@ func TestDiskWrite(t *testing.T) {
 			sums := &diskSearchStats{}
 			err := parallelChunks(ctx, b.logger, len(data.queries), 8, func(_, start, end int) error {
 				for q := start; q < end; q++ {
-					difference, stats, err := diskDifference(searchCtx, index, disk, data.queries[q], *benchK)
+					var memory SearchStats
+					stats := &diskSearchStats{}
+					difference, err := diskDifference(searchCtx, index, disk, data.queries[q], *benchK, &memory, stats)
 					if err != nil {
 						return err
 					}

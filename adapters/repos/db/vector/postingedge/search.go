@@ -582,6 +582,7 @@ func (ix *Index) rescore(ctx context.Context, query []float32, candidates []scor
 		return withoutGone(candidates), nil
 	}
 
+	ix.rescoreFanouts.Add(1)
 	eg := enterrors.NewErrorGroupWrapper(ix.logger)
 	for worker := range workers {
 		eg.Go(func() error {

@@ -15,6 +15,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
@@ -74,7 +75,7 @@ func orphansDropped(t *testing.T, c *persistentFixture, objects *objectsOfAShard
 	t.Helper()
 	ctx := context.Background()
 	for id := uint64(from); id < uint64(to); id++ {
-		gone := slicesContains(lost, id)
+		gone := slices.Contains(lost, id)
 		require.Equal(t, !gone, c.index.ContainsDoc(id), "doc %d, lost %v", id, gone)
 		require.True(t, objects.wasAsked(id), "doc %d: the shard was asked about it", id)
 	}
@@ -83,7 +84,7 @@ func orphansDropped(t *testing.T, c *persistentFixture, objects *objectsOfAShard
 		ids, _, err := c.index.SearchByVector(ctx, query, 10, nil)
 		require.NoError(t, err, "query %d", q)
 		for _, id := range ids {
-			require.False(t, slicesContains(lost, id), "query %d returned doc %d, whose object was lost", q, id)
+			require.False(t, slices.Contains(lost, id), "query %d returned doc %d, whose object was lost", q, id)
 		}
 	}
 	for _, id := range lost {
@@ -184,7 +185,7 @@ func TestPersistentDropsTheVectorsKeptAsideOfLostObjects(t *testing.T) {
 	require.Nil(t, c.index.g, "the index has no base")
 	ctx := context.Background()
 	for id := range uint64(added) {
-		gone := slicesContains(lost, id)
+		gone := slices.Contains(lost, id)
 		require.Equal(t, !gone, c.index.ContainsDoc(id), "doc %d, lost %v", id, gone)
 		require.True(t, objects.wasAsked(id), "doc %d: the shard was asked about it", id)
 	}

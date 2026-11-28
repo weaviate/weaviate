@@ -290,7 +290,7 @@ func openDiskBench(t *testing.T, dir string, dims int, train [][]float32, backgr
 	// PostStartup, with the version map warmed before anything is searched:
 	// while it warms in the background, a search reads the versions it
 	// misses from the store.
-	index.Centroids.hnsw.PostStartup(ctx)
+	index.Centroids.PostStartup(ctx)
 	index.warmVersionMap()
 	// The index reads the postings of a search one after another. With
 	// -bench.hfresh.readers the benchmark has it read several at once.
@@ -375,8 +375,16 @@ type diskCleaned struct {
 	Seconds float64   `json:"seconds"`
 }
 
+// centroids is the centroid graph of the index. An index that holds one
+// posting has none, and nothing here measures such an index.
+func (b *diskBench) centroids() *hnsw.HNSW {
+	graph, _ := b.index.Centroids.load()
+	require.NotNil(b.t, graph, "the index has no centroid graph: it holds one posting")
+	return graph
+}
+
 func (b *diskBench) centroidGraph() diskGraph {
-	stats, err := b.index.Centroids.hnsw.Stats()
+	stats, err := b.centroids().Stats()
 	require.NoError(b.t, err)
 	graph := diskGraph{Tombstones: stats.NumTombstones, Postings: int(b.index.Centroids.counter.Load())}
 	for _, count := range stats.DistributionLayers {
@@ -1459,7 +1467,7 @@ func TestHFreshDiskClean(t *testing.T) {
 	begin := time.Now()
 	for b.centroidGraph().Tombstones > 0 {
 		require.Less(t, cleaned.Rounds, 10, "the cleanup leaves tombstones round after round")
-		require.NoError(t, b.index.Centroids.hnsw.CleanUpTombstonedNodes(func() bool { return false }))
+		require.NoError(t, b.centroids().CleanUpTombstonedNodes(func() bool { return false }))
 		cleaned.Rounds++
 	}
 	cleaned.Seconds = time.Since(begin).Seconds()

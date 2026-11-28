@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -427,7 +428,7 @@ func persistentCleansWhatABuildLeft(t *testing.T, cacheMode string) {
 					require.NoError(t, store.Bucket(staging).Delete(growDocKey(3)))
 					require.NoError(t, store.Shutdown(ctx))
 				},
-				wantText: "1 of the 600 vectors it was built from are not kept aside (doc 3)",
+				wantText: fmt.Sprintf("1 of the %d vectors it was built from are not kept aside (doc 3)", buildLeftBase),
 			},
 		}
 		for _, tt := range tests {

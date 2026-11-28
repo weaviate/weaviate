@@ -12,7 +12,6 @@
 package postingedge
 
 import (
-	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -83,7 +82,7 @@ func TestPersistentTakesAReplayedBatch(t *testing.T) {
 				cfg.noBackground = true
 				cfg.Logger = logger
 			})
-			ctx := context.Background()
+			ctx := persistentCtx()
 			if tt.in < persistentBase {
 				require.NoError(t, f.index.AddBatch(ctx, sequentialIDs(tt.in, 0), f.vectors[:tt.in]))
 			} else {
