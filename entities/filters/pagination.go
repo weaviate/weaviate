@@ -11,6 +11,8 @@
 
 package filters
 
+import "errors"
+
 const (
 	// LimitFlagSearchByDist indicates that the
 	// vector search should be conducted by
@@ -34,6 +36,9 @@ func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error)
 	offset, offsetOk := args["offset"]
 	if !offsetOk {
 		offset = 0
+	}
+	if offset.(int) < 0 {
+		return nil, errors.New("offset must be non-negative")
 	}
 
 	limit, limitOk := args["limit"]
