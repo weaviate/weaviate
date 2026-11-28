@@ -114,12 +114,12 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+				false, roaringset.NewBitmapBufPoolNoop(),
 				monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
 
@@ -595,7 +595,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
 
@@ -1063,7 +1063,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	// HaltForTransfer's backup-gate would refuse the test's
@@ -1072,7 +1072,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	index.db = stubDBWithNoLiveReindex()
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+		false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 

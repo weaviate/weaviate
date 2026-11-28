@@ -549,7 +549,6 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		backupLock:             esync.NewKeyRWLocker(),
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		shardReindexer:         NewShardReindexerV3Noop(),
 		bitmapBufPool:          roaringset.NewBitmapBufPoolNoop(),
 		HFreshEnabled:          true,
 		replicator:             replicator,

@@ -149,6 +149,10 @@ func (ReindexTaskRules) BornSwitched(task *distributedtask.Task) bool {
 	return ok && h.Generation > 0 && len(h.Tenants) == 0
 }
 
+func MigrationUnitID(shardName, nodeName string) string {
+	return shardName + "__" + nodeName
+}
+
 // Units gives each replica of each shard in scope one unit, shards by name and replicas in their stored
 // order. Each tenant switches as its own group. A missing named tenant, or any shard in scope that
 // is not HOT, refuses the whole run.

@@ -22,7 +22,7 @@ import (
 )
 
 func (s *Shard) deleteFromInvertedIndicesLSM(buckets lsmkv.BucketLookup, props []inverted.Property,
-	nilProps []inverted.NilProperty, docID uint64, st *propValueIndexState,
+	nilProps []inverted.NilProperty, docID uint64,
 ) error {
 	for _, prop := range props {
 		if prop.HasFilterableIndex {
@@ -64,14 +64,6 @@ func (s *Shard) deleteFromInvertedIndicesLSM(buckets lsmkv.BucketLookup, props [
 					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
 				}
-			}
-		}
-
-		// Suppress the inline callback for props under migration; their
-		// target-schema delete double-write is handled by the migration pass.
-		if _, migrating := st.scope.props[prop.Name]; !migrating {
-			if err := s.fireDeleteFromPropertyValueIndex(st.del, docID, &prop); err != nil {
-				return err
 			}
 		}
 

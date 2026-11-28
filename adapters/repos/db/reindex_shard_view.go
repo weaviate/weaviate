@@ -73,12 +73,11 @@ func newShardView(s *Shard, props map[string]reindexPropView) *shardView {
 	return &shardView{shard: s, store: s.store, props: props, served: map[string]*lsmkv.Bucket{}, drained: make(chan struct{})}
 }
 
-// Tokenization falls back to the swap overlay for a property the view does not govern.
 func (v *shardView) Tokenization(propName, schemaTokenization string) string {
 	if pv, ok := v.props[propName]; ok {
 		return pv.tokenization
 	}
-	return v.shard.TokenizationFor(propName, schemaTokenization)
+	return schemaTokenization
 }
 
 // RangeableReady follows the view for a property it governs.
@@ -87,13 +86,7 @@ func (v *shardView) RangeableReady(prop *models.Property) bool {
 	if b, ok := v.served[name]; ok {
 		return b != nil
 	}
-	if !inverted.HasRangeableIndex(prop) {
-		return false
-	}
-	if ready, set := v.shard.rangeableReadyMark(prop.Name); set {
-		return ready
-	}
-	return !v.shard.rangeableUndecidable.Load() && v.Bucket(name) != nil
+	return inverted.HasRangeableIndex(prop) && v.Bucket(name) != nil
 }
 
 func (v *shardView) FallbackToSearchable() bool {

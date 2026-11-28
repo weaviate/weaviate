@@ -45,10 +45,6 @@ func (p *flipFailingProvider) OnGroupCompleted(_ *Task, _ string, _ []string) er
 	return nil
 }
 
-func (p *flipFailingProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
-	return nil
-}
-
 // OnTaskCompleted simulates the schema flip failing transiently; the
 // scheduler must withhold FINISHED and retry (weaviate/0-weaviate-issues#297).
 func (p *flipFailingProvider) OnTaskCompleted(task *Task) error {

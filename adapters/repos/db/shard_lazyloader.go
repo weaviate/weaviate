@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -73,7 +72,7 @@ type LazyLoadShard struct {
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter *loadlimiter.LoadLimiter, shardReindexer ShardReindexerV3,
+	shardLoadLimiter *loadlimiter.LoadLimiter,
 	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
@@ -89,7 +88,6 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			jobQueueCh:       jobQueueCh,
 			scheduler:        index.scheduler,
 			indexCheckpoints: indexCheckpoints,
-			shardReindexer:   shardReindexer,
 			bitmapBufPool:    bitmapBufPool,
 		},
 		memMonitor:       memMonitor,
@@ -106,7 +104,6 @@ type deferredShardOpts struct {
 	jobQueueCh       chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
-	shardReindexer   ShardReindexerV3
 	bitmapBufPool    roaringset.BitmapBufPool
 }
 
@@ -161,7 +158,7 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
+		l.shardOpts.indexCheckpoints, l.lazyLoadSegments,
 		l.shardOpts.bitmapBufPool, monitoring.ShardRegistrationLazy)
 	if err != nil {
 		l.shardOpts.promMetrics.FailLoadingShard()
@@ -199,6 +196,17 @@ func (l *LazyLoadShard) Unwrap(ctx context.Context) (*Shard, error) {
 		return nil, err
 	}
 	return l.shard, nil
+}
+
+func unwrapShard(ctx context.Context, shard ShardLike) (*Shard, error) {
+	switch s := shard.(type) {
+	case *Shard:
+		return s, nil
+	case *LazyLoadShard:
+		return s.Unwrap(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported shard type %T", shard)
+	}
 }
 
 func (l *LazyLoadShard) NotifyReady() {
@@ -603,10 +611,10 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 }
 
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
-	property *models.Property, counts *migrationSweepCounts,
+	property *models.Property,
 ) {
 	if l.isLoaded() {
-		l.shard.updatePropertyBuckets(ctx, eg, property, counts)
+		l.shard.updatePropertyBuckets(ctx, eg, property)
 	}
 }
 
@@ -740,13 +748,6 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
-}
-
-func (l *LazyLoadShard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
-	overlay map[string]inverted.PropertyOverlay,
-) ([]inverted.Property, []inverted.NilProperty, error) {
-	l.mustLoad()
-	return l.shard.AnalyzeObjectForMigrationWithOverlay(object, overlay)
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
@@ -1103,82 +1104,4 @@ func (l *LazyLoadShard) blockLoading() func() {
 	return func() {
 		l.mutex.Unlock()
 	}
-}
-
-// Only a loaded shard's reconciler can end a record; an unreadable set may hold one.
-func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) bool {
-	release := l.blockLoading()
-	defer release()
-
-	if l.loaded {
-		return true
-	}
-	index := l.shardOpts.index
-	store := NewMigrationRecordStoreForUnit(l.pathLSM(), migrationUnitOf(index, l.shardOpts.name), index.logger)
-	if err := store.Load(); err != nil || len(store.Unreadable()) > 0 {
-		return true
-	}
-	tasks := []distributedtask.TaskStatusEntry{task.StatusEntryFor(l.shardOpts.name)}
-	for _, rec := range store.Records() {
-		if _, found := findMigrationTask(rec.Subject(), tasks); found && !rec.FlipDecided() {
-			return true
-		}
-	}
-	return false
-}
-
-// Never revives an unmapped tenant, and loads under ctx: preventShutdown's load has no deadline.
-func (i *Index) loadMappedShardForCleanup(ctx context.Context, name string) (ShardLike, func(), error) {
-	if err := i.enterRead(); err != nil {
-		return nil, nil, err
-	}
-	defer i.exitRead()
-	i.shardCreateLocks.RLock(name)
-	defer i.shardCreateLocks.RUnlock(name)
-
-	shard := i.shards.Load(name)
-	if shard == nil {
-		return nil, nil, nil
-	}
-	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
-	}
-	if lazy, isLazy := shard.(*LazyLoadShard); isLazy {
-		if err := lazy.Load(ctx); err != nil {
-			if truncated := truncatedByCancellation(err); truncated != nil {
-				return nil, nil, truncated
-			}
-			return nil, nil, fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
-		}
-	}
-	release, err := shard.preventShutdown()
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
-	}
-	return shard, release, nil
-}
-
-// canSkipUnloadedSweep reports whether the cleanup sweep can leave this
-// shard alone; a loaded shard is never skipped, since sweeping it costs no
-// load. The loading mutex covers the disk read and is released before
-// returning — the hydration that follows takes it itself.
-//
-// Completed-migration leftovers also block a skip: only a load reclaims them.
-//
-// Skipping holds only while reindex state arrives through a load. Shutdown does
-// not remove the shard from the index map — [Index.Shutdown] shuts its shards
-// down in place — so what keeps the gate off a shard being shut down is the
-// mutex: [LazyLoadShard.Shutdown] takes the one held across this disk read. A
-// sweep racing an index shutdown then comes back truncated from
-// [Index.forEachShardStrict] rather than as a walk that reached every shard.
-func (l *LazyLoadShard) canSkipUnloadedSweep(propName, indexType string, dirs *dirNamesCache) bool {
-	release := l.blockLoading()
-	defer release()
-
-	if l.loaded {
-		return false
-	}
-	stale, finalizable := hasStalePartialReindexState(
-		l.pathLSM(), propName, indexType, dirs, l.Index().logger)
-	return !stale && !finalizable
 }

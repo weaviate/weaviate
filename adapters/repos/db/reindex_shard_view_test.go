@@ -288,7 +288,7 @@ func TestReindexShardViewNoticeLoadsNoShard(t *testing.T) {
 			f := newViewFixture(t, "ViewTest")
 			require.NoError(t, f.shard.Shutdown(context.Background()))
 			lazy := NewLazyLoadShard(context.Background(), nil, f.shard.name, f.idx, f.class, f.idx.centralJobQueue,
-				f.idx.indexCheckpoints, f.idx.allocChecker, f.idx.shardLoadLimiter, f.idx.shardReindexer, false,
+				f.idx.indexCheckpoints, f.idx.allocChecker, f.idx.shardLoadLimiter, false,
 				f.idx.bitmapBufPool)
 			f.idx.shards.Store(f.shard.name, lazy)
 			if tc.registered {
@@ -326,7 +326,7 @@ func TestReindexShardViewSelfNoticeAfterLoad(t *testing.T) {
 			load: func(f *viewFixture) *Shard {
 				require.NoError(f.t, f.shard.Shutdown(context.Background()))
 				lazy := NewLazyLoadShard(context.Background(), nil, f.shard.name, f.idx, f.class, f.idx.centralJobQueue,
-					f.idx.indexCheckpoints, f.idx.allocChecker, f.idx.shardLoadLimiter, f.idx.shardReindexer, false,
+					f.idx.indexCheckpoints, f.idx.allocChecker, f.idx.shardLoadLimiter, false,
 					f.idx.bitmapBufPool)
 				f.idx.shards.Store(f.shard.name, lazy)
 				f.tasks.mu.Lock()

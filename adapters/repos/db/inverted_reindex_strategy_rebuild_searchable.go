@@ -12,8 +12,6 @@
 package db
 
 import (
-	"context"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -28,27 +26,11 @@ type RebuildSearchableStrategy struct {
 	generation int
 }
 
-func (s *RebuildSearchableStrategy) StrategyCode() MigrationStrategyCode {
-	return StrategyCodeRebuildSearchable
-}
-
 func (s *RebuildSearchableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName)
 }
 
-func (s *RebuildSearchableStrategy) ReindexSuffix() string {
-	return "__rebuild_searchable_reindex" + genSuffix(s.generation)
-}
-
-func (s *RebuildSearchableStrategy) IngestSuffix() string {
-	return "__rebuild_searchable_ingest" + genSuffix(s.generation)
-}
-
-func (s *RebuildSearchableStrategy) SourceStrategy() string { return lsmkv.StrategyInverted }
 func (s *RebuildSearchableStrategy) TargetStrategy() string { return lsmkv.StrategyInverted }
-func (s *RebuildSearchableStrategy) SourceIndexType() PropertyIndexType {
-	return IndexTypePropSearchableValue
-}
 
 func (s *RebuildSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
 	docID uint64, prop inverted.Property,
@@ -68,18 +50,8 @@ func (s *RebuildSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) 
 	return blockmaxSearchableDeleteCallback(bucketNamer, armed, s.SourceBucketName)
 }
 
-// PreReindexHook is a no-op — the target BlockMax bucket already exists
-// (API dispatch rejects WAND properties before this strategy runs).
-func (s *RebuildSearchableStrategy) PreReindexHook(_ *Shard, _ []string) {}
-
 // AnalyzerOverlay returns nil — rebuild MUST NOT change tokenization
 // (that's a separate operation: PUT .../index/searchable {"tokenization":X}).
 func (s *RebuildSearchableStrategy) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
-	return nil
-}
-
-// OnMigrationComplete is a no-op — the property was already searchable
-// + BlockMax pre-migration; no schema flag flips.
-func (s *RebuildSearchableStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	return nil
 }

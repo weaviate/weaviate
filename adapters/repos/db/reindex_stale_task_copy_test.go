@@ -19,97 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
-
-// A unit the leader already completed must not run again when this node relaunches it from a trailing copy.
-func TestReindexRelaunchFromStaleCopySkipsCompletedUnit(t *testing.T) {
-	enableFilterable := func(t *testing.T, ctx context.Context) (*Shard, *Index, *ReindexTaskPayload) {
-		className := "StaleRelaunch_" + uuid.NewString()[:8]
-		shd, idx := testShardWithSettings(t, ctx, newEnableFilterableTestClass(className, "title"),
-			enthnsw.UserConfig{Skip: true}, true, false, false)
-		shard := shd.(*Shard)
-		t.Cleanup(func() { shard.Shutdown(context.Background()) })
-		registerIndex(idx, className)
-		for _, obj := range makeConvergenceTestObjects(t, 25, className) {
-			require.NoError(t, shard.PutObject(ctx, obj))
-		}
-		return shard, idx, &ReindexTaskPayload{Collection: className, MigrationType: ReindexTypeEnableFilterable, Properties: []string{"title"}}
-	}
-	for _, tc := range []struct {
-		name  string
-		shard func(*testing.T, context.Context) (*Shard, *Index, *ReindexTaskPayload)
-	}{
-		{name: "semantic", shard: enableFilterable},
-		{name: "format-only", shard: newUnitRetryShard},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			shard, idx, payload := tc.shard(t, ctx)
-			unit, other := shard.migrationUnit(), "other__node2"
-			desc := distributedtask.TaskDescriptor{ID: "T_stale", Version: 1}
-
-			logger, hook := test.NewNullLogger()
-			leader := fsmRecorder{distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logger}), t}
-			raw, err := json.Marshal(payload)
-			require.NoError(t, err)
-			require.NoError(t, leader.m.AddTask(leader.req(&api.AddDistributedTaskRequest{
-				Namespace: ReindexNamespace, Id: desc.ID, Payload: raw,
-				SubmittedAtUnixMillis: time.Now().UnixMilli(), UnitIds: []string{unit, other},
-			}), desc.Version))
-			require.NoError(t, leader.UpdateDistributedTaskUnitProgress(ctx, ReindexNamespace, desc.ID, desc.Version, "node1", unit, 0))
-			require.NoError(t, leader.RecordDistributedTaskUnitCompletion(ctx, ReindexNamespace, desc.ID, desc.Version, "node1", unit))
-
-			stale := &distributedtask.Task{
-				Namespace: ReindexNamespace, TaskDescriptor: desc, Status: distributedtask.TaskStatusStarted, Payload: raw,
-				Units: map[string]*distributedtask.Unit{
-					unit:  {ID: unit, Shard: shard.Name(), NodeID: "node1", Status: distributedtask.UnitStatusInProgress},
-					other: {ID: other, Shard: "other", NodeID: "node2"},
-				},
-			}
-			p := NewReindexProvider(idx.db, nil, nil, logger, "node1", func() int { return 1 }, ctx)
-			require.False(t, p.processOneUnit(ctx, stale, payload, idx, unit, leader))
-			require.Zero(t, countLines(hook, "unit completed", unit), "the completed unit's shard work ran again")
-			require.Empty(t, p.cachedReindexTasks(desc, unit))
-		})
-	}
-}
-
-// fsmRecorder writes straight to a Manager, as the leader's FSM applies them.
-type fsmRecorder struct {
-	m *distributedtask.Manager
-	t *testing.T
-}
-
-func (r fsmRecorder) req(sub any) *api.ApplyRequest {
-	raw, err := json.Marshal(sub)
-	require.NoError(r.t, err)
-	return &api.ApplyRequest{SubCommand: raw}
-}
-
-func (r fsmRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
-	return r.m.UpdateUnitProgress(r.req(&api.UpdateDistributedTaskUnitProgressRequest{
-		Namespace: namespace, Id: taskID, Version: version, NodeId: nodeID, UnitId: unitID,
-		Progress: progress, UpdatedAtUnixMillis: time.Now().UnixMilli(),
-	}))
-}
-
-func (r fsmRecorder) RecordDistributedTaskUnitCompletion(_ context.Context, namespace, taskID string, version uint64, nodeID, unitID string) error {
-	return r.RecordDistributedTaskUnitFailure(context.Background(), namespace, taskID, version, nodeID, unitID, "")
-}
-
-func (r fsmRecorder) RecordDistributedTaskUnitFailure(_ context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
-	return r.m.RecordUnitCompletion(r.req(&api.RecordDistributedTaskUnitCompletionRequest{
-		Namespace: namespace, Id: taskID, Version: version, NodeId: nodeID, UnitId: unitID,
-		Error: errMsg, FinishedAtUnixMillis: time.Now().UnixMilli(),
-	}))
-}
 
 // A trailing task copy firing an older run's flip must not revert a newer run's flip.
 func TestReindexStaleTaskCopyCannotRevertANewerFlip(t *testing.T) {
@@ -237,10 +152,6 @@ func (p *staleCopyFlipProvider) flipsFired() int {
 }
 
 func (p *staleCopyFlipProvider) OnGroupCompleted(*distributedtask.Task, string, []string) error {
-	return nil
-}
-
-func (p *staleCopyFlipProvider) OnSwapRequested(*distributedtask.Task, string, []string) error {
 	return nil
 }
 

@@ -543,10 +543,6 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
-	// One snapshot for the whole write, loaded before analysis: the swap
-	// publishes the overlay before it disarms, so a disarmed snapshot means
-	// the analysis below already sees the overlay.
-	st := s.loadPropValueIndexState()
 	// One view gives the write its analysis and buckets and holds off their retire.
 	buckets := s.acquireView()
 	defer buckets.release()
@@ -609,7 +605,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if prevObject != nil {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(buckets, propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
+		if err := s.deleteFromInvertedIndicesLSM(buckets, propsToDel, nilpropsToDel, status.oldDocID); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
 		if err := s.deleteNestedInvertedIndicesLSM(buckets, prevNestedProps, status.oldDocID); err != nil {
@@ -629,7 +625,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(buckets, propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
+	if err := s.extendInvertedIndicesLSM(buckets, propsToAdd, nilpropsToAdd, status.docID); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 	if err := s.extendNestedInvertedIndicesLSM(buckets, nestedProps, status.docID); err != nil {
@@ -650,12 +646,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err != nil {
 			return err
 		}
-	}
-
-	// Mirrors this write into the ingest bucket under the TARGET analysis for
-	// scope props suppressed above; no-op absent a migration.
-	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
-		return fmt.Errorf("migration double-write: %w", err)
 	}
 
 	return nil

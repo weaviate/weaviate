@@ -26,8 +26,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// A replica move before the swap's finalize must adopt the moved record,
-// or the target serves an empty index.
+// A replica moved after a finished run must serve the migrated index on its target.
 func TestMultiNode_ReplicaMoveBeforeFinalizeKeepsMigratedIndex(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t,

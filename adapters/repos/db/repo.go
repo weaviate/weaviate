@@ -119,25 +119,18 @@ type DB struct {
 	// covering both local and coordinator ingress.
 	queryAdmission *queryadmission.Limiter
 
-	reindexer      ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexLookupsMu guards the three lookups below: written at startup, read from backups and shards.
-	reindexLookupsMu                   sync.RWMutex
-	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
-	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
-	reindexTaskStates                  ReindexTaskStateSource
+	// reindexLookupsMu guards the two lookups below: written at startup, read from backups and shards.
+	reindexLookupsMu                  sync.RWMutex
+	shardReindexActivityLookupBuilder ShardReindexActivityLookupBuilder
+	reindexTaskStates                 ReindexTaskStateSource
 
 	endedReindexTasks EndedReindexTaskReader
 
 	reindexRefresh *reindexRefresh
-
-	// Both carry their own lock; see [migrationUnitSeals] and
-	// [migrationClusterReconciler].
-	migrationSeals   migrationUnitSeals
-	migrationCluster migrationClusterReconciler
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
@@ -348,7 +341,6 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		memMonitor:                memMonitor,
 		shardLoadLimiter:          loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
 		bucketLoadLimiter:         loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
-		reindexer:                 NewShardReindexerV3Noop(),
 		nodeSelector:              nodeSelector,
 		schemaReader:              schemaReader,
 		replicationFSM:            replicationFSM,
@@ -367,8 +359,6 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	// over a loopback round-trip.
 	db.replicaClient = newRoutingReplicationClient(replicaClient, db, nodeResolver, localNodeName)
 
-	// The reconciler walks this node's loaded shards, so it needs a way back.
-	db.migrationCluster.db = db
 	db.reindexRefresh = newReindexRefresh(db)
 
 	if db.maxNumberGoroutines == 0 {
@@ -826,10 +816,6 @@ func (db *DB) batchWorker(first bool) {
 			checkTime = time.Now().Add(time.Second)
 		}
 	}
-}
-
-func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
-	db.reindexer = reindexer
 }
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {

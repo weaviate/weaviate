@@ -26,10 +26,10 @@ import (
 )
 
 func (s *Shard) extendInvertedIndicesLSM(buckets lsmkv.BucketLookup, props []inverted.Property,
-	nilProps []inverted.NilProperty, docID uint64, st *propValueIndexState,
+	nilProps []inverted.NilProperty, docID uint64,
 ) error {
 	for _, prop := range props {
-		if err := s.addToPropertyValueIndex(buckets, docID, prop, st); err != nil {
+		if err := s.addToPropertyValueIndex(buckets, docID, prop); err != nil {
 			return err
 		}
 
@@ -71,7 +71,7 @@ func (s *Shard) extendInvertedIndicesLSM(buckets lsmkv.BucketLookup, props []inv
 }
 
 func (s *Shard) addToPropertyValueIndex(buckets lsmkv.BucketLookup, docID uint64,
-	property inverted.Property, st *propValueIndexState,
+	property inverted.Property,
 ) error {
 	if property.HasFilterableIndex {
 		bucketValue := buckets.Bucket(helpers.BucketFromPropNameLSM(property.Name))
@@ -123,14 +123,6 @@ func (s *Shard) addToPropertyValueIndex(buckets lsmkv.BucketLookup, docID uint64
 			if err := s.addToPropertyRangeBucket(bucketValue, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
-		}
-	}
-
-	// Scope props are suppressed here; migrationDoubleWrite fires them under
-	// the TARGET analysis instead of this source-schema view.
-	if _, migrating := st.scope.props[property.Name]; !migrating {
-		if err := s.fireAddToPropertyValueIndex(st.add, docID, &property); err != nil {
-			return err
 		}
 	}
 

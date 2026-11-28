@@ -93,8 +93,6 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	return s.analyzeObjectInView(object, s.loadView())
 }
 
-// analyzeObjectInView analyzes a write with its view's settings. Only properties
-// the view does not govern take the swap overlay.
 func (s *Shard) analyzeObjectInView(object *storobj.Object, v *shardView,
 ) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
 	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
@@ -105,93 +103,15 @@ func (s *Shard) analyzeObjectInView(object *storobj.Object, v *shardView,
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	props, ungoverned := c.Properties, c.Properties
+	props := c.Properties
 	if len(v.props) > 0 {
-		props, ungoverned = make([]*models.Property, len(c.Properties)), nil
+		props = make([]*models.Property, len(c.Properties))
 		for i, p := range c.Properties {
 			pv, governed := v.props[p.Name]
-			if props[i] = viewProperty(p, pv, governed); !governed {
-				ungoverned = append(ungoverned, p)
-			}
+			props[i] = viewProperty(p, pv, governed)
 		}
 	}
 	analyzer := inverted.NewAnalyzer(v.FallbackToSearchable, object.Class().String())
-	if overlay := s.writePathAnalyzerOverlay(ungoverned); overlay != nil {
-		analyzer = analyzer.WithSchemaOverlay(overlay)
-	}
 	out, nestedProps, err := analyzer.Object(schemaMap, props, object.ID())
 	return out, nilProps, nestedProps, err
-}
-
-func (s *Shard) writePathAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
-	if len(props) == 0 {
-		return nil
-	}
-	propNames := make([]string, 0, len(props))
-	live := make(map[string]*models.Property, len(props))
-	for _, p := range props {
-		if p == nil {
-			continue
-		}
-		propNames = append(propNames, p.Name)
-		live[p.Name] = p
-	}
-	snap := s.SnapshotPropertyOverlay(propNames)
-	if len(snap) == 0 {
-		return nil
-	}
-	var out map[string]inverted.PropertyOverlay
-	for name, o := range snap {
-		pending := o.BeyondLiveSchema(live[name])
-		if pending.Empty() {
-			continue
-		}
-		if out == nil {
-			out = make(map[string]inverted.PropertyOverlay, len(snap))
-		}
-		out[name] = pending
-	}
-	return out
-}
-
-// AnalyzeObjectForMigrationWithOverlay is the migration-time variant of
-// [Shard.AnalyzeObject]. Unlike AnalyzeObject it captures raw
-// (pre-tokenization) text values in Property.RawValues, which the
-// retokenize strategies need to apply the new tokenization without
-// re-fetching the source object. The overlay forces the analyzer to treat
-// specific properties as if their inverted-index flag (and optionally their
-// tokenization) were already updated, even though the live RAFT-stored
-// schema still has them in the pre-migration state. The live schema is
-// never mutated.
-//
-// This is required by runtime reindex strategies that build a brand-new
-// inverted bucket (e.g. EnableFilterableStrategy, EnableSearchableStrategy,
-// FilterableToRangeableStrategy): during the backfill scan the target
-// schema flag is still false, so without the overlay the analyzer would
-// either skip the very property the migration is trying to populate, or
-// emit it with the wrong HasXIndex flags, producing an empty target
-// bucket and a silent FINISHED-with-empty-bucket failure.
-//
-// Pass overlay == nil for migrations that do not need a schema override
-// (e.g. retokenize / map→blockmax, where the source bucket already exists
-// and the schema flag is already true).
-func (s *Shard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
-	overlay map[string]inverted.PropertyOverlay,
-) ([]inverted.Property, []inverted.NilProperty, error) {
-	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
-	if c == nil {
-		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
-	}
-
-	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	analyzer := inverted.NewAnalyzerWithRawValues(s.isFallbackToSearchable, object.Class().String())
-	if len(overlay) > 0 {
-		analyzer = analyzer.WithSchemaOverlay(overlay)
-	}
-	props, _, err := analyzer.Object(schemaMap, c.Properties, object.ID())
-	return props, nilProps, err
 }

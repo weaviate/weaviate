@@ -840,18 +840,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, catchUpRetryLister{appState.ClusterService.Raft}, appState.Logger,
+		repo, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
 	)
 	reindexProvider.SetReindexFlipper(appState.ClusterService.Raft)
-	// The reindexer is set before any shard loads, so each load re-arms its mirrors before its first write.
-	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
-		appState.Logger,
-		appState.SchemaManager,
-		reindexProvider,
-	))
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1045,9 +1039,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 
 		raft := appState.ClusterService.Raft
-		repo.SetMigrationTaskSources(serverShutdownCtx,
-			newMigrationLocalTaskSource(raft), newMigrationClusterTaskSource(raft))
-
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("failed to start distributed task scheduler: %v", err)
@@ -1061,13 +1052,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
 		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx, raft, appState.Logger))
-		// S1: the DTM-activity lookup flips a shard "free" the moment a
-		// task lands in a terminal status; autoCleanupAfterTerminal then
-		// tears the sidecar __reindex / __ingest dirs over the next
-		// tens of seconds. The cleanup-in-progress lookup keeps the gate
-		// closed for that window so a backup landing in the gap doesn't
-		// snapshot half-removed sidecars.
-		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 	}, appState.Logger)
 
 	return appState
@@ -1115,8 +1099,6 @@ func initReindexAndDistributedTasks(
 ) {
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
-
-	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
 	// The drop-vector-index provider. Its guards are registered separately,
 	// in the rConfig DistributedTask*Detectors maps in MakeAppState.

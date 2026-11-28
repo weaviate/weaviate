@@ -75,11 +75,7 @@ type PrometheusMetrics struct {
 	MmapProcMaps                        prometheus.Gauge
 
 	// Reindex metrics
-	RangeableInMemoryRebuildDegraded *prometheus.CounterVec
-	MigrationRecordsWedged           prometheus.Counter
-	MigrationRecordsNotUnderstood    prometheus.Counter
-	ReindexHeldShards                prometheus.Gauge
-	ReindexViewRefreshPending        prometheus.Gauge
+	ReindexViewRefreshPending prometheus.Gauge
 
 	// Backup/Restore metrics
 	BackupRestoreDurations            *prometheus.SummaryVec
@@ -358,7 +354,6 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
 	pm.StartupDiskIO.DeletePartialMatch(labels)
-	pm.RangeableInMemoryRebuildDegraded.DeletePartialMatch(labels)
 	return nil
 }
 
@@ -640,25 +635,9 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}),
 
 		// Reindex metrics
-		RangeableInMemoryRebuildDegraded: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "rangeable_inmemory_rebuild_degraded_total",
-			Help: "Number of times the rangeable in-memory rebuild at reindex finalize degraded to disk serving instead of activating in-memory acceleration",
-		}, []string{"class_name", "shard_name", "property"}),
-		MigrationRecordsWedged: promauto.NewCounter(prometheus.CounterOpts{
-			Name: "migration_records_wedged_total",
-			Help: "Reindex migration records a reconciliation pass left standing, either wedged for a reason no later load can change or with a reconciliation that errored. A shard load counts every one it found, and a periodic pass counts only the ones it newly wedged, so the total is a sum of diagnoses rather than a count of distinct records; the log line for each names the record and the shard.",
-		}),
-		ReindexHeldShards: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "reindex_held_shards",
-			Help: "Shards on this node held READONLY because a reindex migration's double-write mirror could not arm and its Unmirrored stamp could not be written. Each needs its cause cleared; the node's Error log line names the shard and the cause.",
-		}),
 		ReindexViewRefreshPending: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "reindex_view_refresh_pending",
 			Help: "Shards on this node whose reindex view refresh failed or was not ready and waits for a retry. The node's warning log names the first failing shard of each collection.",
-		}),
-		MigrationRecordsNotUnderstood: promauto.NewCounter(prometheus.CounterOpts{
-			Name: "migration_records_not_understood_total",
-			Help: "Reindex migration records a shard load could not place: one it could not stat or read, one over the size bound, one it could not decode, one whose content names a different file, records naming more than one migration unit, or a records directory it could not read at all. Each withholds every promoting and destructive reindex action on its shard; the log line names the file and the reason.",
 		}),
 
 		// Queue metrics
@@ -1108,31 +1087,6 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 	return nil
 }
 
-// Node-wide and unlabelled: class and shard names are user-chosen, so a
-// per-shard series is one series per tenant, which the metricsCount acceptance
-// test forbids. Counters, not gauges: an unlabelled gauge no healed shard can
-// reset would report its last non-zero value forever.
-func (m *PrometheusMetrics) AddMigrationRecordsWedged(wedged, notUnderstood int) {
-	if m == nil {
-		return
-	}
-	if wedged > 0 {
-		m.MigrationRecordsWedged.Add(float64(wedged))
-	}
-	if notUnderstood > 0 {
-		m.MigrationRecordsNotUnderstood.Add(float64(notUnderstood))
-	}
-}
-
-// AddReindexHeldShards is unlabelled for the same reason. A gauge works here because
-// every held shard moves it back down when it is lifted, shut down or dropped.
-func (m *PrometheusMetrics) AddReindexHeldShards(delta float64) {
-	if m == nil {
-		return
-	}
-	m.ReindexHeldShards.Add(delta)
-}
-
 func (m *PrometheusMetrics) SetReindexViewRefreshPending(shards int) {
 	if m == nil {
 		return
@@ -1152,14 +1106,6 @@ func (m *PrometheusMetrics) IncConsistencyLevelRequest(operation, level string) 
 		level = "UNSET"
 	}
 	m.ConsistencyLevelRequests.WithLabelValues(operation, level).Inc()
-}
-
-func (m *PrometheusMetrics) IncRangeableInMemoryRebuildDegraded(className, shardName, propName string) {
-	m.RangeableInMemoryRebuildDegraded.With(prometheus.Labels{
-		"class_name": className,
-		"shard_name": shardName,
-		"property":   propName,
-	}).Inc()
 }
 
 // --- Objects TTL: main ---

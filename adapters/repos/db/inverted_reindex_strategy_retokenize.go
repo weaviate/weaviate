@@ -12,16 +12,12 @@
 package db
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
-
-// schemaManager field kept for future use but OnMigrationComplete is a no-op
-// for searchable — the filterable strategy (which runs second) updates the schema.
 
 // SearchableRetokenizeStrategy implements MigrationStrategy for rebuilding the
 // searchable (BM25) index for a text property with a different tokenization
@@ -35,28 +31,8 @@ type SearchableRetokenizeStrategy struct {
 	generation         int    // see genSuffix godoc for the per-migration generation contract
 }
 
-func (s *SearchableRetokenizeStrategy) StrategyCode() MigrationStrategyCode {
-	return StrategyCodeSearchableRetokenize
-}
-
 func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {
 	return helpers.BucketSearchableFromPropNameLSM(s.propName)
-}
-
-func (s *SearchableRetokenizeStrategy) ReindexSuffix() string {
-	return "__retokenize_reindex" + genSuffix(s.generation)
-}
-
-func (s *SearchableRetokenizeStrategy) IngestSuffix() string {
-	return "__retokenize_ingest" + genSuffix(s.generation)
-}
-
-func (s *SearchableRetokenizeStrategy) SourceStrategy() string {
-	return s.bucketStrategy
-}
-
-func (s *SearchableRetokenizeStrategy) SourceIndexType() PropertyIndexType {
-	return IndexTypePropSearchableValue
 }
 
 func (s *SearchableRetokenizeStrategy) TargetStrategy() string {
@@ -148,16 +124,6 @@ func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		}
 		return nil
 	}
-}
-
-func (s *SearchableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
-	// No-op: the searchable bucket already exists.
-}
-
-// OnMigrationComplete is a no-op for the searchable strategy. The schema
-// update happens in the filterable strategy which runs after this one.
-func (s *SearchableRetokenizeStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
-	return nil
 }
 
 func (s *SearchableRetokenizeStrategy) calcPropLen(items []inverted.Countable) float32 {

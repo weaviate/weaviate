@@ -54,7 +54,7 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 				task.Payload = []byte("{")
 				task = withHeader(task)
 			}
-			retainer := db.NewReindexProvider(nil, nil, nil, logrus.New(), "", nil, nil)
+			retainer := db.NewReindexProvider(nil, logrus.New(), "", nil, nil)
 			require.Equal(t, tc.want, retainer.ShouldRetainCompletedTask(task, nil))
 		})
 	}

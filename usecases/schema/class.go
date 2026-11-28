@@ -689,12 +689,6 @@ func (h *Handler) updateClass(ctx context.Context, className string, updated *mo
 //	      // follower: cl.Apply (cluster/rpc/client.go:194) forwards to the
 //	      //           leader via gRPC and waits for the leader's response
 //
-// hashicorp/raft's ApplyFuture resolves only after the entry has been
-// committed (quorum-acknowledged) AND applied to the local FSM. A nil error
-// therefore implies the update is durable across a leader failover. Callers
-// such as reindex strategies' OnMigrationComplete rely on this guarantee to
-// flip schema flags (e.g. IndexFilterable=true) after a bucket swap without
-// risking a silent loss of the schema change.
 // UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
 // path. When `fields` is non-empty, the FSM merges ONLY the listed property
 // fields onto the existing property; the rest are kept from the current class
@@ -710,33 +704,6 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 	setPropertyDefaults(prop)
 	_, err := h.schemaManager.UpdateProperty(ctx, className, prop, fields...)
 	return err
-}
-
-// UpdatePropertyInternalFromMigration is the migration-completion
-// variant of [UpdatePropertyInternal]. It routes the RAFT command
-// through [SchemaManager.UpdatePropertyFromMigration], which sets the
-// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
-// FSM checks it with MutationGuard.CheckMigrationPropertyUpdate.
-//
-// Used by the reindex provider's
-// [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
-// OnTaskCompleted dispatch. Public-API callers (REST / gRPC handlers)
-// must continue to call [UpdatePropertyInternal] (or
-// h.schemaManager.UpdateProperty directly) so the MutationGuard
-// applies to external mutations.
-//
-// Returns only after the local FSM has applied the update.
-func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, run command.MigrationRun,
-	prop *models.Property, fields ...string,
-) error {
-	ctx, cancel := clusterUtils.BoundIfNoDeadline(ctx, h.config.Raft.ConsistencyWaitTimeout)
-	defer cancel()
-	setPropertyDefaults(prop)
-	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, run, prop, fields...)
-	if err != nil {
-		return err
-	}
-	return h.schemaReader.WaitForUpdate(ctx, version)
 }
 
 func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {

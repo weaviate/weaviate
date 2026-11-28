@@ -24,18 +24,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tcexec "github.com/testcontainers/testcontainers-go/exec"
-	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/acceptance/helpers/reindexrecords"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// TestMultiNode_CancelClearsAcrossReplicas asserts that cancel-cleanup
-// drains in-flight reindex state on every replica, that a subsequent
-// backup succeeds, and that DELETE class removes the class dir on every
-// node. Requires ≥3 nodes and cancel within ~1s of STARTED to exercise
+// TestMultiNode_CancelClearsAcrossReplicas asserts that after a cancel a backup succeeds and
+// DELETE class removes the class dir on every node. Requires ≥3 nodes and cancel within ~1s of STARTED to exercise
 // the limiter.Acquire-vs-ctx-cancel path.
 func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	ctx := context.Background()
@@ -105,7 +100,6 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	var (
 		won            bool
 		wonTaskID      string
-		wonBaseline    []string
 		attemptLog     []string
 		stoppedOn      string
 		winningAttempt int
@@ -116,13 +110,6 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			stoppedOn = fmt.Sprintf("the %s wall-clock budget", cancelRetryBudget)
 			break
 		}
-
-		// What a migration that ran to completion on an earlier attempt left
-		// on disk, cancel-cleanup preserves on purpose. Read it here, outside
-		// the race window, so the drain assertion can tell it apart from what
-		// the cancelled run has to remove. Empty on the first attempt, so
-		// a run that wins straight away asserts exactly what it did before.
-		baseline := scanBodyMigrationsAllReplicas(ctx, t, compose, classDirLower, allShards, propName)
 
 		// Tokenization-changing migration creates both searchable and
 		// filterable working copies per (shard, replica).
@@ -142,10 +129,10 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			midFlightAt := time.Now()
 			cancelled, arm := cancelReindexProperty(t, uri, className, propName, "searchable", taskID)
 			if cancelled {
-				won, winningAttempt, wonTaskID, wonBaseline = true, attempt, taskID, baseline
+				won, winningAttempt, wonTaskID = true, attempt, taskID
 				attemptLog = append(attemptLog, fmt.Sprintf(
-					"attempt %d: %s, mid-flight→cancel %s, %d pre-existing path(s)",
-					attempt, arm, time.Since(midFlightAt), len(baseline)))
+					"attempt %d: %s, mid-flight→cancel %s",
+					attempt, arm, time.Since(midFlightAt)))
 				break
 			}
 			observed = arm
@@ -161,8 +148,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			"attempt %d lost the cancel race (%s) and then ended %s. Only a completed migration is a race loss",
 			attempt, observed, terminal)
 		attemptLog = append(attemptLog, fmt.Sprintf(
-			"attempt %d: lost — %s, submit→FINISHED %s, %d pre-existing path(s)",
-			attempt, observed, time.Since(submittedAt), len(baseline)))
+			"attempt %d: lost — %s, submit→FINISHED %s",
+			attempt, observed, time.Since(submittedAt)))
 
 		// The migration completed, so the property now carries the target
 		// tokenization and re-submitting it would be a no-op. Wait for the
@@ -191,26 +178,6 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 
 	terminalStatus := awaitTaskTerminal(t, uri, wonTaskID, cancelTimeout)
 	t.Logf("cancelled task %s reached %s", wonTaskID, terminalStatus)
-
-	// Every replica on every node must drain the working copies and records
-	// the cancelled run created, within cancelTimeout. Paths that
-	// were already there belong to an earlier attempt's completed
-	// migration, which production keeps by design.
-	preExisting := make(map[string]struct{}, len(wonBaseline))
-	for _, dir := range wonBaseline {
-		preExisting[dir] = struct{}{}
-	}
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		var survivors []string
-		for _, dir := range scanBodyMigrationsAllReplicas(ctx, t, compose, classDirLower, allShards, propName) {
-			if _, older := preExisting[dir]; !older {
-				survivors = append(survivors, dir)
-			}
-		}
-		assert.Emptyf(c, survivors,
-			"cancel-cleanup left %s migration state on %d replica slots:\n  %s",
-			propName, len(survivors), strings.Join(survivors, "\n  "))
-	}, cancelTimeout, 50*time.Millisecond)
 
 	// Backup must succeed. canCommit refuses while any in-flight tracker
 	// is present, so a green backup here proves the inflight registration
@@ -387,68 +354,6 @@ func collectShardNamesForClass(t *testing.T, restURI, className string) []string
 		out = append(out, name)
 	}
 	return out
-}
-
-// scanBodyMigrationsAllReplicas returns a "<nodeIdx>:<shard>/<path>"
-// identifier per migration working copy of propName and per migration record
-// still on disk. Empty slice means every replica is clean.
-func scanBodyMigrationsAllReplicas(
-	ctx context.Context, t *testing.T, compose *docker.DockerCompose,
-	classDirLower string, shards []string, propName string,
-) []string {
-	t.Helper()
-	var survivors []string
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		survivors = append(survivors,
-			scanBodyMigrationsOnNode(ctx, t, compose, classDirLower, shards, propName, nodeIdx)...)
-	}
-	return survivors
-}
-
-// scanBodyMigrationsOnNode is the single-node half of
-// scanBodyMigrationsAllReplicas. One entry per path, so callers can
-// subtract the set a previous migration left behind.
-func scanBodyMigrationsOnNode(
-	ctx context.Context, t *testing.T, compose *docker.DockerCompose,
-	classDirLower string, shards []string, propName string, nodeIdx int,
-) []string {
-	t.Helper()
-	// Both halves of a change-tokenization; the generation is the task version,
-	// which the test does not know, so every generation matches.
-	patterns := []string{".migrations/records/*"}
-	for _, code := range []db.MigrationStrategyCode{
-		db.StrategyCodeSearchableRetokenize, db.StrategyCodeFilterableRetokenize,
-	} {
-		handles := reindexrecords.HandlesFor(t, code, propName, 1)
-		for _, dir := range []string{handles.Staged, handles.Sidecar} {
-			patterns = append(patterns, strings.TrimSuffix(dir, "_1")+"_*")
-		}
-	}
-
-	var survivors []string
-	container := compose.GetWeaviateNode(nodeIdx).Container()
-	for _, shard := range shards {
-		lsmPath := fmt.Sprintf("/data/%s/%s/lsm", classDirLower, shard)
-		cmd := []string{
-			"sh", "-c",
-			fmt.Sprintf(`cd %s 2>/dev/null || exit 0; for f in %s; do [ -e "$f" ] && echo "$f"; done; exit 0`,
-				lsmPath, strings.Join(patterns, " ")),
-		}
-		// Demultiplexed, because the raw exec stream interleaves Docker's
-		// per-frame headers with the output and their bytes would end up
-		// inside the first directory name of every reply.
-		code, reader, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
-		require.NoError(t, err, "exec on node %d for shard %s", nodeIdx, shard)
-		require.Zero(t, code, "scan on node %d for shard %s", nodeIdx, shard)
-		out := new(strings.Builder)
-		if reader != nil {
-			_, _ = io.Copy(out, reader)
-		}
-		for _, path := range strings.Fields(out.String()) {
-			survivors = append(survivors, fmt.Sprintf("node%d:%s/%s", nodeIdx, shard, path))
-		}
-	}
-	return survivors
 }
 
 // scanClassDirAllNodes returns the 1-based node indexes where

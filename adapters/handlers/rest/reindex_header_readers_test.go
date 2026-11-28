@@ -67,9 +67,6 @@ func TestReindexHeaderReaders(t *testing.T) {
 			reason, err := checkReindexConflict("C", db.ReindexTypeChangeTokenization, []string{"name"}, tasks)
 			return err == nil && reason != ""
 		}},
-		{"reindexTaskDescriptorsForProperty", func(tasks []*distributedtask.Task) bool {
-			return len(reindexTaskDescriptorsForProperty(tasks, "C", "name", logger)) == 1
-		}},
 		{"readClassAndTasks", func(tasks []*distributedtask.Task) bool {
 			_, runs := readClassAndTasks("C", staticTasks{db.ReindexNamespace: tasks}, classes)
 			return len(runs) == 1

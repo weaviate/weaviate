@@ -54,7 +54,6 @@ type taskSchedulerState struct {
 	postCompletionAckEmitted         bool
 	postCompletionGroupErrors        map[string]error
 	preparationCompletionGroupErrors map[string]error
-	swapAcksPending                  map[string]error
 	// completedCallbackAttempts counts transient OnTaskCompleted failures on
 	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
 	// retrying and fails the task (weaviate/0-weaviate-issues#297).
@@ -131,7 +130,6 @@ type Scheduler struct {
 	unrecognizedStatusLogger *logrusext.Sampler
 	postCompletionAckLogger  *logrusext.Sampler
 	relaunchLogger           *logrusext.Sampler
-	swapRetryLogger          *logrusext.Sampler
 	finalizeLogger           *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
@@ -237,7 +235,6 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		unrecognizedStatusLogger: logrusext.NewSampler(params.Logger, 3, unrecognizedStatusWarnWindow),
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 		relaunchLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
-		swapRetryLogger:          logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 		finalizeLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
@@ -577,9 +574,7 @@ func (s *Scheduler) tick() {
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
-				if task.NeedsPreparationBarrier {
-					s.runDecidedSwapPhase(namespace, desc, task, suProvider)
-				} else if task.Status != TaskStatusCancelled {
+				if !task.NeedsPreparationBarrier && task.Status != TaskStatusCancelled {
 					s.runSwapPhase(namespace, desc, task, suProvider)
 				}
 
@@ -1002,99 +997,6 @@ func (s *Scheduler) runSwapPhase(
 	}
 }
 
-func (s *Scheduler) runDecidedSwapPhase(
-	namespace string,
-	desc TaskDescriptor,
-	task *Task,
-	suProvider UnitAwareProvider,
-) {
-	worklist := func() []swapGroupWork {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		state := s.perTaskStateLockedOrInit(desc)
-		if state.swapPending == nil && task.Status.IsTerminal() {
-			state.swapPending = make(map[string]struct{}, len(task.SwapsOwed))
-			for groupID := range task.SwapsOwed {
-				state.swapPending[groupID] = struct{}{}
-			}
-			state.swapCheck.all = true
-		} else if state.swapPending == nil {
-			state.swapPending = task.groupSet()
-			state.swapCheck.all = true
-		}
-		var list []swapGroupWork
-		for _, groupID := range state.swapCheck.take(state.swapPending) {
-			if !task.GroupSwapDecided(groupID) {
-				if task.Status.IsTerminal() {
-					delete(state.swapPending, groupID)
-				}
-				continue
-			}
-			delete(state.swapPending, groupID)
-			if !task.SwapOwedBy(groupID, s.localNode) {
-				continue
-			}
-			list = append(list, swapGroupWork{groupID: groupID, localIDs: task.LocalGroupUnitIDs(groupID, s.localNode)})
-		}
-		return list
-	}()
-
-	groupErrors := make([]error, len(worklist))
-	for i, w := range worklist {
-		groupErrors[i] = suProvider.OnSwapRequested(task, w.groupID, w.localIDs)
-	}
-
-	acks := func() []groupAck {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		state := s.perTaskStateLocked(desc)
-		if state == nil {
-			return nil
-		}
-		for i, w := range worklist {
-			err := groupErrors[i]
-			if err != nil {
-				state.swapPending[w.groupID] = struct{}{}
-				state.swapCheck.add(w.groupID)
-				if errors.Is(err, context.Canceled) {
-					// Checked first so a discarded debug line spends no sampler budget.
-					if logrusext.LevelEnabled(s.logger, logrus.DebugLevel) {
-						s.relaunchLogger.WithSampling(func(logrus.FieldLogger) {
-							s.loggerWithTask(namespace, desc).WithField("groupID", w.groupID).
-								Debugf("swap of a decided group did not complete and is retryable; a later tick re-fires it: %v", err)
-						})
-					}
-				} else {
-					s.swapRetryLogger.WithSampling(func(l logrus.FieldLogger) {
-						l.WithField("taskID", desc.ID).WithField("groupID", w.groupID).WithField("node", s.localNode).
-							Errorf("swap of a decided group failed on this node; retrying it next tick: %v", err)
-					})
-				}
-				continue
-			}
-			if state.swapAcksPending == nil {
-				state.swapAcksPending = map[string]error{}
-			}
-			state.swapAcksPending[w.groupID] = nil
-		}
-		if s.ackRecorder == nil {
-			return nil
-		}
-		pending := make([]groupAck, 0, len(state.swapAcksPending))
-		for _, groupID := range slices.Sorted(maps.Keys(state.swapAcksPending)) {
-			pending = append(pending, groupAck{groupID: groupID, err: state.swapAcksPending[groupID]})
-		}
-		return pending
-	}()
-
-	s.sendGroupAcks(namespace, desc, "swap", acks,
-		func(groupID string, success bool, errMsg string) error {
-			return s.ackRecorder.RecordDistributedTaskPostCompletionAck(
-				context.Background(), namespace, task.ID, task.Version, groupID, s.localNode, success, errMsg)
-		},
-		func(state *taskSchedulerState) map[string]error { return state.swapAcksPending })
-}
-
 // runCompletedCallbackPhase fires OnTaskCompleted for a single task in
 // Phase 2 (SWAPPING/FAILED/FINISHED/CANCELLED).
 //
@@ -1121,13 +1023,9 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	if !readyForFinalize {
 		return
 	}
-	if s.ackRecorder != nil && task.Status == TaskStatusSwapping {
-		if task.NeedsPreparationBarrier && len(task.SwapsOwed) > 0 {
-			return
-		}
-		if !task.NeedsPreparationBarrier && len(task.MissingPostCompletionAckNodes()) > 0 {
-			return
-		}
+	if s.ackRecorder != nil && task.Status == TaskStatusSwapping &&
+		!task.NeedsPreparationBarrier && len(task.MissingPostCompletionAckNodes()) > 0 {
+		return
 	}
 
 	// Eligibility + pre-set fired mark under a deferred-Unlock closure.

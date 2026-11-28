@@ -175,8 +175,6 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	// Before analysis, for the reason given in updateInvertedIndexLSM.
-	st := s.loadPropValueIndexState()
 	buckets := s.acquireView()
 	defer buckets.release()
 	previousProps, previousNilProps, previousNestedProps, err := s.analyzeObjectInView(previousObject, buckets)
@@ -195,16 +193,11 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	// For any NotEquals filter, we do an Equals filter and invert it's results.
 	s.bitmapFactory.RemoveIds(docID)
 
-	err = s.deleteFromInvertedIndicesLSM(buckets, previousProps, previousNilProps, docID, st)
+	err = s.deleteFromInvertedIndicesLSM(buckets, previousProps, previousNilProps, docID)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 
-	// Mirrors the delete into the ingest bucket for scope props suppressed
-	// above; no-op absent a migration.
-	if err = s.migrationDoubleWriteDelete(st, previousObject, docID); err != nil {
-		return fmt.Errorf("migration double-write delete: %w", err)
-	}
 	if err = s.writeStaged(buckets, nil, previousObject, 0, docID); err != nil {
 		return fmt.Errorf("staged reindex builds: %w", err)
 	}

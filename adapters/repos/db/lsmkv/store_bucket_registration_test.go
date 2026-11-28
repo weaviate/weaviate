@@ -50,15 +50,6 @@ func TestStore_MovedBucketKeepsItsRegistration(t *testing.T) {
 				return "target"
 			},
 		},
-		{
-			name: "FinalizeBucketSwap",
-			move: func(t *testing.T, store *Store) string {
-				require.NoError(t, store.CreateOrLoadBucket(ctx, "moved", WithStrategy(StrategyReplace)))
-				require.NoError(t, store.FinalizeBucketSwap(ctx, "moved",
-					store.bucketDir("target"), store.bucketDir("moved"), store.bucketDir("target_bak")))
-				return "moved"
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -97,13 +88,6 @@ func TestStore_MoveOntoRegisteredDirFails(t *testing.T) {
 			move: func(store *Store) error {
 				store.Bucket("moved").UpdateStatus(storagestate.StatusReadOnly)
 				return store.RenameBucket(ctx, "moved", "target")
-			},
-		},
-		{
-			name: "FinalizeBucketSwap",
-			move: func(store *Store) error {
-				return store.FinalizeBucketSwap(ctx, "moved",
-					store.bucketDir("target"), store.bucketDir("moved"), store.bucketDir("target_bak"))
 			},
 		},
 	}

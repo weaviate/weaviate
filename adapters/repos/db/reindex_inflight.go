@@ -105,45 +105,13 @@ func (db *DB) anyLiveReindexForShard(collection, shardName string,
 	if lookup == nil {
 		return false, nil
 	}
-	if lookup(collection, shardName) {
-		return true, nil
-	}
-	// Cleanup lookup is OR-d in: the DTM task may have flipped to
-	// terminal while autoCleanupAfterTerminal is still tearing the
-	// sidecar buckets. The cleanup builder is optional — older
-	// wiring paths and test fixtures that install only the activity
-	// lookup keep the prior semantics.
-	cleanupBuilder := db.cleanupInProgressLookupBuilder()
-	if cleanupBuilder == nil {
-		return false, nil
-	}
-	cleanupLookup := cleanupBuilder()
-	if cleanupLookup == nil {
-		return false, nil
-	}
-	return cleanupLookup(collection, shardName), nil
-}
-
-// SetReindexCleanupInProgressLookup installs the builder used by
-// [DB.anyLiveReindexForShard] to detect terminal-task cleanup that has
-// not yet finished tearing __reindex / __ingest sidecar dirs. Wired in
-// post-bootstrap alongside [DB.SetShardReindexActivityLookup].
-func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {
-	db.reindexLookupsMu.Lock()
-	defer db.reindexLookupsMu.Unlock()
-	db.reindexCleanupInProgressLookupBldr = builder
+	return lookup(collection, shardName), nil
 }
 
 func (db *DB) activityLookupBuilder() ShardReindexActivityLookupBuilder {
 	db.reindexLookupsMu.RLock()
 	defer db.reindexLookupsMu.RUnlock()
 	return db.shardReindexActivityLookupBuilder
-}
-
-func (db *DB) cleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {
-	db.reindexLookupsMu.RLock()
-	defer db.reindexLookupsMu.RUnlock()
-	return db.reindexCleanupInProgressLookupBldr
 }
 
 // ErrReindexGateUnavailable keeps a movement from waiting, so a task-manager outage shows as errors, not a stall.

@@ -787,14 +787,6 @@ func (p *DropVectorIndexProvider) OnGroupCompleted(
 	return errors.Join(errs...)
 }
 
-// OnSwapRequested is a no-op: drop-vector does not use the PREP/SWAP barrier
-// (NeedsPreparationBarrier is false), so this callback never fires for it.
-func (p *DropVectorIndexProvider) OnSwapRequested(
-	task *distributedtask.Task, groupID string, localGroupUnitIDs []string,
-) error {
-	return nil
-}
-
 // OnTaskCompleted deletes the local edit ops and removes the dropped named
 // vectors from the schema once the task succeeded on every node. Success is
 // delivered as SWAPPING — a non-barrier task jumps there when its last unit

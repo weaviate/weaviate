@@ -996,7 +996,6 @@ func TestIndexInverted(t *testing.T) {
 			searchable bool
 			rangeable  bool
 			forcedOnly bool
-			beyond     PropertyOverlay
 		}
 
 		testCases := []testCase{
@@ -1004,7 +1003,6 @@ func TestIndexInverted(t *testing.T) {
 				name: "filterable, live off", live: intProp(&vFalse, nil), value: int64(7),
 				overlay:    PropertyOverlay{ForceFilterable: true},
 				filterable: true, forcedOnly: true,
-				beyond: PropertyOverlay{ForceFilterable: true},
 			},
 			{
 				name: "filterable, live on", live: intProp(&vTrue, nil), value: int64(7),
@@ -1020,7 +1018,6 @@ func TestIndexInverted(t *testing.T) {
 				name: "rangeable, live off", live: intProp(&vFalse, &vFalse), value: int64(7),
 				overlay:   PropertyOverlay{ForceRangeable: true},
 				rangeable: true, forcedOnly: true,
-				beyond: PropertyOverlay{ForceRangeable: true},
 			},
 			{
 				name: "rangeable, live on", live: intProp(&vFalse, &vTrue), value: int64(7),
@@ -1031,13 +1028,11 @@ func TestIndexInverted(t *testing.T) {
 				name: "rangeable, live nil defaults off", live: intProp(&vFalse, nil), value: int64(7),
 				overlay:   PropertyOverlay{ForceRangeable: true},
 				rangeable: true, forcedOnly: true,
-				beyond: PropertyOverlay{ForceRangeable: true},
 			},
 			{
 				name: "searchable, live off", live: textProp(&vFalse), value: "alpha bravo",
 				overlay:    forceSearchable,
 				searchable: true, forcedOnly: true,
-				beyond: forceSearchable,
 			},
 			{
 				name: "searchable, live on", live: textProp(&vTrue), value: "alpha bravo",
@@ -1053,28 +1048,16 @@ func TestIndexInverted(t *testing.T) {
 				name: "searchable, tokenization already live", live: textProp(&vFalse), value: "alpha bravo",
 				overlay:    PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
 				searchable: true, forcedOnly: true,
-				beyond: forceSearchable,
 			},
 			{
 				name: "searchable, tokenization still to come", live: textProp(&vFalse), value: "alpha bravo",
 				overlay:    PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
 				searchable: true, forcedOnly: true,
-				beyond: PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
-			},
-			{
-				name:    "no live property to compare against",
-				overlay: PropertyOverlay{ForceFilterable: true, ForceSearchable: true, ForceRangeable: true, Tokenization: models.PropertyTokenizationField},
-				beyond:  PropertyOverlay{ForceFilterable: true, ForceSearchable: true, ForceRangeable: true, Tokenization: models.PropertyTokenizationField},
 			},
 		}
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				assert.Equal(t, tc.beyond, tc.overlay.BeyondLiveSchema(tc.live))
-				if tc.live == nil {
-					return
-				}
-
 				analyzer := NewAnalyzer(nil, "Overlay").WithSchemaOverlay(
 					map[string]PropertyOverlay{tc.live.Name: tc.overlay})
 				out, _, err := analyzer.analyzeProps(

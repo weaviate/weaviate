@@ -12,13 +12,11 @@
 package db
 
 import (
-	"cmp"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 var _ distributedtask.CompletedTaskRetainer = (*ReindexProvider)(nil)
@@ -42,20 +40,6 @@ func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool
 func ReindexLeftPartial(task *distributedtask.Task) bool {
 	return (task.Status == distributedtask.TaskStatusFailed || task.Status == distributedtask.TaskStatusCancelled) &&
 		len(task.SwapDecidedGroups) > 0
-}
-
-func ReindexRunLanded(class *models.Class, mt ReindexMigrationType, targetTok string, props []string) bool {
-	visible, _ := migrationEffectReader(mt)
-	if class == nil || visible == nil || len(props) == 0 {
-		return false
-	}
-	for _, name := range props {
-		i := slices.IndexFunc(class.Properties, func(p *models.Property) bool { return p.Name == name })
-		if i < 0 || !visible(MigrationSubject{MigrationType: mt, TargetTokenization: targetTok}, class.Properties[i]) {
-			return false
-		}
-	}
-	return true
 }
 
 // CutoverLanded reports a run without a generation as landed, since it never serves.
@@ -95,46 +79,6 @@ func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName stri
 type ReindexRun struct {
 	Task    *distributedtask.Task
 	Payload ReindexTaskPayload
-}
-
-// ReindexMigratedTenants reads property's failed/cancelled runs since the last finished flip. migrated:
-// newest decided swap went to target; covered: held by target's runs.
-func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, covered map[string]struct{}) {
-	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
-	var onProperty []ReindexRun
-	for _, run := range runs {
-		if strings.EqualFold(run.Payload.Collection, target.Collection) && slices.Contains(run.Payload.Properties, property) {
-			onProperty = append(onProperty, run)
-		}
-	}
-	slices.SortFunc(onProperty, func(a, b ReindexRun) int { return cmp.Compare(b.Task.Version, a.Task.Version) })
-
-	migrated, covered = map[string]struct{}{}, map[string]struct{}{}
-	swappedSince := map[string]struct{}{}
-	for _, run := range onProperty {
-		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
-		if run.Task.Status == distributedtask.TaskStatusFinished && IsSemanticMigration(run.Payload.MigrationType) &&
-			containsAll(types, targetTypes) {
-			break
-		}
-		overlaps := slices.ContainsFunc(types, func(t string) bool { return slices.Contains(targetTypes, t) })
-		if !overlaps || (run.Task.Status != distributedtask.TaskStatusFailed && run.Task.Status != distributedtask.TaskStatusCancelled) {
-			continue
-		}
-		same := sameReindexTarget(run.Payload, *target)
-		for group := range run.Task.SwapDecidedGroups {
-			if _, seen := swappedSince[group]; same && !seen {
-				migrated[group] = struct{}{}
-			}
-			swappedSince[group] = struct{}{}
-		}
-		for _, group := range run.Task.Groups() {
-			if same {
-				covered[group] = struct{}{}
-			}
-		}
-	}
-	return migrated, covered
 }
 
 func ReindexMigratedPhrase[V any](migrated map[string]V, total int, property string, tenantCounts bool) string {

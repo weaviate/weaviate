@@ -626,38 +626,6 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 	}
 }
 
-func TestIndexTypesFromMigrationType(t *testing.T) {
-	cases := []struct {
-		mt        db.ReindexMigrationType
-		wantTypes []string
-		wantKnown bool
-	}{
-		{db.ReindexTypeEnableSearchable, []string{"searchable"}, true},
-		{db.ReindexTypeChangeAlgorithm, []string{"searchable"}, true},
-		{db.ReindexTypeEnableFilterable, []string{"filterable"}, true},
-		{db.ReindexTypeRepairFilterable, []string{"filterable"}, true},
-		{db.ReindexTypeEnableRangeable, []string{"rangeable"}, true},
-		{db.ReindexTypeRepairRangeable, []string{"rangeable"}, true},
-		// change-tok-filterable retokenizes only the filterable bucket.
-		{db.ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, true},
-		// change-tok-both spawns one sub-task per inverted index, each with
-		// its own per-property migration dir on disk. Pre-cleanup must wipe
-		// both — see godoc on indexTypesFromMigrationType.
-		{db.ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, true},
-		// Unknown migration type — must return false so the submit handler
-		// degrades to "no pre-cleanup" rather than panicking.
-		{db.ReindexMigrationType("never-heard-of-this"), nil, false},
-	}
-	for _, c := range cases {
-		t.Run(string(c.mt), func(t *testing.T) {
-			gotTypes, gotKnown := indexTypesFromMigrationType(c.mt)
-			require.Equal(t, c.wantKnown, gotKnown, "isKnown")
-			require.ElementsMatch(t, c.wantTypes, gotTypes,
-				"indexTypes for %s", c.mt)
-		})
-	}
-}
-
 // -----------------------------------------------------------------------------
 // validateEnableFilterableProperty — type allow-list and already-filterable.
 // -----------------------------------------------------------------------------

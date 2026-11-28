@@ -82,7 +82,7 @@ func newLazyDropTenant(t *testing.T) (lazy *LazyLoadShard, reload func() *LazyLo
 
 	reload = func() *LazyLoadShard {
 		return NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-			idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+			idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter,
 			false, idx.bitmapBufPool)
 	}
 	vector := func(i, offset int) []float32 {

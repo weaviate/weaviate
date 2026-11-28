@@ -384,74 +384,6 @@ func (_c *MockShardLike_AnalyzeObject_Call) RunAndReturn(run func(*storobj.Objec
 	return _c
 }
 
-// AnalyzeObjectForMigrationWithOverlay provides a mock function with given fields: _a0, _a1
-func (_m *MockShardLike) AnalyzeObjectForMigrationWithOverlay(_a0 *storobj.Object, _a1 map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error) {
-	ret := _m.Called(_a0, _a1)
-
-	if len(ret) == 0 {
-		panic("no return value specified for AnalyzeObjectForMigrationWithOverlay")
-	}
-
-	var r0 []inverted.Property
-	var r1 []inverted.NilProperty
-	var r2 error
-	if rf, ok := ret.Get(0).(func(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)); ok {
-		return rf(_a0, _a1)
-	}
-	if rf, ok := ret.Get(0).(func(*storobj.Object, map[string]inverted.PropertyOverlay) []inverted.Property); ok {
-		r0 = rf(_a0, _a1)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]inverted.Property)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(*storobj.Object, map[string]inverted.PropertyOverlay) []inverted.NilProperty); ok {
-		r1 = rf(_a0, _a1)
-	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).([]inverted.NilProperty)
-		}
-	}
-
-	if rf, ok := ret.Get(2).(func(*storobj.Object, map[string]inverted.PropertyOverlay) error); ok {
-		r2 = rf(_a0, _a1)
-	} else {
-		r2 = ret.Error(2)
-	}
-
-	return r0, r1, r2
-}
-
-// MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AnalyzeObjectForMigrationWithOverlay'
-type MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call struct {
-	*mock.Call
-}
-
-// AnalyzeObjectForMigrationWithOverlay is a helper method to define mock.On call
-//   - _a0 *storobj.Object
-//   - _a1 map[string]inverted.PropertyOverlay
-func (_e *MockShardLike_Expecter) AnalyzeObjectForMigrationWithOverlay(_a0 interface{}, _a1 interface{}) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
-	return &MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call{Call: _e.mock.On("AnalyzeObjectForMigrationWithOverlay", _a0, _a1)}
-}
-
-func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) Run(run func(_a0 *storobj.Object, _a1 map[string]inverted.PropertyOverlay)) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*storobj.Object), args[1].(map[string]inverted.PropertyOverlay))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) Return(_a0 []inverted.Property, _a1 []inverted.NilProperty, _a2 error) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
-	_c.Call.Return(_a0, _a1, _a2)
-	return _c
-}
-
-func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) RunAndReturn(run func(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // AsyncCheckpointRoot provides a mock function with given fields: ctx
 func (_m *MockShardLike) AsyncCheckpointRoot(ctx context.Context) (hashtree.Digest, int64, time.Time, bool) {
 	ret := _m.Called(ctx)
@@ -4882,100 +4814,6 @@ func (_c *MockShardLike_isReadOnly_Call) RunAndReturn(run func() error) *MockSha
 	return _c
 }
 
-// migrationMirrorRegistry provides a mock function with no fields
-func (_m *MockShardLike) migrationMirrorRegistry() *migrationMirrorRegistry {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for migrationMirrorRegistry")
-	}
-
-	var r0 *migrationMirrorRegistry
-	if rf, ok := ret.Get(0).(func() *migrationMirrorRegistry); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*migrationMirrorRegistry)
-		}
-	}
-
-	return r0
-}
-
-// MockShardLike_migrationMirrorRegistry_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'migrationMirrorRegistry'
-type MockShardLike_migrationMirrorRegistry_Call struct {
-	*mock.Call
-}
-
-// migrationMirrorRegistry is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) migrationMirrorRegistry() *MockShardLike_migrationMirrorRegistry_Call {
-	return &MockShardLike_migrationMirrorRegistry_Call{Call: _e.mock.On("migrationMirrorRegistry")}
-}
-
-func (_c *MockShardLike_migrationMirrorRegistry_Call) Run(run func()) *MockShardLike_migrationMirrorRegistry_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_migrationMirrorRegistry_Call) Return(_a0 *migrationMirrorRegistry) *MockShardLike_migrationMirrorRegistry_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_migrationMirrorRegistry_Call) RunAndReturn(run func() *migrationMirrorRegistry) *MockShardLike_migrationMirrorRegistry_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// migrationRecordStore provides a mock function with no fields
-func (_m *MockShardLike) migrationRecordStore() *MigrationRecordStore {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for migrationRecordStore")
-	}
-
-	var r0 *MigrationRecordStore
-	if rf, ok := ret.Get(0).(func() *MigrationRecordStore); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*MigrationRecordStore)
-		}
-	}
-
-	return r0
-}
-
-// MockShardLike_migrationRecordStore_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'migrationRecordStore'
-type MockShardLike_migrationRecordStore_Call struct {
-	*mock.Call
-}
-
-// migrationRecordStore is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) migrationRecordStore() *MockShardLike_migrationRecordStore_Call {
-	return &MockShardLike_migrationRecordStore_Call{Call: _e.mock.On("migrationRecordStore")}
-}
-
-func (_c *MockShardLike_migrationRecordStore_Call) Run(run func()) *MockShardLike_migrationRecordStore_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_migrationRecordStore_Call) Return(_a0 *MigrationRecordStore) *MockShardLike_migrationRecordStore_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_migrationRecordStore_Call) RunAndReturn(run func() *MigrationRecordStore) *MockShardLike_migrationRecordStore_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // mutableMergeObjectLSM provides a mock function with given fields: ctx, merge, idBytes
 func (_m *MockShardLike) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
 	ret := _m.Called(ctx, merge, idBytes)
@@ -5705,9 +5543,9 @@ func (_c *MockShardLike_updateMultiVectorIndexesIgnoreDelete_Call) RunAndReturn(
 	return _c
 }
 
-// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property, counts
-func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts) {
-	_m.Called(ctx, eg, property, counts)
+// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property
+func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property) {
+	_m.Called(ctx, eg, property)
 }
 
 // MockShardLike_updatePropertyBuckets_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'updatePropertyBuckets'
@@ -5719,14 +5557,13 @@ type MockShardLike_updatePropertyBuckets_Call struct {
 //   - ctx context.Context
 //   - eg *errors.ErrorGroupWrapper
 //   - property *models.Property
-//   - counts *migrationSweepCounts
-func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}, counts interface{}) *MockShardLike_updatePropertyBuckets_Call {
-	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property, counts)}
+func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}) *MockShardLike_updatePropertyBuckets_Call {
+	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property)}
 }
 
-func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)) *MockShardLike_updatePropertyBuckets_Call {
+func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property), args[3].(*migrationSweepCounts))
+		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property))
 	})
 	return _c
 }
@@ -5736,7 +5573,7 @@ func (_c *MockShardLike_updatePropertyBuckets_Call) Return() *MockShardLike_upda
 	return _c
 }
 
-func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property, *migrationSweepCounts)) *MockShardLike_updatePropertyBuckets_Call {
+func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Run(run)
 	return _c
 }

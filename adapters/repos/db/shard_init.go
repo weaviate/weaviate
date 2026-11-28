@@ -37,7 +37,7 @@ import (
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
-	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
+	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 	registration monitoring.ShardRegistration,
 ) (_ *Shard, err error) {
 	start := time.Now()
@@ -86,7 +86,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 		status:                          ShardStatus{Status: storagestate.StatusLoading},
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
-		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
 		HFreshEnabled:                   index.HFreshEnabled,
@@ -159,10 +158,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := s.convertLegacyRecords(class); err != nil {
 		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
-	s.migrationRecords = NewMigrationRecordStoreForUnit(s.pathLSM(), s.migrationUnit(), s.index.logger)
-
-	markInFlightRangeableMigrationsNotReady(s)
-
 	if err := s.loadReindexView(class); err != nil {
 		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
@@ -236,36 +231,4 @@ func (s *Shard) NotifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
-}
-
-func markInFlightRangeableMigrationsNotReady(s *Shard) {
-	if s.migrationRecords == nil {
-		return
-	}
-	if migrationFaultCouldHideARangeableRecord(s.migrationRecords.Unreadable()) {
-		s.rangeableUndecidable.Store(true)
-	}
-	for _, rec := range s.migrationRecords.Records() {
-		if rec.Subject().Key.StrategyCode != StrategyCodeFilterableToRangeable ||
-			rec.State() == MigrationStatePromoted {
-			continue
-		}
-		for _, propName := range rec.Subject().Properties() {
-			s.setRangeableLocallyReady(propName, false)
-		}
-	}
-}
-
-// A store-scope fault read no file; an unparseable name could be any strategy.
-func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable) bool {
-	for _, fault := range faults {
-		if fault.Scope != MigrationRecordFaultFile {
-			return true
-		}
-		code, known := migrationStrategyCodeOfRecordFile(fault.FileName)
-		if !known || code == StrategyCodeFilterableToRangeable {
-			return true
-		}
-	}
-	return false
 }

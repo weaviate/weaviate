@@ -1245,12 +1245,6 @@ func (p *unitAwareTestProvider) OnGroupCompleted(task *Task, groupID string, loc
 	return nil
 }
 
-func (p *unitAwareTestProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
-	// Test provider is the NeedsPreparationBarrier=false path; scheduler never
-	// fires this for these tasks. Stub for interface compliance.
-	return nil
-}
-
 func (p *unitAwareTestProvider) OnTaskCompleted(task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -1641,16 +1635,8 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 // flow (NeedsPreparationBarrier=true):
 //
 // PREPARING and SWAPPING tasks are non-terminal — they MUST NOT be
-// pre-marked at bootstrap. If they were, the scheduler tick would skip
-// re-firing the appropriate phase callback (OnGroupCompleted for
-// PREPARING, OnSwapRequested for SWAPPING) after a node restart, and:
-//
-//   - A PREPARING task crashed before its local PreparationCompleteAck landed
-//     would silently never re-fire PHASE A on this node → cluster waits
-//     forever for the missing ack.
-//   - A SWAPPING task crashed before its local SWAP completed would
-//     silently never re-fire PHASE B on this node → cluster transitions
-//     to FAILED while this node's bucket state never moved to NEW.
+// pre-marked at bootstrap, or a restart would never re-fire their
+// callbacks and the cluster would wait forever for the missing ack.
 //
 // Both failure modes are silent-data-corruption / stuck-task class. The
 // pre-mark filter (status == FINISHED || FAILED || CANCELLED) is what
@@ -1704,7 +1690,7 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 
 	// SWAPPING: non-terminal. Nothing pre-marked.
 	require.Nil(t, s.perTaskState[swappingDesc],
-		"SWAPPING task MUST NOT have any per-task state — next tick must re-fire OnSwapRequested and emit the post-completion ack")
+		"SWAPPING task MUST NOT have any per-task state — next tick must fire OnTaskCompleted")
 
 	// FINISHED: terminal. Pre-marked as fully done (no recovery
 	// override registered for this desc in the test provider, so the
@@ -1715,7 +1701,7 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 	require.True(t, finished.completedCallbackFired,
 		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
 	require.Nil(t, finished.swapPending,
-		"a terminal barrier task's swaps are refilled from what RAFT says this node still owes")
+		"a barrier task runs no per-group swap phase")
 	require.Equal(t, map[string]struct{}{}, finished.prepPending,
 		"FINISHED barrier task has no group left to prepare — both phases already cleared the ack barrier pre-restart")
 	require.True(t, finished.postCompletionAckEmitted,
@@ -2302,10 +2288,6 @@ func (p *groupRecordingProvider) OnGroupCompleted(_ *Task, groupID string, _ []s
 	return p.record("completed:" + groupID)
 }
 
-func (p *groupRecordingProvider) OnSwapRequested(_ *Task, groupID string, _ []string) error {
-	return p.record("swap:" + groupID)
-}
-
 func (p *groupRecordingProvider) take() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -2346,18 +2328,6 @@ func failGroupUnit(t *testing.T, m *Manager, group string) {
 	})))
 }
 
-func prepAckGroup(t *testing.T, m *Manager, group string) {
-	require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-		Namespace: "ns", Id: "T", Version: 1, GroupId: &group, NodeId: "n1", Success: true,
-	})))
-}
-
-func cancelGroupTask(t *testing.T, m *Manager) {
-	require.NoError(t, m.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-		Namespace: "ns", Id: "T", Version: 1, CancelledAtUnixMillis: time.Now().UnixMilli(),
-	})))
-}
-
 // A tick looks only at groups that changed: a group made ready in the scheduler's copy with no apply behind it
 // stays unseen until an apply marks it.
 func TestSchedulerTickChecksOnlyChangedGroups(t *testing.T) {
@@ -2376,19 +2346,6 @@ func TestSchedulerTickChecksOnlyChangedGroups(t *testing.T) {
 			want:        "completed:g7",
 		},
 		{
-			name:    "decided-swap phase",
-			barrier: true,
-			readyInCopy: func(task *Task) {
-				task.SwapDecidedGroups = map[string]time.Time{"g7": {}}
-				task.SwapsOwed = map[string][]string{"g7": {"n1"}}
-			},
-			apply: func(t *testing.T, m *Manager) {
-				completeGroupUnit(t, m, "g7")
-				prepAckGroup(t, m, "g7")
-			},
-			want: "swap:g7",
-		},
-		{
 			name:        "swap phase of a task without a barrier",
 			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusCompleted },
 			apply:       func(t *testing.T, m *Manager) { completeGroupUnit(t, m, "g7") },
@@ -2399,16 +2356,6 @@ func TestSchedulerTickChecksOnlyChangedGroups(t *testing.T) {
 			readyInCopy: func(task *Task) { task.Units["g7"].Status = UnitStatusFailed },
 			apply:       func(t *testing.T, m *Manager) { failGroupUnit(t, m, "g7") },
 			want:        "completed:g7",
-		},
-		{
-			name:    "cancel",
-			barrier: true,
-			readyInCopy: func(task *Task) {
-				task.SwapDecidedGroups = map[string]time.Time{"g7": {}}
-				task.SwapsOwed = map[string][]string{"g7": {"n1"}}
-			},
-			apply: cancelGroupTask,
-			want:  "swap:g7",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2461,34 +2408,15 @@ func TestSchedulerAckGateWaitsOnlyForGroupsStillOut(t *testing.T) {
 	require.Equal(t, 1, acks.postAcks)
 }
 
-// A deleted tenant's group drops out of the retry a failed swap left behind.
-func TestSchedulerTickDropsADeletedTenantsSwap(t *testing.T) {
-	p := &groupRecordingProvider{errFor: map[string]error{"swap:g0": errors.New("disk full")}}
-	s, m := newGroupTickScheduler(t, 2, true, p)
-	s.tick()
-	completeGroupUnit(t, m, "g0")
-	s.tick()
-	prepAckGroup(t, m, "g0")
-	cancelGroupTask(t, m)
-	s.tick()
-	require.Contains(t, p.take(), "swap:g0")
-
-	m.ForgetGroupsForCollection("C", []string{"g0"})
-	s.tick()
-	require.NotContains(t, p.take(), "swap:g0")
-}
-
 // A group whose callback asks for a retry fires again on the next tick, with no new apply.
 func TestSchedulerTickRetriesAGroupCallback(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		barrier bool
-		decide  bool
 		call    string
 		err     error
 	}{
 		{name: "preparation phase", barrier: true, call: "completed:g0", err: context.Canceled},
-		{name: "decided-swap phase", barrier: true, decide: true, call: "swap:g0", err: errors.New("disk full")},
 		{name: "swap phase of a task without a barrier", call: "completed:g0", err: context.Canceled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2496,11 +2424,6 @@ func TestSchedulerTickRetriesAGroupCallback(t *testing.T) {
 			s, m := newGroupTickScheduler(t, 2, tc.barrier, p)
 			s.tick()
 			completeGroupUnit(t, m, "g0")
-			if tc.decide {
-				s.tick()
-				prepAckGroup(t, m, "g0")
-				p.take()
-			}
 			s.tick()
 			require.Contains(t, p.take(), tc.call)
 			s.tick()

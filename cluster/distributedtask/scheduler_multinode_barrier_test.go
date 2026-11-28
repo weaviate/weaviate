@@ -11,17 +11,6 @@
 
 package distributedtask
 
-// This file extends the multi-scheduler harness in scheduler_multinode_test.go
-// with PHASE B coverage for the two-phase RAFT swap barrier introduced in
-// PR #11328. The existing recording providers stub OnSwapRequested to a
-// no-op, so the legacy test file only exercises PHASE A (PreparationCompleteAck)
-// and the non-barrier PostCompletionAck path. The barrierRecordingProvider
-// in this file actually records per-node OnSwapRequested invocations and
-// allows per-node fault injection so the cross-replica failure modes
-// G1-G8 enumerated in sub-report 04-raft-barrier.md can be pinned at
-// unit-test latency rather than relying on the slow single-config
-// acceptance test in test/acceptance/reindex_multinode/cross_replica_barrier_test.go.
-//
 // Helper-name discipline: every type/func/var introduced here is
 // prefixed with `barrier*` so the file can land alongside other parallel
 // agents' additions without collisions. The existing multiSchedulerHarness,
@@ -47,43 +36,25 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// barrierRecordingProvider is the PHASE-B-aware sibling of
-// recordingUnitAwareProvider. It actually IMPLEMENTS OnSwapRequested
-// (the legacy recording provider stubs it to a no-op since it only
-// exercises the NeedsPreparationBarrier=false path) and records every
-// invocation per-task so PHASE B firing can be asserted directly.
-//
-// SetSwapRequestedError + SetGroupCompletedError let tests inject
-// per-node faults symmetric to the existing scheduler_multinode_test.go
-// failure-path coverage, but in the SWAPPING window rather than the
-// FINALIZING / SWAPPING-legacy window.
 type barrierRecordingProvider struct {
 	*testTaskProvider
 
-	mu             sync.Mutex
-	groupCalls     []string // taskID per OnGroupCompleted fire (PHASE A in barrier mode)
-	swapCalls      []string // taskID per OnSwapRequested fire (PHASE B in barrier mode)
-	taskCalls      []string // taskID per OnTaskCompleted fire
-	swapCallsBy    map[string]int
-	groupCallsBy   map[string]int
-	taskCallsBy    map[string]int
-	groupCompErr   error
-	swapRequestErr error
+	mu           sync.Mutex
+	groupCalls   []string // taskID per OnGroupCompleted fire (PHASE A in barrier mode)
+	taskCalls    []string // taskID per OnTaskCompleted fire
+	groupCallsBy map[string]int
+	taskCallsBy  map[string]int
+	groupCompErr error
 	// groupErrs overrides groupCompErr for one group.
 	groupErrs map[string]error
 	// Status each callback was handed: the provider's only view of the task.
-	swapStatuses []TaskStatus
 	taskStatuses []TaskStatus
-	swapGroups   []string
 	taskDecided  [][]string
-	// calls orders PREP and swap fires: "prep:<group>" or "swap:<group>".
-	calls []string
 }
 
 func newBarrierRecordingProvider(t *testing.T) *barrierRecordingProvider {
 	return &barrierRecordingProvider{
 		testTaskProvider: newTestTaskProvider(t, nil),
-		swapCallsBy:      map[string]int{},
 		groupCallsBy:     map[string]int{},
 		taskCallsBy:      map[string]int{},
 	}
@@ -94,26 +65,11 @@ func (p *barrierRecordingProvider) OnGroupCompleted(task *Task, groupID string, 
 	defer p.mu.Unlock()
 	p.groupCalls = append(p.groupCalls, task.ID)
 	p.groupCallsBy[task.ID]++
-	p.calls = append(p.calls, "prep:"+groupID)
 	if err, ok := p.groupErrs[groupID]; ok {
 		return err
 	}
 	if p.groupCompErr != nil {
 		return p.groupCompErr
-	}
-	return nil
-}
-
-func (p *barrierRecordingProvider) OnSwapRequested(task *Task, groupID string, _ []string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.swapCalls = append(p.swapCalls, task.ID)
-	p.swapGroups = append(p.swapGroups, groupID)
-	p.calls = append(p.calls, "swap:"+groupID)
-	p.swapCallsBy[task.ID]++
-	p.swapStatuses = append(p.swapStatuses, task.Status)
-	if p.swapRequestErr != nil {
-		return p.swapRequestErr
 	}
 	return nil
 }
@@ -134,22 +90,10 @@ func (p *barrierRecordingProvider) SetGroupCompletedError(err error) {
 	p.groupCompErr = err
 }
 
-func (p *barrierRecordingProvider) SetSwapRequestedError(err error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.swapRequestErr = err
-}
-
 func (p *barrierRecordingProvider) SetGroupErrors(errs map[string]error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.groupErrs = errs
-}
-
-func (p *barrierRecordingProvider) swapCount(taskID string) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.swapCallsBy[taskID]
 }
 
 func (p *barrierRecordingProvider) groupCount(taskID string) int {
@@ -358,142 +302,6 @@ func barrierDriveAllAcksAndAssertSwapping(t *testing.T, h *barrierHarness, taskI
 		"after every node's prep-ack lands successfully the barrier must lift to SWAPPING")
 }
 
-// TestBarrier_G1_LeaderLossBetweenPhaseAandPhaseB: post-barrier-lift,
-// PHASE B fires on the NEXT tick (not the ack-emitting tick) because
-// the scheduler only reflects FAILED — not SWAPPING — on the local
-// task clone. Pins that contract regardless of inter-tick leader
-// changes, which are invisible to the scheduler (only Task.Status
-// matters).
-func TestBarrier_G1_LeaderLossBetweenPhaseAandPhaseB(t *testing.T) {
-	defer leaktest.Check(t)()
-
-	h := newBarrierHarness(t, []string{"node-1", "node-2", "node-3"})
-	defer h.close()
-
-	taskID := "barrier-g1-leader-loss"
-	barrierAddTaskOneUnitPerNode(t, h, taskID)
-	barrierDriveToPreparing(t, h, taskID)
-
-	// node-1 ticks first: PHASE A fires, PHASE A.5 ack lands. The FSM
-	// stays PREPARING because node-2 + node-3 haven't acked yet. node-1
-	// must NOT fire OnSwapRequested yet — that gate opens only on
-	// task.Status == SWAPPING.
-	h.tick(0)
-	require.Equal(t, 1, h.nodes[0].provider.groupCount(taskID),
-		"node-1: PHASE A (OnGroupCompleted) must fire on PREPARING")
-	require.Equal(t, 0, h.nodes[0].provider.swapCount(taskID),
-		"node-1: PHASE B (OnSwapRequested) must NOT fire while barrier holds")
-	task := h.getTask(t, taskID)
-	require.Equal(t, TaskStatusPreparing, task.Status,
-		"FSM must stay PREPARING until every node has prep-acked")
-
-	// node-2 ticks second: same story.
-	h.tick(1)
-	require.Equal(t, 1, h.nodes[1].provider.groupCount(taskID))
-	require.Equal(t, 0, h.nodes[1].provider.swapCount(taskID))
-	task = h.getTask(t, taskID)
-	require.Equal(t, TaskStatusPreparing, task.Status)
-	require.Len(t, task.PreparedGroups[""], 2)
-
-	// node-3 ticks third: its prep-ack apply trips the
-	// PREPARING → SWAPPING transition on the shared FSM. But the local
-	// clone in node-3's tick body was captured BEFORE the ack-emission
-	// landed; the scheduler only writes the FAILED flip back to that
-	// clone (scheduler.go:574-576), not the SWAPPING flip. So node-3's
-	// PHASE B does NOT fire in this tick — it observes the stale
-	// PREPARING and skips. The post-tick FSM status IS SWAPPING.
-	h.tick(2)
-	require.Equal(t, 1, h.nodes[2].provider.groupCount(taskID))
-	require.Equal(t, 0, h.nodes[2].provider.swapCount(taskID),
-		"node-3 must NOT fire OnSwapRequested in its ack-emitting tick — the local clone reflects only FAILED, not SWAPPING (scheduler.go:574-576)")
-	task = h.getTask(t, taskID)
-	require.Equal(t, TaskStatusSwapping, task.Status,
-		"after every node's prep-ack landed, FSM must be SWAPPING")
-
-	// Now simulate the "leader loss between PHASE A.5 commit and PHASE
-	// B firing" scenario: every node's next tick observes SWAPPING for
-	// the first time (the previous tick saw PREPARING) and MUST fire
-	// its own OnSwapRequested. A regression here would leave replicas
-	// stuck in mixed-tokenization state forever — exactly the bug
-	// PR #11328 is designed to prevent.
-	h.tick(0)
-	require.Equal(t, 1, h.nodes[0].provider.swapCount(taskID),
-		"node-1: OnSwapRequested must fire on the SWAPPING tick following a barrier-lift it didn't itself trigger")
-	h.tick(1)
-	require.Equal(t, 1, h.nodes[1].provider.swapCount(taskID),
-		"node-2: OnSwapRequested must fire on the SWAPPING tick following a barrier-lift it didn't itself trigger")
-	h.tick(2)
-	require.Equal(t, 1, h.nodes[2].provider.swapCount(taskID),
-		"node-3: OnSwapRequested must fire on the SWAPPING tick after its own ack-emitting tick")
-
-	// Idempotency on additional ticks across all nodes.
-	h.tickAll()
-	h.tickAll()
-	for _, n := range h.nodes {
-		require.Equal(t, 1, n.provider.swapCount(taskID),
-			"node %s: OnSwapRequested must fire exactly once across additional ticks", n.id)
-	}
-}
-
-// A swap that fails mid-SWAPPING stays owed and holds the flip; once its
-// retry pays, the run flips the schema and finishes.
-func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
-	defer leaktest.Check(t)()
-
-	h := newBarrierHarness(t, []string{"node-1", "node-2", "node-3"})
-	defer h.close()
-
-	taskID := "barrier-g2-partial-swap-failure"
-	barrierAddTaskOneUnitPerNode(t, h, taskID)
-	barrierDriveToPreparing(t, h, taskID)
-	barrierDriveAllAcksAndAssertSwapping(t, h, taskID)
-
-	// After barrierDriveAllAcksAndAssertSwapping no node has fired SWAP
-	// yet: each tick observed PREPARING on its local clone (PHASE A.5
-	// only reflects FAILED back to the clone, not SWAPPING — see
-	// scheduler.go:574-576 vs the missing PREPARING→SWAPPING reflection).
-	// The FSM is SWAPPING after the third ack lands, but PHASE B fires
-	// only on each scheduler's NEXT tick.
-	for _, n := range h.nodes {
-		require.Equal(t, 0, n.provider.swapCount(taskID),
-			"prerequisite: node %s must NOT have fired SWAP in its ack-emitting tick", n.id)
-	}
-
-	h.nodes[1].provider.SetSwapRequestedError(fmt.Errorf("synthetic ENOSPC during swap on node-2"))
-
-	// node-1 ticks: PHASE B fires, no error → success ack lands.
-	// MissingPostCompletionAckNodes still contains node-2 + node-3, so
-	// OnTaskCompleted does not fire on node-1.
-	h.tick(0)
-	require.Equal(t, 1, h.nodes[0].provider.swapCount(taskID),
-		"node-1: OnSwapRequested must fire on its first SWAPPING-observing tick")
-	require.Equal(t, 0, h.nodes[0].provider.taskCount(taskID),
-		"node-1: OnTaskCompleted must NOT fire while node-2 / node-3 swap-acks are missing")
-	task := h.getTask(t, taskID)
-	require.Equal(t, TaskStatusSwapping, task.Status)
-
-	h.tick(1)
-	h.tick(2)
-	h.tick(0)
-	h.tick(1)
-	task = h.getTask(t, taskID)
-	require.Equal(t, TaskStatusSwapping, task.Status, "a failed swap does not fail the task")
-	require.Equal(t, map[string][]string{"": {"node-2"}}, task.SwapsOwed, "only node-2 still owes its swap")
-	for _, n := range h.nodes {
-		require.Zero(t, n.provider.taskCount(taskID), "node %s: no flip while a swap is owed", n.id)
-	}
-
-	h.nodes[1].provider.SetSwapRequestedError(nil)
-	h.tick(1)
-	h.tickAll()
-	h.tickAll()
-	task = h.getTask(t, taskID)
-	require.Equal(t, TaskStatusFinished, task.Status, "the run finishes once the retry pays")
-	require.Empty(t, task.SwapsOwed)
-	require.Equal(t, 3, h.nodes[1].provider.swapCount(taskID), "node-2 swapped until it succeeded")
-	require.Equal(t, []TaskStatus{TaskStatusSwapping}, h.nodes[0].provider.taskStatuses, "the flip runs on SWAPPING")
-}
-
 // A duplicate PreparationCompleteAck after PREPARING → SWAPPING is dropped.
 func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	defer leaktest.Check(t)()
@@ -649,14 +457,7 @@ func TestBarrier_G4_ParallelMigrationDifferentPropDuringBarrier(t *testing.T) {
 	require.Equal(t, TaskStatusFinished, statuses[taskB],
 		"task-B must reach FINISHED through its own barrier")
 
-	// Every node fired OnSwapRequested exactly once per task. Cross-task
-	// callback contamination would show up as e.g. node-1 firing
-	// OnSwapRequested for taskA twice.
 	for _, n := range h.nodes {
-		require.Equal(t, 1, n.provider.swapCount(taskA),
-			"node %s: OnSwapRequested for taskA must fire exactly once", n.id)
-		require.Equal(t, 1, n.provider.swapCount(taskB),
-			"node %s: OnSwapRequested for taskB must fire exactly once", n.id)
 		require.Equal(t, 1, n.provider.taskCount(taskA),
 			"node %s: OnTaskCompleted for taskA must fire exactly once", n.id)
 		require.Equal(t, 1, n.provider.taskCount(taskB),
@@ -861,7 +662,7 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 }
 
 // Pins that a cancel after every group's swap is decided leaves the migration to finish and flip.
-func TestBarrier_G9_CancelAfterDecisionStillSwapsEveryReplica(t *testing.T) {
+func TestBarrier_G9_CancelAfterDecisionStillFinishes(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	h := newBarrierHarness(t, []string{"node-1", "node-2"})
@@ -870,11 +671,6 @@ func TestBarrier_G9_CancelAfterDecisionStillSwapsEveryReplica(t *testing.T) {
 	barrierAddTaskOneUnitPerNode(t, h, "T9")
 	barrierDriveToPreparing(t, h, "T9")
 	barrierDriveAllAcksAndAssertSwapping(t, h, "T9")
-
-	// Only node 0 swaps so far.
-	h.tick(0)
-	require.Equal(t, 1, h.nodes[0].provider.swapCount("T9"), "node-1 must have run its swap")
-	require.Equal(t, 0, h.nodes[1].provider.swapCount("T9"), "node-2 must not have ticked into its swap yet")
 
 	err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
 		Namespace:             h.namespace,
@@ -887,7 +683,6 @@ func TestBarrier_G9_CancelAfterDecisionStillSwapsEveryReplica(t *testing.T) {
 
 	h.tickAll()
 	h.tickAll()
-	require.Equal(t, 1, h.nodes[1].provider.swapCount("T9"), "node-2 still swaps")
 	require.Equal(t, TaskStatusFinished, h.getTask(t, "T9").Status)
 	require.ElementsMatch(t, []TaskStatus{TaskStatusSwapping, TaskStatusFinished},
 		append(h.nodes[0].provider.taskStatuses, h.nodes[1].provider.taskStatuses...),
@@ -932,8 +727,6 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 			h.tick(1)
 			require.Equal(t, TaskStatusFailed, h.getTask(t, taskID).Status,
 				"node-2's failed ack must fail the task")
-			require.Empty(t, failing.swapStatuses,
-				"node-2 must not run a swap the barrier did not lift")
 			h.tick(1)
 			require.Equal(t, []TaskStatus{TaskStatusFailed}, failing.taskStatuses,
 				"node-2 must run FAILED cleanup, never the SWAPPING schema flip")
@@ -988,7 +781,6 @@ func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 				h.nodes[1].provider.SetGroupErrors(map[string]error{"tenant-b": errors.New("synthetic EIO")})
 				h.tick(1)
 				h.tick(1)
-				require.Contains(t, h.nodes[1].provider.swapGroups, "tenant-a", "node-2 swaps the decided tenant")
 			},
 			wantDecided: []string{"tenant-a"},
 		},
@@ -1064,69 +856,4 @@ func TestBarrier_FailedGroupAcksWhileOtherGroupRetryable(t *testing.T) {
 	task := h.getTask(t, taskID)
 	require.Equal(t, TaskStatusFailed, task.Status, "group-b's failure must be acked without waiting for group-a")
 	require.Contains(t, task.Error, `"group-b"`)
-}
-
-func TestPerTenantSwap(t *testing.T) {
-	addTask := func(t *testing.T, h *barrierHarness, taskID string) {
-		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace: h.namespace, Id: taskID, SubmittedAtUnixMillis: h.clock.Now().UnixMilli(), NeedsPreparationBarrier: true,
-			UnitSpecs: []*cmd.UnitSpec{
-				{Id: "a-1", GroupId: "tenant-a"},
-				{Id: "a-2", GroupId: "tenant-a"},
-				{Id: "b-1", GroupId: "tenant-b"},
-				{Id: "b-2", GroupId: "tenant-b"},
-			},
-		}), 1))
-	}
-	complete := func(t *testing.T, h *barrierHarness, taskID string, units map[string]string) {
-		for unit, node := range units {
-			require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
-				context.Background(), h.namespace, taskID, 1, node, unit))
-		}
-	}
-	addTwoTenantTask := func(t *testing.T, h *barrierHarness, taskID string) {
-		addTask(t, h, taskID)
-		for unit, node := range map[string]string{"a-1": "node-1", "a-2": "node-2", "b-1": "node-1", "b-2": "node-2"} {
-			require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
-				context.Background(), h.namespace, taskID, 1, node, unit, 0.1))
-		}
-		h.tickAll()
-		complete(t, h, taskID, map[string]string{"a-1": "node-1", "a-2": "node-2"})
-		h.tickAll()
-		h.tickAll()
-	}
-
-	t.Run("a terminal task drops its undecided tenants after one tick", func(t *testing.T) {
-		defer leaktest.Check(t)()
-		h := newBarrierHarness(t, []string{"node-1", "node-2"})
-		defer h.close()
-		addTwoTenantTask(t, h, "T2")
-		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-			Namespace: h.namespace, Id: "T2", Version: 1, CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
-		h.tickAll()
-		for _, n := range h.nodes {
-			n.scheduler.mu.Lock()
-			pending := n.scheduler.perTaskState[h.getTask(t, "T2").TaskDescriptor].swapPending
-			n.scheduler.mu.Unlock()
-			require.Empty(t, pending, "%s: tenant-b can never be decided, so nothing is left to visit", n.id)
-		}
-	})
-
-	// A decided swap must not wait behind another group's PREP batch in the same tick.
-	t.Run("a decided swap runs before other groups' PREP", func(t *testing.T) {
-		defer leaktest.Check(t)()
-		h := newBarrierHarness(t, []string{"node-1", "node-2"})
-		defer h.close()
-		addTask(t, h, "T3")
-		complete(t, h, "T3", map[string]string{"a-1": "node-1", "a-2": "node-2"})
-		h.tick(0) // node-1 prepares tenant-a
-		h.tick(1) // node-2 prepares tenant-a, which decides it
-		require.True(t, h.getTask(t, "T3").GroupSwapDecided("tenant-a"))
-
-		complete(t, h, "T3", map[string]string{"b-1": "node-1", "b-2": "node-2"})
-		h.tick(0)
-		require.Equal(t, []string{"prep:tenant-a", "swap:tenant-a", "prep:tenant-b"}, h.nodes[0].provider.calls,
-			"node-1 swaps the decided group before preparing the next one")
-	})
 }

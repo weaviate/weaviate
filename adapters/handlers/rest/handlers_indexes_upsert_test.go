@@ -908,7 +908,7 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 	}
 }
 
-// A run whose cutover landed despite a proposer error, swap still owed: drop and re-add must lock nothing and rebuild every tenant.
+// A run whose cutover landed despite a proposer error: drop and re-add must lock nothing and rebuild every tenant.
 func TestDropAndReAddAfterALandedRun(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -936,7 +936,6 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 				db.ReindexTaskPayload{Collection: "C", Properties: []string{"p"}, MigrationType: tc.mt, TargetTokenization: tc.tok},
 				map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 			run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
-			run.SwapsOwed = map[string][]string{"b": {"n2"}}
 			run.Status = distributedtask.TaskStatusFinished
 			tasks := []*distributedtask.Task{run}
 

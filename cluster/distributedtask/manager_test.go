@@ -2246,9 +2246,6 @@ func TestManager_RecordPreparationCompleteAck_Success(t *testing.T) {
 	addBarrierTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1", "u-node-2", "u-node-3"})
 	drivePreparing(t, h, "ns", "task1", version, nodes)
 
-	// First two acks: task must stay PREPARING — the barrier hasn't
-	// lifted yet (load-bearing property; the third node must NOT see
-	// SWAPPING and prematurely fire its OnSwapRequested).
 	// Each listed copy is encoded, as the list query does, while later acks land.
 	var listed []*Task
 	stop := make(chan struct{})
@@ -2668,14 +2665,10 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 			task := h.manager.tasks["ns"]["T"]
 			task.Status = tc.status
 			task.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
-			task.SwapsOwed = map[string][]string{"a": {"n1"}, "b": {"n1"}}
 
 			h.manager.ForgetGroupsForCollection("Foo", []string{"a"})
 
 			require.Equal(t, !tc.wantForget, task.GroupSwapDecided("a"))
-			if tc.wantForget {
-				require.Equal(t, map[string][]string{"b": {"n1"}}, task.SwapsOwed, "a forgotten tenant owes no swap")
-			}
 		})
 	}
 }
@@ -2749,7 +2742,6 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 
 			task := m.tasks[ns][id]
 			require.Equal(t, tc.want, task.Status)
-			require.Empty(t, task.SwapsOwed)
 		})
 	}
 }
@@ -2763,7 +2755,6 @@ var releasedSnapshot = []byte(`{"tasks":{"reindex":[{"ID":"failed-mid-swap","err
 "u1":{"finishedAt":"2023-11-14T23:13:20+01:00","groupId":"t1","id":"u1","nodeId":"n1","progress":1,"status":"COMPLETED","updatedAt":"2023-11-14T23:13:20+01:00"},
 "u2":{"finishedAt":"2023-11-14T23:13:20+01:00","groupId":"t1","id":"u2","nodeId":"n2","progress":1,"status":"COMPLETED","updatedAt":"2023-11-14T23:13:20+01:00"}}}]}}`)
 
-// Pins that a snapshot an earlier release wrote restores cleanly and owes nothing.
 func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	m := NewManager(ManagerParameters{Logger: logger})
@@ -2772,56 +2763,10 @@ func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
 	statuses := map[string]TaskStatus{}
 	for _, task := range m.tasks["reindex"] {
 		statuses[task.ID] = task.Status
-		require.Empty(t, task.SwapsOwed, task.ID)
 		require.NotEmpty(t, task.NodePreparationAcks, "%s: the old per-node PREP acks decode into their old name", task.ID)
 		require.Len(t, task.Units, 2, task.ID)
 	}
 	require.Equal(t, map[string]TaskStatus{"failed-mid-swap": TaskStatusFailed}, statuses)
-}
-
-// Pins that the swap debt round-trips a snapshot.
-func TestSwapDebtSurvivesSnapshot(t *testing.T) {
-	const ns, id = "ns", "T"
-	logger, _ := logrustest.NewNullLogger()
-	at := time.UnixMilli(1_700_000_000_000)
-	m := NewManager(ManagerParameters{Logger: logger})
-	specs := []*cmd.UnitSpec{{Id: "u1", GroupId: "t1"}, {Id: "u2", GroupId: "t1"}}
-	node := map[string]string{"u1": "n1", "u2": "n2"}
-	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace: ns, Id: id, UnitSpecs: specs, NeedsPreparationBarrier: true, SubmittedAtUnixMillis: at.UnixMilli(),
-	}), 1))
-	for u, n := range node {
-		require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
-			Namespace: ns, Id: id, Version: 1, NodeId: n, UnitId: u, FinishedAtUnixMillis: at.UnixMilli(),
-		})))
-	}
-	for _, n := range []string{"n1", "n2"} {
-		require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-			Namespace: ns, Id: id, Version: 1, GroupId: new("t1"), NodeId: n, Success: true, AckedAtUnixMillis: at.UnixMilli(),
-		})))
-	}
-	require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n1", Success: true, AckedAtUnixMillis: at.UnixMilli(),
-	})))
-	before := m.tasks[ns][id]
-	require.Equal(t, map[string][]string{"t1": {"n2"}}, before.SwapsOwed)
-
-	snap, err := m.Snapshot()
-	require.NoError(t, err)
-	restored := NewManager(ManagerParameters{Logger: logger})
-	require.NoError(t, restored.Restore(snap))
-	after := restored.tasks[ns][id]
-	require.Equal(t, before.SwapsOwed, after.SwapsOwed)
-	// Compared with Equal: the JSON round trip changes each time's Location.
-	require.Len(t, after.SwapDecidedGroups, len(before.SwapDecidedGroups))
-	for g, decidedAt := range before.SwapDecidedGroups {
-		require.True(t, decidedAt.Equal(after.SwapDecidedGroups[g]), "group %q", g)
-	}
-
-	require.NoError(t, restored.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n2", Success: true, AckedAtUnixMillis: at.UnixMilli(),
-	})))
-	require.Empty(t, restored.tasks[ns][id].SwapsOwed)
 }
 
 // Units added without a node are bound by their first progress report; their completions must then end the task.

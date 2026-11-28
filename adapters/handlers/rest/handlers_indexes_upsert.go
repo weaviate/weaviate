@@ -713,11 +713,6 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, h.reindexDrainSealer(),
-		collection, propertyName, tenants, migrationType, reindexTasks); resp != nil {
-		return resp
-	}
-
 	if err := addReindexTask(ctx, h.appState.ClusterService, taskID, payload); err != nil {
 		return h.mapSubmitTaskError(ctx, principal, collection, taskID, err)
 	}
@@ -772,116 +767,6 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 		Tenants:              tenants,
 		ViewServed:           true,
 	}
-}
-
-// stalePartialStateCleaner opens a sweep over a property's partial reindex
-// sidecar dirs. *db.DB satisfies it.
-type stalePartialStateCleaner interface {
-	NewStalePartialReindexSweep(tenants []string) db.StalePartialReindexSweep
-}
-
-type localReindexDrainSealer interface {
-	SealLocalTaskDrain(ctx context.Context, desc distributedtask.TaskDescriptor) (func(), error)
-}
-
-func (h *indexesHandlers) reindexDrainSealer() localReindexDrainSealer {
-	if h.appState.ReindexProvider == nil {
-		return nil
-	}
-	return h.appState.ReindexProvider
-}
-
-func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal *models.Principal,
-	sealer localReindexDrainSealer, collection, propertyName string,
-	reindexTasks []*distributedtask.Task,
-) (func(), middleware.Responder) {
-	if sealer == nil {
-		return func() {}, nil
-	}
-	var held []func()
-	release := func() {
-		for _, unseal := range held {
-			unseal()
-		}
-	}
-	drainCtx, cancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-	defer cancel()
-	for _, desc := range reindexTaskDescriptorsForProperty(reindexTasks, collection, propertyName, h.appState.Logger) {
-		unseal, err := sealer.SealLocalTaskDrain(drainCtx, desc)
-		if err != nil {
-			release()
-			entry := h.appState.Logger.WithFields(logrus.Fields{
-				"collection": collection,
-				"property":   propertyName,
-				"taskID":     desc.ID,
-			})
-			if errors.Is(err, context.Canceled) {
-				entry.Infof("submit: the request ended while waiting for an earlier task's local worker: %v", err)
-			} else {
-				entry.Errorf("submit: a local worker of an earlier task on this property has not exited, "+
-					"so pre-submit cleanup would race it; refusing submit: %v", err)
-			}
-			return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
-				"a local worker of an earlier reindex task on this property has not exited yet; "+
-					"pre-submit cleanup cannot run without racing it — retry shortly"))
-		}
-		held = append(held, unseal)
-	}
-	return release, nil
-}
-
-// cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
-// type migrationType touches, returning a terminal responder or nil to
-// proceed. Guards CANCEL→retry resuming stale state as a false success; fails
-// closed on an unknown type or a scrub error rather than skip silently.
-//
-// A truncated sweep is the one exception: it means shards went unvisited, so
-// their state is unverified rather than known stale, and a healthy node
-// produces that from a tenant leaving the shard map mid-walk. Refusing the
-// submit on it would turn ordinary tenant movement into a 500.
-func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
-	cleaner stalePartialStateCleaner, sealer localReindexDrainSealer,
-	collection, propertyName string, tenants []string, migrationType db.ReindexMigrationType,
-	reindexTasks []*distributedtask.Task,
-) middleware.Responder {
-	indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType)
-	if !known {
-		h.appState.Logger.WithFields(logrus.Fields{
-			"collection":     collection,
-			"property":       propertyName,
-			"migration_type": migrationType,
-		}).Error("submit: unknown migration type, cannot resolve cleanup index types; refusing submit")
-		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
-	}
-	release, resp := h.sealLocalReindexWorkers(ctx, principal, sealer, collection, propertyName, reindexTasks)
-	if resp != nil {
-		return resp
-	}
-	defer release()
-
-	// One sweep across the loop: every index type asks the same unloaded shards.
-	sweep := cleaner.NewStalePartialReindexSweep(tenants)
-	for _, it := range indexTypesForCleanup {
-		err := sweep(ctx, collection, propertyName, it)
-		if err == nil {
-			continue
-		}
-		entry := h.appState.Logger.WithFields(logrus.Fields{
-			"collection":     collection,
-			"property":       propertyName,
-			"migration_type": migrationType,
-			"index_type":     it,
-		})
-		if errors.Is(err, db.ErrCleanupSweepTruncated) {
-			entry.Warnf("submit: pre-submit cleanup did not reach every shard; proceeding with the submit, the unvisited shards are unverified rather than known stale: %v", err)
-			continue
-		}
-		entry.Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
-		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-			"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
-	}
-	return nil
 }
 
 // mapSubmitTaskError logs an ErrTaskConflict error but leaves it out of the 409, so the caller never sees the in-flight task's ID it names.

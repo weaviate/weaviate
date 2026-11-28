@@ -124,7 +124,6 @@ func TestManager_LocalEndedTasks(t *testing.T) {
 	stored := m.tasks["reindex"]["failed"]
 	stored.PreparedGroups = map[string]map[string]PostCompletionAck{"g3": {"n2": {}}}
 	stored.SwapDecidedGroups = map[string]time.Time{"g1": compactAt}
-	stored.SwapsOwed = map[string][]string{"g1": {"n1"}}
 	stored.NodePreparationAcks = map[string]PostCompletionAck{"n1": {}}
 	stored.PostCompletionAcks = map[string]PostCompletionAck{"n1": {}}
 

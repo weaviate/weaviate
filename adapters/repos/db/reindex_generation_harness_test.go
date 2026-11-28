@@ -286,7 +286,7 @@ func (c *genCluster) newNode(name, root string) *genNode {
 	n.dtm.SetStateListener(db.ReindexTaskStateListener)
 
 	client := &genClient{c: c, n: n}
-	prov := NewReindexProvider(db, nil, client, logger, name, func() int { return 4 }, c.ctx)
+	prov := NewReindexProvider(db, logger, name, func() int { return 4 }, c.ctx)
 	prov.SetReindexFlipper(client)
 	n.sched = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: client, TaskSource: n.dtm, TaskCleaner: client, TaskFinalizer: client,

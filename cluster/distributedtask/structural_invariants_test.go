@@ -406,9 +406,7 @@ func TestStructuralInvariant_OnlyUnitReadersListTheFullTaskList(t *testing.T) {
 		{"backup gate builder", "adapters/handlers/rest/configure_api.go", "shardReindexActivityBuilder"},
 		{"submit and rebuild pre-checks", "adapters/handlers/rest/handlers_indexes_upsert.go", "reindexTasksOrFailClosed"},
 		{"cancel", "adapters/handlers/rest/handlers_indexes.go", "indexesHandlers.cancelReindexTask"},
-		{"migration reconciler", "adapters/handlers/rest/configure_reindex_task_sources.go", "newMigrationClusterTaskSource"},
 		{"property-index delete check", "adapters/handlers/rest/handlers_schema.go", "schemaHandlers.checkReindexConflictForPropertyMutation"},
-		{"repair guidance", "adapters/repos/db/reindex_provider.go", "ReindexProvider.reindexRunsWith"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.True(t, declared[tc.file+":"+tc.fn], "the row names a function that no longer exists")

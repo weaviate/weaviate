@@ -53,16 +53,6 @@ func anyLiveReindex(t *testing.T, db *DB, collection, shardName string) bool {
 	return live
 }
 
-// makeCleanupBuilder builds a CleanupInProgressLookupBuilder reporting a fixed
-// set of (collection, shard) pairs as mid-cleanup.
-func makeCleanupBuilder(inProgress map[[2]string]bool) CleanupInProgressLookupBuilder {
-	return func() CleanupInProgressLookup {
-		return func(collection, shard string) bool {
-			return inProgress[[2]string{collection, shard}]
-		}
-	}
-}
-
 // TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
 // a live task for the (collection, shard) tuple causes the gate to
 // refuse.
@@ -135,42 +125,6 @@ func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 	})
 	assert.False(t, anyLiveReindex(t, db, "MyClass", "shard1"),
 		"nil lookup must allow (same path as unwired)")
-}
-
-// TestAnyLiveReindexForShard_CleanupInProgress pins the OR-d cleanup branch:
-// once the DTM task goes terminal (activity lookup false) but
-// autoCleanupAfterTerminal is still draining sidecars, the gate must still
-// refuse — a backup mid-cleanup would capture torn __reindex/__ingest state.
-func TestAnyLiveReindexForShard_CleanupInProgress(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{})) // no live task
-	db.SetReindexCleanupInProgressLookup(makeCleanupBuilder(map[[2]string]bool{
-		{"MyClass", "shard1"}: true,
-	}))
-	assert.True(t, anyLiveReindex(t, db, "MyClass", "shard1"),
-		"gate must refuse while terminal-task cleanup is still draining sidecars")
-	assert.False(t, anyLiveReindex(t, db, "MyClass", "shard2"),
-		"cleanup branch must scope by shard")
-}
-
-// TestAnyLiveReindexForShard_CleanupBuilderUnwired pins that with no cleanup
-// builder installed the gate keeps activity-only semantics — older wiring paths
-// and fixtures install only the activity lookup.
-func TestAnyLiveReindexForShard_CleanupBuilderUnwired(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
-	assert.False(t, anyLiveReindex(t, db, "MyClass", "shard1"),
-		"no cleanup builder → activity-only semantics → allow")
-}
-
-// TestAnyLiveReindexForShard_CleanupReturnsNil pins fail-open when the cleanup
-// builder returns a nil closure (defensive against a misconfigured wiring).
-func TestAnyLiveReindexForShard_CleanupReturnsNil(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
-	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup { return nil })
-	assert.False(t, anyLiveReindex(t, db, "MyClass", "shard1"),
-		"nil cleanup closure → allow (same as unwired)")
 }
 
 // TestRefuseIfReindexInFlight_ErrorShape pins that the error wraps the

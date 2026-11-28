@@ -12,8 +12,6 @@
 package db
 
 import (
-	"context"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -33,28 +31,8 @@ type EnableSearchableStrategy struct {
 	generation   int // see genSuffix godoc
 }
 
-func (s *EnableSearchableStrategy) StrategyCode() MigrationStrategyCode {
-	return StrategyCodeEnableSearchable
-}
-
 func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName)
-}
-
-func (s *EnableSearchableStrategy) ReindexSuffix() string {
-	return "__enable_searchable_reindex" + genSuffix(s.generation)
-}
-
-func (s *EnableSearchableStrategy) IngestSuffix() string {
-	return "__enable_searchable_ingest" + genSuffix(s.generation)
-}
-
-func (s *EnableSearchableStrategy) SourceStrategy() string {
-	return lsmkv.StrategyInverted
-}
-
-func (s *EnableSearchableStrategy) SourceIndexType() PropertyIndexType {
-	return IndexTypePropSearchableValue
 }
 
 func (s *EnableSearchableStrategy) TargetStrategy() string {
@@ -79,10 +57,6 @@ func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 	return blockmaxSearchableDeleteCallback(bucketNamer, armed, s.SourceBucketName)
 }
 
-func (s *EnableSearchableStrategy) PreReindexHook(shard *Shard, props []string) {
-	shard.markSearchableBlockmaxProperties(props...)
-}
-
 func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
@@ -95,18 +69,4 @@ func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]in
 		}
 	}
 	return out
-}
-
-// OnMigrationComplete is a no-op for this semantic migration. The schema
-// cutover (IndexSearchable=true + Tokenization flip via RAFT) now happens
-// once cluster-wide from [ReindexProvider.OnTaskCompleted] after every
-// node's local OnGroupCompleted has run the bucket pointer swap. See the
-// Journey 3 canonical pattern in cluster/distributedtask/doc.go:111-137.
-//
-// Per-shard schema flips would re-introduce the first-shard-flips
-// problem: the first shard on the first node to call RunSwapOnShard
-// would flip the cluster-wide flags while other nodes / other shards
-// still serve the old (searchable-disabled) state.
-func (s *EnableSearchableStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
-	return nil
 }
