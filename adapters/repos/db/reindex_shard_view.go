@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -366,8 +367,17 @@ func (s *Shard) refreshViewLocked(ctx context.Context) error {
 
 func (s *Shard) resolveServed(ctx context.Context, class *models.Class, next *shardView, opened *[]string) error {
 	for _, prop := range class.Properties {
-		pv, ok := next.props[prop.Name]
-		if !ok {
+		pv, governed := next.props[prop.Name]
+		if err := s.openLengthAndNullBuckets(ctx, viewProperty(prop, pv, governed), opened); err != nil {
+			return err
+		}
+		if !governed {
+			// The retire deletes the plain folder of an index turned off once readers release it.
+			for _, t := range reindexIndexTypes {
+				if !classIndexOn(prop, t) {
+					next.served[reindexBucketName(prop.Name, t, 0)] = nil
+				}
+			}
 			continue
 		}
 		for _, t := range reindexIndexTypes {
@@ -393,6 +403,33 @@ func (s *Shard) resolveServed(ctx context.Context, class *models.Class, next *sh
 			if pv.gen[t] > 0 {
 				next.served[plain] = s.store.Bucket(name)
 			}
+		}
+	}
+	return nil
+}
+
+// openLengthAndNullBuckets opens what a load opens for a property with an
+// inverted index, so writes find them once a run turns the first index on.
+func (s *Shard) openLengthAndNullBuckets(ctx context.Context, prop *models.Property, opened *[]string) error {
+	if _, nested := schema.AsNested(prop.DataType); nested || !inverted.HasAnyInvertedIndex(prop) {
+		return nil
+	}
+	for _, b := range []struct {
+		on     bool
+		name   string
+		create func(context.Context, *models.Property, lsmkv.MakeBucketOptions) error
+	}{
+		{s.index.invertedIndexConfig.IndexNullState, helpers.BucketFromPropNameNullLSM(prop.Name), s.createPropertyNullIndex},
+		{s.index.invertedIndexConfig.IndexPropertyLength, helpers.BucketFromPropNameLengthLSM(prop.Name), s.createPropertyLengthIndex},
+	} {
+		if !b.on || s.store.Bucket(b.name) != nil {
+			continue
+		}
+		if err := b.create(ctx, prop, s.makeDefaultBucketOptions); err != nil {
+			return fmt.Errorf("open %q: %w", b.name, err)
+		}
+		if s.store.Bucket(b.name) != nil {
+			*opened = append(*opened, b.name)
 		}
 	}
 	return nil

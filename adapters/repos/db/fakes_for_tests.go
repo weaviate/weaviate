@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -40,20 +41,27 @@ import (
 )
 
 type fakeSchemaGetter struct {
+	mu         sync.RWMutex // lets a test swap a class or live while a refresh loop reads them
 	schema     schema.Schema
 	shardState *sharding.State
 	live       map[string]map[string]map[string]uint64
 }
 
 func (f *fakeSchemaGetter) ClassLive(class string) map[string]map[string]uint64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.live[class]
 }
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.schema
 }
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.schema.GetClass(class)
 }
 
@@ -121,11 +129,11 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 	return 0
 }
 
-func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string) (map[string]string, error) {
+func (f *fakeSchemaGetter) ResolveParentNodes(_ string, shard string) (map[string]string, error) {
 	return nil, nil
 }
 
-func (f fakeSchemaGetter) Statistics() map[string]any {
+func (f *fakeSchemaGetter) Statistics() map[string]any {
 	return nil
 }
 

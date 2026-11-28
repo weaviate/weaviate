@@ -84,7 +84,23 @@ func newViewFixture(t *testing.T, className string, props ...*models.Property) *
 }
 
 func (f *viewFixture) setLive(gens map[string]uint64) {
+	f.schema.mu.Lock()
+	defer f.schema.mu.Unlock()
 	f.schema.live = map[string]map[string]map[string]uint64{f.class.Class: {"title": gens}}
+}
+
+// editTitle installs a copy of the class with an edited title property, so a
+// running refresh never reads a property being written.
+func (f *viewFixture) editTitle(edit func(p *models.Property)) {
+	f.schema.mu.Lock()
+	defer f.schema.mu.Unlock()
+	prop := *f.class.Properties[0]
+	edit(&prop)
+	class := *f.class
+	class.Properties = append([]*models.Property{&prop}, f.class.Properties[1:]...)
+	classes := f.schema.schema.Objects.Classes
+	classes[slices.Index(classes, f.class)] = &class
+	f.class = &class
 }
 
 func (f *viewFixture) putObjects(n int) {
@@ -390,6 +406,10 @@ func TestReindexShardViewIndexOff(t *testing.T) {
 			folder:  plainTitle,
 			offLive: map[string]uint64{indexTypeFilterable: 2},
 		},
+		{
+			name:   "a plain folder of a property no run governs",
+			folder: plainTitle,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -402,12 +422,12 @@ func TestReindexShardViewIndexOff(t *testing.T) {
 
 			held := f.shard.acquireView()
 			off := false
-			f.class.Properties[0].IndexFilterable = &off
+			f.editTitle(func(p *models.Property) { p.IndexFilterable = &off })
 			if tc.offLive != nil {
 				f.setLive(tc.offLive)
 				require.NoError(t, f.shard.refreshView(context.Background()))
 			} else {
-				require.NoError(t, f.idx.updateProperty(context.Background(), f.class.Properties[0]))
+				f.idx.updateProperty()
 			}
 			require.Eventually(t, func() bool { return f.shard.loadView() != held }, 5*time.Second, 10*time.Millisecond)
 			require.Nil(t, f.shard.loadView().Bucket(plainTitle), "queries stop using the index")

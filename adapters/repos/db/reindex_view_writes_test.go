@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"math/rand"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -149,6 +151,68 @@ func TestReindexViewWrites(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, tc.run(newViewFixture(t, "ViewTest")))
+		})
+	}
+}
+
+// titleBuckets lists the open buckets of the fixture's title property.
+func titleBuckets(s *Shard) []string {
+	var out []string
+	for name := range s.store.GetBucketsByName() {
+		if strings.HasPrefix(name, "property_title") {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// A run that turns on a property's first index leaves the shard with the
+// length and null buckets a load opens, so writes after the switch count.
+func TestReindexViewWritesEnableFirstIndex(t *testing.T) {
+	off, on := false, true
+	for _, tc := range []struct {
+		mt       ReindexMigrationType
+		dataType []string
+		value    any
+		length   int // the length key the value writes; 0 for a type without a length index
+		enable   func(p *models.Property)
+	}{
+		{ReindexTypeEnableFilterable, schema.DataTypeText.PropString(), "hi", 2, func(p *models.Property) { p.IndexFilterable = &on }},
+		{ReindexTypeEnableSearchable, schema.DataTypeText.PropString(), "hi", 2, func(p *models.Property) { p.IndexSearchable = &on }},
+		{ReindexTypeEnableRangeable, schema.DataTypeInt.PropString(), float64(2), 0, func(p *models.Property) { p.IndexRangeFilters = &on }},
+	} {
+		t.Run(string(tc.mt), func(t *testing.T) {
+			f := newViewFixture(t, "ViewTest", &models.Property{
+				Name: "title", DataType: tc.dataType, Tokenization: models.PropertyTokenizationWord,
+				IndexFilterable: &off, IndexSearchable: &off, IndexRangeFilters: &off,
+			})
+			if tc.length == 0 {
+				f.class.Properties[0].Tokenization = ""
+			}
+			run := func(switched bool) distributedtask.ShardTaskState {
+				return viewTaskState("en", 1, tc.mt, distributedtask.TaskStatusStarted, switched, true)
+			}
+			f.refreshTo(run(false))
+			f.refreshTo(run(true))
+			f.putTitle(testObject(f.class.Class), tc.value)
+
+			nullKey, err := bucketKeyPropertyNull(false)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), cardinality(t, f.shard.store.Bucket(helpers.BucketFromPropNameNullLSM("title")), nullKey))
+			if tc.length > 0 {
+				lengthKey, err := bucketKeyPropertyLength(tc.length)
+				require.NoError(t, err)
+				require.Equal(t, uint64(1), cardinality(t, f.shard.store.Bucket(helpers.BucketFromPropNameLengthLSM("title")), lengthKey))
+			}
+
+			afterSwitch := titleBuckets(f.shard)
+			types, _ := ReindexIndexTypes(tc.mt)
+			tc.enable(f.class.Properties[0])
+			f.setLive(map[string]uint64{types[0]: 1})
+			f.tasks.set()
+			f.reload()
+			require.Equal(t, titleBuckets(f.shard), afterSwitch, "a load opens the same buckets")
 		})
 	}
 }

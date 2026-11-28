@@ -160,68 +160,6 @@ func createsGeoIndex(prop *models.Property) bool {
 	return dt == schema.DataTypeGeoCoordinates
 }
 
-func (s *Shard) updatePropertyBuckets(ctx context.Context,
-	eg *enterrors.ErrorGroupWrapper,
-	prop *models.Property,
-) {
-	eg.Go(func() error {
-		// A reader may hold what the view serves; the refresh retires it after release.
-		if _, governed := s.loadView().props[prop.Name]; governed {
-			return nil
-		}
-		for _, indexType := range disabledIndexTypes(prop) {
-			// The whole loop runs inside the RAFT apply, once per shard. Every
-			// shard still queued for it drops out here rather than sweeping its
-			// own directories for an apply that is already failing.
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
-			}
-			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
-			if !ok {
-				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
-			}
-			if err := s.removeBucket(ctx, mainBucket); err != nil {
-				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
-			}
-		}
-		return nil
-	})
-}
-
-func disabledIndexTypes(prop *models.Property) []string {
-	var types []string
-	if !inverted.HasFilterableIndex(prop) {
-		types = append(types, "filterable")
-	}
-	if !inverted.HasSearchableIndex(prop) {
-		types = append(types, "searchable")
-	}
-	if !inverted.HasRangeableIndex(prop) {
-		types = append(types, "rangeable")
-	}
-	return types
-}
-
-// mainBucketForPropertyIndex returns the canonical main bucket name on
-// disk for a given (propName, indexType).
-//
-// KNOWN COLLISION (weaviate/weaviate#12574), pre-existing and wider than
-// this function: bucket names are "property_<prop>" plus a fixed suffix, and
-// property names can collide with them — e.g. "cat_searchable" filterable
-// and "cat" searchable share a bucket name, so a sweep of either reaches the
-// other's sidecars.
-func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
-	switch indexType {
-	case "filterable":
-		return helpers.BucketFromPropNameLSM(propName), true
-	case "searchable":
-		return helpers.BucketSearchableFromPropNameLSM(propName), true
-	case "rangeable":
-		return helpers.BucketRangeableFromPropNameLSM(propName), true
-	}
-	return "", false
-}
-
 // sidecarRoleWords are the words every migration sidecar suffix ends in, once
 // the generation tail is off, plus "backup"/"map" that only upgrades bring in.
 var sidecarRoleWords = schema.SidecarRoleWords

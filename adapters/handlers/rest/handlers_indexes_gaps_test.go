@@ -136,10 +136,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 
-		// enable-rangeable now conflicts with anything else on the same prop —
-		// shared on-disk migration state (filterable_to_rangeable_<prop>) is
-		// destroyed by the OnMigrationComplete updatePropertyBuckets path
-		// otherwise. Same prop = conflict.
+		// enable-rangeable conflicts with anything else on the same prop.
 		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},

@@ -115,10 +115,8 @@ func (ReindexDetector) CheckConflict(newHeader distributedtask.TaskHeader, exist
 }
 
 // typesConflictReason returns a non-empty reason if two reindex migrations
-// on the same collection target overlapping properties, whatever their types.
-// The UpdateProperty completing a semantic migration ([IsSemanticMigration])
-// runs updatePropertyBuckets, which deletes the working dirs of an overlapping
-// enable-* migration whose flag is still false (weaviate/weaviate#10675).
+// on the same collection target overlapping properties, whatever their types
+// (weaviate/weaviate#10675).
 //
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
@@ -212,9 +210,8 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // reindex migration on the same (collection, property).
 //
 // Without it, an external UpdateProperty such as DELETE /index/searchable
-// runs updatePropertyBuckets, which deletes the working dirs of an in-flight
-// enable-* migration whose flag is still false. Mid change-tokenization, the
-// same DELETE wipes the searchable sub-task while the filterable sub-task
+// turns an index off under an in-flight migration. Mid change-tokenization,
+// that DELETE wipes the searchable sub-task while the filterable sub-task
 // commits, leaving the schema at the old tokenization and the filterable
 // bucket on the new one.
 //

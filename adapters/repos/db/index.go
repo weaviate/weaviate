@@ -1096,22 +1096,10 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	return nil
 }
 
-func (i *Index) updateProperty(ctx context.Context, property *models.Property) error {
-	eg := enterrors.NewErrorGroupWrapper(i.logger)
-	eg.SetLimit(_NUMCPU)
-
-	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.updatePropertyBuckets(ctx, eg, property)
-		return nil
-	})
-
-	err := eg.Wait()
+// updateProperty leaves every bucket change to the shards' view refresh,
+// which retires an index turned off once its readers release it.
+func (i *Index) updateProperty() {
 	i.db.reindexRefresher().notify(i.Config.ClassName.String(), nil)
-	if err != nil {
-		return errors.Wrapf(err, "update property '%v' idx '%s'", property.Name, i.ID())
-	}
-
-	return nil
 }
 
 func (i *Index) updateVectorIndexConfig(ctx context.Context,

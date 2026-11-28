@@ -603,7 +603,8 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 		return errors.Errorf("cannot update property for a non-existing index for %s", className)
 	}
 
-	return idx.updateProperty(ctx, property)
+	idx.updateProperty()
+	return nil
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {

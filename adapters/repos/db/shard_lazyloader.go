@@ -610,14 +610,6 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
 }
 
-func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
-	property *models.Property,
-) {
-	if l.isLoaded() {
-		l.shard.updatePropertyBuckets(ctx, eg, property)
-	}
-}
-
 // DropVectorIndex routes to the loaded shard or to disk, deciding and acting
 // under l.mutex, which Shutdown, drop and loadIfCold all take.
 //
