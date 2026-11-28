@@ -952,7 +952,7 @@ function run_acceptance_reindex_multinode() {
 function run_acceptance_reindex_multinode_restart_a() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-restart-a (mid-reindex restarts + post-complete rolling)"
-  # 7 tests:
+  # 8 tests:
   #   TestMultiNode_GracefulRestartDuringReindex
   #   TestMultiNode_GracefulLeaderRestartDuringReindex
   #   TestMultiNode_CrashDuringReindex
@@ -960,6 +960,7 @@ function run_acceptance_reindex_multinode_restart_a() {
   #   TestMultiNode_RollingRestartAfterComplete
   #   TestMultiNode_RollingRestartMidMigration
   #   TestMultiNode_RollingRestartBetweenMigrations
+  #   TestMultiNode_RollingRestartAfterMidRunEvent
   #
   # The "restart-during-active-reindex" + "post-complete rolling"
   # bucket. Each test owns its own cluster lifecycle (restart timing
@@ -974,7 +975,7 @@ function run_acceptance_reindex_multinode_restart_a() {
   # `RollingRestartMidMigration` + `RollingRestartBetweenMigrations`
   # un-claimed by any sub-shard; both are PASSING on main and now
   # land in this filter.
-  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|GracefulLeaderRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete|RollingRestartMidMigration|RollingRestartBetweenMigrations)' \
+  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|GracefulLeaderRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete|RollingRestartMidMigration|RollingRestartBetweenMigrations|RollingRestartAfterMidRunEvent)' \
     run_aof_group "reindex-multinode-restart-a" test/acceptance/reindex_multinode
 }
 

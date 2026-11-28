@@ -250,20 +250,29 @@ func collectTaskStatusTransitions(t *testing.T, restURI, taskID string, timeout 
 const perTenantLargeObjects = 60_000
 
 // perTenantSwapFixture builds a small and a large tenant of two-word phrases.
-func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className string) {
+func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className string, props []*models.Property) {
 	t.Helper()
 	restURI := compose.GetWeaviate().URI()
-	createMTCollection(t, restURI, className, 3, textProps("text"))
+	createMTCollection(t, restURI, className, 3, props)
 	createTenants(t, restURI, className, []string{"small", "large"})
 	importObjectsTenant(t, restURI, className, "small", []string{"needle phrase", "other words"})
+	bulk := make([]string, perTenantLargeObjects)
+	for i := range bulk {
+		bulk[i] = fmt.Sprintf("bulk %d", i)
+	}
+	batchImportTenant(t, restURI, className, "large", bulk)
+}
 
+// batchImportTenant writes at consistency ALL, so every replica answers for the objects at once.
+func batchImportTenant(t *testing.T, restURI, className, tenant string, texts []string) {
+	t.Helper()
 	const batchSize = 1000
-	for start := 0; start < perTenantLargeObjects; start += batchSize {
+	for start := 0; start < len(texts); start += batchSize {
 		objects := make([]map[string]any, 0, batchSize)
-		for i := start; i < start+batchSize; i++ {
+		for _, text := range texts[start:min(start+batchSize, len(texts))] {
 			objects = append(objects, map[string]any{
-				"class": className, "tenant": "large",
-				"properties": map[string]any{"text": fmt.Sprintf("bulk %d", i)},
+				"class": className, "tenant": tenant,
+				"properties": map[string]any{"text": text},
 			})
 		}
 		body, err := json.Marshal(map[string]any{"objects": objects})
@@ -316,7 +325,7 @@ func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "PerTenantSwap"
-	perTenantSwapFixture(t, compose, className)
+	perTenantSwapFixture(t, compose, className, textProps("text"))
 	restURI := compose.GetWeaviate().URI()
 
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
@@ -352,7 +361,7 @@ func cancelThenResubmitWhileFinishedTenantIs(t *testing.T, parked string) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "PerTenantPartial"
-	perTenantSwapFixture(t, compose, className)
+	perTenantSwapFixture(t, compose, className, textProps("text"))
 	restURI := compose.GetWeaviate().URI()
 
 	reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
