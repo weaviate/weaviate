@@ -2598,6 +2598,38 @@ A igual ef, recall y cargas de los tres crecidos:
 
 **Disco:** 17 GiB libres. Un índice son 7 GB y su layout pide 7.6 libres: cabe de uno en uno.
 
+#### Orden del usuario del 28 a las 10:00, y la celda principal con doc ids densos, dos veces (pre-registro, 28 de noviembre a las 10:05, antes de ejecutarla)
+
+**El orden** (del usuario):
+1. Tras el borrado de `tenm` y `codes/`, lo primero es mover el índice de 10M fuera del directorio temporal. La caché de Go se borra cuando haga falta sitio, entre corridas cronometradas, sin preguntar.
+2. Control del arranque: repetir la celda principal (`routing`, 8 llamadores) con doc ids densos, y una segunda corrida para tener el ruido.
+3. Huecos del diagnóstico, sobre los clones y antes de reorganizar el 10M:
+   - la puerta del lote: qué cerrojo es, por qué quien aplica espera a las búsquedas en curso, y si una query de solo lectura se queda fuera igual; p50 y p99 de queries a 0.95 con 8 llamadores insertando y sin inserts;
+   - los vectores exactos: dónde está el límite que deja las lecturas de 3 en 3;
+   - el recorrido: por qué marcar visto y puntuar un miembro cuestan más por unidad a 10M, y el grado medio (aristas por vector) a 100k y a 10M;
+   - el resultado de la pasada sin compactación, y el reparto de la CPU del proceso entero entre planes, compactación, GC y runtime.
+4. Lista de propuestas para `feat/posting-edge-next`, cada una con su ganancia estimada y cómo se mediría, incluida una sin búsqueda dentro del insert: asignar y escribir como HFresh, y construir las aristas después por lotes agrupados por posting.
+5. Después: HFresh a 10M, la reorganización, la segunda parte de las definitivas y la congelación. La medida de punta a punta por un shard es la comparación justa con HFresh, y va la primera de esa parte.
+
+**Lo que cambia en lo que tenía en marcha.**
+- **La segunda parte (a), la búsqueda sobre el índice crecido, se aplaza** al punto 5, detrás de la medida por un shard. Su pre-registro vale; no se ha medido nada de ella.
+  - **El índice que crecí para ella lo borré a las 10:02,** para dejar sitio: 990 000 vectores en 1 486 s, 659 por segundo, sin cronometrar y con comandos míos al lado. El test cronometrado y los clones de las celdas en lote quedan preparados.
+  - **El ensayo que pre-registré a 100k no vale como estaba:** el test de los puntos pide el índice con todas las filas. Se hará sobre el índice de 1M, con 200 queries.
+- **El borrado no está hecho** a las 10:02: `tenm` y `codes/` siguen en el volumen. Mover el 10M espera a eso: hay 17 GiB libres y el índice ocupa 35.
+- **Empiezo por el punto 2,** que no depende del borrado.
+
+**La celda principal con doc ids densos** (*mío* el cómo).
+- **Qué cambia en el arnés:** con `PE_DENSE`, el doc id de un vector es su puesto en el orden de llegada, de 0 en adelante, como los da un shard. Las filas entran en el mismo orden barajado de antes. Para el recall, los vecinos del dataset se traducen de fila a doc id.
+  - Ensayado con 30 000 vectores: `keys` queda en 31 499, no en 1.24M.
+- **Qué se corre:** `routing`, 8 llamadores, 1M de dbpedia, la base `m2` en `8ed921ed59`, como la celda de la primera parte. Dos corridas seguidas, cada una con su crecimiento por tramos de 60 s y sus puntos de 0.95 y 0.99 sobre las 1 000 primeras queries. Cronometrado: marcador, espera y `caffeinate`. Unos 55 minutos. Cada índice se borra al acabar.
+- **Con qué se compara:** la celda de la primera parte, 663 por segundo con los doc ids repartidos. Y el crecimiento de las 09:37, 659, que no fue una corrida limpia.
+
+**Lo que espero** (*mío*).
+- **La media, entre 685 y 715 por segundo,** de un 3 a un 8 % más. A 100k lo denso daba un 7 % más; al final de la curva las tablas tienen el mismo tamaño en los dos casos.
+- **El primer tramo, entre 880 y 920;** el último entero, entre 570 y 600.
+- **Entre las dos corridas, menos de un 2 % en la media.**
+- **El recall y las cargas, como en la primera parte:** 0.95 con ef 19 a 21 y de 17.9 a 18.7 cargas.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

@@ -1,0 +1,268 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench && darwin
+
+package postingedge
+
+import (
+	"bufio"
+	"context"
+	"encoding/binary"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+	"github.com/weaviate/weaviate/usecases/byteops"
+)
+
+// The recall and the loads of the index TestNightGrow left (bench-report.md
+// of feat/posting-edge-index, "10M crecido por inserts, con la serie",
+// amendment of 2026-11-27): nothing here is timed.
+//
+// Parameters, from the environment, besides those of TestNightGrow:
+//   - PE_POINTS: the JSON written at the end.
+//   - PE_THREADS: how many queries run at once (8).
+
+// nightPoint is the index at one ef: its recall against the neighbors the
+// dataset ships, and what a query did, on average.
+type nightPoint struct {
+	// Target is the recall the point was looked for, 0 for an ef that was
+	// only tried on the way.
+	Target float64 `json:"target,omitempty"`
+	EF     int     `json:"ef"`
+	Recall float64 `json:"recall"`
+	// Loads is the postings a query loaded, the entry postings aside, as the
+	// other measures count them; Rounds the rounds they came in.
+	Loads  float64 `json:"loads"`
+	Rounds float64 `json:"rounds"`
+	// Members is the members of those postings, Rescored the exact vectors
+	// read, and BlockBytes the bytes of the blocks the store returned.
+	Members    float64 `json:"members"`
+	Rescored   float64 `json:"rescored"`
+	BlockBytes float64 `json:"blockBytes"`
+}
+
+type nightPoints struct {
+	Dir          string       `json:"dir"`
+	Dataset      string       `json:"dataset"`
+	CacheMode    string       `json:"cacheMode"`
+	Meta         growMeta     `json:"meta"`
+	LivePostings int          `json:"livePostings"`
+	Deleted      int          `json:"deleted"`
+	Queries      int          `json:"queries"`
+	K            int          `json:"k"`
+	Threads      int          `json:"threads"`
+	Points       []nightPoint `json:"points"`
+	// Tried has every ef that was tried, in the order it was.
+	Tried []nightPoint `json:"tried"`
+	// DenseIDs tells that the index was grown with PE_DENSE and the
+	// neighbors of the dataset were turned into its doc ids.
+	DenseIDs bool `json:"denseIDs"`
+}
+
+// readNightQueries reads the queries of a raw dataset and, for each, the
+// first k of the neighbors it ships.
+func readNightQueries(t *testing.T, dir string, k int) (queries [][]float32, truth [][]uint64, trainRows int) {
+	t.Helper()
+	meta, err := os.Open(filepath.Join(dir, "meta.txt"))
+	require.NoError(t, err)
+	defer meta.Close()
+	shapes := map[string][2]int{}
+	scanner := bufio.NewScanner(meta)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 3 {
+			continue
+		}
+		a, errA := strconv.Atoi(fields[1])
+		b, errB := strconv.Atoi(fields[2])
+		if errA == nil && errB == nil {
+			shapes[fields[0]] = [2]int{a, b}
+		}
+	}
+	require.NoError(t, scanner.Err())
+	test, neighbors := shapes["test"], shapes["neighbors"]
+	require.Positive(t, test[0], "%s: no test line in meta.txt", dir)
+	require.Equal(t, test[0], neighbors[0], "%s: a row of neighbors for every query", dir)
+	require.GreaterOrEqual(t, neighbors[1], k, "%s: the dataset ships fewer than %d neighbors", dir, k)
+
+	raw, err := os.ReadFile(filepath.Join(dir, "test.f32"))
+	require.NoError(t, err)
+	rows, dims := test[0], test[1]
+	require.Len(t, raw, 4*rows*dims, "test.f32")
+	queries = make([][]float32, rows)
+	for q := range queries {
+		vec := make([]float32, dims)
+		byteops.CopyBytesToSlice(vec, raw[4*q*dims:4*(q+1)*dims])
+		queries[q] = distancer.Normalize(vec)
+	}
+
+	raw, err = os.ReadFile(filepath.Join(dir, "neighbors.i32"))
+	require.NoError(t, err)
+	width := neighbors[1]
+	require.Len(t, raw, 4*rows*width, "neighbors.i32")
+	truth = make([][]uint64, rows)
+	for q := range truth {
+		truth[q] = make([]uint64, k)
+		for i := range truth[q] {
+			truth[q][i] = uint64(binary.LittleEndian.Uint32(raw[4*(q*width+i):]))
+		}
+	}
+	return queries, truth, shapes["train"][0]
+}
+
+// TestNightPoints finds, untimed, the operating points of the index
+// TestNightGrow left at recall 0.95 and 0.99, each the smallest ef that
+// reaches it, as TestTablesPoints does, and what a query does at each. It
+// opens the index as TestNightHeap does, with no cycle running, and with no
+// maintenance: nothing lays the vectors out or cleans while it searches. The
+// neighbors the dataset ships are those of every row, so the index must hold
+// them all.
+func TestNightPoints(t *testing.T) {
+	datasetDir, dir, out := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_POINTS")
+	if datasetDir == "" || dir == "" || out == "" {
+		t.Skip("no PE_DATASET, PE_DIR and PE_POINTS given")
+	}
+	const k = 10
+	ctx := context.Background()
+	threads := int(nightEnvInt(t, "PE_THREADS", 8))
+	queries, truth, trainRows := readNightQueries(t, datasetDir, k)
+	dense := nightTruthIDs(truth, trainRows)
+	// PE_QUERIES: the first so many queries of the dataset, all of them
+	// without it. The measures of dbpedia use its first 1 000.
+	if limit := int(nightEnvInt(t, "PE_QUERIES", 0)); limit > 0 && limit < len(queries) {
+		queries, truth = queries[:limit], truth[:limit]
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	st := openNightStore(t, dir, logger, false)
+	cfg := st.config(dir, logger, 0)
+	cfg.noMaintenance = true
+	p, err := Open(cfg, uc, st.store)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, p.Shutdown(ctx))
+		require.NoError(t, st.store.Shutdown(ctx))
+	}()
+
+	p.mu.RLock()
+	g := p.g
+	require.NotNil(t, g, "the index has a base")
+	deleted := nightDeleted(g)
+	result := &nightPoints{
+		Dir: dir, Dataset: datasetDir, CacheMode: uc.RQ.CacheMode, Meta: g.meta, Deleted: deleted,
+		Queries: len(queries), K: k, Threads: threads, DenseIDs: dense,
+	}
+	p.mu.RUnlock()
+	result.LivePostings = livePostings(g)
+	require.Zero(t, deleted, "the neighbors of the dataset are over every row")
+	require.Equal(t, trainRows, result.Meta.Live, "the neighbors of the dataset are over every row, and the index holds %d of %d",
+		result.Meta.Live, trainRows)
+
+	at := func(ef int) nightPoint {
+		searching := uc
+		searching.EF = ef
+		require.NoError(t, p.UpdateUserConfig(searching, func() {}))
+		stats := make([]diskSearchStats, len(queries))
+		ids := make([][]uint64, len(queries))
+		errs := make([]error, threads)
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		begin := time.Now()
+		for worker := 0; worker < threads; worker++ {
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				for {
+					q := int(next.Add(1)) - 1
+					if q >= len(queries) {
+						return
+					}
+					p.mu.RLock()
+					found, _, err := p.g.search(ctx, queries[q], k, &stats[q])
+					p.mu.RUnlock()
+					if err != nil {
+						errs[worker] = err
+						return
+					}
+					ids[q] = found
+				}
+			}, logger)
+		}
+		wg.Wait()
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+		point := nightPoint{EF: ef}
+		hits := 0
+		for q := range queries {
+			for _, want := range truth[q] {
+				if slices.Contains(ids[q], want) {
+					hits++
+				}
+			}
+			point.Loads += float64(stats[q].Postings)
+			point.Rounds += float64(stats[q].Rounds)
+			point.Members += float64(stats[q].Members)
+			point.Rescored += float64(stats[q].Rescored)
+			point.BlockBytes += float64(stats[q].BlockBytes)
+		}
+		n := float64(len(queries))
+		point.Recall = float64(hits) / (n * k)
+		point.Loads, point.Rounds, point.Members = point.Loads/n, point.Rounds/n, point.Members/n
+		point.Rescored, point.BlockBytes = point.Rescored/n, point.BlockBytes/n
+		result.Tried = append(result.Tried, point)
+		t.Logf("ef %d: recall %.4f, %.2f loads a query in %.2f rounds, %.0f members, %.0f vectors read, %.0f KB of blocks (%s)",
+			ef, point.Recall, point.Loads, point.Rounds, point.Members, point.Rescored, point.BlockBytes/1e3,
+			time.Since(begin).Round(time.Millisecond))
+		return point
+	}
+
+	for _, target := range []float64{0.95, 0.99} {
+		// The first ef that reaches the target, doubling, and then the
+		// smallest between it and the one before.
+		low, high := k-1, k
+		reached := at(high)
+		for reached.Recall < target {
+			low, high = high, 2*high
+			require.LessOrEqual(t, high, 4096, "the index does not reach recall %.2f", target)
+			reached = at(high)
+		}
+		for high-low > 1 {
+			mid := (low + high) / 2
+			if point := at(mid); point.Recall >= target {
+				high, reached = mid, point
+			} else {
+				low = mid
+			}
+		}
+		reached.Target = target
+		result.Points = append(result.Points, reached)
+		t.Logf("recall %.2f: ef %d, recall %.4f, %.2f loads a query", target, reached.EF, reached.Recall, reached.Loads)
+	}
+	writeNightJSON(t, out, result)
+}

@@ -1,0 +1,531 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+//go:build postingedgebench
+
+package postingedge
+
+import (
+	"context"
+	"encoding/json"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/concurrency"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
+)
+
+// The cold and warm search of v4.0 over the index TestNightGrow left
+// (bench-report.md of feat/posting-edge-index, "Medidas definitivas a 1M,
+// segunda parte (a)", pre-registered on 2026-11-28): TestNightTimed times it
+// with the loop of TestDiskTimed, and TestNightLayout lays its vectors out.
+//
+// Parameters, from the environment, besides those of TestNightGrow and of
+// TestNightPoints:
+//   - PE_POINTS: the JSON TestNightPoints wrote, with the points to time.
+//   - PE_OUT: the JSON written after every point.
+//   - PE_PASSES: the timed warm passes of every point and thread count (3).
+//   - PE_COLD: how many of the first queries are searched cold (500).
+//   - PE_DROP: the shell command that drops the cache of the files of the
+//     system, run with the index closed before every cold batch. Without it
+//     nothing is timed cold.
+//   - PE_TIMEDTHREADS: the thread counts, with commas (1,8).
+//   - PE_QUIET and PE_MAXWAIT (TestNightLayout): the seconds the segments of
+//     the store must stay as they are, and the most it waits for that (60 and
+//     900).
+
+// nightLatencies is the latencies of a set of queries, as TestDiskTimed gives
+// them: the percentiles, and the parts of the mean.
+type nightLatencies struct {
+	Queries int     `json:"queries"`
+	P50     float64 `json:"p50ms"`
+	P95     float64 `json:"p95ms"`
+	P99     float64 `json:"p99ms"`
+	Mean    float64 `json:"meanms"`
+	// QPS is the queries over the time they took all together.
+	QPS float64 `json:"qps"`
+	// The parts of the mean latency: the centroid graph, the wait for the
+	// blocks, the scan and the ranking of what they hold, and the rescore.
+	CentroidMs float64 `json:"centroidms"`
+	FetchMs    float64 `json:"fetchms"`
+	VisitMs    float64 `json:"visitms"`
+	RescoreMs  float64 `json:"rescorems"`
+	Loads      float64 `json:"loads"`
+	// Granted is the concurrency budget a query ran with, on average.
+	Granted float64 `json:"granted"`
+}
+
+func nightLatenciesOf(latencies []time.Duration, stats []diskSearchStats, wall time.Duration) nightLatencies {
+	toMs := func(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+	n := float64(len(latencies))
+	sorted := make([]float64, len(latencies))
+	out := nightLatencies{Queries: len(latencies)}
+	for i, l := range latencies {
+		sorted[i] = toMs(l)
+		out.Mean += toMs(l) / n
+		out.CentroidMs += toMs(stats[i].CentroidTime) / n
+		out.FetchMs += toMs(stats[i].FetchTime) / n
+		out.VisitMs += toMs(stats[i].VisitTime) / n
+		out.RescoreMs += toMs(stats[i].RescoreTime) / n
+		out.Loads += float64(stats[i].Postings) / n
+		out.Granted += float64(stats[i].Budget) / n
+	}
+	slices.Sort(sorted)
+	// The percentile as TestDiskTimed takes it (percentileOf).
+	at := func(q float64) float64 {
+		if len(sorted) == 0 {
+			return 0
+		}
+		return sorted[max(0, min(len(sorted)-1, int(math.Ceil(q*float64(len(sorted))))-1))]
+	}
+	out.P50, out.P95, out.P99 = at(0.50), at(0.95), at(0.99)
+	if wall > 0 {
+		out.QPS = n / wall.Seconds()
+	}
+	return out
+}
+
+// nightTimedPoint is the index at one operating point with one thread count.
+type nightTimedPoint struct {
+	Target  float64 `json:"target"`
+	EF      int     `json:"ef"`
+	Threads int     `json:"threads"`
+	Recall  float64 `json:"recall"`
+	// Warm has every timed pass over all the queries, after an untimed one.
+	Warm []nightLatencies `json:"warm"`
+	// Cold is the queries of all the cold batches together, ColdHalves the
+	// two halves of the batches apart, ColdFirst the first query of every
+	// batch and ColdRest the others (with one thread).
+	Cold       *nightLatencies  `json:"cold,omitempty"`
+	ColdHalves []nightLatencies `json:"coldHalves,omitempty"`
+	ColdFirst  *nightLatencies  `json:"coldFirst,omitempty"`
+	ColdRest   *nightLatencies  `json:"coldRest,omitempty"`
+	// ColdBatches is the cold batches and ColdBatch their size; ColdRecall
+	// the recall of the cold queries, a part of all of them.
+	ColdBatches int     `json:"coldBatches,omitempty"`
+	ColdBatch   int     `json:"coldBatch,omitempty"`
+	ColdRecall  float64 `json:"coldRecall,omitempty"`
+	// ReopenMs is the mean time to open the index after the cache is
+	// dropped, and IndexBytes what warming the indexes of its segments reads.
+	ReopenMs   float64 `json:"reopenms,omitempty"`
+	IndexBytes int64   `json:"indexBytes,omitempty"`
+}
+
+type nightTimedResult struct {
+	Dir       string   `json:"dir"`
+	Dataset   string   `json:"dataset"`
+	CacheMode string   `json:"cacheMode"`
+	Meta      growMeta `json:"meta"`
+	Queries   int      `json:"queries"`
+	K         int      `json:"k"`
+	Procs     int      `json:"gomaxprocs"`
+	Drop      string   `json:"drop"`
+	OpenSecs  float64  `json:"openSeconds"`
+	HeapInuse uint64   `json:"heapInuse"`
+	// Segments is the segments of every bucket of the store, and DirBytes
+	// what the index takes on disk.
+	Segments map[string]int    `json:"segments"`
+	DirBytes int64             `json:"dirBytes"`
+	Points   []nightTimedPoint `json:"points"`
+}
+
+// nightSegments counts the segments of every bucket under the store of dir.
+func nightSegments(dir string) (map[string]int, error) {
+	buckets, err := os.ReadDir(filepath.Join(dir, "lsm"))
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	for _, bucket := range buckets {
+		if !bucket.IsDir() {
+			continue
+		}
+		found, err := filepath.Glob(filepath.Join(dir, "lsm", bucket.Name(), "segment-*.db"))
+		if err != nil {
+			return nil, err
+		}
+		out[bucket.Name()] = len(found)
+	}
+	return out, nil
+}
+
+// nightOpen is the index of a directory open with no cycle and no
+// maintenance, as TestNightPoints opens it.
+type nightOpen struct {
+	p  *Persistent
+	st *nightStore
+}
+
+func openNightIndex(t *testing.T, dir string, logger logrus.FieldLogger, uc ent.UserConfig) *nightOpen {
+	t.Helper()
+	st := openNightStore(t, dir, logger, false)
+	cfg := st.config(dir, logger, 0)
+	cfg.noMaintenance = true
+	p, err := Open(cfg, uc, st.store)
+	require.NoError(t, err)
+	return &nightOpen{p: p, st: st}
+}
+
+func (o *nightOpen) close(t *testing.T, ctx context.Context) {
+	t.Helper()
+	require.NoError(t, o.p.Shutdown(ctx))
+	require.NoError(t, o.st.store.Shutdown(ctx))
+}
+
+// TestNightTimed times the index TestNightGrow left at the operating points
+// TestNightPoints found, with the loop of TestDiskTimed: at each point and
+// with each thread count, a warm pass nobody times and PE_PASSES timed ones
+// over all the queries; and, with PE_DROP, the first PE_COLD queries cold, in
+// batches of 10 (twice the threads with more than one), the index closed and
+// the cache dropped before each. Every query takes its concurrency budget
+// from the admission limiter of a node, as in a shard.
+func TestNightTimed(t *testing.T) {
+	datasetDir, dir, pointsFile, out := os.Getenv("PE_DATASET"), os.Getenv("PE_DIR"), os.Getenv("PE_POINTS"), os.Getenv("PE_OUT")
+	if datasetDir == "" || dir == "" || pointsFile == "" || out == "" {
+		t.Skip("no PE_DATASET, PE_DIR, PE_POINTS and PE_OUT given")
+	}
+	const k = 10
+	ctx := context.Background()
+	passes := int(nightEnvInt(t, "PE_PASSES", 3))
+	coldQueries := int(nightEnvInt(t, "PE_COLD", 500))
+	drop := os.Getenv("PE_DROP")
+	var threadCounts []int
+	for _, field := range strings.Split(nightEnv("PE_TIMEDTHREADS", "1,8"), ",") {
+		threads, err := strconv.Atoi(strings.TrimSpace(field))
+		require.NoError(t, err, "PE_TIMEDTHREADS")
+		threadCounts = append(threadCounts, threads)
+	}
+	raw, err := os.ReadFile(pointsFile)
+	require.NoError(t, err)
+	var found nightPoints
+	require.NoError(t, json.Unmarshal(raw, &found))
+	require.NotEmpty(t, found.Points, "%s has no point", pointsFile)
+
+	queries, truth, trainRows := readNightQueries(t, datasetDir, k)
+	require.Equal(t, found.DenseIDs, nightTruthIDs(truth, trainRows), "the points were found with other doc ids (PE_DENSE)")
+	if limit := int(nightEnvInt(t, "PE_QUERIES", 0)); limit > 0 && limit < len(queries) {
+		queries, truth = queries[:limit], truth[:limit]
+	}
+	require.Equal(t, found.Queries, len(queries), "the points were found over other queries")
+	coldQueries = min(coldQueries, len(queries))
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	require.Equal(t, found.CacheMode, uc.RQ.CacheMode, "the points were found with another cache mode")
+
+	begin := time.Now()
+	index := openNightIndex(t, dir, logger, uc)
+	opened := time.Since(begin)
+	closed := false
+	defer func() {
+		if !closed {
+			index.close(t, ctx)
+		}
+	}()
+	runtime.GC()
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	segments, err := nightSegments(dir)
+	require.NoError(t, err)
+	dirBytes, err := nightDirBytes(dir)
+	require.NoError(t, err)
+	index.p.mu.RLock()
+	result := &nightTimedResult{
+		Dir: dir, Dataset: datasetDir, CacheMode: uc.RQ.CacheMode, Meta: index.p.g.meta, Queries: len(queries), K: k,
+		Procs: runtime.GOMAXPROCS(0), Drop: drop, OpenSecs: opened.Seconds(), HeapInuse: mem.HeapInuse,
+		Segments: segments, DirBytes: dirBytes,
+	}
+	index.p.mu.RUnlock()
+	t.Logf("opened in %s: heap in use %.1f MB, %d of %d vectors laid out, segments %v", opened.Round(time.Millisecond),
+		float64(mem.HeapInuse)/1e6, result.Meta.VectorsLaidOut, result.Meta.Live, segments)
+
+	// Being admitted is part of the query, as it is in a shard.
+	limiter := queryadmission.New(prometheus.NewRegistry(), queryadmission.Config{})
+	// run searches the given queries with the given number of threads, each
+	// thread taking the next query, and tells the latency and the stats of
+	// each, the hits and the time of all.
+	run := func(which []int, threads int) ([]time.Duration, []diskSearchStats, int, time.Duration) {
+		latencies := make([]time.Duration, len(which))
+		stats := make([]diskSearchStats, len(which))
+		var next, hits atomic.Int64
+		var wg sync.WaitGroup
+		errs := make([]error, threads)
+		p := index.p
+		clock := time.Now()
+		for worker := 0; worker < threads; worker++ {
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(which) {
+						return
+					}
+					q := which[i]
+					start := time.Now()
+					searchCtx, release, err := limiter.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+					if err != nil {
+						errs[worker] = err
+						return
+					}
+					stats[i].Budget = concurrency.BudgetFromCtx(searchCtx, 0)
+					p.mu.RLock()
+					ids, _, err := p.g.search(searchCtx, queries[q], k, &stats[i])
+					p.mu.RUnlock()
+					release()
+					latencies[i] = time.Since(start)
+					if err != nil {
+						errs[worker] = err
+						return
+					}
+					got := 0
+					for _, want := range truth[q] {
+						if slices.Contains(ids, want) {
+							got++
+						}
+					}
+					hits.Add(int64(got))
+				}
+			}, logger)
+		}
+		wg.Wait()
+		wall := time.Since(clock)
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+		return latencies, stats, int(hits.Load()), wall
+	}
+	all := make([]int, len(queries))
+	for i := range all {
+		all[i] = i
+	}
+	sum := func(latencies []time.Duration) (total time.Duration) {
+		for _, l := range latencies {
+			total += l
+		}
+		return total
+	}
+
+	for _, point := range found.Points {
+		searching := uc
+		searching.EF = point.EF
+		require.NoError(t, index.p.UpdateUserConfig(searching, func() {}))
+		for _, threads := range threadCounts {
+			timed := nightTimedPoint{Target: point.Target, EF: point.EF, Threads: threads}
+			// Warm: after a pass that nobody times.
+			_, _, hits, _ := run(all, 8)
+			timed.Recall = float64(hits) / float64(len(queries)*k)
+			require.InDelta(t, point.Recall, timed.Recall, 1e-9, "the recall of the point at ef %d", point.EF)
+			for pass := 0; pass < passes; pass++ {
+				latencies, stats, _, wall := run(all, threads)
+				timed.Warm = append(timed.Warm, nightLatenciesOf(latencies, stats, wall))
+			}
+			if len(timed.Warm) > 0 {
+				order := slices.Clone(timed.Warm)
+				slices.SortFunc(order, func(a, b nightLatencies) int {
+					switch {
+					case a.P50 < b.P50:
+						return -1
+					case a.P50 > b.P50:
+						return 1
+					}
+					return 0
+				})
+				warm := order[len(order)/2]
+				t.Logf("recall %.2f (ef %d), %d threads, warm, the median pass: p50 %.3f ms, p95 %.3f, p99 %.3f, mean %.3f | "+
+					"%.0f QPS | fetch %.3f ms, visit %.3f, rescore %.3f, centroids %.3f | %.2f loads | a budget of %.1f a query",
+					point.Target, point.EF, threads, warm.P50, warm.P95, warm.P99, warm.Mean, warm.QPS, warm.FetchMs,
+					warm.VisitMs, warm.RescoreMs, warm.CentroidMs, warm.Loads, warm.Granted)
+			}
+
+			if drop != "" && coldQueries > 0 {
+				batch := 10
+				if threads > 1 {
+					batch = 2 * threads
+				}
+				var latencies, firstLatencies, restLatencies []time.Duration
+				var stats, firstStats, restStats []diskSearchStats
+				var halves [2]struct {
+					latencies []time.Duration
+					stats     []diskSearchStats
+					wall      time.Duration
+				}
+				var wall, reopen time.Duration
+				hits := 0
+				for from := 0; from < coldQueries; from += batch {
+					which := all[from:min(from+batch, coldQueries)]
+					index.close(t, ctx)
+					closed = true
+					dropped, err := exec.CommandContext(ctx, "sh", "-c", drop).CombinedOutput()
+					require.NoErrorf(t, err, "drop the cache: %s", dropped)
+					clock := time.Now()
+					index = openNightIndex(t, dir, logger, uc)
+					closed = false
+					require.NoError(t, index.p.UpdateUserConfig(searching, func() {}))
+					timed.IndexBytes, err = warmSegmentIndexes(filepath.Join(dir, "lsm"))
+					require.NoError(t, err)
+					reopen += time.Since(clock)
+
+					batchLatencies, batchStats, batchHits, batchWall := run(which, threads)
+					half := &halves[timed.ColdBatches%2]
+					half.latencies, half.stats = append(half.latencies, batchLatencies...), append(half.stats, batchStats...)
+					half.wall += batchWall
+					latencies, stats = append(latencies, batchLatencies...), append(stats, batchStats...)
+					firstLatencies, firstStats = append(firstLatencies, batchLatencies[0]), append(firstStats, batchStats[0])
+					restLatencies, restStats = append(restLatencies, batchLatencies[1:]...), append(restStats, batchStats[1:]...)
+					wall += batchWall
+					hits += batchHits
+					timed.ColdBatches++
+				}
+				cold := nightLatenciesOf(latencies, stats, wall)
+				timed.Cold, timed.ColdBatch = &cold, batch
+				if threads == 1 {
+					// Their time is that of the queries themselves: one at a time.
+					first := nightLatenciesOf(firstLatencies, firstStats, sum(firstLatencies))
+					rest := nightLatenciesOf(restLatencies, restStats, sum(restLatencies))
+					timed.ColdFirst, timed.ColdRest = &first, &rest
+				}
+				for _, half := range halves {
+					timed.ColdHalves = append(timed.ColdHalves, nightLatenciesOf(half.latencies, half.stats, half.wall))
+				}
+				timed.ColdRecall = float64(hits) / float64(len(latencies)*k)
+				timed.ReopenMs = float64(reopen) / float64(time.Millisecond) / float64(timed.ColdBatches)
+				t.Logf("recall %.2f (ef %d), %d threads, cold: p50 %.3f ms, p95 %.3f, p99 %.3f, mean %.3f | %.0f QPS | "+
+					"fetch %.3f ms, visit %.3f, rescore %.3f | %d batches of %d, halves at p50 %.3f and %.3f ms | "+
+					"reopened in %.0f ms", point.Target, point.EF, threads, cold.P50, cold.P95, cold.P99, cold.Mean, cold.QPS,
+					cold.FetchMs, cold.VisitMs, cold.RescoreMs, timed.ColdBatches, batch, timed.ColdHalves[0].P50,
+					timed.ColdHalves[1].P50, timed.ReopenMs)
+			}
+			result.Points = append(result.Points, timed)
+			writeNightJSON(t, out, result)
+		}
+	}
+}
+
+// nightLayout is what TestNightLayout did to the index.
+type nightLayout struct {
+	Dir            string         `json:"dir"`
+	CacheMode      string         `json:"cacheMode"`
+	LaidOutBefore  int            `json:"vectorsLaidOutBefore"`
+	LaidOutAfter   int            `json:"vectorsLaidOutAfter"`
+	Live           int            `json:"live"`
+	LayoutSeconds  float64        `json:"layoutSeconds"`
+	WaitSeconds    float64        `json:"waitSeconds"`
+	Quiet          bool           `json:"segmentsStoodStill"`
+	SegmentsBefore map[string]int `json:"segmentsBefore"`
+	SegmentsAfter  map[string]int `json:"segmentsAfter"`
+	DirBytesBefore int64          `json:"dirBytesBefore"`
+	DirBytesAfter  int64          `json:"dirBytesAfter"`
+}
+
+// TestNightLayout lays the vectors of the index TestNightGrow left out in the
+// order of their postings, whatever the rule says of when a pass is due, with
+// the store and its cycles as a shard has them; and then waits, the index at
+// rest, until the segments of the store have stood as they are for PE_QUIET
+// seconds, PE_MAXWAIT at most.
+func TestNightLayout(t *testing.T) {
+	dir, out := os.Getenv("PE_DIR"), os.Getenv("PE_OUT")
+	if dir == "" || out == "" || os.Getenv("PE_LAYOUT") == "" {
+		t.Skip("no PE_DIR, PE_OUT and PE_LAYOUT given")
+	}
+	ctx := context.Background()
+	quiet := time.Duration(nightEnvInt(t, "PE_QUIET", 60)) * time.Second
+	maxWait := time.Duration(nightEnvInt(t, "PE_MAXWAIT", 900)) * time.Second
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+	uc := ent.NewDefaultUserConfig()
+	uc.RQ.CacheMode = nightEnv("PE_CACHE", ent.CacheModeRouting)
+	result := &nightLayout{Dir: dir, CacheMode: uc.RQ.CacheMode}
+	var err error
+	result.SegmentsBefore, err = nightSegments(dir)
+	require.NoError(t, err)
+	result.DirBytesBefore, err = nightDirBytes(dir)
+	require.NoError(t, err)
+
+	st := openNightStore(t, dir, logger, true)
+	p, err := Open(st.config(dir, logger, 0), uc, st.store)
+	require.NoError(t, err)
+	shut := func() {
+		require.NoError(t, p.Flush())
+		st.stopCycles(ctx)
+		require.NoError(t, p.Shutdown(ctx))
+		require.NoError(t, st.store.Shutdown(ctx))
+	}
+	p.mu.RLock()
+	require.NotNil(t, p.g, "the index has a base")
+	result.LaidOutBefore, result.Live = p.g.meta.VectorsLaidOut, p.g.meta.Live
+	p.mu.RUnlock()
+
+	clock := time.Now()
+	if err := p.layOut(ctx); err != nil {
+		shut()
+		require.NoError(t, err, "lay the vectors out")
+	}
+	result.LayoutSeconds = time.Since(clock).Seconds()
+	require.NoError(t, p.Flush())
+	p.mu.RLock()
+	result.LaidOutAfter = p.g.meta.VectorsLaidOut
+	p.mu.RUnlock()
+	t.Logf("laid out in %.0f s: %d of %d vectors in the order of their postings, %d before", result.LayoutSeconds,
+		result.LaidOutAfter, result.Live, result.LaidOutBefore)
+
+	// At rest, with the cycles of the store running: until its segments
+	// stand still.
+	clock = time.Now()
+	last, _ := nightSegments(dir)
+	stood := time.Now()
+	for time.Since(clock) < maxWait {
+		time.Sleep(5 * time.Second)
+		now, err := nightSegments(dir)
+		require.NoError(t, err)
+		same := len(now) == len(last)
+		for bucket, count := range now {
+			if last[bucket] != count {
+				same = false
+			}
+		}
+		if !same {
+			last, stood = now, time.Now()
+			continue
+		}
+		if time.Since(stood) >= quiet {
+			result.Quiet = true
+			break
+		}
+	}
+	result.WaitSeconds = time.Since(clock).Seconds()
+	shut()
+	result.SegmentsAfter, err = nightSegments(dir)
+	require.NoError(t, err)
+	result.DirBytesAfter, err = nightDirBytes(dir)
+	require.NoError(t, err)
+	writeNightJSON(t, out, result)
+	t.Logf("waited %.0f s for the store (stood still: %v): segments %v, %v before", result.WaitSeconds, result.Quiet,
+		result.SegmentsAfter, result.SegmentsBefore)
+}
