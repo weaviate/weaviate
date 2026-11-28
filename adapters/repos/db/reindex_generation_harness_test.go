@@ -98,6 +98,8 @@ type genNode struct {
 	logs  *logrustest.Hook
 	// lose takes a unit's completion from the provider, which hears it failed; the test may propose it later.
 	lose func(req *api.RecordDistributedTaskUnitCompletionRequest) bool
+	// panicOnStart, when set, panics the provider's start claim of a unit.
+	panicOnStart func(unit string) bool
 
 	applied uint64 // the last entry in this node's log
 	down    bool   // crashed: gets no entries and proposes nothing new
@@ -510,6 +512,9 @@ func (r *genClient) RecordDistributedTaskUnitFailure(_ context.Context, ns, id s
 }
 
 func (r *genClient) UpdateDistributedTaskUnitProgress(_ context.Context, ns, id string, v uint64, node, unit string, p float32) error {
+	if r.n.panicOnStart != nil && r.n.panicOnStart(unit) {
+		panic("start claim panicked")
+	}
 	return r.dt(api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS, &api.UpdateDistributedTaskUnitProgressRequest{
 		Namespace: ns, Id: id, Version: v, NodeId: node, UnitId: unit, Progress: p, UpdatedAtUnixMillis: time.Now().UnixMilli(),
 	})

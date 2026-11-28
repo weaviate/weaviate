@@ -92,6 +92,26 @@ func requireNoRefusedCompletion(t *testing.T, n *genNode) {
 	require.False(t, n.hasError("unit failed"), "a unit failed on %s", n.name)
 }
 
+func unitFailures(c *genCluster, unit string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, e := range c.log {
+		var r api.RecordDistributedTaskUnitCompletionRequest
+		if e.Type == genCompleted && json.Unmarshal(e.SubCommand, &r) == nil && r.UnitId == unit && r.Error != "" {
+			n++
+		}
+	}
+	return n
+}
+
+func unitStatus(t *testing.T, c *genCluster, unit string) distributedtask.UnitStatus {
+	tasks, err := c.leader().dtm.ListDistributedTasks(c.ctx)
+	require.NoError(t, err)
+	require.Len(t, tasks[ReindexNamespace], 1)
+	return tasks[ReindexNamespace][0].Units[unit].Status
+}
+
 // A node crashes at each point of a run and restarts from its files and its
 // own log; the run finishes and every replica answers exactly.
 func TestReindexGenerationCrash_Points(t *testing.T) {
@@ -187,31 +207,42 @@ func TestReindexGenerationCrash_LateCompletion(t *testing.T) {
 			},
 		},
 		{
-			name: "applied while the relaunch scans",
+			name: "committed before a lagging relaunch: its claim is refused and nothing scans",
 			run: func(t *testing.T, c *genCluster) {
 				release := c.holdUnit(genCompleted, unit2)
 				c.awaitHeld(genCompleted, aboutUnit(unit2), 1)
 				c.crash(1)
 				c.commit(release, genCompleted, unit2, 1)
 				starts := c.unitEntries(genProgress, unit2)
-				c.restart(1, genRestart{lag: true})
-				c.waitFor("the relaunch to record its start", func() bool { return c.unitEntries(genProgress, unit2) > starts })
+				n := c.restart(1, genRestart{lag: true})
+				c.waitFor("the relaunch to propose its start", func() bool { return c.unitEntries(genProgress, unit2) > starts })
+				require.Never(t, func() bool {
+					return slices.ContainsFunc(n.shard("t1").loadView().staged, func(b *stagedBuild) bool { return b.scanned.Load() })
+				}, time.Second, 10*time.Millisecond, "the relaunch scanned a unit the leader completed")
 				c.catchUp(1)
-				c.waitFor("the relaunch's completion", func() bool { return c.unitEntries(genCompleted, unit2) == 2 })
+				require.Zero(t, unitFailures(c, unit2), "the refused claim was recorded as a failure")
+				require.Equal(t, distributedtask.UnitStatusCompleted, unitStatus(t, c, unit2))
 			},
 		},
 		{
-			name: "applied after the relaunch's prepend",
+			name: "committed before a lagging relaunch: the claim is refused before any prepend",
 			run: func(t *testing.T, c *genCluster) {
 				release := c.holdUnit(genCompleted, unit2)
 				c.awaitHeld(genCompleted, aboutUnit(unit2), 1)
 				c.crash(1)
 				c.commit(release, genCompleted, unit2, 1)
 				relaunched := c.holdUnit(genCompleted, unit2)
+				starts := c.unitEntries(genProgress, unit2)
 				c.restart(1, genRestart{lag: true})
-				c.awaitHeld(genCompleted, aboutUnit(unit2), 1)
+				c.waitFor("the relaunch to propose its start", func() bool { return c.unitEntries(genProgress, unit2) > starts })
+				require.Never(t, func() bool {
+					c.gateMu.Lock()
+					defer c.gateMu.Unlock()
+					return slices.ContainsFunc(c.waiting, func(w *genWaiting) bool { return w.typ == genCompleted && aboutUnit(unit2)(w.raw) })
+				}, time.Second, 10*time.Millisecond, "the relaunch prepended and reported a unit the leader completed")
 				c.catchUp(1)
-				c.commit(relaunched, genCompleted, unit2, 2)
+				relaunched()
+				require.Equal(t, 1, c.unitEntries(genCompleted, unit2))
 			},
 		},
 		{
@@ -264,6 +295,25 @@ func TestReindexGenerationCrash_LateCompletion(t *testing.T) {
 			requireNoRefusedCompletion(t, c.nodes[1])
 		})
 	}
+}
+
+// A panicking unit fails the run once, instead of panicking again on every relaunch.
+func TestReindexGenerationCrash_PanickingUnitFails(t *testing.T) {
+	c := newGenCluster(t, genDefaultOpts(), 1)
+	c.addTenants("t1")
+	c.write("t1", 3)
+	unit := MigrationUnitID("t1", "node1")
+	var panics atomic.Int32
+	c.nodes[0].panicOnStart = func(u string) bool { return u == unit && panics.Add(1) > 0 }
+	id, err := c.submit(ReindexTypeChangeTokenization, models.PropertyTokenizationField)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		task := c.task(id)
+		return task != nil && task.Status == distributedtask.TaskStatusFailed
+	}, 10*time.Second, 10*time.Millisecond, "the run never failed")
+	require.Equal(t, 1, unitFailures(c, unit))
+	require.True(t, c.nodes[0].hasError("unit failed: panic"))
+	require.Equal(t, int32(1), panics.Load())
 }
 
 // A unit of a run that took over a dead run's generation starts only once its

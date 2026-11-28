@@ -380,7 +380,7 @@ func (s *schemaHandlers) reindexRunServesIndex(ctx context.Context, className, p
 	if s.reindexTaskLister == nil {
 		return false
 	}
-	tasksByNamespace, err := s.reindexTaskLister.ListDistributedTaskHeaders(ctx)
+	tasksByNamespace, err := listTaskHeaders(ctx, s.reindexTaskLister)
 	if err != nil {
 		return true // the apply decides
 	}

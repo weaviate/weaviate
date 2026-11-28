@@ -1162,6 +1162,16 @@ func (s gateSourceOver) ListDistributedTaskHeaders(context.Context) (map[string]
 	return realFSMCanceller{s.mgr}.ListDistributedTaskHeaders(context.Background())
 }
 
+// A new leader's one refusal must not make an index delete look served by a run.
+func TestReindexRunServesIndexRetriesANewLeader(t *testing.T) {
+	refusals := &atomic.Int32{}
+	refusals.Store(1)
+	h := &schemaHandlers{reindexTaskLister: gateSourceOver{
+		mgr: newReindexManager(), err: fmt.Errorf("%w: catching up", types.ErrFSMNotCaughtUp), refusals: refusals,
+	}}
+	require.False(t, h.reindexRunServesIndex(context.Background(), "C", "title", "filterable"))
+}
+
 func (s gateSourceOver) LocalTaskHasUnit(namespace string, desc distributedtask.TaskDescriptor, unitID func(string) string) (bool, bool) {
 	return s.mgr.TaskHasUnit(namespace, desc, unitID)
 }
