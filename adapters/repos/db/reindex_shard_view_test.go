@@ -80,6 +80,8 @@ func newViewFixture(t *testing.T, className string, props ...*models.Property) *
 			f.schema = i.getSchema.(*fakeSchemaGetter)
 		})
 	f.idx, f.shard = idx, sl.(*Shard)
+	// background retires delete folders, so they must finish before the temp dir goes
+	t.Cleanup(func() { f.shard.closeViews() })
 	return f
 }
 
