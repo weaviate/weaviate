@@ -581,6 +581,17 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if paramName == name && argument.ValidateFunction != nil {
+						// qna-openai is a Text2TextQnA module, so a class receives the
+						// ask argument when it is the only module of that type even
+						// if moduleConfig never names it. The ask query then fails
+						// in vector search ("vectorFromParams was called without any
+						// known params present" / a vectorizer error) or later in
+						// the answer extension. Require the module on the class and
+						// say how to add it. Other QnA modules keep the single-module
+						// default.
+						if err := qnaOpenAIAskRequiresClassConfig(class, module.Name(), paramName); err != nil {
+							return err
+						}
 						return argument.ValidateFunction(value)
 					}
 				}
@@ -588,7 +599,40 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 		}
 	}
 
+	if class == nil {
+		return enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for Explore with search-type %v. Make sure a vectorizer module is configured", name))
+	}
 	return enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for collection %v with search-type %v. Make sure a vectorizer module is configured for this collection", class.Class, name))
+}
+
+const (
+	qnaOpenAIModuleName = "qna-openai"
+	askArgumentName     = "ask"
+)
+
+// qnaOpenAIAskRequiresClassConfig reports that an ask query cannot run
+// because the class moduleConfig does not specify qna-openai. A nil class is
+// a cross-class Explore search, which has no per-class moduleConfig.
+func qnaOpenAIAskRequiresClassConfig(class *models.Class, moduleName, paramName string) error {
+	if class == nil || paramName != askArgumentName || moduleName != qnaOpenAIModuleName {
+		return nil
+	}
+	if moduleConfiguredOnClass(class, qnaOpenAIModuleName) {
+		return nil
+	}
+	return fmt.Errorf("ask: collection %q does not configure the qna-openai module. Add \"qna-openai\" to the collection moduleConfig before using an ask query, for example \"moduleConfig\": {\"qna-openai\": {}}", class.Class)
+}
+
+func moduleConfiguredOnClass(class *models.Class, moduleName string) bool {
+	if class == nil || class.ModuleConfig == nil {
+		return false
+	}
+	moduleConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	value, ok := moduleConfig[moduleName]
+	return ok && value != nil
 }
 
 // GetAdditionalFields provides GraphQL Get additional fields
