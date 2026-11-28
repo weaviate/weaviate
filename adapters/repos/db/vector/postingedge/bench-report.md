@@ -3374,6 +3374,25 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 2. **El posting en la arista,** y encima la medida de las tablas compactas por doc id: seguir aristas cuesta por el tamaño de las tablas, 6.8 a 20.9 ns por arista.
 3. **Aplicar el lote soltando el cerrojo entre inserts,** con la cuota del volcado por presupuesto: p99 de la espera de una query 15 ms y máximo 355 ms a 10M.
 
+#### Medidas definitivas a 1M, segunda parte: los inserts de punta a punta por un shard (pre-registro, 28 de noviembre a las 15:48, con el arnés redactado y sin compilar)
+
+**Qué es** (del usuario: es la comparación justa con HFresh y va la primera de la segunda parte). dbpedia 1M, 1 536 dimensiones. Una base de datos de verdad con una clase y un shard; 8 llamadores meten lotes de 100 objetos con su vector por `DB.BatchPutObjects`, el camino de un nodo. Los dos índices con su configuración por defecto y coseno: HFresh, y el nuestro con los códigos de enrutado en memoria. Los dos escriben el objeto y su vector dentro del reloj.
+
+**Tres relojes** desde el primer lote: el último lote devuelto; el trabajo de fondo del índice acabado (HFresh: sus colas vacías, dos veces seguidas; el nuestro: `Settle`); y el almacén volcado. En cada uno: objetos por segundo y CPU del proceso. Al final: heap, bytes en disco, y recall y latencia de 1 000 queries por el shard, de una en una, con los parámetros de búsqueda por defecto de cada índice.
+
+**Lo que cambia frente a la primera parte, y hay que leerlo así.** Con el indexado en línea, que es el defecto de un nodo, el shard no pasa al índice los lotes del cliente: reparte un trabajo por objeto entre los workers de lotes de la base (1.5 por procesador: 15) y cada uno llama al índice con **un vector**. El índice ve 15 llamadores de un vector, no 8 de 100. La primera parte (692 inserts por segundo con 8 llamadores de 100; HFresh 7 289) midió los índices solos.
+
+**Lo que espero** (*mío*): el nuestro entre 500 y 700 objetos por segundo hasta el último lote, por debajo de los 692 de la primera parte porque ahora comparte los procesadores con el almacén de objetos; HFresh entre 3 000 y 6 000 hasta el último lote, con los objetos ya dentro del reloj, y menos hasta vaciar colas.
+
+**Lo que no es comparable, dicho antes.**
+- La búsqueda del final usa los parámetros por defecto de cada índice: los recalls no son al mismo coste, y se dan los dos.
+- `Settle` en el nuestro puede incluir una pasada de reorganización que la ingesta sola no habría hecho todavía; va en el segundo reloj y se dice lo que hizo.
+- Las compactaciones del almacén no se esperan en ninguno.
+
+**Humo antes:** 20 000 filas y 100 queries con cada índice, sin cronometrar. El arnés no ha corrido nunca: lo redactó un subagente sin compilar, con diez puntos sin verificar anotados (entre ellos, llegar a las colas de HFresh desde fuera de su paquete). Si alguno no se sostiene, lo arreglo en el hueco y lo digo en el resultado.
+
+**Orden:** detrás de la reorganización del 10M.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
