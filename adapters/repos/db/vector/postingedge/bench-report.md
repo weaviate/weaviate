@@ -2848,6 +2848,108 @@ La medida (`TestDiagReads`, nuevo): lecturas de 3 072 B en sitios al azar de un 
 
 **Duración estimada:** unos 40 minutos.
 
+#### Huecos del diagnóstico: resultado (28 de noviembre, cerrado a las 12:22)
+
+**Los cuatro huecos, medidos. Una query de solo lectura no pasa por la puerta del lote, pero espera al cerrojo del índice mientras un lote se aplica: junto a 8 llamadores su p99 pasa de 2.1 a 10.2 ms a 100k y de 8.5 a 25.1 a 10M. Las lecturas de vectores exactos no las limita el disco, que da 143 000 por segundo, sino los procesadores de Go: con 20 en vez de 10 el rescore de un insert baja de 7.6 a 2.8 ms. Puntuar un miembro se encarece a 10M por leer su marca de borrado en una tabla por doc id, 51.5 ns por miembro; marcar un extremo, por el tamaño de las tablas por doc id. Y la CPU son los planes: el 95 % a 10M, con el recolector en el 5 % y el store por debajo del 1 %.**
+
+**Las corridas que valen.** A 100k, la primera cadena (11:02 a 11:08). A 10M, la de la enmienda 2 (11:58:56 a 12:19:30), sin mantenimiento del índice y con el store asentado 26 s antes de cada reloj: 2 696 s sin teclado ni trackpad al empezar y 3 930 al acabar, sin entradas de sueño. El grado y las marcas, de la enmienda 1. Lo de las lecturas y las tablas, de la primera cadena.
+
+**1. La puerta del lote y las queries.** La lectura del código está en el pre-registro. Medido, con queries a 0.95 (`ef` 17 a 100k y 24 a 10M):
+
+| | p50, ms | p95 | p99 | máximo | espera del cerrojo del índice: p99, ms | queries que esperan más de 1 ms | inserts/s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **100k:** queries solas, 1 hilo | 0.80 | 1.63 | 2.13 | 7.5 | 0 | 0 | |
+| queries solas, 8 hilos | 1.66 | 3.69 | 4.88 | 17.0 | 0 | 0.04 % | |
+| inserts solos, 8 llamadores | | | | | | | 1 377 |
+| 1 hilo de queries y 8 llamadores | 1.30 | 3.96 | 10.19 | 27.0 | 7.87 | 3.93 % | 1 267 |
+| 8 hilos de queries y 8 llamadores | 2.10 | 8.44 | 14.50 | 33.1 | 8.77 | 3.68 % | 662 |
+| **10M:** queries solas, 1 hilo | 1.76 | 5.10 | 8.52 | 26.0 | 0 | 0 | |
+| queries solas, 8 hilos | 2.56 | 7.09 | 11.81 | 33.8 | 0 | 0 | |
+| inserts solos, 8 llamadores | | | | | | | 238 |
+| 1 hilo de queries y 8 llamadores | 3.71 | 13.44 | 25.14 | 355.1 | 15.00 | 2.04 % | 215 |
+| 8 hilos de queries y 8 llamadores | 3.63 | 16.08 | 34.86 | 382.2 | 10.01 | 1.20 % | 114 |
+
+Lo que hace el lote mientras tanto, por lote de unos 55 planes:
+
+| | lotes por segundo | espera a las búsquedas en curso, ms | espera el cerrojo del índice, ms | lo tiene para escribir, ms | del tiempo, para escribir |
+|---|---:|---:|---:|---:|---:|
+| 100k, inserts solos | 25.0 | 11.5 | 0.0 | 6.6 | 16.5 % |
+| 100k, con 1 hilo de queries | 23.4 | 12.4 | 0.6 | 6.5 | 15.1 % |
+| 100k, con 8 hilos de queries | 12.5 | 23.5 | 1.5 | 6.5 | 8.1 % |
+| 10M, inserts solos | 4.2 | 74.3 | 0.0 | 20.8 | 8.8 % |
+| 10M, con 1 hilo de queries | 3.9 | 79.6 | 1.8 | 21.9 | 8.4 % |
+| 10M, con 8 hilos de queries | 2.1 | 133.3 | 5.0 | 25.3 | 5.4 % |
+
+- **La mediana de la espera es 0 y su p99 es lo que dura aplicar un lote,** como esperaba: 7.9 a 8.8 ms a 100k y 10 a 15 a 10M. Esperan más de 1 ms entre el 1 y el 4 % de las queries.
+- **El p99 de la query se multiplica por 3 a 5,** y no todo es el cerrojo: a 10M con 1 hilo, la búsqueda sola tiene p99 16.8 ms junto a los inserts, donde tenía 8.5; su mediana pasa de 1.76 a 3.67 sin esperar nada. Es la CPU y el disco que comparten.
+- **El máximo a 10M, 355 y 382 ms, es espera del cerrojo** (351 y 349 ms). No sé qué lo tuvo tanto: no hay reloj del lote más largo. Un lote con un split dentro es lo que primero miraría.
+- **Los inserts pagan las queries:** con 1 hilo de queries bajan un 8 y un 10 %; con 8 hilos, a la mitad en los dos tamaños. Las búsquedas de los inserts tardan más, y el lote espera más a que acaben.
+- **Frente a lo que esperaba:** el cerrojo tomado para escribir entre el 10 y el 20 % del tiempo, y a 10M es el 8.8 %.
+
+**2. Los vectores exactos.** El sondeo sobre el fichero de vectores del 10M, en frío, está en el apartado de la enmienda 1: 8 113 lecturas por segundo de una en una y 143 075 con 64 a la vez, igual con gorutinas, con un hilo por gorutina y sin la caché de ficheros. **Debajo del índice no hay límite.**
+
+Los inserts a 10M con 8 llamadores, según los procesadores de Go, con el presupuesto de los llamadores fijo en 20 (dos pasadas de cada uno, alternadas):
+
+| `GOMAXPROCS` | inserts/s | rescore, ms por insert | recorrido, ms | filas, ms | búsqueda del plan, ms | cores | CPU de sistema, ms por insert | latencia del planificador, ms por insert |
+|---:|---|---|---|---|---|---:|---:|---|
+| 10 | 228.6 y 228.3 | 7.67 y 7.56 | 11.41 y 11.55 | 4.53 y 4.55 | 24.27 y 24.33 | 4.50 | 2.0 | 20.2 y 19.9 |
+| 20 | 249.1 y 244.8 | 2.70 y 2.86 | 12.53 y 12.59 | 4.89 y 4.88 | 20.88 y 21.10 | 5.56 | 3.4 | 5.4 y 5.7 |
+| 40 | 245.0 y 241.4 | 2.21 y 2.26 | 13.15 y 13.39 | 5.17 y 5.28 | 21.34 y 21.74 | 6.04 | 4.6 | 3.2 y 3.3 |
+
+- **Confirmada, por la regla que puse:** con 20 procesadores el rescore baja un 64 %, y con 40 un 71 %. Sus 121 lecturas frías pasan de ir unas 2.4 a la vez a ir 6.5 y 8.2.
+- **Las lecturas de un rescore esperan un procesador de Go, no al disco.** Con 10 procesadores y 8 llamadores recorriendo, a las 20 gorutinas de un rescore les quedan dos: cada una necesita uno para pedir su lectura y otro para recoger el resultado. La latencia del planificador baja de 20 a 5.5 y 3.2 ms por insert.
+- **El ritmo sube un 8 % con 20 y un 6 % con 40,** no lo que el rescore gana: el recorrido se alarga un 10 y un 16 %, y las filas un 8 y un 15 %, con más hilos que cores. La búsqueda del plan baja un 14 y un 11 %.
+- **No es una recomendación de configuración.** El arreglo que no depende de subirlo va en la lista de propuestas.
+- **Frente a lo que esperaba:** la línea base, entre 7.5 y 9.5 ms, y salió 7.6; con 20, un 25 a 35 % menos, y fue un 64 %; inserts iguales, y suben un 8 %.
+- **Con la reorganización al lado** (enmienda 1) la línea base era 4.2 ms y la bajada, un 28 y un 37 %. No son comparables con estas.
+
+**3. El recorrido.**
+- **El grado medio:** 7.93 aristas por vector a 100k y 11.48 a 10M, con máximo 16 (tabla en el apartado de la enmienda 2).
+- **Marcar el extremo como visto se encarece por el tamaño de las tablas por doc id:** sin índice, el mismo bucle cuesta 6.8 ns por arista con tablas de 125 000 doc ids y 20.9 con 12.5 millones, con las aristas de una búsqueda de cualquiera de los dos tamaños; con 8 hilos, 7.2 y 24.8. En el índice esas líneas sumaban 12.3 y 24.4.
+- **Puntuar un miembro se encarece por la marca de borrado:** sin leerla, 51.5 ns menos por miembro a 10M y 3.8 a 100k; el diagnóstico medía 47.5 ns más por miembro a 10M. El recorrido baja un 15 % y el plan un 10 %. Ninguno de los dos índices tiene un solo borrado.
+
+**4. La pasada sin compactación, y el reparto de la CPU.**
+
+La pasada sin compactación es del diagnóstico (noche del 27 al 28, 8 llamadores, 20 000 inserts), junto a las dos de fases:
+
+| | 100k, con | 100k, sin | 10M, con | 10M, sin |
+|---|---|---:|---|---:|
+| inserts/s | 1 327 y 1 335 | 1 013 | 226 y 220 | 228 |
+| segmentos consultados por fila leída | 1.22 | 2.71 | 1.79 | 3.59 |
+| filas, ms por insert | 1.88 y 1.87 | 3.17 | 3.73 y 3.75 | 4.57 |
+| MB reservados por insert | 5.85 | 10.18 | 10.42 | 15.15 |
+| CPU del recolector, ms por insert | 0.32 y 0.31 | 0.66 | 0.30 y 0.28 | 0.51 |
+| escrito, KB por insert | 9.2 y 8.5 | 5.8 | 144 y 155 | 23 |
+
+- **A 100k parar la compactación cuesta un 24 %:** cada fila se lee de 2.7 segmentos en vez de 1.2, y reserva casi el doble.
+- **A 10M no cambia el ritmo,** aunque las filas tardan un 22 % más: pesan poco en un insert de 35 ms.
+- **Los 121 a 132 KB de diferencia en lo escrito a 10M son la compactación de arranque del clon** (5.3 GB entre 20 000 inserts), no un ritmo.
+
+El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segunda mitad de una pasada con 8 llamadores (`tools/tracecpu`; a 10M, sin mantenimiento y con el store asentado):
+
+| | 100k | 10M |
+|---|---:|---:|
+| llamadores: los planes en línea, aplicar el lote y el flush de cada ronda | 37.7 % | 72.6 % |
+| las gorutinas que leen las filas de una ronda | 36.9 % | 20.3 % |
+| las gorutinas del rescore | 11.9 % | 2.3 % |
+| **planes y aplicar, en todo** | **86.5 %** | **95.2 %** |
+| recolector: sus workers, el barrido y el scavenger | 13.4 % | 4.6 % |
+| store: volcado de memtables | 0.1 % | 0.2 % |
+| store: compactación | 0.0 % | 0.0 % |
+| cores de gorutinas corriendo | 6.86 | 4.29 |
+
+- **La compactación de arranque, medida aparte** (traza desde el primer insert, sin esperar al store): 4.25 s de CPU para 4.66 GB, 0.9 s por GB, el 2.7 % del tiempo de las gorutinas de esa pasada.
+- **Fuera de las gorutinas quedan 0.23 cores a 10M,** de los 4.52 que cuenta el sistema: el planificador y el kernel. Las gorutinas del rescore pasan además 127 s de los 35 de la ventana dentro de la llamada de lectura, 3.6 a la vez.
+- **Gorutinas creadas:** a 100k, 1.39 millones en 16.4 s para leer filas, 69 por insert, y 400 000 para el rescore, 20 por insert. A 10M, 216 y 20 por insert.
+- **Lo que este reparto no separa:** dentro de los llamadores, el recorrido de aplicar; lo dan los relojes de las fases.
+
+**Lo que no sé.**
+- Qué retiene el cerrojo 350 ms en el peor caso a 10M.
+- Cuánto de lo que tarda de más una búsqueda junto a los inserts es CPU y cuánto disco.
+- Si en Linux los procesadores de Go limitan igual las lecturas: el runtime es el mismo, el coste de despertar un hilo no.
+
+**Datos:** `testdata/bench/diag-gaps/`: `chain1` (100k, tablas y lecturas), `chain2` (enmienda 1), `chain3` (enmienda 2), `tracecpu` (el lector y sus salidas), los guiones y los tests.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

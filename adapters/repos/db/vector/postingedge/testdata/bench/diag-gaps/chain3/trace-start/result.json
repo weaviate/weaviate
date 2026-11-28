@@ -1,0 +1,1378 @@
+{
+  "dir": "/Volumes/v40bench/grow10m/clones/trace-start/index",
+  "dataset": "/Users/abdel/Documents/datasets/wikidpr-10m-e5-inplace.bin",
+  "kind": "repeated",
+  "rows": 10000000,
+  "seed": 7,
+  "n": 8000,
+  "callers": 8,
+  "every": 2000,
+  "diagnosticBranch": true,
+  "clocksOn": true,
+  "planWork": false,
+  "compaction": true,
+  "cacheMode": "routing",
+  "gomaxprocs": 10,
+  "pid": 97799,
+  "openSeconds": 5.834401166,
+  "metaAtStart": {
+    "version": 1,
+    "distance": "cosine-dot",
+    "dims": 768,
+    "keys": 12499156,
+    "scanCodeWords": 13,
+    "routingBits": 512,
+    "routingCodeWords": 9,
+    "neighbors": 16,
+    "threshold": 360,
+    "seed": 0,
+    "postings": 80525,
+    "splits": 40241,
+    "splitsFailed": 0,
+    "live": 10000000,
+    "consolidate": 64,
+    "rowsWithMembers": true,
+    "vectorGen": 5,
+    "vectorsLaidOut": 2561320,
+    "refreshedAt": 10000
+  },
+  "generation": 5,
+  "tracedFrom": "12:18:51",
+  "noMaintenance": true,
+  "settleSeconds": 0,
+  "stretches": [
+    {
+      "at": "12:18:51",
+      "inserted": 0,
+      "seconds": 0.0003455,
+      "addSeconds": 0,
+      "flushSeconds": 0,
+      "clocks": {
+        "admitNs": 0,
+        "admitWaitNs": 0,
+        "appliedWaitNs": 0,
+        "applyAfterNs": 0,
+        "applyLockWaitNs": 0,
+        "applyNs": 0,
+        "batchPlans": 0,
+        "batches": 0,
+        "calls": 0,
+        "drainWaitNs": 0,
+        "enterWaitNs": 0,
+        "leaveWaitNs": 0,
+        "plans": 0,
+        "plansNs": 0,
+        "readWaitNs": 0,
+        "totalNs": 0,
+        "windows": 0
+      },
+      "stats": {
+        "inserted": 0,
+        "splits": 0,
+        "splitsFailed": 0,
+        "inverseChecks": 0,
+        "inverseEdges": 0,
+        "inversePostings": 0,
+        "inverseListReads": 0,
+        "searchLoads": 0,
+        "searchRounds": 0,
+        "searchRows": {
+          "n": 0,
+          "bytes": 0
+        },
+        "searchVectors": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseDistReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseVectorReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitVectorReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "memberRow": {
+          "n": 0,
+          "bytes": 0
+        },
+        "memberMap": {
+          "n": 0,
+          "bytes": 0
+        },
+        "memberRouting": {
+          "n": 0,
+          "bytes": 0
+        },
+        "memberVector": {
+          "n": 0,
+          "bytes": 0
+        },
+        "ownEdges": {
+          "n": 0,
+          "bytes": 0
+        },
+        "ownDists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseLists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseDistWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitMapWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitCentroidWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeSearchReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeInverseReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeSplitReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowWritesFull": 0,
+        "rowWritesSplit": 0,
+        "rowWritesClose": 0,
+        "rowWritesBudget": 0,
+        "rowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowDistWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowDeletes": 0,
+        "storeRowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "pendingPeakMembers": 571285,
+        "pendingPeakBytes": 52119488,
+        "pendingPeakPostings": 37542,
+        "pendingLogWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloAdded": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloRows": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "routingReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloTrims": 0,
+        "haloTrimmed": {
+          "n": 0,
+          "bytes": 0
+        },
+        "assignNs": 0,
+        "searchNs": 0,
+        "writeNs": 0,
+        "inverseNs": 0,
+        "splitNs": 0,
+        "cycleNs": 0,
+        "rowNs": 0,
+        "searchPhaseNs": 0,
+        "applyPhaseNs": 0,
+        "searchFetchNs": 0,
+        "searchVisitNs": 0,
+        "searchRescoreNs": 0,
+        "searchMemberReadNs": 0,
+        "searchEdgeReadNs": 0,
+        "searchMembers": 0,
+        "searchRescored": 0,
+        "journalNs": 0,
+        "handNs": 0,
+        "syncs": 0,
+        "syncGraphNs": 0,
+        "syncWalNs": 0,
+        "syncMetaNs": 0,
+        "syncJournalNs": 0
+      },
+      "rusage": {
+        "userNs": 9856860708,
+        "systemNs": 1103944083,
+        "runnableNs": 11042516333,
+        "pageins": 5,
+        "physFootprint": 3336156288,
+        "diskBytesRead": 296660992,
+        "diskBytesWritten": 1945477120,
+        "logicalWrites": 1947385896,
+        "instructions": 140800214369,
+        "cycles": 34019711446,
+        "majorFaults": 5,
+        "minorFaults": 415663,
+        "voluntarySwitches": 8698,
+        "involuntarySwitches": 22435
+      },
+      "runtime": {
+        "/cpu/classes/gc/mark/assist:cpu-seconds": 0.01548758,
+        "/cpu/classes/gc/total:cpu-seconds": 0.556976733,
+        "/cpu/classes/idle:cpu-seconds": 27.509521894,
+        "/cpu/classes/scavenge/total:cpu-seconds": 0.000544925,
+        "/cpu/classes/total:cpu-seconds": 31.65047084,
+        "/cpu/classes/user:cpu-seconds": 3.583427288,
+        "/gc/cycles/total:gc-cycles": 26,
+        "/gc/heap/allocs:bytes": 4274616424,
+        "/gc/heap/allocs:objects": 5748039,
+        "/sched/goroutines:goroutines": 24,
+        "/sched/latencies:seconds:count": 509,
+        "/sched/latencies:seconds:over100us": 2,
+        "/sched/latencies:seconds:over10ms": 0,
+        "/sched/latencies:seconds:over1ms": 0,
+        "/sched/latencies:seconds:sum": 0.003498816,
+        "/sched/pauses/total/gc:seconds:count": 52,
+        "/sched/pauses/total/gc:seconds:over100us": 4,
+        "/sched/pauses/total/gc:seconds:over10ms": 0,
+        "/sched/pauses/total/gc:seconds:over1ms": 0,
+        "/sched/pauses/total/gc:seconds:sum": 0.0024330240000000006,
+        "/sync/mutex/wait/total:seconds": 0.00593268
+      },
+      "store": {
+        "bloomFalse": 0,
+        "reads": 0,
+        "segmentsFound": 0,
+        "segmentsHeld": 0
+      },
+      "segments": {
+        "postingedge_edgedists_main": 3,
+        "postingedge_map_main": 2,
+        "postingedge_pending_main": 7,
+        "postingedge_postings_main": 3,
+        "postingedge_routing_main": 3,
+        "vectors_compressed_postingedge_centroids_main": 8
+      },
+      "filesGrownByClass": {},
+      "journal": {
+        "n": 0,
+        "bytes": 0
+      },
+      "live": 10000000,
+      "postings": 80525,
+      "heapInuse": 3490758656,
+      "heapAlloc": 3472957984,
+      "numGC": 26
+    },
+    {
+      "at": "12:19:02",
+      "inserted": 2400,
+      "seconds": 10.919724208,
+      "addSeconds": 10.916560708,
+      "flushSeconds": 0.001677417,
+      "clocks": {
+        "admitNs": 469082,
+        "admitWaitNs": 2758917,
+        "appliedWaitNs": 1833904246,
+        "applyAfterNs": 37791,
+        "applyLockWaitNs": 8168,
+        "applyNs": 534895498,
+        "batchPlans": 2400,
+        "batches": 44,
+        "calls": 24,
+        "drainWaitNs": 3464101628,
+        "enterWaitNs": 13991160411,
+        "leaveWaitNs": 119505,
+        "plans": 2400,
+        "plansNs": 63653010576,
+        "readWaitNs": 293931,
+        "totalNs": 83482660960,
+        "windows": 600
+      },
+      "stats": {
+        "inserted": 2400,
+        "splits": 11,
+        "splitsFailed": 0,
+        "inverseChecks": 26749,
+        "inverseEdges": 14904,
+        "inversePostings": 11183,
+        "inverseListReads": 74,
+        "searchLoads": 260328,
+        "searchRounds": 64482,
+        "searchRows": {
+          "n": 520656,
+          "bytes": 11226803076
+        },
+        "searchVectors": {
+          "n": 359907,
+          "bytes": 1105634304
+        },
+        "inverseDistReads": {
+          "n": 24837,
+          "bytes": 1172184
+        },
+        "inverseVectorReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowReads": {
+          "n": 22,
+          "bytes": 629741
+        },
+        "splitVectorReads": {
+          "n": 3971,
+          "bytes": 12198912
+        },
+        "memberRow": {
+          "n": 2400,
+          "bytes": 268800
+        },
+        "memberMap": {
+          "n": 2400,
+          "bytes": 9600
+        },
+        "memberRouting": {
+          "n": 2400,
+          "bytes": 172800
+        },
+        "memberVector": {
+          "n": 2400,
+          "bytes": 7372800
+        },
+        "ownEdges": {
+          "n": 0,
+          "bytes": 0
+        },
+        "ownDists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseLists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseDistWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowWrites": {
+          "n": 3971,
+          "bytes": 444752
+        },
+        "splitMapWrites": {
+          "n": 3971,
+          "bytes": 15884
+        },
+        "splitCentroidWrites": {
+          "n": 22,
+          "bytes": 67584
+        },
+        "storeSearchReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeInverseReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeSplitReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowWrites": {
+          "n": 22,
+          "bytes": 186279
+        },
+        "rowWritesFull": 0,
+        "rowWritesSplit": 22,
+        "rowWritesClose": 0,
+        "rowWritesBudget": 0,
+        "rowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowDistWrites": {
+          "n": 148,
+          "bytes": 6724
+        },
+        "rowDeletes": 11,
+        "storeRowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "pendingPeakMembers": 587432,
+        "pendingPeakBytes": 53718504,
+        "pendingPeakPostings": 38321,
+        "pendingLogWrites": {
+          "n": 17304,
+          "bytes": 1731512
+        },
+        "haloAdded": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloRows": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "routingReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloTrims": 0,
+        "haloTrimmed": {
+          "n": 0,
+          "bytes": 0
+        },
+        "assignNs": 244097346,
+        "searchNs": 63398961965,
+        "writeNs": 77765011,
+        "inverseNs": 119270895,
+        "splitNs": 296514124,
+        "cycleNs": 250,
+        "rowNs": 231466,
+        "searchPhaseNs": 0,
+        "applyPhaseNs": 0,
+        "staleLists": 74,
+        "searchFetchNs": 11357080584,
+        "searchVisitNs": 27768866008,
+        "searchRescoreNs": 22684535720,
+        "searchMemberReadNs": 4706515764,
+        "searchEdgeReadNs": 6980988692,
+        "searchMembers": 67660663,
+        "searchRescored": 359907,
+        "journalNs": 2379206,
+        "handNs": 35315999,
+        "syncs": 3,
+        "syncGraphNs": 123709,
+        "syncWalNs": 100333,
+        "syncMetaNs": 1168416,
+        "syncJournalNs": 280292
+      },
+      "rusage": {
+        "userNs": 56325221250,
+        "systemNs": 7417648416,
+        "runnableNs": 66232897125,
+        "pageins": 5,
+        "physFootprint": 7128686272,
+        "diskBytesRead": 6116323328,
+        "diskBytesWritten": 3231674368,
+        "logicalWrites": 3254412082,
+        "instructions": 498576345062,
+        "cycles": 193546630804,
+        "majorFaults": 5,
+        "minorFaults": 920237,
+        "voluntarySwitches": 328782,
+        "involuntarySwitches": 290669
+      },
+      "runtime": {
+        "/cpu/classes/gc/mark/assist:cpu-seconds": 0.106821484,
+        "/cpu/classes/gc/total:cpu-seconds": 1.866342668,
+        "/cpu/classes/idle:cpu-seconds": 77.483609181,
+        "/cpu/classes/scavenge/total:cpu-seconds": 0.02021101,
+        "/cpu/classes/total:cpu-seconds": 172.6474825,
+        "/cpu/classes/user:cpu-seconds": 93.277319641,
+        "/gc/cycles/total:gc-cycles": 39,
+        "/gc/heap/allocs:bytes": 41415258184,
+        "/gc/heap/allocs:objects": 15212029,
+        "/sched/goroutines:goroutines": 26,
+        "/sched/latencies:seconds:count": 212878,
+        "/sched/latencies:seconds:over100us": 21103,
+        "/sched/latencies:seconds:over10ms": 982,
+        "/sched/latencies:seconds:over1ms": 8899,
+        "/sched/latencies:seconds:sum": 57.82860041600001,
+        "/sched/pauses/total/gc:seconds:count": 78,
+        "/sched/pauses/total/gc:seconds:over100us": 17,
+        "/sched/pauses/total/gc:seconds:over10ms": 0,
+        "/sched/pauses/total/gc:seconds:over1ms": 0,
+        "/sched/pauses/total/gc:seconds:sum": 0.005613056000000001,
+        "/sync/mutex/wait/total:seconds": 1.194583672
+      },
+      "store": {
+        "bloomFalse": 664,
+        "reads": 520826,
+        "segmentsFound": 878006,
+        "segmentsHeld": 1562478
+      },
+      "segments": {
+        "postingedge_edgedists_main": 2,
+        "postingedge_map_main": 2,
+        "postingedge_pending_main": 4,
+        "postingedge_postings_main": 3,
+        "postingedge_routing_main": 2,
+        "vectors_compressed_postingedge_centroids_main": 7
+      },
+      "filesGrownByClass": {
+        "centroid graph commit log": 3510,
+        "exact vectors of the inserts": 7127040,
+        "journal": 3441557,
+        "lsmkv WAL": 3500076,
+        "lsmkv compaction (level 1 and up)": 4551533985,
+        "other: centroids.f32": 61440
+      },
+      "journal": {
+        "n": 44,
+        "bytes": 3882863
+      },
+      "live": 10002400,
+      "postings": 80547,
+      "heapInuse": 6716489728,
+      "heapAlloc": 6625337528,
+      "numGC": 39
+    },
+    {
+      "at": "12:19:09",
+      "inserted": 4000,
+      "seconds": 18.282256666,
+      "addSeconds": 18.276729583,
+      "flushSeconds": 0.00292575,
+      "clocks": {
+        "admitNs": 727081,
+        "admitWaitNs": 4634041,
+        "appliedWaitNs": 2744714579,
+        "applyAfterNs": 61121,
+        "applyLockWaitNs": 13080,
+        "applyNs": 1613918336,
+        "batchPlans": 4000,
+        "batches": 73,
+        "calls": 40,
+        "drainWaitNs": 5722056294,
+        "enterWaitNs": 28117687993,
+        "leaveWaitNs": 195422,
+        "plans": 4000,
+        "plansNs": 102479869485,
+        "readWaitNs": 487720,
+        "totalNs": 140687472170,
+        "windows": 1000
+      },
+      "stats": {
+        "inserted": 4000,
+        "splits": 16,
+        "splitsFailed": 0,
+        "inverseChecks": 44694,
+        "inverseEdges": 24796,
+        "inversePostings": 18599,
+        "inverseListReads": 121,
+        "searchLoads": 431984,
+        "searchRounds": 106996,
+        "searchRows": {
+          "n": 863968,
+          "bytes": 18632846680
+        },
+        "searchVectors": {
+          "n": 599907,
+          "bytes": 1842914304
+        },
+        "inverseDistReads": {
+          "n": 41533,
+          "bytes": 1957932
+        },
+        "inverseVectorReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowReads": {
+          "n": 32,
+          "bytes": 921456
+        },
+        "splitVectorReads": {
+          "n": 5776,
+          "bytes": 17743872
+        },
+        "memberRow": {
+          "n": 4000,
+          "bytes": 448000
+        },
+        "memberMap": {
+          "n": 4000,
+          "bytes": 16000
+        },
+        "memberRouting": {
+          "n": 4000,
+          "bytes": 288000
+        },
+        "memberVector": {
+          "n": 4000,
+          "bytes": 12288000
+        },
+        "ownEdges": {
+          "n": 0,
+          "bytes": 0
+        },
+        "ownDists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseLists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseDistWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowWrites": {
+          "n": 5776,
+          "bytes": 646912
+        },
+        "splitMapWrites": {
+          "n": 5776,
+          "bytes": 23104
+        },
+        "splitCentroidWrites": {
+          "n": 32,
+          "bytes": 98304
+        },
+        "storeSearchReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeInverseReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeSplitReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowWrites": {
+          "n": 32,
+          "bytes": 276608
+        },
+        "rowWritesFull": 0,
+        "rowWritesSplit": 32,
+        "rowWritesClose": 0,
+        "rowWritesBudget": 0,
+        "rowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowDistWrites": {
+          "n": 234,
+          "bytes": 10748
+        },
+        "rowDeletes": 16,
+        "storeRowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "pendingPeakMembers": 598181,
+        "pendingPeakBytes": 54781264,
+        "pendingPeakPostings": 38705,
+        "pendingLogWrites": {
+          "n": 28796,
+          "bytes": 2879716
+        },
+        "haloAdded": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloRows": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "routingReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloTrims": 0,
+        "haloTrimmed": {
+          "n": 0,
+          "bytes": 0
+        },
+        "assignNs": 404770766,
+        "searchNs": 102057518375,
+        "writeNs": 121878978,
+        "inverseNs": 994551934,
+        "splitNs": 425739207,
+        "cycleNs": 582,
+        "rowNs": 412546,
+        "searchPhaseNs": 0,
+        "applyPhaseNs": 0,
+        "staleLists": 121,
+        "searchFetchNs": 18796740533,
+        "searchVisitNs": 45880996391,
+        "searchRescoreNs": 34756359242,
+        "searchMemberReadNs": 7796783782,
+        "searchEdgeReadNs": 11627446129,
+        "searchMembers": 112293120,
+        "searchRescored": 599907,
+        "journalNs": 3863458,
+        "handNs": 61372498,
+        "syncs": 5,
+        "syncGraphNs": 317459,
+        "syncWalNs": 150999,
+        "syncMetaNs": 1994833,
+        "syncJournalNs": 454166
+      },
+      "rusage": {
+        "userNs": 84631658416,
+        "systemNs": 10814317041,
+        "runnableNs": 99263194125,
+        "pageins": 6484,
+        "physFootprint": 7897670848,
+        "diskBytesRead": 9795829760,
+        "diskBytesWritten": 3254636544,
+        "logicalWrites": 3282081074,
+        "instructions": 712788136054,
+        "cycles": 289441629648,
+        "majorFaults": 6484,
+        "minorFaults": 972213,
+        "voluntarySwitches": 525019,
+        "involuntarySwitches": 471710
+      },
+      "runtime": {
+        "/cpu/classes/gc/mark/assist:cpu-seconds": 0.144342322,
+        "/cpu/classes/gc/total:cpu-seconds": 2.577911915,
+        "/cpu/classes/idle:cpu-seconds": 98.006177125,
+        "/cpu/classes/scavenge/total:cpu-seconds": 0.02554176,
+        "/cpu/classes/total:cpu-seconds": 249.63076792,
+        "/cpu/classes/user:cpu-seconds": 149.02113712,
+        "/gc/cycles/total:gc-cycles": 46,
+        "/gc/heap/allocs:bytes": 64658156536,
+        "/gc/heap/allocs:objects": 21399943,
+        "/sched/goroutines:goroutines": 26,
+        "/sched/latencies:seconds:count": 363253,
+        "/sched/latencies:seconds:over100us": 34619,
+        "/sched/latencies:seconds:over10ms": 1143,
+        "/sched/latencies:seconds:over1ms": 14778,
+        "/sched/latencies:seconds:sum": 89.83080406399998,
+        "/sched/pauses/total/gc:seconds:count": 92,
+        "/sched/pauses/total/gc:seconds:over100us": 26,
+        "/sched/pauses/total/gc:seconds:over10ms": 0,
+        "/sched/pauses/total/gc:seconds:over1ms": 0,
+        "/sched/pauses/total/gc:seconds:sum": 0.007584256000000002,
+        "/sync/mutex/wait/total:seconds": 1.817730248
+      },
+      "store": {
+        "bloomFalse": 1116,
+        "reads": 864242,
+        "segmentsFound": 1456430,
+        "segmentsHeld": 2592726
+      },
+      "segments": {
+        "postingedge_edgedists_main": 2,
+        "postingedge_map_main": 2,
+        "postingedge_pending_main": 4,
+        "postingedge_postings_main": 3,
+        "postingedge_routing_main": 2,
+        "vectors_compressed_postingedge_centroids_main": 7
+      },
+      "filesGrownByClass": {
+        "centroid graph commit log": 7941,
+        "exact vectors of the inserts": 12042240,
+        "journal": 5644128,
+        "lsmkv WAL": 5868761,
+        "lsmkv compaction (level 1 and up)": 4661847055,
+        "other: centroids.f32": 98304
+      },
+      "journal": {
+        "n": 73,
+        "bytes": 6291518
+      },
+      "live": 10004000,
+      "postings": 80557,
+      "heapInuse": 6165217280,
+      "heapAlloc": 6004017744,
+      "numGC": 46
+    },
+    {
+      "at": "12:19:20",
+      "inserted": 6400,
+      "seconds": 29.572846333,
+      "addSeconds": 29.564045291,
+      "flushSeconds": 0.005369958,
+      "clocks": {
+        "admitNs": 1162041,
+        "admitWaitNs": 7695707,
+        "appliedWaitNs": 4783269619,
+        "applyAfterNs": 94828,
+        "applyLockWaitNs": 24748,
+        "applyNs": 2988889878,
+        "batchPlans": 6400,
+        "batches": 115,
+        "calls": 64,
+        "drainWaitNs": 8970946251,
+        "enterWaitNs": 46432673285,
+        "leaveWaitNs": 311549,
+        "plans": 6400,
+        "plansNs": 163573234907,
+        "readWaitNs": 782262,
+        "totalNs": 226764067421,
+        "windows": 1600
+      },
+      "stats": {
+        "inserted": 6400,
+        "splits": 27,
+        "splitsFailed": 0,
+        "inverseChecks": 71726,
+        "inverseEdges": 39584,
+        "inversePostings": 29743,
+        "inverseListReads": 204,
+        "searchLoads": 699992,
+        "searchRounds": 173398,
+        "searchRows": {
+          "n": 1399984,
+          "bytes": 30192188806
+        },
+        "searchVectors": {
+          "n": 959907,
+          "bytes": 2948834304
+        },
+        "inverseDistReads": {
+          "n": 66684,
+          "bytes": 3147724
+        },
+        "inverseVectorReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowReads": {
+          "n": 54,
+          "bytes": 1558698
+        },
+        "splitVectorReads": {
+          "n": 9747,
+          "bytes": 29942784
+        },
+        "memberRow": {
+          "n": 6400,
+          "bytes": 716800
+        },
+        "memberMap": {
+          "n": 6400,
+          "bytes": 25600
+        },
+        "memberRouting": {
+          "n": 6400,
+          "bytes": 460800
+        },
+        "memberVector": {
+          "n": 6400,
+          "bytes": 19660800
+        },
+        "ownEdges": {
+          "n": 0,
+          "bytes": 0
+        },
+        "ownDists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseLists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseDistWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowWrites": {
+          "n": 9747,
+          "bytes": 1091664
+        },
+        "splitMapWrites": {
+          "n": 9747,
+          "bytes": 38988
+        },
+        "splitCentroidWrites": {
+          "n": 54,
+          "bytes": 165888
+        },
+        "storeSearchReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeInverseReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeSplitReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowWrites": {
+          "n": 54,
+          "bytes": 470775
+        },
+        "rowWritesFull": 0,
+        "rowWritesSplit": 54,
+        "rowWritesClose": 0,
+        "rowWritesBudget": 0,
+        "rowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowDistWrites": {
+          "n": 403,
+          "bytes": 18088
+        },
+        "rowDeletes": 27,
+        "storeRowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "pendingPeakMembers": 614263,
+        "pendingPeakBytes": 56378696,
+        "pendingPeakPostings": 39164,
+        "pendingLogWrites": {
+          "n": 45984,
+          "bytes": 4604360
+        },
+        "haloAdded": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloRows": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "routingReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloTrims": 0,
+        "haloTrimmed": {
+          "n": 0,
+          "bytes": 0
+        },
+        "assignNs": 650107199,
+        "searchNs": 162894321173,
+        "writeNs": 189384426,
+        "inverseNs": 1976745426,
+        "splitNs": 701084623,
+        "cycleNs": 873,
+        "rowNs": 685600,
+        "searchPhaseNs": 0,
+        "applyPhaseNs": 0,
+        "staleLists": 203,
+        "searchFetchNs": 30510297866,
+        "searchVisitNs": 74552925505,
+        "searchRescoreNs": 53504129515,
+        "searchMemberReadNs": 12680048886,
+        "searchEdgeReadNs": 18936169771,
+        "searchMembers": 181940075,
+        "searchRescored": 959907,
+        "journalNs": 6056497,
+        "handNs": 104624120,
+        "syncs": 8,
+        "syncGraphNs": 1137084,
+        "syncWalNs": 223249,
+        "syncMetaNs": 3284376,
+        "syncJournalNs": 711958
+      },
+      "rusage": {
+        "userNs": 129161414541,
+        "systemNs": 16154265791,
+        "runnableNs": 152098964791,
+        "pageins": 14123,
+        "physFootprint": 7717382208,
+        "diskBytesRead": 15407636480,
+        "diskBytesWritten": 3271450624,
+        "logicalWrites": 3325306930,
+        "instructions": 1045794510065,
+        "cycles": 440148631566,
+        "majorFaults": 14123,
+        "minorFaults": 1001557,
+        "voluntarySwitches": 827492,
+        "involuntarySwitches": 772410
+      },
+      "runtime": {
+        "/cpu/classes/gc/mark/assist:cpu-seconds": 0.216872826,
+        "/cpu/classes/gc/total:cpu-seconds": 3.776444677,
+        "/cpu/classes/idle:cpu-seconds": 126.490421251,
+        "/cpu/classes/scavenge/total:cpu-seconds": 0.100159966,
+        "/cpu/classes/total:cpu-seconds": 367.53144875,
+        "/cpu/classes/user:cpu-seconds": 237.164422856,
+        "/gc/cycles/total:gc-cycles": 57,
+        "/gc/heap/allocs:bytes": 100835061232,
+        "/gc/heap/allocs:objects": 31028646,
+        "/sched/goroutines:goroutines": 26,
+        "/sched/latencies:seconds:count": 580606,
+        "/sched/latencies:seconds:over100us": 55643,
+        "/sched/latencies:seconds:over10ms": 1553,
+        "/sched/latencies:seconds:over1ms": 23636,
+        "/sched/latencies:seconds:sum": 140.16309110400002,
+        "/sched/pauses/total/gc:seconds:count": 114,
+        "/sched/pauses/total/gc:seconds:over100us": 40,
+        "/sched/pauses/total/gc:seconds:over10ms": 0,
+        "/sched/pauses/total/gc:seconds:over1ms": 0,
+        "/sched/pauses/total/gc:seconds:sum": 0.010724864,
+        "/sync/mutex/wait/total:seconds": 2.771697808
+      },
+      "store": {
+        "bloomFalse": 1844,
+        "reads": 1400446,
+        "segmentsFound": 2359830,
+        "segmentsHeld": 4201338
+      },
+      "segments": {
+        "postingedge_edgedists_main": 2,
+        "postingedge_map_main": 2,
+        "postingedge_pending_main": 4,
+        "postingedge_postings_main": 3,
+        "postingedge_routing_main": 2,
+        "vectors_compressed_postingedge_centroids_main": 7
+      },
+      "filesGrownByClass": {
+        "centroid graph commit log": 12651,
+        "exact vectors of the inserts": 19587072,
+        "journal": 9217449,
+        "lsmkv WAL": 9621219,
+        "lsmkv compaction (level 1 and up)": 4661847055,
+        "other: centroids.f32": 165888
+      },
+      "journal": {
+        "n": 115,
+        "bytes": 10173325
+      },
+      "live": 10006400,
+      "postings": 80579,
+      "heapInuse": 4943609856,
+      "heapAlloc": 4243738288,
+      "numGC": 57
+    },
+    {
+      "at": "12:19:27",
+      "inserted": 8000,
+      "seconds": 36.54987125,
+      "addSeconds": 36.538568875,
+      "flushSeconds": 0.006654542,
+      "clocks": {
+        "admitNs": 1427957,
+        "admitWaitNs": 9393079,
+        "appliedWaitNs": 5961568200,
+        "applyAfterNs": 115785,
+        "applyLockWaitNs": 29370,
+        "applyNs": 3653411419,
+        "batchPlans": 8000,
+        "batches": 143,
+        "calls": 80,
+        "drainWaitNs": 11177407212,
+        "enterWaitNs": 56885240035,
+        "leaveWaitNs": 385426,
+        "plans": 8000,
+        "plansNs": 202924997399,
+        "readWaitNs": 977644,
+        "totalNs": 280621199504,
+        "windows": 2000
+      },
+      "stats": {
+        "inserted": 8000,
+        "splits": 31,
+        "splitsFailed": 0,
+        "inverseChecks": 89774,
+        "inverseEdges": 49466,
+        "inversePostings": 37192,
+        "inverseListReads": 246,
+        "searchLoads": 874316,
+        "searchRounds": 216579,
+        "searchRows": {
+          "n": 1748632,
+          "bytes": 37706853465
+        },
+        "searchVectors": {
+          "n": 1199907,
+          "bytes": 3686114304
+        },
+        "inverseDistReads": {
+          "n": 83381,
+          "bytes": 3937532
+        },
+        "inverseVectorReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowReads": {
+          "n": 62,
+          "bytes": 1800632
+        },
+        "splitVectorReads": {
+          "n": 11191,
+          "bytes": 34378752
+        },
+        "memberRow": {
+          "n": 8000,
+          "bytes": 896000
+        },
+        "memberMap": {
+          "n": 8000,
+          "bytes": 32000
+        },
+        "memberRouting": {
+          "n": 8000,
+          "bytes": 576000
+        },
+        "memberVector": {
+          "n": 8000,
+          "bytes": 24576000
+        },
+        "ownEdges": {
+          "n": 0,
+          "bytes": 0
+        },
+        "ownDists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseLists": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "inverseDistWrites": {
+          "n": 0,
+          "bytes": 0
+        },
+        "splitRowWrites": {
+          "n": 11191,
+          "bytes": 1253392
+        },
+        "splitMapWrites": {
+          "n": 11191,
+          "bytes": 44764
+        },
+        "splitCentroidWrites": {
+          "n": 62,
+          "bytes": 190464
+        },
+        "storeSearchReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeInverseReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "storeSplitReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowWrites": {
+          "n": 62,
+          "bytes": 551507
+        },
+        "rowWritesFull": 0,
+        "rowWritesSplit": 62,
+        "rowWritesClose": 0,
+        "rowWritesBudget": 0,
+        "rowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowTombstones": {
+          "n": 0,
+          "bytes": 0
+        },
+        "rowDistWrites": {
+          "n": 472,
+          "bytes": 21508
+        },
+        "rowDeletes": 31,
+        "storeRowReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "pendingPeakMembers": 624957,
+        "pendingPeakBytes": 57443112,
+        "pendingPeakPostings": 39375,
+        "pendingLogWrites": {
+          "n": 57466,
+          "bytes": 5760210
+        },
+        "haloAdded": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloRows": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "routingReads": {
+          "n": 0,
+          "bytes": 0
+        },
+        "haloTrims": 0,
+        "haloTrimmed": {
+          "n": 0,
+          "bytes": 0
+        },
+        "assignNs": 810949901,
+        "searchNs": 202077070787,
+        "writeNs": 232701752,
+        "inverseNs": 2453159762,
+        "splitNs": 811991539,
+        "cycleNs": 1165,
+        "rowNs": 853726,
+        "searchPhaseNs": 0,
+        "applyPhaseNs": 0,
+        "staleLists": 245,
+        "searchFetchNs": 38119212488,
+        "searchVisitNs": 92806110444,
+        "searchRescoreNs": 65768741423,
+        "searchMemberReadNs": 15886833725,
+        "searchEdgeReadNs": 23709353842,
+        "searchMembers": 227258385,
+        "searchRescored": 1199907,
+        "journalNs": 7502079,
+        "handNs": 134065123,
+        "syncs": 10,
+        "syncGraphNs": 1335167,
+        "syncWalNs": 287874,
+        "syncMetaNs": 4120960,
+        "syncJournalNs": 894624
+      },
+      "rusage": {
+        "userNs": 157920724791,
+        "systemNs": 19516667500,
+        "runnableNs": 185487227625,
+        "pageins": 17474,
+        "physFootprint": 8655694464,
+        "diskBytesRead": 19132178432,
+        "diskBytesWritten": 3293315072,
+        "logicalWrites": 3352713778,
+        "instructions": 1262908501613,
+        "cycles": 537382389329,
+        "majorFaults": 17474,
+        "minorFaults": 1017766,
+        "voluntarySwitches": 1029825,
+        "involuntarySwitches": 945211
+      },
+      "runtime": {
+        "/cpu/classes/gc/mark/assist:cpu-seconds": 0.244445908,
+        "/cpu/classes/gc/total:cpu-seconds": 4.491303086,
+        "/cpu/classes/idle:cpu-seconds": 141.964421077,
+        "/cpu/classes/scavenge/total:cpu-seconds": 0.100592922,
+        "/cpu/classes/total:cpu-seconds": 438.51621625,
+        "/cpu/classes/user:cpu-seconds": 291.959899165,
+        "/gc/cycles/total:gc-cycles": 63,
+        "/gc/heap/allocs:bytes": 124167460552,
+        "/gc/heap/allocs:objects": 37249708,
+        "/sched/goroutines:goroutines": 26,
+        "/sched/latencies:seconds:count": 736891,
+        "/sched/latencies:seconds:over100us": 69478,
+        "/sched/latencies:seconds:over10ms": 1789,
+        "/sched/latencies:seconds:over1ms": 29533,
+        "/sched/latencies:seconds:sum": 172.98031811200002,
+        "/sched/pauses/total/gc:seconds:count": 126,
+        "/sched/pauses/total/gc:seconds:over100us": 46,
+        "/sched/pauses/total/gc:seconds:over10ms": 0,
+        "/sched/pauses/total/gc:seconds:over1ms": 0,
+        "/sched/pauses/total/gc:seconds:sum": 0.012302847999999998,
+        "/sync/mutex/wait/total:seconds": 3.277314464
+      },
+      "store": {
+        "bloomFalse": 2254,
+        "reads": 1749186,
+        "segmentsFound": 2946449,
+        "segmentsHeld": 5247558
+      },
+      "segments": {
+        "postingedge_edgedists_main": 2,
+        "postingedge_map_main": 2,
+        "postingedge_pending_main": 4,
+        "postingedge_postings_main": 3,
+        "postingedge_routing_main": 2,
+        "vectors_compressed_postingedge_centroids_main": 7
+      },
+      "filesGrownByClass": {
+        "centroid graph commit log": 18492,
+        "exact vectors of the inserts": 24489984,
+        "journal": 11417120,
+        "lsmkv WAL": 11842152,
+        "lsmkv compaction (level 1 and up)": 4661847055,
+        "other: centroids.f32": 190464
+      },
+      "journal": {
+        "n": 143,
+        "bytes": 12519035
+      },
+      "live": 10008000,
+      "postings": 80587,
+      "heapInuse": 5344780288,
+      "heapAlloc": 4389471528,
+      "numGC": 63
+    }
+  ],
+  "done": true
+}
