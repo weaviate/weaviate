@@ -471,6 +471,91 @@ func TestCompareValues_Boolean(t *testing.T) {
 	assert.True(t, compareValues(filters.OperatorNotEqual, true, false))
 }
 
+// --- compareValues with array-typed properties (text[], number[], boolean[]) ---
+
+func TestBoostCompareValues_ArrayString(t *testing.T) {
+	tests := []struct {
+		name     string
+		op       filters.Operator
+		propVal  any
+		filterV  any
+		expected bool
+	}{
+		// Equal: match if any element matches
+		{"equal match first", filters.OperatorEqual, []string{"red", "green"}, "red", true},
+		{"equal match last", filters.OperatorEqual, []string{"red", "green"}, "green", true},
+		{"equal no match", filters.OperatorEqual, []string{"red", "green"}, "blue", false},
+		// NotEqual: true only when no element equals the filter
+		{"not equal no match", filters.OperatorNotEqual, []string{"red", "green"}, "blue", true},
+		{"not equal match", filters.OperatorNotEqual, []string{"red", "green"}, "red", false},
+		// Empty slice
+		{"empty slice equal", filters.OperatorEqual, []string{}, "red", false},
+		{"empty slice not equal", filters.OperatorNotEqual, []string{}, "red", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, compareValues(tt.op, tt.propVal, tt.filterV))
+		})
+	}
+}
+
+func TestBoostCompareValues_ArrayFloat64(t *testing.T) {
+	tests := []struct {
+		name     string
+		op       filters.Operator
+		propVal  any
+		filterV  any
+		expected bool
+	}{
+		{"equal match", filters.OperatorEqual, []float64{10, 20}, float64(10), true},
+		{"equal no match", filters.OperatorEqual, []float64{10, 20}, float64(30), false},
+		{"not equal", filters.OperatorNotEqual, []float64{10, 20}, float64(30), true},
+		{"not equal match", filters.OperatorNotEqual, []float64{10, 20}, float64(10), false},
+		{"greater than match", filters.OperatorGreaterThan, []float64{5, 20}, float64(10), true},
+		{"greater than no match", filters.OperatorGreaterThan, []float64{5, 8}, float64(10), false},
+		{"less than match", filters.OperatorLessThan, []float64{5, 20}, float64(10), true},
+		{"less than no match", filters.OperatorLessThan, []float64{15, 20}, float64(10), false},
+		{"greater or equal", filters.OperatorGreaterThanEqual, []float64{10, 20}, float64(10), true},
+		{"less or equal", filters.OperatorLessThanEqual, []float64{10, 20}, float64(10), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, compareValues(tt.op, tt.propVal, tt.filterV))
+		})
+	}
+}
+
+func TestBoostCompareValues_ArrayBool(t *testing.T) {
+	// []bool array with Equal
+	assert.True(t, compareValues(filters.OperatorEqual, []bool{false, true}, true))
+	assert.False(t, compareValues(filters.OperatorEqual, []bool{false, false}, true))
+	// []bool array with NotEqual
+	assert.True(t, compareValues(filters.OperatorNotEqual, []bool{false, false}, true))
+	assert.False(t, compareValues(filters.OperatorNotEqual, []bool{false, true}, true))
+}
+
+func TestBoostCompareValues_AnySlice(t *testing.T) {
+	// []any containing mixed types
+	assert.True(t, compareValues(filters.OperatorEqual, []any{"a", "b"}, "b"))
+	assert.False(t, compareValues(filters.OperatorEqual, []any{"a", "b"}, "c"))
+	assert.True(t, compareValues(filters.OperatorNotEqual, []any{"a", "b"}, "c"))
+	assert.False(t, compareValues(filters.OperatorNotEqual, []any{"a", "b"}, "a"))
+	assert.True(t, compareValues(filters.OperatorEqual, []any{"a", int(10), nil, true}, float64(10)))
+	assert.True(t, compareValues(filters.OperatorEqual, []any{"a", int(10), nil, true}, true))
+	assert.False(t, compareValues(filters.OperatorEqual, []any{"a", int(10), nil, true}, nil))
+	assert.True(t, compareValues(filters.OperatorNotEqual, []any{"a", int(10), nil, true}, nil))
+	assert.False(t, compareValues(filters.OperatorGreaterThan, []any{"a", nil, true}, float64(10)))
+	assert.False(t, compareValues(filters.OperatorEqual, nil, nil))
+	assert.False(t, compareValues(filters.OperatorNotEqual, nil, "a"))
+}
+
+func TestBoostCompareValues_NonSliceUnchanged(t *testing.T) {
+	// Scalar values should still work as before (not affected by asSlice logic)
+	assert.True(t, compareValues(filters.OperatorEqual, "red", "red"))
+	assert.False(t, compareValues(filters.OperatorEqual, "red", "blue"))
+	assert.True(t, compareValues(filters.OperatorEqual, float64(42), float64(42)))
+}
+
 // --- Decay function tests ---
 
 func TestComputeDecayFunction_Exp(t *testing.T) {
@@ -1275,6 +1360,130 @@ func TestApplyBoostScoring_PropertyValueAllMissing(t *testing.T) {
 	// score decides the order.
 	assert.Equal(t, strfmt.UUID("high-primary"), got[0].ID)
 	assert.Equal(t, strfmt.UUID("low-primary"), got[1].ID)
+}
+
+// --- asSlice ---
+
+func TestBoostAsSlice(t *testing.T) {
+	t.Run("[]string", func(t *testing.T) {
+		out, ok := asSlice([]string{"a", "b"})
+		assert.True(t, ok)
+		assert.Equal(t, []any{"a", "b"}, out)
+	})
+
+	t.Run("[]float64", func(t *testing.T) {
+		out, ok := asSlice([]float64{1, 2})
+		assert.True(t, ok)
+		assert.Equal(t, []any{float64(1), float64(2)}, out)
+	})
+
+	t.Run("[]bool", func(t *testing.T) {
+		out, ok := asSlice([]bool{true, false})
+		assert.True(t, ok)
+		assert.Equal(t, []any{true, false}, out)
+	})
+
+	t.Run("[]any", func(t *testing.T) {
+		in := []any{"x", 42}
+		out, ok := asSlice(in)
+		assert.True(t, ok)
+		assert.Equal(t, in, out)
+	})
+
+	t.Run("[]int", func(t *testing.T) {
+		out, ok := asSlice([]int{1, 2})
+		assert.True(t, ok)
+		assert.Equal(t, []any{1, 2}, out)
+	})
+
+	t.Run("[]int64", func(t *testing.T) {
+		out, ok := asSlice([]int64{1, 2})
+		assert.True(t, ok)
+		assert.Equal(t, []any{int64(1), int64(2)}, out)
+	})
+
+	t.Run("non-slice returns false", func(t *testing.T) {
+		_, ok := asSlice("not a slice")
+		assert.False(t, ok)
+
+		_, ok = asSlice(float64(42))
+		assert.False(t, ok)
+
+		_, ok = asSlice(true)
+		assert.False(t, ok)
+
+		_, ok = asSlice(nil)
+		assert.False(t, ok)
+	})
+
+	t.Run("empty slice", func(t *testing.T) {
+		out, ok := asSlice([]string{})
+		assert.True(t, ok)
+		assert.Empty(t, out)
+	})
+
+	t.Run("typed nil slice", func(t *testing.T) {
+		var in []int
+		out, ok := asSlice(in)
+		assert.True(t, ok)
+		assert.Empty(t, out)
+	})
+}
+
+// Integration: applyBoostScoring with array-typed properties (text[], number[]).
+// Reproduces https://github.com/weaviate/weaviate/issues/11814.
+func TestApplyBoostScoring_TextArrayFilter(t *testing.T) {
+	results := []search.Result{
+		makeResult("no-tag", 1.0, map[string]any{"tags": []string{"sports", "news"}}),
+		makeResult("has-tag", 0.5, map[string]any{"tags": []string{"tech", "science"}}),
+	}
+	boost := &filters.Boost{
+		Conditions: []filters.BoostCondition{
+			filterCondition("tags", filters.OperatorEqual, "tech", schema.DataTypeText),
+		},
+		Weight: 1.0,
+	}
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	// has-tag contains "tech" → boost=1.0; no-tag does not → boost=0.0
+	require.Len(t, got, 2)
+	assert.Equal(t, strfmt.UUID("has-tag"), got[0].ID)
+	assert.Equal(t, strfmt.UUID("no-tag"), got[1].ID)
+}
+
+func TestApplyBoostScoring_NumberArrayFilter(t *testing.T) {
+	results := []search.Result{
+		makeResult("match", 0.5, map[string]any{"scores": []float64{100, 200, 300}}),
+		makeResult("no-match", 1.0, map[string]any{"scores": []float64{10, 20, 30}}),
+	}
+	boost := &filters.Boost{
+		Conditions: []filters.BoostCondition{
+			filterCondition("scores", filters.OperatorEqual, float64(200), schema.DataTypeNumber),
+		},
+		Weight: 1.0,
+	}
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	require.Len(t, got, 2)
+	assert.Equal(t, strfmt.UUID("match"), got[0].ID)
+	assert.Equal(t, strfmt.UUID("no-match"), got[1].ID)
+}
+
+func TestApplyBoostScoring_TextArrayNotEqual(t *testing.T) {
+	results := []search.Result{
+		makeResult("has-banned", 1.0, map[string]any{"tags": []string{"spam", "news"}}),
+		makeResult("clean", 0.5, map[string]any{"tags": []string{"sports", "tech"}}),
+	}
+	boost := &filters.Boost{
+		Conditions: []filters.BoostCondition{
+			filterCondition("tags", filters.OperatorNotEqual, "spam", schema.DataTypeText),
+		},
+		Weight: 1.0,
+	}
+	got := applyBoostScoring(results, withOriginalLimit(boost, 10))
+	// clean: no element == "spam" → NotEqual=true → boost=1.0
+	// has-banned: contains "spam" → NotEqual=false → boost=0.0
+	require.Len(t, got, 2)
+	assert.Equal(t, strfmt.UUID("clean"), got[0].ID)
+	assert.Equal(t, strfmt.UUID("has-banned"), got[1].ID)
 }
 
 func cloneResults(results []search.Result) []search.Result {
