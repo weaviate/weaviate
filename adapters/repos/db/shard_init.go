@@ -154,11 +154,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	// Both legacy steps rename folders, so they run before any bucket opens.
-	s.finalizeLegacyMigrations(class)
+	keep, err := s.finalizeLegacyMigrations(class)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, err)
+	}
 	if err := s.convertLegacyRecords(class); err != nil {
 		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
-	if err := s.loadReindexView(class); err != nil {
+	if err := s.loadReindexView(class, keep); err != nil {
 		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
 

@@ -49,6 +49,7 @@ import (
 
 const (
 	q718Prop      = "title"
+	q718RangeProp = "score" // only in the enable-rangeable class, valued 0..9
 	q718Equal     = "hello world"
 	q718TaskID    = "q718-legacy-fixture"
 	q718NodeName  = "node1"
@@ -85,6 +86,7 @@ type q718Counts struct {
 	EqualHelloWorld int `json:"filterEqual_title_hello_world"`
 	BM25Hello       int `json:"bm25_title_hello"`
 	BM25HelloWorld  int `json:"bm25_title_hello_world"`
+	RangeScore      int `json:"rangeGreaterThanEqual_score_5,omitempty"`
 }
 
 type q718Case struct {
@@ -104,8 +106,8 @@ type q718Case struct {
 	expectedNote       string
 }
 
-func q718Class(className string, blockmax bool) *models.Class {
-	return &models.Class{
+func q718Class(className string, blockmax bool, mtype ReindexMigrationType) *models.Class {
+	class := &models.Class{
 		Class:              className,
 		VectorIndexConfig:  enthnsw.NewDefaultUserConfig(),
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -124,12 +126,28 @@ func q718Class(className string, blockmax bool) *models.Class {
 			IndexSearchable: boolPtr(true),
 		}},
 	}
+	if mtype == ReindexTypeEnableRangeable {
+		class.Properties = append(class.Properties, &models.Property{
+			Name: q718RangeProp, DataType: schema.DataTypeInt.PropString(),
+			IndexFilterable: boolPtr(true), IndexRangeFilters: boolPtr(false),
+		})
+	}
+	return class
+}
+
+func q718MigratedProp(mtype ReindexMigrationType) string {
+	if mtype == ReindexTypeEnableRangeable {
+		return q718RangeProp
+	}
+	return q718Prop
 }
 
 // The class as the schema holds it once the migration's flip landed.
 func q718ApplyEffect(class *models.Class, mtype ReindexMigrationType) {
 	prop := class.Properties[0]
 	switch mtype {
+	case ReindexTypeEnableRangeable:
+		class.Properties[1].IndexRangeFilters = boolPtr(true)
 	case ReindexTypeChangeTokenization:
 		prop.Tokenization = models.PropertyTokenizationField
 	case ReindexTypeChangeAlgorithm:
@@ -145,8 +163,8 @@ func q718Payload(class *models.Class, mtype ReindexMigrationType, unitID, shardN
 	p := &ReindexTaskPayload{
 		MigrationType: mtype,
 		Collection:    class.Class,
-		Properties:    []string{q718Prop},
-		Tenants:       []string{shardName},
+		Properties:    []string{q718MigratedProp(mtype)},
+		Tenants:      []string{shardName},
 		UnitToNode:    map[string]string{unitID: q718NodeName},
 		UnitToShard:   map[string]string{unitID: shardName},
 	}
@@ -159,14 +177,25 @@ func q718Payload(class *models.Class, mtype ReindexMigrationType, unitID, shardN
 	return p
 }
 
-func q718Count(t *testing.T, ctx context.Context, s *Shard, className string) q718Counts {
+func q718Count(t *testing.T, ctx context.Context, s *Shard, class *models.Class) q718Counts {
 	t.Helper()
+	className := class.Class
 	res, _, err := s.ObjectSearch(ctx, 100, &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorEqual,
 		On:       &filters.Path{Class: schema.ClassName(className), Property: q718Prop},
 		Value:    &filters.Value{Value: q718Equal, Type: schema.DataTypeText},
 	}}, nil, nil, nil, additional.Properties{}, nil)
 	require.NoError(t, err)
+	rangeScore := 0
+	if len(class.Properties) > 1 {
+		r, _, err := s.ObjectSearch(ctx, 100, &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorGreaterThanEqual,
+			On:       &filters.Path{Class: schema.ClassName(className), Property: q718RangeProp},
+			Value:    &filters.Value{Value: 5, Type: schema.DataTypeInt},
+		}}, nil, nil, nil, additional.Properties{}, nil)
+		require.NoError(t, err)
+		rangeScore = len(r)
+	}
 	bm25 := func(q string) int {
 		r, _, err := s.ObjectSearch(ctx, 100, nil, &searchparams.KeywordRanking{
 			Type: "bm25", Properties: []string{q718Prop}, Query: q,
@@ -174,7 +203,9 @@ func q718Count(t *testing.T, ctx context.Context, s *Shard, className string) q7
 		require.NoError(t, err)
 		return len(r)
 	}
-	return q718Counts{EqualHelloWorld: len(res), BM25Hello: bm25("hello"), BM25HelloWorld: bm25("hello world")}
+	return q718Counts{
+		EqualHelloWorld: len(res), BM25Hello: bm25("hello"), BM25HelloWorld: bm25("hello world"), RangeScore: rangeScore,
+	}
 }
 
 func q718Tasks(t *testing.T, p *ReindexProvider, version uint64, unitID string, payload *ReindexTaskPayload,
@@ -325,6 +356,14 @@ func TestQ718v2GenerateLegacyFixtures(t *testing.T) {
 			how:  "Run failed/cancelled before this tenant's swap.",
 			expected: unchanged,
 		},
+		// --- enable-rangeable on the int property score ---
+		{
+			name: "14-enablerangeable-swapped-effect-shown", mtype: ReindexTypeEnableRangeable, blockmax: true,
+			stop: q718StopSwapped, effectShown: true,
+			how: "Swapped, unloaded, task FINISHED: indexRangeFilters flipped on. Before the run score had no range " +
+				"index, so the staged rangeable folder is the only one.",
+			expected: q718Counts{EqualHelloWorld: 10, BM25Hello: 10, BM25HelloWorld: 10, RangeScore: 5},
+		},
 	}
 
 	for _, tc := range cases {
@@ -337,7 +376,7 @@ func TestQ718v2GenerateLegacyFixtures(t *testing.T) {
 func q718GenerateOne(t *testing.T, outRoot string, tc q718Case) {
 	ctx := testCtx()
 	className := "Q718Legacy"
-	class := q718Class(className, tc.blockmax)
+	class := q718Class(className, tc.blockmax, tc.mtype)
 	shd, idx := testShardWithMultiTenantSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, true, false, false)
 	shard := shd.(*Shard)
 	shardName, lsm, shardDir := shard.Name(), shard.pathLSM(), shard.path()
@@ -353,11 +392,18 @@ func q718GenerateOne(t *testing.T, outRoot string, tc q718Case) {
 		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("q718-%d", i))).String()
 		obj := createTestObjectWithText(className, v)
 		obj.Object.ID = strfmt.UUID(id)
+		if len(class.Properties) > 1 {
+			obj.Object.Properties.(map[string]interface{})[q718RangeProp] = int64(i)
+		}
 		require.NoError(t, shard.PutObject(ctx, obj))
 		objs = append(objs, objRow{ID: id, Title: v})
 	}
-	baseline := q718Count(t, ctx, shard, className)
-	require.Equal(t, q718Counts{EqualHelloWorld: 10, BM25Hello: 10, BM25HelloWorld: 10}, baseline, "word baseline")
+	wantBaseline := q718Counts{EqualHelloWorld: 10, BM25Hello: 10, BM25HelloWorld: 10}
+	if len(class.Properties) > 1 {
+		wantBaseline.RangeScore = 5
+	}
+	baseline := q718Count(t, ctx, shard, class)
+	require.Equal(t, wantBaseline, baseline, "word baseline")
 
 	p := NewReindexProvider(idx.db, nil, nil, idx.logger, q718NodeName, nil, ctx)
 	version := uint64(1)
@@ -395,7 +441,7 @@ func q718GenerateOne(t *testing.T, outRoot string, tc q718Case) {
 		simulateProcessRestartBucketCleanup(t, lsm)
 	}
 
-	upgradeClass := q718Class(className, tc.blockmax)
+	upgradeClass := q718Class(className, tc.blockmax, tc.mtype)
 	if tc.effectShown {
 		q718ApplyEffect(upgradeClass, tc.mtype)
 	}
@@ -437,9 +483,9 @@ func q718GenerateOne(t *testing.T, outRoot string, tc q718Case) {
 	if tc.effectShown {
 		q718ApplyEffect(class, tc.mtype)
 	}
-	require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
+	require.NoError(t, idx.updateProperty(ctx, class.Properties[len(class.Properties)-1]))
 	loaded := openShardFromDisk(t, ctx, idx, class, shardName)
-	v13917 := q718Count(t, ctx, loaded, className)
+	v13917 := q718Count(t, ctx, loaded, class)
 	v13917States := migrationRecordStates(t, lsm)
 	require.NoError(t, loaded.Shutdown(ctx))
 	simulateProcessRestartBucketCleanup(t, lsm)
@@ -472,6 +518,7 @@ func q718GenerateOne(t *testing.T, outRoot string, tc q718Case) {
 			"filterEqual_title_hello_world": "where title Equal \"hello world\" (valueText)",
 			"bm25_title_hello":              "bm25 query \"hello\" on title",
 			"bm25_title_hello_world":        "bm25 query \"hello world\" on title",
+			"rangeGreaterThanEqual_score_5": "where score GreaterThanEqual 5 (enable-rangeable only)",
 		},
 		"expectedOnNewCode":      map[string]any{shardName: tc.expected},
 		"expectedNote":           tc.expectedNote,

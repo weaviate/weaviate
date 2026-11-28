@@ -798,7 +798,9 @@ conversion of pre-generation state (§13).
 **`inverted_reindex_legacy_finalize.go`** — the frozen legacy step for
 the v1.39.0-2 marker layout (tracker files such as `tidied.mig`). At
 shard load, before any bucket opens, it finishes the migrations those
-releases left finished. It is never extended.
+releases left finished, and any error fails the load. While the class has
+that index off, it keeps the plain folder and the tracker, and the load
+sweep spares the folder. It is never extended.
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
@@ -1448,9 +1450,11 @@ migration and let it finish (or cancel it there, only when no tenant has
 switched), then upgrade again. A runtime snapshot install and
 metadata-only nodes skip the check.
 
-**Limitation.** The check reads cluster state only. **A partial run from
-v1.39.3-14 whose task those releases already deleted is not detected.**
-Those releases kept no reindex tasks and deleted failed ones after 5 days.
+**Limitation.** The check reads cluster state only. **The check does not
+detect a partial run from v1.39.0-16 that ended FAILED or CANCELLED, nor
+one whose task v1.39.3-14 already deleted.** It sees a partial run only
+through `SwapDecidedGroups`, which v1.39.17 added, and v1.39.3-14 deleted
+failed tasks after 5 days.
 The precondition above and best-effort schema state cover it. Such a
 tenant serves what the class names; where v1.39.x had already deleted its
 plain folder, that index is empty for that tenant.

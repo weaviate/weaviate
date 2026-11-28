@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -50,6 +51,7 @@ var (
 // tracker. Verified against a real v1.39 run for every code except map to
 // blockmax, which that run could not start.
 func TestFinalizeLegacyMigrations(t *testing.T) {
+	finished := legacyFinishedMarkers
 	tests := []struct {
 		name    string
 		code    MigrationStrategyCode
@@ -58,20 +60,74 @@ func TestFinalizeLegacyMigrations(t *testing.T) {
 		// alreadyMoved are properties a crashed earlier pass already renamed.
 		alreadyMoved []string
 		// disables turns the migrated index off, as before a cluster commit.
-		disables  bool
-		wantMoved bool
+		disables    bool
+		edit        func(t *testing.T, lsm, tracker string)
+		wantErr     string
+		wantTracker bool
+		// fix repairs the state for a second load, which must serve every object.
+		fix func(t *testing.T, lsm string, class *models.Class)
 	}{
-		{"map to blockmax", StrategyCodeSearchableMapToBlockmax, []string{"title"}, legacyFinishedMarkers, nil, false, true},
-		{"repair filterable", StrategyCodeFilterableRoaringsetRefresh, []string{"title"}, legacyFinishedMarkers, nil, false, true},
-		{"enable or repair rangeable", StrategyCodeFilterableToRangeable, []string{"score"}, legacyFinishedMarkers, nil, false, true},
-		{"retokenize searchable", StrategyCodeSearchableRetokenize, []string{"title"}, legacyFinishedMarkers, nil, false, true},
-		{"retokenize filterable", StrategyCodeFilterableRetokenize, []string{"title"}, legacyFinishedMarkers, nil, false, true},
-		{"enable filterable", StrategyCodeEnableFilterable, []string{"title"}, legacyFinishedMarkers, nil, false, true},
-		{"enable searchable", StrategyCodeEnableSearchable, []string{"title"}, legacyFinishedMarkers, nil, false, true},
-		{"rebuild searchable", StrategyCodeRebuildSearchable, []string{"title"}, legacyFinishedMarkers, nil, false, true},
-		{"crash after the first of two renames", StrategyCodeEnableFilterable, []string{"body", "title"}, legacyFinishedMarkers, []string{"body"}, false, true},
-		{"swap still in progress", StrategyCodeFilterableRetokenize, []string{"title"}, legacyMergedOnlyMarkers, nil, false, false},
-		{"index not yet enabled by the schema", StrategyCodeEnableFilterable, []string{"title"}, legacyFinishedMarkers, nil, true, false},
+		{name: "map to blockmax", code: StrategyCodeSearchableMapToBlockmax, props: []string{"title"}, markers: finished},
+		{name: "repair filterable", code: StrategyCodeFilterableRoaringsetRefresh, props: []string{"title"}, markers: finished},
+		{name: "enable or repair rangeable", code: StrategyCodeFilterableToRangeable, props: []string{"score"}, markers: finished},
+		{name: "retokenize searchable", code: StrategyCodeSearchableRetokenize, props: []string{"title"}, markers: finished},
+		{name: "retokenize filterable", code: StrategyCodeFilterableRetokenize, props: []string{"title"}, markers: finished},
+		{name: "enable filterable", code: StrategyCodeEnableFilterable, props: []string{"title"}, markers: finished},
+		{name: "enable searchable", code: StrategyCodeEnableSearchable, props: []string{"title"}, markers: finished},
+		{name: "rebuild searchable", code: StrategyCodeRebuildSearchable, props: []string{"title"}, markers: finished},
+		{
+			name: "crash after the first of two renames", code: StrategyCodeEnableFilterable, props: []string{"body", "title"},
+			markers: finished, alreadyMoved: []string{"body"},
+		},
+		{
+			name: "merged, before the swap", code: StrategyCodeFilterableRetokenize, props: []string{"title"},
+			markers: legacyMergedOnlyMarkers, wantTracker: true,
+			edit: func(t *testing.T, lsm, _ string) {
+				require.NoError(t, copyTree(filepath.Join(lsm, "property_title__filt_retokenize_ingest_7"),
+					filepath.Join(lsm, "property_title")))
+			},
+		},
+		{
+			name: "failed promotion", code: StrategyCodeEnableFilterable, props: []string{"body", "title"}, markers: finished,
+			edit: func(t *testing.T, lsm, _ string) {
+				require.NoError(t, os.Mkdir(filepath.Join(lsm, "property_body"), 0o755))
+			},
+			wantErr: `property "body" holds both`,
+			fix: func(t *testing.T, lsm string, _ *models.Class) {
+				require.NoError(t, os.Remove(filepath.Join(lsm, "property_body")))
+			},
+		},
+		{
+			name: "unreadable finish marker", code: StrategyCodeEnableFilterable, props: []string{"title"}, markers: finished,
+			edit: func(t *testing.T, _, tracker string) {
+				marker := filepath.Join(tracker, "tidied.mig")
+				require.NoError(t, os.Remove(marker))
+				require.NoError(t, os.Symlink(marker, marker))
+			},
+			wantErr: "tidied.mig",
+		},
+		{
+			name: "index off locally", code: StrategyCodeEnableFilterable, props: []string{"title"}, markers: finished,
+			disables: true, wantTracker: true,
+			fix: func(_ *testing.T, _ string, class *models.Class) { class.Properties[0].IndexFilterable = boolPtr(true) },
+		},
+		{
+			name: "index off, nothing left", code: StrategyCodeEnableFilterable, props: []string{"title"}, markers: finished,
+			disables: true,
+			edit: func(t *testing.T, lsm, _ string) {
+				require.NoError(t, os.RemoveAll(filepath.Join(lsm, "property_title__enable_filterable_ingest_7")))
+			},
+		},
+		{
+			// A newer rebuild-searchable run (generation 1) renamed this older run's staged folder to its backup.
+			name: "two trackers, older first", code: StrategyCodeSearchableRetokenize, props: []string{"title"}, markers: finished,
+			edit: func(t *testing.T, lsm, _ string) {
+				plantLegacyTracker(t, lsm, StrategyCodeRebuildSearchable, 1, []string{"title"}, finished)
+				require.NoError(t, os.Rename(filepath.Join(lsm, "property_title_searchable__retokenize_ingest_7"),
+					filepath.Join(lsm, "property_title_searchable__rebuild_searchable_ingest_1")))
+				require.NoError(t, os.Mkdir(filepath.Join(lsm, "property_title_searchable__rebuild_searchable_backup_1"), 0o755))
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,44 +142,116 @@ func TestFinalizeLegacyMigrations(t *testing.T) {
 
 			lsm := shard.pathLSM()
 			layout := legacyMigrationLayouts[tt.code]
-			tracker := filepath.Join(lsm, migrationsDir, fmt.Sprintf("%s_%s_7", tt.code, strings.Join(tt.props, "_")))
-			require.NoError(t, os.MkdirAll(tracker, 0o755))
-			require.NoError(t, os.WriteFile(filepath.Join(tracker, "properties.mig"), []byte(strings.Join(tt.props, ",")), 0o644))
-			for _, marker := range tt.markers {
-				require.NoError(t, os.WriteFile(filepath.Join(tracker, marker), nil, 0o644))
-			}
-			staged := map[string]string{}
+			tracker := plantLegacyTracker(t, lsm, tt.code, 7, tt.props, tt.markers)
 			for _, prop := range tt.props {
 				canonical := layout.canonical(prop)
-				staged[prop] = canonical + layout.staged + "_7"
+				require.NoError(t, os.Mkdir(filepath.Join(lsm, canonical+layout.backup+"_7"), 0o755))
 				if !slices.Contains(tt.alreadyMoved, prop) {
-					require.NoError(t, os.Rename(filepath.Join(lsm, canonical), filepath.Join(lsm, staged[prop])))
+					require.NoError(t, os.Rename(filepath.Join(lsm, canonical), filepath.Join(lsm, canonical+layout.staged+"_7")))
 				}
+			}
+			if tt.edit != nil {
+				tt.edit(t, lsm, tracker)
 			}
 			if tt.disables {
 				class.Properties[0].IndexFilterable = boolPtr(false)
 			}
 
-			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
-			require.NoError(t, err)
-			shard = reloaded.(*Shard)
-			t.Cleanup(func() { shard.Shutdown(context.Background()) })
-
-			_, err = os.Stat(tracker)
-			if !tt.wantMoved {
-				require.NoError(t, err, "a migration that may not have finished must keep its tracker")
-				for _, dir := range staged {
-					require.NoDirExists(t, filepath.Join(lsm, dir), "the load sweep deletes data no view names")
-				}
+			before := legacyFolders(t, lsm)
+			loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.Equal(t, before, legacyFolders(t, lsm), "a failed load changes nothing")
+			} else {
+				require.NoError(t, err)
+				requireLegacyFinalized(t, loaded.(*Shard), class, tt.code, tt.props, tt.wantTracker, tt.disables)
+			}
+			if tt.fix == nil {
 				return
 			}
-			require.ErrorIs(t, err, os.ErrNotExist, "the markers go once the move is done, so it runs once")
-			for _, prop := range tt.props {
-				require.NoDirExists(t, filepath.Join(lsm, staged[prop]))
-				require.Lenf(t, legacyFinalizeSearch(t, ctx, shard, class.Class, tt.code, prop), legacyObjects,
-					"property %q must serve every object", prop)
-			}
+			tt.fix(t, lsm, class)
+			loaded, err = idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			require.NoError(t, err)
+			requireLegacyFinalized(t, loaded.(*Shard), class, tt.code, tt.props, false, false)
 		})
+	}
+}
+
+// The folder kept for an index turned off holds data from before it went off.
+// A later enable run serves its own generation, and the next load deletes the folder.
+func TestLegacyKeptFolderIsNotServedAfterReEnable(t *testing.T) {
+	c := newGenCluster(t, genDefaultOpts(), 1)
+	n := c.nodes[0]
+	n.sm.SetMutationGuard(n.dtm)
+	c.addTenants("t1")
+	c.write("t1", 3)
+	idx, lsm, stale := n.index(), filepath.Join(n.index().path(), "t1", "lsm"), filepath.Join(t.TempDir(), "stale")
+	unload := func() {
+		require.NoError(t, n.shard("t1").Shutdown(c.ctx))
+		idx.shards.LoadAndDelete("t1")
+	}
+	load := func() {
+		shd, err := idx.initShard(c.ctx, "t1", n.sr.ReadOnlyClass(c.class), nil, true, true)
+		require.NoError(t, err)
+		idx.shards.Store("t1", shd)
+	}
+	unload()
+	require.NoError(t, copyTree(filepath.Join(lsm, "property_title"), stale))
+	load()
+	off := false
+	require.NoError(t, c.apply(api.ApplyRequest_TYPE_UPDATE_PROPERTY, c.class, api.UpdatePropertyRequest{
+		Property: &models.Property{Name: genProp, IndexFilterable: &off}, FieldsToUpdate: []string{api.PropertyFieldIndexFilterable},
+	}))
+	c.write("t1", 2)
+	unload()
+	require.NoError(t, os.Rename(stale, filepath.Join(lsm, "property_title__enable_filterable_ingest_7")))
+	tracker := plantLegacyTracker(t, lsm, StrategyCodeEnableFilterable, 7, []string{genProp}, legacyFinishedMarkers)
+	load()
+	require.DirExists(t, filepath.Join(lsm, "property_title"))
+	require.DirExists(t, tracker)
+
+	id, err := c.submit(ReindexTypeEnableFilterable, "")
+	require.NoError(t, err)
+	c.waitGone(id)
+	hello := n.filter(genProp, "hello", schema.DataTypeText, filters.OperatorEqual)
+	require.Equal(t, 5, n.count("t1", hello), "the kept folder holds only 3")
+	n.reload("t1")
+	require.Equal(t, 5, n.count("t1", hello))
+	require.NoDirExists(t, filepath.Join(lsm, "property_title"))
+	require.NoDirExists(t, tracker)
+}
+
+func plantLegacyTracker(t *testing.T, lsm string, code MigrationStrategyCode, gen int, props, markers []string) string {
+	tracker := filepath.Join(lsm, migrationsDir, fmt.Sprintf("%s_%s_%d", code, strings.Join(props, "_"), gen))
+	require.NoError(t, os.MkdirAll(tracker, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tracker, "properties.mig"), []byte(strings.Join(props, ",")), 0o644))
+	for _, marker := range markers {
+		require.NoError(t, os.WriteFile(filepath.Join(tracker, marker), nil, 0o644))
+	}
+	return tracker
+}
+
+// requireLegacyFinalized checks a loaded shard, then shuts it down.
+func requireLegacyFinalized(t *testing.T, shard *Shard, class *models.Class, code MigrationStrategyCode,
+	props []string, wantTracker, indexOff bool,
+) {
+	defer func() { require.NoError(t, shard.Shutdown(context.Background())) }()
+	lsm, layout := shard.pathLSM(), legacyMigrationLayouts[code]
+	trackers, err := os.ReadDir(filepath.Join(lsm, migrationsDir))
+	require.NoError(t, err)
+	require.Equal(t, wantTracker, len(trackers) > 0, "trackers left: %v", trackers)
+	for _, prop := range props {
+		canonical := layout.canonical(prop)
+		for _, dir := range []string{canonical + layout.staged + "_7", canonical + layout.backup + "_7"} {
+			require.NoDirExists(t, filepath.Join(lsm, dir))
+		}
+		if indexOff {
+			_, err := os.Stat(filepath.Join(lsm, canonical))
+			require.Equal(t, wantTracker, err == nil, "the canonical folder of %q stays exactly with the tracker", prop)
+			continue
+		}
+		require.Lenf(t, legacyFinalizeSearch(t, context.Background(), shard, class.Class, code, prop), legacyObjects,
+			"property %q must serve every object", prop)
 	}
 }
 

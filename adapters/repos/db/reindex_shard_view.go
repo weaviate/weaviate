@@ -194,7 +194,7 @@ func (s *Shard) servedIndexName(propName, indexType string) string {
 
 // loadReindexView decides, before any property bucket opens, which folder
 // each property index opens.
-func (s *Shard) loadReindexView(loading *models.Class) error {
+func (s *Shard) loadReindexView(loading *models.Class, keep map[string]bool) error {
 	class, props, err := s.readReindexView()
 	if err != nil {
 		return fmt.Errorf("read reindex state: %w", err)
@@ -209,14 +209,14 @@ func (s *Shard) loadReindexView(loading *models.Class) error {
 			}
 		}
 	}
-	s.sweepUnnamedIndexFolders(class, props)
+	s.sweepUnnamedIndexFolders(class, props, keep)
 	s.view.current.Store(newShardView(s, props))
 	return nil
 }
 
 // sweepUnnamedIndexFolders deletes what a crash before a retire or an index-off on an unloaded
 // shard left behind. A folder it cannot delete is never opened.
-func (s *Shard) sweepUnnamedIndexFolders(class *models.Class, props map[string]reindexPropView) {
+func (s *Shard) sweepUnnamedIndexFolders(class *models.Class, props map[string]reindexPropView, keep map[string]bool) {
 	entries, err := os.ReadDir(s.pathLSM())
 	if err != nil {
 		s.index.logger.WithField("action", "reindex_load_sweep").Errorf("cannot list the shard's folders: %v", err)
@@ -225,7 +225,7 @@ func (s *Shard) sweepUnnamedIndexFolders(class *models.Class, props map[string]r
 	named := namedIndexFolders(class, props)
 	failed, first := 0, error(nil)
 	for _, e := range entries {
-		if !e.IsDir() || named[e.Name()] || !isIndexFolderOf(class, e.Name()) {
+		if !e.IsDir() || named[e.Name()] || keep[e.Name()] || !isIndexFolderOf(class, e.Name()) {
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(s.pathLSM(), e.Name())); err != nil {

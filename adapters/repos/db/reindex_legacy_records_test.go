@@ -32,12 +32,12 @@ import (
 )
 
 // legacyCounts are a filter on "hello world" and BM25 on "hello" and "hello world".
-type legacyCounts struct{ filter, bm25Hello, bm25HelloWorld int }
+type legacyCounts struct{ filter, bm25Hello, bm25HelloWorld, scoreAtLeast5 int }
 
 var (
-	legacyWord  = legacyCounts{10, 10, 10}
-	legacyField = legacyCounts{5, 0, 5}
-	legacyEmpty = legacyCounts{0, 0, 0}
+	legacyWord  = legacyCounts{10, 10, 10, 0}
+	legacyField = legacyCounts{5, 0, 5, 0}
+	legacyEmpty = legacyCounts{0, 0, 0, 0}
 )
 
 // Shard folders written by v1.39.17 with their migration records (see each
@@ -61,11 +61,12 @@ func TestReindexLegacyRecords(t *testing.T) {
 		{fixture: "10-rebuildsearchable-iterated-not-switched", want: legacyWord},
 		{fixture: "11-changealgo-swapped-effect-shown", want: legacyWord},
 		{fixture: "13-changealgo-merged-not-switched", want: legacyWord},
+		{fixture: "14-enablerangeable-swapped-effect-shown", want: legacyCounts{10, 10, 10, 5}},
 		// A partial run whose task v1.39.3-14 already deleted serves what the
 		// class names, which is empty where the swap deleted the plain folder.
 		{fixture: "02-changetok-swapped-effect-not-shown", want: legacyEmpty},
 		{fixture: "04-changetok-promoted-effect-not-shown", want: legacyEmpty},
-		{fixture: "12-changealgo-swapped-effect-not-shown", want: legacyCounts{10, 0, 0}},
+		{fixture: "12-changealgo-swapped-effect-not-shown", want: legacyCounts{10, 0, 0, 0}},
 		{
 			fixture: "05-changetok-merged-not-switched", name: "a word to field run, then a field to word run",
 			edit: func(t *testing.T, lsm string) {
@@ -133,11 +134,15 @@ func TestReindexLegacyRecords(t *testing.T) {
 			for _, f := range legacyFolders(t, lsm) {
 				require.NotRegexp(t, `_(ingest|reindex)_\d+$`, f, "a staged or sidecar folder is left")
 			}
-			require.Equal(t, tc.want, legacyCounts{
+			got := legacyCounts{
 				filter:         n.count(legacyTenant, n.filter(genProp, "hello world", schema.DataTypeText, filters.OperatorEqual)),
 				bm25Hello:      n.bm25(legacyTenant, "hello"),
 				bm25HelloWorld: n.bm25(legacyTenant, "hello world"),
-			})
+			}
+			if tc.want.scoreAtLeast5 > 0 {
+				got.scoreAtLeast5 = n.count(legacyTenant, n.filter("score", 5, schema.DataTypeInt, filters.OperatorGreaterThanEqual))
+			}
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -201,15 +206,17 @@ func removeLegacyRecords(t *testing.T, lsm string) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsm, legacyRecordsDir), 0o755))
 }
 
-// legacyFolders lists the shard's top-level folders and its record files.
+// legacyFolders lists the shard's top-level folders and everything under its migrations folder.
 func legacyFolders(t *testing.T, lsm string) []string {
+	entries, err := os.ReadDir(lsm)
+	require.NoError(t, err)
 	var out []string
-	for _, dir := range []string{lsm, filepath.Join(lsm, legacyRecordsDir)} {
-		entries, err := os.ReadDir(dir)
-		require.NoError(t, err)
-		for _, e := range entries {
-			out = append(out, e.Name())
-		}
+	for _, e := range entries {
+		out = append(out, e.Name())
 	}
+	require.NoError(t, filepath.WalkDir(filepath.Join(lsm, migrationsDir), func(path string, _ os.DirEntry, err error) error {
+		out = append(out, strings.TrimPrefix(path, lsm))
+		return err
+	}))
 	return out
 }

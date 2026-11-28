@@ -161,11 +161,13 @@ func TestReindexGenerationRuns_PartialRun(t *testing.T) {
 			opts: genDefaultOpts(), end: cancel,
 			then: func(t *testing.T, c *genCluster, id string) {
 				c.write("t2", 2)
-				gen1 := reindexBucketName(genProp, indexTypeFilterable, 1)
-				c.waitFor("t2's build folder to go", func() bool {
-					return !c.folderExists(c.nodes[0], "t2", gen1) && !c.folderExists(c.nodes[1], "t2", gen1) &&
-						!c.folderExists(c.nodes[2], "t2", gen1)
-				})
+				for _, it := range []string{indexTypeFilterable, indexTypeSearchable} {
+					gen1 := reindexBucketName(genProp, it, 1)
+					c.waitFor("t2's build folder "+gen1+" to go", func() bool {
+						return !c.folderExists(c.nodes[0], "t2", gen1) && !c.folderExists(c.nodes[1], "t2", gen1) &&
+							!c.folderExists(c.nodes[2], "t2", gen1)
+					})
+				}
 				c.requireReads("t2", genReads{5, 5, 5, 5}, "t2 after the cancel")
 				c.requireReads("t1", field3, "t1 after the cancel")
 			},
