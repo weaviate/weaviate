@@ -2,7 +2,7 @@
 
 **Estado:** semilla del design doc de disco, y punto de partida de la fase 2 (2026-11-16). Tiene los layouts posibles del posting y de los vectores exactos en disco, el detalle del layout (c), que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11), y FastScan. "Open for phase 2" lista lo que el diseño de disco tiene que resolver, sin resolverlo, y "HFresh map" (2026-11-16) dice qué piezas de HFresh sirven. "Mantenimiento: lo que deja v2.0" (2026-11-16) tiene los veredictos del streaming en memoria, como entrada para el diseño de mantenimiento, y el ef de inserción que deja v2.1. "El halo" (2026-11-17) tiene el modo sin sidecar residente y lo que cuesta, de v3.0. El resto del diseño de disco no está escrito aquí.
 
-Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los únicos tiempos de I/O medidos están en «El primer prototipo que lee de disco (v4.0)»; todo lo demás son cuentas.
+Las cifras son de [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md): dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los únicos tiempos de I/O medidos están en «El primer prototipo que lee de disco (v4.0)»; todo lo demás son cuentas.
 
 ## Los layouts del posting en disco
 
@@ -195,7 +195,7 @@ Lo que queda por medir:
 
 ## El halo: los códigos de los endpoints dentro del posting (v3.0, 2026-11-17)
 
-*De `bench-report.md`, «v3.0: punto de operación del halo»: dbpedia 1M en lote, con S = 236 y con S = 1024. Sobre cada build, la referencia ordena los postings con el código completo de los endpoints, que es lo que hace el sidecar residente, y tres celdas los ordenan con un sketch de 256, 384 y 512 bits. El scan lleva el código completo en todas. Son conteos y un modelo de bytes; ningún I/O está medido. Lo que es lectura mía va marcado.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v3.0: punto de operación del halo»: dbpedia 1M en lote, con S = 236 y con S = 1024. Sobre cada build, la referencia ordena los postings con el código completo de los endpoints, que es lo que hace el sidecar residente, y tres celdas los ordenan con un sketch de 256, 384 y 512 bits. El scan lleva el código completo en todas. Son conteos y un modelo de bytes; ningún I/O está medido. Lo que es lectura mía va marcado.*
 
 **Qué es.** En los cuatro layouts de arriba queda residente el sidecar: el código completo de cada vector, 200 B a 1536d. El halo lo quita. Cada posting lleva un tercer bloque, con el id y un sketch de cada endpoint distinto de las aristas de sus miembros, y la búsqueda ordena los postings sin cargar con lo que traen los que ya cargó. Los centroides y el mapa vector→posting, de 4 B por vector, siguen residentes.
 
@@ -281,7 +281,7 @@ Lo que queda por medir:
 
 ### Contexto, con el HFresh real (v4.0, 2026-11-18)
 
-*De `bench-report.md`, «Resultados de v4.0»: el HFresh de esta rama, construido sobre el mismo dataset con su configuración por defecto, y las celdas de posting-edge escritas en el mismo store LSM. Las lecturas son las que cuenta el store en modo pread, sobre 5 000 queries. Sustituye a las dos filas de simulación de arriba para todo lo que sea comparar.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «Resultados de v4.0»: el HFresh de esta rama, construido sobre el mismo dataset con su configuración por defecto, y las celdas de posting-edge escritas en el mismo store LSM. Las lecturas son las que cuenta el store en modo pread, sobre 5 000 queries. Sustituye a las dos filas de simulación de arriba para todo lo que sea comparar.*
 
 | a 1M, por query | postings a 0.95: lecturas | MB | con el rescore: lecturas | MB | postings a 0.99: lecturas | MB | con el rescore: lecturas | MB |
 |---|---|---|---|---|---|---|---|---|
@@ -302,7 +302,7 @@ Lo que queda por medir:
 
 ### Podar el halo (v3.1, 2026-11-17)
 
-*De `bench-report.md`, «v3.1: podar el halo»: el build de S = 236 de v3.0, con sketches de 384 y de 512 bits. Cuatro juegos de aristas (todas, una por posting de destino, cap de grado 8, y las dos podas) por tres márgenes de source (0.04, 0.06 y 0.08). Cada celda se compara con la de v3.0, todas las aristas y M = 0.06, medida en la misma corrida. Son conteos y el modelo de bytes de arriba.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v3.1: podar el halo»: el build de S = 236 de v3.0, con sketches de 384 y de 512 bits. Cuatro juegos de aristas (todas, una por posting de destino, cap de grado 8, y las dos podas) por tres márgenes de source (0.04, 0.06 y 0.08). Cada celda se compara con la de v3.0, todas las aristas y M = 0.06, medida en la misma corrida. Son conteos y el modelo de bytes de arriba.*
 
 **No sirve, por el criterio del usuario:** la poda servía si alguna celda leía 2.46 MB o menos a 0.95, la cifra de la partición sin réplicas de HFresh, con 0.99 alcanzable. Ninguna de las 22 celdas podadas llega. Todas pasan el gate de 0.99 con rescoreLimit 64.
 
@@ -354,7 +354,7 @@ Lo que queda por medir:
 
 ## El primer prototipo que lee de disco (v4.0, 2026-11-18)
 
-*De `bench-report.md`, «v4.0: primer prototipo que lee de disco»: dbpedia 1M en lote con S = 236, escrito al store LSM de HFresh y consultado desde ahí, junto al HFresh real de esta rama. Solo el camino de lectura. Una sesión de día de dos rondas en un M1 Max, con el frío medido en un volumen APFS que se desmonta: los números absolutos no valen para producción, vale la comparación. Cinco de las ocho curvas quedaron marcadas y se repiten la noche del 18; las cifras de abajo son la primera ronda.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v4.0: primer prototipo que lee de disco»: dbpedia 1M en lote con S = 236, escrito al store LSM de HFresh y consultado desde ahí, junto al HFresh real de esta rama. Solo el camino de lectura. Una sesión de día de dos rondas en un M1 Max, con el frío medido en un volumen APFS que se desmonta: los números absolutos no valen para producción, vale la comparación. Cinco de las ocho curvas quedaron marcadas y se repiten la noche del 18; las cifras de abajo son la primera ronda.*
 
 **El formato.** Un posting son tres bloques con clave propia en un bucket Replace: 4 B de posting y 1 B de bloque. Miembros (id y código completo, 208 B), aristas (4 B) y, en las celdas de halo, el halo (id y sketch de 512 bits, 76 B). Un segmento. Residente: el posting y el slot de cada vector, los centroides con su grafo y, en las celdas con códigos en RAM, el código de ruteo. Los vectores exactos, en un fichero propio en orden de posting. La búsqueda es la del índice, con la carga partida en traer y procesar: los bloques de una ronda se piden a la vez.
 
@@ -370,11 +370,11 @@ Lo que queda por medir:
 | HFresh, la configuración que menos lee | 163.3 MB | 3.47 | 46.81 | 16.33 | 179.0 |
 | HFresh por defecto, recall 0.9674 | 163.3 MB | 5.51 | 69.52 | — | — |
 
-- **El heap de la tabla lleva 40 MB que no son del índice** (*desglosado el 19, `bench-report.md`, «El heap a 1M, por componente»*): las queries del arnés y el proceso. El índice son 106.0 MB con 512 bits en RAM, 35.0 MB con halo y 123.0 MB en HFresh. De los de HFresh, unos 50 MB son centroides borrados que el arnés no limpia y un nodo sí: limpio quedaría en unos 73 MB, estimado, por debajo de la celda de 512 bits.
+- **El heap de la tabla lleva 40 MB que no son del índice** (*desglosado el 19, [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «El heap a 1M, por componente»*): las queries del arnés y el proceso. El índice son 106.0 MB con 512 bits en RAM, 35.0 MB con halo y 123.0 MB en HFresh. De los de HFresh, unos 50 MB son centroides borrados que el arnés no limpia y un nodo sí: limpio quedaría en unos 73 MB, estimado, por debajo de la celda de 512 bits.
 - **Los criterios del usuario se cumplen:** la celda de 512 bits en RAM tiene menos latencia en frío que HFresh a 0.95 y llega a 0.99, y el halo no es más lento. No hay ningún empate, con la regla del 10 %.
 - **En frío, la diferencia mezcla dos cosas.** HFresh lee sus postings uno detrás de otro (`PostingStore.MultiGet`): de sus 46.3 ms de media a 0.95, 40.3 son 210 lecturas a 0.19 ms. Posting-edge lee tres veces menos y pide a la vez los bloques de una ronda. La sesión no las separa.
   - *Estimación mía, sin medir:* con sus postings leídos de 8 en 8, HFresh quedaría en unos 12 ms, 2.8 veces la celda de 512 bits.
-  - **Medido el 19, con HFresh leyendo sus postings de 8 en 8** (*`bench-report.md`, «HFresh con sus postings leídos en paralelo»; el cambio va apagado salvo en el benchmark*): en frío con 1 thread baja de 46.80 a 14.28 ms a 0.95 y de 178.4 a 47.89 a 0.99, a 0.31 y 0.27 veces. Con 8 threads no gana nada, 0.94 a 0.97 veces, y en caliente un 16 a un 21 % con 1 thread.
+  - **Medido el 19, con HFresh leyendo sus postings de 8 en 8** (*[`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «HFresh con sus postings leídos en paralelo»; el cambio va apagado salvo en el benchmark*): en frío con 1 thread baja de 46.80 a 14.28 ms a 0.95 y de 178.4 a 47.89 a 0.99, a 0.31 y 0.27 veces. Con 8 threads no gana nada, 0.94 a 0.97 veces, y en caliente un 16 a un 21 % con 1 thread.
   - **La celda de 512 bits queda 4.0 veces por debajo de ese HFresh a 0.95 en frío,** 3.54 ms frente a 14.28, y 5.4 veces a 0.99. El halo, 3.0 y 3.4 veces. La estimación se quedaba corta: 14.3 ms y no 12.
 - **En caliente no hay lectura que esperar,** y la diferencia es de 2.5 a 4.6 veces a 0.95 y de 2.9 a 5.2 a 0.99.
 
@@ -392,7 +392,7 @@ Lo que queda por medir:
 
 ## Inserts en disco (v5.0, 2026-11-18) y su control de reorganización (2026-11-19)
 
-*De `bench-report.md`, «v5.0: inserts en disco»: dbpedia 1M, del 10 al 100 % por inserts, con el camino de escritura de v2.x sobre el store LSM y los códigos de ruteo de 512 bits en RAM. T = 360, ef de inserción 160, aristas inversas, sin refresco ni deletes. Un escritor. Todo en ficheros de test. Los números absolutos no valen para producción; vale la comparación dentro de cada sesión.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v5.0: inserts en disco»: dbpedia 1M, del 10 al 100 % por inserts, con el camino de escritura de v2.x sobre el store LSM y los códigos de ruteo de 512 bits en RAM. T = 360, ef de inserción 160, aristas inversas, sin refresco ni deletes. Un escritor. Todo en ficheros de test. Los números absolutos no valen para producción; vale la comparación dentro de cada sesión.*
 
 **El formato que crece.** Es la opción (2) de «Dónde viven las aristas», abajo: escrituras por elemento, sin reescribir el posting.
 
@@ -468,11 +468,11 @@ Un nodo reparte dos recursos entre todos sus índices. El índice tiene que usar
 - **Los buscadores de los inserts en paralelo (v5.2, cerrado el 20)** son goroutines del benchmark, 4 u 8 para un solo índice. En producto salen de esos mismos workers compartidos, y con más índices en el nodo le tocan menos a cada uno.
   - **Lo medido, que es el mejor caso:** 3.0 veces los inserts por segundo con 4 buscadores y 3.76 con 8, en tandas de 32, sin perder calidad a igual ef. El aplicador único no es el límite, 0.30 ms por insert. El límite es que ocho búsquedas a la vez tardan un 54 % más cada una.
 
-Lo comprobado en el código, y qué números del arnés pueden cambiar por ello, está en `bench-report.md`, «Los recursos compartidos del nodo».
+Lo comprobado en el código, y qué números del arnés pueden cambiar por ello, está en [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «Los recursos compartidos del nodo».
 
 ## Deletes en memoria (v6.0, 2026-11-19)
 
-*De `bench-report.md`, «v6.0: deletes en memoria»: dbpedia 1M en lote, con el 10, el 30 y el 50 % borrado al azar, el 30 % en regiones enteras y un churn del 30 %. Dos corridas, en conteos, cada punto frente a un índice en lote de los vectores que quedan. En memoria: nada de esto está en disco.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v6.0: deletes en memoria»: dbpedia 1M en lote, con el 10, el 30 y el 50 % borrado al azar, el 30 % en regiones enteras y un churn del 30 %. Dos corridas, en conteos, cada punto frente a un índice en lote de los vectores que quedan. En memoria: nada de esto está en disco.*
 
 **Veredicto.** Por el criterio del usuario los deletes no se sostienen: con el 30 % borrado al azar ninguna de las cinco celdas queda a 0.005 de recall a igual ef con cargas a 0.95 +15 % o menos y a 0.99 +10 % o menos. Ningún stop: ningún borrado devuelto y cobertura completa.
 
@@ -506,7 +506,7 @@ Lo comprobado en el código, y qué números del arnés pueden cambiar por ello,
 
 ## Limpieza en dos fases (v6.1, 2026-11-19)
 
-*De `bench-report.md`, «v6.1: limpieza en dos fases»: el punto de v6.0, dbpedia 1M en lote con el 30 % borrado al azar, y el churn del 30 % en diez rondas. Una corrida, en conteos y en memoria: nada de esto está en disco.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v6.1: limpieza en dos fases»: el punto de v6.0, dbpedia 1M en lote con el 30 % borrado al azar, y el churn del 30 % en diez rondas. Una corrida, en conteos y en memoria: nada de esto está en disco.*
 
 **La pasada,** en este orden:
 
@@ -731,7 +731,7 @@ Datos en [`testdata/bench/phase2/`](https://github.com/weaviate/weaviate/tree/fe
 
 ## Mantenimiento: lo que deja v2.0 (2026-11-16)
 
-*Entrada para el diseño de mantenimiento, sin resolverlo. Las cifras son de `bench-report.md`, «v2.0: streaming en memoria»: dbpedia 1M, lote sobre el 50 % del corpus y el otro 50 % insertado, frente al lote del 100 %. Todo en memoria: son recall, cargas y conteos, y ningún I/O está medido. Las cuentas en bytes son derivadas, con los tamaños de este documento (208 B de id y código y 36 B de aristas por miembro, a 1536d). Lo que es lectura mía va marcado.*
+*Entrada para el diseño de mantenimiento, sin resolverlo. Las cifras son de [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v2.0: streaming en memoria»: dbpedia 1M, lote sobre el 50 % del corpus y el otro 50 % insertado, frente al lote del 100 %. Todo en memoria: son recall, cargas y conteos, y ningún I/O está medido. Las cuentas en bytes son derivadas, con los tamaños de este documento (208 B de id y código y 36 B de aristas por miembro, a 1536d). Lo que es lectura mía va marcado.*
 
 ### Los veredictos
 
@@ -770,7 +770,7 @@ Datos en [`testdata/bench/phase2/`](https://github.com/weaviate/weaviate/tree/fe
 
 ### El ef de inserción (v2.1, 2026-11-16)
 
-*De `bench-report.md`, «v2.1: el ef de inserción, sobre H1»: la celda de aristas inversas con ef de inserción 160, 80, 40 y 20, frente al lote del 100 % y a las dos corridas con ef 320. Las cargas por insert son el conteo directo de su búsqueda; las de ef 320 no se contaron y salen de las queries a ese ef, que en las otras celdas dan el conteo con un 0.3 % de error.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v2.1: el ef de inserción, sobre H1»: la celda de aristas inversas con ef de inserción 160, 80, 40 y 20, frente al lote del 100 % y a las dos corridas con ef 320. Las cargas por insert son el conteo directo de su búsqueda; las de ef 320 no se contaron y salen de las queries a ese ef, que en las otras celdas dan el conteo con un 0.3 % de error.*
 
 | ef de inserción | cargas de posting por insert: media (p95) | rondas | recall de arista al insertar | recall frente al lote, peor ef | cargas por query a 0.95, frente al lote | a 0.99 | cumple el criterio |
 |---|---|---|---|---|---|---|---|
@@ -811,7 +811,7 @@ Datos en [`testdata/bench/phase2/`](https://github.com/weaviate/weaviate/tree/fe
 
 ### Crecer diez veces (v2.2, 2026-11-17)
 
-*De `bench-report.md`, «v2.2: crecer desde el 10 %, sobre H1»: el lote sobre el 10 % del corpus y el 90 % insertado con aristas inversas y sin reparar ningún split, con ef de inserción 160 y 80, frente al lote del 100 %. Las celdas de v2.1 con el mismo ef parten del 50 %.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v2.2: crecer desde el 10 %, sobre H1»: el lote sobre el 10 % del corpus y el 90 % insertado con aristas inversas y sin reparar ningún split, con ef de inserción 160 y 80, frente al lote del 100 %. Las celdas de v2.1 con el mismo ef parten del 50 %.*
 
 | al 100 %, frente al lote | ef 160, corpus ×10 | ef 80, corpus ×10 | ef 160, corpus ×2 (v2.1) | ef 80, corpus ×2 (v2.1) |
 |---|---|---|---|---|
@@ -857,7 +857,7 @@ Datos en [`testdata/bench/phase2/`](https://github.com/weaviate/weaviate/tree/fe
 
 ### Aristas o partición (diagnóstico de v2.2, 2026-11-17)
 
-*De `bench-report.md`, «Diagnóstico: aristas o partición»: la celda de ef 80 de v2.2, repetida. Al 100 %, las aristas de todos los vectores se reconstruyen con el constructor del lote sobre la partición que dejan los inserts, sin tocarla. Después, además, se rehace en lote el grafo de centroides.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «Diagnóstico: aristas o partición»: la celda de ef 80 de v2.2, repetida. Al 100 %, las aristas de todos los vectores se reconstruyen con el constructor del lote sobre la partición que dejan los inserts, sin tocarla. Después, además, se rehace en lote el grafo de centroides.*
 
 | frente al lote del 100 % | antes de reconstruir | aristas reconstruidas | y el grafo de centroides |
 |---|---|---|---|
@@ -902,7 +902,7 @@ Datos en [`testdata/bench/phase2/`](https://github.com/weaviate/weaviate/tree/fe
 
 ### El refresco de aristas por búsqueda (v2.3, 2026-11-17)
 
-*De `bench-report.md`, «v2.3: refresco de aristas con la búsqueda del insert»: la celda de ef 80 de v2.2 otra vez. Al 100 %, cada vector repite el paso de aristas de su insert: la búsqueda con ef 80, entrando por su posting, su lista nueva y las escrituras inversas. Va en tres etapas por edad, sobre un índice y en una corrida. Al final, informativa, la reconstrucción en lote del diagnóstico.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v2.3: refresco de aristas con la búsqueda del insert»: la celda de ef 80 de v2.2 otra vez. Al 100 %, cada vector repite el paso de aristas de su insert: la búsqueda con ef 80, entrando por su posting, su lista nueva y las escrituras inversas. Va en tres etapas por edad, sobre un índice y en una corrida. Al final, informativa, la reconstrucción en lote del diagnóstico.*
 
 | frente al lote del 100 % | antes | refrescados los del lote del 10 % | hasta el 40 % | todos | aristas reconstruidas en lote |
 |---|---|---|---|---|---|
@@ -958,7 +958,7 @@ Datos en [`testdata/bench/phase2/`](https://github.com/weaviate/weaviate/tree/fe
 
 ### El refresco al doblar (v2.4, 2026-11-17)
 
-*De `bench-report.md`, «v2.4: refresco al doblar, en línea»: la celda de ef 80 otra vez. Cuando el corpus llega a 200 000, 400 000 y 800 000 vectores, se refrescan como en v2.3 todos los vectores cuyas aristas se construyeron con la mitad del corpus o menos: 100 000, 200 000 y 400 000. No hay refresco final. Se mide antes y después de cada tanda, al 100 % y con las aristas reconstruidas en lote sobre la misma partición, que es la referencia dentro de la corrida.*
+*De [`bench-report.md`](https://github.com/weaviate/weaviate/blob/feat/posting-edge-index/adapters/repos/db/vector/postingedge/bench-report.md), «v2.4: refresco al doblar, en línea»: la celda de ef 80 otra vez. Cuando el corpus llega a 200 000, 400 000 y 800 000 vectores, se refrescan como en v2.3 todos los vectores cuyas aristas se construyeron con la mitad del corpus o menos: 100 000, 200 000 y 400 000. No hay refresco final. Se mide antes y después de cada tanda, al 100 % y con las aristas reconstruidas en lote sobre la misma partición, que es la referencia dentro de la corrida.*
 
 | | cargas a 0.95 | cargas a 0.99 | aristas por vector |
 |---|---|---|---|

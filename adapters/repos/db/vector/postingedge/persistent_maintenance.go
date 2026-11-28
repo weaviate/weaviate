@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -72,7 +73,7 @@ func (p *Persistent) startMaintenance() {
 			case <-p.wake:
 			case <-tick.C:
 			}
-			if err := p.maintain(ctx); err != nil && ctx.Err() == nil {
+			if err := p.maintain(ctx, false); err != nil && ctx.Err() == nil {
 				p.logger.WithFields(logrus.Fields{
 					"action": "postingedge_maintenance",
 					"id":     p.cfg.ID,
@@ -92,6 +93,44 @@ func (p *Persistent) wakeMaintenance() {
 	}
 }
 
+// errLayoutNoRoom is a pass that lays the vectors out and did not start: the
+// disk has no room for what it writes.
+var errLayoutNoRoom = errors.New("the disk has no room to lay the vectors out again")
+
+// layoutRoom is how many bytes the disk must have free for a pass that
+// writes the given ones to start: its files, and a quarter more for what the
+// inserts and the store write while it runs. The files the index has stay
+// until the pass ends, so the vectors are on the disk twice by then.
+func layoutRoom(writes uint64) uint64 {
+	return writes + writes/4
+}
+
+// layoutDue tells whether a pass that lays the vectors out is due. An index
+// at rest lays them out when it has doubled since the last pass. One that is
+// being ingested into, with an insert in the last layoutQuiet, waits until
+// it holds four times as many: a pass writes every vector again, and
+// competes with the inserts for the disk. atRest asks for the rule of an
+// index at rest whatever came last, for whoever settles the index. The
+// caller holds mu, for reading at least.
+func (p *Persistent) layoutDue(atRest bool) bool {
+	if p.g == nil {
+		return false
+	}
+	if atRest || !p.ingesting() {
+		return p.g.layoutDue()
+	}
+	return p.g.layoutDueBy(layoutIngestFactor)
+}
+
+// ingesting tells whether an insert was applied in the last layoutQuiet.
+func (p *Persistent) ingesting() bool {
+	last := p.lastInsert.Load()
+	if last == 0 || p.cfg.layoutQuiet < 0 {
+		return false
+	}
+	return p.cfg.now().Sub(time.Unix(0, last)) < p.cfg.layoutQuiet
+}
+
 // Settle does whatever maintenance is due now and returns once nothing is:
 // for whoever needs the index to stay as it is for a while, which what runs in
 // the background does not promise. It runs in the goroutine of the caller, one
@@ -101,12 +140,12 @@ func (p *Persistent) Settle(ctx context.Context) error {
 	for {
 		p.mu.RLock()
 		due := !p.closed && p.failed == nil && p.g != nil &&
-			p.g.layoutDue() && int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
+			p.layoutDue(true) && int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
 		p.mu.RUnlock()
 		if !due && !p.cleanOn() && !p.refreshOn() && !p.baseOn() {
 			return nil
 		}
-		if err := p.maintain(ctx); err != nil {
+		if err := p.maintain(ctx, true); err != nil {
 			return err
 		}
 	}
@@ -116,7 +155,11 @@ func (p *Persistent) Settle(ctx context.Context) error {
 // vectors leave, then the edges that are old are built again, and then the
 // vectors are laid out. The bucket of postings is asked to be one segment
 // when that is due, which the store then sees to.
-func (p *Persistent) maintain(ctx context.Context) error {
+//
+// atRest has the vectors laid out by the rule of an index at rest
+// (layoutDue), for whoever settles it: what runs in the background goes by
+// whether the index is being ingested into.
+func (p *Persistent) maintain(ctx context.Context, atRest bool) error {
 	// The base first, and the vectors that came while it was built: until
 	// the index has taken them every search reads them all.
 	if err := p.settleBase(ctx); err != nil {
@@ -135,7 +178,7 @@ func (p *Persistent) maintain(ctx context.Context) error {
 	}
 
 	p.mu.RLock()
-	due := !p.closed && p.failed == nil && p.g != nil && p.g.layoutDue() &&
+	due := !p.closed && p.failed == nil && p.g != nil && p.layoutDue(atRest) &&
 		int64(p.g.nextSlot) >= p.layoutNotBefore.Load()
 	slots := int64(0)
 	if due {
@@ -150,6 +193,15 @@ func (p *Persistent) maintain(ctx context.Context) error {
 		// again with every insert, but once the index has grown by a tenth
 		// more.
 		p.layoutNotBefore.Store(slots + max(slots/10, layoutStep))
+		if errors.Is(err, errLayoutNoRoom) {
+			// Nothing of the index is wrong: its vectors stay in the order
+			// they are in, and whoever settles it is not told of an error.
+			p.logger.WithFields(logrus.Fields{
+				"action": "postingedge_layout",
+				"id":     p.cfg.ID,
+			}).Warnf("the vectors of the index stay in the order they are in: %v", err)
+			return nil
+		}
 		return err
 	}
 	return nil
@@ -170,6 +222,14 @@ func (p *Persistent) layOut(ctx context.Context) error {
 		return nil
 	}
 	g := p.g
+	// A pass writes every vector again next to the files the index has. One
+	// that does not fit would fill the disk before it failed, for the
+	// inserts and for everything else that writes to it: it does not start.
+	writes := g.layoutBytes()
+	if free, err := p.cfg.diskFree(g.dir); err == nil && free < layoutRoom(writes) {
+		p.mu.RUnlock()
+		return errors.Wrapf(errLayoutNoRoom, "%d bytes free in %s, and the pass writes %d", free, g.dir, writes)
+	}
 	pass, err := g.beginLayout()
 	p.mu.RUnlock()
 	if err != nil {

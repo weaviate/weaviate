@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -150,6 +151,12 @@ type Persistent struct {
 	// plans has the plans of the inserts, which every caller takes for the
 	// vectors it is adding and gives back.
 	plans sync.Pool
+	// lastInsert is when the last insert was applied, in nanoseconds of the
+	// clock of the config: zero for none since the index was opened.
+	lastInsert atomic.Int64
+	// batches gathers the plans of the callers into batches
+	// (persistent_batches.go).
+	batches insertBatches
 }
 
 const (
@@ -188,6 +195,27 @@ const (
 	// DefaultConsolidate is how many changes to the edges of a posting wait
 	// before its row of edges is written again: the K of v5.1 and v5.3.
 	DefaultConsolidate = 64
+	// DefaultPendingBudget caps the heap of the changes to the edges that
+	// wait for the rows of their postings (growOpen.pendingBudget): 128 MB, by
+	// the user's rule of 2026-11-26. Without a cap it grows with the
+	// postings, to about 260 MB at 10M vectors. With 64 MB the index grew 35
+	// % slower than with 128 MB (the median of three runs each, 60 000
+	// vectors of 768 dimensions with the budget scaled per posting), past the
+	// 15 % the rule allowed, and wrote its rows of edges 1.8 times as often.
+	DefaultPendingBudget = 128 << 20
+	// DefaultLayoutQuiet is how long after its last insert an index still
+	// counts as being ingested into, and layoutIngestFactor how many times
+	// the vectors laid out must have come since for a pass to be due
+	// meanwhile: with 3, when the index holds four times as many, where an
+	// index at rest lays out when it has doubled. A pass writes every exact
+	// vector again and competes with the inserts for the disk: growing to
+	// 3.3M vectors, the eight passes at every doubling wrote a tenth of all
+	// the bytes written, and up to 70 times the bytes of the vectors of a
+	// five-minute stretch (bench-report.md of feat/posting-edge-index, "El
+	// diario y las reorganizaciones de la noche"). What a query pays for
+	// vectors out of order while the index grows is not measured yet.
+	DefaultLayoutQuiet = time.Minute
+	layoutIngestFactor = 3
 
 	growBucketPrefix = "postingedge_grow_"
 )
@@ -246,6 +274,9 @@ type PersistentConfig struct {
 	// in (integration-plan.md, section 7, piece 3). The code stays, and only
 	// the tests and the experiments turn it on.
 	refreshEdges bool
+	// pendingBudget is the cap of growOpen.pendingBudget: DefaultPendingBudget
+	// when zero, none when negative.
+	pendingBudget int64
 	// noMaintenance leaves out everything the index does by itself, in the
 	// background and in line with its writes, for the tests and the
 	// experiments that call it themselves. noBackground leaves out only what
@@ -253,6 +284,17 @@ type PersistentConfig struct {
 	// passes that are on.
 	noMaintenance bool
 	noBackground  bool
+	// layoutQuiet is how long after its last insert the index still counts
+	// as being ingested into, and lays its vectors out less often
+	// (Persistent.layoutDue): DefaultLayoutQuiet when zero, never when
+	// negative, which is the rule of an index at rest all along. now, if
+	// set, is the clock it reads, for the tests.
+	layoutQuiet time.Duration
+	now         func() time.Time
+	// diskFree, if set, tells the bytes free on the disk of a directory in
+	// place of the disk itself (diskFree), for the tests: a pass that lays
+	// the vectors out asks it before it starts (Persistent.layOut).
+	diskFree func(dir string) (uint64, error)
 	// float32Centroids has the graph over the centroids keep them in float32
 	// in memory, as before, and not as 8-bit RQ codes in a bucket of the
 	// store, as HFresh keeps its own: for the tests of the conversion and the
@@ -302,6 +344,18 @@ func (c *PersistentConfig) validate() error {
 	if c.BaseSize == 0 {
 		c.BaseSize = DefaultBaseSize
 	}
+	if c.pendingBudget == 0 {
+		c.pendingBudget = DefaultPendingBudget
+	}
+	if c.layoutQuiet == 0 {
+		c.layoutQuiet = DefaultLayoutQuiet
+	}
+	if c.now == nil {
+		c.now = time.Now
+	}
+	if c.diskFree == nil {
+		c.diskFree = diskFree
+	}
 	return nil
 }
 
@@ -336,6 +390,7 @@ func Open(cfg PersistentConfig, uc ent.UserConfig, store *lsmkv.Store) (_ *Persi
 		gone:     map[uint64]struct{}{},
 	}
 	p.plans.New = func() any { return newGrowPlan() }
+	p.batches.init()
 	ctx := context.Background()
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return nil, errors.Wrap(err, "create the directory of the index")
@@ -398,6 +453,11 @@ func (p *Persistent) growOpen() growOpen {
 		journal:     true,
 		noCodes:     p.noCodes,
 		centroidsID: p.centroidsID(),
+		// What waits of the edges takes at most its budget of heap, and no
+		// table of when the edges were built is kept while nothing refreshes
+		// them.
+		pendingBudget: max(p.cfg.pendingBudget, 0),
+		dropBuilt:     !p.cfg.refreshEdges,
 		cycles: centroidCycles{
 			tombstones: p.cfg.TombstoneCallbacks, commitLogs: p.cfg.CommitLogCallbacks,
 			logThreshold: p.cfg.CommitLogThreshold, everyCycle: p.cfg.centroidsEveryCycle,
@@ -563,12 +623,10 @@ func (p *Persistent) Add(ctx context.Context, id uint64, vector []float32) error
 //
 // Several callers add at once: the shared workers of the node each bring a
 // part of what a queue holds, and so do the goroutines of an import. Once the
-// index has its base, the searches of their inserts run next to each other,
-// in the goroutines that call, and their writes one at a time (v5.2,
-// bench-report.md, "inserts con búsquedas en paralelo"). A caller searches
-// for insertWindow of its vectors and then writes them, so that with eight
-// callers the search of an insert misses the thirty-two or so that have not
-// written yet, the batch the experiments measured.
+// index has its base, the callers are the searchers of batches of inserts,
+// and one of them the applier of each (persistent_batches.go): the searches
+// run next to each other over the index as the last batch left it, and the
+// writes of a batch one after another, with the index held for writing once.
 func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -614,20 +672,11 @@ func (p *Persistent) AddBatch(ctx context.Context, ids []uint64, vectors [][]flo
 		return nil
 	}
 	p.writeMu.Unlock()
-
-	for from := 0; from < len(ids); from += insertWindow {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		to := min(from+insertWindow, len(ids))
-		if err := p.addWindow(ctx, ids[from:to], vectors[from:to]); err != nil {
-			return err
-		}
-	}
-	return nil
+	return p.addInBatches(ctx, ids, vectors)
 }
 
-// insertWindow is how many inserts of a caller search before they write.
+// insertWindow is how many inserts of a caller search before it leaves their
+// plans in the batch that gathers.
 const insertWindow = 4
 
 // admit checks a batch before any of it goes in: its dimensions and its
@@ -673,59 +722,11 @@ func (p *Persistent) admit(ids []uint64, vectors [][]float32) (based bool, err e
 	return true, nil
 }
 
-// addWindow inserts a few vectors of a caller: their searches, which read
-// and write nothing, next to the queries and to the searches of the other
-// callers, and then their writes, in their order, with nobody else writing.
-// A search does not see the vectors of its window, nor those the other
-// callers have searched for and not written. What was written between a
-// search and its writes, the writes look at again (growIndex.begin).
-func (p *Persistent) addWindow(ctx context.Context, ids []uint64, vectors [][]float32) error {
-	plans := make([]*growPlan, len(ids))
-	for i := range plans {
-		plans[i] = p.plans.Get().(*growPlan)
-	}
-	defer func() {
-		for _, plan := range plans {
-			p.plans.Put(plan)
-		}
-	}()
-
-	p.mu.RLock()
-	if err := p.usable(); err != nil {
-		p.mu.RUnlock()
-		return err
-	}
-	g := p.g
-	for i, id := range ids {
-		plans[i].work = nil
-		if err := g.plan(ctx, plans[i], id, distancer.Normalize(vectors[i])); err != nil {
-			p.mu.RUnlock()
-			return errors.Wrapf(err, "add vector of id %d", id)
-		}
-	}
-	p.mu.RUnlock()
-
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	for i, plan := range plans {
-		if err := p.write(ctx, g, plan); err != nil {
-			return errors.Wrapf(err, "add vector of id %d", ids[i])
-		}
-		if err := p.payInLine(ctx, ids[i]); err != nil {
-			return err
-		}
-	}
-	p.wakeIfDue()
-	return nil
-}
-
 // write applies the writes of an insert whose search is done. They are not
 // left halfway because whoever asked stopped waiting. The caller holds
-// writeMu.
+// writeMu, and mu for writing: the applier of a batch, once for all of it.
 func (p *Persistent) write(ctx context.Context, g *growIndex, plan *growPlan) error {
 	ctx = context.WithoutCancel(ctx)
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if err := p.usable(); err != nil {
 		return err
 	}
@@ -753,6 +754,7 @@ func (p *Persistent) write(ctx context.Context, g *growIndex, plan *growPlan) er
 		return err
 	}
 	p.dirty = true
+	p.lastInsert.Store(p.cfg.now().UnixNano())
 	return nil
 }
 
@@ -775,7 +777,7 @@ func (p *Persistent) payInLine(ctx context.Context, id uint64) error {
 // wakeIfDue tells what runs in the background that there is work, if there
 // is. The caller holds writeMu.
 func (p *Persistent) wakeIfDue() {
-	if p.g != nil && (p.g.layoutDue() || p.refreshing != nil || p.refreshDue() || p.cleaning != nil ||
+	if p.g != nil && (p.layoutDue(false) || p.refreshing != nil || p.refreshDue() || p.cleaning != nil ||
 		len(p.staged) > 0) {
 		p.wakeMaintenance()
 	}

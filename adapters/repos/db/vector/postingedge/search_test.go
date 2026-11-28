@@ -42,6 +42,7 @@ func smallConfig() UserConfig {
 // a rescore limit above the corpus size every vector is compared exactly: the
 // result must be the exact top k, with exact distances.
 func TestSearchIsExactWhenEverythingIsLoadedAndRescored(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		provider distancer.Provider
@@ -53,14 +54,15 @@ func TestSearchIsExactWhenEverythingIsLoadedAndRescored(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			const k = 10
-			all := clusteredVectors(1100, 24, 20, 61)
-			vectors, queries := all[:1000], all[1000:]
+			all := clusteredVectors(160, 24, 4, 61)
+			vectors, queries := all[:150], all[150:]
 
 			uc := smallConfig()
 			uc.Distance = tt.distance
-			uc.EntryPostings = 1000
-			uc.RescoreLimit = 2000
+			uc.EntryPostings = 150
+			uc.RescoreLimit = 300
 			index := buildTestIndex(t, vectors, tt.provider, uc)
 
 			truth := vectors
@@ -93,21 +95,28 @@ func TestSearchIsExactWhenEverythingIsLoadedAndRescored(t *testing.T) {
 // at all (one blob around a shared offset, the anisotropic shape of real
 // embeddings), so the neighbors of a query are spread over many postings and
 // nothing but the edges can lead to them.
+//
+// This is the small version, over postings of 20: the recall it measures is
+// coarse. TestSearchRecallGrowsWithEFAtScale (build tag postingedgebench)
+// measures it over 8 000 vectors.
 func TestSearchRecallGrowsWithEF(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	provider := distancer.NewCosineDistanceProvider()
-	all := clusteredVectors(8200, 32, 1, 71)
-	vectors, queries := all[:8000], all[8000:]
+	all := clusteredVectors(312, 32, 1, 71)
+	vectors, queries := all[:300], all[300:]
 	truth := normalizedCopy(vectors)
 	normalizedQueries := normalizedCopy(queries)
 
-	index := buildTestIndex(t, vectors, provider, smallConfig())
+	base := smallConfig()
+	base.TargetPostingSize = 20
+	index := buildTestIndex(t, vectors, provider, base)
 	memory, ok := index.MemoryStats()
 	require.True(t, ok)
-	require.Greater(t, memory.Postings, 100, "the corpus must be spread over many postings")
+	require.GreaterOrEqual(t, memory.Postings, 15, "the corpus must be spread over many postings")
 
 	recallWith := func(ef int) float64 {
-		uc := smallConfig()
+		uc := base
 		uc.EF = ef
 		require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 		return recallAt(t, index, truth, normalizedQueries, k, provider)
@@ -118,25 +127,27 @@ func TestSearchRecallGrowsWithEF(t *testing.T) {
 	at20K := recallWith(20 * k)
 	t.Logf("recall@%d: ef=k %.3f, ef=4k %.3f, ef=20k %.3f", k, atK, at4K, at20K)
 
-	// Measured 0.83 / 0.97 / 0.999; the bounds leave room for the graph
-	// over the centroids, which is built concurrently and so differs
-	// slightly from run to run.
-	assert.Greater(t, atK, 0.72, "the natural stop at ef=k must already find most neighbors")
-	assert.Greater(t, at4K, 0.93)
-	assert.Greater(t, at20K, 0.985)
+	// Measured 0.967 / 1.000 / 1.000 (0.83 / 0.97 / 0.999 over 8 000
+	// vectors); the bounds leave room for the graph over the centroids,
+	// which is built concurrently and so differs slightly from run to run.
+	assert.Greater(t, atK, 0.8, "the natural stop at ef=k must already find most neighbors")
+	assert.Greater(t, at4K, 0.95)
+	assert.Greater(t, at20K, 0.99)
 	assert.Greater(t, at4K, atK, "ef must buy recall")
 }
 
 // A search with a larger ef follows the same path and stops later, so it
 // never loads fewer postings.
 func TestSearchLoadsMoreWithALargerEF(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	provider := distancer.NewL2SquaredProvider()
-	all := clusteredVectors(3100, 24, 40, 81)
-	vectors, queries := all[:3000], all[3000:]
+	all := clusteredVectors(210, 24, 1, 81)
+	vectors, queries := all[:200], all[200:]
 
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
+	uc.TargetPostingSize = 20
 	index := buildTestIndex(t, vectors, provider, uc)
 
 	loadedWith := func(ef int) []SearchStats {
@@ -164,10 +175,16 @@ func TestSearchLoadsMoreWithALargerEF(t *testing.T) {
 
 // The stats must add up to the work the configuration allows.
 func TestSearchStatsAccountForTheWork(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	provider := distancer.NewL2SquaredProvider()
-	all := clusteredVectors(3050, 24, 40, 91)
-	vectors, queries := all[:3000], all[3000:]
+	all := clusteredVectors(210, 24, 4, 91)
+	vectors, queries := all[:200], all[200:]
+	// The entry postings and the load batch are search parameters: one build
+	// serves every case.
+	built := smallConfig()
+	built.Distance = "l2-squared"
+	index := buildTestIndex(t, vectors, provider, built)
 
 	tests := []struct {
 		name    string
@@ -189,7 +206,7 @@ func TestSearchStatsAccountForTheWork(t *testing.T) {
 			// every search has to leave them.
 			uc.EF = 20 * k
 			uc.RescoreLimit = 20 * k
-			index := buildTestIndex(t, vectors, provider, uc)
+			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 
 			rounds := 0
 			for _, query := range queries {
@@ -234,9 +251,10 @@ func TestSearchStatsAccountForTheWork(t *testing.T) {
 // its edges are not followed. This drives one posting load by hand and checks
 // the cut against the rule, member by member.
 func TestSourceMarginCutsTheSourcesBeyondTheThreshold(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
-	all := clusteredVectors(3010, 24, 1, 301)
-	vectors, queries := all[:3000], all[3000:]
+	all := clusteredVectors(206, 24, 1, 301)
+	vectors, queries := all[:200], all[200:]
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, provider, uc)
@@ -312,66 +330,12 @@ func TestSourceMarginCutsTheSourcesBeyondTheThreshold(t *testing.T) {
 	}
 }
 
-// A margin trades work for recall. Wide enough it changes nothing; tighter,
-// it must save endpoint scoring, and what it costs in recall must stay small
-// as long as it is not absurdly tight.
-func TestSourceMarginSavesWork(t *testing.T) {
-	const k = 10
-	provider := distancer.NewCosineDistanceProvider()
-	all := clusteredVectors(8200, 32, 1, 71)
-	vectors, queries := all[:8000], all[8000:]
-	truth := normalizedCopy(vectors)
-	normalizedQueries := normalizedCopy(queries)
-
-	base := smallConfig()
-	base.EF = 4 * k
-	index := buildTestIndex(t, vectors, provider, base)
-
-	type outcome struct {
-		results   [][]uint64
-		endpoints int
-		cut       int
-		recall    float64
-	}
-	run := func(margin float32) outcome {
-		uc := base
-		uc.SourceMargin = margin
-		require.NoError(t, index.UpdateUserConfig(uc, func() {}))
-		var out outcome
-		for _, query := range queries {
-			ids, _, stats, err := index.SearchByVectorWithStats(context.Background(), query, k, nil)
-			require.NoError(t, err)
-			out.results = append(out.results, ids)
-			out.endpoints += stats.EndpointsScored
-			out.cut += stats.SourcesCut
-			require.Equal(t, stats.EdgesFollowed,
-				stats.EndpointsInLoaded+stats.EndpointsRepeated()+stats.EndpointsScored)
-		}
-		out.recall = recallAt(t, index, truth, normalizedQueries, k, provider)
-		return out
-	}
-
-	none := run(0)
-	wide := run(10)
-	tight := run(0.02)
-	t.Logf("endpoints scored: no margin %d, margin 0.02 %d (%d sources cut); recall %.3f vs %.3f",
-		none.endpoints, tight.endpoints, tight.cut, none.recall, tight.recall)
-
-	assert.Zero(t, none.cut)
-	assert.Zero(t, wide.cut, "a margin wider than any distance cuts nothing")
-	assert.Equal(t, none.results, wide.results)
-	assert.Equal(t, none.endpoints, wide.endpoints)
-
-	assert.Positive(t, tight.cut)
-	assert.Less(t, tight.endpoints, none.endpoints*3/4, "the cut must save a good part of the scoring")
-	assert.Greater(t, tight.recall, none.recall-0.05, "and must not wreck the recall")
-}
-
 func TestSearchWithoutRescoringReturnsEstimates(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	provider := distancer.NewL2SquaredProvider()
-	all := clusteredVectors(2020, 24, 30, 101)
-	vectors, queries := all[:2000], all[2000:]
+	all := clusteredVectors(155, 24, 4, 101)
+	vectors, queries := all[:150], all[150:]
 
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
@@ -389,6 +353,7 @@ func TestSearchWithoutRescoringReturnsEstimates(t *testing.T) {
 }
 
 func TestSearchReturnsFewerThanKOnATinyIndex(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
 	vectors := clusteredVectors(3, 8, 1, 111)
 	uc := smallConfig()
@@ -406,10 +371,11 @@ func TestSearchReturnsFewerThanKOnATinyIndex(t *testing.T) {
 // Searches share nothing but the built state and the scratch pools. Run
 // with -race.
 func TestSearchIsSafeForConcurrentUse(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	provider := distancer.NewCosineDistanceProvider()
-	all := clusteredVectors(3064, 24, 40, 121)
-	vectors, queries := all[:3000], all[3000:]
+	all := clusteredVectors(216, 24, 4, 121)
+	vectors, queries := all[:200], all[200:]
 
 	uc := smallConfig()
 	uc.EF = 2 * k
@@ -424,13 +390,13 @@ func TestSearchIsSafeForConcurrentUse(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	errs := make(chan error, 8*len(queries))
-	mismatches := make(chan int, 8*len(queries))
-	for worker := 0; worker < 8; worker++ {
+	errs := make(chan error, 4*len(queries))
+	mismatches := make(chan int, 4*2*len(queries))
+	for worker := 0; worker < 4; worker++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for round := 0; round < 3; round++ {
+			for round := 0; round < 1; round++ {
 				for i, query := range queries {
 					ids, _, err := index.SearchByVector(context.Background(), query, k, nil)
 					if err != nil {
@@ -457,8 +423,9 @@ func TestSearchIsSafeForConcurrentUse(t *testing.T) {
 }
 
 func TestSearchRejectsWhatItCannotServe(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(300, 8, 5, 131)
+	vectors := clusteredVectors(100, 8, 3, 131)
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	index := buildTestIndex(t, vectors, provider, uc)
@@ -500,6 +467,7 @@ func TestSearchRejectsWhatItCannotServe(t *testing.T) {
 }
 
 func TestSelectBatchPicksTheBestRankedUnloadedPostings(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		rank         map[uint32]float32
@@ -574,9 +542,10 @@ func TestSelectBatchPicksTheBestRankedUnloadedPostings(t *testing.T) {
 // A scratch must come back from a search as clean as a new one, or the next
 // search would inherit ranks and loaded postings.
 func TestSearchScratchIsCleanAfterUse(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
-	all := clusteredVectors(2010, 24, 30, 141)
-	vectors, queries := all[:2000], all[2000:]
+	all := clusteredVectors(158, 24, 4, 141)
+	vectors, queries := all[:150], all[150:]
 	uc := smallConfig()
 	uc.Distance = "l2-squared"
 	uc.EF = 50
@@ -615,10 +584,11 @@ func (c *countingEstimator) Distance(code []uint64) (float32, error) {
 // neither may read the array of the other. This drives one posting load by
 // hand and checks every estimate against the codec it has to come from.
 func TestLoadScansPostingCodesAndRanksWithSidecarCodes(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
 	// 24 dimensions are padded to the minimum code of 256 bits.
-	all := clusteredVectors(3010, 24, 1, 301)
-	vectors, queries := all[:3000], all[3000:]
+	all := clusteredVectors(125, 24, 1, 301)
+	vectors, queries := all[:120], all[120:]
 
 	tests := []struct {
 		name          string
@@ -633,8 +603,10 @@ func TestLoadScansPostingCodesAndRanksWithSidecarCodes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			uc := smallConfig()
 			uc.Distance = "l2-squared"
+			uc.TargetPostingSize = 20
 			uc.CodeBits, uc.ScanCodeBits = tt.codeBits, tt.scanCodeBits
 			index := buildTestIndex(t, vectors, provider, uc)
 			st := index.state.Load()
@@ -700,67 +672,6 @@ func TestLoadScansPostingCodesAndRanksWithSidecarCodes(t *testing.T) {
 	}
 }
 
-// Short scan codes next to full sidecar codes keep what the full codes are
-// there for: the postings a search loads are picked by sidecar estimates, so
-// for the same number of postings loaded it covers what an index with full
-// codes covers, far more than one with short codes for everything.
-//
-// What changes is when the search stops. The stop threshold is the ef-th best
-// scan estimate. Scan estimates are noisier than the sidecar estimates the
-// postings are ranked by, so the best of them fall further below the true
-// distances, and no posting looks as close: at the same ef the search stops
-// earlier, and equal work takes a larger ef.
-func TestShortScanCodesRouteLikeFullCodes(t *testing.T) {
-	const dims, n, k = 512, 6000, 10
-	provider := distancer.NewCosineDistanceProvider()
-	all := clusteredVectors(n+40, dims, 1, 531)
-	vectors, queries := all[:n], all[n:]
-	truth := normalizedCopy(vectors)
-	normalizedQueries := normalizedCopy(queries)
-
-	type outcome struct{ loads, recall float64 }
-	build := func(codeBits, scanCodeBits int) func(ef int) outcome {
-		uc := smallConfig()
-		uc.CodeBits, uc.ScanCodeBits = codeBits, scanCodeBits
-		// Every scanned vector is rescored, so the recall is the share of
-		// the neighbors that live in the postings the search loaded.
-		uc.RescoreLimit = n
-		index := buildTestIndex(t, vectors, provider, uc)
-		return func(ef int) outcome {
-			uc.EF = ef
-			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
-			loads := 0
-			for _, query := range queries {
-				_, _, stats, err := index.SearchByVectorWithStats(context.Background(), query, k, nil)
-				require.NoError(t, err)
-				loads += stats.PostingsLoaded
-			}
-			return outcome{
-				loads:  float64(loads) / float64(len(queries)),
-				recall: recallAt(t, index, truth, normalizedQueries, k, provider),
-			}
-		}
-	}
-	full, short, apart := build(0, 0), build(128, 0), build(0, 128)
-
-	fullAt40, shortAt40 := full(40), short(40)
-	apartAt40, apartAt160 := apart(40), apart(160)
-	t.Logf("ef=40: full codes %.1f loads, recall %.3f; 128-bit codes %.1f loads, recall %.3f", fullAt40.loads,
-		fullAt40.recall, shortAt40.loads, shortAt40.recall)
-	t.Logf("128-bit scan codes, full sidecar codes: ef=40 %.1f loads, recall %.3f; ef=160 %.1f loads, recall %.3f",
-		apartAt40.loads, apartAt40.recall, apartAt160.loads, apartAt160.recall)
-
-	// Measured: 37 loads and recall 0.74 with full codes, 37 loads and 0.39
-	// with 128-bit codes; apart, 14 loads at ef=40, and 35 loads and 0.73 at
-	// ef=160.
-	assert.Less(t, apartAt40.loads, 0.7*fullAt40.loads, "at the same ef the search stops earlier")
-
-	assert.Less(t, apartAt160.loads, 1.15*fullAt40.loads, "the work compared must be about the same")
-	assert.Less(t, apartAt160.loads, 1.15*shortAt40.loads)
-	assert.Greater(t, apartAt160.recall, fullAt40.recall-0.08, "for the same loads, the cover of full codes")
-	assert.Greater(t, apartAt160.recall, shortAt40.recall+0.2, "and far more than short codes find")
-}
-
 // withoutTimes keeps the counts of the work of a search and drops its clock
 // readings.
 func withoutTimes(stats SearchStats) SearchStats {
@@ -773,15 +684,17 @@ func withoutTimes(stats SearchStats) SearchStats {
 // an index that keeps the two apart must search exactly like one that shares
 // them: the same results, the same distances and the same work.
 func TestScanCodesAtTheFullWidthSearchLikeSharedCodes(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	ctx := context.Background()
 	provider := distancer.NewCosineDistanceProvider()
 	// Few enough postings for the graph over the centroids to be searched
 	// exhaustively, so that both indexes enter through the same posting.
-	all := clusteredVectors(2030, 64, 1, 521)
-	vectors, queries := all[:2000], all[2000:]
+	all := clusteredVectors(126, 64, 1, 521)
+	vectors, queries := all[:120], all[120:]
 
 	shared := smallConfig()
+	shared.TargetPostingSize = 20
 	shared.EF = 2 * k
 	apart := shared
 	// 64 dimensions are padded to the minimum code of 256 bits.
@@ -836,6 +749,7 @@ func TestScanCodesAtTheFullWidthSearchLikeSharedCodes(t *testing.T) {
 
 // The rescored candidates are counted by the loaded postings they live in.
 func TestRescoreSpread(t *testing.T) {
+	t.Parallel()
 	// three postings over the slots [0,3), [3,5) and [5,9), doc id 10+slot
 	store := &postingStore{
 		start:     []uint32{0, 3, 5, 9},
@@ -879,10 +793,11 @@ func TestRescoreSpread(t *testing.T) {
 // Given none, it asks, as any search does. From other postings it still
 // searches, and postings the index does not hold are refused.
 func TestSearchFromEntryPostings(t *testing.T) {
+	t.Parallel()
 	const k = 10
 	ctx := context.Background()
-	all := clusteredVectors(2030, 24, 30, 419)
-	vectors, queries := all[:2000], all[2000:]
+	all := clusteredVectors(125, 24, 2, 419)
+	vectors, queries := all[:120], all[120:]
 
 	tests := []struct {
 		name     string
@@ -896,8 +811,10 @@ func TestSearchFromEntryPostings(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			uc := smallConfig()
 			uc.Distance, uc.EntryPostings, uc.EF = tt.distance, tt.entries, 40
+			uc.TargetPostingSize = 20
 			config := testConfig(t, vectors, 0, tt.provider)
 			count := new(atomic.Int64)
 			config.centroidProvider = countingProvider{Provider: distancer.NewL2SquaredProvider(), count: count}

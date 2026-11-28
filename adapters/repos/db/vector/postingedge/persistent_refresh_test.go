@@ -13,6 +13,9 @@ package postingedge
 
 import (
 	"context"
+	"encoding/binary"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,7 +25,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
 )
+
+// refreshBase is the base of the indexes the tests of the refresh grow: a
+// pass is due every time the index doubles what it held when the last one
+// started.
+const refreshBase = doublingBase
+
+// newRefreshFixture is newDoublingFixture for a class with the default
+// rq.cacheMode.
+func newRefreshFixture(t *testing.T, n int, change func(cfg *PersistentConfig)) *persistentFixture {
+	t.Helper()
+	return newDoublingFixture(t, n, ent.CacheModeRouting, change)
+}
 
 // refreshState returns what the index says of the refresh of its edges: what
 // the refreshes did, how many vectors it held when the last pass that ended
@@ -47,44 +63,49 @@ func (f *persistentFixture) refreshState() (stats growRefreshStats, refreshedAt,
 // it started with, the index is covered and finds what it holds, and it
 // opens again as it was, knowing when it last refreshed.
 func TestPersistentRefreshesItsEdgesAsItDoubles(t *testing.T) {
+	t.Parallel()
 	const k = 10
-	const total = 4*persistentBase + 100
+	const base = refreshBase
+	// extra is how many vectors come after the index holds four times its
+	// base.
+	const extra = 20
+	const total = 4*base + extra
 	// Nothing in the background: the inserts alone take the passes to their
 	// end, and where each ends is known.
-	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground, cfg.refreshEdges = true, true })
-	f.add(t, 0, 2*persistentBase-50)
+	f := newRefreshFixture(t, total, func(cfg *PersistentConfig) { cfg.noBackground, cfg.refreshEdges = true, true })
+	f.add(t, 0, 2*base-50)
 	stats, refreshedAt, _ := f.refreshState()
 	require.Zero(t, stats.Refreshed, "nothing is refreshed before the index doubles")
-	require.Equal(t, persistentBase, refreshedAt)
+	require.Equal(t, base, refreshedAt)
 
 	// The first pass starts with the insert that doubles the base, takes the
 	// base, a vector an insert, and ends when the index has grown by half.
-	f.add(t, 2*persistentBase-50, 3*persistentBase-50)
+	f.add(t, 2*base-50, 3*base-50)
 	stats, refreshedAt, _ = f.refreshState()
-	require.Equal(t, persistentBase-49, stats.Refreshed, "a vector for every insert since the index doubled")
-	require.Equal(t, persistentBase, refreshedAt, "the pass is not done")
+	require.Equal(t, base-49, stats.Refreshed, "a vector for every insert since the index doubled")
+	require.Equal(t, base, refreshedAt, "the pass is not done")
 	require.Zero(t, f.index.refreshes.Load())
-	f.add(t, 3*persistentBase-50, 3*persistentBase+50)
+	f.add(t, 3*base-50, 3*base+50)
 	stats, refreshedAt, old := f.refreshState()
 	require.Equal(t, int64(1), f.index.refreshes.Load())
-	require.Equal(t, persistentBase, stats.Refreshed, "the base")
-	require.Equal(t, 2*persistentBase, refreshedAt)
+	require.Equal(t, base, stats.Refreshed, "the base")
+	require.Equal(t, 2*base, refreshedAt)
 	require.Zero(t, old)
 
 	// The second starts when the index holds four times its base, and takes
 	// the vectors that came before the first, and the one vector the first
 	// refreshed with exactly half of what the index holds now: the others it
 	// refreshed have newer edges.
-	f.add(t, 3*persistentBase+50, total)
+	f.add(t, 3*base+50, total)
 	stats, refreshedAt, _ = f.refreshState()
-	require.Equal(t, persistentBase+101, stats.Refreshed)
-	require.Equal(t, 2*persistentBase, refreshedAt)
+	require.Equal(t, base+extra+1, stats.Refreshed)
+	require.Equal(t, 2*base, refreshedAt)
 	// With no more inserts, the pass is ended by whoever settles the index.
-	require.NoError(t, f.index.Settle(context.Background()))
+	require.NoError(t, f.index.Settle(persistentCtx()))
 	stats, refreshedAt, old = f.refreshState()
 	require.Equal(t, int64(2), f.index.refreshes.Load())
-	require.Equal(t, 2*persistentBase+1, stats.Refreshed)
-	require.Equal(t, 4*persistentBase, refreshedAt)
+	require.Equal(t, 2*base+1, stats.Refreshed)
+	require.Equal(t, 4*base, refreshedAt)
 	require.Zero(t, old, "no vector is left with edges of half the index the pass started with")
 	require.Positive(t, stats.ListsChanged)
 	f.covered(t, "refreshed")
@@ -100,34 +121,50 @@ func TestPersistentRefreshesItsEdgesAsItDoubles(t *testing.T) {
 	f.covered(t, "opened again")
 }
 
-// The refresh is off by default: an index that doubles, and doubles again,
-// starts no pass and leaves the edges of its oldest vectors as they were
-// built, while it keeps when they were built. Opened with the refresh on,
-// the same index refreshes those vectors, as it would have.
+// The refresh is off by default: an index that doubles starts no pass and
+// leaves the edges of its oldest vectors as they were built, while it keeps
+// when they were built. Opened with the refresh on, the same index refreshes
+// those vectors, as it would have.
 func TestPersistentRefreshIsOffByDefault(t *testing.T) {
-	ctx := context.Background()
-	const total = 4*persistentBase + 100
-	f := newPersistentFixture(t, total)
+	t.Parallel()
+	ctx := persistentCtx()
+	const total = 2*refreshBase + 50
+	f := newRefreshFixture(t, total, nil)
 	require.False(t, f.cfg.refreshEdges, "the default")
 	// The base is built in the background, with the vectors that are kept
 	// aside when the build reads them: it is not known beforehand how many.
-	f.add(t, 0, persistentBase)
+	f.add(t, 0, refreshBase)
 	_, base, _ := f.refreshState()
-	require.GreaterOrEqual(t, total, 4*base, "the index will double twice")
-	f.add(t, persistentBase, total)
+	require.GreaterOrEqual(t, total, 2*base, "the index will double")
+	f.add(t, refreshBase, total)
 	require.NoError(t, f.index.Settle(ctx))
 	stats, refreshedAt, _ := f.refreshState()
 	require.Zero(t, stats.Refreshed, "nothing is refreshed")
 	require.Zero(t, stats.Passes)
 	require.Zero(t, f.index.refreshes.Load())
 	require.Equal(t, base, refreshedAt, "the index has not refreshed since its base")
+	// Read under the lock, checked after it: a check that fails stops the
+	// test, which must not hold the lock the index takes to close.
 	f.index.mu.RLock()
-	due, stale := f.index.g.refreshDue(), len(f.index.g.staleDocs())
+	g := f.index.g
+	due, held, tableKept := g.refreshDue(), g.held(), g.builtAt != nil
+	// The file is written as ever: it tells which vectors have edges of half
+	// the index or less.
+	raw, readErr := os.ReadFile(filepath.Join(g.dir, growBuiltFile))
+	stale := 0
+	for docID, live := range g.live {
+		if live && (g.deleted == nil || !g.deleted[docID]) && 4*docID+4 <= len(raw) &&
+			2*int(binary.LittleEndian.Uint32(raw[4*docID:])) <= held {
+			stale++
+		}
+	}
 	f.index.mu.RUnlock()
+	require.False(t, tableKept, "with the refresh off no table of when the edges were built is kept in memory")
+	require.NoError(t, readErr)
 	require.True(t, due, "a pass would be due with the refresh on")
-	require.GreaterOrEqual(t, stale, base, "the vectors of the base, at least, have edges of a quarter of the index")
+	require.GreaterOrEqual(t, stale, base, "the vectors of the base, at least, have edges of half the index or less")
 	require.False(t, f.index.refreshOn())
-	f.covered(t, "doubled twice, not refreshed")
+	f.covered(t, "doubled, not refreshed")
 
 	// The same index, opened with the refresh on: the vectors with old edges
 	// are the ones it would have refreshed, and it does.
@@ -149,12 +186,17 @@ func TestPersistentRefreshIsOffByDefault(t *testing.T) {
 // index itself, and one that was on when the index closed goes on when it
 // opens: which vectors have new edges is on disk.
 func TestPersistentRefreshEndsInTheBackground(t *testing.T) {
-	const total = 2*persistentBase + 100
-	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground, cfg.refreshEdges = true, true })
+	t.Parallel()
+	const base = refreshBase
+	// extra is how many vectors come after the index holds twice its base,
+	// fewer than its base: the pass they take further is not done.
+	const extra = 40
+	const total = 2*base + extra
+	f := newRefreshFixture(t, total, func(cfg *PersistentConfig) { cfg.noBackground, cfg.refreshEdges = true, true })
 	f.add(t, 0, total)
 	stats, refreshedAt, _ := f.refreshState()
-	require.Equal(t, 101, stats.Refreshed)
-	require.Equal(t, persistentBase, refreshedAt)
+	require.Equal(t, extra+1, stats.Refreshed)
+	require.Equal(t, base, refreshedAt)
 
 	// Closed with the pass on, and opened with its goroutine.
 	f.cfg.noBackground = false
@@ -163,9 +205,9 @@ func TestPersistentRefreshEndsInTheBackground(t *testing.T) {
 		"the pass that was on is ended once the index is open")
 	stats, refreshedAt, old := f.refreshState()
 	// The pass starts again over the index as it is: the vectors of the base
-	// the one before had left, and the fifty that came before the index was
-	// half of what it is now.
-	require.Equal(t, persistentBase-101+50, stats.Refreshed)
+	// the one before had left, and the half of the extra ones that came
+	// before the index was half of what it is now.
+	require.Equal(t, base-(extra+1)+extra/2, stats.Refreshed)
 	require.Equal(t, total, refreshedAt)
 	require.Zero(t, old)
 	f.covered(t, "refreshed in the background")
@@ -177,11 +219,13 @@ func TestPersistentRefreshEndsInTheBackground(t *testing.T) {
 // told to stop stops between two vectors and the next ends what it left, and
 // one over an index that is shut down does nothing.
 func TestPersistentRefreshNextToSearchesAndWrites(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+	ctx := concurrentCtx()
 	const k = 10
-	const total = 2*persistentBase + 600
-	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground, cfg.refreshEdges = true, true })
-	f.add(t, 0, 2*persistentBase)
+	const base = refreshBase
+	const total = 2*base + 100
+	f := newRefreshFixture(t, total, func(cfg *PersistentConfig) { cfg.noBackground, cfg.refreshEdges = true, true })
+	f.add(t, 0, 2*base)
 
 	// The insert that doubled the base started the pass, with one vector.
 	stopped, cancel := context.WithCancel(ctx)
@@ -189,7 +233,7 @@ func TestPersistentRefreshNextToSearchesAndWrites(t *testing.T) {
 	require.ErrorIs(t, f.index.refresh(stopped), context.Canceled)
 	stats, refreshedAt, _ := f.refreshState()
 	require.Equal(t, 1, stats.Refreshed)
-	require.Equal(t, persistentBase, refreshedAt)
+	require.Equal(t, base, refreshedAt)
 
 	var stop atomic.Bool
 	var deleted [total]atomic.Bool
@@ -199,12 +243,12 @@ func TestPersistentRefreshNextToSearchesAndWrites(t *testing.T) {
 		return f.index.refresh(ctx)
 	})
 	eg.Go(func() error {
-		for next := 2 * persistentBase; next < total; next++ {
+		for next := 2 * base; next < total; next++ {
 			if err := f.index.Add(ctx, uint64(next), f.vectors[next]); err != nil {
 				return errors.Wrapf(err, "add doc %d", next)
 			}
 			if next%10 == 0 {
-				gone := uint64(next - 2*persistentBase)
+				gone := uint64(next - 2*base)
 				if err := f.index.Delete(gone); err != nil {
 					return err
 				}
@@ -219,14 +263,15 @@ func TestPersistentRefreshNextToSearchesAndWrites(t *testing.T) {
 				if _, _, err := f.index.SearchByVector(ctx, f.queries[q%len(f.queries)], k, nil); err != nil {
 					return errors.Wrapf(err, "query %d", q)
 				}
+				time.Sleep(readerPause)
 			}
 			return nil
 		})
 	}
 	require.NoError(t, eg.Wait())
 	stats, refreshedAt, _ = f.refreshState()
-	require.GreaterOrEqual(t, refreshedAt, 2*persistentBase)
-	require.Greater(t, stats.Refreshed, persistentBase/2, "the base, but for the vectors deleted before their turn")
+	require.GreaterOrEqual(t, refreshedAt, 2*base)
+	require.Greater(t, stats.Refreshed, base/2, "the base, but for the vectors deleted before their turn")
 	require.Equal(t, int64(1), f.index.refreshes.Load())
 	f.covered(t, "refreshed next to everything else")
 	f.vectorsIntact(t, "refreshed next to everything else")

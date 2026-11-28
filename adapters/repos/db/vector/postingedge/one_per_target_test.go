@@ -66,6 +66,7 @@ func onePerTarget(edgeStart, edges, postingOf []uint32) (keptStart, kept []uint3
 }
 
 func TestOnePerTarget(t *testing.T) {
+	t.Parallel()
 	// Ten slots in four postings.
 	postingOf := []uint32{0, 0, 1, 1, 1, 2, 2, 3, 3, 3}
 
@@ -148,8 +149,9 @@ func csrOf(rows [][]uint32) (edgeStart, edges []uint32) {
 // postings, the one to the endpoint nearest to it by exact distance, and the
 // edges it keeps stay in the order they had.
 func TestOnePerTargetOfABuild(t *testing.T) {
+	t.Parallel()
 	provider := distancer.NewL2SquaredProvider()
-	f := newEdgeFixture(t, clusteredVectors(1500, 24, 25, 43), provider, 30, 6, 16, 32)
+	f := newEdgeFixture(t, clusteredVectors(240, 24, 4, 43), provider, 10, 3, 16, 32)
 	postingOf := f.side.postingOf
 	n := len(f.edgeStart) - 1
 

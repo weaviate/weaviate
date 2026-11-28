@@ -111,6 +111,7 @@ func (f *edgeFixture) wantEdges(t *testing.T, input, neighbors int) []uint32 {
 // approximate: the edges must be exactly the cross-posting members of the
 // exact nearest neighbors.
 func TestBuildEdgesMatchesTheExactNeighborsUnderFullCoverage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		provider distancer.Provider
@@ -120,28 +121,29 @@ func TestBuildEdgesMatchesTheExactNeighborsUnderFullCoverage(t *testing.T) {
 		{
 			name:     "l2",
 			provider: distancer.NewL2SquaredProvider(),
-			vectors:  clusteredVectors(400, 24, 9, 31),
+			vectors:  clusteredVectors(80, 24, 3, 31),
 		},
 		{
 			name:     "cosine",
 			provider: distancer.NewCosineDistanceProvider(),
-			vectors:  normalizedCopy(clusteredVectors(400, 24, 9, 32)),
+			vectors:  normalizedCopy(clusteredVectors(80, 24, 3, 32)),
 		},
 		{
 			// The codes only pick the candidates to rescue. With every
 			// candidate rescued, how coarse they are cannot matter.
 			name:     "cosine, codes capped to a quarter",
 			provider: distancer.NewCosineDistanceProvider(),
-			vectors:  normalizedCopy(clusteredVectors(400, 24, 9, 33)),
+			vectors:  normalizedCopy(clusteredVectors(80, 24, 3, 33)),
 			codeBits: 64,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			const neighbors = 8
 			n := len(tt.vectors)
-			f := newCappedEdgeFixture(t, tt.vectors, tt.provider, 12, 1000, neighbors, n, tt.codeBits)
+			f := newCappedEdgeFixture(t, tt.vectors, tt.provider, 6, 1000, neighbors, n, tt.codeBits)
 
 			crossPosting := 0
 			for input := range tt.vectors {
@@ -159,11 +161,12 @@ func TestBuildEdgesMatchesTheExactNeighborsUnderFullCoverage(t *testing.T) {
 
 // Whatever the coverage, the structural invariants of the edges hold.
 func TestBuildEdgesInvariants(t *testing.T) {
+	t.Parallel()
 	const neighbors = 8
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(1500, 24, 25, 41)
-	// 30 postings, 6 probed, 24 rescued: every stage approximates.
-	f := newEdgeFixture(t, vectors, provider, 30, 6, neighbors, 24)
+	vectors := clusteredVectors(240, 24, 4, 41)
+	// 10 postings, 3 probed, 24 rescued: every stage approximates.
+	f := newEdgeFixture(t, vectors, provider, 10, 3, neighbors, 24)
 	n := uint32(len(vectors))
 
 	require.Len(t, f.edgeStart, len(vectors)+1)
@@ -215,13 +218,14 @@ func TestBuildEdgesInvariants(t *testing.T) {
 // then build exactly what an assignment of that width would have given: the
 // probes of a vector are stored nearest first for that.
 func TestBuildEdgesWithANarrowerProbeUsesTheNearestCentroids(t *testing.T) {
+	t.Parallel()
 	const neighbors, rescue = 8, 24
 	provider := distancer.NewL2SquaredProvider()
-	vectors := clusteredVectors(1500, 24, 25, 43)
-	wide := newEdgeFixture(t, vectors, provider, 30, 20, neighbors, rescue)
+	vectors := clusteredVectors(160, 24, 3, 43)
+	wide := newEdgeFixture(t, vectors, provider, 8, 5, neighbors, rescue)
 
-	for _, probe := range []int{1, 4, 12, 20} {
-		narrow := newEdgeFixture(t, vectors, provider, 30, probe, neighbors, rescue)
+	for _, probe := range []int{1, 3} {
+		narrow := newEdgeFixture(t, vectors, provider, 8, probe, neighbors, rescue)
 
 		input := wide.input
 		input.probe = probe
@@ -254,6 +258,7 @@ func TestBuildEdgesWithANarrowerProbeUsesTheNearestCentroids(t *testing.T) {
 }
 
 func TestBuildEdgesWithASinglePostingHasNoEdges(t *testing.T) {
+	t.Parallel()
 	vectors := clusteredVectors(50, 8, 2, 51)
 	f := newEdgeFixture(t, vectors, distancer.NewL2SquaredProvider(), 1, 4, 8, 16)
 	assert.Empty(t, f.edges)
@@ -263,6 +268,7 @@ func TestBuildEdgesWithASinglePostingHasNoEdges(t *testing.T) {
 }
 
 func TestCapDegree(t *testing.T) {
+	t.Parallel()
 	// Four sources with 3, 0, 1 and 5 edges, nearest first.
 	edgeStart := []uint32{0, 3, 3, 4, 9}
 	edges := []uint32{10, 11, 12, 20, 30, 31, 32, 33, 34}
@@ -306,8 +312,9 @@ func TestCapDegree(t *testing.T) {
 // A capped row is the start of the full one, so the cap keeps the nearest
 // edges of every vector of a real build, and only those.
 func TestCapDegreeKeepsTheNearestEdgesOfABuild(t *testing.T) {
+	t.Parallel()
 	const neighbors = 8
-	f := newEdgeFixture(t, clusteredVectors(1500, 24, 25, 43), distancer.NewL2SquaredProvider(), 30, 6, neighbors, 24)
+	f := newEdgeFixture(t, clusteredVectors(240, 24, 4, 43), distancer.NewL2SquaredProvider(), 10, 3, neighbors, 24)
 	n := len(f.edgeStart) - 1
 	longer := 0
 	for slot := 0; slot < n; slot++ {

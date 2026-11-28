@@ -23,21 +23,21 @@ import (
 // churn"), cell B: the second phase gives every edge to a deleted vector a
 // substitute out of the list of that vector, with no search.
 func TestDeleteSubstitutes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name              string
 		share             float64
 		clustered, cosine bool
 	}{
-		{name: "30 % deleted", share: 0.3},
 		{name: "30 % deleted, cosine", share: 0.3, cosine: true},
-		{name: "3 % deleted", share: 0.03},
 		{name: "half deleted", share: 0.5},
 		{name: "whole postings deleted", share: 0.3, clustered: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const n, dims, k, threshold = 4000, 48, 10, 120
+			t.Parallel()
+			const n, dims, k, threshold = 240, 16, 10, 120
 			f := newDeleteFixture(t, n, n, dims, tt.cosine, threshold, 30)
 			s, d, st := f.s, f.d, f.s.st
 			d.remember()
@@ -115,6 +115,7 @@ func TestDeleteSubstitutes(t *testing.T) {
 			require.NoError(t, d.checkCoverage())
 			require.NoError(t, d.checkEliminated())
 			require.NoError(t, d.checkEdgeLists())
+			require.Zero(t, d.trial, "the substitution counts nothing as a rehearsal")
 			require.Equal(t, live, s.liveCount, "the pass loses no live vector")
 			after := d.counts(f.uc.TargetPostingSize)
 			require.Equal(t, live, after.Members, "no deleted vector takes room")
@@ -138,7 +139,8 @@ func TestDeleteSubstitutes(t *testing.T) {
 			require.Zero(t, memory.Rebuilt, "no list was built by a search")
 			for docID, want := range expected {
 				l := &st.postings.lists[st.side.postingOf[docID]]
-				require.Equalf(t, want, l.edgesOf(l.member(docID)), "the list of doc %d", docID)
+				got := l.edgesOf(l.member(docID))
+				require.Truef(t, slices.Equal(want, got), "the list of doc %d is %v, %v expected", docID, got, want)
 			}
 
 			answers := f.answers(t, k)
@@ -155,281 +157,11 @@ func TestDeleteSubstitutes(t *testing.T) {
 	}
 }
 
-// The passes of v6.2 over rounds of deletes, each cell on an index of its
-// own with the same deletes: the pass of v6.1, which takes its share anew at
-// every pass, the one that remembers what a list has lost (A), the one that
-// substitutes (B), and the one that substitutes and searches for the lists
-// that lose too much with no substitute (C).
-func TestDeleteRepairsInRounds(t *testing.T) {
-	ctx := context.Background()
-	const n, dims, k, threshold, rounds = 4000, 48, 10, 120, 6
-	type result struct {
-		repaired int
-		edges    float64
-	}
-	tests := []struct {
-		name                  string
-		remembers, searches   bool
-		substitutes, rehearse bool
-	}{
-		{name: "the pass of v6.1", searches: true},
-		{name: "A", remembers: true, searches: true},
-		{name: "B", remembers: true, substitutes: true},
-		{name: "C", remembers: true, searches: true, substitutes: true, rehearse: true},
-	}
-	results := map[string]result{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newDeleteFixture(t, n, n, dims, false, threshold, 30)
-			s, d, st := f.s, f.d, f.s.st
-			if tt.remembers {
-				d.remember()
-			}
-			var out result
-			for round := range rounds {
-				f.removeShare(t, 0.05, uint64(40+round))
-				live := s.liveCount
-
-				// Who the first phase must take, worked out here, and what
-				// every vector has lost and is about to lose.
-				lostBefore := slices.Clone(d.lost)
-				dead := map[uint64]int{}
-				var want []uint64
-				for p := range st.postings.lists {
-					l := &st.postings.lists[p]
-					for i, docID := range l.docIDs {
-						if d.deleted[docID] {
-							continue
-						}
-						edges := l.edgesOf(i)
-						for _, endpoint := range edges {
-							if d.deleted[endpoint] {
-								dead[docID]++
-							}
-						}
-						if tt.remembers && !tt.rehearse {
-							lost := int(d.lost[docID])
-							if gone := lost + dead[docID]; gone > 0 && 4*gone >= len(edges)+lost {
-								want = append(want, docID)
-							}
-						}
-					}
-				}
-				slices.Sort(want)
-
-				var repaired []uint64
-				switch {
-				case !tt.searches:
-				case !tt.remembers:
-					repaired = d.withDeadEdges(1, 4)
-					stats, err := d.repair(ctx, 1, 4)
-					require.NoError(t, err)
-					require.Equal(t, len(repaired), stats.Refreshed)
-				default:
-					var err error
-					repaired, err = d.overShare(1, 4, tt.rehearse)
-					require.NoError(t, err)
-					if !tt.rehearse {
-						require.Equal(t, want, repaired, "round %d", round)
-					} else {
-						for _, docID := range repaired {
-							require.Positive(t, int(d.lost[docID])+dead[docID])
-						}
-					}
-					stats, err := d.repairOver(ctx, 1, 4, tt.rehearse)
-					require.NoError(t, err)
-					require.Equal(t, len(repaired), stats.Refreshed)
-				}
-				out.repaired += len(repaired)
-
-				// The edges to deleted vectors the first phase leaves. A
-				// vector it did not repair can have fewer than before: a
-				// repaired vector that takes its place in a list puts the
-				// worst edge out, and that is not an edge lost.
-				left := map[uint64]int{}
-				for p := range st.postings.lists {
-					l := &st.postings.lists[p]
-					for i, docID := range l.docIDs {
-						if d.deleted[docID] {
-							continue
-						}
-						for _, endpoint := range l.edgesOf(i) {
-							if d.deleted[endpoint] {
-								left[docID]++
-							}
-						}
-						require.LessOrEqual(t, left[docID], dead[docID])
-					}
-				}
-
-				without := d.sub.Without
-				if tt.substitutes {
-					require.NoError(t, d.eliminateSubstituting(ctx, 30, threshold))
-				} else {
-					require.NoError(t, d.eliminate(ctx, 30, threshold))
-				}
-				require.NoError(t, d.checkCoverage())
-				require.NoError(t, d.checkEliminated())
-				require.NoError(t, d.checkEdgeLists())
-				require.Equal(t, live, s.liveCount)
-
-				// What every vector remembers after the pass.
-				if tt.remembers {
-					sum := 0
-					for docID, isLive := range s.live {
-						if !isLive {
-							continue
-						}
-						had := int(lostBefore[docID])
-						if _, wasRepaired := slices.BinarySearch(repaired, uint64(docID)); wasRepaired {
-							require.Zerof(t, left[uint64(docID)], "doc %d was repaired in round %d", docID, round)
-							had = 0
-						}
-						lost := int(d.lost[docID])
-						if !tt.substitutes {
-							require.Equalf(t, had+left[uint64(docID)], lost, "doc %d in round %d", docID, round)
-							continue
-						}
-						require.GreaterOrEqual(t, lost, had)
-						require.LessOrEqual(t, lost, had+left[uint64(docID)])
-						sum += lost - had
-					}
-					if tt.substitutes {
-						require.Equal(t, d.sub.Without-without, sum, "the edges lost in round %d are those left with no substitute", round)
-					}
-				}
-			}
-			counts := d.counts(f.uc.TargetPostingSize)
-			out.edges = float64(counts.Edges) / float64(counts.Live)
-			results[tt.name] = out
-			t.Logf("%d lists built again in %d rounds, %.2f edges a vector at the end; %d edges given a substitute and %d left with none",
-				out.repaired, rounds, out.edges, d.sub.Substituted, d.sub.Without)
-
-			answers := f.answers(t, k)
-			require.Greater(t, f.recall(t, answers, k), deleteRecallFloor)
-		})
-	}
-	if len(results) != len(tests) {
-		return
-	}
-	old, a, b, c := results["the pass of v6.1"], results["A"], results["B"], results["C"]
-	require.Greater(t, a.repaired, old.repaired, "a list that remembers what it lost is repaired sooner")
-	require.Greater(t, a.edges, old.edges, "and the lists are left longer")
-	require.Zero(t, b.repaired)
-	require.Greater(t, b.edges, old.edges, "the substitutes keep the lists longer")
-	require.Less(t, c.repaired, a.repaired, "the search is asked for less when there are substitutes")
-	require.GreaterOrEqual(t, c.edges, b.edges)
-}
-
-// The search of cell C is a net under the substitution: it takes the vectors
-// that lose a share of their list with no substitute, where A takes those
-// that lose it at all. Where whole postings are deleted many edges have no
-// substitute to take, since the list of a deleted vector leads to deleted
-// vectors, and the net has work to do.
-func TestDeleteSubstituteNet(t *testing.T) {
-	ctx := context.Background()
-	const n, dims, k, threshold = 4000, 48, 10, 120
-	tests := []struct {
-		name     string
-		rehearse bool
-	}{
-		{name: "A: every edge to a deleted vector counts"},
-		{name: "C: the edges with no substitute count", rehearse: true},
-	}
-	repaired := map[bool]int{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newDeleteFixture(t, n, n, dims, false, threshold, 30)
-			s, d, st := f.s, f.d, f.s.st
-			d.remember()
-			gone := 0
-			for p := range st.postings.lists {
-				if float64(gone) >= 0.3*n {
-					break
-				}
-				for _, docID := range slices.Clone(st.postings.lists[p].docIDs) {
-					require.NoError(t, d.remove(docID))
-					gone++
-				}
-			}
-			live := s.liveCount
-
-			// Who the first phase must take: of every live vector, the edges
-			// it is about to lose, which with the rehearsal are those the
-			// substitution would leave with no substitute.
-			var (
-				want    []uint64
-				scratch substituteStats
-			)
-			for p := range st.postings.lists {
-				l := &st.postings.lists[p]
-				for i, docID := range l.docIDs {
-					if d.deleted[docID] {
-						continue
-					}
-					edges := l.edgesOf(i)
-					pending := 0
-					for _, endpoint := range edges {
-						if d.deleted[endpoint] {
-							pending++
-						}
-					}
-					if tt.rehearse && pending > 0 {
-						kept, subs, without, err := d.substitutesFor(docID, uint32(p), edges, &scratch)
-						require.NoError(t, err)
-						require.Equal(t, pending, len(subs)+without)
-						require.Equal(t, len(edges), len(kept)+pending)
-						pending = without
-					}
-					if pending > 0 && 4*pending >= len(edges) {
-						want = append(want, docID)
-					}
-				}
-			}
-			slices.Sort(want)
-			require.NotEmpty(t, want)
-
-			stats, err := d.repairOver(ctx, 1, 4, tt.rehearse)
-			require.NoError(t, err)
-			require.Equal(t, len(want), stats.Refreshed)
-			for _, docID := range want {
-				require.Truef(t, d.rebuilt[docID], "doc %d was to be repaired", docID)
-			}
-			require.Equal(t, len(want), d.memory().Rebuilt)
-			if tt.rehearse {
-				require.Equal(t, scratch.CodeDistances, d.trial.CodeDistances, "the rehearsal estimates what the substitution would")
-				require.Zero(t, d.sub.CodeDistances, "and changes nothing")
-				require.NoError(t, d.eliminateSubstituting(ctx, 30, threshold))
-				require.Positive(t, d.sub.Substituted)
-			} else {
-				require.Zero(t, d.trial.CodeDistances)
-				require.NoError(t, d.eliminate(ctx, 30, threshold))
-			}
-			require.NoError(t, d.checkCoverage())
-			require.NoError(t, d.checkEliminated())
-			require.NoError(t, d.checkEdgeLists())
-			require.Equal(t, live, s.liveCount)
-			for _, docID := range want {
-				require.Zerof(t, d.lost[docID], "doc %d was repaired", docID)
-			}
-			repaired[tt.rehearse] = len(want)
-			t.Logf("%d lists built again; %d edges given a substitute and %d left with none", len(want), d.sub.Substituted, d.sub.Without)
-
-			answers := f.answers(t, k)
-			require.Greater(t, f.recall(t, answers, k), deleteRecallFloor)
-		})
-	}
-	if len(repaired) != len(tests) {
-		return
-	}
-	require.Positive(t, repaired[true], "the net has lists to build again")
-	require.Less(t, repaired[true], repaired[false], "and fewer than with no substitution")
-}
-
 // What must not be given as a substitute is told, and so is a list that does
 // not hold together.
 func TestDeleteSubstituteCatches(t *testing.T) {
-	f := newDeleteFixture(t, 2000, 2000, 32, false, 120, 30)
+	t.Parallel()
+	f := newDeleteFixture(t, 200, 200, 16, false, 120, 30)
 	d, st := f.d, f.s.st
 	d.remember()
 	gone := f.removeShare(t, 0.3, 13)

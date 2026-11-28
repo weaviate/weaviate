@@ -22,8 +22,11 @@ import (
 // not before. The cycles of the store then do it, the request is over on the
 // two sides, and the index answers as it did.
 func TestPersistentAsksForItsPostingsAsOneSegment(t *testing.T) {
+	t.Parallel()
 	const k = 10
-	const total = persistentBase + 400
+	// few is fewer vectors than a tenth of the index, and many more.
+	const few, many = persistentBase / 10, persistentBase / 2
+	const total = persistentBase + 100 + few + many
 	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noBackground = true })
 	never := func() bool { return false }
 	type state struct {
@@ -78,15 +81,15 @@ func TestPersistentAsksForItsPostingsAsOneSegment(t *testing.T) {
 	f.covered(t, "as one segment")
 
 	// A few vectors more are another segment, and not enough to ask again.
-	flushed(20)
+	flushed(few)
 	f.index.mergeRows()
-	few := now()
-	require.Greater(t, few.segments, 1)
-	require.False(t, few.merging, "not a tenth of the index yet")
-	require.False(t, few.asked)
+	fewer := now()
+	require.Greater(t, fewer.segments, 1)
+	require.False(t, fewer.merging, "not a tenth of the index yet")
+	require.False(t, fewer.asked)
 
 	// With a tenth of it written, it asks again.
-	flushed(120)
+	flushed(many)
 	f.index.mergeRows()
 	again := now()
 	require.True(t, again.merging)

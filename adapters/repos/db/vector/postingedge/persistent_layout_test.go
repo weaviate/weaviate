@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/postingedge"
 )
 
 // As it grows the index writes its vectors again in the order of their
@@ -33,9 +34,11 @@ import (
 // the one it was given, only the files of the last generation are left, and
 // it opens again as it was.
 func TestPersistentLaysItsVectorsOutAsItGrows(t *testing.T) {
+	t.Parallel()
 	const k = 10
-	const total = 2*persistentBase + 300
-	f := newPersistentFixture(t, total)
+	const base = doublingBase
+	const total = 2*base + 50
+	f := newDoublingFixture(t, total, ent.CacheModeRouting, nil)
 	f.add(t, 0, total)
 	require.Eventually(t, func() bool { return f.index.layouts.Load() >= 1 }, 30*time.Second, 5*time.Millisecond,
 		"the vectors are laid out again once the index has doubled")
@@ -44,7 +47,7 @@ func TestPersistentLaysItsVectorsOutAsItGrows(t *testing.T) {
 	gen, laidOut, slots := g.meta.VectorGen, g.meta.VectorsLaidOut, int(g.nextSlot)
 	f.index.mu.RUnlock()
 	require.Equal(t, 2, gen)
-	require.GreaterOrEqual(t, laidOut, 2*persistentBase, "every vector there was when it doubled")
+	require.GreaterOrEqual(t, laidOut, 2*base, "every vector there was when it doubled")
 	require.Equal(t, total, slots, "no slot is left without a vector")
 	f.covered(t, "laid out")
 	f.vectorsIntact(t, "laid out")
@@ -64,11 +67,12 @@ func TestPersistentLaysItsVectorsOutAsItGrows(t *testing.T) {
 // came in. One that is told to stop, or that finds the index shut down,
 // leaves the files the index had.
 func TestPersistentLayoutNextToSearchesAndWrites(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+	ctx := concurrentCtx()
 	const k = 10
-	const total = persistentBase + 900
+	const total = persistentBase + 200
 	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.noMaintenance = true })
-	f.add(t, 0, persistentBase+300)
+	f.add(t, 0, persistentBase+100)
 
 	t.Run("told to stop", func(t *testing.T) {
 		stopped, cancel := context.WithCancel(ctx)
@@ -92,12 +96,12 @@ func TestPersistentLayoutNextToSearchesAndWrites(t *testing.T) {
 			return nil
 		})
 		eg.Go(func() error {
-			for next := persistentBase + 300; next < total; next++ {
+			for next := persistentBase + 100; next < total; next++ {
 				if err := f.index.Add(ctx, uint64(next), f.vectors[next]); err != nil {
 					return errors.Wrapf(err, "add doc %d", next)
 				}
 				if next%7 == 0 {
-					if err := f.index.Delete(uint64(next - 250)); err != nil {
+					if err := f.index.Delete(uint64(next - persistentBase)); err != nil {
 						return err
 					}
 				}
@@ -110,6 +114,7 @@ func TestPersistentLayoutNextToSearchesAndWrites(t *testing.T) {
 					if _, _, err := f.index.SearchByVector(ctx, f.queries[q%len(f.queries)], k, nil); err != nil {
 						return errors.Wrapf(err, "query %d", q)
 					}
+					time.Sleep(readerPause)
 				}
 				return nil
 			})
@@ -142,10 +147,13 @@ func TestPersistentLayoutNextToSearchesAndWrites(t *testing.T) {
 // were one row opens as what it is, grows, deletes and restarts as it did,
 // and lays nothing out.
 func TestPersistentOpensAnIndexOfTheFirstVersion(t *testing.T) {
+	t.Parallel()
 	const k = 10
-	const total = 2*persistentBase + 300
+	const total = 2*persistentBase + 50
+	// gone is a doc id of the vectors added before the index is opened again.
+	const gone = persistentBase + 50
 	f := newPersistentFixtureWith(t, total, func(cfg *PersistentConfig) { cfg.listEdges = true })
-	f.add(t, 0, persistentBase+200)
+	f.add(t, 0, persistentBase+100)
 	g := f.index.g
 	require.Zero(t, g.meta.Consolidate)
 	require.Zero(t, g.meta.VectorGen)
@@ -159,12 +167,12 @@ func TestPersistentOpensAnIndexOfTheFirstVersion(t *testing.T) {
 	g = f.index.g
 	require.Zero(t, g.meta.Consolidate)
 	require.Zero(t, g.meta.VectorGen)
-	require.NoError(t, f.index.Delete(3, 700))
-	f.add(t, persistentBase+200, total)
-	require.NoError(t, f.index.maintain(context.Background()))
+	require.NoError(t, f.index.Delete(3, gone))
+	f.add(t, persistentBase+100, total)
+	require.NoError(t, f.index.maintain(persistentCtx(), true))
 	require.Zero(t, f.index.layouts.Load(), "its vectors are at their doc ids")
 	f.covered(t, "grown")
-	held := func(id uint64) bool { return id != 3 && id != 700 }
+	held := func(id uint64) bool { return id != 3 && id != gone }
 	assert.Greater(t, f.recall(t, total, k, held), 0.9)
 	before := f.answers(t, k)
 	f.restart(t)
@@ -176,7 +184,8 @@ func TestPersistentOpensAnIndexOfTheFirstVersion(t *testing.T) {
 // What a flush leaves on disk holds the changes to the edges that wait: an
 // index opened from a copy of its files has them waiting as they were.
 func TestPersistentKeepsWhatWaitsOfItsEdges(t *testing.T) {
-	const total = persistentBase + 500
+	t.Parallel()
+	const total = persistentBase + 150
 	f := newPersistentFixture(t, total)
 	f.add(t, 0, total)
 	require.NoError(t, f.index.Flush())
