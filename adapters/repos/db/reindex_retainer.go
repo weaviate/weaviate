@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -211,7 +212,8 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	if len(task.SwapsOwed) > 0 {
 		return true
 	}
-	targets := reindexTargets{}
+	targets := p.retainerTargets.acquire(namespaceTasks)
+	defer p.retainerTargets.release()
 	target := targets.of(task)
 	if target == nil {
 		return false // the status endpoint cannot read it either
@@ -245,17 +247,34 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 }
 
 // reindexTarget is the subset of ReindexTaskPayload the retainer reads.
-// Skipping the per-unit maps keeps decoding cheap, since every node decodes
-// this on every scheduler tick.
 type reindexTarget struct {
 	MigrationType ReindexMigrationType `json:"migrationType"`
 	Collection    string               `json:"collection"`
 	Properties    []string             `json:"properties"`
 }
 
-// reindexTargets decodes each task at most once per retention decision; nil
-// marks an unreadable payload.
 type reindexTargets map[distributedtask.TaskDescriptor]*reindexTarget
+
+// reindexTargetCache keeps decoded targets across scheduler ticks. A payload never changes for one TaskDescriptor.
+type reindexTargetCache struct {
+	mu      sync.Mutex
+	targets reindexTargets
+}
+
+func (c *reindexTargetCache) acquire(namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task) reindexTargets {
+	c.mu.Lock()
+	if c.targets == nil {
+		c.targets = reindexTargets{}
+	}
+	for desc := range c.targets {
+		if _, ok := namespaceTasks[desc]; !ok {
+			delete(c.targets, desc)
+		}
+	}
+	return c.targets
+}
+
+func (c *reindexTargetCache) release() { c.mu.Unlock() }
 
 func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
 	if target, ok := ts[task.TaskDescriptor]; ok {
