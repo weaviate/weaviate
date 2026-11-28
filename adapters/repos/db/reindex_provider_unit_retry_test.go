@@ -34,6 +34,7 @@ type refusingRecorder struct {
 	*fakeRecorder
 	failureErr, completionErr, progressErr atomic.Pointer[error]
 	refused                                atomic.Int32
+	progressPanics                         atomic.Bool
 }
 
 var errRecorderUnavailable = errors.New("raft applyTimeout")
@@ -66,6 +67,9 @@ func (r *refusingRecorder) RecordDistributedTaskUnitCompletion(ctx context.Conte
 }
 
 func (r *refusingRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
+	if r.progressPanics.Load() {
+		panic("progress write panicked")
+	}
 	if err := r.refusal(&r.progressErr); err != nil {
 		return err
 	}
@@ -167,6 +171,10 @@ func TestHandleRetriesItsDeferredUnits(t *testing.T) {
 		{name: "completion write refused, handle terminated", hold: refused(completions, errRecorderUnavailable), claimed: true, terminate: true, starts: 1},
 		{name: "initial progress refused", hold: refused(progress, errRecorderUnavailable), claimed: true, starts: 1},
 		{name: "completion rejected for good", hold: refused(completions, terminal), closes: true, starts: 1},
+		{name: "unit panics", hold: func(t *testing.T, f fixture) func() {
+			f.rec.progressPanics.Store(true)
+			return func() {}
+		}, closes: true, starts: 1, fails: 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -232,6 +240,10 @@ func TestHandleRetriesItsDeferredUnits(t *testing.T) {
 
 			require.Equal(t, tc.starts, countLines(hook, "starting unit", subject), "the unit's work runs at most once")
 			require.Equal(t, tc.fails, countLines(hook, "unit failed", subject))
+			rec.mu.Lock()
+			_, failed := rec.failed[subject]
+			rec.mu.Unlock()
+			require.Equal(t, tc.fails > 0, failed, "a failed unit is recorded FAILED")
 			require.True(t, sealable(), "a closed handle holds no claim")
 		})
 	}
