@@ -194,7 +194,9 @@ func TestReindexViewWritesEnableFirstIndex(t *testing.T) {
 				return viewTaskState("en", 1, tc.mt, distributedtask.TaskStatusStarted, switched, true)
 			}
 			f.refreshTo(run(false))
+			staged := titleBuckets(f.shard)
 			f.refreshTo(run(true))
+			require.Equal(t, staged, titleBuckets(f.shard), "the switch opens nothing")
 			f.putTitle(testObject(f.class.Class), tc.value)
 
 			nullKey, err := bucketKeyPropertyNull(false)
@@ -213,6 +215,41 @@ func TestReindexViewWritesEnableFirstIndex(t *testing.T) {
 			f.tasks.set()
 			f.reload()
 			require.Equal(t, titleBuckets(f.shard), afterSwitch, "a load opens the same buckets")
+		})
+	}
+}
+
+// A class update on a property no run governs leaves the shard with the buckets a load opens.
+func TestReindexViewRefreshOpensWhatALoadOpens(t *testing.T) {
+	off, on := false, true
+	text := func(filterable, searchable bool) *models.Property {
+		return &models.Property{
+			Name: "title", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWord,
+			IndexFilterable: &filterable, IndexSearchable: &searchable, IndexRangeFilters: &off,
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		prop   *models.Property
+		update func(p *models.Property)
+	}{
+		{name: "filterable turned on", prop: text(false, true), update: func(p *models.Property) { p.IndexFilterable = &on }},
+		{name: "searchable turned on", prop: text(true, false), update: func(p *models.Property) { p.IndexSearchable = &on }},
+		{name: "the first index turned on", prop: text(false, false), update: func(p *models.Property) { p.IndexFilterable = &on }},
+		{
+			name: "rangeable turned on", update: func(p *models.Property) { p.IndexRangeFilters = &on },
+			prop: &models.Property{Name: "title", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &on, IndexRangeFilters: &off},
+		},
+		{name: "filterable turned off", prop: text(true, true), update: func(p *models.Property) { p.IndexFilterable = &off }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newViewFixture(t, "ViewTest", tc.prop)
+			f.editTitle(tc.update)
+			require.NoError(t, f.shard.refreshView(context.Background()))
+			f.shard.closeViews() // waits for the retire of a turned-off index
+			refreshed := titleBuckets(f.shard)
+			f.reload()
+			require.Equal(t, titleBuckets(f.shard), refreshed)
 		})
 	}
 }

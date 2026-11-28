@@ -68,9 +68,12 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 		makeBucketOptions = s.overwrittenMakeDefaultBucketOptions(lsmkv.WithLazySegmentLoading(lazyLoadSegments))
 	}
 
-	initValueIndex := func(prop *models.Property) error {
-		if err := s.createPropertyValueIndex(ctx, prop, makeBucketOptions); err != nil {
-			return fmt.Errorf("init prop %q: value index: %w", prop.Name, err)
+	initGeoIndex := func(prop *models.Property) error {
+		if err := s.isReadOnly(); err != nil {
+			return fmt.Errorf("init prop %q: geo index: %w", prop.Name, err)
+		}
+		if err := s.initGeoProp(prop); err != nil {
+			return fmt.Errorf("init prop %q: geo index: %w", prop.Name, err)
 		}
 		return nil
 	}
@@ -102,31 +105,13 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		if !inverted.HasAnyInvertedIndex(prop) {
-			continue
-		}
-
 		if createsGeoIndex(prop) {
 			geoProps = append(geoProps, &propCopy)
-		} else {
-			eg.Go(func() error {
-				return initValueIndex(&propCopy)
-			})
 		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
+		for _, need := range s.propertyBucketNeeds(prop, s.loadView().props[prop.Name].gen, makeBucketOptions) {
 			eg.Go(func() error {
-				if err := s.createPropertyNullIndex(ctx, &propCopy, makeBucketOptions); err != nil {
-					return fmt.Errorf("init prop %q: null index: %w", prop.Name, err)
-				}
-				return nil
-			})
-		}
-
-		if s.index.invertedIndexConfig.IndexPropertyLength {
-			eg.Go(func() error {
-				if err := s.createPropertyLengthIndex(ctx, &propCopy, makeBucketOptions); err != nil {
-					return fmt.Errorf("init prop %q: length index: %w", prop.Name, err)
+				if err := s.openBucketNeed(ctx, need); err != nil {
+					return fmt.Errorf("init prop %q: %s index: %w", prop.Name, need.kind, err)
 				}
 				return nil
 			})
@@ -143,7 +128,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 					ec.Add(err)
 					break
 				}
-				ec.Add(initValueIndex(prop))
+				ec.Add(initGeoIndex(prop))
 			}
 			return ec.ToError()
 		})
@@ -219,60 +204,73 @@ func (s *Shard) removeDirIfExists(parentDir, dirName string) error {
 	return nil
 }
 
-func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property,
+const (
+	bucketNeedMetaCount = "ref count"
+	bucketNeedNull      = "null"
+	bucketNeedLength    = "length"
+)
+
+type bucketNeed struct {
+	kind string // an index type or a bucketNeed* constant
+	prop string
+	name string
+	opts []lsmkv.BucketOption
+}
+
+// propertyBucketNeeds lists the buckets a load opens for prop, served at gen,
+// so a refresh opens the same set. Geo and nested indexes open in the load only.
+func (s *Shard) propertyBucketNeeds(prop *models.Property, gen map[string]uint64,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-) error {
+) []bucketNeed {
+	if _, nested := schema.AsNested(prop.DataType); nested || !inverted.HasAnyInvertedIndex(prop) {
+		return nil
+	}
+	var needs []bucketNeed
+	add := func(kind, name string, opts []lsmkv.BucketOption) {
+		needs = append(needs, bucketNeed{kind: kind, prop: prop.Name, name: name, opts: opts})
+	}
+	if !createsGeoIndex(prop) {
+		if inverted.HasFilterableIndex(prop) && schema.IsRefDataType(prop.DataType) {
+			add(bucketNeedMetaCount, helpers.BucketFromPropNameMetaCountLSM(prop.Name), makeBucketOptions(lsmkv.StrategyRoaringSet))
+		}
+		for _, t := range reindexIndexTypes {
+			if classIndexOn(prop, t) {
+				add(t, reindexBucketName(prop.Name, t, gen[t]), s.propertyIndexOptions(prop, t, makeBucketOptions))
+			}
+		}
+	}
+	if s.index.invertedIndexConfig.IndexNullState {
+		add(bucketNeedNull, helpers.BucketFromPropNameNullLSM(prop.Name), makeBucketOptions(lsmkv.StrategyRoaringSet))
+	}
+	switch schema.DataType(prop.DataType[0]) {
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeInt,
+		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate: // not in the inverted index
+	default:
+		if s.index.invertedIndexConfig.IndexPropertyLength {
+			add(bucketNeedLength, helpers.BucketFromPropNameLengthLSM(prop.Name), makeBucketOptions(lsmkv.StrategyRoaringSet))
+		}
+	}
+	return needs
+}
+
+func (s *Shard) openBucketNeed(ctx context.Context, need bucketNeed) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-
-	if createsGeoIndex(prop) {
-		return s.initGeoProp(prop)
+	if err := s.store.CreateOrLoadBucket(ctx, need.name, need.opts...); err != nil {
+		return err
 	}
-
-	if inverted.HasFilterableIndex(prop) {
-		if schema.IsRefDataType(prop.DataType) {
-			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
-				makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-			); err != nil {
-				return err
-			}
-		}
-
-		if err := s.store.CreateOrLoadBucket(ctx, s.servedIndexName(prop.Name, indexTypeFilterable),
-			s.propertyIndexOptions(prop, indexTypeFilterable, makeBucketOptions)...,
-		); err != nil {
-			return err
-		}
+	if need.kind != indexTypeSearchable {
+		return nil
 	}
-
-	if inverted.HasSearchableIndex(prop) {
-		bucketName := s.servedIndexName(prop.Name, indexTypeSearchable)
-		if err := s.store.CreateOrLoadBucket(ctx, bucketName,
-			s.propertyIndexOptions(prop, indexTypeSearchable, makeBucketOptions)...); err != nil {
-			return err
-		}
-
-		bucket, release := s.store.AcquireBucketForRead(bucketName)
-		if bucket == nil {
-			return fmt.Errorf("searchable bucket %q of shard %q: %w", bucketName, s.name, lsmkv.ErrBucketNotFound)
-		}
-		actualStrategy := bucket.Strategy()
-		release()
-		if actualStrategy == lsmkv.StrategyInverted {
-			s.markSearchableBlockmaxProperties(prop.Name)
-		}
+	bucket, release := s.store.AcquireBucketForRead(need.name)
+	if bucket == nil {
+		return fmt.Errorf("searchable bucket %q of shard %q: %w", need.name, s.name, lsmkv.ErrBucketNotFound)
 	}
-
-	if inverted.HasRangeableIndex(prop) {
-		if err := s.store.CreateOrLoadBucket(ctx, s.servedIndexName(prop.Name, indexTypeRangeable),
-			s.propertyIndexOptions(prop, indexTypeRangeable, makeBucketOptions)...,
-		); err != nil {
-			return err
-		}
+	defer release()
+	if bucket.Strategy() == lsmkv.StrategyInverted {
+		s.markSearchableBlockmaxProperties(need.prop)
 	}
-
 	return nil
 }
 
@@ -300,40 +298,6 @@ func (s *Shard) propertyIndexOptions(prop *models.Property, indexType string,
 	default:
 		return makeBucketOptions(lsmkv.StrategyRoaringSet)
 	}
-}
-
-func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property,
-	makeBucketOptions lsmkv.MakeBucketOptions,
-) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
-	// some datatypes are not added to the inverted index, so we can skip them here
-	switch schema.DataType(prop.DataType[0]) {
-	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeInt,
-		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-		return nil
-	default:
-	}
-
-	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
-		makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-	)
-}
-
-func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property,
-	makeBucketOptions lsmkv.MakeBucketOptions,
-) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
-	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameNullLSM(prop.Name),
-		makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-	)
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {

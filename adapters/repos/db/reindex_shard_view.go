@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -368,14 +367,14 @@ func (s *Shard) refreshViewLocked(ctx context.Context) error {
 func (s *Shard) resolveServed(ctx context.Context, class *models.Class, next *shardView, opened *[]string) error {
 	for _, prop := range class.Properties {
 		pv, governed := next.props[prop.Name]
-		if err := s.openLengthAndNullBuckets(ctx, viewProperty(prop, pv, governed), opened); err != nil {
-			return err
-		}
 		if !governed {
 			for _, t := range reindexIndexTypes {
 				if !classIndexOn(prop, t) {
 					next.served[reindexBucketName(prop.Name, t, 0)] = nil
 				}
+			}
+			if err := s.openBucketNeeds(ctx, s.propertyBucketNeeds(prop, nil, s.makeDefaultBucketOptions), opened); err != nil {
+				return err
 			}
 			continue
 		}
@@ -407,31 +406,38 @@ func (s *Shard) resolveServed(ctx context.Context, class *models.Class, next *sh
 	return nil
 }
 
-// openLengthAndNullBuckets opens what a load opens for a property with an
-// inverted index, so writes find them once a run turns the first index on.
-func (s *Shard) openLengthAndNullBuckets(ctx context.Context, prop *models.Property, opened *[]string) error {
-	if _, nested := schema.AsNested(prop.DataType); nested || !inverted.HasAnyInvertedIndex(prop) {
-		return nil
-	}
-	for _, b := range []struct {
-		on     bool
-		name   string
-		create func(context.Context, *models.Property, lsmkv.MakeBucketOptions) error
-	}{
-		{s.index.invertedIndexConfig.IndexNullState, helpers.BucketFromPropNameNullLSM(prop.Name), s.createPropertyNullIndex},
-		{s.index.invertedIndexConfig.IndexPropertyLength, helpers.BucketFromPropNameLengthLSM(prop.Name), s.createPropertyLengthIndex},
-	} {
-		if !b.on || s.store.Bucket(b.name) != nil {
+func (s *Shard) openBucketNeeds(ctx context.Context, needs []bucketNeed, opened *[]string) error {
+	for _, need := range needs {
+		if s.store.Bucket(need.name) != nil {
 			continue
 		}
-		if err := b.create(ctx, prop, s.makeDefaultBucketOptions); err != nil {
-			return fmt.Errorf("open %q: %w", b.name, err)
+		if s.retirePending(need.name) {
+			return errViewNotReady
 		}
-		if s.store.Bucket(b.name) != nil {
-			*opened = append(*opened, b.name)
+		if err := s.openBucketNeed(ctx, need); err != nil {
+			return fmt.Errorf("open %q: %w", need.name, err)
 		}
+		*opened = append(*opened, need.name)
 	}
 	return nil
+}
+
+// openBuildLengthAndNull opens at staging what the switch would otherwise open.
+func (s *Shard) openBuildLengthAndNull(ctx context.Context, prop *models.Property, indexType string, opened *[]string) error {
+	on := true
+	q := *prop
+	switch indexType {
+	case indexTypeSearchable:
+		q.IndexSearchable = &on
+	case indexTypeRangeable:
+		q.IndexRangeFilters = &on
+	default:
+		q.IndexFilterable = &on
+	}
+	needs := slices.DeleteFunc(s.propertyBucketNeeds(&q, nil, s.makeDefaultBucketOptions), func(n bucketNeed) bool {
+		return n.kind != bucketNeedNull && n.kind != bucketNeedLength
+	})
+	return s.openBucketNeeds(ctx, needs, opened)
 }
 
 // resolveStaged opens the folder of every build the view stages. A folder
@@ -458,6 +464,9 @@ func (s *Shard) resolveStaged(ctx context.Context, class *models.Class, cur, nex
 					}
 					*opened = append(*opened, b.name)
 					next.staged = append(next.staged, b)
+					if err := s.openBuildLengthAndNull(ctx, prop, t, opened); err != nil {
+						return false, err
+					}
 				}
 			}
 		}
