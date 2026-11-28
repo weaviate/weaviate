@@ -299,6 +299,8 @@ func TestReindexGenerationCrash_LateCompletion(t *testing.T) {
 
 // A panicking unit fails the run once, instead of panicking again on every relaunch.
 func TestReindexGenerationCrash_PanickingUnitFails(t *testing.T) {
+	// The integration job re-raises recovered panics, which would crash the binary.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 	c := newGenCluster(t, genDefaultOpts(), 1)
 	c.addTenants("t1")
 	c.write("t1", 3)
