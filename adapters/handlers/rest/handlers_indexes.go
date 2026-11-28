@@ -481,7 +481,7 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 // svc is appState.ClusterService in production; the interface lets the
 // idempotent-cancel error mapping be tested against a real Manager.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTaskCanceller, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	tasks, err := svc.ListDistributedTaskHeaders(ctx)
+	tasks, err := listTaskHeaders(ctx, svc)
 	if err != nil {
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			fmt.Sprintf("listing tasks: %v", err)))

@@ -327,7 +327,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 	if s.reindexTaskLister == nil {
 		return ""
 	}
-	tasksByNamespace, err := s.reindexTaskLister.ListDistributedTaskHeaders(ctx)
+	tasksByNamespace, err := listTaskHeaders(ctx, s.reindexTaskLister)
 	if err != nil {
 		return ""
 	}

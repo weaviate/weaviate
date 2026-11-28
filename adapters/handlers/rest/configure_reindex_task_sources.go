@@ -13,10 +13,17 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/types"
 )
 
 type migrationTaskRaft interface {
@@ -40,10 +47,44 @@ func newMigrationClusterTaskSource(raft migrationTaskRaft) db.MigrationClusterTa
 			return nil, fmt.Errorf("this node is still applying its RAFT log, so it cannot tell a task " +
 				"it has not added yet from one the cluster removed")
 		}
-		tasksByNamespace, err := raft.ListDistributedTaskHeaders(ctx)
+		tasksByNamespace, err := listTaskHeaders(ctx, raft)
 		if err != nil {
 			return nil, err
 		}
 		return tasksByNamespace[db.ReindexNamespace], nil
 	}
+}
+
+const catchUpRetryBudget = 2 * time.Second
+
+// catchUpRetryLister retries a listing refused by a new leader that has not applied its inherited log yet.
+// The refusal starts that catch-up, and nothing else starts it on a cluster with no writes.
+type catchUpRetryLister struct {
+	distributedtask.TaskHeaderLister
+}
+
+func (l catchUpRetryLister) ListDistributedTaskHeaders(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return listTaskHeaders(ctx, l.TaskHeaderLister)
+}
+
+// listTaskHeaders must not run inside an FSM apply: its wait would stall the catch-up it waits for.
+func listTaskHeaders(ctx context.Context, lister distributedtask.TaskHeaderLister) (map[string][]*distributedtask.Task, error) {
+	deadline := time.Now().Add(catchUpRetryBudget)
+	for backoff := 25 * time.Millisecond; ; backoff = min(2*backoff, 400*time.Millisecond) {
+		tasks, err := lister.ListDistributedTaskHeaders(ctx)
+		if err == nil || !leaderNotCaughtUp(err) || time.Now().Add(backoff).After(deadline) {
+			return tasks, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(backoff):
+		}
+	}
+}
+
+// leaderNotCaughtUp also matches the refusal forwarded from the leader, which arrives as a bare Unavailable status.
+func leaderNotCaughtUp(err error) bool {
+	return errors.Is(err, types.ErrFSMNotCaughtUp) ||
+		(status.Code(err) == codes.Unavailable && strings.Contains(err.Error(), types.ErrFSMNotCaughtUp.Error()))
 }

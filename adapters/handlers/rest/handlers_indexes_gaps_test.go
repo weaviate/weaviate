@@ -30,18 +30,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -1210,10 +1215,12 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 type gateSourceOver struct {
 	mgr *distributedtask.Manager
 	err error
+	// refusals counts down the listings refused with err before the rest succeed; nil refuses every one.
+	refusals *atomic.Int32
 }
 
 func (s gateSourceOver) ListDistributedTaskHeaders(context.Context) (map[string][]*distributedtask.Task, error) {
-	if s.err != nil {
+	if s.err != nil && (s.refusals == nil || s.refusals.Add(-1) >= 0) {
 		return nil, s.err
 	}
 	return realFSMCanceller{s.mgr}.ListDistributedTaskHeaders(context.Background())
@@ -1248,6 +1255,13 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 	mgr := newReindexManager()
 	require.NoError(t, mgr.Restore(snapshot))
 
+	once := func() *atomic.Int32 {
+		n := &atomic.Int32{}
+		n.Store(1)
+		return n
+	}
+	notCaughtUp := fmt.Errorf("%w: catching up", types.ErrFSMNotCaughtUp)
+	forwarded := fmt.Errorf("failed to execute query: %w", status.Error(codes.Unavailable, notCaughtUp.Error()))
 	for _, tc := range []struct {
 		name    string
 		source  gateSourceOver
@@ -1255,6 +1269,10 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 	}{
 		{name: "the task list is unavailable", source: gateSourceOver{err: errNoLeader}, wantErr: errNoLeader},
 		{name: "a reindex task is running", source: gateSourceOver{mgr: mgr}},
+		{name: "a new leader refuses once", source: gateSourceOver{mgr: mgr, err: notCaughtUp, refusals: once()}},
+		{name: "a new leader's refusal is forwarded once", source: gateSourceOver{mgr: mgr, err: forwarded, refusals: once()}},
+		{name: "a new leader keeps refusing", source: gateSourceOver{err: notCaughtUp}, wantErr: types.ErrFSMNotCaughtUp},
+		{name: "another node refuses", source: gateSourceOver{mgr: mgr, err: errNoLeader, refusals: once()}, wantErr: errNoLeader},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lookup, err := shardReindexActivityBuilder(context.Background(), tc.source, logger)()

@@ -833,7 +833,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
+		repo, appState.SchemaManager, catchUpRetryLister{appState.ClusterService.Raft}, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
@@ -1073,7 +1073,7 @@ type reindexGateSource interface {
 func shardReindexActivityBuilder(ctx context.Context, source reindexGateSource, logger logrus.FieldLogger,
 ) db.ShardReindexActivityLookupBuilder {
 	return func() (db.ShardReindexActivityLookup, error) {
-		tasksByNamespace, err := source.ListDistributedTaskHeaders(ctx)
+		tasksByNamespace, err := listTaskHeaders(ctx, source)
 		if err != nil {
 			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
 		}
