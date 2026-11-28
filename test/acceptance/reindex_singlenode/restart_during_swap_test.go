@@ -149,7 +149,6 @@ func TestRestartDuringSwap(t *testing.T) {
 	// Step 6: restart the container.
 	require.NoError(t, compose.StartAt(ctx, 0))
 	helper.SetupClient(compose.GetWeaviate().URI())
-	restURI = compose.GetWeaviate().URI()
 	t.Logf("container restarted at %v (elapsed since stop trigger: %v)",
 		time.Now(), time.Since(sawFinishedAt))
 
