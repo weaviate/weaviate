@@ -3179,6 +3179,33 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 - **Tras borrados sí compensa.** Con el 10 % borrado al azar y sacado de las listas, las cargas suben +5.9 % y +10.3 %; reconectar a todos las deja en +2.9 % y +2.7 % sobre hoy. Con el 30 %: de +14.5 % y +18.7 % a +6.4 % y −1.5 %.
 - **Tras un split:** no lo simulé (lo dije en el pre-registro). Lo más cercano es reconectar el índice de hoy, que es todo él producto de splits.
 
+#### La puerta del insert en dos tiempos, y el orden de trabajo hasta el lunes (pre-registro, 28 de noviembre a las 14:40, por encargo del usuario; la segunda tanda de la simulación aún no ha corrido)
+
+**El encargo** (del usuario). Objetivo para el lunes por la mañana: la base congelada con sus medidas definitivas, y `feat/posting-edge-next` con un prototipo del insert en dos tiempos medido sobre el índice real. Sin parar a preguntar salvo para algo irreversible; el único límite es no compilar mientras corre algo cronometrado.
+1. **Puerta, al acabar la simulación:** «todo por eventos» queda dentro del 5 % de cargas a 0.95 y del 10 % a 0.99 respecto a hoy, con algún grupo de hasta 256 y no más CPU por vector que el constructor en lote. Con aristas provisionales y el 10 % pendiente, lo mismo. Si pasa, fijar con esos datos el tamaño del grupo y el umbral de pendientes, y seguir. Si no pasa, parar y decir qué falla, con el plan B: las palancas pequeñas (marca de borrado, posting en la arista, cerrojo entre inserts) en la rama nueva.
+2. **Medidas largas de la base, en cuanto acabe la simulación:** el cerrojo de 355 ms; HFresh a 10M en el mismo arnés, con 8 escritores y hasta vaciar sus colas; reorganizar nuestro índice de 10M y medir la búsqueda en frío y en caliente; la segunda parte de las definitivas a 1M, con la de punta a punta por un shard primero.
+3. **Congelación:** con esas medidas la base queda cerrada; solo arreglos; no recibe nada del prototipo.
+4. **Prototipo en `feat/posting-edge-next`,** desde la base congelada: insert sin búsqueda con aristas provisionales, eventos por número de pendientes, «pendiente» deducido del índice y eventos repetibles, un disparador por edad u ocioso y una llamada que vacíe lo pendiente, el insert de hoy disponible con un parámetro, y tests (los del paquete en verde y uno de caída a mitad de un evento). Fuera, anotado: reconectar tras borrados, prioridad por demanda de las queries, modo `none`, filtros y backup.
+5. **Medidas del prototipo:** a 1M con 1 y 8 llamadores y después creciendo 10M.
+6. **El lunes:** la tabla base frente a prototipo frente a HFresh, y lo que falta para que el prototipo sea revisable.
+
+**Cómo leo la puerta** (*mío*; lo que el encargo no fija).
+- **«Hoy»** es el índice de hoy medido en la misma corrida, a 1M y a 10M. La puerta se pasa si se pasa en los dos.
+- **«Todo por eventos»:** cualquiera de los escenarios que quitan todas las aristas y conectan a todos por eventos cargando un grupo de 256 postings o menos: grupos enteros de 64, 128 y 256, y candidatos por vector (64 dentro de 128, 64 dentro de 256, 128 dentro de 256).
+- **La CPU del constructor en lote:** a 1M, medida, 1.88 ms por vector en su fase de aristas. **A 10M no está medida** (del lote de 10M solo guardé el total): uso 2.9 ms, que es lo que cuestan sus 66 060 candidatos por vector al precio por candidato de los eventos en ese índice (0.736 ms por 16 601). Es una estimación y la trato como tal: si una configuración pasa en cargas y queda entre 1.9 y 2.9 ms a 10M, lo digo y no la doy por pasada sin más.
+- **«Con provisionales y el 10 % pendiente»:** la fila del 10 % de la tabla de tolerancia con provisionales (k = 16), sobre el índice de hoy, con los mismos dos umbrales. Además mido, sin que decida la puerta, el estado en que estaría de verdad el prototipo: todo conectado por eventos con la configuración elegida y el último 10 % con provisionales (escenario nuevo, `evprov`). Si la fila pasa y ese estado no, lo digo al fijar el umbral.
+- **A 10M, por tiempo:** primero grupos de 64, 64 dentro de 128, y 128. Las configuraciones que cargan 256 corren solo si ninguna de esas pasa a 10M, y de ellas solo las que pasaron a 1M.
+- **Si pasa, qué fijo:** el grupo es la configuración que pasa en los dos tamaños con menos CPU por vector a 10M. El umbral de pendientes sale de la tabla de tolerancia con provisionales a 1M: la mayor fracción (5, 10, 25 o 50 %) que sigue dentro de los dos umbrales, pasada a pendientes por posting.
+- **Si no pasa:** paro el prototipo, digo qué celda falla y por cuánto, y dejo el plan B por escrito. Las medidas de la base siguen en cualquier caso.
+
+**Orden de las cadenas** (*mío*; una detrás de otra, cada una con su espera de 15 minutos sin tocar y bajo `caffeinate`).
+1. Compilar y humo en el hueco que deja la cadena en curso.
+2. La segunda tanda de la simulación, 1M y 10M: es la que decide la puerta.
+3. Las retenciones del cerrojo (pre-registrada a las 13:39).
+4. HFresh a 10M, la reorganización del 10M con su búsqueda en frío y en caliente, y la segunda parte de las definitivas: cada una con su pre-registro antes de correr.
+- Mientras corren escribo el prototipo sin compilar, en un árbol aparte sobre `m2` `8ed921ed59`. La rama `feat/posting-edge-next` se crea desde la base cuando quede congelada.
+- **El troceo del volcado por presupuesto no entra en la base:** el encargo pide proponerlo, y la base solo recibe arreglos. Queda en la lista de la rama nueva.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**
