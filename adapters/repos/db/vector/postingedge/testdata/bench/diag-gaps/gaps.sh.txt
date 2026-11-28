@@ -1,0 +1,104 @@
+#!/bin/bash
+# The gaps of the diagnostic of the inserts (bench-report.md of
+# feat/posting-edge-index, "Huecos del diagnóstico", pre-registered on
+# 2026-11-28 by the user's order): measures only. Every pass over an index
+# runs on an APFS clone of its own, removed after the pass; the 10M index and
+# the 100k one are never opened. The binary is built before (gaps.test, from
+# the diagnostic branch with bench_diag_gaps_test.go); nothing here builds.
+# Timed: marker, idle wait, caffeinate.
+set -u
+S=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad
+X=$S/diag
+G=$X/gaps
+D=$HOME/Documents/datasets/wikidpr-10m-e5-inplace.bin
+P=adapters/repos/db/vector/postingedge
+mkdir -p $G
+
+printf 'the gaps of the diagnostic of the inserts (diag/gaps.sh), timed, since %s for about three quarters of an hour; taken down by the experiments session\n' "$(date '+%Y-%m-%d %H:%M')" > $S/timed-session.lock
+
+hid_idle() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+date "+== %H:%M:%S waiting for 900 s of idle (now $(hid_idle) s)"
+while [ "$(hid_idle)" -lt 900 ]; do sleep 30; done
+date "+== %Y-%m-%d %H:%M:%S idle for $(hid_idle) s"
+
+clear_clones() {
+  find /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/gaps -type d -name index -prune -exec rm -rf {} +
+}
+
+# run <size> <name> <test> [NAME=value ...]
+run() {
+  local size=$1 name=$2 test=$3
+  shift 3
+  local C=$G/$size/$name
+  local free=$(df -k $X | tail -n 1 | awk '{print int($4/1048576)}')
+  if [ "$free" -lt 10 ]; then
+    date "+== %H:%M:%S $size $name NOT RUN: $free GiB free, under 10"
+    return
+  fi
+  mkdir -p $C
+  if [ $size = 100k ]; then
+    cp -c -R $X/i100k/index $C/index || exit 3
+    # Warm: every file of the clone read once before the index opens.
+    find $C/index -type f -exec cat {} + > /dev/null
+    set -- PE_ROWS=100000 "$@"
+  else
+    cp -c -R $S/grow10m/index $C/index || exit 3
+    # The store read once (7 GB); the vectors (30.7 GB) do not fit in the
+    # file cache next to it, and stay as cold as a new clone is.
+    find $C/index/lsm -type f -exec cat {} + > /dev/null
+  fi
+  date "+== %H:%M:%S $size $name: $test $* (idle $(hid_idle) s)"
+  (cd $X/src/$P && exec env PE_DATASET=$D PE_DIR=$C/index PE_OUT=$C/result.json "$@" \
+    $X/gaps.test -test.run "^$test\$" -test.v -test.timeout 0 > $C/run.log 2>&1) &
+  local pid=$!
+  python3 -I -B $X/monitor.py $pid $C/monitor.jsonl 2 > $C/monitor.err 2>&1 &
+  wait $pid
+  echo "$size $name exit $?"
+  wait
+  clear_clones
+}
+
+passes() { # size ef seconds vectors plans
+  local size=$1 ef=$2 seconds=$3 vectors=$4 plans=$5
+  run $size q1 TestDiagQueries PE_EF=$ef PE_QTHREADS=1 PE_CALLERS=0 PE_SECONDS=$seconds
+  run $size q8 TestDiagQueries PE_EF=$ef PE_QTHREADS=8 PE_CALLERS=0 PE_SECONDS=$seconds
+  run $size i8 TestDiagQueries PE_EF=$ef PE_QTHREADS=0 PE_CALLERS=8 PE_SECONDS=$seconds PE_NVECTORS=$vectors
+  run $size qi1 TestDiagQueries PE_EF=$ef PE_QTHREADS=1 PE_CALLERS=8 PE_SECONDS=$seconds PE_NVECTORS=$vectors
+  run $size qi8 TestDiagQueries PE_EF=$ef PE_QTHREADS=8 PE_CALLERS=8 PE_SECONDS=$seconds PE_NVECTORS=$vectors
+  run $size degree TestDiagDegree PE_DEGREE=1
+  run $size search-marks-a TestDiagSearch PE_THREADS=1 PE_N=$plans
+  run $size search-nomarks-a TestDiagSearch PE_THREADS=1 PE_N=$plans PE_NODELETED=1
+  run $size search-marks-b TestDiagSearch PE_THREADS=1 PE_N=$plans
+  run $size search-nomarks-b TestDiagSearch PE_THREADS=1 PE_N=$plans PE_NODELETED=1
+}
+
+# The tables, with no index.
+mkdir -p $G/tables
+date "+== %H:%M:%S tables (idle $(hid_idle) s)"
+(cd $X/src/$P && PE_OUT=$G/tables/result.json \
+  PE_TABLES=125000:26813:9033,12500000:144798:28235,125000:144798:28235,12500000:26813:9033 PE_TABLETHREADS=1,8 \
+  $X/gaps.test -test.run '^TestDiagTables$' -test.v -test.timeout 0 > $G/tables/run.log 2>&1)
+echo "tables exit $?"
+
+# The reads, over a clone of the file of the vectors of the 10M index.
+mkdir -p $G/reads
+cp -c $S/grow10m/index/main.postingedge.d/vectors-5.f32 $G/reads/vectors.clone || exit 3
+date "+== %H:%M:%S reads (idle $(hid_idle) s)"
+(cd $X/src/$P && PE_FILE=$G/reads/vectors.clone PE_OUT=$G/reads/result.json PE_RECORD=3072 PE_READS=20000 PE_READSECONDS=3 \
+  $X/gaps.test -test.run '^TestDiagReads$' -test.v -test.timeout 0 > $G/reads/run.log 2>&1)
+echo "reads exit $?"
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/gaps/reads/vectors.clone
+
+# The point of 0.95 of the 100k index, untimed, and its passes.
+run 100k point TestDiagPoint PE_POINT=$G/100k/point.json
+EF100=$(python3 -I -B -c "import json; print(json.load(open('$G/100k/point.json'))['ef'])")
+date "+== %H:%M:%S the 100k index reaches 0.95 at ef $EF100"
+if [ -n "$EF100" ]; then
+  passes 100k $EF100 20 40000 20000
+fi
+# The 10M index reaches 0.95 at ef 24 (TestNightPoints, 2026-11-28).
+passes 10m 24 90 60000 8000
+
+date "+== %Y-%m-%d %H:%M:%S done (idle $(hid_idle) s)" | tee $G/end.txt
+pmset -g log 2>/dev/null | grep -E '^[0-9-]+ [0-9:]+ \+[0-9]+ (Sleep|Wake|DarkWake)' | tail -n 5 > $G/pmset-sleep-wake.txt
+rm -f /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/timed-session.lock

@@ -1,0 +1,385 @@
+{
+  "bytes": 30720000000,
+  "cells": [
+    {
+      "inFlight": 0.9987917932304596,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.12310907884999943,
+        "p50ms": 0.120125,
+        "p95ms": 0.14225,
+        "p99ms": 0.195041,
+        "p999ms": 0.735584,
+        "maxms": 1.703625
+      },
+      "mode": "goroutines",
+      "reads": 20000,
+      "readsPerSecond": 8113.063655097438,
+      "seconds": 2.46516,
+      "threads": 1,
+      "under20us": 0
+    },
+    {
+      "inFlight": 1.9974689521667606,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.12380869360000092,
+        "p50ms": 0.121083,
+        "p95ms": 0.150042,
+        "p99ms": 0.194292,
+        "p999ms": 0.338,
+        "maxms": 1.377459
+      },
+      "mode": "goroutines",
+      "reads": 20000,
+      "readsPerSecond": 16133.511259073335,
+      "seconds": 1.23965575,
+      "threads": 2,
+      "under20us": 0
+    },
+    {
+      "inFlight": 3.994559820931692,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.1295171360000003,
+        "p50ms": 0.123916,
+        "p95ms": 0.176041,
+        "p99ms": 0.215208,
+        "p999ms": 0.31,
+        "maxms": 5.271375
+      },
+      "mode": "goroutines",
+      "reads": 20000,
+      "readsPerSecond": 30841.940644299706,
+      "seconds": 0.648467625,
+      "threads": 4,
+      "under20us": 0
+    },
+    {
+      "inFlight": 7.9880681504957884,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.13554125760000105,
+        "p50ms": 0.126375,
+        "p95ms": 0.205875,
+        "p99ms": 0.263,
+        "p999ms": 0.431083,
+        "maxms": 0.982583
+      },
+      "mode": "goroutines",
+      "reads": 20000,
+      "readsPerSecond": 58934.58782911417,
+      "seconds": 0.339359292,
+      "threads": 8,
+      "under20us": 0
+    },
+    {
+      "inFlight": 15.906097968107686,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.17078238209999944,
+        "p50ms": 0.151208,
+        "p95ms": 0.285333,
+        "p99ms": 0.371041,
+        "p999ms": 0.546417,
+        "maxms": 0.817959
+      },
+      "mode": "goroutines",
+      "reads": 20000,
+      "readsPerSecond": 93136.64426342303,
+      "seconds": 0.21473825,
+      "threads": 16,
+      "under20us": 0
+    },
+    {
+      "inFlight": 31.062861520921402,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.23892692329999973,
+        "p50ms": 0.207084,
+        "p95ms": 0.4595,
+        "p99ms": 0.644417,
+        "p999ms": 0.868959,
+        "maxms": 1.126584
+      },
+      "mode": "goroutines",
+      "reads": 20000,
+      "readsPerSecond": 130009.88374139166,
+      "seconds": 0.153834458,
+      "threads": 32,
+      "under20us": 0
+    },
+    {
+      "inFlight": 58.47224887842854,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.4086833781500007,
+        "p50ms": 0.357333,
+        "p95ms": 0.821959,
+        "p99ms": 1.027708,
+        "p999ms": 1.3295,
+        "maxms": 1.861833
+      },
+      "mode": "goroutines",
+      "reads": 20000,
+      "readsPerSecond": 143074.69303771717,
+      "seconds": 0.139787125,
+      "threads": 64,
+      "under20us": 0
+    },
+    {
+      "inFlight": 0.9987359819402987,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.12119112670000012,
+        "p50ms": 0.119291,
+        "p95ms": 0.141416,
+        "p99ms": 0.161917,
+        "p999ms": 0.211834,
+        "maxms": 0.850333
+      },
+      "mode": "threads",
+      "reads": 20000,
+      "readsPerSecond": 8240.999231012996,
+      "seconds": 2.426890167,
+      "threads": 1,
+      "under20us": 0
+    },
+    {
+      "inFlight": 1.9972948137784132,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.1234882610999988,
+        "p50ms": 0.120667,
+        "p95ms": 0.150416,
+        "p99ms": 0.191667,
+        "p999ms": 0.2285,
+        "maxms": 0.79625
+      },
+      "mode": "threads",
+      "reads": 20000,
+      "readsPerSecond": 16173.965006771103,
+      "seconds": 1.2365551670000001,
+      "threads": 2,
+      "under20us": 0
+    },
+    {
+      "inFlight": 3.9939749979002923,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.12630088044999926,
+        "p50ms": 0.121625,
+        "p95ms": 0.175709,
+        "p99ms": 0.212375,
+        "p999ms": 0.282083,
+        "maxms": 2.224792
+      },
+      "mode": "threads",
+      "reads": 20000,
+      "readsPerSecond": 31622.701153547598,
+      "seconds": 0.632457041,
+      "threads": 4,
+      "under20us": 0
+    },
+    {
+      "inFlight": 7.985437716952895,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.13566919300000024,
+        "p50ms": 0.1265,
+        "p95ms": 0.208416,
+        "p99ms": 0.266833,
+        "p999ms": 0.354167,
+        "maxms": 0.720667
+      },
+      "mode": "threads",
+      "reads": 20000,
+      "readsPerSecond": 58859.62421072922,
+      "seconds": 0.3397915,
+      "threads": 8,
+      "under20us": 0
+    },
+    {
+      "inFlight": 15.48621251780845,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.1685793925499995,
+        "p50ms": 0.15,
+        "p95ms": 0.279291,
+        "p99ms": 0.358375,
+        "p999ms": 0.478084,
+        "maxms": 0.949958
+      },
+      "mode": "threads",
+      "reads": 20000,
+      "readsPerSecond": 91863.02242259712,
+      "seconds": 0.217715458,
+      "threads": 16,
+      "under20us": 0
+    },
+    {
+      "inFlight": 30.2264412659651,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.23547424084999952,
+        "p50ms": 0.203834,
+        "p95ms": 0.453708,
+        "p99ms": 0.617416,
+        "p999ms": 0.810666,
+        "maxms": 1.01125
+      },
+      "mode": "threads",
+      "reads": 20000,
+      "readsPerSecond": 128364.1096234374,
+      "seconds": 0.155806791,
+      "threads": 32,
+      "under20us": 0
+    },
+    {
+      "inFlight": 58.813505809602205,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.40900026749999785,
+        "p50ms": 0.360375,
+        "p95ms": 0.808042,
+        "p99ms": 1.016083,
+        "p999ms": 1.233833,
+        "maxms": 2.12725
+      },
+      "mode": "threads",
+      "reads": 20000,
+      "readsPerSecond": 143798.2086640132,
+      "seconds": 0.139083791,
+      "threads": 64,
+      "under20us": 0
+    },
+    {
+      "inFlight": 0.9988507541094098,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.12235659119999998,
+        "p50ms": 0.12025,
+        "p95ms": 0.142875,
+        "p99ms": 0.161542,
+        "p999ms": 0.211792,
+        "maxms": 0.789459
+      },
+      "mode": "nocache",
+      "reads": 20000,
+      "readsPerSecond": 8163.440516880057,
+      "seconds": 2.449947416,
+      "threads": 1,
+      "under20us": 0
+    },
+    {
+      "inFlight": 1.9977865890658006,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.12295041265000008,
+        "p50ms": 0.119792,
+        "p95ms": 0.149917,
+        "p99ms": 0.191416,
+        "p999ms": 0.239958,
+        "maxms": 0.359
+      },
+      "mode": "nocache",
+      "reads": 20000,
+      "readsPerSecond": 16248.718048249679,
+      "seconds": 1.230866333,
+      "threads": 2,
+      "under20us": 0
+    },
+    {
+      "inFlight": 3.994926401514524,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.12806248429999983,
+        "p50ms": 0.123542,
+        "p95ms": 0.176,
+        "p99ms": 0.214458,
+        "p999ms": 0.272917,
+        "maxms": 0.385916
+      },
+      "mode": "nocache",
+      "reads": 20000,
+      "readsPerSecond": 31195.134338921485,
+      "seconds": 0.641125625,
+      "threads": 4,
+      "under20us": 0
+    },
+    {
+      "inFlight": 7.986858670851508,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.1353899999000004,
+        "p50ms": 0.125625,
+        "p95ms": 0.206875,
+        "p99ms": 0.263667,
+        "p999ms": 0.361334,
+        "maxms": 2.16975
+      },
+      "mode": "nocache",
+      "reads": 20000,
+      "readsPerSecond": 58991.49624603485,
+      "seconds": 0.339031916,
+      "threads": 8,
+      "under20us": 0
+    },
+    {
+      "inFlight": 15.800413835482484,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.16976619709999974,
+        "p50ms": 0.151084,
+        "p95ms": 0.282833,
+        "p99ms": 0.366458,
+        "p999ms": 0.508084,
+        "maxms": 0.834708
+      },
+      "mode": "nocache",
+      "reads": 20000,
+      "readsPerSecond": 93071.6132268388,
+      "seconds": 0.214888292,
+      "threads": 16,
+      "under20us": 0
+    },
+    {
+      "inFlight": 30.17306959891045,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.2384054685500001,
+        "p50ms": 0.203875,
+        "p95ms": 0.473666,
+        "p99ms": 0.645625,
+        "p999ms": 0.850958,
+        "maxms": 1.047833
+      },
+      "mode": "nocache",
+      "reads": 20000,
+      "readsPerSecond": 126561.98610889813,
+      "seconds": 0.158025333,
+      "threads": 32,
+      "under20us": 0
+    },
+    {
+      "inFlight": 57.996768424883896,
+      "latency": {
+        "n": 20000,
+        "meanms": 0.4034930642000022,
+        "p50ms": 0.353,
+        "p95ms": 0.792542,
+        "p99ms": 0.992375,
+        "p999ms": 1.181708,
+        "maxms": 1.404625
+      },
+      "mode": "nocache",
+      "reads": 20000,
+      "readsPerSecond": 143736.71711030093,
+      "seconds": 0.139143292,
+      "threads": 64,
+      "under20us": 0
+    }
+  ],
+  "file": "/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/gaps/reads/vectors.clone",
+  "record": 3072
+}

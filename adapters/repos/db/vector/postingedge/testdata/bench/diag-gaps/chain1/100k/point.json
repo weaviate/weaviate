@@ -1,0 +1,11 @@
+{
+  "dataset": "/Users/abdel/Documents/datasets/wikidpr-10m-e5-inplace.bin",
+  "dir": "/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/gaps/100k/point/index",
+  "ef": 17,
+  "k": 10,
+  "loads": 12.336,
+  "queries": 1000,
+  "recall": 0.951,
+  "rows": 100000,
+  "target": 0.95
+}

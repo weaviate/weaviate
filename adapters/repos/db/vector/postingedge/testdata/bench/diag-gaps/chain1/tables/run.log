@@ -1,0 +1,11 @@
+=== RUN   TestDiagTables
+    bench_diag_gaps_test.go:665: 125000 keys, 26813 edges and 9033 members a search, 1 threads: 6.78 ns an edge (posting of the endpoint, loaded, visited), 0.50 ns the mark of a member alone, the reset 0.01 ns an edge
+    bench_diag_gaps_test.go:665: 125000 keys, 26813 edges and 9033 members a search, 8 threads: 7.21 ns an edge (posting of the endpoint, loaded, visited), 0.55 ns the mark of a member alone, the reset 0.01 ns an edge
+    bench_diag_gaps_test.go:665: 12500000 keys, 144798 edges and 28235 members a search, 1 threads: 20.86 ns an edge (posting of the endpoint, loaded, visited), 3.69 ns the mark of a member alone, the reset 0.14 ns an edge
+    bench_diag_gaps_test.go:665: 12500000 keys, 144798 edges and 28235 members a search, 8 threads: 24.79 ns an edge (posting of the endpoint, loaded, visited), 4.21 ns the mark of a member alone, the reset 0.17 ns an edge
+    bench_diag_gaps_test.go:665: 125000 keys, 144798 edges and 28235 members a search, 1 threads: 8.47 ns an edge (posting of the endpoint, loaded, visited), 0.49 ns the mark of a member alone, the reset 0.00 ns an edge
+    bench_diag_gaps_test.go:665: 125000 keys, 144798 edges and 28235 members a search, 8 threads: 8.97 ns an edge (posting of the endpoint, loaded, visited), 0.53 ns the mark of a member alone, the reset 0.00 ns an edge
+    bench_diag_gaps_test.go:665: 12500000 keys, 26813 edges and 9033 members a search, 1 threads: 21.79 ns an edge (posting of the endpoint, loaded, visited), 3.40 ns the mark of a member alone, the reset 0.72 ns an edge
+    bench_diag_gaps_test.go:665: 12500000 keys, 26813 edges and 9033 members a search, 8 threads: 26.77 ns an edge (posting of the endpoint, loaded, visited), 3.87 ns the mark of a member alone, the reset 0.79 ns an edge
+--- PASS: TestDiagTables (2.74s)
+PASS

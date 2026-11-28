@@ -1,0 +1,8 @@
+=== RUN   TestDiagPoint
+    bench_diag_gaps_test.go:203: ef 10: recall 0.9189, 9.74 loads
+    bench_diag_gaps_test.go:203: ef 20: recall 0.9567, 13.29 loads
+    bench_diag_gaps_test.go:203: ef 15: recall 0.9448, 11.64 loads
+    bench_diag_gaps_test.go:203: ef 17: recall 0.9510, 12.34 loads
+    bench_diag_gaps_test.go:203: ef 16: recall 0.9475, 11.98 loads
+--- PASS: TestDiagPoint (2.99s)
+PASS

@@ -2728,6 +2728,62 @@ La medida (`TestDiagReads`, nuevo): lecturas de 3 072 B en sitios al azar de un 
 
 **Duración estimada:** unos 45 minutos cronometrados, detrás de las dos corridas densas.
 
+#### Huecos del diagnóstico: lo que dio la cadena hasta que la paré, el 10M movido, y enmienda 1 (28 de noviembre a las 11:18, antes de ejecutar la enmienda)
+
+**Órdenes del usuario de las 11:11 y las 11:13** (resumen): el borrado de `tenm` y `codes/` está hecho, mover ya el índice de 10M; adelante con la prueba de `GOMAXPROCS` a 20 y 40, pre-registrada como diagnóstico, y si confirma la causa proponer el arreglo que no dependa de subirlo (menos lecturas, lecturas agrupadas o hilos propios para la E/S); las queries junto a inserts también a 10M, como estaba en la cadena; y dos propuestas más para la lista, cada una con su medida: que la arista guarde el posting de su extremo, repitiendo encima la medida de las tablas compactas por docID, y aplicar el lote soltando el cerrojo del índice entre inserts.
+
+**Qué pasó con la cadena** (`diag/gaps.sh`, desde las 11:02).
+- **La paré yo a las 11:14:34,** para mover el índice como pide el usuario: estaba clonándolo para sus pasadas de 10M, y copiar 35 GB a su lado le estropeaba los tiempos.
+- **Lo de 100k está entero y limpio:** acabó a las 11:08, con la máquina sin tocar desde hacía más de 7 000 s.
+- **De 10M solo vale la primera pasada,** las queries solas con 1 hilo. En la segunda cayó el borrado del usuario (de 11:11:00 a 11:11:02 el sistema hace de 8 000 a 10 000 escrituras por segundo que no son del proceso; su máximo de latencia, 188.6 ms, es de esa pasada). La tercera arrancó con teclado o trackpad recién tocado (0 s sin tocar a las 11:11:33). La cuarta la corté. **Las cinco se repiten.**
+
+**El índice de 10M, movido.** Copiado a `/Volumes/v40bench/grow10m/index` a las 11:14:41, en 20 s; comparado byte a byte con el original, 66 ficheros y ninguno distinto; y el original borrado del directorio temporal a las 11:19. Son 35 GiB, y quedan 94 libres. Sigue sin reorganizar, con su último layout a 2 561 320 vectores. Los clones de las pasadas se hacen ahora en ese volumen.
+
+**Lo que ya dice la cadena** (los datos, en `testdata/bench/diag-gaps/`; los resultados completos van con los de la enmienda).
+- **Lecturas, sobre un clon frío del fichero de vectores del 10M:**
+
+| a la vez | lecturas por segundo | p50, ms | p99, ms | en vuelo de media |
+|---:|---:|---:|---:|---:|
+| 1 | 8 113 | 0.120 | 0.195 | 1.0 |
+| 2 | 16 134 | 0.121 | 0.194 | 2.0 |
+| 4 | 30 842 | 0.124 | 0.215 | 4.0 |
+| 8 | 58 935 | 0.126 | 0.263 | 8.0 |
+| 16 | 93 137 | 0.151 | 0.371 | 15.9 |
+| 32 | 130 010 | 0.207 | 0.644 | 31.1 |
+| 64 | 143 075 | 0.357 | 1.028 | 58.5 |
+
+  - **Sale lo mismo de las tres maneras:** con un hilo propio por gorutina, de 8 241 a 143 798; sin la caché de ficheros, de 8 163 a 143 737. Ninguna lectura encontró su dato en la caché.
+  - **Debajo del índice no hay ningún límite de 3:** ni en el disco, ni en la caché de ficheros del sistema para un mismo fichero, ni en el runtime de Go con gorutinas que solo leen.
+  - **Corrijo el pre-registro:** escribí que el disco tenía unas 3 lecturas en vuelo. Tenía 5.6 (27 300 lecturas por segundo a 0.205 ms). El 3.0 del diagnóstico son hilos en espera no interrumpible, y los 6.9, hilos dentro de `pread`.
+  - **El índice pide 27 300 lecturas por segundo donde el fichero da 143 000.** Con 8 llamadores el rescore de un plan tarda 9.1 ms en sus 121 lecturas frías: van unas 2.7 a la vez, para un reparto de 20 gorutinas. Con 1 llamador tarda 1.95 ms: 8.7 a la vez. El límite está en quien las pide.
+- **Seguir aristas, sin índice** (`TestDiagTables`), ns por arista del bucle que lee el posting del extremo, mira si está cargado y marca el extremo:
+
+| doc ids que cubren las tablas | aristas de una búsqueda | 1 hilo | 8 hilos |
+|---:|---:|---:|---:|
+| 125 000 | 26 813 | 6.78 | 7.21 |
+| 125 000 | 144 798 | 8.47 | 8.97 |
+| 12 500 000 | 26 813 | 21.79 | 26.77 |
+| 12 500 000 | 144 798 | 20.86 | 24.79 |
+
+  - **Es el tamaño de las tablas por doc id, no el número de aristas.** En el índice esas dos líneas sumaban 12.3 ns por arista a 100k y 24.4 a 10M.
+  - **Con 8 hilos a la vez sube otro 19 a 23 %** con las tablas grandes, y un 6 % con las pequeñas.
+  - La marca de un miembro sola, en un bucle que no hace otra cosa: 0.5 ns con 125 000 doc ids y de 3.4 a 4.2 con 12.5 millones. Es una cota por abajo: ahí los fallos de caché se solapan.
+
+**Enmienda 1** (*mía* el cómo), sobre clones del índice donde está ahora, en el volumen de pruebas.
+1. **Las pasadas de 10M de la cadena, otra vez y como estaban:** queries solas con 1 hilo y con 8, inserts solos, y queries con 1 hilo y con 8 junto a 8 llamadores, de 90 s; el grado medio; y la búsqueda de un insert con la tabla de marcas y sin ella, dos veces cada una.
+2. **Los inserts según los procesadores de Go** (diagnóstico, por orden del usuario): `TestDiagInserts` con 8 llamadores y 8 000 inserts, con `GOMAXPROCS` en 10, que es lo que hay, en 20 y en 40. Dos pasadas de cada uno, alternadas.
+   - **El presupuesto de los llamadores se fija en 20 en las tres,** para que el reparto de un rescore siga en 20 gorutinas: sin eso es 2 × `GOMAXPROCS` y cambiaría con él.
+   - **Lo que sí cambia con `GOMAXPROCS` además de los procesadores:** los workers del recolector, que son la cuarta parte, y las rutinas de los ciclos del store en el arnés. Lo digo al leerlo.
+   - **De cada pasada:** inserts por segundo, ms del rescore por insert, lecturas por segundo y en vuelo en el disco, cores ocupados, procesadores ocupados según Go y latencia del planificador.
+   - **La hipótesis:** una lectura en vuelo retiene un procesador de Go hasta que el runtime se lo quita, y con 8 llamadores no quedan procesadores para que las demás gorutinas del rescore pidan su lectura. En el diagnóstico Go contaba 7.8 procesadores ocupados donde el sistema contaba 4.1 cores.
+   - **Espero** (*mío*, sin seguridad): si es eso, el rescore baja de 9.1 a menos de 4 ms por insert con 20, las lecturas en vuelo pasan de 10 y los inserts suben entre un 15 y un 25 %. Si no cambia más de un 5 %, no es eso.
+   - **Cómo lo leo:** confirmada si el rescore baja un 40 % o más y las lecturas en vuelo suben. Entonces propongo el arreglo que no dependa de subir `GOMAXPROCS`. Si con 40 empeora por tener más hilos que cores, lo digo: no es una recomendación de configuración.
+3. **El reparto de la CPU por gorutina,** con un lector de trazas que escribí (`tools/tracecpu`): suma el tiempo que cada gorutina estuvo corriendo y la clasifica por quién la crea, o por su propia pila.
+   - **Las trazas del diagnóstico ya están leídas, y no bastan:** son 8 s de la mitad de una pasada, y en esa ventana no corrió ningún volcado ni ninguna compactación a 10M (a 100k, un volcado de 0.03 s). El reparto que dan es el de los planes y el recolector.
+   - **Añado una pasada con la traza de su segunda mitad entera** a cada tamaño (8 000 inserts a 10M, 20 000 a 100k), para que los ciclos del store caigan dentro. La traza frena la pasada: de ella doy el reparto, no el ritmo.
+
+**Duración estimada:** unos 30 minutos.
+
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
 **HFresh indexó los 10M de wiki-dpr en 79 minutos: 48 de inserts con 10 escritores y 31 de su trabajo de fondo. Son 2 112 vectores por segundo con el fondo incluido. No es comparable con nuestro crecimiento, y hay que medirlo en el mismo arnés.**

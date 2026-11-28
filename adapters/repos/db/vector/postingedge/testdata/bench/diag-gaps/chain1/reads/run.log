@@ -1,0 +1,24 @@
+=== RUN   TestDiagReads
+    bench_diag_gaps_test.go:765: goroutines, 1 at once: 20000 reads in 2.465s, 8113 a second | p50 0.120 ms, p99 0.195 | 1.00 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: goroutines, 2 at once: 20000 reads in 1.24s, 16134 a second | p50 0.121 ms, p99 0.194 | 2.00 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: goroutines, 4 at once: 20000 reads in 648ms, 30842 a second | p50 0.124 ms, p99 0.215 | 3.99 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: goroutines, 8 at once: 20000 reads in 339ms, 58935 a second | p50 0.126 ms, p99 0.263 | 7.99 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: goroutines, 16 at once: 20000 reads in 215ms, 93137 a second | p50 0.151 ms, p99 0.371 | 15.91 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: goroutines, 32 at once: 20000 reads in 154ms, 130010 a second | p50 0.207 ms, p99 0.644 | 31.06 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: goroutines, 64 at once: 20000 reads in 140ms, 143075 a second | p50 0.357 ms, p99 1.028 | 58.47 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: threads, 1 at once: 20000 reads in 2.427s, 8241 a second | p50 0.119 ms, p99 0.162 | 1.00 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: threads, 2 at once: 20000 reads in 1.237s, 16174 a second | p50 0.121 ms, p99 0.192 | 2.00 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: threads, 4 at once: 20000 reads in 632ms, 31623 a second | p50 0.122 ms, p99 0.212 | 3.99 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: threads, 8 at once: 20000 reads in 340ms, 58860 a second | p50 0.127 ms, p99 0.267 | 7.99 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: threads, 16 at once: 20000 reads in 218ms, 91863 a second | p50 0.150 ms, p99 0.358 | 15.49 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: threads, 32 at once: 20000 reads in 156ms, 128364 a second | p50 0.204 ms, p99 0.617 | 30.23 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: threads, 64 at once: 20000 reads in 139ms, 143798 a second | p50 0.360 ms, p99 1.016 | 58.81 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: nocache, 1 at once: 20000 reads in 2.45s, 8163 a second | p50 0.120 ms, p99 0.162 | 1.00 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: nocache, 2 at once: 20000 reads in 1.231s, 16249 a second | p50 0.120 ms, p99 0.191 | 2.00 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: nocache, 4 at once: 20000 reads in 641ms, 31195 a second | p50 0.124 ms, p99 0.214 | 3.99 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: nocache, 8 at once: 20000 reads in 339ms, 58991 a second | p50 0.126 ms, p99 0.264 | 7.99 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: nocache, 16 at once: 20000 reads in 215ms, 93072 a second | p50 0.151 ms, p99 0.366 | 15.80 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: nocache, 32 at once: 20000 reads in 158ms, 126562 a second | p50 0.204 ms, p99 0.646 | 30.17 in flight on average | 0 under 20 us
+    bench_diag_gaps_test.go:765: nocache, 64 at once: 20000 reads in 139ms, 143737 a second | p50 0.353 ms, p99 0.992 | 58.00 in flight on average | 0 under 20 us
+--- PASS: TestDiagReads (15.60s)
+PASS

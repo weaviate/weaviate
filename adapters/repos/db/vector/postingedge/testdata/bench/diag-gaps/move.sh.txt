@@ -1,0 +1,28 @@
+#!/bin/bash
+# Moves the 10M index grown with the series out of the scratchpad, to the
+# benchmark volume (the user's order of 2026-11-28): a copy to another volume
+# of the same container, checked file by file against the source, byte for
+# byte. It removes nothing: the source is removed by hand once this says the
+# copy is whole. Not while a timed measure runs.
+set -u
+SRC=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/grow10m/index
+DST=/Volumes/v40bench/grow10m/index
+[ -d "$SRC" ] || { echo "no source"; exit 2; }
+[ -e "$DST" ] && { echo "the destination exists already"; exit 2; }
+mkdir -p /Volumes/v40bench/grow10m
+date "+== %Y-%m-%d %H:%M:%S copy"
+cp -R "$SRC" /Volumes/v40bench/grow10m/ || { echo "the copy failed"; exit 3; }
+date "+== %H:%M:%S compare"
+(cd "$SRC" && find . -type f -exec stat -f '%z %N' {} + | sort -k2) > /Volumes/v40bench/grow10m/source.list
+(cd "$DST" && find . -type f -exec stat -f '%z %N' {} + | sort -k2) > /Volumes/v40bench/grow10m/copy.list
+if ! diff -q /Volumes/v40bench/grow10m/source.list /Volumes/v40bench/grow10m/copy.list > /dev/null; then
+  echo "the lists of files differ"; diff /Volumes/v40bench/grow10m/source.list /Volumes/v40bench/grow10m/copy.list | head; exit 4
+fi
+bad=0
+while IFS= read -r line; do
+  f=${line#* }
+  cmp -s "$SRC/$f" "$DST/$f" || { echo "differs: $f"; bad=$((bad + 1)); }
+done < /Volumes/v40bench/grow10m/source.list
+date "+== %H:%M:%S done: $(wc -l < /Volumes/v40bench/grow10m/source.list | tr -d ' ') files, $bad differ"
+du -sh "$DST" | awk '{print "copy: " $1}'
+[ "$bad" = 0 ] && echo "THE COPY IS WHOLE"

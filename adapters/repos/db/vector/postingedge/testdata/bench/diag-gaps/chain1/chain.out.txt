@@ -1,0 +1,37 @@
+== 11:02:14 waiting for 900 s of idle (now 7077 s)
+== 2026-11-28 11:02:15 idle for 7077 s
+== 11:02:15 tables (idle 7077 s)
+tables exit 0
+== 11:02:17 reads (idle 7080 s)
+reads exit 0
+== 11:02:33 100k point: TestDiagPoint PE_ROWS=100000 PE_POINT=/private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/gaps/100k/point.json (idle 7096 s)
+100k point exit 0
+== 11:02:37 the 100k index reaches 0.95 at ef 17
+== 11:02:38 100k q1: TestDiagQueries PE_ROWS=100000 PE_EF=17 PE_QTHREADS=1 PE_CALLERS=0 PE_SECONDS=20 (idle 7100 s)
+100k q1 exit 0
+== 11:03:00 100k q8: TestDiagQueries PE_ROWS=100000 PE_EF=17 PE_QTHREADS=8 PE_CALLERS=0 PE_SECONDS=20 (idle 7123 s)
+100k q8 exit 0
+== 11:03:22 100k i8: TestDiagQueries PE_ROWS=100000 PE_EF=17 PE_QTHREADS=0 PE_CALLERS=8 PE_SECONDS=20 PE_NVECTORS=40000 (idle 7145 s)
+100k i8 exit 0
+== 11:03:44 100k qi1: TestDiagQueries PE_ROWS=100000 PE_EF=17 PE_QTHREADS=1 PE_CALLERS=8 PE_SECONDS=20 PE_NVECTORS=40000 (idle 7167 s)
+100k qi1 exit 0
+== 11:04:07 100k qi8: TestDiagQueries PE_ROWS=100000 PE_EF=17 PE_QTHREADS=8 PE_CALLERS=8 PE_SECONDS=20 PE_NVECTORS=40000 (idle 7190 s)
+100k qi8 exit 0
+== 11:04:29 100k degree: TestDiagDegree PE_ROWS=100000 PE_DEGREE=1 (idle 7212 s)
+100k degree exit 0
+== 11:04:31 100k search-marks-a: TestDiagSearch PE_ROWS=100000 PE_THREADS=1 PE_N=20000 (idle 7214 s)
+100k search-marks-a exit 0
+== 11:05:26 100k search-nomarks-a: TestDiagSearch PE_ROWS=100000 PE_THREADS=1 PE_N=20000 PE_NODELETED=1 (idle 7268 s)
+100k search-nomarks-a exit 0
+== 11:06:20 100k search-marks-b: TestDiagSearch PE_ROWS=100000 PE_THREADS=1 PE_N=20000 (idle 7323 s)
+100k search-marks-b exit 0
+== 11:07:16 100k search-nomarks-b: TestDiagSearch PE_ROWS=100000 PE_THREADS=1 PE_N=20000 PE_NODELETED=1 (idle 7379 s)
+100k search-nomarks-b exit 0
+== 11:08:12 10m q1: TestDiagQueries PE_EF=24 PE_QTHREADS=1 PE_CALLERS=0 PE_SECONDS=90 (idle 7434 s)
+10m q1 exit 0
+== 11:09:53 10m q8: TestDiagQueries PE_EF=24 PE_QTHREADS=8 PE_CALLERS=0 PE_SECONDS=90 (idle 7536 s)
+10m q8 exit 0
+== 11:11:33 10m i8: TestDiagQueries PE_EF=24 PE_QTHREADS=0 PE_CALLERS=8 PE_SECONDS=90 PE_NVECTORS=60000 (idle 0 s)
+10m i8 exit 0
+== 11:13:25 10m qi1: TestDiagQueries PE_EF=24 PE_QTHREADS=1 PE_CALLERS=8 PE_SECONDS=90 PE_NVECTORS=60000 (idle 104 s)
+stopped at 11:14:34

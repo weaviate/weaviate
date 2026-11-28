@@ -1,0 +1,262 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+// tracecpu adds up, from an execution trace of the diagnostic of the inserts,
+// the time the goroutines of the process were running, by what each
+// goroutine is: told from the stack of whoever started it, or from its own
+// the first time the trace has it. It also adds up, by the same groups, the
+// time in system calls and the ranges the runtime marks on a goroutine (the
+// help an allocation gives the collector, the sweep).
+//
+// Usage: go run ./tools/tracecpu <trace.out>
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
+	"golang.org/x/exp/trace"
+)
+
+const pending = "store cycles, not seen at work"
+
+func frames(stack trace.Stack) []string {
+	var out []string
+	for frame := range stack.Frames() {
+		out = append(out, frame.Func)
+	}
+	return out
+}
+
+// classify tells what a goroutine is from the functions of a stack: its own,
+// or that of whoever started it.
+func classify(funcs []string) string {
+	has := func(subs ...string) bool {
+		for _, f := range funcs {
+			for _, sub := range subs {
+				if strings.Contains(f, sub) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	switch {
+	case len(funcs) == 0:
+		return ""
+	case has("runtime.gcBgMarkWorker"):
+		return "collector: mark workers"
+	case has("runtime.bgsweep"):
+		return "collector: sweep in the background"
+	case has("runtime.bgscavenge"):
+		return "collector: scavenger"
+	case has("lsmkv.(*SegmentGroup).compact", "lsmkv.(*compactor", "compactOnce", "compactIfLevelsMatch",
+		"lsmkv.(*segmentCleaner"):
+		return "store: compaction"
+	case has("FlushAndSwitch", "lsmkv.(*Memtable).flush", "flushAndSwitch", "atomicallySwitchMemtable"):
+		return "store: flush of a memtable"
+	case has("postingedge.(*Index).rescore"):
+		return "plans: exact vectors (the goroutines of a rescore)"
+	case has("postingedge.(*growIndex).fetch", "postingedge.timedRead"):
+		return "plans: rows from the store (the goroutines of a round)"
+	case has("postingedge.(*Persistent).AddBatch", "postingedge.(*Persistent).addInBatches",
+		"postingedge.(*Persistent).searchWindow", "postingedge.TestDiag"):
+		return "callers: the plans in line, and applying"
+	case has("cyclemanager."):
+		return pending
+	case has("postingedge."):
+		return "index, other"
+	case has("lsmkv."):
+		return "store, other"
+	case has("runtime/trace", "traceAdvancer", "traceStartReadCPU"):
+		return "tracer"
+	case has("testing."):
+		return "harness: the flush of every round, and the rest"
+	}
+	return "other: " + funcs[len(funcs)-1]
+}
+
+func main() {
+	if len(os.Args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: tracecpu <trace.out>")
+		os.Exit(2)
+	}
+	file, err := os.Open(os.Args[1])
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	reader, err := trace.NewReader(file)
+	if err != nil {
+		panic(err)
+	}
+	class := map[trace.GoID]string{}
+	running := map[trace.GoID]trace.Time{}
+	inSyscall := map[trace.GoID]trace.Time{}
+	exec := map[trace.GoID]time.Duration{}
+	syscall := map[trace.GoID]time.Duration{}
+	type rangeKey struct {
+		id   trace.GoID
+		name string
+	}
+	open := map[rangeKey]trace.Time{}
+	ranges := map[rangeKey]time.Duration{}
+	var first, last trace.Time
+	seen := false
+	events := 0
+	for {
+		ev, err := reader.ReadEvent()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			panic(err)
+		}
+		events++
+		if !seen {
+			first, seen = ev.Time(), true
+		}
+		last = ev.Time()
+		switch ev.Kind() {
+		case trace.EventStateTransition:
+			st := ev.StateTransition()
+			if st.Resource.Kind != trace.ResourceGoroutine {
+				continue
+			}
+			id := st.Resource.Goroutine()
+			from, to := st.Goroutine()
+			if from == trace.GoNotExist {
+				// Its start function tells the workers of the runtime;
+				// whoever started it tells the rest.
+				if c := classify(frames(st.Stack)); strings.HasPrefix(c, "collector") {
+					class[id] = c
+				} else if c := classify(frames(ev.Stack())); c != "" {
+					class[id] = c
+				}
+			} else if c := class[id]; c == "" || c == pending || strings.HasPrefix(c, "other: ") {
+				// Its own stack, the first time the trace has it.
+				if own := classify(frames(st.Stack)); own != "" && own != pending && !strings.HasPrefix(own, "other: ") {
+					class[id] = own
+				} else if c == "" && own != "" {
+					class[id] = own
+				}
+			}
+			if from == trace.GoRunning {
+				if since, ok := running[id]; ok {
+					exec[id] += ev.Time().Sub(since)
+					delete(running, id)
+				}
+			}
+			if from == trace.GoSyscall {
+				if since, ok := inSyscall[id]; ok {
+					syscall[id] += ev.Time().Sub(since)
+					delete(inSyscall, id)
+				}
+			}
+			if to == trace.GoRunning {
+				running[id] = ev.Time()
+			}
+			if to == trace.GoSyscall {
+				inSyscall[id] = ev.Time()
+			}
+		case trace.EventRangeBegin, trace.EventRangeActive:
+			r := ev.Range()
+			if r.Scope.Kind == trace.ResourceGoroutine {
+				key := rangeKey{r.Scope.Goroutine(), r.Name}
+				if _, ok := open[key]; !ok {
+					open[key] = ev.Time()
+				}
+			}
+		case trace.EventRangeEnd:
+			r := ev.Range()
+			if r.Scope.Kind == trace.ResourceGoroutine {
+				key := rangeKey{r.Scope.Goroutine(), r.Name}
+				if since, ok := open[key]; ok {
+					ranges[key] += ev.Time().Sub(since)
+					delete(open, key)
+				}
+			}
+		}
+	}
+	for id, since := range running {
+		exec[id] += last.Sub(since)
+	}
+	for id, since := range inSyscall {
+		syscall[id] += last.Sub(since)
+	}
+	for key, since := range open {
+		ranges[key] += last.Sub(since)
+	}
+
+	type total struct {
+		goroutines    int
+		exec, syscall time.Duration
+		ranges        map[string]time.Duration
+	}
+	by := map[string]*total{}
+	at := func(c string) *total {
+		if c == "" {
+			c = "not told (no stack in the trace)"
+		}
+		if by[c] == nil {
+			by[c] = &total{ranges: map[string]time.Duration{}}
+		}
+		return by[c]
+	}
+	ids := map[trace.GoID]bool{}
+	for id := range class {
+		ids[id] = true
+	}
+	for id := range exec {
+		ids[id] = true
+	}
+	for id := range syscall {
+		ids[id] = true
+	}
+	var all time.Duration
+	for id := range ids {
+		t := at(class[id])
+		t.goroutines++
+		t.exec += exec[id]
+		t.syscall += syscall[id]
+		all += exec[id]
+	}
+	for key, d := range ranges {
+		at(class[key.id]).ranges[key.name] += d
+	}
+	window := last.Sub(first)
+	fmt.Printf("%s: %d events over %.3f s; the goroutines ran %.3f s in all, %.2f cores\n", os.Args[1], events,
+		window.Seconds(), all.Seconds(), all.Seconds()/window.Seconds())
+	names := make([]string, 0, len(by))
+	for name := range by {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool { return by[names[i]].exec > by[names[j]].exec })
+	for _, name := range names {
+		t := by[name]
+		fmt.Printf("  %-56s %8d goroutines  ran %8.3f s  %5.1f %%  %5.2f cores | in system calls %8.3f s\n", name,
+			t.goroutines, t.exec.Seconds(), 100*t.exec.Seconds()/all.Seconds(), t.exec.Seconds()/window.Seconds(),
+			t.syscall.Seconds())
+		rangeNames := make([]string, 0, len(t.ranges))
+		for r := range t.ranges {
+			rangeNames = append(rangeNames, r)
+		}
+		sort.Strings(rangeNames)
+		for _, r := range rangeNames {
+			fmt.Printf("      of which marked %-40s %8.3f s  %5.1f %% of all\n", r, t.ranges[r].Seconds(),
+				100*t.ranges[r].Seconds()/all.Seconds())
+		}
+	}
+}

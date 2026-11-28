@@ -45,6 +45,17 @@ import (
 // 2026-11-28 by the user's order): measures only, over clones of the indexes
 // of the diagnostic.
 
+// diagCallerCtx gives the callers of a pass the concurrency budget of
+// PE_CALLERBUDGET, which their plans keep for their reads: without it a plan
+// reads with the fan-out of the index, twice GOMAXPROCS, which changes with
+// GOMAXPROCS.
+func diagCallerCtx(t *testing.T, ctx context.Context) context.Context {
+	if budget := int(nightEnvInt(t, "PE_CALLERBUDGET", 0)); budget > 0 {
+		return concurrency.CtxWithBudget(ctx, budget)
+	}
+	return ctx
+}
+
 // diagPercentiles is the latencies of a set of durations, in ms.
 type diagPercentiles struct {
 	N    int     `json:"n"`

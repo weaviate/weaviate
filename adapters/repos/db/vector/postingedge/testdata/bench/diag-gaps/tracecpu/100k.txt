@@ -1,0 +1,26 @@
+runs/100k/trace-c8/trace.out: 10415494 events over 7.351 s; the goroutines ran 47.893 s in all, 6.52 cores
+  callers: the plans in line, and applying                      100 goroutines  ran   20.368 s   42.5 %   2.77 cores | in system calls    0.204 s
+      of which marked GC mark assist                              0.032 s    0.1 % of all
+      of which marked stop-the-world (GC sweep termination)       0.001 s    0.0 % of all
+      of which marked stop-the-world (read mem stats)             0.001 s    0.0 % of all
+      of which marked stop-the-world (start trace)                0.000 s    0.0 % of all
+  plans: rows from the store (the goroutines of a round)     682432 goroutines  ran   15.851 s   33.1 %   2.16 cores | in system calls    0.000 s
+      of which marked GC mark assist                              0.102 s    0.2 % of all
+      of which marked stop-the-world (GC sweep termination)       0.009 s    0.0 % of all
+  plans: exact vectors (the goroutines of a rescore)         192000 goroutines  ran    6.362 s   13.3 %   0.87 cores | in system calls    4.779 s
+      of which marked GC mark assist                              0.056 s    0.1 % of all
+      of which marked stop-the-world (GC mark termination)        0.000 s    0.0 % of all
+      of which marked stop-the-world (GC sweep termination)       0.002 s    0.0 % of all
+  collector: mark workers                                        10 goroutines  ran    3.542 s    7.4 %   0.48 cores | in system calls    0.000 s
+      of which marked stop-the-world (GC mark termination)        0.013 s    0.0 % of all
+  collector: sweep in the background                              1 goroutines  ran    1.558 s    3.3 %   0.21 cores | in system calls    0.000 s
+  collector: scavenger                                            1 goroutines  ran    0.180 s    0.4 %   0.02 cores | in system calls    0.000 s
+  store: flush of a memtable                                      1 goroutines  ran    0.029 s    0.1 %   0.00 cores | in system calls    0.046 s
+      of which marked GC mark assist                              0.000 s    0.0 % of all
+  index, other                                                    2 goroutines  ran    0.002 s    0.0 %   0.00 cores | in system calls    0.010 s
+  store cycles, not seen at work                                  5 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  other: runtime.forcegchelper                                    1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  other: runtime.runFinalizers                                    1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  other: runtime.runCleanups                                      1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  other: runtime.updateMaxProcsGoroutine                          1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s
+  harness: the flush of every round, and the rest                 1 goroutines  ran    0.000 s    0.0 %   0.00 cores | in system calls    0.000 s

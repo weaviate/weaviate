@@ -389,7 +389,7 @@ func TestDiagInserts(t *testing.T) {
 	if datasetDir == "" || dir == "" || out == "" || os.Getenv("PE_THREADS") != "" {
 		t.Skip("no PE_DATASET, PE_DIR and PE_OUT given, or PE_THREADS given")
 	}
-	ctx := context.Background()
+	ctx := diagCallerCtx(t, context.Background())
 	train, err := openNightTrain(datasetDir)
 	require.NoError(t, err)
 	defer train.file.Close()

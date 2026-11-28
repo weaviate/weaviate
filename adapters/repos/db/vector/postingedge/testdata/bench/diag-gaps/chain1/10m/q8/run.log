@@ -1,0 +1,5 @@
+=== RUN   TestDiagQueries
+time="2026-11-28T11:09:59+01:00" level=warning msg="the vectors of the index stay in the order they are in: 17038241792 bytes free in /private/tmp/claude-501/-Users-abdel-Documents-Projects-hnsw-pq-wt-posting-edge-index/e94130d1-0af4-421d-89c2-936de2c15159/scratchpad/diag/gaps/10m/q8/index/main.postingedge.d, and the pass writes 30769996624: the disk has no room to lay the vectors out again" action=postingedge_layout id=main
+    bench_diag_gaps_test.go:442: 8 query threads, 0 callers inserting, 1m30s: 217611 queries, p50 2.606 ms, p99 12.549, max 188.6 | the wait for the index: p50 0.000 ms, p99 0.000, max 9.0, 295 over 1 ms | 0 inserted in 0.0 s
+--- PASS: TestDiagQueries (97.87s)
+PASS

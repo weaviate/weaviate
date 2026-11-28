@@ -1,0 +1,4 @@
+=== RUN   TestDiagSearch
+    bench_diag_test.go:708: 20000 plans with 1 threads in 53.867s: 2.691 ms a plan by its clock, 36.6 loads
+--- PASS: TestDiagSearch (53.94s)
+PASS
