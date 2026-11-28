@@ -13,7 +13,9 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"math/rand"
 	"path/filepath"
 	"slices"
@@ -63,12 +65,57 @@ func stagedTitle(f *viewFixture) *lsmkv.Bucket {
 	return staged[0].bucket
 }
 
+// postings reports, per term, how many documents b lists and their propLen.
+func postings(t *testing.T, b *lsmkv.Bucket, terms ...string) string {
+	require.NotNil(t, b)
+	var out []string
+	for _, term := range terms {
+		pairs, err := b.MapList(context.Background(), []byte(term))
+		require.NoError(t, err)
+		lens := []float32{}
+		for _, p := range pairs {
+			lens = append(lens, math.Float32frombits(binary.LittleEndian.Uint32(p.Value[4:8])))
+		}
+		out = append(out, fmt.Sprintf("%s:%v", term, lens))
+	}
+	return strings.Join(out, " ")
+}
+
 func TestReindexViewWrites(t *testing.T) {
+	off, on := false, true
 	tests := []struct {
-		name string
-		run  func(f *viewFixture) string // reports what the folders hold
-		want string
+		name  string
+		props []*models.Property          // the fixture's default title when empty
+		run   func(f *viewFixture) string // reports what the folders hold
+		want  string
 	}{
+		{
+			name: "an update after a switch to BlockMax writes whole term sets that survive a reload",
+			props: []*models.Property{{
+				Name: "title", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWord,
+				IndexFilterable: &on, IndexSearchable: &off,
+			}},
+			run: func(f *viewFixture) string {
+				enable := func(switched bool) distributedtask.ShardTaskState {
+					st := viewTaskState("en", 1, ReindexTypeEnableSearchable, distributedtask.TaskStatusStarted, switched, true)
+					h := st.Header.(ReindexTaskHeader)
+					h.TargetTokenization = models.PropertyTokenizationWord
+					st.Header = h
+					return st
+				}
+				f.refreshTo(enable(false))
+				f.refreshTo(enable(true))
+				obj := testObject(f.class.Class)
+				f.putTitle(obj, "a b")
+				f.putTitle(obj, "a b c")
+				f.editTitle(func(p *models.Property) { p.IndexSearchable = &on })
+				f.setLive(map[string]uint64{indexTypeSearchable: 1})
+				f.tasks.set()
+				f.reload()
+				return postings(f.t, f.shard.store.Bucket(reindexBucketName("title", indexTypeSearchable, 1)), "a", "b", "c")
+			},
+			want: "a:[3] b:[3] c:[3]",
+		},
 		{
 			name: "a write on the old view lands in the served and the staged folder",
 			run: func(f *viewFixture) string {
@@ -150,7 +197,7 @@ func TestReindexViewWrites(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, tc.run(newViewFixture(t, "ViewTest")))
+			require.Equal(t, tc.want, tc.run(newViewFixture(t, "ViewTest", tc.props...)))
 		})
 	}
 }

@@ -86,13 +86,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shutCtx:       shutCtx,
 		shutCtxCancel: shutCtxCancel,
 
-		status:                          ShardStatus{Status: storagestate.StatusLoading},
-		searchableBlockmaxPropNamesLock: new(sync.Mutex),
-		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
-		bitmapBufPool:                   bitmapBufPool,
-		HFreshEnabled:                   index.HFreshEnabled,
-		lazySegmentLoadingEnabled:       lazyLoadSegments,
-		registration:                    registration,
+		status:                    ShardStatus{Status: storagestate.StatusLoading},
+		usingBlockMaxWAND:         index.invertedIndexConfig.UsingBlockMaxWAND,
+		bitmapBufPool:             bitmapBufPool,
+		HFreshEnabled:             index.HFreshEnabled,
+		lazySegmentLoadingEnabled: lazyLoadSegments,
+		registration:              registration,
 	}
 
 	s.registerCountedStatus(storagestate.StatusLoading)

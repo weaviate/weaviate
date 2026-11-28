@@ -232,7 +232,6 @@ const (
 
 type bucketNeed struct {
 	kind string // an index type or a bucketNeed* constant
-	prop string
 	name string
 	opts []lsmkv.BucketOption
 }
@@ -247,7 +246,7 @@ func (s *Shard) propertyBucketNeeds(prop *models.Property, gen map[string]uint64
 	}
 	var needs []bucketNeed
 	add := func(kind, name string, opts []lsmkv.BucketOption) {
-		needs = append(needs, bucketNeed{kind: kind, prop: prop.Name, name: name, opts: opts})
+		needs = append(needs, bucketNeed{kind: kind, name: name, opts: opts})
 	}
 	if !createsGeoIndex(prop) {
 		if inverted.HasFilterableIndex(prop) && schema.IsRefDataType(prop.DataType) {
@@ -277,21 +276,7 @@ func (s *Shard) openBucketNeed(ctx context.Context, need bucketNeed) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-	if err := s.store.CreateOrLoadBucket(ctx, need.name, need.opts...); err != nil {
-		return err
-	}
-	if need.kind != indexTypeSearchable {
-		return nil
-	}
-	bucket, release := s.store.AcquireBucketForRead(need.name)
-	if bucket == nil {
-		return fmt.Errorf("searchable bucket %q of shard %q: %w", need.name, s.name, lsmkv.ErrBucketNotFound)
-	}
-	defer release()
-	if bucket.Strategy() == lsmkv.StrategyInverted {
-		s.markSearchableBlockmaxProperties(need.prop)
-	}
-	return nil
+	return s.store.CreateOrLoadBucket(ctx, need.name, need.opts...)
 }
 
 func (s *Shard) propertyIndexOptions(prop *models.Property, indexType string,
@@ -409,17 +394,4 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...,
 	)
-}
-
-func (s *Shard) markSearchableBlockmaxProperties(propNames ...string) {
-	s.searchableBlockmaxPropNamesLock.Lock()
-	s.searchableBlockmaxPropNames = append(s.searchableBlockmaxPropNames, propNames...)
-	s.searchableBlockmaxPropNamesLock.Unlock()
-}
-
-func (s *Shard) getSearchableBlockmaxProperties() []string {
-	// since slice is only appended, it should be safe to return it that way
-	s.searchableBlockmaxPropNamesLock.Lock()
-	defer s.searchableBlockmaxPropNamesLock.Unlock()
-	return s.searchableBlockmaxPropNames
 }

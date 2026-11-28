@@ -26,12 +26,12 @@ func Delta(previous, next []Property) DeltaResults {
 	return DeltaSkipSearchable(previous, next, nil)
 }
 
-// skipDeltaSearchableProps - names of properties having searchable index of StrategyInverted
+// skipDeltaSearchable reports the properties having searchable index of StrategyInverted
 // (StrategyInverted requires complete set of items to be added or deleted (not delta),
 // therefore for such properties calculating delta should be skipped. If same properties
 // have other indexes (filterable / rangeable) property will be duplicated to contain
-// complete items sets for searchable index and delta for remaining ones.
-func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []string) DeltaResults {
+// complete items sets for searchable index and delta for remaining ones. nil skips none.
+func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchable func(propName string) bool) DeltaResults {
 	out := DeltaResults{}
 	previous = DedupItems(previous)
 	next = DedupItems(next)
@@ -39,11 +39,6 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 	if previous == nil {
 		out.ToAdd = next
 		return out
-	}
-
-	skipDeltaPropsNames := map[string]struct{}{}
-	for i := range skipDeltaSearchableProps {
-		skipDeltaPropsNames[skipDeltaSearchableProps[i]] = struct{}{}
 	}
 
 	previousByProp := map[string]Property{}
@@ -91,9 +86,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 			out.ToAdd = append(out.ToAdd, nextProp)
 			out.ToDelete = append(out.ToDelete, prevProp)
 		} else {
-			_, skipDeltaSearchable := skipDeltaPropsNames[nextProp.Name]
-
-			if skipDeltaSearchable && nextProp.HasSearchableIndex {
+			if nextProp.HasSearchableIndex && skipDeltaSearchable != nil && skipDeltaSearchable(nextProp.Name) {
 				// property with searchable index of StrategyInverted
 				if !nextProp.HasFilterableIndex && !nextProp.HasRangeableIndex {
 					// no other indexes, skip calculating delta

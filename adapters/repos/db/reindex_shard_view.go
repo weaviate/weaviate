@@ -94,6 +94,12 @@ func (v *shardView) FallbackToSearchable() bool {
 	return v.shard.isFallbackToSearchable()
 }
 
+// servesBlockmax reports a property whose served searchable index takes whole term sets, not deltas.
+func (v *shardView) servesBlockmax(propName string) bool {
+	b := v.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+	return b != nil && b.Strategy() == lsmkv.StrategyInverted
+}
+
 func (v *shardView) Bucket(name string) *lsmkv.Bucket {
 	if b, ok := v.served[name]; ok {
 		return b

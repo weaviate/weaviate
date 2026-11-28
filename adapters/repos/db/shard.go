@@ -426,12 +426,6 @@ type Shard struct {
 	shutCtx       context.Context
 	shutCtxCancel context.CancelCauseFunc
 
-	// stores names of properties that are searchable and use buckets of
-	// inverted strategy. for such properties delta analyzer should avoid
-	// computing delta between previous and current values of properties
-	searchableBlockmaxPropNames     []string
-	searchableBlockmaxPropNamesLock *sync.Mutex
-
 	usingBlockMaxWAND bool
 
 	// shutdownRequested marks shard as requested for shutdown
