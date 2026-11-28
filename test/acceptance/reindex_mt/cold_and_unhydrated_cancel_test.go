@@ -33,23 +33,22 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// The pre-submit sweep walks the shards a submit names (all, if none). It
-// skips an unloaded shard whose directory listing shows nothing to sweep,
-// since hydrating it just to find that out costs a full shard load.
+// A shard deletes the index folders cluster state does not name when it
+// loads. A submit does no cleanup of its own, so it must not hydrate the
+// unloaded shards it names: that costs a full shard load per tenant inside
+// the request.
 //
 // This journey pins all three populations that answer differently, in one
 // run against one collection:
 //
-//   - HOT + unloaded + stale leftovers → hydrated and swept clean.
-//   - HOT + unloaded + nothing to sweep → left unloaded (the saving).
-//   - COLD → never reached at all; a deactivated tenant is not in the
-//     index's shard map, so its leftovers survive untouched until it is
-//     reactivated and a later submit sweeps it.
+//   - HOT + unloaded + stale leftovers → loaded by the run and swept clean.
+//   - HOT + unloaded + nothing to sweep → left unloaded by the submit.
+//   - COLD → never loaded at all, so its leftovers survive untouched until
+//     it is reactivated and loads.
 //
 // The third case is the one that is easy to state backwards: a COLD tenant's
-// stale sidecar surviving the sweep is correct, not a leak. The final step proves
-// it is only deferred by reactivating those tenants and showing the next
-// submit does drain them.
+// stale sidecar surviving is correct, not a leak. The final step proves it
+// is only deferred by reactivating those tenants.
 const (
 	coldCancelClass = "MTColdCancelSweep"
 	coldCancelProp  = "score"
@@ -80,10 +79,10 @@ type sweepTenant struct {
 	name string
 	// cold deactivates the tenant before the restart.
 	cold bool
-	// stale plants a sidecar the sweep is expected to own.
+	// stale plants a sidecar no cluster state names.
 	stale bool
 	// wantSidecarAfterSweep is the state of that sidecar once the
-	// post-restart submit has run its sweep.
+	// post-restart rebuild has finished.
 	wantSidecarAfterSweep bool
 }
 
@@ -109,10 +108,8 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 
 	compose, err := reindexhelpers.SingleNodeCompose().
 		WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
-		// This test checks the cleanup sweep's claim about which tenants it
-		// left unloaded against the shard-load metrics, which the sweep does
-		// not write. Without it that second reading returns nothing and the
-		// test is back to asking the sweep to report on itself.
+		// The shard-load metrics are how this test sees which tenants the
+		// submit left unloaded.
 		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
@@ -153,12 +150,12 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	}
 
 	// Step 2: deactivate. A COLD tenant leaves the index's shard map, which is
-	// what puts it out of every later sweep's reach.
+	// what keeps it from loading, and so from sweeping, until reactivated.
 	coldNames := tenantNames(tenants, func(tn sweepTenant) bool { return tn.cold })
 	helper.SetTenantsStatus(t, coldCancelClass, coldNames, models.TenantActivityStatusCOLD)
 
 	// Step 3: plant. Deterministic on purpose — whether the cancel above
-	// managed to sweep itself clean before the drain timeout is a race, and
+	// left anything behind is a race, and
 	// the populations this test separates must not depend on it.
 	for _, tn := range tenants {
 		if tn.stale {
@@ -167,7 +164,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	}
 
 	// Step 4: restart. This is what makes every HOT tenant an unloaded
-	// lazy shard again, which is the state the sweep's gate exists for.
+	// lazy shard again, which is the state the submit must not undo.
 	require.NoError(t, compose.StopAt(ctx, 0, nil))
 	require.NoError(t, compose.StartAt(ctx, 0))
 	restURI = compose.GetWeaviate().URI()
@@ -176,9 +173,8 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 
 	// The cancelled run in step 1 touched every tenant and left residue on
 	// whichever subset it had reached, so a tenant this matrix calls clean is
-	// only clean by luck — and the sweep rightly hydrates one that is not.
-	// Clear it here, while the shards are unloaded and nothing holds the files
-	// open, so "nothing to sweep" means what it says.
+	// only clean by luck. Clear it here, while the shards are unloaded and
+	// nothing holds the files open, so "nothing to sweep" means what it says.
 	clearReindexResidue(ctx, t, container,
 		tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold && !tn.stale }))
 
@@ -186,13 +182,10 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// tenant is refused.
 	//
 	// A filterable rebuild, not enable-rangeable: the latter is semantic and
-	// cannot be tenant-scoped. The (score, filterable) cleanup still owns the
-	// planted sidecar of the filterable bucket.
+	// cannot be tenant-scoped. The planted sidecar reads as a leftover of the
+	// filterable bucket.
 	hotNames := tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold })
-	logMark := len(containerLogs(ctx, t, container))
 
-	// The sweep runs inside the submit request, before the task is dispatched,
-	// so the shards loaded across this call are the ones it decided to hydrate.
 	probeStart := time.Now()
 	loadedBefore := loadedShardsOfClass(ctx, t, container, coldCancelClass)
 	taskID := reindexhelpers.RebuildIndex(t, restURI, coldCancelClass, coldCancelProp,
@@ -203,52 +196,30 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	t.Logf("post-restart filterable rebuild task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
-	sweepLog := containerLogs(ctx, t, container)[logMark:]
-
-	// (b) The direct end-to-end oracle: the sweep left unloaded tenants
-	// unloaded. Read twice, because the sweep's own counter is the subject
-	// reporting on itself: a gate that skipped one tenant out of fourteen
-	// and hydrated the rest still satisfies "more than zero".
-	//
-	// Both readings only prove something while tenants are still unloaded, so
-	// establish that first: a run whose background hydration finished before
-	// the submit cannot tell a working gate from a broken one, and must say so
+	// (b) The submit left unloaded tenants unloaded. This only proves
+	// something while tenants are still unloaded, so establish that first: a
+	// run whose background hydration finished before the submit cannot tell
+	// a cheap submit from one that loads every tenant, and must say so
 	// rather than pass.
-	skipped, found := maxSkippedShards(sweepLog)
-	require.True(t, found,
-		"the post-restart submit must report a cleanup sweep; no sweep line found in the container log")
 	stillUnloaded := len(hotNames) - len(loadedBefore)
 	require.GreaterOrEqual(t, stillUnloaded, coldCancelCleanTenants/2,
 		"only %d of %d HOT tenants were still unloaded when the submit landed, so this run cannot "+
-			"observe what the sweep skipped; background hydration outran the test",
+			"observe what the submit hydrated; background hydration outran the test",
 		stillUnloaded, len(hotNames))
 
 	hydrated := newlyLoadedShards(loadedBefore, loadedAfter)
 	stayedUnloaded := stillUnloaded - len(hydrated)
-	t.Logf("sweep skipped %d of %d unloaded tenants; %d still unloaded after the %s submit window (loaded: %v)",
-		skipped, stillUnloaded, stayedUnloaded, probeWindow.Round(time.Millisecond), hydrated)
+	t.Logf("%d of %d unloaded tenants still unloaded after the %s submit window (loaded: %v)",
+		stayedUnloaded, stillUnloaded, probeWindow.Round(time.Millisecond), hydrated)
 
-	// First reading: the counter, with a floor that means something. All
-	// fourteen is unattainable, since background hydration loads one tenant
-	// per second and races the submit, so half is the floor. Both readings
-	// report before the test gives up, so a failure shows whether they agree.
-	assert.GreaterOrEqual(t, skipped, coldCancelCleanTenants/2,
-		"the sweep hydrated most unloaded tenants: only %d were skipped, of %d clean HOT tenants that "+
-			"had nothing to sweep. Those loads run inside the submit handler, so its latency grows with "+
-			"tenant count",
-		skipped, coldCancelCleanTenants)
-
-	// Second reading, from a subsystem the sweep does not write: shard-scoped
-	// prometheus series appear when LazyLoadShard.Load builds the shard, so a
-	// tenant without one at the end of the submit is a tenant nothing
-	// hydrated. Same claim as the counter above and the same floor, counted
-	// from outside the sweep. Not an exact figure: a few tenants are hydrated
-	// per submit by paths other than this sweep, and background hydration
-	// keeps loading one per second throughout.
+	// Shard-scoped prometheus series appear when LazyLoadShard.Load builds
+	// the shard, so a tenant without one at the end of the submit is a tenant
+	// nothing hydrated. Half is the floor, not all: the run's units start
+	// loading tenants right after the submit, and background hydration keeps
+	// loading one per second throughout.
 	assert.GreaterOrEqual(t, stayedUnloaded, coldCancelCleanTenants/2,
 		"only %d of the %d tenants that were unloaded when the submit landed were still unloaded when "+
-			"it returned; the submit is hydrating tenants that could be ruled out from their directory "+
-			"listing alone. Loaded: %v",
+			"it returned; the submit is hydrating tenants inside the request. Loaded: %v",
 		stayedUnloaded, stillUnloaded, hydrated)
 
 	// (a) + (c) Whose stale sidecars survived.
@@ -257,13 +228,13 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 		has := containsDir(dirs, coldCancelPlantedDir)
 		if tn.wantSidecarAfterSweep {
 			assert.True(t, has,
-				"tenant %q is COLD, so the sweep cannot reach it; its stale sidecar must survive untouched. dirs: %v",
+				"tenant %q is COLD, so it never loaded; its stale sidecar must survive untouched. dirs: %v",
 				tn.name, dirs)
 			continue
 		}
 		assert.False(t, has,
-			"tenant %q had a stale sidecar the sweep owns and it is still on disk; the next submit resumes "+
-				"against it and reports success on an index it never built. dirs: %v",
+			"tenant %q loaded for the rebuild, but the stale sidecar cluster state does not name is "+
+				"still on disk. dirs: %v",
 			tn.name, dirs)
 	}
 
@@ -276,8 +247,8 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 				"reported success on an empty bucket", name, len(hits))
 	}
 
-	// (d) The COLD tenants' state is deferred, not lost: reactivate them and
-	// the next submit in the same sweep scope drains them.
+	// (d) The COLD tenants' state is deferred, not lost: reactivated, they
+	// load and drop the leftovers, and a rebuild still serves them.
 	helper.SetTenantsStatus(t, coldCancelClass, coldNames, models.TenantActivityStatusHOT)
 	drainTaskID := reindexhelpers.RebuildIndex(t, restURI, coldCancelClass, coldCancelProp,
 		"filterable", reindexhelpers.WithTenants(coldNames))
@@ -287,7 +258,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	for _, name := range coldNames {
 		dirs := sidecarDirs(ctx, t, container, name)
 		assert.False(t, containsDir(dirs, coldCancelPlantedDir),
-			"tenant %q is HOT again, so the sweep reaches it; its stale sidecar must be gone. dirs: %v", name, dirs)
+			"tenant %q is HOT again and loaded; its stale sidecar must be gone. dirs: %v", name, dirs)
 		hits := bm25QueryTenant(t, coldCancelClass, "name", "corpus", name)
 		assert.NotEmpty(t, hits, "reactivated tenant %q must still serve its objects", name)
 	}
@@ -402,8 +373,7 @@ func plantStaleSidecar(ctx context.Context, t *testing.T, c testcontainers.Conta
 
 // clearReindexResidue makes each tenant's on-disk state look like no
 // migration ever ran on it: no migration records, and no sidecar buckets of the
-// property under test. Both are what the sweep's gate answers "there is
-// something here" from.
+// property under test.
 func clearReindexResidue(ctx context.Context, t *testing.T, c testcontainers.Container, tenants []string) {
 	t.Helper()
 	var cmd strings.Builder
@@ -447,16 +417,6 @@ func execInContainer(ctx context.Context, t *testing.T, c testcontainers.Contain
 	return string(out)
 }
 
-func containerLogs(ctx context.Context, t *testing.T, c testcontainers.Container) string {
-	t.Helper()
-	reader, err := c.Logs(ctx)
-	require.NoError(t, err)
-	defer reader.Close()
-	out, err := io.ReadAll(reader)
-	require.NoError(t, err)
-	return string(out)
-}
-
 // The metrics probe reports how many lines the metrics page had, so an
 // unreachable endpoint fails loudly instead of reading as "no shard is
 // loaded", and how many shards it found, so a truncated read cannot pass for
@@ -471,8 +431,7 @@ var (
 // loadedShardsOfClass reports which tenants of className have shard-scoped
 // prometheus series. Those series are registered when the shard itself is
 // built, so an unloaded lazy shard contributes none and the result is the
-// collection's loaded-shard set — published by the shard loader, not by the
-// cleanup sweep whose claim it is used to check.
+// collection's loaded-shard set, published by the shard loader.
 func loadedShardsOfClass(ctx context.Context, t *testing.T, c testcontainers.Container,
 	className string,
 ) map[string]bool {
@@ -526,28 +485,6 @@ func newlyLoadedShards(before, after map[string]bool) []string {
 	}
 	sort.Strings(added)
 	return added
-}
-
-// skippedShardsField matches the count the cleanup sweep reports. Matched on
-// the field rather than the message: the wording around it is being reworked
-// on this branch, the field is what the operator greps for.
-var skippedShardsField = regexp.MustCompile(`"skipped_shards":\s*(\d+)`)
-
-// maxSkippedShards is the highest count any sweep in logs reported. Highest,
-// not the first: a submit sweeps once per index type its migration touches,
-// and background cleanup after a terminal task sweeps again.
-func maxSkippedShards(logs string) (int, bool) {
-	matches := skippedShardsField.FindAllStringSubmatch(logs, -1)
-	if len(matches) == 0 {
-		return 0, false
-	}
-	highest := 0
-	for _, m := range matches {
-		if n, err := strconv.Atoi(m[1]); err == nil && n > highest {
-			highest = n
-		}
-	}
-	return highest, true
 }
 
 // =============================================================================

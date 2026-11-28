@@ -24,12 +24,14 @@ import (
 )
 
 // Pins weaviate/0-weaviate-issues#231 end-to-end against a real 3-node
-// cluster: a reindex task record produced by `change-tokenization` must
-// not survive its class being dropped, must not contaminate a same-name
-// recreate, and must not resurrect after a rolling restart replays the
-// RAFT log. The cascade lives in the FSM apply path, so it deterministically
-// re-fires on every node during replay — the rolling-restart phase is the
-// crash-safety axis.
+// cluster: a finished reindex task record must not survive its class being
+// dropped, must not contaminate a same-name recreate, and must not resurrect
+// after a rolling restart replays the RAFT log. The cascade lives in the FSM
+// apply path, so it deterministically re-fires on every node during replay —
+// the rolling-restart phase is the crash-safety axis.
+//
+// A finished full run removes itself, so the record under test is a
+// tenant-scoped rebuild, which stays listed to say which tenants it switched.
 func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -37,37 +39,48 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "DTMCascadeDelete"
+	tenants := []string{"tenantA", "tenantB"}
 
 	uri := restURIOf(compose, 1)
 
 	trueVal := true
-	createCollection(t, compose, uri, className, 3, 3, []*models.Property{
+	props := []*models.Property{
 		{
 			Name:            "text",
 			DataType:        []string{"text"},
 			IndexFilterable: &trueVal,
 			Tokenization:    "word",
 		},
-	})
+	}
+	createMTCollection(t, uri, className, 3, props)
+	createTenants(t, uri, className, tenants)
 
 	// Small dataset — we only need migration to produce a task record.
 	texts := make([]string, 30)
 	for i := range texts {
 		texts[i] = fmt.Sprintf("alpha beta gamma %d", i)
 	}
-	importObjects(t, uri, className, texts)
+	for _, tenant := range tenants {
+		importObjectsTenant(t, uri, className, tenant, texts)
+	}
 
-	// Run a migration → first task record under "reindex" namespace.
-	task1 := reindexhelpers.SubmitIndexUpsert(t, uri, className, "text", "searchable",
-		`{"tokenization":"field"}`)
-	reindexhelpers.AwaitReindexFinished(t, uri, task1,
-		reindexhelpers.WithTimeout(180*time.Second))
+	task1 := reindexhelpers.RebuildIndex(t, uri, className, "text", "filterable",
+		reindexhelpers.WithTenants(tenants[:1]))
+	require.EventuallyWithTf(t, func(ct *assert.CollectT) {
+		tasks, ok := reindexhelpers.TryFetchTasks(uri)
+		if !assert.True(ct, ok, "fetch /v1/tasks") {
+			return
+		}
+		for _, task := range tasks["reindex"] {
+			if task.ID == task1 {
+				assert.Equal(ct, "FINISHED", task.Status, "task %s: %s", task1, task.Error)
+				return
+			}
+		}
+		assert.Fail(ct, "task not listed", "task %s", task1)
+	}, 180*time.Second, 200*time.Millisecond,
+		"pre-delete: tenant-scoped rebuild %s must be listed as FINISHED in /v1/tasks", task1)
 	t.Logf("first migration FINISHED: task=%s", task1)
-
-	// Spot-check pre-delete: task record is present on this node's view.
-	existsPre, okPre := taskExists(t, uri, task1)
-	require.Truef(t, okPre && existsPre,
-		"pre-delete: reindex task %s must be in /v1/tasks (fetch ok=%v)", task1, okPre)
 
 	deleteCollection(t, uri, className)
 	t.Logf("deleted class %s", className)
@@ -80,14 +93,8 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	}
 
 	// Same-name recreate must not inherit FAILED / FINISHED pills.
-	createCollection(t, compose, uri, className, 3, 3, []*models.Property{
-		{
-			Name:            "text",
-			DataType:        []string{"text"},
-			IndexFilterable: &trueVal,
-			Tokenization:    "word",
-		},
-	})
+	createMTCollection(t, uri, className, 3, props)
+	createTenants(t, uri, className, tenants)
 	t.Logf("recreated class %s with fresh schema", className)
 
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
@@ -116,7 +123,7 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	// Re-resolve the node URI because testcontainers picks a new
 	// ephemeral host port on every container start.
 	postRestartURI := restURIOf(compose, 1)
-	importObjects(t, postRestartURI, className, texts[:10])
+	importObjectsTenant(t, postRestartURI, className, tenants[0], texts[:10])
 	task2 := reindexhelpers.SubmitIndexUpsert(t, postRestartURI, className, "text", "searchable",
 		`{"tokenization":"field"}`)
 	require.NotEqual(t, task1, task2,

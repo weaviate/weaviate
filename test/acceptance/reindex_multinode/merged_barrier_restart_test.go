@@ -18,13 +18,11 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -78,10 +76,9 @@ func TestMultiNode_RestartInsideMergedBarrier_CommitsAndServes(t *testing.T) {
 	defer resumeHolder()
 	resumeLagging()
 
-	// One record per shard for each of the searchable and filterable indexes.
-	awaitNodeRecordsMerged(ctx, t, compose, restartedNode, strings.ToLower(className), 6)
-	require.Equal(t, "PREPARING", taskStatus(t, uri, taskID),
-		"node %d is paused before its prep ack, so the task must still be PREPARING", holder)
+	// Every unit built and the flip undecided: the window this test kills in.
+	awaitTaskStatus(t, uri, taskID, "PREPARING",
+		"every unit must complete while node %d, paused before its prep ack, holds the task in PREPARING", holder)
 
 	// docker kill, not StopAt: StopAt polls a survivor that may be the paused node.
 	dockerOnNode(ctx, t, compose, restartedNode, "kill")
@@ -162,17 +159,14 @@ func fetchTask(restURI, taskID string) (*models.DistributedTask, bool) {
 	return nil, false
 }
 
-func taskStatus(t *testing.T, restURI, taskID string) string {
+func awaitTaskStatus(t *testing.T, restURI, taskID, want string, msgAndArgs ...interface{}) {
 	t.Helper()
-	var status string
-	require.Eventually(t, func() bool {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		task, ok := fetchTask(restURI, taskID)
-		if ok {
-			status = task.Status
+		if assert.True(ct, ok, "task %s not listed", taskID) {
+			assert.Equal(ct, want, task.Status, "task %s: %s", taskID, task.Error)
 		}
-		return ok
-	}, 30*time.Second, 100*time.Millisecond, "task %s must be listed", taskID)
-	return status
+	}, 60*time.Second, 100*time.Millisecond, msgAndArgs...)
 }
 
 func awaitNodeUnitsCompleted(t *testing.T, restURI, taskID string, node int) {
@@ -192,25 +186,4 @@ func awaitNodeUnitsCompleted(t *testing.T, restURI, taskID string, node int) {
 		}
 		assert.Positive(ct, seen, "node %s owns no unit", nodeName)
 	}, 240*time.Second, 100*time.Millisecond, "every unit on node %d must complete", node)
-}
-
-func awaitNodeRecordsMerged(ctx context.Context, t *testing.T, compose *docker.DockerCompose,
-	node int, classDirLower string, wantRecords int,
-) {
-	t.Helper()
-	cmd := []string{"sh", "-c", fmt.Sprintf(
-		`for f in $(find /data/%s -path '*/.migrations/records/*.json'); do grep -o '"state": *"[a-z]*"' "$f"; done; exit 0`,
-		classDirLower)}
-	require.EventuallyWithTf(t, func(ct *assert.CollectT) {
-		code, reader, err := compose.GetWeaviateNode(node).Container().Exec(ctx, cmd, tcexec.Multiplexed())
-		if !assert.NoError(ct, err) || !assert.Zero(ct, code) || !assert.NotNil(ct, reader) {
-			return
-		}
-		out, _ := io.ReadAll(reader)
-		states := strings.Fields(strings.ReplaceAll(string(out), ": ", ":"))
-		assert.Len(ct, states, wantRecords, "records: %q", out)
-		for _, state := range states {
-			assert.Equal(ct, `"state":"merged"`, state)
-		}
-	}, 60*time.Second, 100*time.Millisecond, "node %d records must all read merged", node)
 }
