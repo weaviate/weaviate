@@ -201,10 +201,10 @@ func (s *Shard) servedIndexName(propName, indexType string) string {
 
 // loadReindexView decides, before any property bucket opens, which folder
 // each property index opens.
-func (s *Shard) loadReindexView(loading *models.Class, keep map[string]bool) error {
+func (s *Shard) loadReindexView(loading *models.Class, keep map[string]bool) (*models.Class, error) {
 	class, props, err := s.readReindexView()
 	if err != nil {
-		return fmt.Errorf("read reindex state: %w", err)
+		return nil, fmt.Errorf("read reindex state: %w", err)
 	}
 	if class == nil {
 		class = loading
@@ -212,13 +212,13 @@ func (s *Shard) loadReindexView(loading *models.Class, keep map[string]bool) err
 	for _, prop := range class.Properties {
 		for _, t := range reindexIndexTypes {
 			if err := s.refuseMissingServedFolder(prop.Name, t, props[prop.Name]); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 	s.sweepUnnamedIndexFolders(class, props, keep)
 	s.view.current.Store(newShardView(s, props))
-	return nil
+	return class, nil
 }
 
 // sweepUnnamedIndexFolders deletes what a crash before a retire or an index-off on an unloaded
@@ -283,20 +283,29 @@ func isIndexFolderOf(class *models.Class, name string) bool {
 	return false
 }
 
-func (s *Shard) finishViewLoad() {
+// finishViewLoad publishes what a refresh of the load's state would, so writes
+// reach every kept build from the start. A build that cannot open is left to
+// the refresh loop, whose staging limit fails its unit.
+func (s *Shard) finishViewLoad(ctx context.Context, class *models.Class) error {
+	s.view.mu.Lock()
+	defer s.view.mu.Unlock()
 	cur := s.loadView()
 	next := newShardView(s, cur.props)
-	for prop, pv := range cur.props {
-		for _, t := range reindexIndexTypes {
-			switch plain := reindexBucketName(prop, t, 0); {
-			case !pv.on[t]:
-				next.served[plain] = nil
-			case pv.gen[t] > 0:
-				next.served[plain] = s.store.Bucket(reindexBucketName(prop, t, pv.gen[t]))
-			}
-		}
+	var opened []string
+	if err := s.resolveServed(ctx, class, next, &opened); err != nil {
+		s.closeUnpublished(opened)
+		return err
+	}
+	served := len(opened)
+	if _, err := s.resolveStaged(ctx, class, cur, next, &opened); err != nil {
+		s.closeUnpublished(opened[served:])
+		next.staged = nil
+		s.index.logger.WithField("action", "reindex_load").WithField("shard", s.name).
+			Warnf("cannot open a build folder at load, the refresh loop retries: %v", err)
+		s.notifyViewRefresh()
 	}
 	s.publishView(next)
+	return nil
 }
 
 // refuseMissingServedFolder refuses to serve an empty index over objects

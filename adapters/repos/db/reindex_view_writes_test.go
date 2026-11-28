@@ -178,6 +178,21 @@ func TestReindexViewWrites(t *testing.T) {
 			want: "1 0",
 		},
 		{
+			name: "a write between a reload and the first refresh lands in a started unit's build",
+			run: func(f *viewFixture) string {
+				started := func(st distributedtask.ShardTaskState) distributedtask.ShardTaskState {
+					st.LocalUnitStarted = true
+					return st
+				}
+				f.refreshTo(started(stagedTask("a")))
+				f.reload()
+				f.putTitle(testObject(f.class.Class), "hello")
+				f.refreshTo(started(switchedTask("a")))
+				return fmt.Sprint(countHello(f.t, f.shard.loadView()))
+			},
+			want: "1",
+		},
+		{
 			name: "a length or null write after a switch lands in the plain length and null folders",
 			run: func(f *viewFixture) string {
 				f.refreshTo(stagedTask("a"))
@@ -266,7 +281,27 @@ func TestReindexViewWritesEnableFirstIndex(t *testing.T) {
 	}
 }
 
-// A class update on a property no run governs leaves the shard with the buckets a load opens.
+// viewShape lists a shard's open title buckets and what its view serves,
+// stages and writes as whole term sets.
+func viewShape(s *Shard) []string {
+	v := s.loadView()
+	out := titleBuckets(s)
+	for plain, b := range v.served {
+		folder := "off"
+		if b != nil {
+			folder = filepath.Base(b.GetDir())
+		}
+		out = append(out, "serves "+plain+" from "+folder)
+	}
+	for _, b := range v.staged {
+		out = append(out, "stages "+b.name+" for "+b.taskID)
+	}
+	out = append(out, fmt.Sprint("blockmax ", v.servesBlockmax("title")))
+	slices.Sort(out)
+	return out
+}
+
+// A refresh leaves the shard with the view a load of the same state publishes.
 func TestReindexViewRefreshOpensWhatALoadOpens(t *testing.T) {
 	off, on := false, true
 	text := func(filterable, searchable bool) *models.Property {
@@ -275,6 +310,16 @@ func TestReindexViewRefreshOpensWhatALoadOpens(t *testing.T) {
 			IndexFilterable: &filterable, IndexSearchable: &searchable, IndexRangeFilters: &off,
 		}
 	}
+	number := func(rangeable bool) *models.Property {
+		return &models.Property{Name: "title", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &on, IndexRangeFilters: &rangeable}
+	}
+	requireLoadMatches := func(t *testing.T, f *viewFixture) {
+		f.shard.closeViews() // waits for the retire of a replaced folder
+		refreshed := viewShape(f.shard)
+		f.reload()
+		require.Equal(t, refreshed, viewShape(f.shard))
+	}
+
 	for _, tc := range []struct {
 		name   string
 		prop   *models.Property
@@ -283,21 +328,56 @@ func TestReindexViewRefreshOpensWhatALoadOpens(t *testing.T) {
 		{name: "filterable turned on", prop: text(false, true), update: func(p *models.Property) { p.IndexFilterable = &on }},
 		{name: "searchable turned on", prop: text(true, false), update: func(p *models.Property) { p.IndexSearchable = &on }},
 		{name: "the first index turned on", prop: text(false, false), update: func(p *models.Property) { p.IndexFilterable = &on }},
-		{
-			name: "rangeable turned on", update: func(p *models.Property) { p.IndexRangeFilters = &on },
-			prop: &models.Property{Name: "title", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &on, IndexRangeFilters: &off},
-		},
+		{name: "rangeable turned on", prop: number(false), update: func(p *models.Property) { p.IndexRangeFilters = &on }},
 		{name: "filterable turned off", prop: text(true, true), update: func(p *models.Property) { p.IndexFilterable = &off }},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run("ungoverned "+tc.name, func(t *testing.T) {
 			f := newViewFixture(t, "ViewTest", tc.prop)
 			f.editTitle(tc.update)
 			require.NoError(t, f.shard.refreshView(context.Background()))
-			f.shard.closeViews() // waits for the retire of a turned-off index
-			refreshed := titleBuckets(f.shard)
-			f.reload()
-			require.Equal(t, titleBuckets(f.shard), refreshed)
+			requireLoadMatches(t, f)
 		})
+	}
+
+	const started, finished, cancelled = distributedtask.TaskStatusStarted, distributedtask.TaskStatusFinished, distributedtask.TaskStatusCancelled
+	phases := []struct {
+		name               string
+		status             distributedtask.TaskStatus
+		switched, unitDone bool // unitDone also stands for a completed unit, which has the same flags
+	}{
+		{"unstarted", started, false, false},
+		{"started", started, false, true},
+		{"switched", started, true, true},
+		{"finished", finished, true, true},
+		{"cancelled", cancelled, false, true},
+	}
+	for _, mt := range []struct {
+		mt   ReindexMigrationType
+		prop *models.Property
+	}{
+		{ReindexTypeChangeTokenization, text(true, true)},
+		{ReindexTypeChangeTokenizationFilterable, text(true, true)},
+		{ReindexTypeRepairFilterable, text(true, true)},
+		{ReindexTypeRebuildSearchable, text(true, true)},
+		{ReindexTypeChangeAlgorithm, text(true, true)},
+		{ReindexTypeEnableFilterable, text(false, true)},
+		{ReindexTypeEnableSearchable, text(true, false)},
+		{ReindexTypeEnableRangeable, number(false)},
+		{ReindexTypeRepairRangeable, number(true)},
+	} {
+		for _, ph := range phases {
+			t.Run(string(mt.mt)+" "+ph.name, func(t *testing.T) {
+				f := newViewFixture(t, "ViewTest", mt.prop)
+				state := func(status distributedtask.TaskStatus, switched, unitDone bool) distributedtask.ShardTaskState {
+					st := viewTaskState("run", 1, mt.mt, status, switched, true)
+					st.LocalUnitStarted = unitDone
+					return st
+				}
+				f.refreshTo(state(started, false, false))
+				f.refreshTo(state(ph.status, ph.switched, ph.unitDone))
+				requireLoadMatches(t, f)
+			})
+		}
 	}
 }
 

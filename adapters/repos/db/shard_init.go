@@ -162,14 +162,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := s.convertLegacyRecords(class); err != nil {
 		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
-	if err := s.loadReindexView(class, keep); err != nil {
+	viewClass, err := s.loadReindexView(class, keep)
+	if err != nil {
 		return nil, fmt.Errorf("shard %q: %w", shardName, err)
 	}
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
-	s.finishViewLoad()
+	if err := s.finishViewLoad(ctx, viewClass); err != nil {
+		return nil, fmt.Errorf("shard %q: %w", shardName, err)
+	}
 
 	// Needs the dimensions bucket, which initNonVector opens.
 	s.clearDroppedVectorDimensions(ctx, class)
