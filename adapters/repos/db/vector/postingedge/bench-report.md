@@ -3418,7 +3418,7 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 - **C. El posting en la arista:** solo diseño por ahora (cambia el formato de las filas). Lo que estima sobre el papel: +35 % de bytes por carga con un posting por arista, +9 % con un diccionario por fila.
 
 **Qué mido,** sobre clones del 10M, sin mantenimiento y tras 15 s de almacén quieto, con el binario que junta las palancas y los relojes del diagnóstico.
-- **A:** 1 hilo de queries a 0.95 con 8 llamadores, 180 s, cuatro veces: todo apagado; trozos de 8; trozos de 8 con cuota de 2 filas; lote entero con cuota de 16. De cada una: espera de una query por el cerrojo (p50, p99, p99.9, máximo), retenciones (p50, p99, máximo), inserts por segundo y filas por presupuesto por retención. Y los inserts solos, 16 000 con 8 llamadores, apagado y con trozos de 8 y cuota de 2.
+- **A:** 1 hilo de queries a 0.95 con 8 llamadores, 180 s, cinco veces: todo apagado; trozos de 8; trozos de 8 con cuota de 2 filas; lote entero con cuota de 16; y entre insert e insert (trozos de 1, cuota de 1), que es la propuesta del usuario tal cual (añadida a las 16:21, antes de compilar). De cada una: espera de una query por el cerrojo (p50, p99, p99.9, máximo), retenciones (p50, p99, máximo), inserts por segundo y filas por presupuesto por retención. Y los inserts solos, 16 000 con 8 llamadores: apagado, con trozos de 8 y cuota de 2, y con trozos de 1 y cuota de 1.
 - **B:** la búsqueda de un insert sola, con 1 hilo y 8 000 planes, dos rondas alternadas con la marca por miembro y por posting: ms del recorrido por plan y ns por miembro. Y 8 000 inserts con 8 llamadores, con cada una.
 
 **Lo que espero** (*mío*).
@@ -3431,6 +3431,136 @@ El reparto de la CPU, del tiempo que cada gorutina estuvo corriendo en la segund
 - Lo que no valga se queda apagado y lo digo.
 
 **Antes de medir:** compilar, los tests nuevos de cada palanca y los del paquete que tocan (lotes, presupuesto, borrados, caída a mitad de un paso). Si un test nuevo sale rojo, esa palanca no se mide hasta entenderlo.
+
+#### Propuestas para `feat/posting-edge-next` (28 de noviembre a las 16:21; lista pedida por el usuario a las 10:00)
+
+**Doce propuestas, cada una con lo medido que la apoya, su ganancia estimada y cómo se mediría. Ninguna toca la base que se congela. Las tres marcadas son del usuario.** Estado a esta hora: la 1 está simulada y **descartada por su puerta**; la 3 y la 6 están escritas, apagadas por defecto y sin compilar, con su medida pre-registrada (plan B); la 7 tiene el diseño; el resto, nada.
+
+**El presupuesto de un insert hoy,** que es contra lo que se estiman las ganancias. Tiempo del llamador por insert con 8 llamadores (wiki-dpr, diagnóstico de la noche del 27 y huecos del 28):
+
+| ms por insert | 100k | 10M |
+|---|---:|---:|
+| espera a entrar a buscar mientras un lote se aplica | 1.31 | 6.90 |
+| plan: filas (pedir al store y decodificar) | 1.88 | 3.73 |
+| plan: recorrido | 1.38 | 10.99 |
+| plan: vectores exactos | 0.69 | 7.6 a 9.1 |
+| quien aplica: espera a las búsquedas en curso | 0.22 | 1.34 |
+| aplicar, y esperar a que el lote se aplique | 0.24 | 1.11 |
+| **en todo** | **6.03** | **35.4** |
+| inserts por segundo | 1 327 | 226 |
+
+A 1M de dbpedia, con doc ids densos: 692 por segundo con 8 llamadores y 185 con 1. HFresh, 7 289.
+
+| | propuesta | ganancia estimada | sobre qué |
+|---|---|---|---|
+| 1 | **insert en dos tiempos** (usuario) | **descartado: su puerta no pasó.** A 1M, todo por eventos queda a +16 % y +44 % de cargas con el mejor grupo | inserts por segundo |
+| 2 | la puerta del lote sin parar las búsquedas | +24 a +28 % | inserts con 8 llamadores |
+| 3 | **aplicar el lote soltando el cerrojo entre inserts** (usuario) | p99 de la espera, de 8 a 15 ms a menos de 1 | queries junto a inserts |
+| 4 | lecturas de vectores exactos sin depender de `GOMAXPROCS` | +18 a +24 % a 10M | inserts con 8 llamadores, y queries en frío |
+| 5 | filas sin una gorutina ni una copia por lectura | +15 a +25 % hasta 1M, +5 % a 10M | inserts y queries en caliente |
+| 6 | la marca de borrado fuera de la tabla por doc id | 10 % del plan y 15 % de la query a 10M | inserts y queries |
+| 7 | **la arista guarda el posting de su extremo** (usuario) | 5 a 7 % del insert a 10M, y 50 a 230 MB de heap | inserts, queries y memoria |
+| 8 | el conjunto de visitados | hasta un 8 % del insert a 10M | inserts y queries a escala |
+| 9 | el store: lo escrito y la compactación de arranque | de 17 veces a menos de 10 a 10M; 30 s menos al abrir | disco |
+| 10 | `none`: el halo en el insert | de 428 hacia los 692 de `routing` | inserts en `none` |
+| 11 | la reorganización en reposo | el frío tras un import | búsqueda en frío |
+| 12 | lo que ya estaba apuntado | | |
+
+##### 1. Insert en dos tiempos (del usuario)
+
+- **Qué era:** el insert asigna al centroide más cercano y escribe en el posting, sin búsqueda, con aristas provisionales heredadas de los compañeros; después, eventos por posting cargan una vez su grupo de postings vecinos y conectan en memoria a todos sus pendientes, con las aristas inversas.
+- **Lo que prometía:** un evento cuesta 0.8 ms de CPU por vector, contra 9.4 ms de un insert de hoy a 1M, y las cargas se reparten entre los pendientes.
+- **Por qué no:** la puerta que fijó el usuario (cargas a menos del 5 % de hoy a 0.95 y del 10 % a 0.99, sin más CPU que el lote) no pasa a 1M en ninguna fila. Todo por eventos: +71 % y +159 % con grupos de 64, +16 % y +44 % con 256 y más CPU que el lote. Provisionales solo de salida con el 10 % pendiente: +16 % y +54 %, como sin aristas. A 10M, peor: +288 % y +904 % con grupos de 64.
+- **La causa:** un evento solo ve el grupo que rodea al centroide de su posting, y ese grupo contiene el 70 % de las aristas de hoy a 1M y el 57 % a 10M con 64 postings; y el error se acumula cuando ya nadie tiene aristas hechas por búsqueda.
+- **Lo que queda de ella:** los eventos conectan barato un resto pequeño de pendientes sobre un índice hecho por búsqueda (hasta el 5 % con grupos de 64, o el 10 % puntuando 64 postings dentro de 128, a 1M). Y la variante del usuario de guardar la inversa provisional como aviso, que está por medir.
+- **Dónde está:** «Insert en dos tiempos: resultado a 1M», «resultado a 10M», y «La puerta del insert en dos tiempos: no pasa».
+
+##### 2. La puerta del lote sin parar las búsquedas
+
+- **Qué:** hoy nadie empieza a buscar mientras un lote se aplica o espera para aplicarse. La propuesta es que los llamadores sigan planeando contra el índice como estaba, y que al aplicar se compruebe lo que cambió debajo de cada plan, como ya se hace con las listas que otro insert del mismo lote tocó.
+- **En qué se apoya:** la espera a entrar es el 22 % del tiempo del llamador a 100k y el 19.5 % a 10M; quien aplica espera además 11.5 y 74 ms por lote a que acaben las búsquedas en curso.
+- **Ganancia estimada:** +28 % de inserts con 8 llamadores a 100k y +24 % a 10M, si esa espera desaparece entera. El techo por cores es 5.4 veces un llamador; hoy son 3.5.
+- **Cómo se mediría:** los relojes de los llamadores (entrar, drenar, aplicar), inserts por segundo con 1, 2, 4 y 8 llamadores a 100k y sobre un clon del 10M, y las cargas a 0.95 y 0.99 del índice que crece, dentro del 5 % de las de hoy.
+- **Riesgo:** un plan sobre un índice un lote más viejo. Hoy ya lo es dentro del lote.
+
+##### 3. Aplicar el lote soltando el cerrojo del índice entre inserts (del usuario)
+
+- **Qué:** hoy el lote entero se aplica con el cerrojo del índice tomado para escribir: 6.6 ms a 100k y de 21 a 25 a 10M. Soltarlo y volverlo a tomar entre insert e insert, de modo que una query espere como mucho la escritura de uno: 0.12 ms a 100k y 0.4 a 0.5 a 10M.
+- **En qué se apoya:** junto a 8 llamadores, la espera del cerrojo tiene p99 de 7.9 a 8.8 ms a 100k y de 10 a 15 a 10M, y esperan más de 1 ms del 1 al 4 % de las queries. El p99 de la query pasa de 2.1 a 10.2 ms a 100k y de 8.5 a 25.1 a 10M. El peor caso a 10M son 350 ms de espera.
+- **Ganancia estimada:** el p99 de la espera, por debajo de 1 ms. El p99 de la query junto a inserts, de 10.2 hacia 4.5 ms a 100k y de 25 hacia 17 a 10M: lo que queda es la búsqueda, que junto a los inserts ya tarda eso. Los inserts, iguales sin queries y algo más lentos con ellas: cada vez que se suelta entran las queries que esperaban.
+- **Cómo se mediría** (lo que pide el usuario): el p99 de las queries y el ritmo de inserts, antes y después, con las cinco pasadas de `TestDiagQueries` a 100k y sobre clones del 10M: queries solas con 1 y 8 hilos, inserts solos, y las dos juntas. Y el máximo de la espera, que hoy no se explica.
+- **Riesgo:** una query ve un lote a medias. Cada insert deja el índice entero, como cuando iban de uno en uno, y lo que el paso del diario tiene pendiente ya se lee a través de él.
+- **El máximo de 350 ms ya tiene causa** («El cerrojo del índice retenido 355 ms a 10M»): es el volcado por presupuesto de los cambios pendientes de aristas, 2 145 filas en un solo insert, unos 410 ms, cada 9 300 inserts a 10M. No se arregla soltando el cerrojo entre inserts: hace falta una cuota de filas por retención.
+- **Estado:** escritas las dos, sin compilar: el lote aplicado en trozos de N inserts (con N = 1 es entre insert e insert) y la cuota. Su medida está en «Plan B: las palancas pequeñas, medidas».
+
+##### 4. Lecturas de vectores exactos sin depender de `GOMAXPROCS`
+
+- **Qué pasa hoy:** el rescore reparte sus lecturas entre 20 gorutinas, y cada una necesita un procesador de Go para pedir su lectura y otro para recogerla. Con 8 llamadores recorriendo quedan dos: las 121 lecturas frías de un insert a 10M van 2.4 a la vez y tardan 7.6 ms. El fichero da 143 000 lecturas por segundo con 64 a la vez; el índice pide 29 000.
+- **En qué se apoya:** con 20 procesadores el rescore baja a 2.8 ms y con 40 a 2.2, pero el recorrido se alarga un 10 y un 16 %: subir `GOMAXPROCS` no es el arreglo.
+- **Tres caminos, que se suman** (los que nombra el usuario):
+  - **Menos lecturas.** El insert compara exactos 150 candidatos a 768 dimensiones. Medir las aristas que deja con 64 y con 100; y no leer dos veces en un lote lo que otro plan del mismo lote ya leyó.
+  - **Lecturas agrupadas.** Ordenar los candidatos por su sitio en el fichero y pedir de una vez los que caen juntos. Tras una reorganización los de un mismo posting son vecinos en el fichero.
+  - **Lectores propios.** Unos pocos lectores fijos por índice, que reciben las lecturas de un rescore en tandas y las hacen seguidas, en vez de 20 gorutinas nuevas por rescore: a 100k se crean 400 000 en 16 s. Un lector necesita el procesador una vez por tanda y no una por lectura.
+- **Ganancia estimada:** el rescore de 7.6 a unos 2.2 ms por insert a 10M sin tocar el recorrido: de 5.4 a 6.9 ms menos sobre 35, +18 a +24 % de inserts con 8 llamadores. Para una query en frío con 8 hilos, lo mismo en su parte de rescore.
+- **Cómo se mediría:** ms de rescore por insert, latencia del planificador e inserts por segundo sobre clones del 10M con 8 llamadores y `GOMAXPROCS` por defecto; lecturas en vuelo dentro de un rescore; y p50 y p99 en frío de las queries con 1 y 8 hilos. En Linux también: el runtime es el mismo, lo que cuesta despertar un hilo no.
+
+##### 5. Filas sin una gorutina ni una copia por lectura
+
+- **Qué pasa hoy:** cada ronda de un plan lanza una gorutina por fila, y cada fila se copia al salir del store y se decodifica en memoria nueva. A 100k son 69 gorutinas y 5.8 MB reservados por insert; a 10M, 216 y 10.4 MB.
+- **En qué se apoya:** las gorutinas que leen filas son el 36.9 % del tiempo de ejecución a 100k y el 20.3 % a 10M; el recolector, el 13.4 y el 4.6 %. En el arnés de la noche el recolector solo cuesta un 11 % de inserts a 100k.
+- **Qué:** leer en línea las filas de una ronda cuando el segmento está en memoria, y repartir solo las que hay que traer del disco; reutilizar por plan los buffers de decodificar; decodificar sobre el segmento mapeado mientras la vista está tomada.
+- **Ganancia estimada:** +15 a +25 % de inserts hasta 1M, donde las filas son el 31 % del tiempo del llamador; +5 % a 10M. La misma ruta es la de las queries en caliente. Y menos dependencia de cuánto heap tenga el nodo.
+- **Cómo se mediría:** MB reservados y gorutinas por insert, recolecciones por segundo, ms de filas, inserts por segundo con el arnés de la noche y `GOGC` por defecto, y p50 en caliente de las queries.
+
+##### 6. La marca de borrado fuera de la tabla por doc id
+
+- **Qué pasa hoy:** por cada miembro que puntúa, la búsqueda lee su marca de borrado en una tabla de un byte por doc id. A 10M son 12.5 MB leídos al azar.
+- **En qué se apoya:** sin leerla, 51.5 ns menos por miembro a 10M: 1.46 ms por plan de insert, el 10 %. A 100k, 3.8 ns. Los índices medidos no tenían ningún borrado.
+- **Qué:** no leerla mientras el índice no tenga ningún vector marcado; y con borrados, un bit por miembro que viaje con la fila del posting.
+- **Ganancia estimada:** el 10 % del plan del insert a 10M, y del orden del 15 % de una query a 0.95 (5 100 miembros por query sobre 1.76 ms).
+- **Cómo se mediría:** el pase instrumentado antes y después (ns por miembro), p50 en caliente, y con borrados los tests de equivalencia que ya hay: marcar da lo mismo que quitar.
+- **Estado:** escrita, sin compilar, de otra forma: el índice guarda qué postings tienen algún miembro marcado y solo en esos lee la tabla. No cambia el formato de las filas. Su medida está en el plan B.
+
+##### 7. La arista guarda el posting de su extremo, y encima las tablas compactas por docID otra vez (del usuario)
+
+- **Qué pasa hoy:** por cada arista la búsqueda lee, en una tabla por doc id, en qué posting está su extremo, para saber si ya está cargado y luego para ordenar los postings. A 10M esa línea pasa de 4.4 a 7.6 ns por arista, y un insert sigue 170 000 aristas.
+- **Qué:** que cada arista lleve, junto a su extremo, el posting de ese extremo. La búsqueda deja de leer el mapa por doc id; el mapa queda para los borrados y las actualizaciones.
+- **Lo que cuesta, y hay que decir:** 4 B más por arista en disco, unos 46 B por vector a 10M, y las filas de aristas, que son el 16 % de lo que lee una carga, al doble. Y **una arista queda con el posting viejo cuando el de su extremo se parte:** o el split reescribe las aristas que apuntan a los miembros que mueve, por las listas inversas, o la búsqueda lo resuelve cuando el posting que carga no tiene al extremo.
+- **Ganancia estimada:** de 0.5 a 1.0 ms por insert a 10M, del 5 al 7 %; lo mismo en proporción para una query. **Y saca del camino de la búsqueda la tabla que hizo fallar a las tablas compactas:** costaban un 19.7 % de recorrido por una indirección más por arista. Sin ella, las tablas compactas son 181 MB menos de heap a 10M, y el mapa fuera de memoria, otros 50.
+- **Cómo se mediría** (lo que pide el usuario: la medida de las tablas compactas, repetida encima): el protocolo de las tablas a 10M, con su umbral del 3 %. La búsqueda de un insert sola con 1 hilo en tres rondas alternadas (ms de recorrido por plan), los inserts con 8 y con 1 llamador, y el heap por componente. Además los bytes por carga, el p50 en frío a 0.95 y 0.99, y el recall y las cargas tras un churn con splits.
+- **Estado:** solo el diseño. Sobre el papel: una arista queda con el posting viejo solo cuando ese posting se retira (split o fusión; los ids no se reutilizan), así que basta mirar una tabla pequeña de retirados y caer al mapa por doc id; +35 % de bytes por carga con un posting por arista, +9 % con un diccionario por fila; unas 280 líneas en 10 ficheros, más tests. Antes de escribirla conviene medir la alternativa sin cambio de formato: pedir por adelantado a la memoria las entradas del mapa de los extremos.
+
+##### 8. El conjunto de visitados
+
+- **En qué se apoya:** marcar un extremo cuesta 7.9 ns a 100k y 16.8 a 10M, y sin índice el bucle entero pasa de 6.8 a 20.9 ns por arista solo por el tamaño de las tablas; con 8 hilos, a 24.8. Son unos 1.3 ms por insert a 10M.
+- **Qué:** un conjunto del tamaño de lo que toca una búsqueda (145 000 extremos) y no del de los doc ids. Uno exacto de ese tamaño ocupa lo mismo que el mapa de bits de hoy; lo que cabría en la caché es un filtro con falsos positivos, que deja algún extremo sin puntuar.
+- **Ganancia estimada:** hasta un 8 % del insert a 10M. Es la más dudosa de la lista.
+- **Cómo se mediría:** primero `TestDiagTables` con la estructura nueva; si gana, el recorrido instrumentado y el recall.
+
+##### 9. El store: lo escrito y la compactación de arranque
+
+- **En qué se apoya:** lo escrito es 4.4 veces los vectores a 1M y 17.3 a 10M. Una fila reescrita son 13.6 KB y va entera al diario. Y un índice de 10M compacta 5 GB al abrirse, 30 s de disco y 4 s de CPU: lo que el crecimiento dejó sin compactar al cerrar.
+- **Qué:** en el diario, lo que cambia de una fila y no la fila; para el bucket de postings, memtable y niveles pensados para valores de decenas de KB; y cerrar con el store compactado, o repartir esa compactación tras abrir.
+- **Ganancia estimada:** de 17 veces a menos de 10 a 10M; 30 s menos de disco ocupado tras abrir un shard de 10M.
+- **Cómo se mediría:** bytes por clase de fichero con el monitor del diagnóstico, segmentos por fila leída, y cuánto tarda el store en asentarse tras abrir.
+
+##### 10. `none`: el halo en el insert
+
+- **En qué se apoya:** en `none` un insert lee una fila más por carga, 3.2 veces los bytes: 428 inserts por segundo frente a 663 de `routing`, y 1.8 veces lo escrito. A cambio, 60 MB de heap frente a 150 a 1M.
+- **Qué:** con el insert en dos tiempos el halo se lee una vez por evento. Sin él, una caché acotada de los códigos de ruteo de los extremos recientes.
+- **Cómo se mediría:** inserts por segundo y heap en `none` a 1M.
+
+##### 11. La reorganización en reposo
+
+- **En qué se apoya:** tras importar 1M, el 35 % de los vectores queda en orden de llegada: en reposo solo se reorganiza al doblar. Una pasada pide libre 1.25 veces lo que ocupan los vectores. Y con sitio arranca sola al abrir: junto a los inserts no los frenó (237 por segundo frente a 228), sin que sea una comparación controlada.
+- **Qué:** en reposo, reorganizar al pasar de una fracción fuera de orden; y por trozos, para no pedir el doble de disco.
+- **Cómo se mediría:** la búsqueda en frío como queda y reorganizado, que es de la segunda parte de las definitivas.
+
+##### 12. Lo que ya estaba apuntado para esta rama
+
+El mapa compacto, las hojas con solape, la poda del halo y los centroides en RQ1, que quedó propuesto y no por defecto. La 7 cambia lo que ahorra el mapa compacto: con el posting en la arista el mapa puede salir de memoria.
+
+**Lo que no es una propuesta y conviene tener presente al medir.** Cuánto recoge el recolector depende del heap del nodo, no del índice: la 5 es lo que el índice puede hacer. Y en un shard los doc ids llegan en orden: las medidas con el arnés de la noche los reparten salvo que se pida lo contrario.
 
 #### HFresh a 10M en la sesión de v4.0: lo que tardó en construirse, y por qué no vale junto a nuestro crecimiento (a petición del usuario, 27 de noviembre)
 
