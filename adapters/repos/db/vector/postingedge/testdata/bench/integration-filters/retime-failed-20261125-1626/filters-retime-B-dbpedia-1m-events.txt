@@ -1,0 +1,135 @@
+gc 1 @0.002s 3%: 0.024+0.39+0.015 ms clock, 0.24+0.048/0.82/0.14+0.15 ms cpu, 3->4->2 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 2 @0.005s 5%: 0.019+0.56+0.16 ms clock, 0.19+0.017/1.0/0.64+1.6 ms cpu, 5->6->4 MB, 5 MB goal, 0 MB stacks, 0 MB globals, 10 P
+=== RUN   TestIntegrationFilters
+gc 3 @0.009s 5%: 0.032+0.71+0.003 ms clock, 0.32+0.025/1.5/0.75+0.034 ms cpu, 8->8->5 MB, 8 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 4 @0.011s 6%: 0.029+0.91+0.003 ms clock, 0.29+0.26/1.9/1.4+0.030 ms cpu, 5806->5806->5806 MB, 5806 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:645: filters: 4, from the cache, in 1s
+    bench_filters_test.go:1571: the vectors are in /Volumes/v40bench/filter1m/hnsw/vectors.f32 already
+gc 5 @7.687s 0%: 0.18+9.3+0.14 ms clock, 1.8+0.22/26/0+1.4 ms cpu, 11608->11612->6087 MB, 11612 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 6 @17.982s 0%: 0.18+27+0.15 ms clock, 1.8+4.8/62/0+1.5 ms cpu, 12165->12175->6182 MB, 12176 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 7 @29.392s 0%: 0.16+24+0.13 ms clock, 1.6+2.0/69/0+1.3 ms cpu, 12350->12357->6267 MB, 12365 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 8 @41.471s 0%: 0.18+24+0.15 ms clock, 1.8+3.8/69/13+1.5 ms cpu, 12514->12521->6350 MB, 12534 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 9 @53.981s 0%: 0.20+35+0.12 ms clock, 2.0+2.0/102/4.0+1.2 ms cpu, 12684->12694->6443 MB, 12701 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 10 @67.061s 0%: 0.20+58+0.15 ms clock, 2.0+1.6/136/0+1.5 ms cpu, 12867->12885->6536 MB, 12887 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 11 @80.575s 0%: 0.15+57+0.15 ms clock, 1.5+1.8/168/0+1.5 ms cpu, 13049->13066->6624 MB, 13072 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 12 @94.486s 0%: 0.17+58+0.16 ms clock, 1.7+3.1/174/0+1.6 ms cpu, 13229->13246->6716 MB, 13250 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1424: hnsw built: 990000 vectors in 1m43s, map[acornFilterRatio:0.4 distance:cosine efConstruction:128 filterStrategy:acorn flatSearchCutoff:40000 maxConnections:32 rqBits:1 rqCentering:false rqRescoreLimit:512 rqTrainingLimit:10000]
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 10: recall 0.5737 | 0.0 loads, 10.1 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 20: recall 0.7522 | 0.0 loads, 20.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 40: recall 0.8670 | 0.0 loads, 40.0 vectors read, 0 codes scored, flat 0.00 | 0.4 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 80: recall 0.9253 | 0.0 loads, 80.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 160: recall 0.9576 | 0.0 loads, 160.0 vectors read, 0 codes scored, flat 0.00 | 0.8 s
+gc 13 @110.739s 0%: 0.14+63+0.12 ms clock, 1.4+0.91/186/4.0+1.2 ms cpu, 13409->13411->970 MB, 13433 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 320: recall 0.9761 | 0.0 loads, 320.0 vectors read, 0 codes scored, flat 0.00 | 1.2 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 640: recall 0.9838 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 1.8 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1024: recall 0.9869 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 2.5 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 2048: recall 0.9907 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 4.0 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 120: recall 0.9471 | 0.0 loads, 120.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 140: recall 0.9535 | 0.0 loads, 140.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 130: recall 0.9505 | 0.0 loads, 130.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 125: recall 0.9486 | 0.0 loads, 125.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 127: recall 0.9492 | 0.0 loads, 127.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 128: recall 0.9496 | 0.0 loads, 128.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 129: recall 0.9503 | 0.0 loads, 129.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:923: hnsw acorn, random 10 % at recall 0.95: ef 129, recall 0.9503, 0.0 loads, 129.0 vectors read
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1536: recall 0.9895 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.3 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1792: recall 0.9901 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.6 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1664: recall 0.9900 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.4 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1600: recall 0.9896 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.3 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1632: recall 0.9898 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.3 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1648: recall 0.9899 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.3 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1656: recall 0.9899 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.3 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1660: recall 0.9900 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.3 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1658: recall 0.9899 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.3 s
+    bench_filters_test.go:883: hnsw acorn, random 10 %, ef 1659: recall 0.9899 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 3.3 s
+    bench_filters_test.go:923: hnsw acorn, random 10 % at recall 0.99: ef 1660, recall 0.9900, 0.0 loads, 512.0 vectors read
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 10: recall 0.6726 | 0.0 loads, 10.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+gc 14 @159.024s 0%: 0.19+65+0.10 ms clock, 1.9+1.5/187/0+1.0 ms cpu, 1917->1922->977 MB, 1940 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 20: recall 0.8685 | 0.0 loads, 20.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 40: recall 0.9574 | 0.0 loads, 40.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 80: recall 0.9902 | 0.0 loads, 80.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 160: recall 0.9984 | 0.0 loads, 160.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 320: recall 0.9999 | 0.0 loads, 320.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 30: recall 0.9332 | 0.0 loads, 30.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 35: recall 0.9470 | 0.0 loads, 35.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 37: recall 0.9512 | 0.0 loads, 37.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 36: recall 0.9493 | 0.0 loads, 36.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:923: hnsw acorn, random 1 % at recall 0.95: ef 37, recall 0.9512, 0.0 loads, 37.0 vectors read
+gc 15 @171.662s 0%: 0.19+88+0.16 ms clock, 1.9+9.3/175/0+1.6 ms cpu, 1930->1937->971 MB, 1954 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 60: recall 0.9812 | 0.0 loads, 60.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 70: recall 0.9870 | 0.0 loads, 70.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 75: recall 0.9886 | 0.0 loads, 75.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 77: recall 0.9893 | 0.0 loads, 77.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 78: recall 0.9895 | 0.0 loads, 78.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, random 1 %, ef 79: recall 0.9899 | 0.0 loads, 79.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:923: hnsw acorn, random 1 % at recall 0.99: ef 80, recall 0.9902, 0.0 loads, 80.0 vectors read
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 10: recall 0.6764 | 0.0 loads, 10.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 20: recall 0.8576 | 0.0 loads, 20.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 40: recall 0.9491 | 0.0 loads, 40.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+gc 16 @184.229s 0%: 0.16+58+0.068 ms clock, 1.6+0.40/175/18+0.68 ms cpu, 1924->1928->968 MB, 1944 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 80: recall 0.9854 | 0.0 loads, 80.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 160: recall 0.9960 | 0.0 loads, 160.0 vectors read, 0 codes scored, flat 0.00 | 1.5 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 320: recall 0.9997 | 0.0 loads, 320.0 vectors read, 0 codes scored, flat 0.00 | 1.6 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 60: recall 0.9743 | 0.0 loads, 60.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 50: recall 0.9640 | 0.0 loads, 50.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 45: recall 0.9569 | 0.0 loads, 45.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 42: recall 0.9522 | 0.0 loads, 42.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 41: recall 0.9503 | 0.0 loads, 41.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:923: hnsw acorn, near 1 % at recall 0.95: ef 41, recall 0.9503, 0.0 loads, 41.0 vectors read
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 120: recall 0.9936 | 0.0 loads, 120.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+gc 17 @196.726s 0%: 0.23+59+0.13 ms clock, 2.3+0.44/175/0+1.3 ms cpu, 1920->1924->969 MB, 1938 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 100: recall 0.9909 | 0.0 loads, 100.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 90: recall 0.9880 | 0.0 loads, 90.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 95: recall 0.9895 | 0.0 loads, 95.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 97: recall 0.9900 | 0.0 loads, 97.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, near 1 %, ef 96: recall 0.9895 | 0.0 loads, 96.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:923: hnsw acorn, near 1 % at recall 0.99: ef 97, recall 0.9900, 0.0 loads, 97.0 vectors read
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 10: recall 0.4616 | 0.0 loads, 10.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 20: recall 0.6311 | 0.0 loads, 20.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 40: recall 0.7857 | 0.0 loads, 40.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 80: recall 0.8910 | 0.0 loads, 80.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+gc 18 @209.311s 0%: 0.12+68+0.065 ms clock, 1.2+4.1/202/4.8+0.65 ms cpu, 1931->1936->969 MB, 1938 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 160: recall 0.9558 | 0.0 loads, 160.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 320: recall 0.9851 | 0.0 loads, 320.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 640: recall 0.9942 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 1.5 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 1024: recall 0.9942 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 1.5 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 2048: recall 0.9942 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 1.5 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 120: recall 0.9349 | 0.0 loads, 120.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+gc 19 @218.776s 0%: 0.17+62+0.074 ms clock, 1.7+0.45/184/0+0.74 ms cpu, 1932->1937->969 MB, 1940 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 140: recall 0.9466 | 0.0 loads, 140.0 vectors read, 0 codes scored, flat 0.00 | 1.5 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 150: recall 0.9517 | 0.0 loads, 150.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 145: recall 0.9496 | 0.0 loads, 145.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 147: recall 0.9503 | 0.0 loads, 147.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 146: recall 0.9501 | 0.0 loads, 146.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:923: hnsw acorn, far 1 % at recall 0.95: ef 146, recall 0.9501, 0.0 loads, 146.0 vectors read
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 480: recall 0.9930 | 0.0 loads, 480.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 400: recall 0.9900 | 0.0 loads, 400.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 360: recall 0.9879 | 0.0 loads, 360.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+gc 20 @230.055s 0%: 0.19+67+0.13 ms clock, 1.9+6.6/193/0+1.3 ms cpu, 1932->1938->970 MB, 1939 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 380: recall 0.9887 | 0.0 loads, 380.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 390: recall 0.9892 | 0.0 loads, 390.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 395: recall 0.9895 | 0.0 loads, 395.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 397: recall 0.9898 | 0.0 loads, 397.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 398: recall 0.9898 | 0.0 loads, 398.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:883: hnsw acorn, far 1 %, ef 399: recall 0.9900 | 0.0 loads, 399.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:923: hnsw acorn, far 1 % at recall 0.99: ef 399, recall 0.9900, 0.0 loads, 399.0 vectors read
+    bench_filters_test.go:940: the wait before the timed rounds: waiting from 16:26 for 900 s without keyboard or trackpad
+        -- power: Current System Capabilities are: CPU Graphics Audio Network  Current Power State: 4 
+        -- assertion: pid 21179(caffeinate): [0x00252925000197c2] 06:50:31 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+        -- assertion: 	Details: caffeinate asserting on behalf of 'bash' (pid 21177)
+        -- assertion: pid 21179(caffeinate): [0x00252925000797c3] 06:50:31 PreventSystemSleep named: "caffeinate command-line tool"  
+        -- assertion: 	Details: caffeinate asserting on behalf of 'bash' (pid 21177)
+        -- keyboard and trackpad idle for 25152 s
+        keyboard and trackpad idle for 25152 s
+        the machine is quiet at 16:26
+    bench_filters_test.go:1105: round 1, hnsw acorn, random 10 % (ef 129), 1 thread, warm: p50 3.759 ms, p95 5.652, p99 6.115 | 266 QPS | 0.0 loads, 129.0 vectors read
+    bench_filters_test.go:1109: round 1, hnsw acorn, random 10 %, the untimed pass: the memory of the system, untimed: decompressions +99, compressions +0, pageins +392, swapins +0, swapouts +0 | in the compressor 1704068 → 1703967 pages | free 84 % → 84 % | swap used 3915 → 3915 MB of 5120 | this process: 0 → 0 MB compressed, footprint 3081 → 3081 MB; 4.12 s on the CPU, 99.9 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.11 s runnable and waiting for a core, 2.37 instructions a cycle, 3.11 GHz on the CPU, 0 page-ins, 160 MB read from the disk
+    bench_filters_test.go:1111: round 1, hnsw acorn, random 10 %, the warm passes: the memory of the system, untimed: decompressions +447, compressions +0, pageins +1132, swapins +0, swapouts +0 | in the compressor 1703967 → 1703520 pages | free 84 % → 84 % | swap used 3915 → 3915 MB of 5120 | this process: 0 → 0 MB compressed, footprint 3081 → 3081 MB; 13.70 s on the CPU, 99.0 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.50 s runnable and waiting for a core, 2.11 instructions a cycle, 3.11 GHz on the CPU, 0 page-ins, 16 MB read from the disk
+    bench_filters_test.go:1134: 
+        	Error Trace:	/Users/abdel/Documents/Projects/hnsw+pq/wt-posting-edge-integration/adapters/repos/db/vector/postingedge/bench_filters_test.go:1134
+        	Error:      	Received unexpected error:
+        	            	exit status 1
+        	Test:       	TestIntegrationFilters
+        	Messages:   	drop the cache: 
+--- FAIL: TestIntegrationFilters (268.98s)
+FAIL

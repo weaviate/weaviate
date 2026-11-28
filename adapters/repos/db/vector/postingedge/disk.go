@@ -212,6 +212,9 @@ func openCentroidGraphWith(ctx context.Context, logger logrus.FieldLogger, dir s
 		index.codes, index.vectors = true, nil
 		index.store, index.bucket = codes.store, helpers.CompressedBucketNameForID(codes.id)
 		uc.RQ.Enabled, uc.RQ.Bits, uc.RQ.RescoreLimit = true, 8, 0
+		if codes.bits != 0 {
+			uc.RQ.Bits, uc.RQ.Centering = int16(codes.bits), codes.centering
+		}
 		// The graph finds its commit log by its id, which names the bucket of
 		// its codes too. A graph written in float32 logged under "centroids":
 		// its log takes the id before it opens, and the graph converts.
@@ -281,6 +284,12 @@ type centroidCodes struct {
 	id          string
 	file        string
 	dims        int
+	// bits and centering, when bits is set, give other codes than 8-bit RQ:
+	// 4 or 1 bit, centered or not, for the measure of what they save
+	// (bench-report.md, "CRQ4 y CRQ1 para los centroides"). Not a parameter
+	// of the index.
+	bits      int
+	centering bool
 }
 
 // convertCentroidGraph compresses a graph that holds its centroids in float32
@@ -420,6 +429,10 @@ type diskSearchStats struct {
 	Loaded     []uint32
 	// Rescored counts the exact vectors read, one read each.
 	Rescored int
+	// Flat tells that the search was the flat search of a filter, which
+	// loads no posting, and Scored counts the codes it scored.
+	Flat   bool
+	Scored int
 	// Budget is the concurrency budget the query ran with, which whoever
 	// times the search writes down: the search does not.
 	Budget       int
@@ -466,6 +479,8 @@ type fetchedSearch struct {
 	// index: the search of an insert for its edges has its own
 	// (efConstruction), next to the queries.
 	ef int
+	// allow, when set, is the filter of the search (postingSearch.allow).
+	allow helpers.AllowList
 }
 
 // run searches from the given entry postings. Without any it asks the
@@ -510,6 +525,7 @@ func (f *fetchedSearch) run(ctx context.Context, vector []float32, k int, entryI
 		stop = &sc.stop
 	}
 	search := st.newPostingSearch(sc, query, stop, margin, stats.Work)
+	search.allow = f.allow
 	var visiting *diskPosting
 	blocks := 2
 	if f.noMembers {

@@ -1,0 +1,88 @@
+=== RUN   TestIntegrationScale
+    bench_integration_test.go:425: the base: 10000 vectors in 43 postings, built in 1s once the vector that completed it was in
+    bench_integration_test.go:454: 86800 of 990000 in (8.8 %): 256 inserts a second in this stretch, 257 since the base | 677 postings given out, 317 splits | 3 passes over the vectors, 80224 of 86800 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 146800 of 990000 in (14.8 %): 199 inserts a second in this stretch, 229 since the base | 1155 postings given out, 556 splits | 3 passes over the vectors, 80224 of 146800 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 205200 of 990000 in (20.7 %): 192 inserts a second in this stretch, 217 since the base | 1649 postings given out, 803 splits | 4 passes over the vectors, 160480 of 205200 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 262000 of 990000 in (26.5 %): 189 inserts a second in this stretch, 210 since the base | 2103 postings given out, 1030 splits | 4 passes over the vectors, 160480 of 262000 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 318800 of 990000 in (32.2 %): 189 inserts a second in this stretch, 207 since the base | 2569 postings given out, 1263 splits | 4 passes over the vectors, 160480 of 318800 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 374000 of 990000 in (37.8 %): 183 inserts a second in this stretch, 203 since the base | 3033 postings given out, 1495 splits | 5 passes over the vectors, 320992 of 374000 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 427600 of 990000 in (43.2 %): 178 inserts a second in this stretch, 200 since the base | 3483 postings given out, 1720 splits | 5 passes over the vectors, 320992 of 427600 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 481200 of 990000 in (48.6 %): 177 inserts a second in this stretch, 197 since the base | 3955 postings given out, 1956 splits | 5 passes over the vectors, 320992 of 481200 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 534800 of 990000 in (54.0 %): 178 inserts a second in this stretch, 195 since the base | 4401 postings given out, 2179 splits | 5 passes over the vectors, 320992 of 534800 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 573200 of 990000 in (57.9 %): 127 inserts a second in this stretch, 188 since the base | 4741 postings given out, 2349 splits | 5 passes over the vectors, 320992 of 573200 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 602000 of 990000 in (60.8 %): 94 inserts a second in this stretch, 180 since the base | 4989 postings given out, 2473 splits | 5 passes over the vectors, 320992 of 602000 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 630800 of 990000 in (63.7 %): 95 inserts a second in this stretch, 173 since the base | 5185 postings given out, 2571 splits | 5 passes over the vectors, 320992 of 630800 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 672400 of 990000 in (67.9 %): 137 inserts a second in this stretch, 170 since the base | 5549 postings given out, 2753 splits | 6 passes over the vectors, 642000 of 672400 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 714000 of 990000 in (72.1 %): 137 inserts a second in this stretch, 168 since the base | 5881 postings given out, 2919 splits | 6 passes over the vectors, 642000 of 714000 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 758800 of 990000 in (76.6 %): 148 inserts a second in this stretch, 167 since the base | 6239 postings given out, 3098 splits | 6 passes over the vectors, 642000 of 758800 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 803600 of 990000 in (81.2 %): 148 inserts a second in this stretch, 166 since the base | 6593 postings given out, 3275 splits | 6 passes over the vectors, 642000 of 803600 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 848400 of 990000 in (85.7 %): 149 inserts a second in this stretch, 165 since the base | 6981 postings given out, 3469 splits | 6 passes over the vectors, 642000 of 848400 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 898000 of 990000 in (90.7 %): 163 inserts a second in this stretch, 165 since the base | 7361 postings given out, 3659 splits | 6 passes over the vectors, 642000 of 898000 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 946800 of 990000 in (95.6 %): 161 inserts a second in this stretch, 165 since the base | 7731 postings given out, 3844 splits | 6 passes over the vectors, 642000 of 946800 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:454: 990000 of 990000 in (100.0 %): 159 inserts a second in this stretch, 164 since the base | 8105 postings given out, 4031 splits | 6 passes over the vectors, 642000 of 990000 in the order of their postings | 0 refreshes of edges ended, 0 vectors refreshed
+    bench_integration_test.go:840: settled in 0s, with other runs on the machine: 0 refreshes of edges ended, 0 vectors refreshed with 0 loads, 0 lists changed and 0 inverse edges entered
+    bench_integration_test.go:848: grown: 990000 vectors, 8105 postings given out, 4031 splits, 6.9 GB in its directory
+    bench_integration_test.go:536: grown: coverage complete | 2 segments of postings, left as one 11 times since the index was opened | generation 7 of the vectors, 642000 of 990000 in the order of their postings | 165 deleted centroids in the graph | 89.1 MB of routing codes in memory
+    bench_integration_test.go:598: grown, ef 21: recall 0.9522, 19.68 loads a query in 4.67 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:598: grown, ef 158: recall 0.9907, 72.18 loads a query in 17.80 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:598: grown, ef 10: recall 0.9168, 13.09 loads a query in 3.02 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:598: grown, ef 20: recall 0.9506, 19.16 loads a query in 4.54 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:598: grown, ef 40: recall 0.9720, 29.15 loads a query in 7.04 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:598: grown, ef 80: recall 0.9849, 45.73 loads a query in 11.18 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:598: grown, ef 160: recall 0.9907, 72.82 loads a query in 17.96 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:598: grown, ef 320: recall 0.9947, 117.76 loads a query in 29.19 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:495: grown: the store and the index closed and opened again in 3.114s, with other runs on the machine: 990000 vectors, 0 of them deleted, 8105 postings given out
+    bench_integration_test.go:536: grown, opened again: coverage complete | 3 segments of postings, left as one 0 times since the index was opened | generation 7 of the vectors, 642000 of 990000 in the order of their postings | 165 deleted centroids in the graph | 89.1 MB of routing codes in memory
+    bench_integration_test.go:598: grown, opened again, ef 21: recall 0.9522, 19.68 loads a query in 4.67 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, opened again, ef 21: the store read 2.93 times and 68.82 KB for a load
+    bench_integration_test.go:619: grown, opened again, ef 21: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:598: grown, opened again, ef 158: recall 0.9907, 72.18 loads a query in 17.80 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, opened again, ef 158: the store read 2.93 times and 68.47 KB for a load
+    bench_integration_test.go:619: grown, opened again, ef 158: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:598: grown, opened again, ef 10: recall 0.9168, 13.09 loads a query in 3.02 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, opened again, ef 10: the store read 2.94 times and 68.77 KB for a load
+    bench_integration_test.go:619: grown, opened again, ef 10: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:598: grown, opened again, ef 20: recall 0.9506, 19.16 loads a query in 4.54 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, opened again, ef 20: the store read 2.93 times and 68.81 KB for a load
+    bench_integration_test.go:619: grown, opened again, ef 20: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:598: grown, opened again, ef 40: recall 0.9720, 29.15 loads a query in 7.04 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, opened again, ef 40: the store read 2.93 times and 68.79 KB for a load
+    bench_integration_test.go:619: grown, opened again, ef 40: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:598: grown, opened again, ef 80: recall 0.9849, 45.73 loads a query in 11.18 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, opened again, ef 80: the store read 2.93 times and 68.70 KB for a load
+    bench_integration_test.go:619: grown, opened again, ef 80: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:598: grown, opened again, ef 160: recall 0.9907, 72.82 loads a query in 17.96 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, opened again, ef 160: the store read 2.93 times and 68.47 KB for a load
+    bench_integration_test.go:619: grown, opened again, ef 160: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:598: grown, opened again, ef 320: recall 0.9947, 117.76 loads a query in 29.19 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, opened again, ef 320: the store read 2.93 times and 68.20 KB for a load
+    bench_integration_test.go:619: grown, opened again, ef 320: 0 of 5000 queries answered otherwise than before the index was closed
+    bench_integration_test.go:902: the vectors laid out again in 9s, with other runs on the machine
+    bench_integration_test.go:904: compacted in 2 rounds, and 1 passes over the vectors
+    bench_integration_test.go:536: grown, compacted and laid out: coverage complete | 1 segments of postings, left as one 1 times since the index was opened | generation 8 of the vectors, 990000 of 990000 in the order of their postings | 165 deleted centroids in the graph | 89.1 MB of routing codes in memory
+    bench_integration_test.go:598: grown, compacted and laid out, ef 21: recall 0.9522, 19.68 loads a query in 4.67 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, compacted and laid out, ef 21: the store read 2.00 times and 65.80 KB for a load
+    bench_integration_test.go:619: grown, compacted and laid out, ef 21: 0 of 5000 queries answered otherwise than before it was compacted and laid out
+    bench_integration_test.go:598: grown, compacted and laid out, ef 158: recall 0.9907, 72.18 loads a query in 17.80 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, compacted and laid out, ef 158: the store read 2.00 times and 65.47 KB for a load
+    bench_integration_test.go:619: grown, compacted and laid out, ef 158: 0 of 5000 queries answered otherwise than before it was compacted and laid out
+    bench_integration_test.go:598: grown, compacted and laid out, ef 10: recall 0.9168, 13.09 loads a query in 3.02 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, compacted and laid out, ef 10: the store read 2.00 times and 65.77 KB for a load
+    bench_integration_test.go:619: grown, compacted and laid out, ef 10: 0 of 5000 queries answered otherwise than before it was compacted and laid out
+    bench_integration_test.go:598: grown, compacted and laid out, ef 20: recall 0.9506, 19.16 loads a query in 4.54 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, compacted and laid out, ef 20: the store read 2.00 times and 65.79 KB for a load
+    bench_integration_test.go:619: grown, compacted and laid out, ef 20: 0 of 5000 queries answered otherwise than before it was compacted and laid out
+    bench_integration_test.go:598: grown, compacted and laid out, ef 40: recall 0.9720, 29.15 loads a query in 7.04 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, compacted and laid out, ef 40: the store read 2.00 times and 65.75 KB for a load
+    bench_integration_test.go:619: grown, compacted and laid out, ef 40: 0 of 5000 queries answered otherwise than before it was compacted and laid out
+    bench_integration_test.go:598: grown, compacted and laid out, ef 80: recall 0.9849, 45.73 loads a query in 11.18 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, compacted and laid out, ef 80: the store read 2.00 times and 65.66 KB for a load
+    bench_integration_test.go:619: grown, compacted and laid out, ef 80: 0 of 5000 queries answered otherwise than before it was compacted and laid out
+    bench_integration_test.go:598: grown, compacted and laid out, ef 160: recall 0.9907, 72.82 loads a query in 17.96 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, compacted and laid out, ef 160: the store read 2.00 times and 65.46 KB for a load
+    bench_integration_test.go:619: grown, compacted and laid out, ef 160: 0 of 5000 queries answered otherwise than before it was compacted and laid out
+    bench_integration_test.go:598: grown, compacted and laid out, ef 320: recall 0.9947, 117.76 loads a query in 29.19 rounds, 0 of 5000 queries answered otherwise the second time
+    bench_integration_test.go:608: grown, compacted and laid out, ef 320: the store read 2.00 times and 65.24 KB for a load
+    bench_integration_test.go:619: grown, compacted and laid out, ef 320: 0 of 5000 queries answered otherwise than before it was compacted and laid out
+--- PASS: TestIntegrationScale (6223.78s)
+PASS

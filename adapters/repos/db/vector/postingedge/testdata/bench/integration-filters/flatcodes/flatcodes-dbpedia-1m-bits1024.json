@@ -1,0 +1,135 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 1000,
+  "k": 10,
+  "training": 10000,
+  "codes": [
+    {
+      "name": "routing",
+      "bits": 1024,
+      "words": 17
+    },
+    {
+      "name": "full",
+      "bits": 1536,
+      "words": 25
+    }
+  ],
+  "rescore": [
+    64,
+    150,
+    507
+  ],
+  "filters": [
+    {
+      "name": "random 1 %",
+      "kind": "random",
+      "share": 0.01,
+      "allowed": 9900,
+      "recall": [
+        [
+          0.9963,
+          1,
+          1
+        ],
+        [
+          0.9998,
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "random 0.1 %",
+      "kind": "random",
+      "share": 0.001,
+      "allowed": 990,
+      "recall": [
+        [
+          0.9979,
+          1,
+          1
+        ],
+        [
+          0.9999,
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "near 1 %",
+      "kind": "near",
+      "share": 0.01,
+      "allowed": 9900,
+      "recall": [
+        [
+          0.9925,
+          0.9994,
+          1
+        ],
+        [
+          0.9994,
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "near 0.1 %",
+      "kind": "near",
+      "share": 0.001,
+      "allowed": 990,
+      "recall": [
+        [
+          0.9944,
+          0.9999,
+          1
+        ],
+        [
+          0.9997,
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "far 1 %",
+      "kind": "far",
+      "share": 0.01,
+      "allowed": 9900,
+      "recall": [
+        [
+          0.9513,
+          0.9899,
+          0.9995
+        ],
+        [
+          0.9917,
+          0.9995,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "far 0.1 %",
+      "kind": "far",
+      "share": 0.001,
+      "allowed": 990,
+      "recall": [
+        [
+          0.9579,
+          0.9953,
+          1
+        ],
+        [
+          0.992,
+          0.9993,
+          1
+        ]
+      ]
+    }
+  ]
+}

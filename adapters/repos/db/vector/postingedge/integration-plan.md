@@ -1278,3 +1278,704 @@ Entre paréntesis, frente al lote. Las corridas A y B son las del hito 1, sin re
 - **Lo que el diario frena a los inserts:** nada cronometrado.
 - **La base en segundo plano, a 1M y por el shard:** el arnés espera a la base antes de seguir, para que sus corridas se comparen con las anteriores; el test de extremo a extremo pasa, y no mira qué ocurre mientras se construye.
 - **Lo que tarda una búsqueda con miles de vectores apartados:** los lee todos del bucket en cada query, como antes de la base. Con una base grande y muchos inserts durante su construcción puede ser lento un rato.
+
+## 8. Búsqueda filtrada (desde el 2026-11-23)
+
+*Encargo del usuario del 23 por la mañana: una búsqueda filtrada en el índice integrado y su medida a 1M de dbpedia. El pre-registro de la medida lo escribió la sesión de experimentos en `bench-report.md` de `feat/posting-edge-index` (`c7546f419e`, «Filtros en el índice integrado, 1M dbpedia»). Hasta el 23 el índice rechazaba cualquier filtro con `ErrNotSupported`.*
+
+### Enmienda 1 (23 de noviembre, 11:20): la búsqueda filtrada y el corte plano
+
+*Mía, escrita antes de compilar nada. Es el diseño que mide el pre-registro.*
+
+**Qué es un filtro aquí.** La lista de doc ids permitidos que el shard pasa a la búsqueda (`helpers.AllowList`). Ningún resultado queda fuera de ella, en ningún camino.
+
+**Dos caminos, como HNSW:**
+
+- **Con menos de 40 000 permitidos, la búsqueda plana;** con 40 000 o más, el recorrido del índice. Es el `flatSearchCutoff` por defecto de HNSW, comparado igual que allí: el número de permitidos contra el corte.
+- **El corte no es un parámetro público:** la lista de seis no cambia. Es un campo sin exportar de la configuración del índice (`PersistentConfig.flatCutoff`), que los tests y el arnés fijan y con el que fuerzan cualquiera de los dos caminos. Si pasa a ser público lo decide el usuario después de la medida.
+
+**El recorrido del índice con filtro:**
+
+- **El scan.** Un miembro que no está permitido se puntúa y sigue siendo fuente: sus aristas se siguen si queda dentro del corte de fuentes, como las de un vector borrado. Nunca entra entre los candidatos. Es lo que hace HNSW con `sweeping`: recorrer lo de siempre y filtrar los resultados.
+- **El ruteo, sin cambios.** Los endpoints se puntúan con su código de ruteo estén permitidos o no, y un posting se ordena por su mejor endpoint. Un posting sin ningún permitido se carga igual si está cerca: puede llevar a otros que sí los tienen.
+- **La parada, la de siempre:** el mejor posting sin cargar ya no está más cerca que el ef-ésimo candidato, que ahora es el ef-ésimo permitido. Con un filtro selectivo esa distancia crece y la búsqueda carga más postings. Es lo que mide la primera parte del criterio.
+- **El rescore, como sin filtro:** todos los candidatos están permitidos, y se rescoran los que dice la regla del 22.
+- **Los vectores apartados** (antes de la base, o los que el índice aún no ha tomado): su búsqueda exacta mira solo los permitidos.
+- **El índice en memoria de los experimentos filtra igual:** el scan es el mismo código. Así el índice en disco se compara con su gemelo en memoria también con filtro.
+
+**La búsqueda plana:**
+
+- **Recorre los ids permitidos** con el iterador de la lista, y salta los que el índice no tiene o tiene marcados como borrados.
+- **Puntúa cada uno con su código de ruteo** (512 bits a 1 536 dimensiones): en memoria en el modo `routing`, leído del bucket de códigos en `none`. No lee ningún posting.
+- **Rescora exactos los R mejores,** con su vector del fichero.
+  - **Con el límite automático, R es el mayor entre la regla del 22 aplicada al ancho del código de ruteo, 4 × k y ef:** 507 con 512 bits. Se aplica al código de ruteo y no al del scan porque es el que ordena aquí. Con 512 bits capados y un rescore de 64 el techo en dbpedia es 0.9255 (sección 4); con 400, 0.991.
+  - **Con un límite explícito,** el mayor entre él, k y ef.
+  - **ef solo cuenta cuando pasa de R.** Así la plana también sube su recall con ef.
+  - **Con R permitidos o menos, la plana es exacta:** los rescora todos.
+- **Lo que cuesta,** sin medir: con el corte en 40 000, hasta 40 000 distancias de 512 bits (unos 2 ms en caliente) y R lecturas de vector. En `none`, además, 40 000 lecturas del bucket de códigos, que esta medida no mira.
+
+**No cambia:** la búsqueda por distancia, con filtro o sin él, sigue sin soportarse.
+
+**Tests, antes de la medida:**
+
+- **El índice en disco es su gemelo en memoria con filtro:** mismos ids, mismas distancias y el mismo trabajo, con filtros al azar y en bola, en las selectividades de la medida.
+- **Ningún id fuera del filtro,** en los dos caminos, con borrados, con los vectores apartados antes de la base y después, y tras reabrir.
+- **La plana con R permitidos o menos devuelve la verdad exacta;** con más, recall alto frente a fuerza bruta.
+- **El corte:** por debajo va por la plana, desde él por el índice, y cada camino se puede forzar.
+- **Por el shard:** una clase con un filtro devuelve solo lo que el filtro deja, en los dos modos, y lo mismo tras reiniciar.
+
+**Cómo entra en la medida** (*mío*):
+
+- **El índice** lo crece el arnés de escala como en las corridas del hito 2, con ocho llamadores y las decisiones del 22, en un directorio del volumen de las pruebas. Se mide compactado y con los vectores en orden de posting.
+- **HNSW** es `TestHNSWDiskTimed` de la rama de experimentos (`946f843a09`), portado a esta rama y construido en el mismo proceso que abre el nuestro, para que los dos se cronometren en la misma sesión. Con `acorn`, su estrategia por defecto, y con `sweeping` (abajo, «Lo que cambió después de la enmienda 1»).
+- **En frío,** antes de cada lote de 10 queries el nuestro se cierra con su store y se abre otra vez tras soltar la caché, sin cronometrar; de HNSW se cierra solo el fichero de los vectores, como en la medida de 10M.
+- **La parada se comprueba en cada query de cada medida:** un id fuera del filtro para la corrida.
+
+### Lo que cambió después de la enmienda 1, el 23 por la mañana
+
+- **En el informe de los experimentos esta enmienda es la 2** del pre-registro de filtros (`063fe39a72` en `feat/posting-edge-index`): la 1 es la corrección del usuario que sigue.
+- **La comparación principal es HNSW con `acorn`, no con `sweeping`.** Palabras del usuario: «Filtros: la comparación principal es con HNSW en su valor por defecto (ACORN), cronometrado. Sweeping va como segunda referencia, también cronometrada si cabe». En el pre-registro es la enmienda 1 (`996f0ba2d2`). El criterio no cambia.
+  - **En el arnés:** HNSW se mide con `acorn` y con `sweeping` sin cronometrar, en todos los filtros, y con su corte de 40 000. En las rondas cronometradas van primero el nuestro y HNSW con `acorn`; las de `sweeping`, al final, si la noche da (`-bench.filters.until` deja fuera, y lo dice, lo que empezaría tarde).
+- **El volumen.** La sesión de experimentos dio el visto bueno a poner el índice integrado en `/Volumes/v40bench/filter1m`, junto a los vectores de HNSW, y a desmontar y montar el volumen entre los lotes en frío, como su cola: si no desmonta, la corrida falla.
+
+**Dos decisiones del usuario del 23, para más adelante.** No se empiezan hasta que el usuario lo diga:
+
+- **Distancias en la primera versión: `cosine` y `l2-squared`.** `dot` se rechaza, como en HFresh (`entities/vectorindex/hfresh/config.go:113`). La variación de norma queda documentada como no probada.
+- **El margen de las fuentes pasa a ser relativo a la dispersión de la pila de parada,** con un suelo para cuando la pila tiene pocos elementos o `worst − best` es casi cero. **Con filtros se calcula sobre los escaneados, no sobre los válidos.**
+  - **Lo que hay hoy en la búsqueda filtrada:** el corte de fuentes es el peor de la pila de parada más el margen absoluto, y en la pila solo entran los permitidos. Cuando el margen sea relativo, su dispersión tendrá que salir de los escaneados, permitidos o no: con un filtro selectivo la pila de permitidos está muy abierta y daría un margen demasiado ancho. Sin hacer.
+
+### Enmienda 3 (23 de noviembre, 11:45): el rescore de la búsqueda plana, y la búsqueda plana en `none`
+
+*Por dos órdenes del usuario del 23, escrita antes de compilar nada.*
+
+**El rescore de la búsqueda plana sale del `rescoreLimit` del índice.** Palabras del usuario: «El rescore del camino plano sale del `rescoreLimit` del índice, no es un número fijo. Si 507 tiene un motivo, dímelo».
+
+- **No hay ningún número fijo en el código.** Con el límite automático, R es la regla del 22 aplicada al ancho del código que ordena la búsqueda plana, con 4 × k y ef como suelos. Con un límite explícito, ese límite, con k y ef como suelos.
+- **Por qué sale 507 en dbpedia.** La plana ordena por el código de ruteo, que a 1 536 dimensiones son 512 bits capados, y la regla da 150 × (768 / 512)³ = 507 para ese ancho.
+  - **Con 64, lo que la regla da para el código de scan de 1 536 bits,** el techo de recall con 512 bits capados es 0.9255 en dbpedia (sección 4). La plana no llegaría a 0.95 al 0.1 % ni al 1 %, que son los filtros que van por ella.
+  - **Con 400 ese techo es 0.991,** y con 507 queda por encima.
+- **Un test de tabla lo fija:** el automático con 512 bits, con el código completo, un límite explícito, y k y ef por encima de cada uno (`TestFlatRescore`).
+
+**La búsqueda plana en `none`.** Palabras del usuario: «Define el camino plano en modo `none`: agrupar los permitidos por posting con el mapa, cargar solo esos postings y escanear solo los permitidos. Si queda para después, que dé error explícito en ese modo y no use códigos que no están en memoria».
+
+- **Hasta ahora, en `none`, la plana leía el código de ruteo de cada permitido de su bucket,** uno a uno. Eso se quita.
+- **Lo que hará:**
+  - **El mapa,** que está en memoria en los dos modos, da el posting de cada permitido.
+  - **Se cargan solo esos postings,** cada uno una vez y solo su fila de miembros. Ni su fila de aristas ni su halo.
+  - **Se puntúan solo sus miembros permitidos,** con su código de scan, el completo.
+  - **Se rescoran los R mejores** como en `routing`. Aquí ordena el código de scan, así que R es la regla aplicada a su ancho: 64 a 1 536 bits, con 4 × k y ef como suelos (*mío*). Es el mismo principio que en `routing`, con el código que ordena en cada modo.
+- **Lo que cuesta, sin medir:** un posting cargado por cada posting distinto que tenga algún permitido. Con un filtro en bola son pocos. Con uno al azar del 1 % a 1M, casi todos: unas 4 000 cargas por query.
+- **Mientras no esté hecho,** en `none` una búsqueda que iría por la plana devuelve un error explícito, y no lee ningún código de ruteo. La medida es en `routing` y no la cambia. *Hecho el 24, por orden del usuario: lo cuenta el apartado «La búsqueda plana en `none`», al final de esta sección.*
+
+**Hecho** (`fea9e96399`): `flatRescore(k, bits)` no tiene ningún número propio, `TestFlatRescore` fija la tabla (507 a 512 bits, 64 a 1 536, 150 a 768, 4 × k, ef, un límite de la clase con k y ef por encima, y 0 con k y ef). En `none` la plana devuelve `ErrNotSupported`, y no lee nada del bucket de ruteo. Los tests del índice y del shard lo esperan en ese modo. *Verificado por tests,* con y sin el detector de carreras.
+
+### Resultados sin cronometrar (23 de noviembre)
+
+*`8b4efd53a2`. El nuestro, con `abfda15bea`, es el crecido a 990 000 en `2e58f5c2e1` (0.9506 con 19.2 cargas a ef 20, como en el hito 2). HNSW lleva `3c243abc20`, con RQ de 1 bit y la configuración por defecto, y su corte de 40 000. Son 1 000 queries con k = 10. Las cargas son postings leídos por query; los vectores, lecturas de vector exacto por query.*
+
+**Un fallo del arnés, encontrado y arreglado antes de leer nada de HNSW.**
+- **Qué pasaba:** un HNSW construido en el proceso sin `AcornFilterRatio` no corre ACORN nunca, y no avisa. La primera corrida midió `sweeping` dos veces, la segunda con el nombre de `acorn`: las dos curvas salieron iguales en cada ef.
+- **El arreglo** (`3c243abc20`): el arnés le da a HNSW el ratio de un nodo, 0.4. Un control hace fallar la medida si `acorn` y `sweeping` responden igual donde ACORN tiene que correr. Las curvas de HNSW se midieron otra vez, y difieren en los tres filtros del 10 %.
+- **Con 0.4, HNSW con `acorn` va por `sweeping` al 50 %, y por su plana al 1 % y al 0.1 %.** Solo los filtros del 10 % pasan por ACORN.
+- **En `filters-untimed-dbpedia-1m.json` las curvas llamadas `hnsw acorn` son de `sweeping`.** Las buenas de HNSW están en `filters-untimed-hnsw-dbpedia-1m.json`.
+
+**La parada se cumple:** ningún resultado fuera de su filtro, en ninguna query de ninguna medida.
+
+**El criterio, sin cronometrar:**
+- **Primera parte: se cumple al 50 % y no al 10 %.**
+  - **Al azar al 50 %,** 0.95 a ef 16 con 24.4 cargas: 1.30 veces las 18.8 de sin filtro a 0.95.
+  - **Al azar al 10 %,** con ef 10, el más bajo con k = 10, ya da 0.9531 con 50.6 cargas: 2.69 veces. La parada en el ef-ésimo permitido obliga a cargar más postings, y no hay un ef más bajo con el que bajar de ahí.
+- **Segunda parte: se cumple.** Con el corte de 40 000 los doce filtros llegan a 0.95: las cuatro selectividades al azar y correladas, y también las anticorreladas.
+
+**Cada filtro, el nuestro por el camino que le da el corte, frente a HNSW:**
+
+| filtro | permitidos | nuestro, camino | nuestro a 0.95 | a 0.99 | acorn a 0.95 | a 0.99 | sweeping a 0.95 | a 0.99 |
+|---|---:|---|---|---|---|---|---|---|
+| sin filtro | 990 000 | índice | ef 21 · 18.8 cargas | ef 166 · 73.0 cargas | ef 78 · 78 vectores | ef 362 · 362 vectores | ef 78 · 78 vectores | ef 362 · 362 vectores |
+| al azar 50 % | 495 000 | índice | ef 16 · 24.4 cargas | ef 87 · 75.6 cargas | ef 61 · 61 vectores | ef 201 · 201 vectores | ef 61 · 61 vectores | ef 201 · 201 vectores |
+| al azar 10 % | 99 000 | índice | ef 10 · 50.6 cargas | ef 36 · 124.0 cargas | ef 125 · 125 vectores | no llega (mejor 0.9899) | ef 42 · 42 vectores | ef 109 · 109 vectores |
+| al azar 1 % | 9 900 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 37 · 37 vectores | ef 80 · 80 vectores | ef 37 · 37 vectores | ef 80 · 80 vectores |
+| al azar 0.1 % | 990 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 33 · 33 vectores | ef 63 · 63 vectores | ef 33 · 33 vectores | ef 63 · 63 vectores |
+| correlado 50 % | 495 000 | índice | ef 21 · 18.9 cargas | ef 163 · 72.4 cargas | ef 77 · 77 vectores | ef 364 · 364 vectores | ef 77 · 77 vectores | ef 364 · 364 vectores |
+| correlado 10 % | 99 000 | índice | ef 18 · 18.5 cargas | ef 131 · 69.7 cargas | ef 76 · 76 vectores | ef 375 · 375 vectores | ef 69 · 69 vectores | ef 294 · 294 vectores |
+| correlado 1 % | 9 900 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 41 · 41 vectores | ef 97 · 97 vectores | ef 41 · 41 vectores | ef 97 · 97 vectores |
+| correlado 0.1 % | 990 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 39 · 39 vectores | ef 80 · 80 vectores | ef 39 · 39 vectores | ef 80 · 80 vectores |
+| anticorrelado 50 % | 495 000 | índice | ef 14 · 84.7 cargas | ef 102 · 247.9 cargas | ef 91 · 91 vectores | ef 328 · 328 vectores | ef 91 · 91 vectores | ef 328 · 328 vectores |
+| anticorrelado 10 % | 99 000 | índice | ef 12 · 698.1 cargas | ef 79 · 1422.4 cargas | ef 1362 · 512 vectores | no llega (mejor 0.9581) | ef 120 · 120 vectores | ef 403 · 403 vectores |
+| anticorrelado 1 % | 9 900 | plano | ef 10 · 507 vectores | ef 729 · 729 vectores | ef 146 · 146 vectores | ef 399 · 399 vectores | ef 146 · 146 vectores | ef 399 · 399 vectores |
+| anticorrelado 0.1 % | 990 | plano | ef 10 · 507 vectores | ef 10 · 507 vectores | ef 120 · 120 vectores | ef 244 · 244 vectores | ef 120 · 120 vectores | ef 244 · 244 vectores |
+
+**Los dos caminos del nuestro forzados, a 0.95,** que es lo que dará el punto de cruce cuando haya tiempos:
+
+| filtro | índice a 0.95 | plano a 0.95 | plano: recall a ef 10 |
+|---|---|---|---|
+| al azar 50 % | ef 16 · 24.4 cargas | ef 10 · 507 vectores | 0.9963 |
+| al azar 10 % | ef 10 · 50.6 cargas | ef 10 · 507 vectores | 0.9981 |
+| al azar 1 % | ef 10 · 258.5 cargas | ef 10 · 507 vectores | 0.9995 |
+| al azar 0.1 % | ef 10 · 1320.4 cargas | ef 10 · 507 vectores | 1.0000 |
+| correlado 50 % | ef 21 · 18.9 cargas | ef 10 · 507 vectores | 0.9953 |
+| correlado 10 % | ef 18 · 18.5 cargas | ef 10 · 507 vectores | 0.9951 |
+| correlado 1 % | ef 12 · 21.7 cargas | ef 10 · 507 vectores | 0.9982 |
+| correlado 0.1 % | ef 10 · 50.0 cargas | ef 10 · 507 vectores | 1.0000 |
+| anticorrelado 50 % | ef 14 · 84.7 cargas | ef 10 · 507 vectores | 0.9889 |
+| anticorrelado 10 % | ef 12 · 698.1 cargas | ef 10 · 507 vectores | 0.9789 |
+| anticorrelado 1 % | ef 10 · 2842.2 cargas | ef 10 · 507 vectores | 0.9811 |
+| anticorrelado 0.1 % | ef 10 · 3898.9 cargas | ef 10 · 507 vectores | 0.9985 |
+
+**Lo que se ve:**
+- **La plana lee siempre 507 vectores por query,** la R de la regla a 512 bits (enmienda 3). Con eso queda muy por encima de 0.95: entre 0.979 y 1.000 ya a ef 10. La plana de HNSW llega a 0.95 leyendo entre 33 y 146, porque ordena por su código RQ de 1 536 bits, y la nuestra por el código de ruteo de 512. En frío, 507 lecturas por query pesan. Lo digo y no lo ajusto: R sale del `rescoreLimit`, por orden del usuario.
+- **Correlado, el nuestro es más barato que sin filtro:** al 10 %, 18.5 cargas a 0.95; al 1 %, por el índice, 21.7.
+- **Anticorrelado, el nuestro por el índice es muy caro:** 84.7 cargas al 50 % y 698 al 10 %. Al 1 % y al 0.1 %, forzado por el índice, lee casi todos los postings (2 842 y 3 899). HNSW con `sweeping` llega a 0.95 con 91 y 120 vectores al 50 % y al 10 %.
+- **ACORN, en este HNSW con RQ de 1 bit, necesita más ef que `sweeping` en los tres filtros del 10 %:** 125 frente a 42 al azar, 76 frente a 69 correlado, y 1 362 frente a 120 anticorrelado. Y no llega a 0.99 ni al azar (0.9899) ni anticorrelado (0.9581). Un ef de ACORN puede costar menos que uno de `sweeping`, así que eso lo dirán los tiempos.
+
+**Lo esperado frente a lo medido:**
+- **Al azar al 50 %:** esperaba entre 1.1 y 1.5 veces las cargas de sin filtro; salen 1.30.
+- **Al azar al 10 %:** esperaba entre 1.6 y 3 veces; salen 2.69, dentro de lo esperado y fuera del criterio.
+- **Correlado, más fácil que al azar en las cuatro:** se cumple.
+- **Anticorrelado al 10 % y al 50 %, «puede no llegar a 0.95 con ef 2 048»:** llega, a ef 12 y a ef 14, pero con muchas cargas. HNSW con `sweeping` también llega.
+- **La plana al 0.1 % y al 1 %, por encima de 0.99:** se cumple al azar y correlado. Anticorrelado al 1 % da 0.9811 a ef 10 y necesita ef 729 para 0.99.
+- **ACORN frente a `sweeping`, «mejor al 10 % y en el anticorrelado, parecido al 50 %»:** al 50 % es el mismo, por el ratio. Al 10 % necesita más ef en los tres, y por lecturas sale peor.
+- **El punto de cruce entre el 2 % y el 5 %:** sin tiempos todavía. Por lecturas, al azar, el índice al 1 % hace unas 580 por query (258.5 cargas de dos lecturas, más 64 vectores) y la plana 507, así que por lecturas el cruce estaría cerca del 1 %.
+
+**Lo que faltaba, cronometrado:** cada filtro en su punto de 0.95, en caliente y en frío, dos rondas. El nuestro va por los dos caminos y HNSW con `acorn`; `sweeping` después, si cabe en la noche. Después, el punto de cruce por p50 en frío. Se midió en la noche del 23 al 24, con `sweeping` también: está en el apartado siguiente.
+
+### Resultados cronometrados (noche del 23 al 24 de noviembre)
+
+**En duda desde la repetición de las 04:01:** en un proceso nuevo, la plana cuesta unas cuatro veces menos que en esta noche. Por eso están en duda su coste por permitido, el punto de cruce y cada comparación de la plana. Lo explica el apartado «La repetición de los cinco puntos marcados». El diagnóstico de las 04:50 tampoco la reproduce, ni en un solo proceso con el orden de la noche: lo cuenta el apartado «El diagnóstico de la plana lenta».
+
+*El binario es de `ada98eba8e`, con el mismo índice crecido de `2e58f5c2e1`, y el resultado está en `filters-timed-dbpedia-1m.json`. La máquina quedó quieta a las 19:09, tras la espera de 15 minutos con el marcador puesto. Las rondas 1 y 2 midieron el nuestro por sus dos caminos y HNSW con `acorn`, de 19:09 a 02:32. Las rondas 3 y 4 midieron HNSW con `sweeping`, de 02:32 a 03:04. No se saltó ningún punto.*
+
+*Todo va con 1 thread. En caliente se toma la pasada del medio de tres, sobre 1 000 queries. En frío son 500 queries, en lotes de 10, con el volumen desmontado antes de cada lote. Cada p50 de las tablas es la media de las dos rondas.*
+
+*HNSW se construye otra vez en el proceso en cada sesión, así que sus puntos de 0.95 difieren en algún ef de los de la tarde: `acorn` al azar al 10 % pasa de 125 a 130 y anticorrelado al 10 % de 1 362 a 1 479. Cada uno se cronometra en el suyo. Los nuestros son los mismos.*
+
+**La parada se cumple también aquí:** el arnés comprueba cada query cronometrada, en caliente y en frío, y no salió ningún resultado fuera de su filtro.
+
+**El detector de deriva marca 5 de los 51 puntos, y se repiten.**
+- **La regla de siempre:** un punto queda marcado si su p50, en caliente o en frío, se separa un 10 % o más entre las dos rondas, sobre la primera. El punto marcado se repite. La sesión de experimentos lo comprobó con el mayor sobre el menor, y salen los mismos cinco:
+
+  | punto | medida | ronda 1 | ronda 2 | sobre la primera | el mayor sobre el menor |
+  |---|---|---:|---:|---:|---:|
+  | nuestro por el índice, al azar 1 % | caliente | 23.82 ms | 26.60 ms | +11.7 % | 11.7 % |
+  | nuestro por la plana, al azar 10 % | caliente | 23.70 ms | 26.26 ms | +10.8 % | 10.8 % |
+  | nuestro por la plana, correlado 10 % | caliente | 26.68 ms | 23.71 ms | −11.1 % | 12.5 % |
+  | `acorn`, correlado 0.1 % | frío | 1.51 ms | 1.36 ms | −10.1 % | 11.3 % |
+  | `acorn`, anticorrelado 0.1 % | frío | 2.93 ms | 2.36 ms | −19.4 % | 24.0 % |
+
+- **La primera versión de este apartado decía que las dos rondas coincidían:** medí la separación sobre la media de las dos y no apliqué la regla.
+- **Tres puntos más se quedan justo por debajo,** todos del nuestro por el índice y en caliente: correlado al 1 % y al 0.1 %, y anticorrelado al 50 %, del 9.6 al 9.9 %.
+- **Ninguno de los cinco cambia una conclusión.** Los tres nuestros son del punto de cruce, donde en caliente un camino cuesta de 6.6 a 15.6 veces el otro. Los dos de `acorn` quedan, en cualquiera de sus dos rondas, de 3.0 a 6.2 veces por debajo del nuestro.
+- **El nuestro por el índice va más lento en la ronda 2:** en caliente en 12 de sus 13 filtros, hasta un 11.7 %, y en frío en 11. La plana se mueve en los dos sentidos, y HNSW no pasa de un 3.5 % en caliente. La repetición, en un proceso nuevo, dice si vuelve a pasar.
+- **Los cinco se repiten solos, con el mismo protocolo:** el mismo índice, dos rondas, el marcador y la espera de 15 minutos sin actividad.
+- **Las dos mitades de cada medida en frío** van por lotes alternos, así que comparan grupos de queries y no momentos de la noche. Difieren hasta un 21 %, en el nuestro por el índice al azar al 10 %: 8.0 ms y 9.9 ms.
+
+**El criterio, con tiempos:**
+- **Primera parte:** el veredicto no cambia, porque el criterio se mide en cargas. Los tiempos, por el índice frente a sin filtro a 0.95:
+
+  | filtro | cargas | p50 caliente | p50 frío | veredicto |
+  |---|---:|---:|---:|---|
+  | al azar 50 % | 1.30 veces (24.4 frente a 18.8) | 1.29 veces (1.96 ms frente a 1.52) | 1.17 veces (5.64 ms frente a 4.81) | se cumple |
+  | al azar 10 % | 2.69 veces (50.6) | 2.51 veces (3.80 ms) | 1.93 veces (9.30 ms) | no se cumple |
+
+  En frío, el 10 % queda por debajo del doble en latencia, pero eso no cambia el veredicto, que va por cargas.
+- **Segunda parte: se cumple,** como sin cronometrar. La primera tabla da cada filtro por su camino en su punto de 0.95.
+
+**Cada filtro, el nuestro por el camino que le da el corte, frente a HNSW, a 0.95** (p50 en caliente / en frío):
+
+| filtro | permitidos | camino | nuestro: ef · cargas · p50 caliente / frío | acorn: ef · p50 caliente / frío | sweeping: ef · p50 caliente / frío |
+|---|---:|---|---|---|---|
+| sin filtro | 990 000 | índice | ef 21 · 18.8 cargas · 1.52 / 4.81 ms | ef 78 · 78 vectores · 0.85 / 2.65 ms | ef 78 · 78 vectores · 0.86 / 2.56 ms |
+| al azar 50 % | 495 000 | índice | ef 16 · 24.4 cargas · 1.96 / 5.64 ms | ef 61 · 61 vectores · 1.10 / 2.80 ms | ef 61 · 61 vectores · 1.09 / 2.77 ms |
+| al azar 10 % | 99 000 | índice | ef 10 · 50.6 cargas · 3.80 / 9.30 ms | ef 130 · 130 vectores · 4.27 / 8.44 ms | ef 43 · 43 vectores · 2.59 / 4.75 ms |
+| al azar 1 % | 9 900 | plano | ef 10 · 507 vectores · 3.11 / 9.99 ms | ef 37 · 37 vectores · 2.96 / 4.54 ms | ef 37 · 37 vectores · 2.96 / 4.55 ms |
+| al azar 0.1 % | 990 | plano | ef 10 · 507 vectores · 0.94 / 1.56 ms | ef 33 · 33 vectores · 0.25 / 1.00 ms | ef 33 · 33 vectores · 0.25 / 0.97 ms |
+| correlado 50 % | 495 000 | índice | ef 21 · 18.9 cargas · 1.63 / 5.02 ms | ef 78 · 78 vectores · 0.88 / 2.65 ms | ef 78 · 78 vectores · 0.89 / 2.61 ms |
+| correlado 10 % | 99 000 | índice | ef 18 · 18.5 cargas · 1.62 / 4.89 ms | ef 71 · 71 vectores · 0.84 / 2.55 ms | ef 69 · 69 vectores · 0.83 / 2.42 ms |
+| correlado 1 % | 9 900 | plano | ef 10 · 507 vectores · 3.25 / 10.80 ms | ef 41 · 41 vectores · 4.44 / 5.60 ms | ef 41 · 41 vectores · 4.43 / 5.55 ms |
+| correlado 0.1 % | 990 | plano | ef 10 · 507 vectores · 1.02 / 8.39 ms | ef 39 · 39 vectores · 0.64 / 1.44 ms | ef 39 · 39 vectores · 0.63 / 1.37 ms |
+| anticorrelado 50 % | 495 000 | índice | ef 14 · 84.7 cargas · 6.14 / 14.51 ms | ef 92 · 92 vectores · 3.74 / 7.18 ms | ef 92 · 92 vectores · 3.76 / 7.07 ms |
+| anticorrelado 10 % | 99 000 | índice | ef 12 · 698.1 cargas · 61.42 / 104.67 ms | ef 1479 · 512 vectores · 30.92 / 40.83 ms | ef 119 · 119 vectores · 49.30 / 54.90 ms |
+| anticorrelado 1 % | 9 900 | plano | ef 10 · 507 vectores · 3.16 / 11.31 ms | ef 146 · 146 vectores · 4.62 / 7.39 ms | ef 146 · 146 vectores · 4.59 / 7.36 ms |
+| anticorrelado 0.1 % | 990 | plano | ef 10 · 507 vectores · 1.01 / 8.67 ms | ef 120 · 120 vectores · 0.78 / 2.64 ms | ef 120 · 120 vectores · 0.77 / 2.32 ms |
+
+**El punto de cruce, lo que pide el encargo.** Son los dos caminos del nuestro forzados, a 0.95, con el p50 en ms:
+
+| filtro | índice caliente | plano caliente | índice frío | plano frío | más barato en frío |
+|---|---:|---:|---:|---:|---|
+| al azar 50 % | 1.96 | 116.29 | 5.64 | 121.26 | índice (21.5x) |
+| al azar 10 % | 3.80 | 24.98 | 9.30 | 32.15 | índice (3.5x) |
+| al azar 1 % | 25.21 | 3.11 | 48.62 | 9.99 | plano (4.9x) |
+| al azar 0.1 % | 133.38 | 0.94 | 194.38 | 1.56 | plano (124.7x) |
+| correlado 50 % | 1.63 | 114.29 | 5.02 | 121.57 | índice (24.2x) |
+| correlado 10 % | 1.62 | 25.20 | 4.89 | 31.69 | índice (6.5x) |
+| correlado 1 % | 1.58 | 3.25 | 4.85 | 10.80 | índice (2.2x) |
+| correlado 0.1 % | 2.33 | 1.02 | 5.95 | 8.39 | índice (1.4x) |
+| anticorrelado 50 % | 6.14 | 112.77 | 14.51 | 122.11 | índice (8.4x) |
+| anticorrelado 10 % | 61.42 | 23.84 | 104.67 | 32.26 | plano (3.2x) |
+| anticorrelado 1 % | 353.04 | 3.16 | 403.05 | 11.31 | plano (35.6x) |
+| anticorrelado 0.1 % | 438.05 | 1.01 | 447.72 | 8.67 | plano (51.6x) |
+
+**Lo que dice el punto de cruce:**
+- **Al azar, la plana pasa a ser más barata entre el 10 % y el 1 %.**
+  - Al 10 % el índice cuesta 3.5 veces menos en frío (9.30 ms frente a 32.15), y al 1 % la plana cuesta 4.9 veces menos (9.99 ms frente a 48.62).
+  - Entre los dos puntos no hay medida. Una recta en escala logarítmica por ellos (*mía*) cruza hacia el 3.5 %, en caliente y en frío: unos 35 000 permitidos a 1M. El corte de 40 000 cae ahí.
+- **Correlado, el índice es más barato en las cuatro selectividades.** Al 1 % cuesta 4.85 ms en frío frente a 10.80, y al 0.1 % 5.95 frente a 8.39. El corte manda esas dos a la plana, que en frío cuesta 2.2 y 1.4 veces lo que costaría el índice.
+- **Anticorrelado, la plana ya es más barata al 10 %:** 32.3 ms en frío frente a 104.7, 3.2 veces menos. El cruce está entre el 10 % y el 50 %.
+- **Un corte que solo cuenta permitidos acierta con el filtro al azar.** Con el correlado se queda corto y con el anticorrelado largo, porque no ve dónde caen los permitidos. Cambiarlo se decide más adelante, como pidió el usuario; aquí solo lo reporto.
+- **Por lecturas el cruce sale cerca del 1 %, y por tiempo hacia el 3.5 %.** Al azar al 1 %, el índice hace unas 581 lecturas por query (258.5 cargas de dos lecturas, más 64 vectores) y la plana 507. La plana cuesta más de lo que dicen sus lecturas, porque puntúa en CPU cada código permitido.
+
+**Lo que cuesta la plana:**
+- **En caliente cuesta entre 230 y 250 ns por permitido:**
+  - 113 ms con 495 000 permitidos;
+  - 24 ms con 99 000;
+  - 3.1 ms con 9 900;
+  - 0.94 ms con 990, que es sobre todo el rescore de 507.
+- **La enmienda 2 esperaba unos 2 ms para 40 000 códigos, unos 50 ns cada uno.** Con lo medido serían unos 10 ms en caliente; es una extrapolación, no está medido a 40 000.
+- **La plana de HNSW cuesta del mismo orden por permitido,** unos 300 ns: 2.96 ms con 9 900 permitidos y 37 vectores.
+- **Dónde se van esos ns no está medido:** no hay perfil.
+- **En frío, la plana suma unos 7 ms por las 507 lecturas de vector** con filtros que cambian con la query: 8.4 ms el correlado al 0.1 % y 8.7 ms el anticorrelado, frente a 1.0 ms en caliente.
+- **El filtro al azar es el mismo conjunto para todas las queries.** En un lote de 10 en frío, las queries de después encuentran en caché los vectores que leyeron las de antes. Al 0.1 % (990 permitidos, 507 leídos por query) los encuentran casi todos, y por eso la plana al azar al 0.1 % da 1.56 ms en frío, no 8.4. A HNSW le pasa lo mismo: 1.00 ms al azar al 0.1 %, frente a 1.44 correlado y 2.64 anticorrelado.
+  - Es lo que pasa con un filtro compartido, como una categoría, pero no es el frío de una query sola.
+  - Al 1 % el efecto es menor. Según mi cuenta (*mía*), en un lote de 10 se repite como mucho una de cada cinco lecturas.
+
+**Frente a HNSW con `acorn`, la comparación principal:**
+- **Por el camino del corte, el nuestro es más lento que `acorn` a 0.95 en casi todo.** En frío cuesta entre 1.5 y 2.2 veces más en ocho de los doce filtros, 1.10 veces al azar al 10 %, y sin filtro 1.81 veces (4.81 ms frente a 2.65).
+- **Lo peor son los filtros pequeños que no son al azar:** el correlado al 0.1 % cuesta 5.8 veces más en frío (8.39 ms frente a 1.44) y el anticorrelado al 0.1 % 3.3 veces más (8.67 frente a 2.64). Es el frío de las 507 lecturas de la plana frente a las 39 y 120 de HNSW.
+- **Donde gana el nuestro:**
+  - **En caliente:** al azar al 10 % (3.80 ms frente a 4.27), y por la plana el correlado al 1 % (3.25 frente a 4.44) y el anticorrelado al 1 % (3.16 frente a 4.62). En frío pierde en los tres.
+  - **Con el mejor de sus dos caminos, en frío:** el correlado al 1 % por el índice (4.85 ms frente a 5.60, 0.87 veces) y el anticorrelado al 10 % por la plana (32.3 frente a 40.8, 0.79 veces).
+- **El anticorrelado frente a `acorn`, sin umbral, en frío:**
+
+  | anticorrelado | nuestro | `acorn` | veces |
+  |---|---:|---:|---:|
+  | 50 % (índice) | 14.5 ms | 7.2 ms | 2.0 |
+  | 10 % (índice) | 104.7 ms | 40.8 ms | 2.6 |
+  | 10 % (plana forzada) | 32.3 ms | 40.8 ms | 0.79 |
+  | 1 % (plana) | 11.3 ms | 7.4 ms | 1.5 |
+  | 0.1 % (plana) | 8.7 ms | 2.6 ms | 3.3 |
+
+- **La memoria de cada índice no entra en esta medida.** HNSW tiene el grafo y sus códigos de 1 536 bits en memoria. En frío solo pierde la caché de sus vectores, como en la medida de 10M.
+
+**`acorn` frente a `sweeping`, la segunda referencia,** cronometrada entera:
+- **Al 50 %, al 1 % y al 0.1 % son lo mismo:** al 50 % `acorn` corre `sweeping` por el ratio, y al 1 % y al 0.1 % los dos van por la plana.
+- **Al 10 % en frío:**
+  - al azar, `sweeping` es 1.78 veces más rápido (4.75 ms frente a 8.44);
+  - correlado, casi igual (2.42 frente a 2.55);
+  - anticorrelado, `acorn` es más rápido (40.8 frente a 54.9, 0.74 veces), aunque use un ef de 1 479 frente a 119.
+
+**Lo esperado frente a lo medido, con tiempos:**
+- **El punto de cruce, «entre el 2 % y el 5 %»:** se cumple al azar, hacia el 3.5 %, que sale de interpolar. Como número único no sirve: correlado no cruza en lo medido, y anticorrelado cruza por encima del 10 %.
+- **El coste de la plana, «unos 2 ms en caliente para 40 000»:** no se cumple. Son unos 240 ns por permitido, unos 10 ms a 40 000 extrapolando.
+- **`acorn`, «mejor que `sweeping` al 10 % y en el anticorrelado»:** solo en el anticorrelado.
+
+**Lo que no está verificado:**
+- el cruce entre dos puntos medidos, que es una interpolación;
+- dónde se va el tiempo de la plana por permitido, porque no hay perfil;
+- la memoria de los dos índices.
+
+**Queda para decidir:**
+- el valor del corte, y si tiene que ver dónde caen los permitidos;
+- si la plana debe costar menos por permitido;
+- las 507 lecturas en frío de la plana con filtros pequeños.
+
+No he tocado nada de esto.
+
+### La repetición de los cinco puntos marcados (24 de noviembre, de 04:01 a 04:34)
+
+*La pidió la sesión de experimentos al aplicar el detector de deriva. El binario es de `ea25e176a1`, que solo añade al arnés `-bench.filters.points` para medir esos cinco puntos y nada más; el código del índice es el de la noche. El protocolo es el mismo:*
+- *el mismo índice;*
+- *HNSW construido otra vez en el proceso;*
+- *los puntos de 0.95 buscados otra vez sin cronometrar, con los mismos ef y recall que en la noche;*
+- *el marcador y la espera de 15 minutos sin actividad (la máquina quedó quieta a las 04:01);*
+- *dos rondas.*
+
+*Los datos están en `filters-timed-repeat-dbpedia-1m.json`. Ningún resultado salió de su filtro.*
+
+**p50 en ms, la noche frente a la repetición:**
+
+| punto | medida | noche, ronda 1 | noche, ronda 2 | repetición, ronda 1 | repetición, ronda 2 |
+|---|---|---:|---:|---:|---:|
+| nuestro por el índice, al azar 1 % | caliente | 23.82 | 26.60 | 24.08 | 23.79 |
+| | frío | 47.10 | 50.14 | 47.14 | 47.37 |
+| nuestro por la plana, al azar 10 % | caliente | 23.70 | 26.26 | 5.82 | 5.80 |
+| | frío | 32.07 | 32.23 | 13.78 | 13.78 |
+| nuestro por la plana, correlado 10 % | caliente | 26.68 | 23.71 | 5.76 | 5.81 |
+| | frío | 31.66 | 31.72 | 13.39 | 13.37 |
+| `acorn`, correlado 0.1 % | caliente | 0.64 | 0.64 | 0.60 | 0.60 |
+| | frío | 1.51 | 1.36 | 1.52 | 1.38 |
+| `acorn`, anticorrelado 0.1 % | caliente | 0.79 | 0.78 | 0.74 | 0.74 |
+| | frío | 2.93 | 2.36 | 2.89 | 2.35 |
+
+**El nuestro por el índice, al azar al 1 %, no va más lento en la ronda 2 de un proceso nuevo:** −1.2 % en caliente y +0.5 % en frío. Las dos rondas de la repetición dan lo mismo que la ronda 1 de la noche. La que se separa es la ronda 2 de la noche.
+
+**La plana, en un proceso nuevo, cuesta unas cuatro veces menos en caliente que en la noche.**
+- **Al 10 %, en caliente:** 5.8 ms, frente a 23.7 a 26.7 ms en la noche. Pasa en las dos rondas y en los dos filtros.
+- **En frío:** de 13.4 a 13.8 ms, frente a 31.7 a 32.2 ms.
+- **La diferencia es solo de cómputo.** Lo que el frío añade al caliente es lo mismo en las dos sesiones: unos 8 ms de leer 507 vectores.
+- **Por permitido salen unos 50 ns,** no los 230 a 250 de la noche. Es lo que esperaba la enmienda 2 y lo que mide `BenchmarkSidecarScore`.
+- **Lo demás es igual:** el código del binario, el índice, las queries y el recall.
+- **La única diferencia que veo es el momento del proceso en que llegó la plana:**
+  - en la noche, después del índice en sus trece filtros, con unas 650 reaperturas y los filtros más pesados, de miles de cargas por query;
+  - en la repetición, después del índice en un solo filtro, con 50 reaperturas.
+- **En la noche el índice también fue más lento en la ronda 2,** en 12 de sus 13 filtros.
+- **Mi lectura** (*mía*, sin comprobar): algo se acumula en un proceso que abre el índice muchas veces o que lo usa mucho rato, y la plana es la que más lo nota, porque pide por query dos slices del tamaño de los permitidos. Puede ser el índice, y entonces es un bug, o el arnés o el runtime de Go. No lo sé todavía. *Refutada en un proceso por el diagnóstico de las 04:50; lo cuenta el apartado «El diagnóstico de la plana lenta».*
+
+**Lo que esto cambia de los resultados cronometrados:**
+- **El coste de la plana por permitido** (de 230 a 250 ns), y el «no se cumple» frente a los 2 ms esperados.
+- **El punto de cruce hacia el 3.5 %,** porque sale de las cifras de la plana de la noche.
+- **Cada comparación de la plana con el índice y con `acorn`.** Con la plana de la repetición, al azar al 10 % el índice sigue siendo más barato en frío (9.30 ms frente a 13.78), pero 1.5 veces y no 3.5. Las demás selectividades y el anticorrelado no se han medido en un proceso nuevo.
+- **El veredicto del criterio no cambia:** la primera parte va por las cargas del índice, y la segunda por el recall.
+
+**El detector de deriva sobre la repetición marca otra vez `acorn` anticorrelado al 0.1 % en frío:** −18.6 %. El correlado al 0.1 % se mueve un −8.9 %.
+- **Las dos sesiones dan los mismos dos valores:** 2.93 y 2.36 ms en la noche, 2.89 y 2.35 en la repetición.
+- **No es ruido:** en dos procesos, el frío de la plana de HNSW sale más rápido en la ronda 2.
+- **La regla no dice qué hacer con una repetición que vuelve a derivar.** No la encolo otra vez (*mío*); la reporto como un efecto de ronda de HNSW.
+
+**Lo siguiente:** reproducir la plana lenta en un solo proceso, con la traza del GC y un perfil de CPU, antes de medir otra vez la plana y el punto de cruce. Si es el índice, es un bug: test en rojo y arreglo.
+
+### El diagnóstico de la plana lenta (24 de noviembre, de 04:50 a 07:30, sin cronometrar)
+
+*Un diagnóstico, nunca una medida: ninguna de sus cifras se reporta como tiempo. El binario es de `2d550c3b64`, que añade al arnés la sonda `-bench.filters.probe`; el código del índice es el de la noche. Los datos se quedan fuera del repositorio; los perfiles, en las notas de la sesión.*
+
+**El orden de la noche, en un solo proceso:**
+- el mismo índice;
+- HNSW construido en el proceso y vivo hasta el final, como en la noche: se cierra solo su fichero de vectores, y `acorn` va en las mismas rondas que el nuestro;
+- las curvas sin cronometrar de todos los buscadores en todos los filtros;
+- una ronda: el nuestro por el índice en sus trece filtros, y después la plana.
+
+**Lo que no es como en la noche:**
+- 200 queries en frío por punto, no 500: 20 reaperturas por punto, 260 en los trece filtros del índice;
+- el marcador puesto desde el principio, sin la espera;
+- la traza del GC (`GODEBUG=gctrace=1`);
+- la sonda.
+
+**La sonda** busca la plana al azar al 10 %, con ef 10 y sola, en las 300 primeras queries: una pasada para calentar y otra con un perfil de CPU. Mide también el recorrido de las listas de permitidos solas, el heap y el GC. Corre antes de las curvas, después de ellas, después de cada punto cronometrado y al final. Calienta los códigos de ese filtro entre los puntos, cosa que la noche no hacía.
+
+**La plana no va más lenta en ningún momento del proceso:**
+- **Las 19 sondas** dan un p50 de 5.79 a 6.30 ms, de la apertura al final. Es lo de la repetición en un proceso nuevo (5.8 ms), también después de los trece filtros del índice y sus 260 reaperturas.
+- **Recorrer las listas de permitidos** cuesta de 11.0 a 12.0 ns por miembro en todas las sondas.
+- **El GC** se lleva del 2 al 4.5 % de la CPU, con 1.5 GB vivos y un objetivo de 3 GB.
+- **Ningún perfil tiene `gcAssistAlloc`**, y `mallocgc` se queda en el 7 % de las muestras o menos.
+- **Los puntos de la plana cronometrados en el mismo proceso**, después del índice en sus trece filtros (p50 en ms, sin cronometrar a efectos del informe):
+
+| filtro | caliente, diagnóstico | caliente, noche | frío, diagnóstico | frío, noche |
+|---|---:|---:|---:|---:|
+| al azar 50 % | 25.01 | 112.77 | 30.11 | 121.44 |
+| al azar 10 % | 5.93 | 23.70 | 13.94 | 32.07 |
+| al azar 1 % | 1.28 | 3.12 | 7.88 | 9.92 |
+
+  Los demás no empezaron antes de las 07:30.
+- **El nuestro por el índice repite la noche:** sus 26 puntos, en caliente y en frío, quedan a ±4 % de la ronda 1 de la noche. Las excepciones son anticorrelado al 10 %, 1 % y 0.1 %, que salen entre un 3 y un 11 % más rápidos. La CPU iba igual de rápida que en la noche para el índice, y no para la plana.
+
+**Lo que descarta:**
+- **Mi lectura** de que algo se acumula en un proceso que reabre el índice muchas veces o que lo usa mucho rato: aquí no se acumula nada que la plana note.
+- **Las ayudas del GC** como causa, por lo menos en el estado rápido, que es el único que se vio.
+
+**La hipótesis del usuario** es que macOS comprime o saca a swap el array de los códigos de ruteo. Las cifras de la noche no encajan con un coste por página (*mío*):
+- **El coste de la noche es lineal por permitido:** unos 225 ns a 50, 10 y 1 %, más unos 0.9 ms fijos.
+- **Al 1 % al azar ya se toca cerca del 90 % de las páginas de 16 KB de los códigos,** que guardan 227 códigos cada una. Un coste por página haría el 1 % casi tan caro como el 10 %.
+- **El caliente es la mediana de tres pasadas** después de una sin cronometrar, con las páginas ya en memoria.
+- **La espera tampoco separa la noche de la repetición:** en la noche se cumplió al instante (3658 s sin teclado a las 19:09, con el proceso corriendo las curvas hasta entonces), y la repetición, rápida, tenía 26 699 s.
+- **A las 07:22 el proceso tenía 19 MB comprimidos** de los 4.3 GB que ocupaba (`top`). El sistema tenía 1.42 millones de páginas en el compresor, 4.7 GB de swap usados de 6 y un 86 % libre.
+
+**El arnés registra la memoria y la CPU para la reproducción:**
+- **`-bench.filters.memory`** toma muestras antes del pase sin cronometrar de cada punto, antes y después de sus pasadas en caliente, y antes y después del frío. Van a los eventos y al JSON. Recoge:
+  - de `vm_stat`, las descompresiones, compresiones, page-ins, swap-ins, swap-outs y las páginas en el compresor;
+  - de `memory_pressure -Q`, la memoria libre;
+  - el swap de `sysctl vm.swapusage`;
+  - de `top`, la memoria comprimida y la huella del proceso;
+  - la contabilidad de CPU del proceso (`proc_pid_rusage`): el tiempo en los núcleos de rendimiento, el tiempo por QoS, el tiempo esperando un núcleo, las instrucciones por ciclo, los ciclos por segundo de CPU y lo leído del disco.
+- **`-bench.filters.untimedprofiles`** toma un perfil de CPU del pase sin cronometrar de cada punto. Las pasadas cronometradas nunca se perfilan.
+
+**La reproducción en las condiciones de la noche:**
+- HNSW vivo en el proceso;
+- una espera de al menos 60 minutos sin teclado ni trackpad, con el marcador desde que empieza;
+- 500 queries en frío;
+- sin la sonda;
+- una ronda en el orden de la noche.
+
+Corre cuando lo decida el usuario. Medir otra vez la plana y el punto de cruce queda para una enmienda pre-registrada.
+
+### El R de la plana sale del código recortado (24 de noviembre, sin cronometrar)
+
+*La midió la sesión de experimentos, con su pre-registro en `bench-report.md` y el resultado en `4ea94708ad`. El arnés es `TestFlatRankingCode`, de la rama `exp/flat-ranking-code` (`7bf1236245`), que entra aquí por merge. Los datos están en `testdata/bench/integration-filters/flatcodes/`. Copia la plana sobre el dataset sin abrir el índice: ordena los permitidos con un código y rescora exactos los R mejores. A 1 536 dimensiones da el recall de la plana de la noche con una diferencia de 0.0003 como mucho.*
+
+**A 1 536 dimensiones, la plana pide R = 507 porque ordena con el código de ruteo, recortado a 512 bits de 1 536.**
+- **Con el código completo y R = 64,** el recall iguala o supera al del recortado con R = 507 en tres de los cuatro filtros pequeños correlados y anticorrelados. En anticorrelado al 1 % da 0.9917, frente a 0.9813.
+- **En anticorrelado al 0.1 %** se queda 0.0065 por debajo con R = 64, y lo supera con R = 150.
+- **Con el recortado y R = 64,** anticorrelado al 1 % cae a 0.788.
+
+**A 768 dimensiones (wiki-dpr 1M), anticorrelado al 1 % pide R = 507 también con el código completo** (0.9885). Con R = 150, el que da la regla del 22 para 768 bits, se queda en 0.9531. Con filtros, esa regla se queda corta.
+
+**Lo que cambia de esta sección:** ninguna cifra medida.
+- **El frío de la plana es sobre todo leer R vectores:** los unos 8 ms que el frío añade al caliente son las 507 lecturas.
+- **Ordenar con el código completo pagaría menos lecturas con más memoria:** 25 palabras por vector en vez de 9 a 1 536 dimensiones.
+- **Decide el usuario,** con las opciones y su coste en RAM que propone la sesión de experimentos.
+- **El nuevo cronometraje** mide la plana con R = 507, como dice su pre-registro.
+
+### La búsqueda plana en `none` (24 de noviembre)
+
+*Orden del usuario del 24 por la tarde: «La búsqueda plana en modo `none` es bloqueante, por completitud. Implementa la enmienda 3 de la sección 8 del plan», con tests en rojo primero, y «Lento está bien por ahora: no optimices nada». La hizo la sesión de experimentos, en un worktree aparte, sin tocar el binario ni el arnés de la cadena de esta noche (`b1ee33a38b`).*
+
+**Hecho** (`82184a2600`; los tests, en rojo antes, en `50de5f1aef`):
+- **El mapa de postings,** que está en memoria en los dos modos, da el posting de cada permitido que el índice tiene y no ha marcado borrado.
+- **Cada uno de esos postings se lee una vez,** solo su fila de miembros: ni la de aristas ni el halo.
+- **Se puntúan solo sus miembros permitidos,** con el código completo que guarda la fila.
+- **Se rescoran los R mejores.** R es la regla del rescore aplicada al ancho de ese código, con 4 × k y ef como suelos: 64 a 1 536 dimensiones.
+- **Con R permitidos o menos,** la plana los rescora todos y no carga ningún posting, como en `routing`.
+- **El error explícito se ha quitado.**
+- **Nada está optimizado:** los postings se leen uno detrás de otro.
+- **Un permitido que la fila de su posting no tiene da error,** no un resultado incompleto (*mío*).
+
+**Tests**, en rojo en `50de5f1aef` y en verde con el arreglo:
+- **`TestPersistentFilteredSearch` en `none`:** la plana responde ahora, también con borrados. Tras reabrir da las mismas respuestas por los dos caminos forzados, y cada filtro va por el mismo camino.
+- **`TestGrowFlatSearch` sin códigos en memoria:**
+  - es exacta con R permitidos o menos, sin cargar nada;
+  - con más permitidos, carga una sola vez cada posting que tiene alguno;
+  - nunca devuelve el vector borrado.
+- **`TestPersistentFlatSearchTwins`:** dos índices con los mismos vectores, uno en `routing` y otro en `none`. Con un filtro al azar y en bola, al 10 % y al 5 %, su recall queda dentro de 0.02 y por encima de 0.95.
+- **`TestPersistentFlatSearchWithVectorsKeptAside`, en los dos modos:** con la base ya índice y los 250 vectores que llegaron durante el build todavía apartados. Solo devuelve permitidos, cada uno de esos vectores es su propio vecino más cercano y el recall llega a 0.95. Lo mismo después, con todos tomados.
+- **Por el shard:** `TestPostingEdge_ThroughAShardWithNoCodesInMemory` y su variante asíncrona, con el filtro de 299 objetos, bajo el corte.
+- **Lo que añadí para el test** (*mío*): `drainHook`, un punto de parada antes de que el índice tome cada vector apartado, sin ningún lock. Los puntos de `baseHook` se llaman con el lock del índice cogido, y una búsqueda desde el test esperaba para siempre. La primera versión del test se colgó así.
+
+**El coste, sin cronometrar** (`TestFlatNoneCost`, de `fad688cbbc`, de 15:37 a 15:40; los datos en `testdata/bench/integration-filters/flatnone/`):
+- **El índice** es un clon APFS del de la noche (`/Volumes/v40bench/v54/flatnone/pe`, hecho con `cp -c`). El original no se abrió.
+- **Los filtros** son los del 1 % y el 0.1 % de la caché de la medida, con sus 1 000 queries, k = 10 y ef 20.
+- **Los dos modos van sobre el mismo índice,** que creció en `routing`. La fila de miembros es la misma en los dos modos, así que la plana de `none` lee lo que leería ese índice crecido en `none`.
+- **La plana en `routing`** da el recall de la noche en los seis filtros, sin diferencia en el cuarto decimal.
+
+| filtro | permitidos | `routing`: recall (R 507) | `none`: recall (R 64) | `none`: cargas por query, media (mín. a máx.) | `none`: MB leídos por query | el índice forzado en `routing`, a 0.95: cargas |
+|---|---:|---:|---:|---|---:|---:|
+| al azar 1 % | 9 900 | 0.9995 | 0.9998 | 3 655 (todas iguales) | 180 | 258.5 |
+| al azar 0.1 % | 990 | 1.0000 | 0.9999 | 874 (todas iguales) | 45 | 1 320.4 |
+| correlado 1 % | 9 900 | 0.9982 | 0.9995 | 777.6 (188 a 2 075) | 39 | 21.7 |
+| correlado 0.1 % | 990 | 1.0000 | 0.9996 | 123.4 (9 a 469) | 6.3 | 50.0 |
+| anticorrelado 1 % | 9 900 | 0.9811 | 0.9919 | 849.7 (217 a 2 198) | 43 | 2 842.2 |
+| anticorrelado 0.1 % | 990 | 0.9985 | 0.9926 | 143.2 (10 a 552) | 7.3 | 3 898.9 |
+
+**Lo que se ve:**
+- **Recall.** La plana en `none` ordena con el código completo y rescora 64.
+  - Supera a `routing` con R 507 en los tres filtros del 1 %.
+  - Queda por debajo en los tres del 0.1 %: 0.0001 al azar, 0.0004 correlado y 0.0059 anticorrelado (0.9926 frente a 0.9985).
+  - Es lo que daba `TestFlatRankingCode` con el código completo a R 64, a 0.0006 o menos en los seis.
+- **Vectores leídos:** 64 por query, frente a 507.
+- **Cargas:**
+  - Al azar, la plana toca casi la mitad de los postings al 1 % (3 655 de 8 105) y 874 al 0.1 %.
+  - En bola toca menos, pero no pocos: unos 780 a 850 de media al 1 %, y de 123 a 143 al 0.1 %. Las colas llegan a unos 2 000 y 500.
+  - Cada carga lee la fila de miembros sola, unos 50 KB, y por eso al azar al 1 % son 180 MB por query.
+- **Frente al recorrido del índice forzado:**
+  - Al azar al 1 % y correlado, la plana de `none` carga más postings que el índice: 14 veces más al azar al 1 %, y 36 y 2.5 veces más correlado.
+  - Al azar al 0.1 % y anticorrelado, carga menos.
+  - Las cargas del índice son de la noche, en `routing`. En `none` cada carga del índice lee también las aristas y el halo. El índice en `none` no lo he medido.
+- *Mío, sin medir en tiempo:* el corte de 40 000 permitidos se eligió para `routing`, y en `none` manda a la plana filtros que el índice resolvería con muchas menos cargas.
+
+**Lo que no cubre:**
+- no está cronometrado: el volumen estaba en caliente y no se desmontó;
+- el índice no creció en `none`, aunque las filas de miembros son las mismas;
+- solo se midió a 1 536 dimensiones.
+
+**Queda para decidir:**
+- si la plana en `none` se hace más barata, y cómo;
+- si `none` necesita un corte propio.
+
+*Decidido el 24 por la noche: el apartado siguiente.*
+
+### Decisiones del usuario del 24 por la noche
+
+**Tres decisiones sobre esta búsqueda filtrada:**
+- **El R de la plana se queda como está:** la regla aplicada al ancho del código que ordena, con 4 × k y ef como suelos, que en `routing` a 1 536 dimensiones es 507. Ninguna de las opciones con más RAM entra.
+- **El corte sigue sin ser público:** `PersistentConfig.flatCutoff`, sin exportar, en 40 000.
+- **La primera parte del criterio no se cumple al azar al 10 %, y queda documentada así en la versión simple:** 2.69 veces las cargas de sin filtro, donde pedía 2 como mucho. La versión simple es la de esta sección: el recorrido del índice con `sweeping` y el corte plano. No cambia el recorrido para las selectividades intermedias.
+
+**La plana en `none` pasa a lectura directa, después de abrir la PR de filtros, no antes.** Palabras del usuario: «Con pocos permitidos, leer el vector exacto de cada uno del fichero de vectores, en paralelo con el presupuesto de la query, y calcular la distancia exacta, sin códigos ni rescore. Con más permitidos que el corte de `none`, el recorrido del índice».
+- **El pre-registro de su medida** va en `bench-report.md` de `feat/posting-edge-index`, antes de compilar nada.
+- **La medida** es sin cronometrar, sobre el clon del índice de la noche. Compara las lecturas, los bytes y el recall de la lectura directa con los del recorrido del índice:
+  - al azar, con 500, 1 000, 2 000, 5 000 y 10 000 permitidos;
+  - correlado y anticorrelado, al 0.1 % y al 1 %.
+- **El corte de `none` que se proponga** es el número de permitidos a partir del cual la lectura directa deja de hacer menos lecturas que el índice.
+
+**La PR de filtros:**
+- **Base y cabeza.** La base es una rama nueva en `b6200010ab`, el final del hito 2. La cabeza es `feat/posting-edge-integration`.
+- **Cuándo se abre.** Después de leer la reproducción de la plana lenta de la noche del 24 al 25, y solo si no deja un arreglo pendiente.
+- **La descripción** lleva antes los resultados de esa noche: la reproducción, y las corridas A, B y C.
+
+### La noche del 24 al 25: la máquina se durmió (leída el 25 a las 08:10)
+
+- **El Mac entró en reposo por inactividad** de 18:18 a 21:33 y desde las 23:47 hasta las 08:00. Dormido, solo despertaba en DarkWake, unos 45 s cada 15 minutos. Ninguna aserción lo impedía.
+- **De R se cronometraron con la máquina despierta** las 11 celdas del índice de «sin filtro» a «far 10 %», que acabaron hacia las 23:41.
+  - «far 1 %» y «far 0.1 %» se cronometraron en DarkWake y no son comparables.
+  - La plana no se cronometró: sus 12 celdas pasaron de las 08:00.
+- **A, B y C no arrancaron.**
+- **La plana lenta de la noche del 23 sigue sin explicar.** Esa noche la máquina no se durmió.
+- **Las 11 celdas despiertas del índice** fueron entre un 4 % y un 16 % más rápidas que la ronda 1 del 23, con los mismos ef y las mismas cargas.
+- **Los ficheros de R** están en `testdata/bench/integration-filters/filters-timed-slowflat-dbpedia-1m*`. El relato completo está en `bench-report.md` de `feat/posting-edge-index` (`5ff992307c`).
+- **La PR no se abre.** Le falta lo que tenía que llevar: la explicación de la plana lenta y A, B y C. Repetir la noche lo decide el usuario.
+
+### El 25 de noviembre: A, B, C, la reproducción R y la repetición de los puntos marcados
+
+*Orden del usuario del 25 por la mañana. La PR de filtros se abrió primero ([#14023](https://github.com/weaviate/weaviate/pull/14023)), con las cifras del 23 marcadas como provisionales. Todo corrió bajo `caffeinate -s -i`, y después de cada proceso se leyó el registro de energía: el Mac no se durmió en ninguno de los ocho. Los registros de las cadenas están en `testdata/bench/integration-filters/retime-*.txt`.*
+
+**Cuándo y con qué binario:**
+
+| proceso | qué mide | cuándo | binario |
+|---|---|---|---|
+| A | el nuestro sin HNSW: el índice y la plana forzados, en los doce filtros y al azar al 7, 5 y 3 % | 09:35 a 16:22 | del 24 a las 09:01 (`b1ee33a38b`) |
+| B y C, primera vez | HNSW por defecto y centrado, con `acorn` | 16:22 y 16:26, fallan | del 24 a las 09:01 |
+| B | HNSW por defecto con `acorn`: al azar 10 % y 1 %, near y far 1 % | 17:23 a 17:42 | de `0ca6067e57` |
+| C | HNSW centrado, los mismos cuatro filtros | 17:42 a 17:55 | de `0ca6067e57` |
+| R | la reproducción de la plana lenta en las condiciones del 23 | 18:16 a 22:02 | del 24 a las 09:01 |
+| A2, B2 y C2 | la repetición de los 10 puntos marcados | 22:02 a 23:10 | de `0ca6067e57` |
+
+- **El código del índice es el mismo en los dos binarios** en todo lo que se mide aquí: entre `b1ee33a38b` y `0ca6067e57` solo cambian el arnés y el camino de `none`, que no se mide. Entre el binario de la noche del 23 (`ada98eba8e`) y `b1ee33a38b` solo cambia el arnés.
+- **Datos:** `filters-retime-{A,B,C}-dbpedia-1m*` (`8715962982`), `filters-timed-slowflat-20261125-dbpedia-1m*` y `filters-retime-repeat-{A,B,C}-dbpedia-1m*` (`c312f955b7`), y las salidas de la primera vez de B y C en `retime-failed-20261125-1626/`.
+
+**B y C fallaron la primera vez por un error del arnés, ya arreglado.**
+- Antes de cada lote en frío, la medida cerraba solo los buscadores que medía. B y C miden solo HNSW, con `-bench.filters.points`, así que nuestro índice, abierto al empezar, seguía abierto en el volumen y el desmontaje fallaba en el primer lote en frío.
+- Reproducido en el volumen de 1M con el binario del 24: en el primer vaciado, `lsof` muestra abiertos los segmentos lsm, el diario y el registro de cambios de los centroides de `filter1m/pe`.
+- `c10bcef29d` es el test en rojo (`TestFilterSearchersClosedBeforeADrop`) y `0ca6067e57` el arreglo: antes de un vaciado se cierra todo buscador construido, se mida o no. Con el arreglo, los mismos parámetros pasaron 8 vaciados con el desmontaje y el montaje del volumen, sin nada abierto bajo el índice.
+- A, la noche del 23 y la R del 24 medían nuestro índice, así que no les afectó.
+- *Gotcha:* `lsof +D` sale con 1 aunque liste ficheros abiertos. Hay que leer su salida, no su código de salida.
+
+**El criterio no cambia:** va por cargas, y las cargas son las mismas. La primera parte se cumple al azar al 50 % (1.30 veces) y no al 10 % (2.69 veces, en ef 10). La segunda se cumple.
+
+**La plana cuesta de 41 a 56 ns por permitido en caliente, como en un proceso nuevo, y no de 230 a 250.**
+- En A, por mínimos cuadrados sobre las siete cuotas al azar de la ronda 1, 40.8 ns. Entre el 0.1 % y el 1 %, 56 y 55 ns (rondas 1 y 2). Entre el 1 % y el 10 %, 48 y 47 ns.
+- Al azar al 10 %, 5.49 ms en caliente, y el frío suma 7.9 ms por las 507 lecturas.
+
+**R: la plana lenta del 23 no se reproduce en sus condiciones.**
+- Fueron las condiciones del 23: el mismo código del índice, HNSW vivo en el proceso, las curvas de todos los buscadores, la espera de 60 minutos sin teclado ni trackpad y una ronda con el índice en sus 13 filtros antes que la plana. A las 19:14, al acabar las curvas, la máquina ya llevaba más de una hora quieta, así que la ronda empezó entonces.
+- La plana da lo de A: al azar al 10 %, 5.56 ms en caliente frente a 23.70 y 26.26 la noche del 23, y 13.38 ms en frío frente a 32.07 y 32.23. Coste por permitido, 56 ns entre el 0.1 % y el 1 % y 48 ns entre el 1 % y el 10 %.
+- Los contadores alrededor de cada medida de la plana están quietos: ningún swapout, el swap del sistema fijo en 3 891 MB, ninguna compresión del sistema salvo 344 páginas en near 10 %, y el proceso con 110 MB comprimidos, fijos de principio a fin.
+- Las celdas del índice salen como en A con HNSW vivo en el proceso: del 0 al +6 % en caliente, salvo far 0.1 % (+15 %, 379 frente a 331 ms), y del 0 al +5 % en frío, salvo far 1 % (+11 %). La ronda 1 del 23 fue de un 8 a un 21 % más lenta que R en caliente.
+- **Lectura:** nada apunta al índice. Con el mismo código, el mismo orden y HNSW vivo, la plana cuesta lo que en un proceso nuevo. La lentitud de la noche del 23 queda atribuida al entorno de esa noche, sin causa conocida, y no hay test en rojo que escribir. Esa noche fue más lento todo el proceso: el índice de un 8 a un 22 % y HNSW de un 14 a un 55 %, pero la plana 4 veces.
+
+**El punto de cruce al azar cae entre el 7 % y el 5 %, medido** (p50 en frío a 0.95, media de las dos rondas):
+
+| filtro | índice | plana | más barato |
+|---|---:|---:|---|
+| al azar 10 % | 8.24 | 13.36 | índice, 1.62 veces |
+| al azar 7 % | 10.50 | 12.11 | índice, 1.15 veces |
+| al azar 5 % | 12.50 | 11.23 | plana, 1.11 veces |
+| al azar 3 % | 18.43 | 9.72 | plana, 1.90 veces |
+| al azar 1 % | 41.88 | 7.60 | plana, 5.51 veces |
+
+- La cuota más alta en la que la plana es más barata es el 5 %, 49 500 permitidos. El corte de 40 000 queda por debajo: entre 40 000 y unos 50 000 permitidos, la plana sería un 10 % más barata en frío. *Mío, no pre-registrado:* una recta entre el 7 % y el 5 % cruza hacia el 5.9 %, unos 58 000 permitidos.
+- El correlado no cruza: el índice es más barato en las cuatro cuotas (de 1.46 a 6.57 veces). El anticorrelado cruza entre el 50 % y el 10 %.
+- Un corte que solo cuenta permitidos acierta con el azar, es demasiado alto para el correlado y demasiado bajo para el anticorrelado.
+
+**El nuestro frente a HNSW con `acorn`, por defecto y centrado,** cada filtro por el camino que le da el corte, p50 en caliente / en frío en ms (media de las dos rondas de B y C):
+
+| filtro | el nuestro | HNSW por defecto | HNSW centrado |
+|---|---|---|---|
+| al azar 10 % | índice · 3.24 / 8.24 | ef 133 · 3.73 / 7.56 | ef 68 · 2.21 / 5.77 |
+| al azar 1 % | plana · 1.24 / 7.60 | ef 37 · 1.91 / 4.12 | ef 17 · 1.35 / 3.39 |
+| near 1 % | plana · 1.26 / 8.64 | ef 41 · 3.54 / 8.63 | ef 18 · 3.17 / 6.90 |
+| far 1 % | plana · 1.28 / 9.13 | ef 146 · 3.71 / 6.96 | ef 30 · 3.26 / 7.43 |
+
+- **En caliente** el nuestro gana a HNSW por defecto en los cuatro (de 0.34 a 0.87 veces). Frente al centrado gana en near y far 1 % (0.40 y 0.39), empata al azar 1 % (0.92) y pierde al azar 10 % (1.47).
+- **En frío** empata con el de por defecto al azar 10 % (1.09). Pierde al azar 1 % (1.84 y 2.24 veces), en far 1 % frente al de por defecto (1.31) y al azar 10 % frente al centrado (1.43). Near 1 %, y far 1 % frente al centrado, se leen con la repetición (abajo).
+- **El frío de nuestra plana son sus 507 lecturas de vector,** de 6.4 a 7.9 ms sobre su p50 en caliente. HNSW reescora de 17 a 146.
+- **HNSW centrado llega a 0.95 con menos ef en los cuatro filtros** y es más rápido en frío al azar al 10 % y al 1 %.
+
+**La deriva: el detector marcó 10 de los 76 puntos de A, B y C,** y la repetición los midió otra vez, solos y con el mismo protocolo (p50 en ms):
+
+| punto | medida | A, B y C: rondas 1 / 2 | repetición: rondas 1 / 2 |
+|---|---|---:|---:|
+| nuestra plana, al azar 50 % | caliente | 21.21 / 25.22 | 21.41 / 23.80 |
+| nuestra plana, near 50 % | caliente | 21.25 / 25.58 | 21.05 / 24.10 |
+| nuestra plana, near 10 % | caliente | 5.55 / 8.27 | 5.51 / 8.26 |
+| nuestra plana, far 50 % | caliente | 21.24 / 24.07 | 21.14 / 23.92 |
+| nuestra plana, far 10 % | caliente | 5.52 / 8.01 | 6.84 / 7.86 |
+| HNSW por defecto, near 1 % | frío | 10.85 / 6.42 | 9.70 / 7.27 |
+| HNSW centrado, al azar 10 % | frío | 5.45 / 6.10 | 5.81 / 5.90 |
+| HNSW centrado, near 1 % | caliente | 3.00 / 3.34 | 2.98 / 3.30 |
+| HNSW centrado, near 1 % | frío | 8.47 / 5.33 | 8.24 / 10.51 |
+| HNSW centrado, far 1 % | frío | 9.99 / 4.86 | 8.85 / 9.04 |
+
+- **Nuestra plana, en caliente, vuelve a ir más lenta en la ronda 2,** con los mismos valores: del +11 al +50 %.
+  - En la ronda 2 cada punto lee de 6.9 a 7.8 GB del disco durante sus pasadas en caliente, frente a 0 a 177 MB en la ronda 1 (far 10 %, el único que ya sale algo lento en la ronda 1, lee 2.5 GB). La CPU es la misma.
+  - La caché de ficheros no guarda en la ronda 2 los vectores que reescoran las 3 000 queries en caliente: hasta unos 3 GB por filtro. En R pasa lo mismo en los filtros al 50 % y en near 10 %. Es la máquina, no cómputo.
+  - El frío de esos puntos no se mueve (1.3 % como mucho), y son puntos de la plana forzada en cuotas que el corte manda al índice. No cambia ninguna conclusión.
+  - *Mío, sin comprobar:* por qué la caché deja de retenerlos después de unos 250 desmontajes del volumen.
+- **HNSW en frío al 1 % no tiene un efecto de ronda: se dispersa.**
+  - El signo cambia entre sesiones: near 1 % centrado va del −37 % en C al +28 % en C2.
+  - Dentro de una ronda, las dos mitades llegan a separarse un 60 % (5.75 y 9.16 ms en la ronda 2 de B2).
+  - Sus p50 en frío van de 4.9 a 10.9 ms con el mismo ef y las mismas lecturas de disco.
+- **Con las cuatro rondas de las dos sesiones** (*mío*: la regla no dice qué hacer con una repetición que vuelve a derivar), el frío de HNSW es:
+  - near 1 %: 8.56 ms por defecto y 8.14 centrado. El nuestro, con 8.64, empata con los dos (1.01 y 1.06 veces).
+  - far 1 % centrado: 8.19 ms. El nuestro pierde por poco, 1.12 veces.
+  - al azar 10 % centrado: 5.82 ms. El nuestro pierde 1.42 veces, como con la primera sesión sola.
+  - Los dos puntos que no vuelven a derivar (al azar 10 % y far 1 % centrados, en frío) dan en la repetición 5.81 / 5.90 y 8.85 / 9.04.
+- **No se encola otra repetición** (*mío*): la plana tiene su causa medida, y HNSW está dentro de su propia dispersión.
+
+**Lo esperado frente a lo medido** (lo esperado es del pre-registro de `bench-report.md`, del 24 a las 07:20):
+- **La plana, unos 50 ns por permitido en caliente, 5.8 ms al azar al 10 %, y unos 8 ms más en frío:** se cumple, con 41 a 56 ns, 5.49 ms y 7.9 ms.
+- **El cruce al azar entre el 7 % y el 5 %:** se cumple.
+- **El correlado: el índice gana en las cuatro cuotas:** se cumple.
+- **El anticorrelado: la plana gana al 10 % y al 1 %:** se cumple, y también al 0.1 %.
+- **HNSW centrado, al azar al 10 %, llega con menos ef y es más rápido en frío:** se cumple (ef 68 frente a 133, 5.77 ms frente a 7.56).
+- **HNSW centrado y por defecto empatan al 1 %, los dos por su búsqueda plana:** no se cumple. El centrado llega con menos ef (17 frente a 37 al azar), así que reescora menos y es más rápido: 3.39 frente a 4.12 ms en frío al azar al 1 %.
+- **El nuestro pierde frente al centrado al azar al 10 % por más que frente al de por defecto:** se cumple, 1.43 veces frente a 1.09.
+
+**Queda abierto:**
+- por qué la caché de ficheros deja de retener los vectores de la plana en caliente en la ronda 2;
+- el corte de 40 000 frente al cruce medido al azar, entre el 7 % y el 5 %, que ya no es el 3.5 % interpolado del 23. El valor del corte lo decide el usuario.
+
+## 9. Un índice sin su `meta.json` (23 de noviembre)
+
+*Orden del usuario del 23, al leer el backup: «Primero el test en rojo, que abra el índice sin `meta.json` y compruebe que no se borra nada. Después el arreglo: si falta, error al abrir, nunca borrado».*
+
+**El riesgo.** Hasta el 23, `Open` tomaba la falta de meta por un build de la base sin acabar y llamaba a `discardBase`, que borra todos los ficheros del índice y todos sus buckets. Una copia o una restauración sin el meta abría como un índice vacío, sin error, y con todo borrado.
+
+- **El test en rojo,** en su propio commit (`43988b3c8b`): un índice con base, cerrado, sin su meta. Abrirlo tiene que fallar y no cambiar nada en disco, y con el meta de vuelta tiene que abrir como era (`TestPersistentOpensWithoutItsMeta`). Con el código de entonces abría sin error y lo borraba todo.
+
+**La base a medio construir: decisión del usuario del 23.** Le pregunté por los dos casos en que el índice borra lo que escribió un build suyo de la base: el build que muere mientras escribe la base, y el que falla sin morir, por ejemplo con el disco lleno. Sus palabras:
+
+> «Sí en los dos casos, con estas condiciones:
+> 1. La marca de build registra qué crea el build, y la limpieza borra solo eso.
+> 2. Antes de borrar, se comprueba que los vectores de origen apartados están completos. Si no lo están, error al abrir y no se borra nada.
+> 3. Cada limpieza deja una línea de log con qué se borró y por qué.
+> Tests: los dos casos (muerte durante el build y fallo sin morir), uno con los vectores de origen incompletos que debe dar error sin borrar nada, y uno para el trabajo de backup más adelante: restaurar una copia hecha a mitad de un build, que debe rehacer la base y quedar entera.»
+
+**El arreglo:**
+
+- **El meta se escribe el último,** así que un índice con meta tiene su base entera. Eso no cambia.
+- **La marca de un build** es su directorio, `<id>.postingedge.build`. Se crea antes de empezar y se quita al acabar, haya salido bien o mal.
+  - **Antes de escribir nada de la base, el build deja en ella la lista de lo que va a crear:** los ficheros del directorio del índice, por su nombre, y los buckets del índice en el store, también por su nombre. Lleva además los doc ids de los vectores de los que construye la base.
+  - **Si algo de esa lista existe ya, el build no empieza.** Así nada de lo que la limpieza puede borrar es anterior al build.
+- **La limpieza borra solo lo que está en la lista** y existe. Antes de borrar comprueba dos cosas, y si falla cualquiera no borra nada:
+  - **que no haya nada más de una base fuera de la lista** (en el directorio del índice o en sus buckets);
+  - **que los vectores de origen sigan todos apartados,** cada doc id de la lista con su vector o con la marca de un borrado hecho durante el build.
+  - **Cada limpieza deja una línea de log** con lo que borró y por qué.
+- **Cuándo limpia:**
+  - **Un build que falla sin morir** limpia antes de devolver el error, en el mismo proceso. Los vectores siguen apartados y el build se intenta otra vez, como antes.
+  - **Un índice que abre sin meta y con la marca de un build y su lista** limpia, y abre con los vectores apartados: el build siguiente rehace la base.
+- **Al abrir sin meta, en los demás casos:**
+  - **Sin nada de una base:** es un índice que nunca tuvo base, y abre como siempre. Si queda la marca de un build sin lista, ese build murió antes de escribir nada, y se quita la marca, que solo tiene ficheros de trabajo del build.
+  - **Con algo de una base y sin una lista que lo cubra:** error al abrir, que dice qué hay y dónde. No se borra nada. Es lo que deja una copia o una restauración incompleta.
+- **Con meta y la marca de un build:** el build murió después de escribir el meta, y la base está entera. Se quita la marca.
+
+**Hecho** (`43a26135e1`). El test en rojo de `43988b3c8b` pasa.
+
+- **La lista** está en `<id>.postingedge.build/list.json`, con los doc ids en `sources.u32` y su checksum. Primero se escriben los doc ids, luego la lista, cada fichero entero y sincronizado antes de tener su nombre. Así una lista en disco tiene todos sus doc ids.
+- **Nombres, no rutas:** la lista nombra los ficheros del directorio del índice y los buckets por su nombre. Una copia restaurada en otro directorio se limpia igual.
+- **Lo que añadí yo** (*mío*):
+  - **El build no empieza si hay cualquier cosa de una base,** nombrada en la lista o no. Con solo lo de la lista, un fichero ajeno en el directorio del índice dejaba una lista escrita y una limpieza que se negaba.
+  - **La limpieza borra el meta primero** y sincroniza el directorio antes de seguir. Una limpieza que se corta nunca deja un meta junto a media base. El directorio del build, con su lista, se quita el último: el índice que abre después termina lo que quedó.
+  - **Si una limpieza en el mismo proceso se niega,** el directorio del build se queda con su lista y se escribe una línea de error en el log. El índice sigue con sus vectores apartados, y cada build siguiente se niega a empezar mientras quede algo de esa base.
+- **Fallo adyacente, arreglado en el mismo commit:** `Drop` no borraba el directorio del build. Ahora lo borra, y también todos los buckets que una base puede tener. El test de `Drop` lo comprueba, y fallaba sin el arreglo.
+- **Un fallo de los tests, encontrado de paso** (`5b3b5c9398`): el fixture de los tests del índice dejaba que el build de fondo leyera cuantos vectores hubieran llegado. Con la máquina cargada los leía todos, y un índice construido de una vez con sus 2 100 vectores no partía ningún posting. Por eso fallaron `TestPersistentKeepsItsCentroidGraph` y `TestPersistentLaysItsVectorsOutAsItGrows`. Ahora espera la base a su tamaño. `TestPersistentFixtureBuildsItsBaseFromItsBaseSize` retiene el build: con el fixture viejo da una base de 2 100 y ningún split.
+- **Tests:**
+  - `TestPersistentCleansWhatABuildLeft`, en los dos modos:
+    - el proceso muere mientras escribe la base;
+    - una limpieza que se quedó a medias;
+    - el build falla sin morir;
+    - los vectores de origen incompletos: el bucket que falta, o un vector que falta. Da error y no se borra nada;
+    - algo de una base que la lista no nombra. Da error y no se borra nada;
+    - una copia hecha a mitad de un build, fichero a fichero, y restaurada en otro directorio. Rehace la base y queda entera.
+  - `TestBuildListIsWhatTheBuildWrites`: la lista es lo que crea la escritura, en los tres formatos.
+  - `TestPersistentBuildDoesNotStartOverWhatIsThere`.
+  - `TestPersistentInterruptedBase`, que ahora espera el error cuando no hay lista.
+- **Para el trabajo de backup:**
+  - **Hoy `ListFiles` se niega.** Cuando exista, la copia tiene que llevar el directorio del build con su lista. Sin ella, el índice restaurado no abre, aunque tampoco borra nada.
+  - **Una copia con meta tomada fichero a fichero mientras el build escribe** no es consistente, y eso no lo arregla el índice. Lo tiene que resolver el backup, por ejemplo esperando al build en `PrepareForBackup`.

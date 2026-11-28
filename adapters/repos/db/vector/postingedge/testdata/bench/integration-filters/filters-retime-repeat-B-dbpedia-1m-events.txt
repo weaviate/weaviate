@@ -1,0 +1,59 @@
+gc 1 @0.003s 3%: 0.025+0.49+0.032 ms clock, 0.25+0.026/0.92/0.29+0.32 ms cpu, 3->4->2 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 2 @0.006s 3%: 0.023+0.66+0.012 ms clock, 0.23+0.10/1.1/0.65+0.12 ms cpu, 5->6->4 MB, 5 MB goal, 0 MB stacks, 0 MB globals, 10 P
+=== RUN   TestIntegrationFilters
+gc 3 @0.012s 3%: 0.074+1.1+0.003 ms clock, 0.74+0.69/1.3/1.3+0.036 ms cpu, 5808->5808->5806 MB, 5808 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:696: filters: 1, from the cache, in 1s
+    bench_filters_test.go:1681: the vectors are in /Volumes/v40bench/filter1m/hnsw/vectors.f32 already
+gc 4 @7.451s 0%: 0.097+9.0+0.12 ms clock, 0.97+1.5/24/0.075+1.2 ms cpu, 11609->11612->6067 MB, 11612 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 5 @17.855s 0%: 0.21+18+0.16 ms clock, 2.1+5.6/50/0+1.6 ms cpu, 12125->12131->6157 MB, 12136 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 6 @29.497s 0%: 0.15+29+0.12 ms clock, 1.5+0.90/70/0+1.2 ms cpu, 12300->12310->6249 MB, 12315 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 7 @42.280s 0%: 0.20+47+0.15 ms clock, 2.0+1.1/114/0+1.5 ms cpu, 12479->12493->6338 MB, 12498 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 8 @55.732s 0%: 0.22+40+0.16 ms clock, 2.2+1.1/113/0+1.6 ms cpu, 12662->12673->6425 MB, 12676 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 9 @69.735s 0%: 0.088+16+0.004 ms clock, 0.88+9.7/50/98+0.041 ms cpu, 12839->12839->6504 MB, 12851 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 10 @83.361s 0%: 0.22+50+0.13 ms clock, 2.2+2.3/147/0+1.3 ms cpu, 12990->13005->6602 MB, 13010 MB goal, 0 MB stacks, 0 MB globals, 10 P
+gc 11 @97.166s 0%: 0.16+64+0.13 ms clock, 1.6+2.8/187/0+1.3 ms cpu, 13183->13200->6695 MB, 13205 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1451: hnsw built: 990000 vectors in 1m46s, map[acornFilterRatio:0.4 distance:cosine efConstruction:128 filterStrategy:acorn flatSearchCutoff:40000 maxConnections:32 rqBits:1 rqCentering:false rqRescoreLimit:512 rqTrainingLimit:10000]
+gc 12 @112.050s 0%: 0.21+83+0.14 ms clock, 2.1+0.98/242/2.0+1.4 ms cpu, 13367->13374->954 MB, 13392 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 10: recall 0.6764 | 0.0 loads, 10.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 20: recall 0.8576 | 0.0 loads, 20.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 40: recall 0.9491 | 0.0 loads, 40.0 vectors read, 0 codes scored, flat 0.00 | 1.2 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 80: recall 0.9854 | 0.0 loads, 80.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 160: recall 0.9960 | 0.0 loads, 160.0 vectors read, 0 codes scored, flat 0.00 | 1.5 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 320: recall 0.9997 | 0.0 loads, 320.0 vectors read, 0 codes scored, flat 0.00 | 1.8 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 60: recall 0.9743 | 0.0 loads, 60.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 50: recall 0.9640 | 0.0 loads, 50.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 45: recall 0.9569 | 0.0 loads, 45.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+gc 13 @124.135s 0%: 0.26+78+0.13 ms clock, 2.6+0.46/160/0+1.3 ms cpu, 1884->1890->950 MB, 1909 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 42: recall 0.9522 | 0.0 loads, 42.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 41: recall 0.9503 | 0.0 loads, 41.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:967: hnsw acorn, near 1 % at recall 0.95: ef 41, recall 0.9503, 0.0 loads, 41.0 vectors read
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 120: recall 0.9936 | 0.0 loads, 120.0 vectors read, 0 codes scored, flat 0.00 | 1.3 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 100: recall 0.9909 | 0.0 loads, 100.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 90: recall 0.9880 | 0.0 loads, 90.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 95: recall 0.9895 | 0.0 loads, 95.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 97: recall 0.9900 | 0.0 loads, 97.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:927: hnsw acorn, near 1 %, ef 96: recall 0.9895 | 0.0 loads, 96.0 vectors read, 0 codes scored, flat 0.00 | 1.4 s
+    bench_filters_test.go:967: hnsw acorn, near 1 % at recall 0.99: ef 97, recall 0.9900, 0.0 loads, 97.0 vectors read
+    bench_filters_test.go:984: the wait before the timed rounds: waiting from 22:57 for 900 s without keyboard or trackpad
+        -- power: Current System Capabilities are: CPU Graphics Audio Network  Current Power State: 4 
+        -- assertion: pid 71154(caffeinate): [0x0025bb6900018c05] 02:21:35 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+        -- assertion: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+        -- assertion: pid 71154(caffeinate): [0x0025bb6900078c06] 02:21:35 PreventSystemSleep named: "caffeinate command-line tool"  
+        -- assertion: 	Details: caffeinate asserting on behalf of 'bash' (pid 71152)
+        -- keyboard and trackpad idle for 7701 s
+        keyboard and trackpad idle for 7701 s
+        the machine is quiet at 22:57
+gc 14 @141.230s 0%: 0.42+105+0.035 ms clock, 4.2+3.3/316/628+0.35 ms cpu, 1883->1885->762 MB, 1901 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 1, hnsw acorn, near 1 % (ef 41), 1 thread, warm: p50 3.753 ms, p95 3.955, p99 4.097 | 268 QPS | 0.0 loads, 41.0 vectors read
+    bench_filters_test.go:1136: round 1, hnsw acorn, near 1 %, the untimed pass: the memory of the system, untimed: decompressions +34, compressions +0, pageins +46, swapins +0, swapouts +0 | in the compressor 1822840 → 1822794 pages | free 82 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 3197 → 3197 MB; 3.80 s on the CPU, 100.0 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.09 s runnable and waiting for a core, 1.07 instructions a cycle, 3.13 GHz on the CPU, 0 page-ins, 52 MB read from the disk
+    bench_filters_test.go:1138: round 1, hnsw acorn, near 1 %, the warm passes: the memory of the system, untimed: decompressions +13, compressions +0, pageins +67, swapins +0, swapouts +0 | in the compressor 1822794 → 1822781 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 3197 → 3161 MB; 12.83 s on the CPU, 98.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.40 s runnable and waiting for a core, 0.99 instructions a cycle, 3.13 GHz on the CPU, 0 page-ins, 1 MB read from the disk
+    bench_filters_test.go:1186: round 1, hnsw acorn, near 1 % (ef 41), 1 thread, cold: p50 9.700 ms, p95 16.685, p99 22.421 | 50 batches of 10, halves at p50 10.231 and 9.243 ms | 0.0 loads, 41.0 vectors read
+    bench_filters_test.go:1192: round 1, hnsw acorn, near 1 %, the cold batches: the memory of the system, untimed: decompressions +711, compressions +0, pageins +2011, swapins +0, swapouts +0 | in the compressor 1822781 → 1822470 pages | free 82 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 3161 → 3161 MB; 5.50 s on the CPU, 97.6 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.31 s runnable and waiting for a core, 0.63 instructions a cycle, 2.45 GHz on the CPU, 0 page-ins, 401 MB read from the disk
+gc 15 @228.747s 0%: 0.33+103+0.012 ms clock, 3.3+0.049/307/610+0.12 ms cpu, 1508->1510->762 MB, 1524 MB goal, 0 MB stacks, 0 MB globals, 10 P
+    bench_filters_test.go:1132: round 2, hnsw acorn, near 1 % (ef 41), 1 thread, warm: p50 3.718 ms, p95 3.888, p99 4.075 | 271 QPS | 0.0 loads, 41.0 vectors read
+    bench_filters_test.go:1136: round 2, hnsw acorn, near 1 %, the untimed pass: the memory of the system, untimed: decompressions +35, compressions +0, pageins +38, swapins +0, swapouts +0 | in the compressor 1822468 → 1822433 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 3161 → 3161 MB; 3.94 s on the CPU, 100.0 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.13 s runnable and waiting for a core, 1.16 instructions a cycle, 3.15 GHz on the CPU, 0 page-ins, 727 MB read from the disk
+    bench_filters_test.go:1138: round 2, hnsw acorn, near 1 %, the warm passes: the memory of the system, untimed: decompressions +12, compressions +0, pageins +200, swapins +0, swapouts +0 | in the compressor 1822433 → 1822421 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 3161 → 2850 MB; 12.69 s on the CPU, 98.8 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.44 s runnable and waiting for a core, 0.98 instructions a cycle, 3.18 GHz on the CPU, 0 page-ins, 0 MB read from the disk
+    bench_filters_test.go:1186: round 2, hnsw acorn, near 1 % (ef 41), 1 thread, cold: p50 7.269 ms, p95 16.078, p99 21.503 | 50 batches of 10, halves at p50 5.753 and 9.160 ms | 0.0 loads, 41.0 vectors read
+    bench_filters_test.go:1192: round 2, hnsw acorn, near 1 %, the cold batches: the memory of the system, untimed: decompressions +586, compressions +0, pageins +1740, swapins +0, swapouts +0 | in the compressor 1822421 → 1822235 pages | free 83 % → 83 % | swap used 3891 → 3891 MB of 5120 | this process: 0 → 0 MB compressed, footprint 2850 → 2850 MB; 5.26 s on the CPU, 97.5 % on the performance cores, 0.0 % at background QoS and 0.0 % at utility, 0.28 s runnable and waiting for a core, 0.66 instructions a cycle, 2.46 GHz on the CPU, 0 page-ins, 401 MB read from the disk
+--- PASS: TestIntegrationFilters (291.41s)
+PASS

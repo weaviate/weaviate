@@ -262,8 +262,10 @@ func (f *persistentFixture) cycle() {
 // hold as many as had come when its build in the background read them,
 // which depends on the machine, and with them where the postings split and
 // when the index has doubled, and the index would take the others in the
-// background, with the budget of no query. What an index does with the
-// vectors that come while it builds its base is in the tests of the base.
+// background, with the budget of no query
+// (TestPersistentFixtureBuildsItsBaseFromItsBaseSize). What an index does
+// with the vectors that come while it builds its base is in the tests of the
+// base.
 func (f *persistentFixture) add(t *testing.T, from, to int) {
 	t.Helper()
 	if base := f.cfg.BaseSize; from < base && base < to {
@@ -271,6 +273,17 @@ func (f *persistentFixture) add(t *testing.T, from, to int) {
 		f.add(t, base, to)
 		return
 	}
+	f.addBatches(t, from, to)
+	// The base is built in the background, and the vectors that came
+	// meanwhile wait for the index to take them: the tests look at an index
+	// that has them all.
+	require.NoError(t, f.index.settleBase(persistentCtx()))
+}
+
+// addBatches adds the vectors of the doc ids [from, to), in batches, and
+// waits for nothing done in the background.
+func (f *persistentFixture) addBatches(t *testing.T, from, to int) {
+	t.Helper()
 	const batch = 50
 	ctx := persistentCtx()
 	for start := from; start < to; start += batch {
@@ -278,10 +291,6 @@ func (f *persistentFixture) add(t *testing.T, from, to int) {
 		ids := sequentialIDs(end-start, uint64(start))
 		require.NoError(t, f.index.AddBatch(ctx, ids, f.vectors[start:end]), "docs [%d, %d)", start, end)
 	}
-	// The base is built in the background, and the vectors that came
-	// meanwhile wait for the index to take them: the tests look at an index
-	// that has them all.
-	require.NoError(t, f.index.settleBase(ctx))
 }
 
 // truth returns the k doc ids nearest to a query among the first n vectors
@@ -723,12 +732,12 @@ func TestPersistentUnsupported(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"a filtered search", func() error {
-			_, _, err := f.index.SearchByVector(ctx, query, 10, allow)
-			return err
-		}},
 		{"a search by distance", func() error {
 			_, _, err := f.index.SearchByVectorDistance(ctx, query, 0.2, 100, nil)
+			return err
+		}},
+		{"a filtered search by distance", func() error {
+			_, _, err := f.index.SearchByVectorDistance(ctx, query, 0.2, 100, allow)
 			return err
 		}},
 		{"a backup", func() error { return f.index.PrepareForBackup(ctx) }},
@@ -1228,6 +1237,11 @@ func TestPersistentBuckets(t *testing.T) {
 	})
 
 	t.Run("dropped, nothing of it is left", func(t *testing.T) {
+		// The directory of a build that failed and could not remove what it
+		// wrote, with its list: it is of the index too.
+		build := filepath.Join(f.root, helpers.PostingEdgeBuildDirName(f.cfg.ID))
+		require.NoError(t, os.MkdirAll(build, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(build, buildListFile), []byte("{}"), 0o644))
 		require.NoError(t, f.index.Drop(ctx))
 		assert.Empty(t, f.store.GetBucketsByName())
 		assert.Empty(t, inStore())
@@ -1258,34 +1272,46 @@ func TestPersistentInterruptedBase(t *testing.T) {
 	t.Parallel()
 	const k = 10
 
-	t.Run("a base without a meta", func(t *testing.T) {
+	// Files of a base with no meta and no list of the build that wrote them
+	// are not removed: the index does not open, and says what is there
+	// (integration-plan.md, section 9). Once whoever may has removed them, the
+	// index opens with its vectors aside, and the next vector builds the base.
+	// What a build that lists what it creates leaves is removed when the index
+	// opens: TestPersistentCleansWhatABuildLeft.
+	t.Run("a base without a meta, and without the list of a build", func(t *testing.T) {
 		t.Parallel()
 		f := newPersistentFixture(t, persistentBase)
 		f.add(t, 0, persistentBase-1)
 		before := f.answers(t, k)
 		f.close(t)
 
-		// What a build leaves when it stops before the meta: files of the
-		// index, a bucket of it with something in it, and its build
-		// directory.
+		// Files of the index, a bucket of it with something in it, and the
+		// directory of a build with scratch in it and no list.
 		dir := filepath.Join(f.root, helpers.PostingEdgeDirName(f.cfg.ID))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, diskMeanFile), []byte("half a mean"), 0o644))
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, diskGraphDir), 0o755))
-		require.NoError(t, os.MkdirAll(filepath.Join(f.root, helpers.PostingEdgeBuildDirName(f.cfg.ID), "x"), 0o755))
+		build := filepath.Join(f.root, helpers.PostingEdgeBuildDirName(f.cfg.ID))
+		require.NoError(t, os.MkdirAll(filepath.Join(build, "x"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(build, "x", "scratch"), []byte("x"), 0o644))
 		bucket := filepath.Join(f.root, "lsm", helpers.PostingEdgeBucketName(helpers.PostingEdgeBucketMap, f.cfg.ID))
 		require.NoError(t, os.MkdirAll(bucket, 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(bucket, "leftover"), []byte("x"), 0o644))
 
+		files := diskAt(t, f.root, f.cfg.ID)
+		err := f.openFailsAt(t, f.root)
+		assert.ErrorContains(t, err, "no build of the base left a list")
+		assert.ErrorContains(t, err, filepath.Join(dir, diskMeanFile))
+		assert.ErrorContains(t, err, bucket)
+		assert.Equal(t, files, diskAt(t, f.root, f.cfg.ID), "nothing is removed")
+
+		require.NoError(t, os.Remove(filepath.Join(dir, diskMeanFile)))
+		require.NoError(t, os.RemoveAll(filepath.Join(dir, diskGraphDir)))
+		require.NoError(t, os.RemoveAll(bucket))
 		f.open(t)
 		require.Nil(t, f.index.g, "still gathering")
 		assert.Equal(t, before, f.answers(t, k))
-		entries, err := os.ReadDir(dir)
-		require.NoError(t, err)
-		assert.Empty(t, entries)
-		_, err = os.Stat(bucket)
-		assert.True(t, os.IsNotExist(err), "the bucket of the base that was not written whole")
-		_, err = os.Stat(filepath.Join(f.root, helpers.PostingEdgeBuildDirName(f.cfg.ID)))
-		assert.True(t, os.IsNotExist(err), "the directory of the build")
+		_, err = os.Stat(build)
+		assert.True(t, os.IsNotExist(err), "the scratch of the build that did not end")
 
 		// And the next vector builds the base.
 		f.add(t, persistentBase-1, persistentBase)

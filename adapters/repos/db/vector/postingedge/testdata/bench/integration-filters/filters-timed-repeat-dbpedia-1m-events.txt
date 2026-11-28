@@ -1,0 +1,103 @@
+=== RUN   TestIntegrationFilters
+    bench_filters_test.go:576: filters: 5, from the cache, in 1s
+    bench_filters_test.go:1335: the vectors are in /Volumes/v40bench/filter1m/hnsw/vectors.f32 already
+    bench_filters_test.go:1188: hnsw built: 990000 vectors in 2m9s, map[acornFilterRatio:0.4 distance:cosine efConstruction:128 filterStrategy:acorn flatSearchCutoff:40000 maxConnections:32 rqBits:1 rqCentering:false rqRescoreLimit:512 rqTrainingLimit:10000]
+    bench_filters_test.go:708: ours graph, random 1 %, ef 10: recall 0.9756 | 258.5 loads, 63.6 vectors read, 0 codes scored, flat 0.00 | 5.9 s
+    bench_filters_test.go:708: ours graph, random 1 %, ef 20: recall 0.9926 | 433.0 loads, 63.9 vectors read, 0 codes scored, flat 0.00 | 9.3 s
+    bench_filters_test.go:708: ours graph, random 1 %, ef 40: recall 0.9979 | 721.2 loads, 64.0 vectors read, 0 codes scored, flat 0.00 | 15.6 s
+    bench_filters_test.go:708: ours graph, random 1 %, ef 80: recall 0.9995 | 1167.3 loads, 64.0 vectors read, 0 codes scored, flat 0.00 | 25.1 s
+    bench_filters_test.go:748: ours graph, random 1 % at recall 0.95: ef 10, recall 0.9756, 258.5 loads, 63.6 vectors read
+    bench_filters_test.go:708: ours graph, random 1 %, ef 15: recall 0.9873 | 349.5 loads, 63.9 vectors read, 0 codes scored, flat 0.00 | 7.5 s
+    bench_filters_test.go:708: ours graph, random 1 %, ef 17: recall 0.9898 | 383.6 loads, 63.9 vectors read, 0 codes scored, flat 0.00 | 8.2 s
+    bench_filters_test.go:708: ours graph, random 1 %, ef 18: recall 0.9913 | 400.6 loads, 63.9 vectors read, 0 codes scored, flat 0.00 | 8.8 s
+    bench_filters_test.go:748: ours graph, random 1 % at recall 0.99: ef 18, recall 0.9913, 400.6 loads, 63.9 vectors read
+    bench_filters_test.go:708: ours flat, random 10 %, ef 10: recall 0.9981 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 2.3 s
+    bench_filters_test.go:708: ours flat, random 10 %, ef 20: recall 0.9981 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.3 s
+    bench_filters_test.go:708: ours flat, random 10 %, ef 40: recall 0.9981 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.2 s
+    bench_filters_test.go:708: ours flat, random 10 %, ef 80: recall 0.9981 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.2 s
+    bench_filters_test.go:708: ours flat, random 10 %, ef 160: recall 0.9981 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.2 s
+    bench_filters_test.go:708: ours flat, random 10 %, ef 320: recall 0.9981 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.2 s
+    bench_filters_test.go:708: ours flat, random 10 %, ef 640: recall 0.9987 | 0.0 loads, 640.0 vectors read, 99000 codes scored, flat 1.00 | 1.4 s
+    bench_filters_test.go:708: ours flat, random 10 %, ef 1024: recall 0.9996 | 0.0 loads, 1024.0 vectors read, 99000 codes scored, flat 1.00 | 1.8 s
+    bench_filters_test.go:748: ours flat, random 10 % at recall 0.95: ef 10, recall 0.9981, 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:748: ours flat, random 10 % at recall 0.99: ef 10, recall 0.9981, 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:708: ours flat, near 10 %, ef 10: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 3.9 s
+    bench_filters_test.go:708: ours flat, near 10 %, ef 20: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.2 s
+    bench_filters_test.go:708: ours flat, near 10 %, ef 40: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.3 s
+    bench_filters_test.go:708: ours flat, near 10 %, ef 80: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.3 s
+    bench_filters_test.go:708: ours flat, near 10 %, ef 160: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.9 s
+    bench_filters_test.go:708: ours flat, near 10 %, ef 320: recall 0.9951 | 0.0 loads, 507.0 vectors read, 99000 codes scored, flat 1.00 | 1.2 s
+    bench_filters_test.go:708: ours flat, near 10 %, ef 640: recall 0.9973 | 0.0 loads, 640.0 vectors read, 99000 codes scored, flat 1.00 | 1.6 s
+    bench_filters_test.go:708: ours flat, near 10 %, ef 1024: recall 0.9988 | 0.0 loads, 1024.0 vectors read, 99000 codes scored, flat 1.00 | 2.4 s
+    bench_filters_test.go:708: ours flat, near 10 %, ef 2048: recall 0.9999 | 0.0 loads, 2048.0 vectors read, 99000 codes scored, flat 1.00 | 3.4 s
+    bench_filters_test.go:748: ours flat, near 10 % at recall 0.95: ef 10, recall 0.9951, 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:748: ours flat, near 10 % at recall 0.99: ef 10, recall 0.9951, 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 10: recall 0.6694 | 0.0 loads, 10.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 20: recall 0.8631 | 0.0 loads, 20.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 40: recall 0.9534 | 0.0 loads, 40.0 vectors read, 0 codes scored, flat 0.00 | 0.4 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 80: recall 0.9902 | 0.0 loads, 80.0 vectors read, 0 codes scored, flat 0.00 | 0.6 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 160: recall 0.9990 | 0.0 loads, 160.0 vectors read, 0 codes scored, flat 0.00 | 1.0 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 30: recall 0.9245 | 0.0 loads, 30.0 vectors read, 0 codes scored, flat 0.00 | 0.1 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 35: recall 0.9422 | 0.0 loads, 35.0 vectors read, 0 codes scored, flat 0.00 | 0.1 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 37: recall 0.9465 | 0.0 loads, 37.0 vectors read, 0 codes scored, flat 0.00 | 0.1 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 38: recall 0.9492 | 0.0 loads, 38.0 vectors read, 0 codes scored, flat 0.00 | 0.1 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 39: recall 0.9515 | 0.0 loads, 39.0 vectors read, 0 codes scored, flat 0.00 | 0.1 s
+    bench_filters_test.go:748: hnsw acorn, near 0.1 % at recall 0.95: ef 39, recall 0.9515, 0.0 loads, 39.0 vectors read
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 60: recall 0.9804 | 0.0 loads, 60.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 70: recall 0.9866 | 0.0 loads, 70.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 75: recall 0.9887 | 0.0 loads, 75.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 77: recall 0.9890 | 0.0 loads, 77.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 78: recall 0.9898 | 0.0 loads, 78.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, near 0.1 %, ef 79: recall 0.9899 | 0.0 loads, 79.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:748: hnsw acorn, near 0.1 % at recall 0.99: ef 80, recall 0.9902, 0.0 loads, 80.0 vectors read
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 10: recall 0.4482 | 0.0 loads, 10.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 20: recall 0.6164 | 0.0 loads, 20.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 40: recall 0.7778 | 0.0 loads, 40.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 80: recall 0.9000 | 0.0 loads, 80.0 vectors read, 0 codes scored, flat 0.00 | 0.4 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 160: recall 0.9728 | 0.0 loads, 160.0 vectors read, 0 codes scored, flat 0.00 | 0.6 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 320: recall 0.9963 | 0.0 loads, 320.0 vectors read, 0 codes scored, flat 0.00 | 0.9 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 640: recall 0.9994 | 0.0 loads, 512.0 vectors read, 0 codes scored, flat 0.00 | 1.1 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 120: recall 0.9509 | 0.0 loads, 120.0 vectors read, 0 codes scored, flat 0.00 | 0.3 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 100: recall 0.9293 | 0.0 loads, 100.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 110: recall 0.9399 | 0.0 loads, 110.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 115: recall 0.9457 | 0.0 loads, 115.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 117: recall 0.9474 | 0.0 loads, 117.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 118: recall 0.9488 | 0.0 loads, 118.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 119: recall 0.9498 | 0.0 loads, 119.0 vectors read, 0 codes scored, flat 0.00 | 0.2 s
+    bench_filters_test.go:748: hnsw acorn, far 0.1 % at recall 0.95: ef 120, recall 0.9509, 0.0 loads, 120.0 vectors read
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 240: recall 0.9895 | 0.0 loads, 240.0 vectors read, 0 codes scored, flat 0.00 | 0.3 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 280: recall 0.9932 | 0.0 loads, 280.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 260: recall 0.9916 | 0.0 loads, 260.0 vectors read, 0 codes scored, flat 0.00 | 0.4 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 250: recall 0.9907 | 0.0 loads, 250.0 vectors read, 0 codes scored, flat 0.00 | 0.5 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 245: recall 0.9902 | 0.0 loads, 245.0 vectors read, 0 codes scored, flat 0.00 | 0.4 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 242: recall 0.9897 | 0.0 loads, 242.0 vectors read, 0 codes scored, flat 0.00 | 0.4 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 243: recall 0.9899 | 0.0 loads, 243.0 vectors read, 0 codes scored, flat 0.00 | 0.3 s
+    bench_filters_test.go:708: hnsw acorn, far 0.1 %, ef 244: recall 0.9901 | 0.0 loads, 244.0 vectors read, 0 codes scored, flat 0.00 | 0.4 s
+    bench_filters_test.go:748: hnsw acorn, far 0.1 % at recall 0.99: ef 244, recall 0.9901, 0.0 loads, 244.0 vectors read
+    bench_filters_test.go:764: the wait before the timed rounds: waiting from 03:48
+        -- power: Current System Capabilities are: CPU Graphics Audio Network  Current Power State: 4 
+        -- keyboard and trackpad idle for 26699 s
+        keyboard and trackpad idle for 26699 s
+        the machine is quiet at 04:01
+    bench_filters_test.go:898: round 1, ours graph, random 1 % (ef 10), 1 thread, warm: p50 24.077 ms, p95 67.115, p99 92.849 | 35 QPS | 258.5 loads, 63.6 vectors read
+    bench_filters_test.go:938: round 1, ours graph, random 1 % (ef 10), 1 thread, cold: p50 47.138 ms, p95 129.933, p99 178.416 | 50 batches of 10, halves at p50 45.716 and 48.373 ms | 262.7 loads, 63.6 vectors read
+    bench_filters_test.go:898: round 1, ours flat, random 10 % (ef 10), 1 thread, warm: p50 5.819 ms, p95 6.071, p99 6.279 | 171 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:938: round 1, ours flat, random 10 % (ef 10), 1 thread, cold: p50 13.782 ms, p95 14.494, p99 15.579 | 50 batches of 10, halves at p50 13.809 and 13.747 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:898: round 1, ours flat, near 10 % (ef 10), 1 thread, warm: p50 5.762 ms, p95 6.005, p99 6.239 | 172 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:938: round 1, ours flat, near 10 % (ef 10), 1 thread, cold: p50 13.394 ms, p95 14.298, p99 14.770 | 50 batches of 10, halves at p50 13.375 and 13.394 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:898: round 1, hnsw acorn, near 0.1 % (ef 39), 1 thread, warm: p50 0.599 ms, p95 0.659, p99 0.692 | 1664 QPS | 0.0 loads, 39.0 vectors read
+    bench_filters_test.go:938: round 1, hnsw acorn, near 0.1 % (ef 39), 1 thread, cold: p50 1.516 ms, p95 4.106, p99 5.141 | 50 batches of 10, halves at p50 1.544 and 1.500 ms | 0.0 loads, 39.0 vectors read
+    bench_filters_test.go:898: round 1, hnsw acorn, far 0.1 % (ef 120), 1 thread, warm: p50 0.736 ms, p95 0.829, p99 0.882 | 1353 QPS | 0.0 loads, 120.0 vectors read
+    bench_filters_test.go:938: round 1, hnsw acorn, far 0.1 % (ef 120), 1 thread, cold: p50 2.887 ms, p95 5.688, p99 6.118 | 50 batches of 10, halves at p50 2.866 and 2.912 ms | 0.0 loads, 120.0 vectors read
+    bench_filters_test.go:898: round 2, ours graph, random 1 % (ef 10), 1 thread, warm: p50 23.785 ms, p95 68.229, p99 92.597 | 36 QPS | 258.5 loads, 63.6 vectors read
+    bench_filters_test.go:938: round 2, ours graph, random 1 % (ef 10), 1 thread, cold: p50 47.370 ms, p95 135.503, p99 184.250 | 50 batches of 10, halves at p50 45.040 and 49.034 ms | 262.7 loads, 63.6 vectors read
+    bench_filters_test.go:898: round 2, ours flat, random 10 % (ef 10), 1 thread, warm: p50 5.801 ms, p95 6.034, p99 6.322 | 171 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:938: round 2, ours flat, random 10 % (ef 10), 1 thread, cold: p50 13.775 ms, p95 14.477, p99 15.696 | 50 batches of 10, halves at p50 13.782 and 13.759 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:898: round 2, ours flat, near 10 % (ef 10), 1 thread, warm: p50 5.811 ms, p95 6.066, p99 6.323 | 171 QPS | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:938: round 2, ours flat, near 10 % (ef 10), 1 thread, cold: p50 13.371 ms, p95 14.305, p99 14.704 | 50 batches of 10, halves at p50 13.364 and 13.371 ms | 0.0 loads, 507.0 vectors read
+    bench_filters_test.go:898: round 2, hnsw acorn, near 0.1 % (ef 39), 1 thread, warm: p50 0.595 ms, p95 0.719, p99 1.663 | 1582 QPS | 0.0 loads, 39.0 vectors read
+    bench_filters_test.go:938: round 2, hnsw acorn, near 0.1 % (ef 39), 1 thread, cold: p50 1.381 ms, p95 2.896, p99 3.381 | 50 batches of 10, halves at p50 1.390 and 1.371 ms | 0.0 loads, 39.0 vectors read
+    bench_filters_test.go:898: round 2, hnsw acorn, far 0.1 % (ef 120), 1 thread, warm: p50 0.735 ms, p95 0.825, p99 0.873 | 1352 QPS | 0.0 loads, 120.0 vectors read
+    bench_filters_test.go:938: round 2, hnsw acorn, far 0.1 % (ef 120), 1 thread, cold: p50 2.350 ms, p95 4.347, p99 5.503 | 50 batches of 10, halves at p50 2.360 and 2.348 ms | 0.0 loads, 120.0 vectors read
+--- PASS: TestIntegrationFilters (2994.41s)
+PASS
