@@ -53,6 +53,7 @@ func TestReindexInFlightError(t *testing.T) {
 	require.Contains(t, err.Error(), `status="indexing"`)
 	require.Contains(t, err.Error(), "accepted while the task is STARTED or PREPARING")
 	require.Contains(t, err.Error(), "409")
+	require.Contains(t, err.Error(), "refuses for about a second, so retry")
 }
 
 // A halt for a backup or a replica move refuses while a task this node applied

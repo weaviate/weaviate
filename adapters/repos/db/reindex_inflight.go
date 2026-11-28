@@ -35,7 +35,7 @@ func (s *Shard) refuseIfReindexRunsHere() error {
 // reindexInFlightError states the cancel remedy with its condition, since the check does not branch on status.
 func reindexInFlightError(scope string) error {
 	return fmt.Errorf(
-		"%w: %s has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"pending\" and status=\"indexing\". A cancel via POST /v1/schema/<class>/properties/<prop>/index/<indexType>/cancel is accepted while the task is STARTED or PREPARING: it is refused with 409 once the task is SWAPPING, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it",
+		"%w: %s has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"pending\" and status=\"indexing\". A cancel via POST /v1/schema/<class>/properties/<prop>/index/<indexType>/cancel is accepted while the task is STARTED or PREPARING: it is refused with 409 once the task is SWAPPING, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it. Right after the task ends, a node that has not applied the end yet refuses for about a second, so retry",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, scope,
 	)
 }

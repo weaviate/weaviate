@@ -182,11 +182,17 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	// Backup must succeed. canCommit refuses while any in-flight tracker
 	// is present, so a green backup here proves the inflight registration
 	// was cleared on every node.
-	// A halt is refused while the cancelled run's scan winds down, so the backup retries that refusal only.
+	// A halt is refused while the cancelled run's scan winds down, and a node
+	// that has not applied the cancel yet refuses for about a second, so the
+	// backup retries those two refusals only.
 	var backupErr error
-	for attempt, deadline := 0, time.Now().Add(2*time.Minute); time.Now().Before(deadline); attempt++ {
+	scanDeadline, lagDeadline := time.Now().Add(2*time.Minute), time.Now().Add(10*time.Second)
+	for attempt := 0; ; attempt++ {
 		backupErr = createS3Backup(t, uri, className, fmt.Sprintf("cancel-clears-backup-%d", attempt), backupBucket)
-		if backupErr == nil || !strings.Contains(backupErr.Error(), "a reindex build is scanning") {
+		scanning := backupErr != nil && strings.Contains(backupErr.Error(), "a reindex build is scanning")
+		lagging := backupErr != nil && strings.Contains(backupErr.Error(), "has not applied the end yet")
+		retry := scanning && time.Now().Before(scanDeadline) || lagging && time.Now().Before(lagDeadline)
+		if !retry {
 			break
 		}
 		time.Sleep(time.Second)
