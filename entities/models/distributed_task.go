@@ -54,6 +54,9 @@ type DistributedTask struct {
 	// The status of the task.
 	Status string `json:"status,omitempty"`
 
+	// unit summary
+	UnitSummary *DistributedTaskUnitSummary `json:"unitSummary,omitempty"`
+
 	// Units of the task. Only present for tasks that use unit tracking.
 	Units []*DistributedTaskUnit `json:"units,omitempty"`
 
@@ -70,6 +73,10 @@ func (m *DistributedTask) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStartedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUnitSummary(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -107,6 +114,25 @@ func (m *DistributedTask) validateStartedAt(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *DistributedTask) validateUnitSummary(formats strfmt.Registry) error {
+	if swag.IsZero(m.UnitSummary) { // not required
+		return nil
+	}
+
+	if m.UnitSummary != nil {
+		if err := m.UnitSummary.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("unitSummary")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("unitSummary")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *DistributedTask) validateUnits(formats strfmt.Registry) error {
 	if swag.IsZero(m.Units) { // not required
 		return nil
@@ -137,6 +163,10 @@ func (m *DistributedTask) validateUnits(formats strfmt.Registry) error {
 func (m *DistributedTask) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateUnitSummary(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateUnits(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -144,6 +174,22 @@ func (m *DistributedTask) ContextValidate(ctx context.Context, formats strfmt.Re
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *DistributedTask) contextValidateUnitSummary(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.UnitSummary != nil {
+		if err := m.UnitSummary.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("unitSummary")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("unitSummary")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

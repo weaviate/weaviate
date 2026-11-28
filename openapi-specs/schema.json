@@ -2862,6 +2862,34 @@
           "items": {
             "$ref": "#/definitions/DistributedTaskUnit"
           }
+        },
+        "unitSummary": {
+          "$ref": "#/definitions/DistributedTaskUnitSummary"
+        }
+      }
+    },
+    "DistributedTaskUnitSummary": {
+      "description": "What an ended task's units reached, listed in place of the units once the task is compacted. A caller without read permission on the collection's tenants sees the counts but not the errors.",
+      "type": "object",
+      "properties": {
+        "groups": {
+          "description": "The number of unit groups (tenants) the task had.",
+          "type": "integer"
+        },
+        "counts": {
+          "description": "The number of units per unit status.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "errors": {
+          "description": "The errors of the first 20 failed units.",
+          "type": "array",
+          "x-omitempty": true,
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

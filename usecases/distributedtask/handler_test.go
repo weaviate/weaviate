@@ -172,6 +172,9 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			Units: map[string]*distributedtask.Unit{
 				"tenant1__node1": {ID: "tenant1__node1", Error: failed},
 			},
+			Summary: &distributedtask.UnitSummary{
+				Groups: 1, Counts: map[distributedtask.UnitStatus]int{distributedtask.UnitStatusFailed: 1}, Errors: []string{failed},
+			},
 		}
 	}
 	fullPayload := func(collection string) map[string]interface{} {
@@ -197,8 +200,8 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 	}
 
 	type visibleTask struct {
-		payload                  map[string]interface{}
-		unitID, taskErr, unitErr string
+		payload                              map[string]interface{}
+		unitID, taskErr, unitErr, summaryErr string
 	}
 	tests := []struct {
 		name        string
@@ -210,15 +213,15 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			name:        "read on collection A only hides B's tasks",
 			collections: []string{"A", "B"},
 			permissions: []*models.Permission{readCollection("A"), readTenants("A")},
-			want:        map[string]visibleTask{"A": {fullPayload("A"), "tenant1__node1", failed, failed}},
+			want:        map[string]visibleTask{"A": {fullPayload("A"), "tenant1__node1", failed, failed, failed}},
 		},
 		{
 			name:        "collection read without tenant read redacts tenant and shard names",
 			collections: []string{"A", "B"},
 			permissions: []*models.Permission{readCollection("A"), readCollection("B")},
 			want: map[string]visibleTask{
-				"A": {redactedPayload("A"), "", redactedError, redactedError},
-				"B": {redactedPayload("B"), "", redactedError, redactedError},
+				"A": {redactedPayload("A"), "", redactedError, redactedError, redactedError},
+				"B": {redactedPayload("B"), "", redactedError, redactedError, redactedError},
 			},
 		},
 		{
@@ -257,12 +260,20 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 
 			got := map[string]visibleTask{}
 			for _, task := range tasks[boundNamespace] {
-				got[task.ID] = visibleTask{task.Payload.(map[string]interface{}), task.Units[0].ID, task.Error, task.Units[0].Error}
+				require.Equal(t, map[string]int64{"FAILED": 1}, task.UnitSummary.Counts, "every caller sees the counts")
+				got[task.ID] = visibleTask{
+					task.Payload.(map[string]interface{}), task.Units[0].ID, task.Error, task.Units[0].Error, task.UnitSummary.Errors[0],
+				}
+				if got[task.ID].unitID == "" {
+					rendered, err := json.Marshal(task)
+					require.NoError(t, err)
+					require.NotContains(t, string(rendered), "tenant1", "a redacted task names no tenant")
+				}
 			}
 			require.Equal(t, tt.want, got)
 			noCollection := tasks[noCollectionNamespace][0]
-			require.Equal(t, visibleTask{map[string]interface{}{}, "", "", ""},
-				visibleTask{noCollection.Payload.(map[string]interface{}), noCollection.Units[0].ID, noCollection.Error, noCollection.Units[0].Error},
+			require.Equal(t, visibleTask{map[string]interface{}{}, "", "", "", ""},
+				visibleTask{noCollection.Payload.(map[string]interface{}), noCollection.Units[0].ID, noCollection.Error, noCollection.Units[0].Error, ""},
 				"a payload with no header shows no fields, and a healthy task must not read as failed")
 			require.Len(t, tasks[unboundNamespace], 1, "a task bound to no collection stays visible to cluster readers")
 			require.Equal(t, map[string]interface{}{"targets": []interface{}{"t"}}, tasks[unboundNamespace][0].Payload)

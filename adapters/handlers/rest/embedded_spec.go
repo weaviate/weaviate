@@ -9262,6 +9262,9 @@ func init() {
           "description": "The status of the task.",
           "type": "string"
         },
+        "unitSummary": {
+          "$ref": "#/definitions/DistributedTaskUnitSummary"
+        },
         "units": {
           "description": "Units of the task. Only present for tasks that use unit tracking.",
           "type": "array",
@@ -9313,6 +9316,31 @@ func init() {
           "type": "string",
           "format": "date-time",
           "x-nullable": true
+        }
+      }
+    },
+    "DistributedTaskUnitSummary": {
+      "description": "What an ended task's units reached, listed in place of the units once the task is compacted. A caller without read permission on the collection's tenants sees the counts but not the errors.",
+      "type": "object",
+      "properties": {
+        "counts": {
+          "description": "The number of units per unit status.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "errors": {
+          "description": "The errors of the first 20 failed units.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "groups": {
+          "description": "The number of unit groups (tenants) the task had.",
+          "type": "integer"
         }
       }
     },
@@ -22203,6 +22231,9 @@ func init() {
           "description": "The status of the task.",
           "type": "string"
         },
+        "unitSummary": {
+          "$ref": "#/definitions/DistributedTaskUnitSummary"
+        },
         "units": {
           "description": "Units of the task. Only present for tasks that use unit tracking.",
           "type": "array",
@@ -22254,6 +22285,31 @@ func init() {
           "type": "string",
           "format": "date-time",
           "x-nullable": true
+        }
+      }
+    },
+    "DistributedTaskUnitSummary": {
+      "description": "What an ended task's units reached, listed in place of the units once the task is compacted. A caller without read permission on the collection's tenants sees the counts but not the errors.",
+      "type": "object",
+      "properties": {
+        "counts": {
+          "description": "The number of units per unit status.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "errors": {
+          "description": "The errors of the first 20 failed units.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "groups": {
+          "description": "The number of unit groups (tenants) the task had.",
+          "type": "integer"
         }
       }
     },
